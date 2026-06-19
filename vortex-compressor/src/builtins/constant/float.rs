@@ -48,17 +48,17 @@ impl Scheme for FloatConstantScheme {
 
         // Note that we only compute distinct counts if other schemes have requested it.
         if let Some(distinct_count) = stats.distinct_count() {
-            return if distinct_count > 1 {
-                CompressionEstimate::Verdict(EstimateVerdict::Skip)
+            if distinct_count > 1 {
+                return CompressionEstimate::Verdict(EstimateVerdict::Skip);
             } else {
                 debug_assert_eq!(distinct_count, 1);
-                CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
-            };
+                return CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse);
+            }
         }
 
         // We want to use `Constant` if there are only nulls in the array.
         if stats.value_count() == 0 {
-            debug_assert_eq!(stats.null_count(), array_len);
+            debug_assert_eq!(stats.null_count() as usize, array_len);
             return CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse);
         }
 

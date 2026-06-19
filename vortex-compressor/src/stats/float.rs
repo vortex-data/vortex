@@ -4,10 +4,10 @@
 //! Float compression statistics.
 
 use std::hash::Hash;
-use std::marker::PhantomData;
 
 use itertools::Itertools;
 use num_traits::Float;
+use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
@@ -19,21 +19,24 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use super::GenerateStatsOptions;
-use super::cardinality::CardinalityEstimator;
-use super::cardinality::estimate_could_be_at_most;
 
 /// Information about the distinct values in a float array.
-///
-/// The distinct count is an estimate produced by Cloudflare's cardinality estimator, which is
-/// exact for small cardinalities and approximate beyond that.
 #[derive(Debug, Clone)]
 pub struct DistinctInfo<T> {
-    /// The estimated count of unique values. This _must_ be non-zero.
-    distinct_count: usize,
-    /// Phantom marker for the float element type.
-    _marker: PhantomData<T>,
+    /// The set of distinct float values.
+    distinct_values: HashSet<NativeValue<T>, FxBuildHasher>,
+    /// The count of unique values. This _must_ be non-zero.
+    distinct_count: u32,
+}
+
+impl<T> DistinctInfo<T> {
+    /// Returns a reference to the distinct values set.
+    pub fn distinct_values(&self) -> &HashSet<NativeValue<T>, FxBuildHasher> {
+        &self.distinct_values
+    }
 }
 
 /// Typed statistics for a specific float type.
@@ -63,7 +66,7 @@ pub enum ErasedStats {
 
 impl ErasedStats {
     /// Get the count of distinct values, if we have computed it already.
-    fn distinct_count(&self) -> Option<usize> {
+    fn distinct_count(&self) -> Option<u32> {
         match self {
             ErasedStats::F16(x) => x.distinct.as_ref().map(|d| d.distinct_count),
             ErasedStats::F32(x) => x.distinct.as_ref().map(|d| d.distinct_count),
@@ -91,11 +94,11 @@ impl_from_typed!(f64, ErasedStats::F64);
 #[derive(Debug, Clone)]
 pub struct FloatStats {
     /// Cache for `validity.false_count()`.
-    null_count: usize,
+    null_count: u32,
     /// Cache for `validity.true_count()`.
-    value_count: usize,
+    value_count: u32,
     /// The average run length.
-    average_run_length: usize,
+    average_run_length: u32,
     /// Type-erased typed statistics.
     erased: ErasedStats,
 }
@@ -116,17 +119,8 @@ impl FloatStats {
     }
 
     /// Get the count of distinct values, if we have computed it already.
-    pub fn distinct_count(&self) -> Option<usize> {
+    pub fn distinct_count(&self) -> Option<u32> {
         self.erased.distinct_count()
-    }
-
-    /// Returns true if the true distinct count could plausibly be at most `count`.
-    pub fn estimated_distinct_count_could_be_at_most(&self, count: usize) -> bool {
-        let Some(distinct_count) = self.distinct_count() else {
-            return true;
-        };
-
-        estimate_could_be_at_most(distinct_count, count)
     }
 }
 
@@ -147,17 +141,17 @@ impl FloatStats {
     }
 
     /// Returns the number of null values.
-    pub fn null_count(&self) -> usize {
+    pub fn null_count(&self) -> u32 {
         self.null_count
     }
 
     /// Returns the number of non-null values.
-    pub fn value_count(&self) -> usize {
+    pub fn value_count(&self) -> u32 {
         self.value_count
     }
 
     /// Returns the average run length.
-    pub fn average_run_length(&self) -> usize {
+    pub fn average_run_length(&self) -> u32 {
         self.average_run_length
     }
 
@@ -189,13 +183,13 @@ where
 
     if array.all_invalid(ctx)? {
         return Ok(FloatStats {
-            null_count: array.len(),
+            null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
             erased: TypedStats {
                 distinct: Some(DistinctInfo {
+                    distinct_values: HashSet::with_capacity_and_hasher(0, FxBuildHasher),
                     distinct_count: 0,
-                    _marker: PhantomData,
                 }),
             }
             .into(),
@@ -208,9 +202,13 @@ where
         .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
     let value_count = array.len() - null_count;
 
-    // Cloudflare's cardinality estimator gives us a bounded-memory approximation of the
-    // number of distinct values, replacing the previous exact `HashSet`.
-    let mut estimator: CardinalityEstimator<NativeValue<T>> = CardinalityEstimator::new();
+    // Keep a HashMap of T, then convert the keys into PValue afterward since value is
+    // so much more efficient to hash and search for.
+    let mut distinct_values = if count_distinct_values {
+        HashSet::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
+    } else {
+        HashSet::with_hasher(FxBuildHasher)
+    };
 
     let validity = array
         .as_ref()
@@ -229,7 +227,7 @@ where
         AllOr::All => {
             for value in first_valid_buff {
                 if count_distinct_values {
-                    estimator.insert(&NativeValue(value));
+                    distinct_values.insert(NativeValue(value));
                 }
 
                 if value != prev {
@@ -246,7 +244,7 @@ where
             {
                 if valid {
                     if count_distinct_values {
-                        estimator.insert(&NativeValue(value));
+                        distinct_values.insert(NativeValue(value));
                     }
 
                     if value != prev {
@@ -258,9 +256,13 @@ where
         }
     }
 
+    let null_count = u32::try_from(null_count)?;
+    let value_count = u32::try_from(value_count)?;
+
     let distinct = count_distinct_values.then(|| DistinctInfo {
-        distinct_count: estimator.estimate().max(1),
-        _marker: PhantomData,
+        distinct_count: u32::try_from(distinct_values.len())
+            .vortex_expect("more than u32::MAX distinct values"),
+        distinct_values,
     });
 
     Ok(FloatStats {
@@ -273,27 +275,21 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
-
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use super::FloatStats;
     use crate::stats::GenerateStatsOptions;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
-
     #[test]
     fn test_float_stats() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
         let floats = floats.execute::<PrimitiveArray>(&mut ctx)?;
 
@@ -314,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_float_stats_leading_nulls() {
-        let mut ctx = SESSION.create_execution_ctx();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let floats = PrimitiveArray::new(
             buffer![0.0f32, 1.0f32, 2.0f32],
             Validity::from_iter([false, true, true]),

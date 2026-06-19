@@ -48,13 +48,12 @@ impl Scheme for StringConstantScheme {
 
         // We want to use `Constant` if there are only nulls in the array.
         if stats.value_count() == 0 {
-            debug_assert_eq!(stats.null_count(), array_len);
+            debug_assert_eq!(stats.null_count() as usize, array_len);
             return CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse);
         }
 
-        // The estimator is exact for small cardinalities, so a constant array (exactly one
-        // distinct value) is always reported as 1. An estimate above 1 therefore means the array
-        // is genuinely not constant; an estimate of 1 still falls through to the exact check below.
+        // Since the estimated distinct count is always going to be less than or equal to the actual
+        // distinct count, if this is not equal to 1 the actual is definitely not equal to 1.
         if stats.estimated_distinct_count().is_some_and(|c| c > 1) {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }

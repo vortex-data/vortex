@@ -26,15 +26,6 @@ vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-utils = { workspace = true }
 
-# Cloudflare's `cardinality-estimator` uses a tagged-pointer representation gated on a 64-bit
-# pointer width, so it cannot compile on 32-bit targets. On those platforms we fall back to the
-# pure `hyperloglogplus` crate; the two backends are unified by the wrapper in `stats::cardinality`.
-[target.'cfg(target_pointer_width = "64")'.dependencies]
-cardinality-estimator = { workspace = true }
-
-[target.'cfg(not(target_pointer_width = "64"))'.dependencies]
-hyperloglogplus = { workspace = true }
-
 [dev-dependencies]
 divan = { workspace = true }
 rstest = { workspace = true }

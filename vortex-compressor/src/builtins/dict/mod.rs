@@ -10,5 +10,7 @@ mod string;
 
 pub use binary::BinaryDictScheme;
 pub use float::FloatDictScheme;
+pub use float::dictionary_encode as float_dictionary_encode;
 pub use integer::IntDictScheme;
+pub use integer::dictionary_encode as integer_dictionary_encode;
 pub use string::StringDictScheme;

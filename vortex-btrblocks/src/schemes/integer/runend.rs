@@ -23,13 +23,15 @@ use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
 
 use super::IntRLEScheme;
-use super::RUN_THRESHOLD;
 use super::SparseScheme;
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
+
+/// Threshold for the average run length in an array before we consider run-end encoding.
+const RUN_END_THRESHOLD: u32 = 4;
 
 /// Run-end encoding with end positions.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -102,7 +104,7 @@ impl Scheme for RunEndScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> CompressionEstimate {
         // If the run length is below the threshold, drop it.
-        if data.integer_stats(exec_ctx).average_run_length() < RUN_THRESHOLD {
+        if data.integer_stats(exec_ctx).average_run_length() < RUN_END_THRESHOLD {
             return CompressionEstimate::Verdict(EstimateVerdict::Skip);
         }
 

@@ -24,8 +24,6 @@ use vortex_error::VortexResult;
 use crate::Sequence;
 use crate::SequenceArray;
 use crate::SequenceData;
-use crate::SequenceDataParts;
-
 /// An iterator that yields `base, base + step, base + 2*step, ...` via repeated addition.
 struct SequenceIter<T> {
     acc: T,
@@ -93,22 +91,6 @@ pub fn sequence_encode(
     primitive_array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let nullability = primitive_array.dtype().nullability();
-    let len = primitive_array.len();
-    let Some(parts) = sequence_parts(primitive_array, ctx)? else {
-        return Ok(None);
-    };
-
-    Sequence::try_new(parts.base, parts.multiplier, parts.ptype, nullability, len)
-        .map(|a| Some(a.into_array()))
-}
-
-/// Returns the sequence base and multiplier if a primitive array can be represented exactly as a
-/// [`SequenceArray`].
-pub fn sequence_parts(
-    primitive_array: ArrayView<'_, Primitive>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<SequenceDataParts>> {
     if primitive_array.is_empty() {
         // we cannot encode an empty array
         return Ok(None);
@@ -124,22 +106,22 @@ pub fn sequence_parts(
     }
 
     match_each_integer_ptype!(primitive_array.ptype(), |P| {
-        sequence_parts_typed(primitive_array.as_slice::<P>())
+        encode_primitive_array(
+            primitive_array.as_slice::<P>(),
+            primitive_array.dtype().nullability(),
+        )
     })
 }
 
-fn sequence_parts_typed<P: NativePType + Into<PValue> + CheckedAdd + CheckedSub>(
+fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSub>(
     slice: &[P],
-) -> VortexResult<Option<SequenceDataParts>> {
+    nullability: Nullability,
+) -> VortexResult<Option<ArrayRef>> {
     if slice.len() == 1 {
         // The multiplier here can be any value, zero is chosen
-        return Ok(Some(SequenceDataParts {
-            base: slice[0].into(),
-            multiplier: P::zero().into(),
-            ptype: P::PTYPE,
-        }));
+        return Sequence::try_new_typed(slice[0], P::zero(), nullability, 1)
+            .map(|a| Some(a.into_array()));
     }
-
     let base = slice[0];
     let Some(multiplier) = slice[1].checked_sub(&base) else {
         return Ok(None);
@@ -154,18 +136,14 @@ fn sequence_parts_typed<P: NativePType + Into<PValue> + CheckedAdd + CheckedSub>
         return Ok(None);
     }
 
-    if !slice
+    slice
         .windows(2)
         .all(|w| Some(w[1]) == w[0].checked_add(&multiplier))
-    {
-        return Ok(None);
-    }
-
-    Ok(Some(SequenceDataParts {
-        base: base.into(),
-        multiplier: multiplier.into(),
-        ptype: P::PTYPE,
-    }))
+        .then_some(
+            Sequence::try_new_typed(base, multiplier, nullability, slice.len())
+                .map(|a| a.into_array()),
+        )
+        .transpose()
 }
 
 #[cfg(test)]

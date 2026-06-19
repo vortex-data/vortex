@@ -5,7 +5,6 @@
 
 mod bool;
 mod cache;
-mod cardinality;
 mod float;
 mod integer;
 mod options;

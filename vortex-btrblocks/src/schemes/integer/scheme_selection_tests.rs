@@ -21,7 +21,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
-use vortex_fastlanes::Delta;
 use vortex_fastlanes::FoR;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
@@ -134,22 +133,6 @@ fn test_sequence_compressed() -> VortexResult<()> {
     let btr = BtrBlocksCompressor::default();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Sequence>());
-    Ok(())
-}
-
-#[test]
-fn test_range_sequence_compressed() -> VortexResult<()> {
-    let array = PrimitiveArray::new(
-        (0..10_000u32).collect::<Buffer<u32>>(),
-        Validity::NonNullable,
-    );
-    let btr = BtrBlocksCompressor::default();
-    let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
-    assert!(
-        compressed.is::<Sequence>() || compressed.is::<Delta>(),
-        "expected Sequence or Delta, got {}",
-        compressed.encoding_id()
-    );
     Ok(())
 }
 

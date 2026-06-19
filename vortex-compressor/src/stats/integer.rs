@@ -6,6 +6,7 @@
 use std::hash::Hash;
 
 use num_traits::PrimInt;
+use rustc_hash::FxBuildHasher;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
@@ -19,28 +20,28 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use super::GenerateStatsOptions;
-use super::cardinality::CardinalityEstimator;
-use super::cardinality::distinct_count_error_bound;
-use super::cardinality::estimate_could_be_at_most;
 
 /// Information about the distinct values in an integer array.
-///
-/// The `distinct_count` is an estimate computed using Cloudflare's cardinality estimator, which
-/// yields exact counts for small cardinalities (<= 128 for the default parameters) and a
-/// HyperLogLog++ approximation for larger cardinalities. The most frequent value is tracked using
-/// the Boyer-Moore majority candidate algorithm, so `most_frequent_value` and `top_frequency` are
-/// only guaranteed to reflect the true majority element when some value accounts for more than
-/// half of the non-null entries; otherwise they are treated as a best-effort estimate.
 #[derive(Debug, Clone)]
 pub struct DistinctInfo<T> {
-    /// The estimated count of unique values. This _must_ be non-zero.
-    distinct_count: usize,
-    /// The most frequent value (Boyer-Moore majority candidate).
+    /// The unique values and their occurrences.
+    distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
+    /// The count of unique values. This _must_ be non-zero.
+    distinct_count: u32,
+    /// The most frequent value.
     most_frequent_value: T,
-    /// The exact number of times `most_frequent_value` occurs in the array.
-    top_frequency: usize,
+    /// The number of times the most frequent value occurs.
+    top_frequency: u32,
+}
+
+impl<T> DistinctInfo<T> {
+    /// Returns a reference to the distinct values map.
+    pub fn distinct_values(&self) -> &HashMap<NativeValue<T>, u32, FxBuildHasher> {
+        &self.distinct_values
+    }
 }
 
 /// Typed statistics for a specific integer type.
@@ -63,12 +64,12 @@ impl<T> TypedStats<T> {
 
 impl<T> TypedStats<T> {
     /// Get the count of distinct values, if we have computed it already.
-    fn distinct_count(&self) -> Option<usize> {
+    fn distinct_count(&self) -> Option<u32> {
         Some(self.distinct.as_ref()?.distinct_count)
     }
 
     /// Get the most commonly occurring value and its count, if we have computed it already.
-    fn most_frequent_value_and_count(&self) -> Option<(&T, usize)> {
+    fn most_frequent_value_and_count(&self) -> Option<(&T, u32)> {
         let distinct = self.distinct.as_ref()?;
         Some((&distinct.most_frequent_value, distinct.top_frequency))
     }
@@ -165,7 +166,7 @@ impl ErasedStats {
     }
 
     /// Get the count of distinct values, if we have computed it already.
-    pub fn distinct_count(&self) -> Option<usize> {
+    pub fn distinct_count(&self) -> Option<u32> {
         match &self {
             ErasedStats::U8(x) => x.distinct_count(),
             ErasedStats::U16(x) => x.distinct_count(),
@@ -179,7 +180,7 @@ impl ErasedStats {
     }
 
     /// Get the most commonly occurring value and its count.
-    pub fn most_frequent_value_and_count(&self) -> Option<(PValue, usize)> {
+    pub fn most_frequent_value_and_count(&self) -> Option<(PValue, u32)> {
         match &self {
             ErasedStats::U8(x) => {
                 let (top_value, count) = x.most_frequent_value_and_count()?;
@@ -241,11 +242,11 @@ impl_from_typed!(i64, ErasedStats::I64);
 #[derive(Clone, Debug)]
 pub struct IntegerStats {
     /// Cache for `validity.false_count()`.
-    null_count: usize,
+    null_count: u32,
     /// Cache for `validity.true_count()`.
-    value_count: usize,
+    value_count: u32,
     /// The average run length.
-    average_run_length: usize,
+    average_run_length: u32,
     /// Type-erased typed statistics.
     erased: ErasedStats,
 }
@@ -263,42 +264,12 @@ impl IntegerStats {
     }
 
     /// Get the count of distinct values, if we have computed it already.
-    pub fn distinct_count(&self) -> Option<usize> {
+    pub fn distinct_count(&self) -> Option<u32> {
         self.erased.distinct_count()
     }
 
-    /// Returns true if the true distinct count could plausibly equal `count`.
-    ///
-    /// Callers pass an upper bound on the true distinct count (the array length), so an estimate
-    /// at or above `count` is pure estimator overshoot and cannot rule out "every value is
-    /// distinct" — we accept it. Below `count` we only rule it out when the estimate falls short by
-    /// more than the estimator's expected error, so estimator noise does not cause us to skip
-    /// genuinely all-distinct arrays such as arithmetic sequences.
-    pub fn estimated_distinct_count_could_equal(&self, count: usize) -> bool {
-        let Some(distinct_count) = self.distinct_count() else {
-            return true;
-        };
-
-        // The true distinct count never exceeds `count`, so an over-estimate reflects estimator
-        // noise and remains consistent with all values being distinct.
-        if distinct_count >= count {
-            return true;
-        }
-
-        count - distinct_count <= distinct_count_error_bound(count)
-    }
-
-    /// Returns true if the true distinct count could plausibly be at most `count`.
-    pub fn estimated_distinct_count_could_be_at_most(&self, count: usize) -> bool {
-        let Some(distinct_count) = self.distinct_count() else {
-            return true;
-        };
-
-        estimate_could_be_at_most(distinct_count, count)
-    }
-
     /// Get the most commonly occurring value and its count, if we have computed it already.
-    pub fn most_frequent_value_and_count(&self) -> Option<(PValue, usize)> {
+    pub fn most_frequent_value_and_count(&self) -> Option<(PValue, u32)> {
         self.erased.most_frequent_value_and_count()
     }
 }
@@ -320,17 +291,17 @@ impl IntegerStats {
     }
 
     /// Returns the number of null values.
-    pub fn null_count(&self) -> usize {
+    pub fn null_count(&self) -> u32 {
         self.null_count
     }
 
     /// Returns the number of non-null values.
-    pub fn value_count(&self) -> usize {
+    pub fn value_count(&self) -> u32 {
         self.value_count
     }
 
     /// Returns the average run length.
-    pub fn average_run_length(&self) -> usize {
+    pub fn average_run_length(&self) -> u32 {
         self.average_run_length
     }
 
@@ -368,13 +339,14 @@ where
 
     if array.all_invalid(ctx)? {
         return Ok(IntegerStats {
-            null_count: array.len(),
+            null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
             erased: TypedStats {
                 min: T::max_value(),
                 max: T::min_value(),
                 distinct: Some(DistinctInfo {
+                    distinct_values: HashMap::with_capacity_and_hasher(0, FxBuildHasher),
                     distinct_count: 0,
                     most_frequent_value: T::zero(),
                     top_frequency: 0,
@@ -398,10 +370,12 @@ where
     let buffer = array.to_buffer::<T>();
     let head = buffer[head_idx];
 
-    let mut loop_state = LoopState::<T> {
-        estimator: CardinalityEstimator::new(),
-        bm_candidate: head,
-        bm_votes: 0,
+    let mut loop_state = LoopState {
+        distinct_values: if count_distinct_values {
+            HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
+        } else {
+            HashMap::with_hasher(FxBuildHasher)
+        },
         prev: head,
         runs: 1,
     };
@@ -476,27 +450,25 @@ where
         .vortex_expect("max should be computed");
 
     let distinct = count_distinct_values.then(|| {
-        // The cardinality estimator is exact for small cardinalities and approximate beyond.
-        // We clamp to at least 1 because we are inside the non-empty/non-all-null branch.
-        let distinct_count = loop_state.estimator.estimate().max(1);
-
-        // Count the Boyer-Moore majority candidate exactly via a second pass. If any value
-        // accounts for more than half of the non-null entries, this counts that value; otherwise
-        // the returned count is a best-effort estimate for whichever candidate survived.
-        let top_frequency = count_occurrences::<T>(
-            buffer.as_slice(),
-            validity.bit_buffer(),
-            loop_state.bm_candidate,
-        );
+        let (&top_value, &top_count) = loop_state
+            .distinct_values
+            .iter()
+            .max_by_key(|&(_, &count)| count)
+            .vortex_expect("we know this is non-empty");
 
         DistinctInfo {
-            distinct_count,
-            most_frequent_value: loop_state.bm_candidate,
-            top_frequency,
+            distinct_count: u32::try_from(loop_state.distinct_values.len())
+                .vortex_expect("there are more than `u32::MAX` distinct values"),
+            most_frequent_value: top_value.0,
+            top_frequency: top_count,
+            distinct_values: loop_state.distinct_values,
         }
     });
 
     let typed = TypedStats { min, max, distinct };
+
+    let null_count = u32::try_from(null_count)?;
+    let value_count = u32::try_from(value_count)?;
 
     Ok(IntegerStats {
         null_count,
@@ -507,57 +479,13 @@ where
 }
 
 /// Internal loop state for integer stats computation.
-struct LoopState<T>
-where
-    T: IntegerPType,
-    NativeValue<T>: Eq + Hash,
-{
+struct LoopState<T> {
     /// The previous value seen.
     prev: T,
     /// The run count.
-    runs: usize,
-    /// Cloudflare's cardinality estimator, used to approximate the number of distinct values
-    /// without materializing an exact hash map.
-    estimator: CardinalityEstimator<NativeValue<T>>,
-    /// Boyer-Moore majority candidate; holds the current candidate for the most frequent value.
-    bm_candidate: T,
-    /// Boyer-Moore vote counter for `bm_candidate`.
-    bm_votes: usize,
-}
-
-/// Updates the Boyer-Moore majority-vote state for a single value.
-#[inline(always)]
-fn boyer_moore_observe<T>(state: &mut LoopState<T>, value: T)
-where
-    T: IntegerPType,
-    NativeValue<T>: Eq + Hash,
-{
-    if state.bm_votes == 0 {
-        state.bm_candidate = value;
-        state.bm_votes = 1;
-    } else if value == state.bm_candidate {
-        state.bm_votes += 1;
-    } else {
-        state.bm_votes -= 1;
-    }
-}
-
-/// Counts exact occurrences of `needle` in `buffer`, restricted to valid positions according to
-/// `validity`.
-fn count_occurrences<T: IntegerPType>(
-    buffer: &[T],
-    validity: AllOr<&BitBuffer>,
-    needle: T,
-) -> usize {
-    match validity {
-        AllOr::All => buffer.iter().filter(|&&v| v == needle).count(),
-        AllOr::None => 0,
-        AllOr::Some(mask) => buffer
-            .iter()
-            .enumerate()
-            .filter(|&(idx, &v)| mask.value(idx) && v == needle)
-            .count(),
-    }
+    runs: u32,
+    /// The distinct values map.
+    distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
 }
 
 /// Inner loop for non-null chunks of 64 values.
@@ -571,8 +499,7 @@ fn inner_loop_nonnull<T: IntegerPType>(
 {
     for &value in values {
         if count_distinct_values {
-            state.estimator.insert(&NativeValue(value));
-            boyer_moore_observe(state, value);
+            *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
         }
 
         if value != state.prev {
@@ -595,8 +522,7 @@ fn inner_loop_nullable<T: IntegerPType>(
     for (idx, &value) in values.iter().enumerate() {
         if is_valid.value(idx) {
             if count_distinct_values {
-                state.estimator.insert(&NativeValue(value));
-                boyer_moore_observe(state, value);
+                *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
             }
 
             if value != state.prev {
@@ -620,8 +546,7 @@ fn inner_loop_naive<T: IntegerPType>(
     for (idx, &value) in values.iter().enumerate() {
         if is_valid.value(idx) {
             if count_distinct_values {
-                state.estimator.insert(&NativeValue(value));
-                boyer_moore_observe(state, value);
+                *state.distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
             }
 
             if value != state.prev {
@@ -636,18 +561,16 @@ fn inner_loop_naive<T: IntegerPType>(
 mod tests {
     use std::iter;
     use std::sync::LazyLock;
-
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
-
     use super::IntegerStats;
     use super::typed_int_stats;
 
@@ -655,7 +578,7 @@ mod tests {
 
     #[test]
     fn test_naive_count_distinct_values() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![217u8, 0], Validity::NonNullable);
         let stats = typed_int_stats::<u8>(&array, true, &mut ctx)?;
         assert_eq!(stats.distinct_count().unwrap(), 2);
@@ -664,7 +587,7 @@ mod tests {
 
     #[test]
     fn test_naive_count_distinct_values_nullable() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(
             buffer![217u8, 0],
             Validity::from(BitBuffer::from(vec![true, false])),
@@ -676,7 +599,7 @@ mod tests {
 
     #[test]
     fn test_count_distinct_values() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::new((0..128u8).collect::<Buffer<u8>>(), Validity::NonNullable);
         let stats = typed_int_stats::<u8>(&array, true, &mut ctx)?;
         assert_eq!(stats.distinct_count().unwrap(), 128);
@@ -685,7 +608,7 @@ mod tests {
 
     #[test]
     fn test_count_distinct_values_nullable() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(
             (0..128u8).collect::<Buffer<u8>>(),
             Validity::from(BitBuffer::from_iter(
@@ -699,7 +622,7 @@ mod tests {
 
     #[test]
     fn test_integer_stats_leading_nulls() {
-        let mut ctx = SESSION.create_execution_ctx();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let ints = PrimitiveArray::new(buffer![0, 1, 2], Validity::from_iter([false, true, true]));
 
         let stats = IntegerStats::generate_opts(
@@ -714,78 +637,5 @@ mod tests {
         assert_eq!(stats.null_count, 1);
         assert_eq!(stats.average_run_length, 1);
         assert_eq!(stats.distinct_count().unwrap(), 2);
-    }
-
-    #[test]
-    fn test_most_frequent_value_dominates() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        // A value that appears in 95% of the array must be recovered exactly by the
-        // Boyer-Moore tracking plus second-pass count.
-        let top = -1i32;
-        let mut data: Vec<i32> = vec![top; 950];
-        data.extend(0..50i32);
-        let array = PrimitiveArray::new(Buffer::copy_from(&data), Validity::NonNullable);
-        let stats = typed_int_stats::<i32>(&array, true, &mut ctx)?;
-        let (top_value, top_count) = stats
-            .erased()
-            .most_frequent_value_and_count()
-            .expect("distinct info must be present");
-        assert_eq!(top_value, top.into());
-        assert_eq!(top_count, 950);
-        Ok(())
-    }
-
-    #[test]
-    fn test_cardinality_estimate_large_unique() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-        // For 1024 distinct values the estimator falls back to HyperLogLog++; verify the
-        // estimate is within the expected error bound (~1.6% for the default P/W).
-        let array =
-            PrimitiveArray::new((0..1024u32).collect::<Buffer<u32>>(), Validity::NonNullable);
-        let stats = typed_int_stats::<u32>(&array, true, &mut ctx)?;
-        let estimated = stats.distinct_count().unwrap();
-        let error_ratio = (estimated as f64 - 1024.0).abs() / 1024.0;
-        assert!(
-            error_ratio < 0.05,
-            "estimator error {error_ratio} exceeds 5% for 1024 distinct values"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_estimated_distinct_count_could_equal() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let unique =
-            PrimitiveArray::new((0..1024u32).collect::<Buffer<u32>>(), Validity::NonNullable);
-        let unique_stats = typed_int_stats::<u32>(&unique, true, &mut ctx)?;
-        assert!(unique_stats.estimated_distinct_count_could_equal(1024));
-
-        let low_cardinality = PrimitiveArray::new(
-            (0..1024u32).map(|value| value % 8).collect::<Buffer<u32>>(),
-            Validity::NonNullable,
-        );
-        let low_cardinality_stats = typed_int_stats::<u32>(&low_cardinality, true, &mut ctx)?;
-        assert!(!low_cardinality_stats.estimated_distinct_count_could_equal(1024));
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_all_distinct_could_equal_despite_estimator_drift() -> VortexResult<()> {
-        let mut ctx = SESSION.create_execution_ctx();
-
-        // Regression: an arithmetic sequence is all-distinct, but the HLL++ estimate for ~10k
-        // values drifts a few percent off the exact count (here it overshoots to ~10457). The
-        // sequence scheme gates on `estimated_distinct_count_could_equal`, so this must remain true
-        // or the array is never sequence-encoded.
-        let range = PrimitiveArray::new(
-            (0..10_000u32).collect::<Buffer<u32>>(),
-            Validity::NonNullable,
-        );
-        let range_stats = typed_int_stats::<u32>(&range, true, &mut ctx)?;
-        assert!(range_stats.estimated_distinct_count_could_equal(10_000));
-
-        Ok(())
     }
 }
