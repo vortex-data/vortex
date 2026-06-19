@@ -109,5 +109,5 @@ pub trait Matcher {
     /// The returned match borrows from `parent`, so matchers can return a
     /// [`ParentView`] without forcing the parent to materialize. Implementations
     /// typically delegate to [`AsParent::as_parent_view`] or [`AsParent::as_opt`].
-    fn try_match<P: AsParent>(parent: &P) -> Option<Self::Match>;
+    fn try_match<P: AsParent>(parent: &P) -> Option<Self::Match<'_>>;
 }
