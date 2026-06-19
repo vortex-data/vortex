@@ -1,0 +1,825 @@
+{
+  "note": "Golden vectors for the measurement_id_* hash, generated from benchmarks-website/server/src/db.rs (the source of truth). Regenerate with REGEN_GOLDEN_VECTORS=1 cargo test -p vortex-bench-server --test measurement_id_golden. scripts/test_measurement_id.py asserts the Python port reproduces every measurement_id here.",
+  "seed": 0,
+  "vectors": [
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000000000000000000000",
+        "dataset": "dataset-0",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -20,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 8941066430020068021,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000009e3779b97f4a7c15",
+        "dataset": "dataset-1",
+        "dataset_variant": "variant-1",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -19,
+        "scale_factor": "sf-1",
+        "storage": "s3"
+      },
+      "measurement_id": 3149995011396621799,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000003c6ef372fe94f82a",
+        "dataset": "dataset-2",
+        "dataset_variant": "variant-2",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -18,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -6215740072949592228,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000daa66d2c7ddf743f",
+        "dataset": "dataset-3",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -17,
+        "scale_factor": "sf-3",
+        "storage": "s3"
+      },
+      "measurement_id": 8041805059478031959,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "00000000000000000000000078dde6e5fd29f054",
+        "dataset": "dataset-4",
+        "dataset_variant": "variant-4",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -16,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 4772600626526399345,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000001715609f7c746c69",
+        "dataset": "dataset-5",
+        "dataset_variant": "variant-5",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -15,
+        "scale_factor": "sf-5",
+        "storage": "s3"
+      },
+      "measurement_id": -9016235375010445132,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000b54cda58fbbee87e",
+        "dataset": "dataset-6",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -14,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -6411293753624450917,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000538454127b096493",
+        "dataset": "dataset-7",
+        "dataset_variant": "variant-7",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -13,
+        "scale_factor": "sf-7",
+        "storage": "s3"
+      },
+      "measurement_id": 8460757218662476151,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000f1bbcdcbfa53e0a8",
+        "dataset": "dataset-8",
+        "dataset_variant": "variant-8",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -12,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 7670946045315319280,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000008ff34785799e5cbd",
+        "dataset": "dataset-9",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -11,
+        "scale_factor": "sf-9",
+        "storage": "s3"
+      },
+      "measurement_id": 1978441881557979666,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000002e2ac13ef8e8d8d2",
+        "dataset": "dataset-10",
+        "dataset_variant": "variant-10",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -10,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 8135912901467482164,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000cc623af8783354e7",
+        "dataset": "dataset-11",
+        "dataset_variant": "variant-11",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -9,
+        "scale_factor": "sf-11",
+        "storage": "s3"
+      },
+      "measurement_id": 805733765350646006,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000006a99b4b1f77dd0fc",
+        "dataset": "dataset-12",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -8,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -4091026328830870798,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "00000000000000000000000008d12e6b76c84d11",
+        "dataset": "dataset-13",
+        "dataset_variant": "variant-13",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -7,
+        "scale_factor": "sf-13",
+        "storage": "s3"
+      },
+      "measurement_id": -6061385115965648155,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000a708a824f612c926",
+        "dataset": "dataset-14",
+        "dataset_variant": "variant-14",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -6,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -6684883584448916863,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000454021de755d453b",
+        "dataset": "dataset-15",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -5,
+        "scale_factor": "sf-15",
+        "storage": "s3"
+      },
+      "measurement_id": 8814896453978445645,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000e3779b97f4a7c150",
+        "dataset": "dataset-16",
+        "dataset_variant": "variant-16",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -4,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 6686567714742361044,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "00000000000000000000000081af155173f23d65",
+        "dataset": "dataset-17",
+        "dataset_variant": "variant-17",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -3,
+        "scale_factor": "sf-17",
+        "storage": "s3"
+      },
+      "measurement_id": 3557917168552872470,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000001fe68f0af33cb97a",
+        "dataset": "dataset-18",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -2,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -6165762661706299592,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000be1e08c47287358f",
+        "dataset": "dataset-19",
+        "dataset_variant": "variant-19",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": -1,
+        "scale_factor": "sf-19",
+        "storage": "s3"
+      },
+      "measurement_id": -535031789163192453,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000005c55827df1d1b1a4",
+        "dataset": "dataset-20",
+        "dataset_variant": "variant-20",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 0,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 4634990895302954655,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000fa8cfc37711c2db9",
+        "dataset": "dataset-21",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 1,
+        "scale_factor": "sf-21",
+        "storage": "s3"
+      },
+      "measurement_id": 5936866269340399925,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "00000000000000000000000098c475f0f066a9ce",
+        "dataset": "dataset-22",
+        "dataset_variant": "variant-22",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 2,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 4471015533681449689,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "00000000000000000000000036fbefaa6fb125e3",
+        "dataset": "dataset-23",
+        "dataset_variant": "variant-23",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 3,
+        "scale_factor": "sf-23",
+        "storage": "s3"
+      },
+      "measurement_id": 3270457410965634007,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000d5336963eefba1f8",
+        "dataset": "dataset-24",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 4,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -6630843892626754319,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000736ae31d6e461e0d",
+        "dataset": "dataset-25",
+        "dataset_variant": "variant-25",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 5,
+        "scale_factor": "sf-25",
+        "storage": "s3"
+      },
+      "measurement_id": 5238548701197127815,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "00000000000000000000000011a25cd6ed909a22",
+        "dataset": "dataset-26",
+        "dataset_variant": "variant-26",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 6,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -869863853831808211,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000afd9d6906cdb1637",
+        "dataset": "dataset-27",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 7,
+        "scale_factor": "sf-27",
+        "storage": "s3"
+      },
+      "measurement_id": -6175971040302506030,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000004e115049ec25924c",
+        "dataset": "dataset-28",
+        "dataset_variant": "variant-28",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 8,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 4758474844754348116,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000ec48ca036b700e61",
+        "dataset": "dataset-29",
+        "dataset_variant": "variant-29",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 9,
+        "scale_factor": "sf-29",
+        "storage": "s3"
+      },
+      "measurement_id": 4027371045171197062,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000008a8043bceaba8a76",
+        "dataset": "dataset-30",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 10,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 6213625536713947544,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "00000000000000000000000028b7bd766a05068b",
+        "dataset": "dataset-31",
+        "dataset_variant": "variant-31",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 11,
+        "scale_factor": "sf-31",
+        "storage": "s3"
+      },
+      "measurement_id": 3264730627889711995,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000c6ef372fe94f82a0",
+        "dataset": "dataset-32",
+        "dataset_variant": "variant-32",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 12,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 6426500585598625566,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000006526b0e96899feb5",
+        "dataset": "dataset-33",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 13,
+        "scale_factor": "sf-33",
+        "storage": "s3"
+      },
+      "measurement_id": -470855441762601549,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000035e2aa2e7e47aca",
+        "dataset": "dataset-34",
+        "dataset_variant": "variant-34",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 14,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -8702944831802119265,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000a195a45c672ef6df",
+        "dataset": "dataset-35",
+        "dataset_variant": "variant-35",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 15,
+        "scale_factor": "sf-35",
+        "storage": "s3"
+      },
+      "measurement_id": 6237767006190293538,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000003fcd1e15e67972f4",
+        "dataset": "dataset-36",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 16,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": 5322839569260259127,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "000000000000000000000000de0497cf65c3ef09",
+        "dataset": "dataset-37",
+        "dataset_variant": "variant-37",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 17,
+        "scale_factor": "sf-37",
+        "storage": "s3"
+      },
+      "measurement_id": 1995931045924102080,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000007c3c1188e50e6b1e",
+        "dataset": "dataset-38",
+        "dataset_variant": "variant-38",
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 18,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -7932518466629682266,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0000000000000000000000001a738b426458e733",
+        "dataset": "dataset-39",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "vortex-file-compressed",
+        "query_idx": 19,
+        "scale_factor": "sf-39",
+        "storage": "s3"
+      },
+      "measurement_id": 7227626056758470989,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "tpch",
+        "dataset_variant": null,
+        "engine": "vortex",
+        "format": "parquet",
+        "query_idx": 7,
+        "scale_factor": "1",
+        "storage": "nvme"
+      },
+      "measurement_id": 6778969912115220139,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "데이터셋-日本語",
+        "dataset_variant": "café-Ω",
+        "engine": "ヴ",
+        "format": "format-✓",
+        "query_idx": 0,
+        "scale_factor": "σ",
+        "storage": "s3"
+      },
+      "measurement_id": 8038081617766937373,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "boundary",
+        "dataset_variant": null,
+        "engine": "e",
+        "format": "f",
+        "query_idx": -2147483648,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -1997262439178828726,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "boundary",
+        "dataset_variant": null,
+        "engine": "e",
+        "format": "f",
+        "query_idx": 2147483647,
+        "scale_factor": null,
+        "storage": "nvme"
+      },
+      "measurement_id": -1111737216055603595,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "",
+        "dataset_variant": "",
+        "engine": "",
+        "format": "",
+        "query_idx": 0,
+        "scale_factor": "",
+        "storage": ""
+      },
+      "measurement_id": -4121125782605521286,
+      "table": "query_measurements"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "chimp",
+        "dataset_variant": null,
+        "format": "vortex",
+        "op": "encode"
+      },
+      "measurement_id": -1351591591404870516,
+      "table": "compression_times"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "chimp",
+        "dataset_variant": null,
+        "format": "vortex",
+        "op": "decode"
+      },
+      "measurement_id": 8221793816172450272,
+      "table": "compression_times"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "taxi",
+        "dataset_variant": "v2",
+        "format": "parquet",
+        "op": "encode"
+      },
+      "measurement_id": -192124532873811017,
+      "table": "compression_times"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "압축-テスト",
+        "dataset_variant": "変種",
+        "format": "vortex-✓",
+        "op": "decode"
+      },
+      "measurement_id": -2942165613664654219,
+      "table": "compression_times"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "chimp",
+        "dataset_variant": null,
+        "format": "vortex"
+      },
+      "measurement_id": 4543757287978490921,
+      "table": "compression_sizes"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "taxi",
+        "dataset_variant": "v2",
+        "format": "parquet"
+      },
+      "measurement_id": -7313339766868556874,
+      "table": "compression_sizes"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "크기-サイズ",
+        "dataset_variant": "変種-Ω",
+        "format": "vortex-✓"
+      },
+      "measurement_id": -8576081510595521142,
+      "table": "compression_sizes"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "chimp",
+        "format": "vortex"
+      },
+      "measurement_id": 4734678989716641189,
+      "table": "random_access_times"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "taxi",
+        "format": "parquet"
+      },
+      "measurement_id": 164255076009922704,
+      "table": "random_access_times"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "無作為",
+        "format": "✓"
+      },
+      "measurement_id": 832111591737631247,
+      "table": "random_access_times"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "cohere-large-10m",
+        "flavor": "vortex",
+        "layout": "trained",
+        "threshold": 0.0
+      },
+      "measurement_id": 2427216480405807826,
+      "table": "vector_search_runs"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "cohere-large-10m",
+        "flavor": "vortex",
+        "layout": "trained",
+        "threshold": 0.5
+      },
+      "measurement_id": -1711405494360824574,
+      "table": "vector_search_runs"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "cohere-large-10m",
+        "flavor": "vortex",
+        "layout": "trained",
+        "threshold": 0.83
+      },
+      "measurement_id": 2194658981253663824,
+      "table": "vector_search_runs"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "cohere-large-10m",
+        "flavor": "vortex",
+        "layout": "trained",
+        "threshold": 1.0
+      },
+      "measurement_id": -5633397304139473003,
+      "table": "vector_search_runs"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "cohere-large-10m",
+        "flavor": "vortex",
+        "layout": "trained",
+        "threshold": -1.5
+      },
+      "measurement_id": -5505640980838817192,
+      "table": "vector_search_runs"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "cohere-large-10m",
+        "flavor": "vortex",
+        "layout": "trained",
+        "threshold": 1e-9
+      },
+      "measurement_id": -812426564273547024,
+      "table": "vector_search_runs"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "cohere-large-10m",
+        "flavor": "vortex",
+        "layout": "trained",
+        "threshold": 1000000000000.0
+      },
+      "measurement_id": 8044969450004818277,
+      "table": "vector_search_runs"
+    },
+    {
+      "fields": {
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+        "dataset": "cohere-large-10m",
+        "flavor": "vortex",
+        "layout": "trained",
+        "threshold": 3.141592653589793
+      },
+      "measurement_id": 3687626387279485390,
+      "table": "vector_search_runs"
+    }
+  ]
+}
