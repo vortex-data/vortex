@@ -98,7 +98,7 @@ impl AggregateFnVTable for Count {
         let mut count = batch.valid_count(ctx)? as u64;
         if state.exclude_nans {
             // `nan_count` shortcircuits on an exact `Stat::NaNCount` before scanning the batch.
-            count -= nan_count(batch, ctx)? as u64;
+            count = count.saturating_sub(nan_count(batch, ctx)? as u64);
         }
         state.count += count;
         Ok(true)
