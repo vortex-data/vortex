@@ -113,6 +113,29 @@ jobs:
           uv run --all-packages make html
         working-directory: docs/
 
+      - name: "Pytest - scripts (measurement_id + revalidate)"
+        run: >-
+          uv run --no-project --with pytest --with xxhash pytest
+          scripts/test_measurement_id.py scripts/test_post_ingest_revalidate.py
+
+  scripts-test:
+    name: "Python (scripts testcontainers)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+      # The testcontainer suite MUST run in CI, not silently skip: a green job with
+      # skipped tests would let a writer regression merge undetected. `docker info`
+      # fails the job up front if the daemon is unavailable, and the CI env var makes
+      # the testcontainer fixtures fail (not skip) per their _require_docker_for_testcontainers.
+      - name: "Verify Docker is available for testcontainers"
+        run: docker info
+      - name: "Pytest - scripts testcontainers"
+        run: >-
+          uv run --no-project --with pytest --with "psycopg[binary]" --with boto3
+          --with xxhash --with testcontainers pytest scripts/test_post_ingest_postgres.py
+
   rust-docs:
     name: "Rust (docs)"
     timeout-minutes: 30
