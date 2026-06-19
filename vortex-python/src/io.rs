@@ -257,7 +257,7 @@ impl PyVortexWriteOptions {
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
-    /// 215932
+    /// 215940
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
     ///
@@ -267,7 +267,7 @@ impl PyVortexWriteOptions {
     ///
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
-    /// 55060
+    /// 55068
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]
