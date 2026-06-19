@@ -112,7 +112,7 @@ impl ScalarFnVTable for VariantToJson {
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let input_dtype = &arg_dtypes[0];
         vortex_ensure!(
-            matches!(input_dtype, DType::Variant(_)),
+            input_dtype.is_variant(),
             "VariantToJson input must be Variant, found {input_dtype}"
         );
 

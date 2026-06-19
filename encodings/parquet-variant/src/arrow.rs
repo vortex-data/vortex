@@ -259,7 +259,7 @@ impl ArrowImportVTable for ParquetVariant {
         field: &Field,
         dtype: &DType,
     ) -> VortexResult<ArrowImport> {
-        if !matches!(dtype, DType::Variant(_))
+        if !dtype.is_variant()
             || field
                 .metadata()
                 .get(EXTENSION_TYPE_NAME_KEY)
