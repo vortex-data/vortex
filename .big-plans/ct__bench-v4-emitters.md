@@ -146,7 +146,7 @@ v2/v3 paths.
 phase: "1: D — port v4 emitter (CODE)"
 sub_phase: null
 task: null
-status: reviewing
+status: awaiting-human-gate
 last_gate: null
 phase_entry_sha: a3ffeeea8ad1c9147b31a0a4ece5233143975f32
 ```
