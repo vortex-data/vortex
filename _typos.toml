@@ -13,4 +13,10 @@ extend-exclude = ["/vortex-bench/**", "/docs/references.bib", "benchmarks/**", "
 [type.py]
 extend-ignore-identifiers-re = [
     "Trafic", # Appears in some clickbench-related examples
+    # SQL verbs in scripts/cross_check_python_writer.py docstrings; typos mis-splits the
+    # all-caps-to-lowercase boundary (UPDATEs -> UPDAT, INSERTs -> INSER).
+    "UPDATEs",
+    "UPDATEd",
+    "INSERTs",
+    "INSERTed",
 ]

@@ -35,6 +35,13 @@ path = ".agents/skills/**"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+# big-plans orchestration scaffolding (the spine + per-sub-phase task plans). Transient; removed
+# by a dedicated cleanup PR once the trailing ops phases complete.
+[[annotations]]
+path = ".big-plans/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 [[annotations]]
 path = ["**/.gitignore", ".gitmodules", ".python-version", "**/*.lock", "**/*.lockfile", "**/*.toml", "**/*.json", "CITATION.cff", ".idea/**", ".github/**", "codecov.yml", "java/gradle/wrapper/gradle-wrapper.properties", "**.duckdb*"]
 precedence = "override"
