@@ -22,3 +22,4 @@ jobs:
     secrets: inherit
     with:
       mode: "pr"
+      vortex_scan_impl: "v2"

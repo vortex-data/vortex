@@ -76,6 +76,7 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
+          VORTEX_SCAN_IMPL: "v2"
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
@@ -129,3 +130,4 @@ jobs:
     secrets: inherit
     with:
       mode: "pr"
+      vortex_scan_impl: "v2"
