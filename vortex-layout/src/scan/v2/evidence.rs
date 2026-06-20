@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Predicate evidence: coverage-bearing answers for planned predicates.
+//! Predicate evidence: coverage-bearing answers for prepared predicates.
 //!
 //! A scan2 predicate is answered at runtime by *evidence fragments*:
 //! row ranges paired with what a producer proves about the

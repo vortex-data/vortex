@@ -4,7 +4,7 @@
 //! Scan2 vtable support for zoned (zone-map) layouts: the canonical proof producer.
 //!
 //! Reading delegates straight to the data child. Pushed predicate nodes
-//! expose zone-map evidence plans: per predicate, the falsification and
+//! expose zone-map prepared evidence: per predicate, the falsification and
 //! satisfaction rewrites ([`Expression::falsify`] /
 //! [`Expression::satisfy`]) are evaluated over the zone map once per
 //! query, and evidence walks the per-zone masks.
@@ -52,22 +52,20 @@ use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::scan::v2::evidence::EvidenceFragment;
 use crate::scan::v2::evidence::PredicateEvidenceKind;
 use crate::scan::v2::node::AggregateAnswer;
-use crate::scan::v2::node::AggregatePlan;
-use crate::scan::v2::node::AggregatePlanRef;
-use crate::scan::v2::node::DynReadPlan;
-use crate::scan::v2::node::EvidencePlan;
-use crate::scan::v2::node::EvidencePlanRef;
-use crate::scan::v2::node::EvidenceStateKey;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::PlanCtx;
+use crate::scan::v2::node::PrepareCtx;
+use crate::scan::v2::node::PreparedAggregate;
+use crate::scan::v2::node::PreparedAggregateRef;
+use crate::scan::v2::node::PreparedEvidence;
+use crate::scan::v2::node::PreparedEvidenceRef;
+use crate::scan::v2::node::PreparedRead;
+use crate::scan::v2::node::PreparedReadRef;
+use crate::scan::v2::node::PreparedStateKey;
 use crate::scan::v2::node::PushCtx;
-use crate::scan::v2::node::ReadPlan;
-use crate::scan::v2::node::ReadPlanRef;
 use crate::scan::v2::node::RowScope;
 use crate::scan::v2::node::ScanNode;
 use crate::scan::v2::node::ScanNodeRef;
-use crate::scan::v2::node::ScanStateCache;
 use crate::scan::v2::node::ScanStateRef;
 use crate::scan::v2::node::StateCtx;
 use crate::scan::v2::node::read_dense;
@@ -121,7 +119,6 @@ struct PredicateMasks {
 /// columns prepared for range aggregation.
 pub struct ZonedScanState {
     data: ScanStateRef,
-    zones: ScanStateRef,
     /// The decoded per-zone stats table.
     table: Mutex<Option<Arc<StructArray>>>,
     zone_map: Mutex<Option<Arc<ZoneMap>>>,
@@ -130,9 +127,9 @@ pub struct ZonedScanState {
 }
 
 /// Planned evidence for one predicate over a zoned node.
-struct ZonedEvidencePlan {
-    zones_read: ReadPlanRef,
-    zones_key: usize,
+struct ZonedPreparedEvidence {
+    state: Arc<ZonedScanState>,
+    zones_read: PreparedReadRef,
     nzones: u64,
     column_dtype: DType,
     zone_len: u64,
@@ -144,16 +141,16 @@ struct ZonedEvidencePlan {
 }
 
 /// Planned ungrouped aggregate over a zoned node's root value.
-struct ZonedAggregatePlan {
+struct ZonedPreparedAggregate {
     node: Arc<ZonedScanNode>,
-    zones_read: ReadPlanRef,
+    state: Arc<ZonedScanState>,
+    zones_read: PreparedReadRef,
     funcs: Vec<AggregateFnRef>,
 }
 
-struct ZonedReadPlan {
+struct ZonedPreparedRead {
     node: Arc<ZonedScanNode>,
-    data: ReadPlanRef,
-    zones: ReadPlanRef,
+    data: PreparedReadRef,
 }
 
 /// A pushed scalar expression through a zoned wrapper. Reads delegate to
@@ -172,10 +169,9 @@ struct ZonedExprScanNode {
     satisfier: Option<Expression>,
 }
 
-struct ZonedExprReadPlan {
+struct ZonedExprPreparedRead {
     node: Arc<ZonedExprScanNode>,
-    data: ReadPlanRef,
-    zones: ReadPlanRef,
+    data: PreparedReadRef,
 }
 
 /// The zone coverage of one aggregate request: the requested rows, the
@@ -227,18 +223,38 @@ impl ZonedScanState {
 }
 
 impl ZonedScanNode {
+    fn shared_zone_state(&self, cx: &mut PrepareCtx) -> VortexResult<Arc<ZonedScanState>> {
+        let key =
+            PreparedStateKey::new::<ZonedScanState>(Arc::as_ptr(&self.zones) as *const () as usize);
+        cx.shared_state(key, || Ok(Self::empty_state()))
+    }
+
+    fn empty_state_with_data(data: ScanStateRef) -> ZonedScanState {
+        ZonedScanState {
+            data,
+            table: Mutex::new(None),
+            zone_map: Mutex::new(None),
+            masks: Mutex::new(FxHashMap::default()),
+            stat_columns: Mutex::new(FxHashMap::default()),
+        }
+    }
+
+    fn empty_state() -> ZonedScanState {
+        Self::empty_state_with_data(Arc::new(()))
+    }
+
     /// The decoded per-zone stats table, read once per query. Concurrent
     /// decodes are benign (the segment fetch is shared; last-write-wins).
     async fn table(
         &self,
-        zones_read: &dyn DynReadPlan,
+        zones_read: &PreparedReadRef,
         io: &FileReader,
         state: &ZonedScanState,
     ) -> VortexResult<Arc<StructArray>> {
         if let Some(hit) = state.table.lock().clone() {
             return Ok(hit);
         }
-        let zones = read_dense(zones_read, 0..self.nzones, io, state.zones.as_ref()).await?;
+        let zones = read_dense(zones_read, 0..self.nzones, io).await?;
         let mut ctx = io.session().create_execution_ctx();
         let table = Arc::new(zones.execute::<StructArray>(&mut ctx)?);
         *state.table.lock() = Some(Arc::clone(&table));
@@ -251,7 +267,7 @@ impl ZonedScanNode {
     async fn stat_column(
         &self,
         stat: Stat,
-        zones_read: &dyn DynReadPlan,
+        zones_read: &PreparedReadRef,
         io: &FileReader,
         state: &ZonedScanState,
     ) -> VortexResult<Option<Arc<StatColumn>>> {
@@ -295,7 +311,7 @@ impl ZonedScanNode {
         &self,
         span: &ZoneSpan,
         func: &AggregateFnRef,
-        zones_read: &dyn DynReadPlan,
+        zones_read: &PreparedReadRef,
         io: &FileReader,
         state: &ZonedScanState,
         ctx: &mut ExecutionCtx,
@@ -453,7 +469,7 @@ impl ZonedScanNode {
         &'a self,
         range: Range<u64>,
         funcs: &'a [AggregateFnRef],
-        zones_read: &'a dyn DynReadPlan,
+        zones_read: &'a PreparedReadRef,
         io: &'a FileReader,
         state: &'a ZonedScanState,
     ) -> BoxFuture<'a, VortexResult<Option<Vec<AggregateAnswer>>>> {
@@ -499,7 +515,7 @@ impl ZonedScanNode {
     }
 }
 
-impl ZonedEvidencePlan {
+impl ZonedPreparedEvidence {
     async fn table(
         &self,
         io: &FileReader,
@@ -508,13 +524,7 @@ impl ZonedEvidencePlan {
         if let Some(hit) = state.table.lock().clone() {
             return Ok(hit);
         }
-        let zones = read_dense(
-            self.zones_read.as_ref(),
-            0..self.nzones,
-            io,
-            state.zones.as_ref(),
-        )
-        .await?;
+        let zones = read_dense(&self.zones_read, 0..self.nzones, io).await?;
         let mut ctx = io.session().create_execution_ctx();
         let table = Arc::new(zones.execute::<StructArray>(&mut ctx)?);
         *state.table.lock() = Some(Arc::clone(&table));
@@ -588,32 +598,16 @@ impl ZonedEvidencePlan {
     }
 }
 
-impl EvidencePlan for ZonedEvidencePlan {
-    type State = ZonedScanState;
-
-    fn init_state(&self, ctx: &VortexSession) -> VortexResult<ZonedScanState> {
-        let mut cache = ScanStateCache::default();
-        let mut cx = StateCtx::new(ctx, &mut cache);
-        Ok(ZonedScanState {
-            data: Arc::new(()),
-            zones: self.zones_read.init_state(&mut cx)?,
-            table: Mutex::new(None),
-            zone_map: Mutex::new(None),
-            masks: Mutex::new(FxHashMap::default()),
-            stat_columns: Mutex::new(FxHashMap::default()),
-        })
-    }
-
+impl PreparedEvidence for ZonedPreparedEvidence {
     fn evidence<'a>(
         &'a self,
         req: &'a EvidenceRequest<'a>,
         io: &'a FileReader,
-        state: &'a ZonedScanState,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>> {
         Box::pin(async move {
             let mut fragments = Vec::new();
             if self.zone_len > 0 && (self.falsifier.is_some() || self.satisfier.is_some()) {
-                let masks = self.predicate_masks(io, state).await?;
+                let masks = self.predicate_masks(io, &self.state).await?;
                 let zones = self.zone_range(&req.range);
                 let mut run: Option<(Range<u64>, bool)> = None;
                 for zone in zones {
@@ -649,7 +643,6 @@ impl EvidencePlan for ZonedEvidencePlan {
     fn segment_requests(
         &self,
         _req: &EvidenceRequest<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
         if self.zone_len == 0 || (self.falsifier.is_none() && self.satisfier.is_none()) {
@@ -659,23 +652,15 @@ impl EvidencePlan for ZonedEvidencePlan {
             usize::try_from(self.nzones)
                 .map_err(|_| vortex_err!("zoned stats length exceeds usize"))?,
         );
-        self.zones_read.segment_requests(
-            0..self.nzones,
-            RowScope::selected(&selection),
-            state.zones.as_ref(),
-            cx,
-        )
-    }
-
-    fn state_cache_key(&self) -> Option<EvidenceStateKey> {
-        Some(EvidenceStateKey::new::<Self>(self.zones_key))
+        self.zones_read
+            .segment_requests(0..self.nzones, RowScope::selected(&selection), cx)
     }
 
     fn recheck_before_projection(&self) -> bool {
         true
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "zoned")
     }
 }
@@ -684,28 +669,14 @@ impl ScanNode for ZonedScanNode {
     type State = ZonedScanState;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ZonedScanState> {
-        Ok(ZonedScanState {
-            data: cx.init_node(&self.data)?,
-            zones: cx.init_node(&self.zones)?,
-            table: Mutex::new(None),
-            zone_map: Mutex::new(None),
-            masks: Mutex::new(FxHashMap::default()),
-            stat_columns: Mutex::new(FxHashMap::default()),
-        })
+        Ok(Self::empty_state_with_data(cx.init_node(&self.data)?))
     }
 
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
         let data = Arc::clone(&self.data)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("zoned data child did not produce a read plan"))?;
-        let zones = Arc::clone(&self.zones)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("zoned stats child did not produce a read plan"))?;
-        Ok(Some(Arc::new(ZonedReadPlan {
-            node: self,
-            data,
-            zones,
-        })))
+            .prepare_read(cx)?
+            .ok_or_else(|| vortex_err!("zoned data child did not produce a prepared read"))?;
+        Ok(Some(Arc::new(ZonedPreparedRead { node: self, data })))
     }
 
     fn try_push_expr(
@@ -742,8 +713,11 @@ impl ScanNode for ZonedScanNode {
         })))
     }
 
-    fn plan_evidence(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>> {
-        let mut plans = Arc::clone(&self.data).plan_evidence(cx)?;
+    fn prepare_evidence(
+        self: Arc<Self>,
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Vec<PreparedEvidenceRef>> {
+        let mut plans = Arc::clone(&self.data).prepare_evidence(cx)?;
         let predicate = root();
         let is_predicate = matches!(predicate.return_dtype(&self.column_dtype)?, DType::Bool(_));
         let (falsifier, satisfier) = if self.zone_len > 0 && is_predicate {
@@ -755,15 +729,15 @@ impl ScanNode for ZonedScanNode {
             (None, None)
         };
         if falsifier.is_some() || satisfier.is_some() {
-            let zones_key = Arc::as_ptr(&self.zones) as *const () as usize;
+            let state = self.shared_zone_state(cx)?;
             let zones_read = Arc::clone(&self.zones)
-                .plan_read(cx)?
-                .ok_or_else(|| vortex_err!("zoned stats child did not produce a read plan"))?;
+                .prepare_read(cx)?
+                .ok_or_else(|| vortex_err!("zoned stats child did not produce a prepared read"))?;
             plans.insert(
                 0,
-                Arc::new(ZonedEvidencePlan {
+                Arc::new(ZonedPreparedEvidence {
+                    state,
                     zones_read,
-                    zones_key,
                     nzones: self.nzones,
                     column_dtype: self.column_dtype.clone(),
                     zone_len: self.zone_len,
@@ -778,19 +752,21 @@ impl ScanNode for ZonedScanNode {
         Ok(plans)
     }
 
-    fn plan_aggregate_partial(
+    fn prepare_aggregate_partial(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
-        cx: &mut PlanCtx,
-    ) -> VortexResult<Option<AggregatePlanRef>> {
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedAggregateRef>> {
         if funcs.is_empty() {
             return Ok(None);
         }
         let zones_read = Arc::clone(&self.zones)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("zoned stats child did not produce a read plan"))?;
-        Ok(Some(Arc::new(ZonedAggregatePlan {
+            .prepare_read(cx)?
+            .ok_or_else(|| vortex_err!("zoned stats child did not produce a prepared read"))?;
+        let state = self.shared_zone_state(cx)?;
+        Ok(Some(Arc::new(ZonedPreparedAggregate {
             node: self,
+            state,
             zones_read,
             funcs: funcs.to_vec(),
         })))
@@ -814,79 +790,53 @@ impl ScanNode for ZonedScanNode {
     }
 }
 
-impl ReadPlan for ZonedReadPlan {
-    type State = ZonedScanState;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        Ok(ZonedScanState {
-            data: self.data.init_state(cx)?,
-            zones: self.zones.init_state(cx)?,
-            table: Mutex::new(None),
-            zone_map: Mutex::new(None),
-            masks: Mutex::new(FxHashMap::default()),
-            stat_columns: Mutex::new(FxHashMap::default()),
-        })
-    }
-
+impl PreparedRead for ZonedPreparedRead {
     fn read_scoped<'a>(
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        self.data
-            .read_scoped(range, rows, io, state.data.as_ref(), local)
+        self.data.read_scoped(range, rows, io, local)
     }
 
     fn segment_requests(
         &self,
         range: Range<u64>,
         rows: RowScope<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
-        self.data
-            .segment_requests(range, rows, state.data.as_ref(), cx)
+        self.data.segment_requests(range, rows, cx)
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
-        self.data.release(frontier, state.data.as_ref())
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        self.data.release(frontier)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.node.fmt_chain(f)
     }
 }
 
-impl AggregatePlan for ZonedAggregatePlan {
-    type State = ZonedScanState;
+impl PreparedAggregate for ZonedPreparedAggregate {
+    type State = ();
 
-    fn init_state(&self, ctx: &VortexSession) -> VortexResult<ZonedScanState> {
-        let mut cache = ScanStateCache::default();
-        let mut cx = StateCtx::new(ctx, &mut cache);
-        Ok(ZonedScanState {
-            data: Arc::new(()),
-            zones: self.zones_read.init_state(&mut cx)?,
-            table: Mutex::new(None),
-            zone_map: Mutex::new(None),
-            masks: Mutex::new(FxHashMap::default()),
-            stat_columns: Mutex::new(FxHashMap::default()),
-        })
+    fn init_state(&self, _ctx: &VortexSession) -> VortexResult<Self::State> {
+        Ok(())
     }
 
     fn aggregate_partial<'a>(
         &'a self,
         range: Range<u64>,
         io: &'a FileReader,
-        state: &'a ZonedScanState,
+        _state: &'a Self::State,
     ) -> BoxFuture<'a, VortexResult<Option<Vec<AggregateAnswer>>>> {
         self.node
-            .aggregate_partial(range, &self.funcs, self.zones_read.as_ref(), io, state)
+            .aggregate_partial(range, &self.funcs, &self.zones_read, io, &self.state)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "zoned")
     }
 }
@@ -895,42 +845,36 @@ impl ScanNode for ZonedExprScanNode {
     type State = ZonedScanState;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        Ok(ZonedScanState {
-            data: cx.init_node(&self.data)?,
-            zones: cx.init_node(&self.zones)?,
-            table: Mutex::new(None),
-            zone_map: Mutex::new(None),
-            masks: Mutex::new(FxHashMap::default()),
-            stat_columns: Mutex::new(FxHashMap::default()),
-        })
+        Ok(ZonedScanNode::empty_state_with_data(
+            cx.init_node(&self.data)?,
+        ))
     }
 
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
-        let data = Arc::clone(&self.data).plan_read(cx)?.ok_or_else(|| {
-            vortex_err!("zoned expression data child did not produce a read plan")
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
+        let data = Arc::clone(&self.data).prepare_read(cx)?.ok_or_else(|| {
+            vortex_err!("zoned expression data child did not produce a prepared read")
         })?;
-        let zones = Arc::clone(&self.zones)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("zoned stats child did not produce a read plan"))?;
-        Ok(Some(Arc::new(ZonedExprReadPlan {
-            node: self,
-            data,
-            zones,
-        })))
+        Ok(Some(Arc::new(ZonedExprPreparedRead { node: self, data })))
     }
 
-    fn plan_evidence(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>> {
-        let mut plans = Arc::clone(&self.data).plan_evidence(cx)?;
+    fn prepare_evidence(
+        self: Arc<Self>,
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Vec<PreparedEvidenceRef>> {
+        let mut plans = Arc::clone(&self.data).prepare_evidence(cx)?;
         if self.falsifier.is_some() || self.satisfier.is_some() {
-            let zones_key = Arc::as_ptr(&self.zones) as *const () as usize;
+            let key = PreparedStateKey::new::<ZonedScanState>(
+                Arc::as_ptr(&self.zones) as *const () as usize,
+            );
+            let state = cx.shared_state(key, || Ok(ZonedScanNode::empty_state()))?;
             let zones_read = Arc::clone(&self.zones)
-                .plan_read(cx)?
-                .ok_or_else(|| vortex_err!("zoned stats child did not produce a read plan"))?;
+                .prepare_read(cx)?
+                .ok_or_else(|| vortex_err!("zoned stats child did not produce a prepared read"))?;
             plans.insert(
                 0,
-                Arc::new(ZonedEvidencePlan {
+                Arc::new(ZonedPreparedEvidence {
+                    state,
                     zones_read,
-                    zones_key,
                     nzones: self.nzones,
                     column_dtype: self.column_dtype.clone(),
                     zone_len: self.zone_len,
@@ -954,48 +898,31 @@ impl ScanNode for ZonedExprScanNode {
     }
 }
 
-impl ReadPlan for ZonedExprReadPlan {
-    type State = ZonedScanState;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        Ok(ZonedScanState {
-            data: self.data.init_state(cx)?,
-            zones: self.zones.init_state(cx)?,
-            table: Mutex::new(None),
-            zone_map: Mutex::new(None),
-            masks: Mutex::new(FxHashMap::default()),
-            stat_columns: Mutex::new(FxHashMap::default()),
-        })
-    }
-
+impl PreparedRead for ZonedExprPreparedRead {
     fn read_scoped<'a>(
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        self.data
-            .read_scoped(range, rows, io, state.data.as_ref(), local)
+        self.data.read_scoped(range, rows, io, local)
     }
 
     fn segment_requests(
         &self,
         range: Range<u64>,
         rows: RowScope<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
-        self.data
-            .segment_requests(range, rows, state.data.as_ref(), cx)
+        self.data.segment_requests(range, rows, cx)
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
-        self.data.release(frontier, state.data.as_ref())
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        self.data.release(frontier)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.node.fmt_chain(f)
     }
 }

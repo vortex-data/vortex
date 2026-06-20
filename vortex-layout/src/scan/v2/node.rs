@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The scan2 tree: per-layout nodes with value, proof, and mask
+//! The scan2 tree: immutable per-layout nodes with value, proof, and mask
 //! capabilities (plan 017).
 //!
 //! Like the v1 scan, a file's layout tree expands into one node per
@@ -10,11 +10,11 @@
 //! [`DynScanNode`] adapter. Three things are new:
 //!
 //! - expansion is *negotiation*: layout scan vtables see the scoped scan request before
-//!   expression pushdown plans reads and evidence (see [`super::request`]);
+//!   expression pushdown prepares reads and evidence (see [`super::request`]);
 //! - expression pushdown returns another scan node whose root value is
-//!   the pushed expression, so reads and evidence are planned from
+//!   the pushed expression, so reads and evidence are prepared from
 //!   `root()` of that node instead of reparsing expressions; and
-//! - executable value read plans use one scoped primitive: selection
+//! - executable prepared reads use one scoped primitive: selection
 //!   controls output cardinality, and demand controls which selected rows
 //!   must contain meaningful values.
 
@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use futures::future::BoxFuture;
+use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -49,6 +50,7 @@ use crate::layout_v2::LayoutRef;
 use crate::scan::v2::evidence::EvidenceFragment;
 use crate::scan::v2::request::EvidenceRequest;
 use crate::scan::v2::request::NodeRequest;
+use crate::scan::v2::request::OwnedEvidenceRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 use crate::segments::SegmentSource;
@@ -86,41 +88,24 @@ pub type ScanStateRef = Arc<ScanState>;
 /// A reference-counted, type-erased scan2 node.
 pub type ScanNodeRef = Arc<dyn DynScanNode>;
 
-/// A reference-counted, type-erased evidence plan.
-pub type EvidencePlanRef = Arc<dyn DynEvidencePlan>;
+/// A reference-counted, type-erased prepared evidence handle.
+pub type PreparedEvidenceRef = Arc<dyn PreparedEvidence>;
 
-/// A reference-counted, type-erased read plan.
-pub type ReadPlanRef = Arc<dyn DynReadPlan>;
+/// A reference-counted, type-erased prepared read handle.
+pub type PreparedReadRef = Arc<dyn PreparedRead>;
 
-/// A reference-counted, type-erased split plan.
-pub type SplitPlanRef = Arc<dyn DynSplitPlan>;
+/// A reference-counted, type-erased prepared split handle.
+pub type PreparedSplitRef = Arc<dyn DynPreparedSplit>;
 
-/// A reference-counted, type-erased ungrouped aggregate plan.
-pub type AggregatePlanRef = Arc<dyn DynAggregatePlan>;
+/// A reference-counted, type-erased prepared ungrouped aggregate handle.
+pub type PreparedAggregateRef = Arc<dyn DynPreparedAggregate>;
 
-/// A reference-counted, type-erased metadata statistics plan.
-pub type StatsPlanRef = Arc<dyn DynStatsPlan>;
+/// A reference-counted, type-erased prepared metadata statistics handle.
+pub type PreparedStatsRef = Arc<dyn DynPreparedStats>;
 
 /// Per-file/query cache of scan-node global state while a file's planned
 /// reads are initialized.
 pub type ScanStateCache = FxHashMap<usize, ScanStateRef>;
-
-/// Key for evidence plans whose per-query state can be shared by several
-/// planned predicates in the same file.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct EvidenceStateKey {
-    type_id: TypeId,
-    key: usize,
-}
-
-impl EvidenceStateKey {
-    pub fn new<T: 'static>(key: usize) -> Self {
-        Self {
-            type_id: TypeId::of::<T>(),
-            key,
-        }
-    }
-}
 
 /// Context for expression pushdown.
 pub struct PushCtx {
@@ -137,24 +122,86 @@ impl PushCtx {
     }
 }
 
-/// Context for turning pushed expressions into executable read/evidence plans.
-pub struct PlanCtx {
+/// Context for turning pushed expressions into prepared read/evidence handles.
+pub struct PrepareCtx {
     session: VortexSession,
+    state_cache: PreparedStateCacheRef,
 }
 
-impl PlanCtx {
+impl PrepareCtx {
+    /// Create a preparation context with an empty prepared-state cache.
     pub fn new(session: VortexSession) -> Self {
-        Self { session }
+        Self::with_state_cache(session, Arc::new(PreparedStateCache::default()))
+    }
+
+    /// Create a preparation context backed by an existing prepared-state cache.
+    pub fn with_state_cache(session: VortexSession, state_cache: PreparedStateCacheRef) -> Self {
+        Self {
+            session,
+            state_cache,
+        }
     }
 
     pub fn session(&self) -> &VortexSession {
         &self.session
     }
+
+    /// The prepared-state cache backing this context.
+    pub fn state_cache(&self) -> PreparedStateCacheRef {
+        Arc::clone(&self.state_cache)
+    }
+
+    pub fn shared_state<T>(
+        &mut self,
+        key: PreparedStateKey,
+        init: impl FnOnce() -> VortexResult<T>,
+    ) -> VortexResult<Arc<T>>
+    where
+        T: Send + Sync + 'static,
+    {
+        if let Some(hit) = self.state_cache.shared_states.lock().get(&key) {
+            return Arc::downcast::<T>(Arc::clone(hit))
+                .map_err(|_| vortex_err!("prepared shared state type mismatch"));
+        }
+
+        let state = Arc::new(init()?);
+        let mut shared_states = self.state_cache.shared_states.lock();
+        if let Some(hit) = shared_states.get(&key) {
+            return Arc::downcast::<T>(Arc::clone(hit))
+                .map_err(|_| vortex_err!("prepared shared state type mismatch"));
+        }
+        shared_states.insert(key, Arc::<T>::clone(&state));
+        Ok(state)
+    }
 }
 
-/// Context for initializing node global state. All read plans for one file
-/// share this context, so the same node instance gets one state object even
-/// when several pushed expressions reference it.
+/// Shared cache for scan/file-level prepared state.
+#[derive(Default)]
+pub struct PreparedStateCache {
+    shared_states: Mutex<FxHashMap<PreparedStateKey, ScanStateRef>>,
+}
+
+/// Reference-counted prepared-state cache.
+pub type PreparedStateCacheRef = Arc<PreparedStateCache>;
+
+/// A typed key for prepared-file shared state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PreparedStateKey {
+    type_id: TypeId,
+    key: usize,
+}
+
+impl PreparedStateKey {
+    pub fn new<T: 'static>(key: usize) -> Self {
+        Self {
+            type_id: TypeId::of::<T>(),
+            key,
+        }
+    }
+}
+
+/// Context for initializing type-erased scan-node state used by the remaining
+/// node-level release and non-read prepared paths.
 pub struct StateCtx<'a> {
     session: &'a VortexSession,
     node_cache: &'a mut ScanStateCache,
@@ -224,7 +271,35 @@ impl<'a> RowScope<'a> {
     }
 }
 
-/// One aggregate plan's mixed-coverage answer.
+/// Owned row scope for a morsel-level read task.
+#[derive(Clone, Debug)]
+pub struct OwnedRowScope {
+    selection: Mask,
+    demand: Mask,
+}
+
+impl OwnedRowScope {
+    pub fn selected(selection: Mask) -> Self {
+        Self {
+            demand: selection.clone(),
+            selection,
+        }
+    }
+
+    pub fn try_new(selection: Mask, demand: Mask) -> VortexResult<Self> {
+        RowScope::try_new(&selection, &demand)?;
+        Ok(Self { selection, demand })
+    }
+
+    pub fn as_scope(&self) -> RowScope<'_> {
+        RowScope {
+            selection: &self.selection,
+            demand: &self.demand,
+        }
+    }
+}
+
+/// One prepared aggregate's mixed-coverage answer.
 ///
 /// The covered rows are the requested range minus `residual`; `partial`
 /// accounts for exactly those rows, each once. An all-null span counts
@@ -244,11 +319,15 @@ pub struct AggregateAnswer {
     pub residual: Vec<Range<u64>>,
 }
 
-/// A node in the expanded scan2 tree. Nodes are shared across queries;
-/// all per-file/query caching lives in the node's `State`.
+/// A node in the expanded scan2 tree.
+///
+/// A `ScanNode` is immutable physical scan structure: layout metadata, child node
+/// references, pushdown behavior, and split hints. Runtime caches live in state
+/// objects created while preparing reads, evidence, statistics, and aggregates for
+/// a file scan.
 pub trait ScanNode: 'static + Send + Sync {
-    /// Per-file/query global state: decoded arrays, decoded index state,
-    /// child node states, and other frontier-released caches.
+    /// Per-file/query node state: decoded arrays, decoded index state, child node states, and
+    /// other frontier-released caches shared by prepared handles for this node.
     type State: Send + Sync + 'static;
 
     /// Create this node's per-file/query state.
@@ -276,61 +355,67 @@ pub trait ScanNode: 'static + Send + Sync {
         }
     }
 
-    /// Plan value reads for this node's root value.
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>>;
+    /// Prepare value reads for this node's root value.
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>>;
 
-    /// Plan natural row splits for this node's root value.
+    /// Prepare natural row splits for this node's root value.
     ///
-    /// The default converts this node's cheap split hints into an executable plan. Nodes can
+    /// The default converts this node's cheap split hints into an executable handle. Nodes can
     /// override this when split discovery needs request-specific state, I/O, or cost estimates.
-    fn plan_splits(self: Arc<Self>, _cx: &mut PlanCtx) -> VortexResult<Option<SplitPlanRef>>
+    fn prepare_splits(
+        self: Arc<Self>,
+        _cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedSplitRef>>
     where
         Self: Sized,
     {
         Ok(self
             .split_hints()
-            .map(|hints| Arc::new(HintSplitPlan::new(hints.to_vec())) as SplitPlanRef))
+            .map(|hints| Arc::new(HintPreparedSplit::new(hints.to_vec())) as PreparedSplitRef))
     }
 
-    /// Plan predicate evidence for this node's root boolean value.
+    /// Prepare predicate evidence for this node's root boolean value.
     ///
-    /// Planning performs no IO and returns a direct executable handle. The
+    /// Preparation performs no IO and returns a direct executable handle. The
     /// handle may precompute expression rewrites or accepted predicate
     /// fragments, but runtime state remains in [`Self::State`].
-    fn plan_evidence(self: Arc<Self>, _cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>>
+    fn prepare_evidence(
+        self: Arc<Self>,
+        _cx: &mut PrepareCtx,
+    ) -> VortexResult<Vec<PreparedEvidenceRef>>
     where
         Self: Sized,
     {
         Ok(Vec::new())
     }
 
-    /// Plan ungrouped aggregates over this node's root value.
+    /// Prepare ungrouped aggregates over this node's root value.
     ///
-    /// The returned plan answers all `funcs` together over a runtime row
+    /// The returned handle answers all `funcs` together over a runtime row
     /// range, producing one [`AggregateAnswer`] per function. `None` means
     /// this node cannot answer these aggregates from layout metadata and
     /// the caller should read rows normally.
-    fn plan_aggregate_partial(
+    fn prepare_aggregate_partial(
         self: Arc<Self>,
         _funcs: &[AggregateFnRef],
-        _cx: &mut PlanCtx,
-    ) -> VortexResult<Option<AggregatePlanRef>>
+        _cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedAggregateRef>>
     where
         Self: Sized,
     {
         Ok(None)
     }
 
-    /// Plan metadata statistics for this node's root value.
+    /// Prepare metadata statistics for this node's root value.
     ///
-    /// The returned plan answers the requested aggregate functions positionally over runtime row
+    /// The returned handle answers the requested aggregate functions positionally over runtime row
     /// ranges using metadata only. `None` means this node cannot answer these functions from
     /// metadata.
-    fn plan_stats(
+    fn prepare_stats(
         self: Arc<Self>,
         _funcs: &[AggregateFnRef],
-        _cx: &mut PlanCtx,
-    ) -> VortexResult<Option<StatsPlanRef>>
+        _cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedStatsRef>>
     where
         Self: Sized,
     {
@@ -354,19 +439,18 @@ pub trait ScanNode: 'static + Send + Sync {
     fn fmt_chain(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-/// Read every row in `range` through a read plan.
+/// Read every row in `range` through a prepared read.
 pub(crate) fn read_dense<'a>(
-    read: &'a dyn DynReadPlan,
+    read: &'a PreparedReadRef,
     range: Range<u64>,
     io: &'a FileReader,
-    state: &'a ScanState,
 ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
     Box::pin(async move {
         let len = range_len(&range)?;
-        let selection = Mask::new_true(len);
+        let rows = OwnedRowScope::selected(Mask::new_true(len));
         let mut local = io.session().create_execution_ctx();
-        read.read_scoped(range, RowScope::selected(&selection), io, state, &mut local)
-            .await
+        let task = Arc::clone(read).begin_read(range, rows)?;
+        task.read(io, &mut local).await
     })
 }
 
@@ -391,28 +475,34 @@ pub trait DynScanNode: Send + Sync {
         cx: &mut PushCtx,
     ) -> VortexResult<Option<ScanNodeRef>>;
 
-    /// Plan value reads for this node's root value.
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>>;
+    /// Prepare value reads for this node's root value.
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>>;
 
-    /// Plan natural row splits for this node's root value.
-    fn plan_splits(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<SplitPlanRef>>;
+    /// Prepare natural row splits for this node's root value.
+    fn prepare_splits(
+        self: Arc<Self>,
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedSplitRef>>;
 
-    /// Plan predicate evidence for this node's root boolean value.
-    fn plan_evidence(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>>;
+    /// Prepare predicate evidence for this node's root boolean value.
+    fn prepare_evidence(
+        self: Arc<Self>,
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Vec<PreparedEvidenceRef>>;
 
-    /// Plan ungrouped aggregates for this node's root value.
-    fn plan_aggregate_partial(
+    /// Prepare ungrouped aggregates for this node's root value.
+    fn prepare_aggregate_partial(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
-        cx: &mut PlanCtx,
-    ) -> VortexResult<Option<AggregatePlanRef>>;
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedAggregateRef>>;
 
-    /// Plan metadata statistics for this node's root value.
-    fn plan_stats(
+    /// Prepare metadata statistics for this node's root value.
+    fn prepare_stats(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
-        cx: &mut PlanCtx,
-    ) -> VortexResult<Option<StatsPlanRef>>;
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedStatsRef>>;
 
     /// Preferred morsel boundaries (see [`ScanNode::split_hints`]).
     fn split_hints(&self) -> Option<&[u64]>;
@@ -437,32 +527,38 @@ impl<T: ScanNode> DynScanNode for T {
         ScanNode::try_push_expr(self, expr, cx)
     }
 
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
-        ScanNode::plan_read(self, cx)
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
+        ScanNode::prepare_read(self, cx)
     }
 
-    fn plan_splits(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<SplitPlanRef>> {
-        ScanNode::plan_splits(self, cx)
+    fn prepare_splits(
+        self: Arc<Self>,
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedSplitRef>> {
+        ScanNode::prepare_splits(self, cx)
     }
 
-    fn plan_evidence(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>> {
-        ScanNode::plan_evidence(self, cx)
+    fn prepare_evidence(
+        self: Arc<Self>,
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Vec<PreparedEvidenceRef>> {
+        ScanNode::prepare_evidence(self, cx)
     }
 
-    fn plan_aggregate_partial(
+    fn prepare_aggregate_partial(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
-        cx: &mut PlanCtx,
-    ) -> VortexResult<Option<AggregatePlanRef>> {
-        ScanNode::plan_aggregate_partial(self, funcs, cx)
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedAggregateRef>> {
+        ScanNode::prepare_aggregate_partial(self, funcs, cx)
     }
 
-    fn plan_stats(
+    fn prepare_stats(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
-        cx: &mut PlanCtx,
-    ) -> VortexResult<Option<StatsPlanRef>> {
-        ScanNode::plan_stats(self, funcs, cx)
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedStatsRef>> {
+        ScanNode::prepare_stats(self, funcs, cx)
     }
 
     fn split_hints(&self) -> Option<&[u64]> {
@@ -478,14 +574,13 @@ impl<T: ScanNode> DynScanNode for T {
     }
 }
 
-/// Executable value read plan for one pushed expression.
-pub trait ReadPlan: 'static + Send + Sync {
-    /// The per-query state this read plan executes against.
-    type State: Send + Sync + 'static;
-
-    /// Create this read plan's per-file/query global state.
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State>;
-
+/// Prepared value read for one pushed expression.
+///
+/// A `PreparedRead` is the scan-level runtime handle for a fixed read route. It
+/// may hold child prepared reads and initializes route-scoped state once per
+/// prepared file scan; each `read_scoped` call executes that route for one
+/// morsel row scope.
+pub trait PreparedRead: 'static + Send + Sync {
     /// Read the live rows of `range`, with [`RowScope`] defining output
     /// cardinality (`selection`) and meaningful-value demand (`demand`).
     fn read_scoped<'a>(
@@ -493,7 +588,6 @@ pub trait ReadPlan: 'static + Send + Sync {
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>>;
 
@@ -502,101 +596,81 @@ pub trait ReadPlan: 'static + Send + Sync {
         &self,
         _range: Range<u64>,
         _rows: RowScope<'_>,
-        _state: &Self::State,
         _cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
         Ok(SegmentRequests::unknown())
     }
 
     /// Release state behind the completed-row frontier.
-    fn release(&self, _frontier: u64, _state: &Self::State) -> VortexResult<()> {
+    fn release(&self, _frontier: u64) -> VortexResult<()> {
         Ok(())
     }
 
     /// Compact description for plan display.
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "read")
     }
 }
 
-/// Object-safe view of a [`ReadPlan`].
-pub trait DynReadPlan: Send + Sync {
-    /// Create this read plan's per-file/query state, type-erased.
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef>;
-
-    /// Read rows in a selection/demand scope.
-    fn read_scoped<'a>(
-        &'a self,
+impl dyn PreparedRead {
+    /// Create a morsel-level read task for this prepared read.
+    pub fn begin_read(
+        self: Arc<Self>,
         range: Range<u64>,
-        rows: RowScope<'a>,
+        rows: OwnedRowScope,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        Ok(Box::new(DefaultReadTask {
+            read: self,
+            range,
+            rows,
+        }))
+    }
+}
+
+/// A morsel-level read task.
+pub trait ReadTask: Send {
+    /// Return scheduler-visible segment requests needed for this task, when known exactly.
+    fn segment_requests(&self, cx: &mut SegmentPlanCtx) -> VortexResult<SegmentRequests>;
+
+    /// Execute the read task.
+    fn read<'a>(
+        self: Box<Self>,
         io: &'a FileReader,
-        state: &'a ScanState,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>>;
-
-    /// Return scheduler-visible segment requests needed for this read, when known exactly.
-    fn segment_requests(
-        &self,
-        range: Range<u64>,
-        rows: RowScope<'_>,
-        state: &ScanState,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests>;
-
-    /// Release state behind the completed-row frontier.
-    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()>;
-
-    /// Compact description for plan display.
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-impl<T: ReadPlan> DynReadPlan for T {
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
-        Ok(Arc::new(ReadPlan::init_state(self, cx)?))
+struct DefaultReadTask {
+    read: PreparedReadRef,
+    range: Range<u64>,
+    rows: OwnedRowScope,
+}
+
+impl ReadTask for DefaultReadTask {
+    fn segment_requests(&self, cx: &mut SegmentPlanCtx) -> VortexResult<SegmentRequests> {
+        self.read
+            .segment_requests(self.range.clone(), self.rows.as_scope(), cx)
     }
 
-    fn read_scoped<'a>(
-        &'a self,
-        range: Range<u64>,
-        rows: RowScope<'a>,
+    fn read<'a>(
+        self: Box<Self>,
         io: &'a FileReader,
-        state: &'a ScanState,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        let state = match downcast_erased_state::<T::State>(state) {
-            Ok(state) => state,
-            Err(e) => return Box::pin(async move { Err(e) }),
-        };
-        ReadPlan::read_scoped(self, range, rows, io, state, local)
-    }
-
-    fn segment_requests(
-        &self,
-        range: Range<u64>,
-        rows: RowScope<'_>,
-        state: &ScanState,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        let state = downcast_erased_state::<T::State>(state)?;
-        ReadPlan::segment_requests(self, range, rows, state, cx)
-    }
-
-    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
-        let state = downcast_erased_state::<T::State>(state)?;
-        ReadPlan::release(self, frontier, state)
-    }
-
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        ReadPlan::fmt_plan(self, f)
+        Box::pin(async move {
+            self.read
+                .read_scoped(self.range, self.rows.as_scope(), io, local)
+                .await
+        })
     }
 }
 
-/// Executable split plan for one pushed expression.
-pub trait SplitPlan: 'static + Send + Sync {
-    /// The per-query state this split plan executes against.
+/// Prepared split discovery for one pushed expression.
+pub trait PreparedSplit: 'static + Send + Sync {
+    /// The per-query state this prepared split executes against.
     type State: Send + Sync + 'static;
 
-    /// Create this split plan's per-query state.
+    /// Create this prepared split's per-query state.
     fn init_state(&self, ctx: &VortexSession) -> VortexResult<Self::State>;
 
     /// Return natural row ranges inside `range`.
@@ -608,17 +682,17 @@ pub trait SplitPlan: 'static + Send + Sync {
     ) -> BoxFuture<'a, VortexResult<Vec<Range<u64>>>>;
 
     /// Compact description for plan display.
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "splits")
     }
 }
 
-/// Object-safe view of a [`SplitPlan`].
-pub trait DynSplitPlan: Send + Sync {
-    /// Create this split plan's per-query state, type-erased.
+/// Object-safe view of a [`PreparedSplit`].
+pub trait DynPreparedSplit: Send + Sync {
+    /// Create this prepared split's per-query state, type-erased.
     fn init_state(&self, ctx: &VortexSession) -> VortexResult<ScanStateRef>;
 
-    /// Execute the planned split query.
+    /// Execute the prepared split query.
     fn splits<'a>(
         &'a self,
         range: Range<u64>,
@@ -627,12 +701,12 @@ pub trait DynSplitPlan: Send + Sync {
     ) -> BoxFuture<'a, VortexResult<Vec<Range<u64>>>>;
 
     /// Compact description for plan display.
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-impl<T: SplitPlan> DynSplitPlan for T {
+impl<T: PreparedSplit> DynPreparedSplit for T {
     fn init_state(&self, ctx: &VortexSession) -> VortexResult<ScanStateRef> {
-        Ok(Arc::new(SplitPlan::init_state(self, ctx)?))
+        Ok(Arc::new(PreparedSplit::init_state(self, ctx)?))
     }
 
     fn splits<'a>(
@@ -645,25 +719,25 @@ impl<T: SplitPlan> DynSplitPlan for T {
             Ok(state) => state,
             Err(e) => return Box::pin(async move { Err(e) }),
         };
-        SplitPlan::splits(self, range, io, state)
+        PreparedSplit::splits(self, range, io, state)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        SplitPlan::fmt_plan(self, f)
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        PreparedSplit::fmt_prepared(self, f)
     }
 }
 
-struct HintSplitPlan {
+struct HintPreparedSplit {
     hints: Vec<u64>,
 }
 
-impl HintSplitPlan {
+impl HintPreparedSplit {
     fn new(hints: Vec<u64>) -> Self {
         Self { hints }
     }
 }
 
-impl SplitPlan for HintSplitPlan {
+impl PreparedSplit for HintPreparedSplit {
     type State = ();
 
     fn init_state(&self, _ctx: &VortexSession) -> VortexResult<Self::State> {
@@ -696,23 +770,23 @@ impl SplitPlan for HintSplitPlan {
         })
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "hint_splits")
     }
 }
 
-/// Executable ungrouped aggregate plan for one pushed expression.
-pub trait AggregatePlan: 'static + Send + Sync {
-    /// The per-query state this aggregate plan executes against.
+/// Prepared ungrouped aggregate for one pushed expression.
+pub trait PreparedAggregate: 'static + Send + Sync {
+    /// The per-query state this prepared aggregate executes against.
     type State: Send + Sync + 'static;
 
-    /// Create this aggregate plan's per-query state.
+    /// Create this prepared aggregate's per-query state.
     fn init_state(&self, ctx: &VortexSession) -> VortexResult<Self::State>;
 
     /// Answer ungrouped aggregates over every row of `range`.
     ///
-    /// Returns one [`AggregateAnswer`] per planned function. `None` means
-    /// this plan cannot answer any function for this range and the caller
+    /// Returns one [`AggregateAnswer`] per prepared function. `None` means
+    /// this prepared aggregate cannot answer any function for this range and the caller
     /// should read and accumulate the range normally.
     fn aggregate_partial<'a>(
         &'a self,
@@ -722,17 +796,17 @@ pub trait AggregatePlan: 'static + Send + Sync {
     ) -> BoxFuture<'a, VortexResult<Option<Vec<AggregateAnswer>>>>;
 
     /// Compact description for plan display.
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "aggregate")
     }
 }
 
-/// Object-safe view of an [`AggregatePlan`].
-pub trait DynAggregatePlan: Send + Sync {
-    /// Create this aggregate plan's per-query state, type-erased.
+/// Object-safe view of a [`PreparedAggregate`].
+pub trait DynPreparedAggregate: Send + Sync {
+    /// Create this prepared aggregate's per-query state, type-erased.
     fn init_state(&self, ctx: &VortexSession) -> VortexResult<ScanStateRef>;
 
-    /// Execute the planned aggregates.
+    /// Execute the prepared aggregates.
     fn aggregate_partial<'a>(
         &'a self,
         range: Range<u64>,
@@ -741,12 +815,12 @@ pub trait DynAggregatePlan: Send + Sync {
     ) -> BoxFuture<'a, VortexResult<Option<Vec<AggregateAnswer>>>>;
 
     /// Compact description for plan display.
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-impl<T: AggregatePlan> DynAggregatePlan for T {
+impl<T: PreparedAggregate> DynPreparedAggregate for T {
     fn init_state(&self, ctx: &VortexSession) -> VortexResult<ScanStateRef> {
-        Ok(Arc::new(AggregatePlan::init_state(self, ctx)?))
+        Ok(Arc::new(PreparedAggregate::init_state(self, ctx)?))
     }
 
     fn aggregate_partial<'a>(
@@ -759,26 +833,26 @@ impl<T: AggregatePlan> DynAggregatePlan for T {
             Ok(state) => state,
             Err(e) => return Box::pin(async move { Err(e) }),
         };
-        AggregatePlan::aggregate_partial(self, range, io, state)
+        PreparedAggregate::aggregate_partial(self, range, io, state)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        AggregatePlan::fmt_plan(self, f)
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        PreparedAggregate::fmt_prepared(self, f)
     }
 }
 
-/// Executable metadata statistics plan for one pushed expression.
-pub trait StatsPlan: 'static + Send + Sync {
-    /// The per-query state this statistics plan executes against.
+/// Prepared metadata statistics for one pushed expression.
+pub trait PreparedStats: 'static + Send + Sync {
+    /// The per-query state this prepared statistics handle executes against.
     type State: Send + Sync + 'static;
 
-    /// Create this statistics plan's per-query state.
+    /// Create this prepared statistics handle's per-query state.
     fn init_state(&self, ctx: &VortexSession) -> VortexResult<Self::State>;
 
     /// Answer aggregate-function statistics over every row of `range`.
     ///
     /// The returned vector is positional against the functions passed to
-    /// [`ScanNode::plan_stats`]. Each element is exact, inexact, or absent for the requested
+    /// [`ScanNode::prepare_stats`]. Each element is exact, inexact, or absent for the requested
     /// aggregate function over `range`. Implementations must not read row values merely to improve
     /// an estimate.
     fn stats<'a>(
@@ -789,17 +863,17 @@ pub trait StatsPlan: 'static + Send + Sync {
     ) -> BoxFuture<'a, VortexResult<Vec<Precision<Scalar>>>>;
 
     /// Compact description for plan display.
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "stats")
     }
 }
 
-/// Object-safe view of a [`StatsPlan`].
-pub trait DynStatsPlan: Send + Sync {
-    /// Create this statistics plan's per-query state, type-erased.
+/// Object-safe view of a [`PreparedStats`].
+pub trait DynPreparedStats: Send + Sync {
+    /// Create this prepared statistics handle's per-query state, type-erased.
     fn init_state(&self, ctx: &VortexSession) -> VortexResult<ScanStateRef>;
 
-    /// Execute the planned statistics query.
+    /// Execute the prepared statistics query.
     fn stats<'a>(
         &'a self,
         range: Range<u64>,
@@ -808,12 +882,12 @@ pub trait DynStatsPlan: Send + Sync {
     ) -> BoxFuture<'a, VortexResult<Vec<Precision<Scalar>>>>;
 
     /// Compact description for plan display.
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-impl<T: StatsPlan> DynStatsPlan for T {
+impl<T: PreparedStats> DynPreparedStats for T {
     fn init_state(&self, ctx: &VortexSession) -> VortexResult<ScanStateRef> {
-        Ok(Arc::new(StatsPlan::init_state(self, ctx)?))
+        Ok(Arc::new(PreparedStats::init_state(self, ctx)?))
     }
 
     fn stats<'a>(
@@ -826,11 +900,11 @@ impl<T: StatsPlan> DynStatsPlan for T {
             Ok(state) => state,
             Err(e) => return Box::pin(async move { Err(e) }),
         };
-        StatsPlan::stats(self, range, io, state)
+        PreparedStats::stats(self, range, io, state)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        StatsPlan::fmt_plan(self, f)
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        PreparedStats::fmt_prepared(self, f)
     }
 }
 
@@ -878,10 +952,10 @@ pub struct StructValueState {
     validity: Option<ScanStateRef>,
 }
 
-struct StructValueReadPlan {
+struct StructValuePreparedRead {
     node: Arc<StructValueScanNode>,
-    fields: Vec<ReadPlanRef>,
-    validity: Option<ReadPlanRef>,
+    fields: Vec<PreparedReadRef>,
+    validity: Option<PreparedReadRef>,
 }
 
 impl ScanNode for StructValueScanNode {
@@ -901,14 +975,14 @@ impl ScanNode for StructValueScanNode {
         Ok(StructValueState { fields, validity })
     }
 
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
         let fields = self
             .fields
             .iter()
             .map(|field| {
                 Arc::clone(field)
-                    .plan_read(cx)?
-                    .ok_or_else(|| vortex_err!("struct field did not produce a read plan"))
+                    .prepare_read(cx)?
+                    .ok_or_else(|| vortex_err!("struct field did not produce a prepared read"))
             })
             .collect::<VortexResult<Vec<_>>>()?;
         let validity = self
@@ -916,11 +990,11 @@ impl ScanNode for StructValueScanNode {
             .as_ref()
             .map(|validity| {
                 Arc::clone(validity)
-                    .plan_read(cx)?
-                    .ok_or_else(|| vortex_err!("struct validity did not produce a read plan"))
+                    .prepare_read(cx)?
+                    .ok_or_else(|| vortex_err!("struct validity did not produce a prepared read"))
             })
             .transpose()?;
-        Ok(Some(Arc::new(StructValueReadPlan {
+        Ok(Some(Arc::new(StructValuePreparedRead {
             node: self,
             fields,
             validity,
@@ -948,56 +1022,25 @@ impl ScanNode for StructValueScanNode {
     }
 }
 
-impl ReadPlan for StructValueReadPlan {
-    type State = StructValueState;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        let fields = self
-            .fields
-            .iter()
-            .map(|field| field.init_state(cx))
-            .collect::<VortexResult<Vec<_>>>()?;
-        let validity = self
-            .validity
-            .as_ref()
-            .map(|validity| validity.init_state(cx))
-            .transpose()?;
-        Ok(StructValueState { fields, validity })
-    }
-
+impl PreparedRead for StructValuePreparedRead {
     fn read_scoped<'a>(
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
-            if self.node.fields.len() != state.fields.len() {
-                vortex_bail!(
-                    "struct value state length {} does not match field count {}",
-                    state.fields.len(),
-                    self.node.fields.len()
-                );
-            }
             let mut arrays = Vec::with_capacity(self.fields.len());
-            for (field, state) in self.fields.iter().zip(&state.fields) {
-                arrays.push(
-                    field
-                        .read_scoped(range.clone(), rows, io, state.as_ref(), local)
-                        .await?,
-                );
+            for field in &self.fields {
+                arrays.push(field.read_scoped(range.clone(), rows, io, local).await?);
             }
-            let validity = match (&self.validity, &state.validity) {
-                (Some(validity), Some(state)) => {
-                    let array = validity
-                        .read_scoped(range, rows, io, state.as_ref(), local)
-                        .await?;
+            let validity = match &self.validity {
+                Some(validity) => {
+                    let array = validity.read_scoped(range, rows, io, local).await?;
                     Validity::Array(array)
                 }
-                (None, None) => Validity::NonNullable,
-                _ => vortex_bail!("struct value validity plan/state mismatch"),
+                None => Validity::NonNullable,
             };
             Ok(StructArray::try_new(
                 self.node.names.clone(),
@@ -1013,45 +1056,32 @@ impl ReadPlan for StructValueReadPlan {
         &self,
         range: Range<u64>,
         rows: RowScope<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
-        if self.node.fields.len() != state.fields.len() {
-            vortex_bail!(
-                "struct value state length {} does not match field count {}",
-                state.fields.len(),
-                self.node.fields.len()
-            );
-        }
-
         let mut requests = SegmentRequests::none();
-        for (field, state) in self.fields.iter().zip(&state.fields) {
-            requests.extend(field.segment_requests(range.clone(), rows, state.as_ref(), cx)?);
+        for field in &self.fields {
+            requests.extend(field.segment_requests(range.clone(), rows, cx)?);
             if requests.is_unknown() {
                 return Ok(requests);
             }
         }
-        match (&self.validity, &state.validity) {
-            (Some(validity), Some(state)) => {
-                requests.extend(validity.segment_requests(range, rows, state.as_ref(), cx)?);
-            }
-            (None, None) => {}
-            _ => vortex_bail!("struct value validity plan/state mismatch"),
+        if let Some(validity) = &self.validity {
+            requests.extend(validity.segment_requests(range, rows, cx)?);
         }
         Ok(requests)
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
-        for (field, state) in self.fields.iter().zip(&state.fields) {
-            field.release(frontier, state.as_ref())?;
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        for field in &self.fields {
+            field.release(frontier)?;
         }
-        if let (Some(validity), Some(state)) = (&self.validity, &state.validity) {
-            validity.release(frontier, state.as_ref())?;
+        if let Some(validity) = &self.validity {
+            validity.release(frontier)?;
         }
         Ok(())
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         ScanNode::fmt_chain(self.node.as_ref(), f)
     }
 }
@@ -1069,9 +1099,9 @@ impl ApplyScanNode {
     }
 }
 
-struct ApplyReadPlan {
+struct ApplyPreparedRead {
     node: Arc<ApplyScanNode>,
-    input: ReadPlanRef,
+    input: PreparedReadRef,
 }
 
 impl ScanNode for ApplyScanNode {
@@ -1081,11 +1111,11 @@ impl ScanNode for ApplyScanNode {
         cx.init_node(&self.input)
     }
 
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
         let input = Arc::clone(&self.input)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("apply input did not produce a read plan"))?;
-        Ok(Some(Arc::new(ApplyReadPlan { node: self, input })))
+            .prepare_read(cx)?
+            .ok_or_else(|| vortex_err!("apply input did not produce a prepared read"))?;
+        Ok(Some(Arc::new(ApplyPreparedRead { node: self, input })))
     }
 
     fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
@@ -1101,26 +1131,16 @@ impl ScanNode for ApplyScanNode {
     }
 }
 
-impl ReadPlan for ApplyReadPlan {
-    type State = ScanStateRef;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        self.input.init_state(cx)
-    }
-
+impl PreparedRead for ApplyPreparedRead {
     fn read_scoped<'a>(
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
-            let input = self
-                .input
-                .read_scoped(range, rows, io, state.as_ref(), local)
-                .await?;
+            let input = self.input.read_scoped(range, rows, io, local).await?;
             input.apply(&self.node.expr)?.execute::<ArrayRef>(local)
         })
     }
@@ -1129,17 +1149,16 @@ impl ReadPlan for ApplyReadPlan {
         &self,
         range: Range<u64>,
         rows: RowScope<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
-        self.input.segment_requests(range, rows, state.as_ref(), cx)
+        self.input.segment_requests(range, rows, cx)
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
-        self.input.release(frontier, state.as_ref())
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        self.input.release(frontier)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         ScanNode::fmt_chain(self.node.as_ref(), f)
     }
 }
@@ -1172,10 +1191,10 @@ pub struct MaskState {
     validity: ScanStateRef,
 }
 
-struct MaskReadPlan {
+struct MaskPreparedRead {
     node: Arc<MaskScanNode>,
-    input: ReadPlanRef,
-    validity: ReadPlanRef,
+    input: PreparedReadRef,
+    validity: PreparedReadRef,
 }
 
 impl ScanNode for MaskScanNode {
@@ -1188,14 +1207,14 @@ impl ScanNode for MaskScanNode {
         })
     }
 
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
         let input = Arc::clone(&self.input)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("mask input did not produce a read plan"))?;
+            .prepare_read(cx)?
+            .ok_or_else(|| vortex_err!("mask input did not produce a prepared read"))?;
         let validity = Arc::clone(&self.validity)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("mask validity did not produce a read plan"))?;
-        Ok(Some(Arc::new(MaskReadPlan {
+            .prepare_read(cx)?
+            .ok_or_else(|| vortex_err!("mask validity did not produce a prepared read"))?;
+        Ok(Some(Arc::new(MaskPreparedRead {
             node: self,
             input,
             validity,
@@ -1217,80 +1236,53 @@ impl ScanNode for MaskScanNode {
     }
 }
 
-impl ReadPlan for MaskReadPlan {
-    type State = MaskState;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        Ok(MaskState {
-            input: self.input.init_state(cx)?,
-            validity: self.validity.init_state(cx)?,
-        })
-    }
-
+impl PreparedRead for MaskPreparedRead {
     fn read_scoped<'a>(
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
             let input = self
                 .input
-                .read_scoped(range.clone(), rows, io, state.input.as_ref(), local)
+                .read_scoped(range.clone(), rows, io, local)
                 .await?;
-            let validity = self
-                .validity
-                .read_scoped(range, rows, io, state.validity.as_ref(), local)
-                .await?;
+            let validity = self.validity.read_scoped(range, rows, io, local).await?;
             input.mask(validity)?.execute::<ArrayRef>(local)
         })
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
-        self.input.release(frontier, state.input.as_ref())?;
-        self.validity.release(frontier, state.validity.as_ref())
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        self.input.release(frontier)?;
+        self.validity.release(frontier)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         ScanNode::fmt_chain(self.node.as_ref(), f)
     }
 }
 
-/// Executable predicate evidence for one planned predicate expression.
-pub trait EvidencePlan: 'static + Send + Sync {
-    /// The per-query state this evidence plan executes against.
-    type State: Send + Sync + 'static;
-
-    /// Create this evidence plan's per-query state.
-    fn init_state(&self, ctx: &VortexSession) -> VortexResult<Self::State>;
-
-    /// Produce evidence for the planned predicate over `req.range`.
+/// Prepared predicate evidence for one predicate expression.
+pub trait PreparedEvidence: 'static + Send + Sync {
+    /// Produce evidence for the prepared predicate over `req.range`.
     fn evidence<'a>(
         &'a self,
         req: &'a EvidenceRequest<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>>;
 
     /// Return scheduler-visible segment requests needed for this evidence, when known exactly.
     fn segment_requests(
         &self,
         _req: &EvidenceRequest<'_>,
-        _state: &Self::State,
         _cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
         Ok(SegmentRequests::unknown())
     }
 
-    /// A key for sharing this plan's state with sibling evidence plans
-    /// in the same file. The default keeps one state per planned route.
-    fn state_cache_key(&self) -> Option<EvidenceStateKey> {
-        None
-    }
-
-    /// Whether this plan is cheap enough to re-run immediately before a
+    /// Whether this handle is cheap enough to re-run immediately before a
     /// projection read when a dynamic predicate boundary changes while
     /// the morsel is in flight.
     fn recheck_before_projection(&self) -> bool {
@@ -1298,80 +1290,51 @@ pub trait EvidencePlan: 'static + Send + Sync {
     }
 
     /// Compact description for plan display.
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "evidence")
     }
 }
 
-/// Object-safe view of an [`EvidencePlan`].
-pub trait DynEvidencePlan: Send + Sync {
-    /// Create this evidence plan's per-query state, type-erased.
-    fn init_state(&self, ctx: &VortexSession) -> VortexResult<ScanStateRef>;
-
-    /// Produce evidence for the planned predicate over `req.range`.
-    fn evidence<'a>(
-        &'a self,
-        req: &'a EvidenceRequest<'a>,
-        io: &'a FileReader,
-        state: &'a ScanState,
-    ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>>;
-
-    /// Return scheduler-visible segment requests needed for this evidence, when known exactly.
-    fn segment_requests(
-        &self,
-        req: &EvidenceRequest<'_>,
-        state: &ScanState,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests>;
-
-    /// A key for sharing this plan's state with sibling evidence plans.
-    fn state_cache_key(&self) -> Option<EvidenceStateKey>;
-
-    /// Whether this plan should run in the projection recheck pass.
-    fn recheck_before_projection(&self) -> bool;
-
-    /// Compact description for plan display.
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+impl dyn PreparedEvidence {
+    /// Create a morsel-level evidence task for this prepared evidence handle.
+    pub fn begin_evidence(
+        self: Arc<Self>,
+        req: OwnedEvidenceRequest,
+    ) -> VortexResult<Box<dyn EvidenceTask>> {
+        Ok(Box::new(DefaultEvidenceTask {
+            evidence: self,
+            req,
+        }))
+    }
 }
 
-impl<T: EvidencePlan> DynEvidencePlan for T {
-    fn init_state(&self, ctx: &VortexSession) -> VortexResult<ScanStateRef> {
-        Ok(Arc::new(EvidencePlan::init_state(self, ctx)?))
+/// A morsel-level evidence task.
+pub trait EvidenceTask: Send {
+    /// Return scheduler-visible segment requests needed for this task, when known exactly.
+    fn segment_requests(&self, cx: &mut SegmentPlanCtx) -> VortexResult<SegmentRequests>;
+
+    /// Execute the evidence task.
+    fn evidence<'a>(
+        self: Box<Self>,
+        io: &'a FileReader,
+    ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>>;
+}
+
+struct DefaultEvidenceTask {
+    evidence: PreparedEvidenceRef,
+    req: OwnedEvidenceRequest,
+}
+
+impl EvidenceTask for DefaultEvidenceTask {
+    fn segment_requests(&self, cx: &mut SegmentPlanCtx) -> VortexResult<SegmentRequests> {
+        self.evidence.segment_requests(&self.req.as_request(), cx)
     }
 
     fn evidence<'a>(
-        &'a self,
-        req: &'a EvidenceRequest<'a>,
+        self: Box<Self>,
         io: &'a FileReader,
-        state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>> {
-        let state = match downcast_erased_state::<T::State>(state) {
-            Ok(state) => state,
-            Err(e) => return Box::pin(async move { Err(e) }),
-        };
-        EvidencePlan::evidence(self, req, io, state)
-    }
-
-    fn segment_requests(
-        &self,
-        req: &EvidenceRequest<'_>,
-        state: &ScanState,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        let state = downcast_erased_state::<T::State>(state)?;
-        EvidencePlan::segment_requests(self, req, state, cx)
-    }
-
-    fn state_cache_key(&self) -> Option<EvidenceStateKey> {
-        EvidencePlan::state_cache_key(self)
-    }
-
-    fn recheck_before_projection(&self) -> bool {
-        EvidencePlan::recheck_before_projection(self)
-    }
-
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        EvidencePlan::fmt_plan(self, f)
+        Box::pin(async move { self.evidence.evidence(&self.req.as_request(), io).await })
     }
 }
 
@@ -1451,16 +1414,19 @@ mod tests {
             Ok(())
         }
 
-        fn plan_read(self: Arc<Self>, _cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
+        fn prepare_read(
+            self: Arc<Self>,
+            _cx: &mut PrepareCtx,
+        ) -> VortexResult<Option<PreparedReadRef>> {
             Ok(None)
         }
 
-        fn plan_stats(
+        fn prepare_stats(
             self: Arc<Self>,
             funcs: &[AggregateFnRef],
-            _cx: &mut PlanCtx,
-        ) -> VortexResult<Option<StatsPlanRef>> {
-            Ok(Some(Arc::new(TestStatsPlan { len: funcs.len() })))
+            _cx: &mut PrepareCtx,
+        ) -> VortexResult<Option<PreparedStatsRef>> {
+            Ok(Some(Arc::new(TestPreparedStats { len: funcs.len() })))
         }
 
         fn fmt_chain(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1468,11 +1434,11 @@ mod tests {
         }
     }
 
-    struct TestStatsPlan {
+    struct TestPreparedStats {
         len: usize,
     }
 
-    impl StatsPlan for TestStatsPlan {
+    impl PreparedStats for TestPreparedStats {
         type State = ();
 
         fn init_state(&self, _ctx: &VortexSession) -> VortexResult<Self::State> {
@@ -1506,7 +1472,7 @@ mod tests {
         let funcs = vec![Min.bind(EmptyOptions), Max.bind(EmptyOptions)];
 
         let plan = node
-            .plan_stats(&funcs, &mut PlanCtx::new(session.clone()))?
+            .prepare_stats(&funcs, &mut PrepareCtx::new(session.clone()))?
             .ok_or_else(|| vortex_err!("test scan node did not return a stats plan"))?;
         let state = plan.init_state(&session)?;
         let io = FileReader::new(Arc::new(TestSegments::default()), session);

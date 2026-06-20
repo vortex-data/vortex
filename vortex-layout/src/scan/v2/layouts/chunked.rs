@@ -47,23 +47,23 @@ use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
 use crate::scan::v2::evidence::EvidenceFragment;
 use crate::scan::v2::node::AggregateAnswer;
-use crate::scan::v2::node::AggregatePlan;
-use crate::scan::v2::node::AggregatePlanRef;
-use crate::scan::v2::node::EvidencePlan;
-use crate::scan::v2::node::EvidencePlanRef;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::PlanCtx;
+use crate::scan::v2::node::PrepareCtx;
+use crate::scan::v2::node::PreparedAggregate;
+use crate::scan::v2::node::PreparedAggregateRef;
+use crate::scan::v2::node::PreparedEvidence;
+use crate::scan::v2::node::PreparedEvidenceRef;
+use crate::scan::v2::node::PreparedRead;
+use crate::scan::v2::node::PreparedReadRef;
+use crate::scan::v2::node::PreparedStateCacheRef;
+use crate::scan::v2::node::PreparedStateKey;
 use crate::scan::v2::node::PushCtx;
-use crate::scan::v2::node::ReadPlan;
-use crate::scan::v2::node::ReadPlanRef;
 use crate::scan::v2::node::RowScope;
 use crate::scan::v2::node::ScanNode;
 use crate::scan::v2::node::ScanNodeRef;
-use crate::scan::v2::node::ScanStateCache;
 use crate::scan::v2::node::ScanStateRef;
 use crate::scan::v2::node::StateCtx;
-use crate::scan::v2::node::downcast_state;
 use crate::scan::v2::request::EvidenceMode;
 use crate::scan::v2::request::EvidenceRequest;
 use crate::scan::v2::request::NodeRequest;
@@ -80,7 +80,6 @@ pub(crate) fn new_scan_node(
         offsets: layout.data().chunk_offsets().to_vec(),
         cx: cx.clone(),
         children: Mutex::new(FxHashMap::default()),
-        reads: Mutex::new(FxHashMap::default()),
     }))
 }
 
@@ -93,8 +92,6 @@ pub struct ChunkedScanNode {
     cx: ExpandCtx,
     /// Lazily expanded chunk nodes, shared across queries.
     children: Mutex<FxHashMap<usize, ScanNodeRef>>,
-    /// Lazily planned chunk reads, shared across queries.
-    reads: Mutex<FxHashMap<usize, ReadPlanRef>>,
 }
 
 /// Per-query states of the lazily expanded chunk nodes. Chunk states
@@ -103,8 +100,8 @@ pub struct ChunkedScanNode {
 /// every chunk it touched.
 #[derive(Default)]
 pub struct ChunkedScanState {
-    children: Mutex<FxHashMap<usize, ScanStateRef>>,
-    node_states: Mutex<FxHashMap<usize, ScanStateCache>>,
+    reads: Mutex<FxHashMap<usize, PreparedReadRef>>,
+    child_state_caches: Mutex<FxHashMap<usize, PreparedStateCacheRef>>,
     /// Every chunk whose state was ever created (never cleared by
     /// release), for read-avoidance tests.
     #[cfg(any(test, debug_assertions))]
@@ -124,19 +121,19 @@ pub struct ChunkedExprScanNode {
     expr: Expression,
     dtype: DType,
     children: Mutex<FxHashMap<usize, ScanNodeRef>>,
-    reads: Mutex<FxHashMap<usize, ReadPlanRef>>,
 }
 
 /// Per-query states of lazily pushed chunk children.
 pub struct ChunkedExprScanState {
-    chunked: ScanStateRef,
-    children: Mutex<FxHashMap<usize, ScanStateRef>>,
+    chunked: Arc<ChunkedScanState>,
+    reads: Mutex<FxHashMap<usize, PreparedReadRef>>,
     #[cfg(debug_assertions)]
     released: AtomicU64,
 }
 
-struct ChunkedEvidencePlan {
+struct ChunkedPreparedEvidence {
     node: Arc<ChunkedExprScanNode>,
+    state: Arc<ChunkedEvidenceState>,
 }
 
 enum ChunkedAggregateNode {
@@ -144,37 +141,50 @@ enum ChunkedAggregateNode {
     Expr(Arc<ChunkedExprScanNode>),
 }
 
-struct ChunkedAggregatePlan {
+struct ChunkedPreparedAggregate {
     node: ChunkedAggregateNode,
+    chunked_state: Arc<ChunkedScanState>,
     dtype: DType,
     funcs: Vec<AggregateFnRef>,
 }
 
-struct ChunkedReadPlan {
+struct ChunkedPreparedRead {
     node: Arc<ChunkedScanNode>,
+    state: Arc<ChunkedScanState>,
 }
 
-struct ChunkedExprReadPlan {
+struct ChunkedExprPreparedRead {
     node: Arc<ChunkedExprScanNode>,
+    state: Arc<ChunkedExprScanState>,
 }
 
-#[derive(Default)]
 struct ChunkedEvidenceState {
-    children: Mutex<FxHashMap<usize, Vec<(EvidencePlanRef, ScanStateRef)>>>,
-    recheck_children: Mutex<FxHashMap<usize, Vec<(EvidencePlanRef, ScanStateRef)>>>,
+    chunked: Arc<ChunkedScanState>,
+    children: Mutex<FxHashMap<usize, Vec<PreparedEvidenceRef>>>,
+    recheck_children: Mutex<FxHashMap<usize, Vec<PreparedEvidenceRef>>>,
 }
 
 #[derive(Default)]
 struct ChunkedAggregateState {
-    children: Mutex<FxHashMap<usize, Option<(AggregatePlanRef, ScanStateRef)>>>,
+    children: Mutex<FxHashMap<usize, Option<(PreparedAggregateRef, ScanStateRef)>>>,
 }
 
 impl ChunkedScanState {
+    fn child_prepare_ctx(&self, idx: usize, session: &VortexSession) -> PrepareCtx {
+        if let Some(hit) = self.child_state_caches.lock().get(&idx) {
+            return PrepareCtx::with_state_cache(session.clone(), Arc::clone(hit));
+        }
+        let cache = Default::default();
+        let mut caches = self.child_state_caches.lock();
+        let cache = Arc::clone(caches.entry(idx).or_insert(cache));
+        PrepareCtx::with_state_cache(session.clone(), cache)
+    }
+
     /// The number of chunk states currently retained.
     #[allow(dead_code)]
     #[cfg(any(test, debug_assertions))]
     pub fn retained_children(&self) -> usize {
-        self.children.lock().len()
+        self.reads.lock().len()
     }
 
     /// Whether chunk `idx` was ever read this query (release does not
@@ -186,7 +196,23 @@ impl ChunkedScanState {
     }
 }
 
+impl ChunkedEvidenceState {
+    fn new(chunked: Arc<ChunkedScanState>) -> Self {
+        Self {
+            chunked,
+            children: Mutex::new(FxHashMap::default()),
+            recheck_children: Mutex::new(FxHashMap::default()),
+        }
+    }
+}
+
 impl ChunkedScanNode {
+    fn scan_state(&self, cx: &mut PrepareCtx) -> VortexResult<Arc<ChunkedScanState>> {
+        let key =
+            PreparedStateKey::new::<ChunkedScanState>(self as *const Self as *const () as usize);
+        cx.shared_state(key, || Ok(ChunkedScanState::default()))
+    }
+
     /// The scan node for chunk `idx`, expanding it on first use. Lazy
     /// expansion is independent of pushed predicate expressions.
     fn child(&self, idx: usize) -> VortexResult<ScanNodeRef> {
@@ -199,38 +225,24 @@ impl ChunkedScanNode {
     }
 
     /// The planned value read for chunk `idx`, creating it on first use.
-    fn child_read(&self, idx: usize, session: &VortexSession) -> VortexResult<ReadPlanRef> {
-        if let Some(hit) = self.reads.lock().get(&idx) {
+    fn child_read(
+        &self,
+        idx: usize,
+        state: &ChunkedScanState,
+        session: &VortexSession,
+    ) -> VortexResult<PreparedReadRef> {
+        if let Some(hit) = state.reads.lock().get(&idx) {
             return Ok(Arc::clone(hit));
         }
         let node = self.child(idx)?;
-        let mut cx = PlanCtx::new(session.clone());
+        let mut cx = state.child_prepare_ctx(idx, session);
         let read = node
-            .plan_read(&mut cx)?
-            .ok_or_else(|| vortex_err!("chunked child {idx} did not produce a read plan"))?;
-        let mut reads = self.reads.lock();
-        Ok(Arc::clone(reads.entry(idx).or_insert(read)))
-    }
-
-    /// Chunk `idx`'s per-query state, creating it on first use.
-    fn child_read_state(
-        &self,
-        idx: usize,
-        read: &ReadPlanRef,
-        state: &ChunkedScanState,
-        session: &VortexSession,
-    ) -> VortexResult<ScanStateRef> {
-        if let Some(hit) = state.children.lock().get(&idx) {
-            return Ok(Arc::clone(hit));
-        }
-        let mut caches = state.node_states.lock();
-        let cache = caches.entry(idx).or_default();
-        let mut cx = StateCtx::new(session, cache);
-        let child_state = read.init_state(&mut cx)?;
-        state.children.lock().insert(idx, Arc::clone(&child_state));
+            .prepare_read(&mut cx)?
+            .ok_or_else(|| vortex_err!("chunked child {idx} did not produce a prepared read"))?;
+        let mut reads = state.reads.lock();
         #[cfg(any(test, debug_assertions))]
         state.created.lock().insert(idx);
-        Ok(child_state)
+        Ok(Arc::clone(reads.entry(idx).or_insert(read)))
     }
 
     fn first_chunk(&self, start: u64) -> usize {
@@ -247,7 +259,6 @@ impl ChunkedExprScanNode {
             expr,
             dtype,
             children: Mutex::new(FxHashMap::default()),
-            reads: Mutex::new(FxHashMap::default()),
         }
     }
 
@@ -268,39 +279,22 @@ impl ChunkedExprScanNode {
     }
 
     /// The planned value read for pushed chunk child `idx`.
-    fn child_read(&self, idx: usize, session: &VortexSession) -> VortexResult<ReadPlanRef> {
-        if let Some(hit) = self.reads.lock().get(&idx) {
+    fn child_read(
+        &self,
+        idx: usize,
+        state: &ChunkedExprScanState,
+        session: &VortexSession,
+    ) -> VortexResult<PreparedReadRef> {
+        if let Some(hit) = state.reads.lock().get(&idx) {
             return Ok(Arc::clone(hit));
         }
         let node = self.child(idx, session)?;
-        let mut cx = PlanCtx::new(session.clone());
-        let read = node.plan_read(&mut cx)?.ok_or_else(|| {
-            vortex_err!("chunked expression child {idx} did not produce a read plan")
+        let mut cx = state.chunked.child_prepare_ctx(idx, session);
+        let read = node.prepare_read(&mut cx)?.ok_or_else(|| {
+            vortex_err!("chunked expression child {idx} did not produce a prepared read")
         })?;
-        let mut reads = self.reads.lock();
+        let mut reads = state.reads.lock();
         Ok(Arc::clone(reads.entry(idx).or_insert(read)))
-    }
-
-    fn child_read_state(
-        &self,
-        idx: usize,
-        read: &ReadPlanRef,
-        state: &ChunkedExprScanState,
-        session: &VortexSession,
-    ) -> VortexResult<ScanStateRef> {
-        if let Some(hit) = state.children.lock().get(&idx) {
-            return Ok(Arc::clone(hit));
-        }
-        let chunked_state = state
-            .chunked
-            .downcast_ref::<ChunkedScanState>()
-            .ok_or_else(|| vortex_err!("chunked expression state type mismatch"))?;
-        let mut caches = chunked_state.node_states.lock();
-        let cache = caches.entry(idx).or_default();
-        let mut cx = StateCtx::new(session, cache);
-        let child_state = read.init_state(&mut cx)?;
-        let mut children = state.children.lock();
-        Ok(Arc::clone(children.entry(idx).or_insert(child_state)))
     }
 }
 
@@ -327,19 +321,19 @@ impl ChunkedAggregateNode {
     }
 }
 
-impl ChunkedAggregatePlan {
+impl ChunkedPreparedAggregate {
     fn child_plan(
         &self,
         idx: usize,
         state: &ChunkedAggregateState,
         io: &FileReader,
-    ) -> VortexResult<Option<(AggregatePlanRef, ScanStateRef)>> {
+    ) -> VortexResult<Option<(PreparedAggregateRef, ScanStateRef)>> {
         if let Some(hit) = state.children.lock().get(&idx) {
             return Ok(hit.clone());
         }
         let child = self.node.child(idx, io)?;
-        let mut plan_ctx = PlanCtx::new(io.session().clone());
-        let planned = match child.plan_aggregate_partial(&self.funcs, &mut plan_ctx)? {
+        let mut plan_ctx = self.chunked_state.child_prepare_ctx(idx, io.session());
+        let planned = match child.prepare_aggregate_partial(&self.funcs, &mut plan_ctx)? {
             Some(plan) => {
                 let plan_state = plan.init_state(io.session())?;
                 Some((plan, plan_state))
@@ -351,7 +345,7 @@ impl ChunkedAggregatePlan {
     }
 }
 
-impl AggregatePlan for ChunkedAggregatePlan {
+impl PreparedAggregate for ChunkedPreparedAggregate {
     type State = ChunkedAggregateState;
 
     fn init_state(&self, _ctx: &VortexSession) -> VortexResult<ChunkedAggregateState> {
@@ -451,7 +445,7 @@ impl AggregatePlan for ChunkedAggregatePlan {
         })
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "chunked")
     }
 }
@@ -463,8 +457,9 @@ impl ScanNode for ChunkedScanNode {
         Ok(ChunkedScanState::default())
     }
 
-    fn plan_read(self: Arc<Self>, _cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
-        Ok(Some(Arc::new(ChunkedReadPlan { node: self })))
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
+        let state = self.scan_state(cx)?;
+        Ok(Some(Arc::new(ChunkedPreparedRead { node: self, state })))
     }
 
     fn try_push_expr(
@@ -483,26 +478,34 @@ impl ScanNode for ChunkedScanNode {
         ))))
     }
 
-    fn plan_evidence(self: Arc<Self>, _cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>> {
-        Ok(vec![Arc::new(ChunkedEvidencePlan {
-            node: Arc::new(ChunkedExprScanNode::new(
-                Arc::clone(&self),
-                root(),
-                self.layout.dtype().clone(),
-            )),
-        })])
+    fn prepare_evidence(
+        self: Arc<Self>,
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Vec<PreparedEvidenceRef>> {
+        let node = Arc::new(ChunkedExprScanNode::new(
+            Arc::clone(&self),
+            root(),
+            self.layout.dtype().clone(),
+        ));
+        let chunked_state = self.scan_state(cx)?;
+        let key =
+            PreparedStateKey::new::<ChunkedEvidenceState>(Arc::as_ptr(&self) as *const () as usize);
+        let state = cx.shared_state(key, || Ok(ChunkedEvidenceState::new(chunked_state)))?;
+        Ok(vec![Arc::new(ChunkedPreparedEvidence { node, state })])
     }
 
-    fn plan_aggregate_partial(
+    fn prepare_aggregate_partial(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
-        _cx: &mut PlanCtx,
-    ) -> VortexResult<Option<AggregatePlanRef>> {
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedAggregateRef>> {
         if funcs.is_empty() {
             return Ok(None);
         }
-        Ok(Some(Arc::new(ChunkedAggregatePlan {
+        let chunked_state = self.scan_state(cx)?;
+        Ok(Some(Arc::new(ChunkedPreparedAggregate {
             node: ChunkedAggregateNode::Root(Arc::clone(&self)),
+            chunked_state,
             dtype: self.layout.dtype().clone(),
             funcs: funcs.to_vec(),
         })))
@@ -518,19 +521,18 @@ impl ScanNode for ChunkedScanNode {
     /// hold no data.
     fn release(&self, frontier: u64, state: &ChunkedScanState) -> VortexResult<()> {
         state
-            .children
+            .reads
             .lock()
             .retain(|&idx, _| self.offsets[idx + 1] > frontier);
         state
-            .node_states
+            .child_state_caches
             .lock()
             .retain(|&idx, _| self.offsets[idx + 1] > frontier);
         let idx = self.first_chunk(frontier);
         if idx + 1 < self.offsets.len() && self.offsets[idx] < frontier {
-            let child_state = state.children.lock().get(&idx).cloned();
-            let child = self.reads.lock().get(&idx).cloned();
-            if let (Some(child), Some(child_state)) = (child, child_state) {
-                child.release(frontier - self.offsets[idx], child_state.as_ref())?;
+            let child = state.reads.lock().get(&idx).cloned();
+            if let Some(child) = child {
+                child.release(frontier - self.offsets[idx])?;
             }
         }
         #[cfg(debug_assertions)]
@@ -543,14 +545,7 @@ impl ScanNode for ChunkedScanNode {
     }
 }
 
-impl ReadPlan for ChunkedReadPlan {
-    type State = ScanStateRef;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        let node: ScanNodeRef = Arc::<ChunkedScanNode>::clone(&self.node);
-        cx.init_node(&node)
-    }
-
+impl PreparedRead for ChunkedPreparedRead {
     /// The chunked scoped read: slice the selection and demand per
     /// overlapping chunk, skip chunks whose selection is all-false, and
     /// represent selected-but-undemanded chunks with dtype-default filler
@@ -560,20 +555,15 @@ impl ReadPlan for ChunkedReadPlan {
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         local_ctx: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        let state = match downcast_state::<ChunkedScanNode>(state.as_ref()) {
-            Ok(state) => state,
-            Err(e) => return Box::pin(async move { Err(e) }),
-        };
         Box::pin(async move {
             if range.start >= range.end {
                 vortex_bail!("empty chunked scoped read range");
             }
             #[cfg(debug_assertions)]
             {
-                let released = state.released.load(Ordering::Relaxed);
+                let released = self.state.released.load(Ordering::Relaxed);
                 debug_assert!(
                     range.start >= released,
                     "chunked read {range:?} below the released frontier {released}"
@@ -631,23 +621,13 @@ impl ReadPlan for ChunkedReadPlan {
                     continue;
                 }
                 let chunk_idx = idx - 1;
-                let read = self.node.child_read(chunk_idx, io.session())?;
-                let child_state =
-                    self.node
-                        .child_read_state(chunk_idx, &read, state, io.session())?;
+                let read = self.node.child_read(chunk_idx, &self.state, io.session())?;
                 let chunk = if dense_scope || selected_scope {
-                    read.read_scoped(
-                        local,
-                        RowScope::selected(&chunk_selection),
-                        io,
-                        child_state.as_ref(),
-                        local_ctx,
-                    )
-                    .await?
+                    read.read_scoped(local, RowScope::selected(&chunk_selection), io, local_ctx)
+                        .await?
                 } else {
                     let chunk_rows = RowScope::try_new(&chunk_selection, &chunk_demand)?;
-                    read.read_scoped(local, chunk_rows, io, child_state.as_ref(), local_ctx)
-                        .await?
+                    read.read_scoped(local, chunk_rows, io, local_ctx).await?
                 };
                 if chunk.len() != chunk_selection.true_count() {
                     vortex_bail!(
@@ -670,16 +650,14 @@ impl ReadPlan for ChunkedReadPlan {
         &self,
         range: Range<u64>,
         rows: RowScope<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
-        let state = downcast_state::<ChunkedScanNode>(state.as_ref())?;
         if range.start >= range.end {
             vortex_bail!("empty chunked scoped read range");
         }
         #[cfg(debug_assertions)]
         {
-            let released = state.released.load(Ordering::Relaxed);
+            let released = self.state.released.load(Ordering::Relaxed);
             debug_assert!(
                 range.start >= released,
                 "chunked request planning {range:?} below the released frontier {released}"
@@ -728,20 +706,12 @@ impl ReadPlan for ChunkedReadPlan {
                 continue;
             }
             let chunk_idx = idx - 1;
-            let read = self.node.child_read(chunk_idx, cx.session())?;
-            let child_state = self
-                .node
-                .child_read_state(chunk_idx, &read, state, cx.session())?;
+            let read = self.node.child_read(chunk_idx, &self.state, cx.session())?;
             let chunk_requests = if dense_scope || selected_scope {
-                read.segment_requests(
-                    local,
-                    RowScope::selected(&chunk_selection),
-                    child_state.as_ref(),
-                    cx,
-                )?
+                read.segment_requests(local, RowScope::selected(&chunk_selection), cx)?
             } else {
                 let chunk_rows = RowScope::try_new(&chunk_selection, &chunk_demand)?;
-                read.segment_requests(local, chunk_rows, child_state.as_ref(), cx)?
+                read.segment_requests(local, chunk_rows, cx)?
             };
             requests.extend(chunk_requests);
             if requests.is_unknown() {
@@ -754,12 +724,11 @@ impl ReadPlan for ChunkedReadPlan {
         Ok(requests)
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
-        self.node
-            .release(frontier, downcast_state::<ChunkedScanNode>(state.as_ref())?)
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        self.node.release(frontier, &self.state)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.node.fmt_chain(f)
     }
 }
@@ -768,33 +737,59 @@ impl ScanNode for ChunkedExprScanNode {
     type State = ChunkedExprScanState;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ChunkedExprScanState> {
-        let chunked: ScanNodeRef = Arc::<ChunkedScanNode>::clone(&self.chunked);
+        let _ = cx;
         Ok(ChunkedExprScanState {
-            chunked: cx.init_node(&chunked)?,
-            children: Mutex::new(FxHashMap::default()),
+            chunked: Arc::new(ChunkedScanState::default()),
+            reads: Mutex::new(FxHashMap::default()),
             #[cfg(debug_assertions)]
             released: AtomicU64::new(0),
         })
     }
 
-    fn plan_read(self: Arc<Self>, _cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
-        Ok(Some(Arc::new(ChunkedExprReadPlan { node: self })))
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
+        let key =
+            PreparedStateKey::new::<ChunkedExprScanState>(Arc::as_ptr(&self) as *const () as usize);
+        let chunked = self.chunked.scan_state(cx)?;
+        let state = cx.shared_state(key, || {
+            Ok(ChunkedExprScanState {
+                chunked,
+                reads: Mutex::new(FxHashMap::default()),
+                #[cfg(debug_assertions)]
+                released: AtomicU64::new(0),
+            })
+        })?;
+        Ok(Some(Arc::new(ChunkedExprPreparedRead {
+            node: self,
+            state,
+        })))
     }
 
-    fn plan_evidence(self: Arc<Self>, _cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>> {
-        Ok(vec![Arc::new(ChunkedEvidencePlan { node: self })])
+    fn prepare_evidence(
+        self: Arc<Self>,
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Vec<PreparedEvidenceRef>> {
+        let key =
+            PreparedStateKey::new::<ChunkedEvidenceState>(Arc::as_ptr(&self) as *const () as usize);
+        let chunked = self.chunked.scan_state(cx)?;
+        let state = cx.shared_state(key, || Ok(ChunkedEvidenceState::new(chunked)))?;
+        Ok(vec![Arc::new(ChunkedPreparedEvidence {
+            node: self,
+            state,
+        })])
     }
 
-    fn plan_aggregate_partial(
+    fn prepare_aggregate_partial(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
-        _cx: &mut PlanCtx,
-    ) -> VortexResult<Option<AggregatePlanRef>> {
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedAggregateRef>> {
         if funcs.is_empty() {
             return Ok(None);
         }
-        Ok(Some(Arc::new(ChunkedAggregatePlan {
+        let chunked_state = self.chunked.scan_state(cx)?;
+        Ok(Some(Arc::new(ChunkedPreparedAggregate {
             node: ChunkedAggregateNode::Expr(Arc::clone(&self)),
+            chunked_state,
             dtype: self.dtype.clone(),
             funcs: funcs.to_vec(),
         })))
@@ -806,21 +801,14 @@ impl ScanNode for ChunkedExprScanNode {
 
     fn release(&self, frontier: u64, state: &ChunkedExprScanState) -> VortexResult<()> {
         state
-            .children
+            .reads
             .lock()
             .retain(|&idx, _| self.chunked.offsets[idx + 1] > frontier);
-        if let Some(chunked_state) = state.chunked.downcast_ref::<ChunkedScanState>() {
-            chunked_state
-                .node_states
-                .lock()
-                .retain(|&idx, _| self.chunked.offsets[idx + 1] > frontier);
-        }
         let idx = self.chunked.first_chunk(frontier);
         if idx + 1 < self.chunked.offsets.len() && self.chunked.offsets[idx] < frontier {
-            let child_state = state.children.lock().get(&idx).cloned();
-            let child = self.reads.lock().get(&idx).cloned();
-            if let (Some(child), Some(child_state)) = (child, child_state) {
-                child.release(frontier - self.chunked.offsets[idx], child_state.as_ref())?;
+            let child = state.reads.lock().get(&idx).cloned();
+            if let Some(child) = child {
+                child.release(frontier - self.chunked.offsets[idx])?;
             }
         }
         #[cfg(debug_assertions)]
@@ -833,33 +821,21 @@ impl ScanNode for ChunkedExprScanNode {
     }
 }
 
-impl ReadPlan for ChunkedExprReadPlan {
-    type State = ScanStateRef;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        let node: ScanNodeRef = Arc::<ChunkedExprScanNode>::clone(&self.node);
-        cx.init_node(&node)
-    }
-
+impl PreparedRead for ChunkedExprPreparedRead {
     fn read_scoped<'a>(
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         local_ctx: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        let state = match downcast_state::<ChunkedExprScanNode>(state.as_ref()) {
-            Ok(state) => state,
-            Err(e) => return Box::pin(async move { Err(e) }),
-        };
         Box::pin(async move {
             if range.start >= range.end {
                 vortex_bail!("empty chunked scoped read range");
             }
             #[cfg(debug_assertions)]
             {
-                let released = state.released.load(Ordering::Relaxed);
+                let released = self.state.released.load(Ordering::Relaxed);
                 debug_assert!(
                     range.start >= released,
                     "chunked expression read {range:?} below the released frontier {released}"
@@ -917,23 +893,13 @@ impl ReadPlan for ChunkedExprReadPlan {
                     continue;
                 }
                 let chunk_idx = idx - 1;
-                let read = self.node.child_read(chunk_idx, io.session())?;
-                let child_state =
-                    self.node
-                        .child_read_state(chunk_idx, &read, state, io.session())?;
+                let read = self.node.child_read(chunk_idx, &self.state, io.session())?;
                 let chunk = if dense_scope || selected_scope {
-                    read.read_scoped(
-                        local,
-                        RowScope::selected(&chunk_selection),
-                        io,
-                        child_state.as_ref(),
-                        local_ctx,
-                    )
-                    .await?
+                    read.read_scoped(local, RowScope::selected(&chunk_selection), io, local_ctx)
+                        .await?
                 } else {
                     let chunk_rows = RowScope::try_new(&chunk_selection, &chunk_demand)?;
-                    read.read_scoped(local, chunk_rows, io, child_state.as_ref(), local_ctx)
-                        .await?
+                    read.read_scoped(local, chunk_rows, io, local_ctx).await?
                 };
                 if chunk.len() != chunk_selection.true_count() {
                     vortex_bail!(
@@ -956,16 +922,14 @@ impl ReadPlan for ChunkedExprReadPlan {
         &self,
         range: Range<u64>,
         rows: RowScope<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
-        let state = downcast_state::<ChunkedExprScanNode>(state.as_ref())?;
         if range.start >= range.end {
             vortex_bail!("empty chunked scoped read range");
         }
         #[cfg(debug_assertions)]
         {
-            let released = state.released.load(Ordering::Relaxed);
+            let released = self.state.released.load(Ordering::Relaxed);
             debug_assert!(
                 range.start >= released,
                 "chunked expression request planning {range:?} below the released frontier {released}"
@@ -1016,20 +980,12 @@ impl ReadPlan for ChunkedExprReadPlan {
                 continue;
             }
             let chunk_idx = idx - 1;
-            let read = self.node.child_read(chunk_idx, cx.session())?;
-            let child_state = self
-                .node
-                .child_read_state(chunk_idx, &read, state, cx.session())?;
+            let read = self.node.child_read(chunk_idx, &self.state, cx.session())?;
             let chunk_requests = if dense_scope || selected_scope {
-                read.segment_requests(
-                    local,
-                    RowScope::selected(&chunk_selection),
-                    child_state.as_ref(),
-                    cx,
-                )?
+                read.segment_requests(local, RowScope::selected(&chunk_selection), cx)?
             } else {
                 let chunk_rows = RowScope::try_new(&chunk_selection, &chunk_demand)?;
-                read.segment_requests(local, chunk_rows, child_state.as_ref(), cx)?
+                read.segment_requests(local, chunk_rows, cx)?
             };
             requests.extend(chunk_requests);
             if requests.is_unknown() {
@@ -1042,30 +998,20 @@ impl ReadPlan for ChunkedExprReadPlan {
         Ok(requests)
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
-        self.node.release(
-            frontier,
-            downcast_state::<ChunkedExprScanNode>(state.as_ref())?,
-        )
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        self.node.release(frontier, &self.state)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.node.fmt_chain(f)
     }
 }
 
-impl EvidencePlan for ChunkedEvidencePlan {
-    type State = ChunkedEvidenceState;
-
-    fn init_state(&self, _ctx: &VortexSession) -> VortexResult<ChunkedEvidenceState> {
-        Ok(ChunkedEvidenceState::default())
-    }
-
+impl PreparedEvidence for ChunkedPreparedEvidence {
     fn evidence<'a>(
         &'a self,
         req: &'a EvidenceRequest<'a>,
         io: &'a FileReader,
-        state: &'a ChunkedEvidenceState,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>> {
         Box::pin(async move {
             if req.range.start >= req.range.end {
@@ -1081,38 +1027,27 @@ impl EvidencePlan for ChunkedEvidencePlan {
                 let local = req.range.start.saturating_sub(chunk_start)
                     ..(req.range.end.min(chunk_end) - chunk_start);
                 let recheck = req.mode == EvidenceMode::RecheckBeforeProjection;
-                let child_plans = if let Some(hit) = state.children.lock().get(&idx) {
+                let child_plans = if let Some(hit) = self.state.children.lock().get(&idx) {
                     hit.clone()
                 } else if recheck {
-                    if let Some(hit) = state.recheck_children.lock().get(&idx) {
+                    if let Some(hit) = self.state.recheck_children.lock().get(&idx) {
                         hit.clone()
                     } else {
                         let node = self.node.child(idx, io.session())?;
-                        let mut plan_ctx = PlanCtx::new(io.session().clone());
-                        let plans = node.plan_evidence(&mut plan_ctx)?;
+                        let mut plan_ctx = self.state.chunked.child_prepare_ctx(idx, io.session());
+                        let plans = node.prepare_evidence(&mut plan_ctx)?;
                         let planned = plans
                             .into_iter()
                             .filter(|plan| plan.recheck_before_projection())
-                            .map(|plan| {
-                                let plan_state = plan.init_state(io.session())?;
-                                Ok((plan, plan_state))
-                            })
-                            .collect::<VortexResult<Vec<_>>>()?;
-                        let mut children = state.recheck_children.lock();
+                            .collect::<Vec<_>>();
+                        let mut children = self.state.recheck_children.lock();
                         children.entry(idx).or_insert(planned).clone()
                     }
                 } else {
                     let node = self.node.child(idx, io.session())?;
-                    let mut plan_ctx = PlanCtx::new(io.session().clone());
-                    let plans = node.plan_evidence(&mut plan_ctx)?;
-                    let planned = plans
-                        .into_iter()
-                        .map(|plan| {
-                            let plan_state = plan.init_state(io.session())?;
-                            Ok((plan, plan_state))
-                        })
-                        .collect::<VortexResult<Vec<_>>>()?;
-                    let mut children = state.children.lock();
+                    let mut plan_ctx = self.state.chunked.child_prepare_ctx(idx, io.session());
+                    let planned = node.prepare_evidence(&mut plan_ctx)?;
+                    let mut children = self.state.children.lock();
                     children.entry(idx).or_insert(planned).clone()
                 };
                 if !child_plans.is_empty() {
@@ -1123,11 +1058,11 @@ impl EvidencePlan for ChunkedEvidencePlan {
                         range: local,
                         mode: req.mode,
                     };
-                    for (plan, plan_state) in child_plans {
+                    for plan in child_plans {
                         if recheck && !plan.recheck_before_projection() {
                             continue;
                         }
-                        for fragment in plan.evidence(&child_req, io, plan_state.as_ref()).await? {
+                        for fragment in plan.evidence(&child_req, io).await? {
                             fragments.push(translate_fragment(fragment, chunk_start));
                         }
                     }
@@ -1141,7 +1076,6 @@ impl EvidencePlan for ChunkedEvidencePlan {
     fn segment_requests(
         &self,
         req: &EvidenceRequest<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
         if req.range.start >= req.range.end {
@@ -1158,38 +1092,27 @@ impl EvidencePlan for ChunkedEvidencePlan {
             let local = req.range.start.saturating_sub(chunk_start)
                 ..(req.range.end.min(chunk_end) - chunk_start);
             let recheck = req.mode == EvidenceMode::RecheckBeforeProjection;
-            let child_plans = if let Some(hit) = state.children.lock().get(&idx) {
+            let child_plans = if let Some(hit) = self.state.children.lock().get(&idx) {
                 hit.clone()
             } else if recheck {
-                if let Some(hit) = state.recheck_children.lock().get(&idx) {
+                if let Some(hit) = self.state.recheck_children.lock().get(&idx) {
                     hit.clone()
                 } else {
                     let node = self.node.child(idx, cx.session())?;
-                    let mut plan_ctx = PlanCtx::new(cx.session().clone());
-                    let plans = node.plan_evidence(&mut plan_ctx)?;
+                    let mut plan_ctx = self.state.chunked.child_prepare_ctx(idx, cx.session());
+                    let plans = node.prepare_evidence(&mut plan_ctx)?;
                     let planned = plans
                         .into_iter()
                         .filter(|plan| plan.recheck_before_projection())
-                        .map(|plan| {
-                            let plan_state = plan.init_state(cx.session())?;
-                            Ok((plan, plan_state))
-                        })
-                        .collect::<VortexResult<Vec<_>>>()?;
-                    let mut children = state.recheck_children.lock();
+                        .collect::<Vec<_>>();
+                    let mut children = self.state.recheck_children.lock();
                     children.entry(idx).or_insert(planned).clone()
                 }
             } else {
                 let node = self.node.child(idx, cx.session())?;
-                let mut plan_ctx = PlanCtx::new(cx.session().clone());
-                let plans = node.plan_evidence(&mut plan_ctx)?;
-                let planned = plans
-                    .into_iter()
-                    .map(|plan| {
-                        let plan_state = plan.init_state(cx.session())?;
-                        Ok((plan, plan_state))
-                    })
-                    .collect::<VortexResult<Vec<_>>>()?;
-                let mut children = state.children.lock();
+                let mut plan_ctx = self.state.chunked.child_prepare_ctx(idx, cx.session());
+                let planned = node.prepare_evidence(&mut plan_ctx)?;
+                let mut children = self.state.children.lock();
                 children.entry(idx).or_insert(planned).clone()
             };
             if !child_plans.is_empty() {
@@ -1200,11 +1123,11 @@ impl EvidencePlan for ChunkedEvidencePlan {
                     range: local,
                     mode: req.mode,
                 };
-                for (plan, plan_state) in child_plans {
+                for plan in child_plans {
                     if recheck && !plan.recheck_before_projection() {
                         continue;
                     }
-                    requests.extend(plan.segment_requests(&child_req, plan_state.as_ref(), cx)?);
+                    requests.extend(plan.segment_requests(&child_req, cx)?);
                     if requests.is_unknown() {
                         return Ok(requests);
                     }
@@ -1219,7 +1142,7 @@ impl EvidencePlan for ChunkedEvidencePlan {
         true
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "chunked")
     }
 }

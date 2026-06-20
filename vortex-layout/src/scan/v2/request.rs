@@ -6,8 +6,8 @@
 //! Expansion produces layout-local [`ScanNode`](super::node::ScanNode)
 //! trees. Predicate, projection, aggregate, and dynamic-filter handling
 //! then push expressions into those nodes and ask the resulting nodes for
-//! executable plans. Evidence requests are the per-morsel inputs to those
-//! already-planned evidence handles.
+//! prepared runtime handles. Evidence requests are the per-morsel inputs to
+//! those prepared evidence handles.
 
 use std::ops::Range;
 
@@ -31,8 +31,8 @@ pub enum EvidenceMode {
 /// Scan2 no longer carries predicates through expansion. Layout scan vtables
 /// must expose expression behavior through
 /// [`ScanNode::try_push_expr`](super::node::ScanNode::try_push_expr),
-/// [`ScanNode::plan_read`](super::node::ScanNode::plan_read), and
-/// [`ScanNode::plan_evidence`](super::node::ScanNode::plan_evidence).
+/// [`ScanNode::prepare_read`](super::node::ScanNode::prepare_read), and
+/// [`ScanNode::prepare_evidence`](super::node::ScanNode::prepare_evidence).
 #[derive(Debug, Default)]
 pub struct NodeRequest;
 
@@ -43,8 +43,35 @@ impl NodeRequest {
     }
 }
 
-/// A runtime evidence request: one planned predicate expression, scoped
+/// A runtime evidence request: one prepared predicate expression, scoped
 /// to the producer's row domain, over one row range.
+#[derive(Clone, Debug)]
+pub struct OwnedEvidenceRequest {
+    /// The predicate's stable id within this scan.
+    pub id: PredicateId,
+    /// The predicate's version.
+    pub version: PredicateVersion,
+    /// The predicate with `root()` rebased to the producer's rows.
+    pub predicate: Expression,
+    /// The rows evidence is requested for, in the producer's coordinates.
+    pub range: Range<u64>,
+    /// Which evidence pass is requesting fragments.
+    pub mode: EvidenceMode,
+}
+
+impl OwnedEvidenceRequest {
+    /// Borrow this owned request for a prepared evidence handle.
+    pub fn as_request(&self) -> EvidenceRequest<'_> {
+        EvidenceRequest {
+            id: self.id,
+            version: self.version,
+            predicate: &self.predicate,
+            range: self.range.clone(),
+            mode: self.mode,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct EvidenceRequest<'a> {
     /// The predicate's stable id within this scan.

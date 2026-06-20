@@ -27,15 +27,14 @@ use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::PlanCtx;
-use crate::scan::v2::node::ReadPlan;
-use crate::scan::v2::node::ReadPlanRef;
+use crate::scan::v2::node::PrepareCtx;
+use crate::scan::v2::node::PreparedRead;
+use crate::scan::v2::node::PreparedReadRef;
+use crate::scan::v2::node::PreparedStateKey;
 use crate::scan::v2::node::RowScope;
 use crate::scan::v2::node::ScanNode;
 use crate::scan::v2::node::ScanNodeRef;
-use crate::scan::v2::node::ScanStateRef;
 use crate::scan::v2::node::StateCtx;
-use crate::scan::v2::node::downcast_state;
 use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
@@ -64,8 +63,9 @@ pub struct FlatScanState {
     array: Mutex<Option<ArrayRef>>,
 }
 
-struct FlatReadPlan {
+struct FlatPreparedRead {
     node: Arc<FlatScanNode>,
+    state: Arc<FlatScanState>,
 }
 
 impl ScanNode for FlatScanNode {
@@ -75,8 +75,10 @@ impl ScanNode for FlatScanNode {
         Ok(FlatScanState::default())
     }
 
-    fn plan_read(self: Arc<Self>, _cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
-        Ok(Some(Arc::new(FlatReadPlan { node: self })))
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
+        let key = PreparedStateKey::new::<FlatScanState>(Arc::as_ptr(&self) as *const () as usize);
+        let state = cx.shared_state(key, || Ok(FlatScanState::default()))?;
+        Ok(Some(Arc::new(FlatPreparedRead { node: self, state })))
     }
 
     /// A flat leaf releases only once *wholly* behind the frontier: a
@@ -94,32 +96,20 @@ impl ScanNode for FlatScanNode {
     }
 }
 
-impl ReadPlan for FlatReadPlan {
-    type State = ScanStateRef;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        let node: ScanNodeRef = Arc::<FlatScanNode>::clone(&self.node);
-        cx.init_node(&node)
-    }
-
+impl PreparedRead for FlatPreparedRead {
     fn read_scoped<'a>(
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         _local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        let state = match downcast_state::<FlatScanNode>(state.as_ref()) {
-            Ok(state) => state,
-            Err(e) => return Box::pin(async move { Err(e) }),
-        };
         Box::pin(async move {
-            let array = if let Some(hit) = state.array.lock().clone() {
+            let array = if let Some(hit) = self.state.array.lock().clone() {
                 hit
             } else {
                 let decoded = decode_flat(&self.node.layout, io).await?;
-                *state.array.lock() = Some(decoded.clone());
+                *self.state.array.lock() = Some(decoded.clone());
                 decoded
             };
             let dense = slice_to_range(array, &range)?;
@@ -148,14 +138,9 @@ impl ReadPlan for FlatReadPlan {
         &self,
         _range: Range<u64>,
         _rows: RowScope<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
-        if downcast_state::<FlatScanNode>(state.as_ref())?
-            .array
-            .lock()
-            .is_some()
-        {
+        if self.state.array.lock().is_some() {
             return Ok(SegmentRequests::none());
         }
 
@@ -170,12 +155,11 @@ impl ReadPlan for FlatReadPlan {
         ]))
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
-        self.node
-            .release(frontier, downcast_state::<FlatScanNode>(state.as_ref())?)
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        self.node.release(frontier, &self.state)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.node.fmt_chain(f)
     }
 }

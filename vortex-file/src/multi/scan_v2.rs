@@ -51,25 +51,23 @@ use vortex_layout::scan::v2::evidence::PredicateEvidence;
 use vortex_layout::scan::v2::evidence::PredicateEvidenceKind;
 use vortex_layout::scan::v2::evidence::PredicateId;
 use vortex_layout::scan::v2::evidence::PredicateVersion;
-use vortex_layout::scan::v2::node::AggregatePlanRef;
-use vortex_layout::scan::v2::node::EvidencePlanRef;
-use vortex_layout::scan::v2::node::EvidenceStateKey;
 use vortex_layout::scan::v2::node::ExpandCtx;
 use vortex_layout::scan::v2::node::FileReader;
-use vortex_layout::scan::v2::node::PlanCtx;
+use vortex_layout::scan::v2::node::OwnedRowScope;
+use vortex_layout::scan::v2::node::PrepareCtx;
+use vortex_layout::scan::v2::node::PreparedAggregateRef;
+use vortex_layout::scan::v2::node::PreparedEvidenceRef;
+use vortex_layout::scan::v2::node::PreparedReadRef;
+use vortex_layout::scan::v2::node::PreparedStats;
+use vortex_layout::scan::v2::node::PreparedStatsRef;
 use vortex_layout::scan::v2::node::PushCtx;
-use vortex_layout::scan::v2::node::ReadPlanRef;
-use vortex_layout::scan::v2::node::RowScope;
 use vortex_layout::scan::v2::node::ScanNode;
 use vortex_layout::scan::v2::node::ScanNodeRef;
-use vortex_layout::scan::v2::node::ScanStateCache;
 use vortex_layout::scan::v2::node::ScanStateRef;
 use vortex_layout::scan::v2::node::StateCtx;
-use vortex_layout::scan::v2::node::StatsPlan;
-use vortex_layout::scan::v2::node::StatsPlanRef;
 use vortex_layout::scan::v2::request::EvidenceMode;
-use vortex_layout::scan::v2::request::EvidenceRequest;
 use vortex_layout::scan::v2::request::NodeRequest;
+use vortex_layout::scan::v2::request::OwnedEvidenceRequest;
 use vortex_layout::scan::v2::validate_temporal_comparisons;
 use vortex_layout::segments::ScanIoPhase;
 use vortex_layout::segments::ScheduledSegmentSource;
@@ -99,7 +97,6 @@ use vortex_scan::SegmentSourceMeta;
 use vortex_scan::WorkRequest;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use super::MultiFileDataSource;
@@ -132,7 +129,7 @@ struct FileStatsExprScanNode {
     row_count: u64,
 }
 
-struct FileStatsPlan {
+struct FilePreparedStats {
     stats: StatsSet,
     field_dtype: DType,
     row_count: u64,
@@ -190,20 +187,23 @@ impl ScanNode for FileStatsScanNode {
         })))
     }
 
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
-        Arc::clone(&self.data).plan_read(cx)
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
+        Arc::clone(&self.data).prepare_read(cx)
     }
 
-    fn plan_evidence(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>> {
-        Arc::clone(&self.data).plan_evidence(cx)
+    fn prepare_evidence(
+        self: Arc<Self>,
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Vec<PreparedEvidenceRef>> {
+        Arc::clone(&self.data).prepare_evidence(cx)
     }
 
-    fn plan_aggregate_partial(
+    fn prepare_aggregate_partial(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
-        cx: &mut PlanCtx,
-    ) -> VortexResult<Option<AggregatePlanRef>> {
-        Arc::clone(&self.data).plan_aggregate_partial(funcs, cx)
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedAggregateRef>> {
+        Arc::clone(&self.data).prepare_aggregate_partial(funcs, cx)
     }
 
     fn split_hints(&self) -> Option<&[u64]> {
@@ -235,29 +235,32 @@ impl ScanNode for FileStatsExprScanNode {
         Arc::clone(&self.data).try_push_expr(expr, cx)
     }
 
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
-        Arc::clone(&self.data).plan_read(cx)
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
+        Arc::clone(&self.data).prepare_read(cx)
     }
 
-    fn plan_evidence(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Vec<EvidencePlanRef>> {
-        Arc::clone(&self.data).plan_evidence(cx)
+    fn prepare_evidence(
+        self: Arc<Self>,
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Vec<PreparedEvidenceRef>> {
+        Arc::clone(&self.data).prepare_evidence(cx)
     }
 
-    fn plan_aggregate_partial(
+    fn prepare_aggregate_partial(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
-        cx: &mut PlanCtx,
-    ) -> VortexResult<Option<AggregatePlanRef>> {
-        Arc::clone(&self.data).plan_aggregate_partial(funcs, cx)
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedAggregateRef>> {
+        Arc::clone(&self.data).prepare_aggregate_partial(funcs, cx)
     }
 
-    fn plan_stats(
+    fn prepare_stats(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
-        _cx: &mut PlanCtx,
-    ) -> VortexResult<Option<StatsPlanRef>> {
+        _cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedStatsRef>> {
         let stats = self.stats.stats_sets()[self.field_idx].clone();
-        Ok(Some(Arc::new(FileStatsPlan {
+        Ok(Some(Arc::new(FilePreparedStats {
             stats,
             field_dtype: self.field_dtype.clone(),
             row_count: self.row_count,
@@ -279,7 +282,7 @@ impl ScanNode for FileStatsExprScanNode {
     }
 }
 
-impl StatsPlan for FileStatsPlan {
+impl PreparedStats for FilePreparedStats {
     type State = ();
 
     fn init_state(&self, _ctx: &VortexSession) -> VortexResult<Self::State> {
@@ -303,12 +306,12 @@ impl StatsPlan for FileStatsPlan {
         })
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "file_stats")
     }
 }
 
-impl FileStatsPlan {
+impl FilePreparedStats {
     fn stat_for_func(&self, func: &AggregateFnRef) -> VortexResult<Precision<Scalar>> {
         let Some(stat) = Stat::from_aggregate_fn(func) else {
             return Ok(Precision::Absent);
@@ -903,7 +906,8 @@ pub(crate) async fn scan_node_file_statistics_many(
     let mut result = Vec::with_capacity(exprs.len());
     for expr in exprs {
         let pushed = push_expr(&root, expr, file.dtype(), reader.session())?;
-        let Some(plan) = pushed.plan_stats(funcs, &mut PlanCtx::new(reader.session().clone()))?
+        let Some(plan) =
+            pushed.prepare_stats(funcs, &mut PrepareCtx::new(reader.session().clone()))?
         else {
             result.push(absent_statistics(funcs));
             continue;
@@ -930,7 +934,7 @@ pub(crate) async fn scan_node_file_plan_splits(
     let session = file.session().clone();
     let root = expand_file_root(&file, &session)?;
     let pushed = push_expr(&root, projection, file.dtype(), &session)?;
-    let Some(plan) = pushed.plan_splits(&mut PlanCtx::new(session.clone()))? else {
+    let Some(plan) = pushed.prepare_splits(&mut PrepareCtx::new(session.clone()))? else {
         return Ok(std::iter::once(0..file.row_count()).collect());
     };
     let reader = FileReader::new(file.segment_source(), session.clone());
@@ -1701,17 +1705,15 @@ struct PreparedScanNodeFile {
     scheduled_segment_source: Arc<dyn ScheduledSegmentSource>,
     segment_future_cache: Arc<SegmentFutureCache>,
     root: ScanNodeRef,
-    projection: ReadPlanRef,
-    projection_state: ScanStateRef,
-    predicates: Vec<PredicatePlan>,
+    projection: PreparedReadRef,
+    predicates: Vec<PreparedPredicate>,
 }
 
-struct PredicatePlan {
+struct PreparedPredicate {
     id: PredicateId,
     expr: Expression,
-    read: ReadPlanRef,
-    read_state: ScanStateRef,
-    evidence: Vec<(EvidencePlanRef, ScanStateRef)>,
+    read: PreparedReadRef,
+    evidence: Vec<PreparedEvidenceRef>,
 }
 
 struct RegisteredScheduledSegmentSource {
@@ -1749,13 +1751,10 @@ impl PreparedScanNodeFile {
             session.clone(),
         );
 
-        let mut node_cache = ScanStateCache::default();
-        let mut state_ctx = StateCtx::new(&session, &mut node_cache);
+        let mut prepare_ctx = PrepareCtx::new(session.clone());
+        let projection_plan =
+            prepare_read(&root, &projection, file.dtype(), &session, &mut prepare_ctx)?;
 
-        let projection_plan = plan_read(&root, &projection, file.dtype(), &session)?;
-        let projection_state = projection_plan.init_state(&mut state_ctx)?;
-
-        let mut evidence_state_cache: HashMap<EvidenceStateKey, ScanStateRef> = HashMap::default();
         // Run cheap, likely-selective conjuncts first so an expensive residual (e.g. an FSST `LIKE`)
         // only evaluates over the rows that survive the cheaper predicates. AND is commutative, so
         // reordering is semantically safe; `PredicateId`s are assigned by final slot below (after the
@@ -1771,32 +1770,13 @@ impl PreparedScanNodeFile {
                 );
                 let pushed = push_expr(&root, &expr, file.dtype(), &session)?;
                 let read = Arc::clone(&pushed)
-                    .plan_read(&mut PlanCtx::new(session.clone()))?
+                    .prepare_read(&mut prepare_ctx)?
                     .ok_or_else(|| vortex_err!("scan2 could not plan predicate read {expr}"))?;
-                let read_state = read.init_state(&mut state_ctx)?;
-                let evidence = pushed
-                    .plan_evidence(&mut PlanCtx::new(session.clone()))?
-                    .into_iter()
-                    .map(|plan| {
-                        let state = if let Some(key) = plan.state_cache_key() {
-                            if let Some(state) = evidence_state_cache.get(&key) {
-                                Arc::clone(state)
-                            } else {
-                                let state = plan.init_state(&session)?;
-                                evidence_state_cache.insert(key, Arc::clone(&state));
-                                state
-                            }
-                        } else {
-                            plan.init_state(&session)?
-                        };
-                        Ok((plan, state))
-                    })
-                    .collect::<VortexResult<Vec<_>>>()?;
-                Ok(PredicatePlan {
+                let evidence = pushed.prepare_evidence(&mut prepare_ctx)?;
+                Ok(PreparedPredicate {
                     id,
                     expr,
                     read,
-                    read_state,
                     evidence,
                 })
             })
@@ -1817,7 +1797,6 @@ impl PreparedScanNodeFile {
             segment_future_cache,
             root,
             projection: projection_plan,
-            projection_state,
             predicates,
         })
     }
@@ -1878,17 +1857,20 @@ impl PreparedScanNodeFile {
     ) -> VortexResult<QueuedWork> {
         let predicate = &self.predicates[predicate_idx];
         let mut registered = SubmittedSegmentRequests::default();
-        let req = EvidenceRequest {
+        let req = OwnedEvidenceRequest {
             id: predicate.id,
             version: PredicateVersion::STATIC,
-            predicate: &predicate.expr,
+            predicate: predicate.expr.clone(),
             range: range.clone(),
             mode: EvidenceMode::Normal,
         };
-        for (plan, state) in &predicate.evidence {
+        let mut tasks = Vec::with_capacity(predicate.evidence.len());
+        for plan in &predicate.evidence {
+            let task = Arc::clone(plan).begin_evidence(req.clone())?;
             let mut segment_ctx = self.segment_plan_ctx(ScanIoPhase::EvidenceProbe);
-            let requests = plan.segment_requests(&req, state.as_ref(), &mut segment_ctx)?;
+            let requests = task.segment_requests(&mut segment_ctx)?;
             registered.extend(self.submit_segment_requests(requests));
+            tasks.push(task);
         }
 
         let prepared = Arc::clone(self);
@@ -1900,18 +1882,8 @@ impl PreparedScanNodeFile {
                 let predicate = &prepared.predicates[predicate_idx];
                 let mut acc =
                     PredicateEvidence::new(predicate.id, PredicateVersion::STATIC, range.clone())?;
-                let req = EvidenceRequest {
-                    id: predicate.id,
-                    version: PredicateVersion::STATIC,
-                    predicate: &predicate.expr,
-                    range: range.clone(),
-                    mode: EvidenceMode::Normal,
-                };
-                for (plan, state) in &predicate.evidence {
-                    for fragment in plan
-                        .evidence(&req, &prepared.reader, state.as_ref())
-                        .await?
-                    {
+                for task in tasks {
+                    for fragment in task.evidence(&prepared.reader).await? {
                         acc.absorb(fragment)?;
                     }
                     if acc.all_false() {
@@ -1937,16 +1909,16 @@ impl PreparedScanNodeFile {
         need: Mask,
     ) -> VortexResult<QueuedWork> {
         let len = range_len(&range)?;
-        let full_domain = Mask::new_true(len);
-        let rows = RowScope::try_new(&full_domain, &need)?;
         let predicate = &self.predicates[predicate_idx];
+        let compact = need.density() < EXPR_EVAL_THRESHOLD;
+        let rows = if compact {
+            OwnedRowScope::selected(need.clone())
+        } else {
+            OwnedRowScope::try_new(Mask::new_true(len), need.clone())?
+        };
+        let task = Arc::clone(&predicate.read).begin_read(range.clone(), rows)?;
         let mut segment_ctx = self.segment_plan_ctx(ScanIoPhase::PredicateRead);
-        let requests = predicate.read.segment_requests(
-            range.clone(),
-            rows,
-            predicate.read_state.as_ref(),
-            &mut segment_ctx,
-        )?;
+        let requests = task.segment_requests(&mut segment_ctx)?;
         let registered = self.submit_segment_requests(requests);
 
         let prepared = Arc::clone(self);
@@ -1962,16 +1934,9 @@ impl PreparedScanNodeFile {
                 // `LIKE`) evaluates over only `need.true_count()` rows. The compacted verdict is
                 // scattered back into the morsel domain via `intersect_by_rank`, giving a full-length
                 // mask identical to the dense path's `result & need`. Mirrors V1's flat-reader gate.
-                let result = if need.density() < EXPR_EVAL_THRESHOLD {
-                    let compact = predicate
-                        .read
-                        .read_scoped(
-                            range.clone(),
-                            RowScope::selected(&need),
-                            &prepared.reader,
-                            predicate.read_state.as_ref(),
-                            &mut ctx,
-                        )
+                let result = if compact {
+                    let compact = task
+                        .read(&prepared.reader, &mut ctx)
                         .await?
                         .execute::<Mask>(&mut ctx)?;
                     if compact.len() != need.true_count() {
@@ -1983,17 +1948,8 @@ impl PreparedScanNodeFile {
                     }
                     need.intersect_by_rank(&compact)
                 } else {
-                    let full_domain = Mask::new_true(len);
-                    let rows = RowScope::try_new(&full_domain, &need)?;
-                    predicate
-                        .read
-                        .read_scoped(
-                            range.clone(),
-                            rows,
-                            &prepared.reader,
-                            predicate.read_state.as_ref(),
-                            &mut ctx,
-                        )
+                    task
+                        .read(&prepared.reader, &mut ctx)
                         .await?
                         .execute::<Mask>(&mut ctx)?
                 };
@@ -2047,13 +2003,10 @@ impl PreparedScanNodeFile {
             );
         }
 
+        let task =
+            Arc::clone(&self.projection).begin_read(range, OwnedRowScope::selected(selected))?;
         let mut segment_ctx = self.segment_plan_ctx(ScanIoPhase::ProjectionRead);
-        let requests = self.projection.segment_requests(
-            range.clone(),
-            RowScope::selected(&selected),
-            self.projection_state.as_ref(),
-            &mut segment_ctx,
-        )?;
+        let requests = task.segment_requests(&mut segment_ctx)?;
         let registered = self.submit_segment_requests(requests);
 
         let prepared = Arc::clone(self);
@@ -2064,16 +2017,7 @@ impl PreparedScanNodeFile {
                 registered,
                 async move {
                     let mut ctx = prepared.session.create_execution_ctx();
-                    let array = prepared
-                        .projection
-                        .read_scoped(
-                            range,
-                            RowScope::selected(&selected),
-                            &prepared.reader,
-                            prepared.projection_state.as_ref(),
-                            &mut ctx,
-                        )
-                        .await?;
+                    let array = task.read(&prepared.reader, &mut ctx).await?;
                     Ok(ProjectionWorkOutput { morsel_id, array })
                 }
                 .boxed(),
@@ -2130,14 +2074,15 @@ fn push_expr(
         .ok_or_else(|| vortex_err!("scan2 could not push expression {expr}"))
 }
 
-fn plan_read(
+fn prepare_read(
     root: &ScanNodeRef,
     expr: &Expression,
     dtype: &DType,
     session: &VortexSession,
-) -> VortexResult<ReadPlanRef> {
+    cx: &mut PrepareCtx,
+) -> VortexResult<PreparedReadRef> {
     push_expr(root, expr, dtype, session)?
-        .plan_read(&mut PlanCtx::new(session.clone()))?
+        .prepare_read(cx)?
         .ok_or_else(|| vortex_err!("scan2 could not plan read for expression {expr}"))
 }
 

@@ -33,9 +33,9 @@ use crate::layout_v2::Struct;
 use crate::scan::v2::node::ApplyScanNode;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::MaskScanNode;
-use crate::scan::v2::node::PlanCtx;
+use crate::scan::v2::node::PrepareCtx;
+use crate::scan::v2::node::PreparedReadRef;
 use crate::scan::v2::node::PushCtx;
-use crate::scan::v2::node::ReadPlanRef;
 use crate::scan::v2::node::ScanNode;
 use crate::scan::v2::node::ScanNodeRef;
 use crate::scan::v2::node::StateCtx;
@@ -112,7 +112,10 @@ impl ScanNode for StructScanNode {
         Ok(Some(Arc::new(ApplyScanNode::new(input, expr.clone()))))
     }
 
-    fn plan_read(self: Arc<Self>, _cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
+    fn prepare_read(
+        self: Arc<Self>,
+        _cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedReadRef>> {
         Ok(None)
     }
 

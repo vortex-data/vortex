@@ -50,16 +50,15 @@ use crate::layout_v2::Layout;
 use crate::layouts::SharedArrayFuture;
 use crate::scan::v2::node::ExpandCtx;
 use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::PlanCtx;
+use crate::scan::v2::node::PrepareCtx;
+use crate::scan::v2::node::PreparedRead;
+use crate::scan::v2::node::PreparedReadRef;
+use crate::scan::v2::node::PreparedStateKey;
 use crate::scan::v2::node::PushCtx;
-use crate::scan::v2::node::ReadPlan;
-use crate::scan::v2::node::ReadPlanRef;
 use crate::scan::v2::node::RowScope;
 use crate::scan::v2::node::ScanNode;
 use crate::scan::v2::node::ScanNodeRef;
-use crate::scan::v2::node::ScanStateRef;
 use crate::scan::v2::node::StateCtx;
-use crate::scan::v2::node::downcast_state;
 use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
@@ -87,13 +86,11 @@ pub struct DictScanNode {
     codes: ScanNodeRef,
 }
 
-/// Per-query state: the cached values relation, the child states, and
-/// cached value-domain expression results.
+/// Per-query dictionary caches: the shared values relation and cached
+/// value-domain expression results.
 #[derive(Clone)]
 pub struct DictScanState {
     shared: DictSharedState,
-    values_state: ScanStateRef,
-    codes_state: ScanStateRef,
 }
 
 #[derive(Clone)]
@@ -103,19 +100,9 @@ struct DictSharedState {
 }
 
 impl DictScanState {
-    fn new(values_state: ScanStateRef, codes_state: ScanStateRef) -> Self {
+    fn new() -> Self {
         Self {
             shared: DictSharedState::default(),
-            values_state,
-            codes_state,
-        }
-    }
-
-    fn with_child_states(&self, values_state: ScanStateRef, codes_state: ScanStateRef) -> Self {
-        Self {
-            shared: self.shared.clone(),
-            values_state,
-            codes_state,
         }
     }
 }
@@ -135,16 +122,18 @@ struct DictExprScanNode {
     expr: Expression,
 }
 
-struct DictReadPlan {
+struct DictPreparedRead {
     node: Arc<DictScanNode>,
-    values_read: ReadPlanRef,
-    codes_read: ReadPlanRef,
+    state: Arc<DictScanState>,
+    values_read: PreparedReadRef,
+    codes_read: PreparedReadRef,
 }
 
-struct DictExprReadPlan {
+struct DictExprPreparedRead {
     node: Arc<DictExprScanNode>,
-    values_read: ReadPlanRef,
-    codes_read: ReadPlanRef,
+    state: Arc<DictScanState>,
+    values_read: PreparedReadRef,
+    codes_read: PreparedReadRef,
 }
 
 fn value_expr_is_expensive(expr: &Expression) -> bool {
@@ -177,7 +166,7 @@ impl DictScanNode {
     /// The values relation wrapped in a `SharedArray`, read once per query.
     fn values(
         &self,
-        values_read: ReadPlanRef,
+        values_read: PreparedReadRef,
         io: &FileReader,
         state: &DictScanState,
     ) -> SharedArrayFuture {
@@ -192,7 +181,6 @@ impl DictScanNode {
 
         let values_len = self.values_len;
         let io = io.clone();
-        let values_state = Arc::clone(&state.values_state);
         let future = async move {
             let selection =
                 Mask::new_true(usize::try_from(values_len).map_err(|_| {
@@ -204,7 +192,6 @@ impl DictScanNode {
                     0..values_len,
                     RowScope::selected(&selection),
                     &io,
-                    values_state.as_ref(),
                     &mut local,
                 )
                 .await
@@ -229,11 +216,8 @@ impl DictScanNode {
 impl ScanNode for DictScanNode {
     type State = DictScanState;
 
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<DictScanState> {
-        Ok(DictScanState::new(
-            cx.init_node(&self.values)?,
-            cx.init_node(&self.codes)?,
-        ))
+    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<DictScanState> {
+        Ok(DictScanState::new())
     }
 
     fn try_push_expr(
@@ -255,15 +239,18 @@ impl ScanNode for DictScanNode {
         self.codes.split_hints()
     }
 
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
+        let key = PreparedStateKey::new::<DictScanState>(Arc::as_ptr(&self) as *const () as usize);
+        let state = cx.shared_state(key, || Ok(DictScanState::new()))?;
         let values_read = Arc::clone(&self.values)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("dictionary values did not produce a read plan"))?;
+            .prepare_read(cx)?
+            .ok_or_else(|| vortex_err!("dictionary values did not produce a prepared read"))?;
         let codes_read = Arc::clone(&self.codes)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("dictionary codes did not produce a read plan"))?;
-        Ok(Some(Arc::new(DictReadPlan {
+            .prepare_read(cx)?
+            .ok_or_else(|| vortex_err!("dictionary codes did not produce a prepared read"))?;
+        Ok(Some(Arc::new(DictPreparedRead {
             node: self,
+            state,
             values_read,
             codes_read,
         })))
@@ -274,7 +261,8 @@ impl ScanNode for DictScanNode {
     /// they are read once per query by design and consulted by every
     /// remaining morsel.
     fn release(&self, frontier: u64, state: &DictScanState) -> VortexResult<()> {
-        self.codes.release(frontier, state.codes_state.as_ref())
+        let _ = (frontier, state);
+        Ok(())
     }
 
     fn fmt_chain(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -287,20 +275,23 @@ impl ScanNode for DictScanNode {
 impl ScanNode for DictExprScanNode {
     type State = DictScanState;
 
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        let node: ScanNodeRef = Arc::<DictScanNode>::clone(&self.dict);
-        Ok(downcast_state::<DictScanNode>(cx.init_node(&node)?.as_ref())?.clone())
+    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
+        Ok(DictScanState::new())
     }
 
-    fn plan_read(self: Arc<Self>, cx: &mut PlanCtx) -> VortexResult<Option<ReadPlanRef>> {
+    fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
+        let key =
+            PreparedStateKey::new::<DictScanState>(Arc::as_ptr(&self.dict) as *const () as usize);
+        let state = cx.shared_state(key, || Ok(DictScanState::new()))?;
         let values_read = Arc::clone(&self.dict.values)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("dictionary values did not produce a read plan"))?;
+            .prepare_read(cx)?
+            .ok_or_else(|| vortex_err!("dictionary values did not produce a prepared read"))?;
         let codes_read = Arc::clone(&self.dict.codes)
-            .plan_read(cx)?
-            .ok_or_else(|| vortex_err!("dictionary codes did not produce a read plan"))?;
-        Ok(Some(Arc::new(DictExprReadPlan {
+            .prepare_read(cx)?
+            .ok_or_else(|| vortex_err!("dictionary codes did not produce a prepared read"))?;
+        Ok(Some(Arc::new(DictExprPreparedRead {
             node: self,
+            state,
             values_read,
             codes_read,
         })))
@@ -315,33 +306,19 @@ impl ScanNode for DictExprScanNode {
     }
 }
 
-impl ReadPlan for DictReadPlan {
-    type State = DictScanState;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        let node: ScanNodeRef = Arc::<DictScanNode>::clone(&self.node);
-        let base = cx.init_node(&node)?;
-        Ok(
-            downcast_state::<DictScanNode>(base.as_ref())?.with_child_states(
-                self.values_read.init_state(cx)?,
-                self.codes_read.init_state(cx)?,
-            ),
-        )
-    }
-
+impl PreparedRead for DictPreparedRead {
     fn read_scoped<'a>(
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
             if sparse_dict_candidate(self.node.values_len, rows) {
                 let codes = self
                     .codes_read
-                    .read_scoped(range.clone(), rows, io, state.codes_state.as_ref(), local)
+                    .read_scoped(range.clone(), rows, io, local)
                     .await?;
                 let values_len = usize::try_from(self.node.values_len)
                     .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?;
@@ -354,7 +331,6 @@ impl ReadPlan for DictReadPlan {
                             0..self.node.values_len,
                             RowScope::selected(&value_selection),
                             io,
-                            state.values_state.as_ref(),
                             local,
                         )
                         .await?;
@@ -363,7 +339,7 @@ impl ReadPlan for DictReadPlan {
 
                 let values = self
                     .node
-                    .values(Arc::clone(&self.values_read), io, state)
+                    .values(Arc::clone(&self.values_read), io, &self.state)
                     .await
                     .map_err(VortexError::from)?;
                 return self.node.build_dict(codes, values)?.optimize();
@@ -371,13 +347,11 @@ impl ReadPlan for DictReadPlan {
 
             let values = async {
                 self.node
-                    .values(Arc::clone(&self.values_read), io, state)
+                    .values(Arc::clone(&self.values_read), io, &self.state)
                     .await
                     .map_err(VortexError::from)
             };
-            let codes =
-                self.codes_read
-                    .read_scoped(range, rows, io, state.codes_state.as_ref(), local);
+            let codes = self.codes_read.read_scoped(range, rows, io, local);
             let (values, codes) = try_join!(values, codes)?;
             self.node.build_dict(codes, values)?.optimize()
         })
@@ -387,13 +361,10 @@ impl ReadPlan for DictReadPlan {
         &self,
         range: Range<u64>,
         rows: RowScope<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
         if sparse_dict_candidate(self.node.values_len, rows) {
-            return self
-                .codes_read
-                .segment_requests(range, rows, state.codes_state.as_ref(), cx);
+            return self.codes_read.segment_requests(range, rows, cx);
         }
 
         let values_selection = Mask::new_true(
@@ -403,32 +374,25 @@ impl ReadPlan for DictReadPlan {
         let mut requests = self.values_read.segment_requests(
             0..self.node.values_len,
             RowScope::selected(&values_selection),
-            state.values_state.as_ref(),
             cx,
         )?;
         if requests.is_unknown() {
             return Ok(requests);
         }
-        requests.extend(self.codes_read.segment_requests(
-            range,
-            rows,
-            state.codes_state.as_ref(),
-            cx,
-        )?);
+        requests.extend(self.codes_read.segment_requests(range, rows, cx)?);
         Ok(requests)
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
-        self.codes_read
-            .release(frontier, state.codes_state.as_ref())
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        self.codes_read.release(frontier)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.node.fmt_chain(f)
     }
 }
 
-impl DictExprReadPlan {
+impl DictExprPreparedRead {
     async fn value_expr(
         &self,
         io: &FileReader,
@@ -487,7 +451,6 @@ impl DictExprReadPlan {
         &self,
         codes: ArrayRef,
         io: &FileReader,
-        state: &DictScanState,
         local: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let values_len = usize::try_from(self.node.dict.values_len)
@@ -504,7 +467,6 @@ impl DictExprReadPlan {
                 0..self.node.dict.values_len,
                 RowScope::selected(&value_selection),
                 io,
-                state.values_state.as_ref(),
                 local,
             )
             .await?;
@@ -667,26 +629,12 @@ where
     })
 }
 
-impl ReadPlan for DictExprReadPlan {
-    type State = DictScanState;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        let node: ScanNodeRef = Arc::<DictScanNode>::clone(&self.node.dict);
-        let base = cx.init_node(&node)?;
-        Ok(
-            downcast_state::<DictScanNode>(base.as_ref())?.with_child_states(
-                self.values_read.init_state(cx)?,
-                self.codes_read.init_state(cx)?,
-            ),
-        )
-    }
-
+impl PreparedRead for DictExprPreparedRead {
     fn read_scoped<'a>(
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
         io: &'a FileReader,
-        state: &'a Self::State,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
@@ -698,13 +646,13 @@ impl ReadPlan for DictExprReadPlan {
                         usize::try_from(self.node.dict.values_len),
                         Ok(values_len) if values_len <= rows.demand.true_count()
                     )) {
-                self.value_expr(io, state, local).await?
+                self.value_expr(io, &self.state, local).await?
             } else {
                 None
             };
             let codes = self
                 .codes_read
-                .read_scoped(range.clone(), rows, io, state.codes_state.as_ref(), local)
+                .read_scoped(range.clone(), rows, io, local)
                 .await?;
             if let Some(value_expr) = value_expr {
                 let all_valid = !codes.dtype().is_nullable()
@@ -717,14 +665,14 @@ impl ReadPlan for DictExprReadPlan {
                 }
             }
             if sparse_candidate
-                && let Some(result) = self.sparse_expr(codes.clone(), io, state, local).await?
+                && let Some(result) = self.sparse_expr(codes.clone(), io, local).await?
             {
                 return Ok(result);
             }
             let values = self
                 .node
                 .dict
-                .values(Arc::clone(&self.values_read), io, state)
+                .values(Arc::clone(&self.values_read), io, &self.state)
                 .await
                 .map_err(VortexError::from)?;
             let input = self.node.dict.build_dict(codes, values)?.optimize()?;
@@ -736,13 +684,10 @@ impl ReadPlan for DictExprReadPlan {
         &self,
         range: Range<u64>,
         rows: RowScope<'_>,
-        state: &Self::State,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
         if sparse_value_expr_candidate(&self.node.expr, self.node.dict.values_len, rows) {
-            return self
-                .codes_read
-                .segment_requests(range, rows, state.codes_state.as_ref(), cx);
+            return self.codes_read.segment_requests(range, rows, cx);
         }
 
         let values_selection = Mask::new_true(
@@ -752,27 +697,20 @@ impl ReadPlan for DictExprReadPlan {
         let mut requests = self.values_read.segment_requests(
             0..self.node.dict.values_len,
             RowScope::selected(&values_selection),
-            state.values_state.as_ref(),
             cx,
         )?;
         if requests.is_unknown() {
             return Ok(requests);
         }
-        requests.extend(self.codes_read.segment_requests(
-            range,
-            rows,
-            state.codes_state.as_ref(),
-            cx,
-        )?);
+        requests.extend(self.codes_read.segment_requests(range, rows, cx)?);
         Ok(requests)
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
-        self.codes_read
-            .release(frontier, state.codes_state.as_ref())
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        self.codes_read.release(frontier)
     }
 
-    fn fmt_plan(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.node.fmt_chain(f)
     }
 }
