@@ -206,11 +206,21 @@ Currently uses `VTable` (unqualified), `VTableAdapter`, `DynExprVTable` (sealed 
 and `ExprVTable` (confusingly, the erased ref). Needs renaming to `ExprVTable`, `DynExpr`,
 `ExprRef`. Introduce `Expr<V>` data struct, remove `VTableAdapter`.
 
-### Layout -- Not started
+### Layout -- Implemented for serialized scan layouts
 
-Currently uses `VTable` (unqualified), `LayoutAdapter`, and `Layout` (sealed trait doubling
-as public API). Needs renaming to `LayoutVTable`, `DynLayout`, `LayoutRef`. Introduce
-`Layout<V>` data struct, remove `LayoutAdapter`.
+The scan layout path follows this pattern in `vortex_layout::layout_v2`:
+
+- `layout_v2::VTable` is the layout vtable implemented by layout plugins.
+- `Layout<V>` is the typed layout handle with common fields hoisted: dtype, row count, segment IDs,
+  and lazy child access.
+- `V::LayoutData` stores only layout-specific metadata.
+- `LayoutRef` is the public type-erased layout handle.
+- `DynLayout` is private erased dispatch plumbing.
+- `LayoutVTablePlugin` is the registry object used for ID-based footer deserialization.
+
+The layout vtable also owns scan expansion through `new_scan_plan`. This keeps serialized layout
+metadata and runtime scan behavior registered at the same plugin point: deserializing a layout
+produces `Layout<V>`, and scanning it expands that typed layout into a `ScanPlan`.
 
 ### Array -- Not started
 

@@ -3,14 +3,12 @@
 
 //! Predicate evidence: coverage-bearing answers for prepared predicates.
 //!
-//! A scan2 predicate is answered at runtime by *evidence fragments*:
+//! A scan predicate is answered at runtime by *evidence fragments*:
 //! row ranges paired with what a producer proves about the
-//! predicate over them (plan 017 SP1). The whole-morsel verdicts of the
-//! v1 scan (`RangeClassification`) become the degenerate case of one
-//! fragment covering the morsel; finer coverage is first-class, so a zone
-//! map can prove interior zones while leaving edge rows unknown, and an
-//! index can return sparse row masks without forcing the whole morsel
-//! down the same path.
+//! predicate over them. A whole-morsel verdict is the degenerate case of one
+//! fragment covering the morsel; finer coverage is first-class, so a zone map
+//! can prove interior zones while leaving edge rows unknown, and an index can
+//! return sparse row masks without forcing the whole morsel down the same path.
 //!
 //! Exactness is explicit in the returned evidence kind.
 //! [`PredicateEvidenceKind::ExactMask`] proves both selected and rejected

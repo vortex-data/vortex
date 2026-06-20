@@ -206,10 +206,10 @@ impl MultiFileDataSource {
     /// Build the [`DataSource`] selected by `VORTEX_SCAN_IMPL`.
     ///
     /// The default is the existing LayoutReader-backed scan. Setting
-    /// `VORTEX_SCAN_IMPL=v2` (or `scan2`/`scan3`/`native`) builds the ScanNode-backed V2 scan.
+    /// `VORTEX_SCAN_IMPL=v2` (or `scan2`/`scan3`/`native`) builds the ScanPlan-backed V2 scan.
     pub async fn build_data_source(self) -> VortexResult<DataSourceRef> {
         if scan2_enabled()? {
-            Ok(Arc::new(scan_v2::build_scan_node_data_source(self).await?))
+            Ok(Arc::new(scan_v2::build_scan_plan_data_source(self).await?))
         } else {
             Ok(Arc::new(self.build().await?))
         }

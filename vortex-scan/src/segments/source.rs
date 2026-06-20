@@ -6,10 +6,11 @@ use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
 
 use crate::segments::SegmentId;
+
 /// Static future resolving to a segment byte buffer.
 pub type SegmentFuture = BoxFuture<'static, VortexResult<BufferHandle>>;
 
-/// A trait for providing segment data to a [`crate::LayoutReader`].
+/// A trait for providing logical segment data to a scan plan.
 pub trait SegmentSource: 'static + Send + Sync {
     /// Request a segment, returning a future that will eventually resolve to the segment data.
     fn request(&self, id: SegmentId) -> SegmentFuture;

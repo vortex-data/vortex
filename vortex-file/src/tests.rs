@@ -108,7 +108,7 @@ fn exact_u64_stat(stat: &Precision<Scalar>) -> Option<u64> {
 }
 
 #[test]
-fn multi_file_scan_node_data_source_filters_and_projects() -> VortexResult<()> {
+fn multi_file_scan_plan_data_source_filters_and_projects() -> VortexResult<()> {
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_io::session::RuntimeSessionExt;
@@ -278,7 +278,7 @@ fn multi_file_scan_node_data_source_filters_and_projects() -> VortexResult<()> {
                 )
                 .await?
                 .ok_or_else(|| {
-                    vortex_error::vortex_err!("scan node data source must plan morsel partitions")
+                    vortex_error::vortex_err!("scan plan data source must plan morsel partitions")
                 })?;
 
             assert_eq!(planned.partition_count(), 2);

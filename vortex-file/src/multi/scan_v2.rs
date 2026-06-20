@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! ScanNode-backed multi-file data source.
+//! ScanPlan-backed multi-file data source.
 
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -46,37 +46,7 @@ use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_io::runtime::Handle;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_layout::scan::v2::evidence::EvidenceFragment;
-use vortex_layout::scan::v2::evidence::PredicateEvidence;
-use vortex_layout::scan::v2::evidence::PredicateEvidenceKind;
-use vortex_layout::scan::v2::evidence::PredicateId;
-use vortex_layout::scan::v2::evidence::PredicateVersion;
-use vortex_layout::scan::v2::node::ExpandCtx;
-use vortex_layout::scan::v2::node::FileReader;
-use vortex_layout::scan::v2::node::OwnedRowScope;
-use vortex_layout::scan::v2::node::PrepareCtx;
-use vortex_layout::scan::v2::node::PreparedAggregateRef;
-use vortex_layout::scan::v2::node::PreparedEvidenceRef;
-use vortex_layout::scan::v2::node::PreparedReadRef;
-use vortex_layout::scan::v2::node::PreparedStats;
-use vortex_layout::scan::v2::node::PreparedStatsRef;
-use vortex_layout::scan::v2::node::PushCtx;
-use vortex_layout::scan::v2::node::ScanNode;
-use vortex_layout::scan::v2::node::ScanNodeRef;
-use vortex_layout::scan::v2::node::ScanStateRef;
-use vortex_layout::scan::v2::node::StateCtx;
-use vortex_layout::scan::v2::request::EvidenceMode;
-use vortex_layout::scan::v2::request::NodeRequest;
-use vortex_layout::scan::v2::request::OwnedEvidenceRequest;
 use vortex_layout::scan::v2::validate_temporal_comparisons;
-use vortex_layout::segments::ScanIoPhase;
-use vortex_layout::segments::ScheduledSegmentSource;
-use vortex_layout::segments::ScheduledSegmentSourceReader;
-use vortex_layout::segments::SegmentFutureCache;
-use vortex_layout::segments::SegmentPlanCtx;
-use vortex_layout::segments::SegmentRequests;
-use vortex_layout::segments::SubmittedSegmentRequests;
-use vortex_layout::segments::submit_segment_requests_cached;
 use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::DataSource;
@@ -88,13 +58,42 @@ use vortex_scan::PartitionStream;
 use vortex_scan::PlannedMorselScan;
 use vortex_scan::PlannedMorselScanRef;
 use vortex_scan::ScanMeta;
-use vortex_scan::ScanRequest;
+use vortex_scan::ScanRequest as DataSourceScanRequest;
 use vortex_scan::ScanScheduler;
 use vortex_scan::ScanSchedulerSessionExt;
 use vortex_scan::ScanTicket;
 use vortex_scan::SegmentSourceId;
 use vortex_scan::SegmentSourceMeta;
 use vortex_scan::WorkRequest;
+use vortex_scan::plan::FileReader;
+use vortex_scan::plan::OwnedRowScope;
+use vortex_scan::plan::PrepareCtx;
+use vortex_scan::plan::PreparedAggregateRef;
+use vortex_scan::plan::PreparedEvidenceRef;
+use vortex_scan::plan::PreparedReadRef;
+use vortex_scan::plan::PreparedStats;
+use vortex_scan::plan::PreparedStatsRef;
+use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::ScanPlan;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::ScanStateRef;
+use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::evidence::EvidenceFragment;
+use vortex_scan::plan::evidence::PredicateEvidence;
+use vortex_scan::plan::evidence::PredicateEvidenceKind;
+use vortex_scan::plan::evidence::PredicateId;
+use vortex_scan::plan::evidence::PredicateVersion;
+use vortex_scan::plan::request::EvidenceMode;
+use vortex_scan::plan::request::OwnedEvidenceRequest;
+use vortex_scan::plan::request::ScanRequest;
+use vortex_scan::segments::ScanIoPhase;
+use vortex_scan::segments::ScheduledSegmentSource;
+use vortex_scan::segments::ScheduledSegmentSourceReader;
+use vortex_scan::segments::SegmentFutureCache;
+use vortex_scan::segments::SegmentPlanCtx;
+use vortex_scan::segments::SegmentRequests;
+use vortex_scan::segments::SubmittedSegmentRequests;
+use vortex_scan::segments::submit_segment_requests_cached;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -114,15 +113,15 @@ const DEFAULT_EVIDENCE_MORSEL_WINDOW: usize = 8;
 /// (filter-first) rather than the whole morsel. Mirrors the V1 flat-reader threshold.
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
-struct FileStatsScanNode {
-    data: ScanNodeRef,
+struct FileStatsScanPlan {
+    data: ScanPlanRef,
     stats: Arc<FileStatistics>,
     fields: StructFields,
     row_count: u64,
 }
 
-struct FileStatsExprScanNode {
-    data: ScanNodeRef,
+struct FileStatsExprScanPlan {
+    data: ScanPlanRef,
     stats: Arc<FileStatistics>,
     field_idx: usize,
     field_dtype: DType,
@@ -136,9 +135,9 @@ struct FilePreparedStats {
     funcs: Vec<AggregateFnRef>,
 }
 
-impl FileStatsScanNode {
+impl FileStatsScanPlan {
     fn try_new(
-        data: ScanNodeRef,
+        data: ScanPlanRef,
         stats: Arc<FileStatistics>,
         dtype: &DType,
         row_count: u64,
@@ -160,25 +159,25 @@ impl FileStatsScanNode {
     }
 }
 
-impl ScanNode for FileStatsScanNode {
+impl ScanPlan for FileStatsScanPlan {
     type State = ScanStateRef;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        cx.init_node(&self.data)
+        cx.init_plan(&self.data)
     }
 
     fn try_push_expr(
         self: Arc<Self>,
         expr: &Expression,
         cx: &mut PushCtx,
-    ) -> VortexResult<Option<ScanNodeRef>> {
+    ) -> VortexResult<Option<ScanPlanRef>> {
         let Some(data) = Arc::clone(&self.data).try_push_expr(expr, cx)? else {
             return Ok(None);
         };
         let Some((field_idx, _name, field_dtype)) = self.pushed_field(expr) else {
             return Ok(Some(data));
         };
-        Ok(Some(Arc::new(FileStatsExprScanNode {
+        Ok(Some(Arc::new(FileStatsExprScanPlan {
             data,
             stats: Arc::clone(&self.stats),
             field_idx,
@@ -220,18 +219,18 @@ impl ScanNode for FileStatsScanNode {
     }
 }
 
-impl ScanNode for FileStatsExprScanNode {
+impl ScanPlan for FileStatsExprScanPlan {
     type State = ScanStateRef;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        cx.init_node(&self.data)
+        cx.init_plan(&self.data)
     }
 
     fn try_push_expr(
         self: Arc<Self>,
         expr: &Expression,
         cx: &mut PushCtx,
-    ) -> VortexResult<Option<ScanNodeRef>> {
+    ) -> VortexResult<Option<ScanPlanRef>> {
         Arc::clone(&self.data).try_push_expr(expr, cx)
     }
 
@@ -380,9 +379,9 @@ fn scalar_precision_to_value(precision: Precision<Scalar>) -> Precision<ScalarVa
 }
 
 /// Build a scan2 [`DataSource`] from a multi-file builder.
-pub(super) async fn build_scan_node_data_source(
+pub(super) async fn build_scan_plan_data_source(
     builder: MultiFileDataSource,
-) -> VortexResult<ScanNodeDataSource> {
+) -> VortexResult<ScanPlanDataSource> {
     if builder.glob_sources.is_empty() {
         vortex_bail!("MultiFileDataSource requires at least one glob pattern");
     }
@@ -429,7 +428,7 @@ pub(super) async fn build_scan_node_data_source(
     let factories: Vec<Arc<dyn VortexFileFactory>> = all_files[1..]
         .iter()
         .map(|(file, fs)| {
-            Arc::new(ScanNodeFileFactory {
+            Arc::new(ScanPlanFileFactory {
                 fs: Arc::clone(fs),
                 file: file.clone(),
                 session: builder.session.clone(),
@@ -439,7 +438,7 @@ pub(super) async fn build_scan_node_data_source(
         })
         .collect();
 
-    Ok(ScanNodeDataSource::new_with_first(
+    Ok(ScanPlanDataSource::new_with_first(
         first_file,
         factories,
         &builder.session,
@@ -451,7 +450,7 @@ trait VortexFileFactory: 'static + Send + Sync {
     async fn open(&self) -> VortexResult<Option<VortexFile>>;
 }
 
-struct ScanNodeFileFactory {
+struct ScanPlanFileFactory {
     fs: FileSystemRef,
     file: FileListing,
     session: VortexSession,
@@ -460,7 +459,7 @@ struct ScanNodeFileFactory {
 }
 
 #[async_trait]
-impl VortexFileFactory for ScanNodeFileFactory {
+impl VortexFileFactory for ScanPlanFileFactory {
     async fn open(&self) -> VortexResult<Option<VortexFile>> {
         let file = open_file(
             &self.fs,
@@ -474,20 +473,20 @@ impl VortexFileFactory for ScanNodeFileFactory {
     }
 }
 
-enum ScanNodeChild {
+enum ScanPlanChild {
     Opened(VortexFile),
     Deferred(Arc<dyn VortexFileFactory>),
 }
 
-/// Multi-file data source backed by scan2 ScanNode plans.
-pub struct ScanNodeDataSource {
+/// Multi-file data source backed by scan2 ScanPlan plans.
+pub struct ScanPlanDataSource {
     dtype: DType,
     session: VortexSession,
-    children: Vec<ScanNodeChild>,
+    children: Vec<ScanPlanChild>,
     concurrency: usize,
 }
 
-impl ScanNodeDataSource {
+impl ScanPlanDataSource {
     fn new_with_first(
         first: VortexFile,
         remaining: Vec<Arc<dyn VortexFileFactory>>,
@@ -497,8 +496,8 @@ impl ScanNodeDataSource {
         let concurrency = get_available_parallelism().unwrap_or(DEFAULT_CONCURRENCY);
 
         let mut children = Vec::with_capacity(1 + remaining.len());
-        children.push(ScanNodeChild::Opened(first));
-        children.extend(remaining.into_iter().map(ScanNodeChild::Deferred));
+        children.push(ScanPlanChild::Opened(first));
+        children.extend(remaining.into_iter().map(ScanPlanChild::Deferred));
 
         Self {
             dtype,
@@ -514,11 +513,11 @@ impl ScanNodeDataSource {
             .iter()
             .enumerate()
             .map(|(idx, child)| match child {
-                ScanNodeChild::Opened(file) => {
+                ScanPlanChild::Opened(file) => {
                     let file = file.clone();
                     async move { Ok(Some((idx, file))) }.boxed()
                 }
-                ScanNodeChild::Deferred(factory) => {
+                ScanPlanChild::Deferred(factory) => {
                     let factory = Arc::clone(factory);
                     async move {
                         factory
@@ -553,7 +552,7 @@ impl ScanNodeDataSource {
 }
 
 #[async_trait]
-impl DataSource for ScanNodeDataSource {
+impl DataSource for ScanPlanDataSource {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -565,11 +564,11 @@ impl DataSource for ScanNodeDataSource {
 
         for child in &self.children {
             match child {
-                ScanNodeChild::Opened(file) => {
+                ScanPlanChild::Opened(file) => {
                     opened_count += 1;
                     sum = sum.saturating_add(file.row_count());
                 }
-                ScanNodeChild::Deferred(_) => {
+                ScanPlanChild::Deferred(_) => {
                     deferred_count += 1;
                 }
             }
@@ -595,12 +594,12 @@ impl DataSource for ScanNodeDataSource {
         _data: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<PartitionRef> {
-        vortex_bail!("ScanNodeDataSource partitions are not yet serializable")
+        vortex_bail!("ScanPlanDataSource partitions are not yet serializable")
     }
 
     async fn plan_morsel_partitions(
         &self,
-        scan_request: ScanRequest,
+        scan_request: DataSourceScanRequest,
         target_partitions: usize,
     ) -> VortexResult<Option<PlannedMorselScanRef>> {
         if scan_request.ordered || scan_request.limit.is_some() {
@@ -628,7 +627,7 @@ impl DataSource for ScanNodeDataSource {
             else {
                 continue;
             };
-            let prepared = Arc::new(PreparedScanNodeFile::try_new(file, request, &ticket)?);
+            let prepared = Arc::new(PreparedScanPlanFile::try_new(file, request, &ticket)?);
             let ranges = prepared.splits()?;
             if ranges.is_empty() {
                 continue;
@@ -647,7 +646,7 @@ impl DataSource for ScanNodeDataSource {
         for (prepared, ranges) in planned_files {
             for range in ranges {
                 let partition = morsel_idx % partition_count;
-                partitions[partition].push(PlannedScanNodeMorsel {
+                partitions[partition].push(PlannedScanPlanMorsel {
                     prepared: Arc::clone(&prepared),
                     range,
                 });
@@ -659,7 +658,7 @@ impl DataSource for ScanNodeDataSource {
         let (morsel_plan_window, morsel_launch_window) =
             morsel_windows(&scheduler, false, has_runtime_evidence, default_window);
 
-        Ok(Some(Arc::new(PlannedScanNodeScan {
+        Ok(Some(Arc::new(PlannedScanPlanScan {
             dtype,
             partitions,
             scheduler,
@@ -669,7 +668,7 @@ impl DataSource for ScanNodeDataSource {
         })))
     }
 
-    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+    async fn scan(&self, scan_request: DataSourceScanRequest) -> VortexResult<DataSourceScanRef> {
         let meta = ScanMeta {
             label: Some("scan2".to_string()),
         };
@@ -685,14 +684,14 @@ impl DataSource for ScanNodeDataSource {
 
         for child in &self.children {
             match child {
-                ScanNodeChild::Opened(file) => ready.push_back(file.clone()),
-                ScanNodeChild::Deferred(factory) => deferred.push_back(Arc::clone(factory)),
+                ScanPlanChild::Opened(file) => ready.push_back(file.clone()),
+                ScanPlanChild::Deferred(factory) => deferred.push_back(Arc::clone(factory)),
             }
         }
 
         let dtype = scan_request.projection.return_dtype(&self.dtype)?;
 
-        Ok(Box::new(ScanNodeDataSourceScan {
+        Ok(Box::new(ScanPlanDataSourceScan {
             dtype,
             request: scan_request,
             ready,
@@ -712,10 +711,10 @@ impl DataSource for ScanNodeDataSource {
         if self.children.len() != 1 {
             return Ok(absent_statistics(funcs));
         }
-        let ScanNodeChild::Opened(file) = &self.children[0] else {
+        let ScanPlanChild::Opened(file) = &self.children[0] else {
             return Ok(absent_statistics(funcs));
         };
-        scan_node_file_statistics(file.clone(), expr, funcs).await
+        scan_plan_file_statistics(file.clone(), expr, funcs).await
     }
 
     async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet> {
@@ -750,9 +749,9 @@ impl DataSource for ScanNodeDataSource {
     }
 }
 
-struct ScanNodeDataSourceScan {
+struct ScanPlanDataSourceScan {
     dtype: DType,
-    request: ScanRequest,
+    request: DataSourceScanRequest,
     ready: VecDeque<VortexFile>,
     deferred: VecDeque<Arc<dyn VortexFileFactory>>,
     handle: Handle,
@@ -761,7 +760,7 @@ struct ScanNodeDataSourceScan {
     ticket: ScanTicket,
 }
 
-impl DataSourceScan for ScanNodeDataSourceScan {
+impl DataSourceScan for ScanPlanDataSourceScan {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -845,7 +844,7 @@ impl DataSourceScan for ScanNodeDataSourceScan {
 fn file_partition(
     partition_idx: usize,
     file: VortexFile,
-    request: ScanRequest,
+    request: DataSourceScanRequest,
     scheduler: Arc<ScanScheduler>,
     ticket: ScanTicket,
 ) -> VortexResult<Option<PartitionRef>> {
@@ -853,7 +852,7 @@ fn file_partition(
         return Ok(None);
     };
 
-    Ok(Some(Box::new(ScanNodePartition {
+    Ok(Some(Box::new(ScanPlanPartition {
         file,
         request,
         index: partition_idx,
@@ -862,9 +861,9 @@ fn file_partition(
     })))
 }
 
-pub(crate) fn scan_node_file_stream(
+pub(crate) fn scan_plan_file_stream(
     file: VortexFile,
-    request: ScanRequest,
+    request: DataSourceScanRequest,
 ) -> VortexResult<SendableArrayStream> {
     let dtype = request.projection.return_dtype(file.dtype())?;
     let meta = ScanMeta {
@@ -886,16 +885,16 @@ pub(crate) fn scan_node_file_stream(
     partition.execute()
 }
 
-pub(crate) async fn scan_node_file_statistics(
+pub(crate) async fn scan_plan_file_statistics(
     file: VortexFile,
     expr: &Expression,
     funcs: &[AggregateFnRef],
 ) -> VortexResult<Vec<Precision<Scalar>>> {
-    let mut stats = scan_node_file_statistics_many(file, std::slice::from_ref(expr), funcs).await?;
+    let mut stats = scan_plan_file_statistics_many(file, std::slice::from_ref(expr), funcs).await?;
     Ok(stats.pop().unwrap_or_else(|| absent_statistics(funcs)))
 }
 
-pub(crate) async fn scan_node_file_statistics_many(
+pub(crate) async fn scan_plan_file_statistics_many(
     file: VortexFile,
     exprs: &[Expression],
     funcs: &[AggregateFnRef],
@@ -921,13 +920,13 @@ pub(crate) async fn scan_node_file_statistics_many(
     Ok(result)
 }
 
-pub(crate) fn scan_node_file_splits(file: &VortexFile) -> VortexResult<Vec<Range<u64>>> {
+pub(crate) fn scan_plan_file_splits(file: &VortexFile) -> VortexResult<Vec<Range<u64>>> {
     let session = file.session().clone();
     let root = expand_file_root(file, &session)?;
     split_ranges_from_node(&root, file.row_count())
 }
 
-pub(crate) async fn scan_node_file_plan_splits(
+pub(crate) async fn scan_plan_file_plan_splits(
     file: VortexFile,
     projection: &Expression,
 ) -> VortexResult<Vec<Range<u64>>> {
@@ -943,7 +942,7 @@ pub(crate) async fn scan_node_file_plan_splits(
         .await
 }
 
-fn split_ranges_from_node(node: &ScanNodeRef, row_count: u64) -> VortexResult<Vec<Range<u64>>> {
+fn split_ranges_from_node(node: &ScanPlanRef, row_count: u64) -> VortexResult<Vec<Range<u64>>> {
     let mut points = vec![0, row_count];
     if let Some(hints) = node.split_hints() {
         points.extend(
@@ -964,21 +963,21 @@ fn split_ranges_from_node(node: &ScanNodeRef, row_count: u64) -> VortexResult<Ve
         .collect())
 }
 
-fn expand_file_root(file: &VortexFile, session: &VortexSession) -> VortexResult<ScanNodeRef> {
-    let mut node_request = NodeRequest::empty();
+fn expand_file_root(file: &VortexFile, session: &VortexSession) -> VortexResult<ScanPlanRef> {
+    let mut plan_request = ScanRequest::empty();
     let layout = file
         .footer()
         .layout2()
         .ok_or_else(|| vortex_err!("scan2 requires a v2 footer layout"))?;
-    let root = ExpandCtx::new(session.clone()).expand(layout, &mut node_request)?;
+    let root = layout.new_scan_plan(&mut plan_request, session)?;
     Ok(match file.footer().statistics().cloned() {
-        Some(stats) => FileStatsScanNode::try_new(
+        Some(stats) => FileStatsScanPlan::try_new(
             Arc::clone(&root),
             Arc::new(stats),
             file.dtype(),
             file.row_count(),
         )
-        .map(|node| Arc::new(node) as ScanNodeRef)
+        .map(|node| Arc::new(node) as ScanPlanRef)
         .unwrap_or(root),
         None => root,
     })
@@ -987,8 +986,8 @@ fn expand_file_root(file: &VortexFile, session: &VortexSession) -> VortexResult<
 fn file_scan_request(
     partition_idx: usize,
     file: &VortexFile,
-    request: ScanRequest,
-) -> VortexResult<Option<ScanRequest>> {
+    request: DataSourceScanRequest,
+) -> VortexResult<Option<DataSourceScanRequest>> {
     let partition_idx_u64 = partition_idx as u64;
     if let Some(range) = &request.partition_range
         && !range.contains(&partition_idx_u64)
@@ -1019,7 +1018,7 @@ fn file_scan_request(
         return Ok(None);
     }
 
-    Ok(Some(ScanRequest {
+    Ok(Some(DataSourceScanRequest {
         row_range: Some(row_range),
         ..request
     }))
@@ -1103,7 +1102,7 @@ struct PlannedMorselWork {
 }
 
 struct MorselState {
-    prepared: Arc<PreparedScanNodeFile>,
+    prepared: Arc<PreparedScanPlanFile>,
     range: Range<u64>,
     selected: Mask,
     evidence: Vec<Option<PredicateEvidence>>,
@@ -1112,7 +1111,7 @@ struct MorselState {
 }
 
 struct PartitionWorkSchedulerState {
-    pending: VecDeque<PlannedScanNodeMorsel>,
+    pending: VecDeque<PlannedScanPlanMorsel>,
     morsels: Vec<Option<MorselState>>,
     active_morsels: usize,
     next_morsel_id: usize,
@@ -1172,7 +1171,7 @@ fn morsel_windows(
 }
 
 fn partition_work_stream(
-    morsels: Vec<PlannedScanNodeMorsel>,
+    morsels: Vec<PlannedScanPlanMorsel>,
     scheduler: Arc<ScanScheduler>,
     ticket: ScanTicket,
     ordered: bool,
@@ -1516,15 +1515,15 @@ impl PartitionWorkSchedulerState {
     }
 }
 
-struct ScanNodePartition {
+struct ScanPlanPartition {
     file: VortexFile,
-    request: ScanRequest,
+    request: DataSourceScanRequest,
     index: usize,
     scheduler: Arc<ScanScheduler>,
     ticket: ScanTicket,
 }
 
-impl Partition for ScanNodePartition {
+impl Partition for ScanPlanPartition {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -1556,7 +1555,7 @@ impl Partition for ScanNodePartition {
     }
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        let ScanNodePartition {
+        let ScanPlanPartition {
             file,
             request,
             index: _,
@@ -1564,7 +1563,7 @@ impl Partition for ScanNodePartition {
             ticket,
         } = *self;
 
-        let prepared = Arc::new(PreparedScanNodeFile::try_new(file, request, &ticket)?);
+        let prepared = Arc::new(PreparedScanPlanFile::try_new(file, request, &ticket)?);
         let dtype = prepared.dtype.clone();
         let ranges = prepared.splits()?;
         let ordered = prepared.ordered;
@@ -1577,7 +1576,7 @@ impl Partition for ScanNodePartition {
         );
         let morsels = ranges
             .into_iter()
-            .map(|range| PlannedScanNodeMorsel {
+            .map(|range| PlannedScanPlanMorsel {
                 prepared: Arc::clone(&prepared),
                 range,
             })
@@ -1598,9 +1597,9 @@ impl Partition for ScanNodePartition {
     }
 }
 
-struct PlannedScanNodeScan {
+struct PlannedScanPlanScan {
     dtype: DType,
-    partitions: Vec<Vec<PlannedScanNodeMorsel>>,
+    partitions: Vec<Vec<PlannedScanPlanMorsel>>,
     scheduler: Arc<ScanScheduler>,
     ticket: ScanTicket,
     morsel_plan_window: usize,
@@ -1608,12 +1607,12 @@ struct PlannedScanNodeScan {
 }
 
 #[derive(Clone)]
-struct PlannedScanNodeMorsel {
-    prepared: Arc<PreparedScanNodeFile>,
+struct PlannedScanPlanMorsel {
+    prepared: Arc<PreparedScanPlanFile>,
     range: Range<u64>,
 }
 
-impl PlannedMorselScan for PlannedScanNodeScan {
+impl PlannedMorselScan for PlannedScanPlanScan {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -1630,19 +1629,19 @@ impl PlannedMorselScan for PlannedScanNodeScan {
             );
         }
 
-        Ok(Box::new(PlannedScanNodePartition {
+        Ok(Box::new(PlannedScanPlanPartition {
             planned: self,
             index: partition,
         }))
     }
 }
 
-struct PlannedScanNodePartition {
-    planned: Arc<PlannedScanNodeScan>,
+struct PlannedScanPlanPartition {
+    planned: Arc<PlannedScanPlanScan>,
     index: usize,
 }
 
-impl Partition for PlannedScanNodePartition {
+impl Partition for PlannedScanPlanPartition {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -1673,7 +1672,7 @@ impl Partition for PlannedScanNodePartition {
     }
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        let PlannedScanNodePartition { planned, index } = *self;
+        let PlannedScanPlanPartition { planned, index } = *self;
         let morsels = planned.partitions[index].clone();
         let dtype = planned.dtype.clone();
         let scheduler = Arc::clone(&planned.scheduler);
@@ -1693,7 +1692,7 @@ impl Partition for PlannedScanNodePartition {
     }
 }
 
-struct PreparedScanNodeFile {
+struct PreparedScanPlanFile {
     session: VortexSession,
     reader: FileReader,
     dtype: DType,
@@ -1704,7 +1703,7 @@ struct PreparedScanNodeFile {
     segment_source_id: SegmentSourceId,
     scheduled_segment_source: Arc<dyn ScheduledSegmentSource>,
     segment_future_cache: Arc<SegmentFutureCache>,
-    root: ScanNodeRef,
+    root: ScanPlanRef,
     projection: PreparedReadRef,
     predicates: Vec<PreparedPredicate>,
 }
@@ -1720,8 +1719,12 @@ struct RegisteredScheduledSegmentSource {
     source: Arc<dyn ScheduledSegmentSource>,
 }
 
-impl PreparedScanNodeFile {
-    fn try_new(file: VortexFile, request: ScanRequest, ticket: &ScanTicket) -> VortexResult<Self> {
+impl PreparedScanPlanFile {
+    fn try_new(
+        file: VortexFile,
+        request: DataSourceScanRequest,
+        ticket: &ScanTicket,
+    ) -> VortexResult<Self> {
         let session = file.session().clone();
         let dtype = request.projection.return_dtype(file.dtype())?;
         let projection = request.projection.optimize_recursive(file.dtype())?;
@@ -2063,11 +2066,11 @@ impl PreparedScanNodeFile {
 }
 
 fn push_expr(
-    root: &ScanNodeRef,
+    root: &ScanPlanRef,
     expr: &Expression,
     dtype: &DType,
     session: &VortexSession,
-) -> VortexResult<ScanNodeRef> {
+) -> VortexResult<ScanPlanRef> {
     validate_temporal_comparisons(expr, dtype)?;
     Arc::clone(root)
         .try_push_expr(expr, &mut PushCtx::new(session.clone()))?
@@ -2075,7 +2078,7 @@ fn push_expr(
 }
 
 fn prepare_read(
-    root: &ScanNodeRef,
+    root: &ScanPlanRef,
     expr: &Expression,
     dtype: &DType,
     session: &VortexSession,

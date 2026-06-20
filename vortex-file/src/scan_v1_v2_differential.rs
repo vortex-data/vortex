@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Differential tests that scan the same [`ScanRequest`] through both the V1
-//! (LayoutReader-based) and V2 (ScanNode-based) scan paths and assert the
+//! (LayoutReader-based) and V2 (ScanPlan-based) scan paths and assert the
 //! outputs are identical.
 //!
 //! V1 is driven through [`VortexFile::scan`] +
 //! [`ScanBuilder::into_array_stream`]; V2 is driven directly through
-//! [`VortexFile::scan_node_stream`]. Neither side flips the process-global
+//! [`VortexFile::scan_plan_stream`]. Neither side flips the process-global
 //! `VORTEX_SCAN_IMPL` env var, so the two implementations run side by side in
 //! the same test process.
 
@@ -51,7 +51,7 @@ use crate::WriteOptionsSessionExt;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::tests::new_test_session);
 
 /// Write `array` to an in-memory Vortex file, optionally with file statistics
-/// (which exercises the V2 `FileStatsScanNode` path and V1 `FileStatsLayoutReader`).
+/// (which exercises the V2 `FileStatsScanPlan` path and V1 `FileStatsLayoutReader`).
 async fn write_file(array: ArrayRef, with_stats: bool) -> VortexResult<VortexFile> {
     let mut buf = ByteBufferMut::empty();
     if with_stats {
@@ -82,9 +82,9 @@ async fn scan_v1(file: &VortexFile, request: &ScanRequest) -> VortexResult<Array
     builder.into_array_stream()?.read_all().await
 }
 
-/// Scan `file` through the V2 ScanNode path.
+/// Scan `file` through the V2 ScanPlan path.
 async fn scan_v2(file: &VortexFile, request: &ScanRequest) -> VortexResult<ArrayRef> {
-    file.scan_node_stream(request.clone())?.read_all().await
+    file.scan_plan_stream(request.clone())?.read_all().await
 }
 
 /// Scan the same request through both paths and assert the outputs are equal.

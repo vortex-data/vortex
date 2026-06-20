@@ -44,46 +44,46 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
+use vortex_scan::plan::FileReader;
+use vortex_scan::plan::PrepareCtx;
+use vortex_scan::plan::PreparedRead;
+use vortex_scan::plan::PreparedReadRef;
+use vortex_scan::plan::PreparedStateKey;
+use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::RowScope;
+use vortex_scan::plan::ScanPlan;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::request::ScanRequest;
+use vortex_session::VortexSession;
 
 use crate::layout_v2::Dict;
 use crate::layout_v2::Layout;
 use crate::layouts::SharedArrayFuture;
-use crate::scan::v2::node::ExpandCtx;
-use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::PrepareCtx;
-use crate::scan::v2::node::PreparedRead;
-use crate::scan::v2::node::PreparedReadRef;
-use crate::scan::v2::node::PreparedStateKey;
-use crate::scan::v2::node::PushCtx;
-use crate::scan::v2::node::RowScope;
-use crate::scan::v2::node::ScanNode;
-use crate::scan::v2::node::ScanNodeRef;
-use crate::scan::v2::node::StateCtx;
-use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
-pub(crate) fn new_scan_node(
+pub(crate) fn new_scan_plan(
     layout: Layout<Dict>,
-    _req: &mut NodeRequest,
-    cx: &ExpandCtx,
-) -> VortexResult<ScanNodeRef> {
+    _req: &mut ScanRequest,
+    session: &VortexSession,
+) -> VortexResult<ScanPlanRef> {
     let values = layout.child(0)?;
     let codes = layout.child(1)?;
-    Ok(Arc::new(DictScanNode {
+    Ok(Arc::new(DictScanPlan {
         values_len: values.row_count(),
         // Values and codes live in other row domains.
-        values: cx.expand_free(&values)?,
-        codes: cx.expand_free(&codes)?,
+        values: values.new_scan_plan(&mut ScanRequest::empty(), session)?,
+        codes: codes.new_scan_plan(&mut ScanRequest::empty(), session)?,
     }))
 }
 
 /// Reads a dict layout: shared values (another row domain, read once per
 /// query) plus a codes chain in this node's row domain.
-pub struct DictScanNode {
-    values: ScanNodeRef,
+pub struct DictScanPlan {
+    values: ScanPlanRef,
     values_len: u64,
-    codes: ScanNodeRef,
+    codes: ScanPlanRef,
 }
 
 /// Per-query dictionary caches: the shared values relation and cached
@@ -117,20 +117,20 @@ impl Default for DictSharedState {
 }
 
 /// A pushed scalar expression over a dictionary value.
-struct DictExprScanNode {
-    dict: Arc<DictScanNode>,
+struct DictExprScanPlan {
+    dict: Arc<DictScanPlan>,
     expr: Expression,
 }
 
 struct DictPreparedRead {
-    node: Arc<DictScanNode>,
+    node: Arc<DictScanPlan>,
     state: Arc<DictScanState>,
     values_read: PreparedReadRef,
     codes_read: PreparedReadRef,
 }
 
 struct DictExprPreparedRead {
-    node: Arc<DictExprScanNode>,
+    node: Arc<DictExprScanPlan>,
     state: Arc<DictScanState>,
     values_read: PreparedReadRef,
     codes_read: PreparedReadRef,
@@ -162,7 +162,7 @@ fn sparse_value_expr_candidate(expr: &Expression, values_len: u64, rows: RowScop
     sparse_dict_candidate(values_len, rows) && value_expr_is_expensive(expr)
 }
 
-impl DictScanNode {
+impl DictScanPlan {
     /// The values relation wrapped in a `SharedArray`, read once per query.
     fn values(
         &self,
@@ -213,7 +213,7 @@ impl DictScanNode {
     }
 }
 
-impl ScanNode for DictScanNode {
+impl ScanPlan for DictScanPlan {
     type State = DictScanState;
 
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<DictScanState> {
@@ -224,11 +224,11 @@ impl ScanNode for DictScanNode {
         self: Arc<Self>,
         expr: &Expression,
         _cx: &mut PushCtx,
-    ) -> VortexResult<Option<ScanNodeRef>> {
+    ) -> VortexResult<Option<ScanPlanRef>> {
         if is_root(expr) {
             Ok(Some(self))
         } else {
-            Ok(Some(Arc::new(DictExprScanNode {
+            Ok(Some(Arc::new(DictExprScanPlan {
                 dict: self,
                 expr: expr.clone(),
             })))
@@ -272,7 +272,7 @@ impl ScanNode for DictScanNode {
     }
 }
 
-impl ScanNode for DictExprScanNode {
+impl ScanPlan for DictExprScanPlan {
     type State = DictScanState;
 
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {

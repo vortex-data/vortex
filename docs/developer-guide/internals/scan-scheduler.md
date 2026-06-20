@@ -1,11 +1,11 @@
 # Scan Scheduler
 
 :::{note}
-This is an implementation design for the ScanNode-backed scan path. It describes the scheduler
-shape the V2 scan should grow into, not the current behavior of the released scan API.
+This is an implementation design for scheduler-aware ScanPlan execution. It describes the resource
+coordination shape that the scan runtime is growing toward.
 :::
 
-The ScanNode scan path needs a resource scheduler that can coordinate work across files, partitions,
+The ScanPlan scan path needs a resource scheduler that can coordinate work across files, partitions,
 and concurrent scans. The scheduler should be explicit and embeddable: a host engine can share one
 scheduler across many scans to enforce global limits, or create a fresh scheduler for each query to
 isolate resource usage.
@@ -15,7 +15,7 @@ for query semantics.
 
 The existing `DataSource` / `ScanRequest` / `DataSourceScan` API remains the public query-engine
 boundary for this phase. The scheduler and morsel runtime sit behind that boundary, so the first
-implementation can improve V2 execution without introducing a second scan API that mostly duplicates
+implementation can improve scan execution without introducing a second scan API that mostly duplicates
 the current one.
 
 ## Goals
@@ -24,7 +24,7 @@ the current one.
 - Allow DataFusion users to choose a shared scheduler, a new scheduler per query, or an unbounded
   mode.
 - Give DuckDB a simple global scheduler owned by the extension session.
-- Keep ScanNode planning and morsel ordering local to each scan.
+- Keep ScanPlan planning and morsel ordering local to each scan.
 - Make I/O planning explicit enough that future evidence, predicate, and projection reads can be
   deduplicated, batched, and prioritized without relying on hidden unpolled futures inside layout
   readers.
@@ -40,11 +40,11 @@ the current one.
 - Do not put query semantics, filter ordering, evidence planning, or output ordering into the global
   scheduler.
 - Do not replace the `DataSource` scan API in the first scheduler implementation. If the public API
-  changes later, it should be because the V2 runtime needs capabilities that cannot be added
+  changes later, it should be because the ScanPlan runtime needs capabilities that cannot be added
   compatibly to `ScanRequest` or `DataSourceScan`.
 - Do not require every scan integration to expose the same configuration surface immediately.
 - Do not solve cluster-wide distributed admission control. The scheduler is process-local.
-- Do not design an opaque I/O path in the first implementation. If a future custom `ScanNode` needs
+- Do not design an opaque I/O path in the first implementation. If a future custom `ScanPlan` needs
   non-segment I/O, add that as a small extension point next to `SegmentRequest`.
 
 ## Core Model
@@ -60,12 +60,11 @@ There are three layers:
    priority, metrics, and per-scan limits.
 
 3. Per-scan `MorselScanRuntime`
-   Owns the ScanNode graph, evidence/read/aggregate plans, morsel queue, row ordering, limit
+   Owns the ScanPlan graph, evidence/read/aggregate plans, morsel queue, row ordering, limit
    handling, dynamic filters, and the choice of which work is useful next.
 
 `DataSource::scan` constructs this per-scan runtime internally and returns the existing
-`DataSourceScan` wrapper. Query engines should not need to know whether a data source is implemented
-by the legacy `LayoutReader` path or the V2 ScanNode runtime.
+`DataSourceScan` wrapper. Query engines do not need to know the internal ScanPlan topology.
 
 The scheduler decides whether work may run. The per-scan runtime decides what work should run.
 
@@ -152,13 +151,13 @@ pub trait ScanSchedulerSessionExt: SessionExt {
 }
 ```
 
-The default should be `Unbounded` initially, so enabling the V2 scan does not silently introduce new
+The default can be `Unbounded` initially, so adopting the scheduler does not silently introduce new
 resource limits. Integrations can opt into bounded scheduling explicitly.
 
 The scheduler types should live in `vortex-scan`, not `vortex-layout`, because the resource policy
-belongs to the scan API layer and should be reusable by non-layout sources. ScanNode-specific code in
+belongs to the scan API layer and should be reusable by non-layout sources. ScanPlan-specific code in
 `vortex-layout` can consume tickets and permits through the public scan scheduler API without making
-the scheduler understand layout-specific node types.
+the scheduler understand layout-specific plan types.
 
 ## DataFusion Integration
 
@@ -183,9 +182,9 @@ impl VortexDataSourceBuilder {
 The same options should be available on `VortexTable` and `VortexFormatFactory` so users who
 register tables through DataFusion's listing format path can still control scheduling.
 
-For the current V2 DataFusion path, `DataSource::open` creates a single Vortex scan for partition
-zero. A per-query scheduler can therefore be resolved immediately before calling
-`DataSourceRef::scan`. If DataFusion later produces multiple Vortex scan nodes for one query and
+For DataFusion, `DataSource::open` creates a single Vortex scan for partition zero. A per-query
+scheduler can therefore be resolved immediately before calling
+`DataSourceRef::scan`. If DataFusion later produces multiple Vortex scan plans for one query and
 those scans should share a per-query scheduler, the integration should propagate a scheduler through
 DataFusion's `TaskContext` or another query-scoped extension and use that as the provider result.
 
@@ -210,7 +209,6 @@ Benchmark environment variables can map onto these APIs, but they should not be 
 surface:
 
 ```text
-VORTEX_SCAN_IMPL=v2
 VORTEX_SCAN_SCHEDULER=unbounded|shared|per-query
 VORTEX_SCAN_MAX_MORSEL_SLOTS=...
 ```
@@ -239,9 +237,9 @@ keeps the scheduler explicit and testable.
 
 Scan work should acquire scheduler permits before consuming bounded resources.
 
-The first implementation should not require every `ReadPlan`, `EvidencePlan`, or `AggregatePlan`
+The first implementation should not require every `PreparedRead`, `PreparedEvidence`, or `PreparedAggregate`
 to expose pending I/O, decoded-size estimates, or cost statistics. Those estimates are useful, but
-they are also hard to get right and would make the initial ScanNode API more rigid. The V2 runtime
+they are also hard to get right and would make the initial ScanPlan API more rigid. The scan runtime
 already knows the coarse unit of scheduling: the morsel. The MVP scheduler should admit morsels and
 let each admitted morsel run its evidence/read/aggregate pipeline internally.
 
@@ -274,14 +272,14 @@ Richer byte/task fields can be added once the runtime has instrumentation showin
 limits matter in practice:
 
 ```rust
-pub struct PlanCostHint {
+pub struct PreparedCostHint {
     pub estimated_io_bytes: Option<u64>,
     pub estimated_decoded_bytes: Option<u64>,
     pub estimated_cpu_units: Option<u64>,
 }
 ```
 
-If those hints are added, they should remain advisory. A plan that does not provide hints should
+If those hints are added, they should remain advisory. A prepared handle that does not provide hints should
 still be schedulable with default morsel accounting.
 
 `WorkPermit` is RAII. Dropping it releases every reserved resource. This is required for early
@@ -315,11 +313,8 @@ This will let the scan reserve from estimates first, then correct accounting aft
 
 ## Explicit Segment Request Model
 
-The legacy layout reader gets useful coalescing from a side effect: creating a `SegmentFuture`
-registers the underlying read with `FileSegmentSource`, even if the future has not been polled yet.
-That makes future reads visible to the I/O stream, but it hides I/O shape from the scan scheduler.
-
-The ScanNode path should make this boundary explicit. Layouts still refer to logical segments by
+The ScanPlan path makes segment requests explicit enough for scheduling while keeping physical I/O
+inside the segment source. Layouts still refer to logical segments by
 `SegmentId`, and the scheduler should stay at that same abstraction level. It should know which
 registered source owns the segment and roughly how many bytes the segment costs, but it should not
 need the segment's physical byte location:
@@ -344,7 +339,7 @@ pub enum ScanIoPhase {
 ```
 
 `SegmentId` is not a physical I/O address. It is a layout-local reference. A `VortexFile` binds
-that reference when it instantiates a ScanNode tree:
+that reference when it instantiates a ScanPlan tree:
 
 ```text
 footer segment map + opened byte source
@@ -354,7 +349,7 @@ SegmentId -> SegmentInfo { bytes, cacheability, source-local metadata }
 ```
 
 For normal Vortex files, the source is the `VortexReadAt` returned by `VortexOpenOptions` or
-`FileSystem::open_read`. For a custom ScanNode, the source might be an HTTP range reader, an
+`FileSystem::open_read`. For a custom ScanPlan, the source might be an HTTP range reader, an
 in-memory reader, or another backend that can provide segment payloads.
 
 The first implementation should only support segment requests. A future non-segment I/O hook can be
@@ -401,12 +396,12 @@ deduplication. The minimum guarantee is scan-local identity: all requests with t
 `SegmentSourceId` target the same registered source and may be deduped or batched together.
 
 For a prepared `VortexFile`, source registration happens during file preparation, before layout
-plans produce runtime segment requests. Layout nodes should not know how a file was opened. A flat
-layout can continue to store `segment_id`; the prepared file state translates that ID to a
+plans produce runtime segment requests. Layout-specific plans should not know how a file was
+opened. A flat layout can continue to store `segment_id`; the prepared file state translates that ID to a
 `SegmentRequest` using the bound segment table.
 
-Custom ScanNodes that own independent I/O register their own sources during preparation or state
-initialization. For example, an HTTP-backed node can register a source that maps `SegmentId`s to
+Custom ScanPlans that own independent I/O register their own sources during preparation or state
+initialization. For example, an HTTP-backed plan can register a source that maps `SegmentId`s to
 HTTP range requests internally and produce `SegmentRequest`s against the returned
 `SegmentSourceId`.
 
@@ -433,7 +428,7 @@ impl ScheduleCtx<'_> {
 
 `request_segment` is synchronous. It dedupes by `(SegmentSourceId, SegmentId)`, submits to the
 registered source when needed, and returns a shared future for the logical segment payload. Adjacent
-morsels and different plans that touch the same segment receive clones of the same shared future
+morsels and different prepared handles that touch the same segment receive clones of the same shared future
 while it remains in flight.
 
 The scheduler should therefore:
@@ -447,8 +442,8 @@ The scheduler should therefore:
 - submit ordered batches or windows of segment requests to each source.
 
 For the current intermediate implementation, scans without a pushed-down limit should default to an
-unbounded planning window and a bounded launch window. This deliberately mirrors the useful V1
-behavior: constructing the planned morsel registers segment futures for the whole scan, while only
+unbounded planning window and a bounded launch window. Constructing the planned morsel registers
+segment futures for the scan window, while only
 the launch window controls how many morsels are actively polled and decoded. Ordered scans use the
 same planning and launch machinery, but projection completions are buffered behind an ordered
 emission frontier. Scans with a pushed-down limit should continue using a `1/1` plan/launch window
@@ -541,16 +536,16 @@ but it does not need to own eviction to schedule scans correctly.
 
 ## Scheduled Morsel Futures
 
-`ScanNode` and `Plan` serve different purposes:
+`ScanPlan` and prepared handles serve different purposes:
 
-- `ScanNode` is the expanded layout tree with capabilities. It answers whether a layout can push an
+- `ScanPlan` is the expanded layout tree with capabilities. It answers whether a layout can push an
   expression, produce evidence, read values, split work, or answer statistics.
-- `Plan` is a reusable compiled route through that tree for one purpose, such as reading a
-  projection expression or producing one predicate's evidence. It should not own frontier state and
-  should not have an `execute_next(len)` API.
+- A prepared handle is a reusable compiled route through that tree for one purpose, such as reading
+  a projection expression or producing one predicate's evidence. It should not own frontier state
+  and should not have an `execute_next(len)` API.
 
-The drive/cursor owns frontier state and chooses explicit morsel ranges. Plans execute explicit
-work:
+The drive/cursor owns frontier state and chooses explicit morsel ranges. Prepared handles execute
+explicit work:
 
 ```rust
 pub struct MorselScope<'a> {
@@ -565,7 +560,7 @@ pub struct ScheduledRead<'a> {
     pub future: BoxFuture<'a, VortexResult<ArrayRef>>,
 }
 
-pub trait ReadPlan {
+pub trait ScheduledPreparedRead {
     fn schedule_morsel<'a>(
         &'a self,
         scope: MorselScope<'a>,
@@ -609,14 +604,15 @@ sharpens later work. Predicate reads should be ordered by expected selectivity p
 reads should stay near the accepted-row frontier so the scan does not retain an entire filtered
 stream before emitting output.
 
-## End-State Plan Introspection
+## End-State Prepared-Handle Introspection
 
 The stricter end state can add explicit request introspection on top of scheduled morsel futures.
-In that model, plans describe the segments they would need before execution, the scheduler submits
-those requests, and execution receives a resolver backed by the submitted request set:
+In that model, prepared handles describe the segments they would need before execution, the
+scheduler submits those requests, and execution receives a resolver backed by the submitted request
+set:
 
 ```rust
-pub trait ReadPlan {
+pub trait PreparedRead {
     fn segment_requests(
         &self,
         range: Range<u64>,
@@ -628,7 +624,7 @@ pub trait ReadPlan {
     }
 }
 
-pub trait EvidencePlan {
+pub trait PreparedEvidence {
     fn segment_requests(
         &self,
         req: &EvidenceRequest<'_>,
@@ -640,17 +636,17 @@ pub trait EvidencePlan {
 }
 ```
 
-Leaf plans can provide exact requests. A flat leaf reports the segment bound to its `segment_id`.
+Leaf prepared handles can provide exact requests. A flat leaf reports the segment bound to its `segment_id`.
 Zoned evidence reports the shared stats-table setup read separately from cheap per-morsel probes.
-Struct and apply plans compose child requests. Chunked plans use `selection` and `demand` to include
+Struct and apply prepared reads compose child requests. Chunked prepared reads use `selection` and `demand` to include
 only the chunks that actually require data, preserving the current selected-but-undemanded behavior
 where default filler can be produced without expanding or reading a child.
 
-In strict mode, plans that return `unknown` cannot use the strict resolver without falling back to
+In strict mode, prepared handles that return `unknown` cannot use the strict resolver without falling back to
 an explicit late request path. That fallback should be observable in metrics and should eventually
 disappear from core layouts. This is why the scheduled-morsel-future model is the better
-intermediate step: it makes I/O registration authoritative without requiring every plan to expose a
-perfect request set on day one.
+intermediate step: it makes I/O registration authoritative without requiring every prepared handle
+to expose a perfect request set on day one.
 
 ## Morsel Pipeline
 
@@ -697,7 +693,7 @@ layout-node behavior.
 
 The scheduler-aware runtime should own the per-file morsel frontier. Each prepared file tracks the
 set of morsels that may still read state. When a morsel is emitted or pruned, the runtime advances
-the contiguous completed frontier and calls release hooks on read plans and scan nodes.
+the contiguous completed frontier and calls release hooks on prepared reads and scan plans.
 
 This is required for lookahead. Without a frontier, running evidence and predicate work far ahead can
 leave decoded chunks, flat arrays, zone maps, and masks retained longer than intended. The release
@@ -722,7 +718,7 @@ The first implementation should control active execution:
 This intentionally approximates the current scan behavior: scans without a pushed-down limit can run
 several morsels concurrently. Ordered scans keep the same work window, but emit projection results
 through an ordered frontier. Scans with a pushed-down limit should run with a narrower launch
-window. The default launch window should mirror the existing `ScanBuilder` concurrency factor:
+window. The default launch window should be proportional to available scan parallelism:
 
 ```text
 no limit: max_morsels_in_flight = 4 * available_parallelism
@@ -731,8 +727,7 @@ limit:    max_morsels_in_flight = 1
 
 The shared scheduler can apply the same window globally, per scan, or both. For example, a
 DataFusion user can choose one shared scheduler with `4 * available_parallelism` total morsel slots
-to cap the whole process, or create a new scheduler per query to preserve the old per-query
-behavior.
+to cap the whole process, or create a new scheduler per query to isolate resource accounting.
 
 Later implementations can add:
 
@@ -763,7 +758,7 @@ query semantics. Weighted fair scheduling can be added later if the per-scan win
 
 ## Morsel Runtime
 
-The V2 scan should move toward an explicit per-scan runtime. The MVP can still execute one whole
+The scan should move toward an explicit per-scan runtime. The MVP can still execute one whole
 morsel after acquiring one coarse scheduler permit, but the runtime boundary should be chosen so it
 can later split a morsel into evidence, predicate, projection, emit, and release work without
 changing the public `DataSource` API.
@@ -777,8 +772,9 @@ pub struct MorselScanRuntime {
 }
 ```
 
-`ScanRuntimePlan` is internal to the V2 implementation. It contains the files, expanded ScanNode
-trees, pushed expressions, evidence plans, read plans, aggregate plans, and reusable per-file state.
+`ScanRuntimePlan` is internal to the scan implementation. It contains the files, expanded ScanPlan
+trees, pushed expressions, prepared evidence handles, prepared reads, prepared aggregate handles,
+and reusable per-file state.
 It is not a replacement public scan API.
 
 MVP execution loop:
@@ -808,7 +804,7 @@ while output is still required:
     advance the per-file frontier and release state behind it
 ```
 
-The scheduler should not know that the work is "zoned evidence" or "dict read plan". It should see
+The scheduler should not know that the work is "zoned evidence" or "dict prepared read". It should see
 resource classes, source IDs, segment requests, slot counts, cancellation state, and priorities.
 The per-scan runtime maps layout-specific plan behavior into those generic scheduler inputs.
 
@@ -853,13 +849,13 @@ them through tracing or debug logs first.
    Include `ScanScheduler`, `ScanSchedulerConfig`, `ScanSchedulerProvider`, `ScanSchedulerSession`,
    `ScanTicket`, `WorkRequest`, and `WorkPermit`.
 
-2. Wire the V2 scan to register one ticket per `DataSource::scan` call.
-   Store the ticket and scheduler in the V2 `DataSourceScan` so all partitions from the same scan
+2. Wire the scan to register one ticket per `DataSource::scan` call.
+   Store the ticket and scheduler in the `DataSourceScan` so all partitions from the same scan
    share one resource view.
 
-3. Add permits around V2 morsel execution.
-   Start with one scheduler slot per in-flight morsel. Do not require `ReadPlan`, `EvidencePlan`,
-   or `AggregatePlan` to expose cost estimates in the MVP. Keep byte accounting and output batch
+3. Add permits around morsel execution.
+   Start with one scheduler slot per in-flight morsel. Do not require `PreparedRead`,
+   `PreparedEvidence`, or `PreparedAggregate` to expose cost estimates in the MVP. Keep byte accounting and output batch
    memory accounting out of the MVP.
 
 4. Add DataFusion builder controls.
@@ -885,8 +881,8 @@ them through tracing or debug logs first.
    Key it by `(SegmentSourceId, SegmentId)`. `ScheduleCtx::request_segment` should synchronously
    submit or reuse the logical segment request and return a shared future for the segment payload.
 
-10. Convert plan execution to scheduled morsel future construction.
-    `ReadPlan` and `EvidencePlan` should expose synchronous future constructors for explicit
+10. Convert prepared-handle execution to scheduled morsel future construction.
+    `PreparedRead` and `PreparedEvidence` should expose synchronous future constructors for explicit
     morsel ranges. Constructing the future registers all segment futures it will await. The drive
     can then construct work ahead until byte/frontier/memory thresholds are full and decide which
     futures to poll.
@@ -907,7 +903,7 @@ them through tracing or debug logs first.
     release. Use observed selectivity and I/O cost to reprioritize predicate work within each scan.
 
 14. Drive the morsel frontier.
-    Track completed/pruned morsels per file and call read-plan/scan-node release hooks as the
+    Track completed/pruned morsels per file and call prepared-read/scan-plan release hooks as the
     contiguous frontier advances.
 
 15. Add strict end-state segment resolution.
@@ -918,12 +914,12 @@ them through tracing or debug logs first.
 
 ## Open Questions
 
-- Should the default scheduler remain unbounded permanently, or should V2 eventually use bounded
+- Should the default scheduler remain unbounded permanently, or should ScanPlan scans eventually use bounded
   defaults?
-- How should DataFusion propagate one per-query scheduler across several Vortex scan nodes in the
+- How should DataFusion propagate one per-query scheduler across several Vortex scan plans in the
   same physical plan?
 - Should scheduler config be part of the public stable scan API or remain integration-specific until
-  the V2 scan is more mature?
+  the ScanPlan scan is more mature?
 - How should output batch memory be accounted once ownership moves into DataFusion or DuckDB?
 - Should segment cache memory share the scheduler's decoded/intermediate budget, or have a separate
   cache budget coordinated by the same scheduler?

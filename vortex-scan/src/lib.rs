@@ -22,8 +22,10 @@
 //! * We should add a way for the client to negotiate capabilities with the data source, for
 //!   example which encodings it knows about.
 
+pub mod plan;
 pub mod row_mask;
 pub mod scheduler;
+pub mod segments;
 pub mod selection;
 
 use std::any::Any;
@@ -44,6 +46,7 @@ pub use scheduler::SegmentSourceId;
 pub use scheduler::SegmentSourceMeta;
 pub use scheduler::WorkPermit;
 pub use scheduler::WorkRequest;
+pub use segments::*;
 use selection::Selection;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;

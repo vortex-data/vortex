@@ -30,7 +30,7 @@ Each Vortex crate defines a session variable that holds a registry for its exten
 | `DTypeSession`    | `vortex-array`   | Extension dtype vtables (Date, Time, ...)    |
 | `ArraySession`    | `vortex-array`   | Array encoding vtables (ALP, FSST, ...)      |
 | `ScalarFnSession` | `vortex-array`   | Scalar function vtables                      |
-| `LayoutSession`   | `vortex-layout`  | Layout encoding vtables (Flat, Chunked, ...) |
+| `LayoutSession`   | `vortex-layout`  | Layout vtable plugins (Flat, Chunked, ...)   |
 | `RuntimeSession`  | `vortex-io`      | Async runtime handle                         |
 | `CudaSession`     | `vortex-cuda`    | CUDA context, kernels, and stream pool       |
 
@@ -47,8 +47,8 @@ Plugins register with the session by accessing the relevant component and callin
 // Register a custom array encoding
 session.arrays().register(MyEncoding);
 
-// Register a custom layout
-session.layouts().register(MyLayout::encoding());
+// Register a custom layout vtable
+session.layouts().register_v2(MyLayout);
 
 // Register a custom scalar function
 session.scalar_fns().register(MyScalarFnVTable);
@@ -61,7 +61,7 @@ to register all built-in encodings.
 ## Explicit Passing
 
 Sessions are passed explicitly through constructors and method arguments. This means every API
-that needs access to registries -- file readers, writers, scan builders, layout readers -- receives
+that needs access to registries -- file readers, writers, scan sources, layout vtables -- receives
 the session directly rather than reaching for global state.
 
 ```rust
@@ -75,8 +75,11 @@ session.write_options()
     .write(&mut file, array_stream)
     .await?;
 
-// Scanning a layout
-ScanBuilder::new(session.clone(), layout_reader)
+// Scanning a file
+let stream = session.open_options()
+    .open_path("data.vortex")
+    .await?
+    .scan()?
     .with_filter(expr)
     .into_array_stream()?;
 ```

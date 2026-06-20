@@ -471,7 +471,7 @@ impl FileFormat for VortexFormat {
                     file_metadata_cache.put(&object.location, entry);
                 }
 
-                return infer_scan_node_stats(&table_schema, &vxf).await;
+                return infer_scan_plan_stats(&table_schema, &vxf).await;
             }
 
             // Try to get entry metadata first
@@ -675,7 +675,7 @@ impl FileFormat for VortexFormat {
     }
 }
 
-async fn infer_scan_node_stats(table_schema: &SchemaRef, vxf: &VortexFile) -> DFResult<Statistics> {
+async fn infer_scan_plan_stats(table_schema: &SchemaRef, vxf: &VortexFile) -> DFResult<Statistics> {
     let struct_dtype = vxf
         .dtype()
         .as_struct_fields_opt()
@@ -696,7 +696,7 @@ async fn infer_scan_node_stats(table_schema: &SchemaRef, vxf: &VortexFile) -> DF
     }
 
     let stats = vxf
-        .scan_node_statistics_many(&requested_exprs, &funcs)
+        .scan_plan_statistics_many(&requested_exprs, &funcs)
         .await
         .map_err(|e| DataFusionError::Execution(format!("Failed to infer scan2 stats: {e}")))?;
     for (column_idx, stats) in requested_columns.into_iter().zip(stats) {

@@ -27,6 +27,9 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::request::ScanRequest;
+use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 use vortex_session::registry::Registry;
 
@@ -38,9 +41,6 @@ use crate::scan::v2::layouts::dict as scan_dict;
 use crate::scan::v2::layouts::flat as scan_flat;
 use crate::scan::v2::layouts::struct_ as scan_struct;
 use crate::scan::v2::layouts::zoned as scan_zoned;
-use crate::scan::v2::node::ExpandCtx;
-use crate::scan::v2::node::ScanNodeRef;
-use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentId;
 
 /// A reference-counted, type-erased v2 layout.
@@ -95,12 +95,12 @@ pub trait VTable: 'static + Clone + Send + Sync + Debug {
     /// Returns the relationship between child `idx` and its parent.
     fn child_type(layout: Layout<Self>, idx: usize) -> VortexResult<LayoutChildType>;
 
-    /// Expand this layout into a scan2 node.
-    fn new_scan_node(
+    /// Expand this layout into a physical scan plan.
+    fn new_scan_plan(
         layout: Layout<Self>,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ScanNodeRef>;
+        req: &mut ScanRequest,
+        session: &VortexSession,
+    ) -> VortexResult<ScanPlanRef>;
 }
 
 /// Object-safe plugin for deserializing v2 layouts by ID.
@@ -338,8 +338,11 @@ trait DynLayout: 'static + Send + Sync + Debug {
 
     fn dyn_child_type(&self, idx: usize) -> VortexResult<LayoutChildType>;
 
-    fn dyn_new_scan_node(&self, req: &mut NodeRequest, cx: &ExpandCtx)
-    -> VortexResult<ScanNodeRef>;
+    fn dyn_new_scan_plan(
+        &self,
+        req: &mut ScanRequest,
+        session: &VortexSession,
+    ) -> VortexResult<ScanPlanRef>;
 }
 
 impl LayoutRef {
@@ -393,13 +396,13 @@ impl LayoutRef {
         self.0.dyn_child_type(idx)
     }
 
-    /// Expand this layout into a scan2 node.
-    pub fn new_scan_node(
+    /// Expand this layout into a physical scan plan.
+    pub fn new_scan_plan(
         &self,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ScanNodeRef> {
-        self.0.dyn_new_scan_node(req, cx)
+        req: &mut ScanRequest,
+        session: &VortexSession,
+    ) -> VortexResult<ScanPlanRef> {
+        self.0.dyn_new_scan_plan(req, session)
     }
 
     /// Returns an iterator over child row offsets.
@@ -451,12 +454,12 @@ impl<V: VTable> DynLayout for Layout<V> {
         V::child_type(self.clone(), idx)
     }
 
-    fn dyn_new_scan_node(
+    fn dyn_new_scan_plan(
         &self,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ScanNodeRef> {
-        V::new_scan_node(self.clone(), req, cx)
+        req: &mut ScanRequest,
+        session: &VortexSession,
+    ) -> VortexResult<ScanPlanRef> {
+        V::new_scan_plan(self.clone(), req, session)
     }
 }
 
@@ -764,12 +767,12 @@ impl VTable for Flat {
         vortex_bail!("Flat layout has no child {idx}")
     }
 
-    fn new_scan_node(
+    fn new_scan_plan(
         layout: Layout<Self>,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ScanNodeRef> {
-        scan_flat::new_scan_node(layout, req, cx)
+        req: &mut ScanRequest,
+        session: &VortexSession,
+    ) -> VortexResult<ScanPlanRef> {
+        scan_flat::new_scan_plan(layout, req, session)
     }
 }
 
@@ -825,12 +828,12 @@ impl VTable for Chunked {
         Ok(LayoutChildType::Chunk((idx, offset)))
     }
 
-    fn new_scan_node(
+    fn new_scan_plan(
         layout: Layout<Self>,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ScanNodeRef> {
-        scan_chunked::new_scan_node(layout, req, cx)
+        req: &mut ScanRequest,
+        session: &VortexSession,
+    ) -> VortexResult<ScanPlanRef> {
+        scan_chunked::new_scan_plan(layout, req, session)
     }
 }
 
@@ -885,12 +888,12 @@ impl VTable for Struct {
         }
     }
 
-    fn new_scan_node(
+    fn new_scan_plan(
         layout: Layout<Self>,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ScanNodeRef> {
-        scan_struct::new_scan_node(layout, req, cx)
+        req: &mut ScanRequest,
+        session: &VortexSession,
+    ) -> VortexResult<ScanPlanRef> {
+        scan_struct::new_scan_plan(layout, req, session)
     }
 }
 
@@ -948,12 +951,12 @@ impl VTable for Dict {
         }
     }
 
-    fn new_scan_node(
+    fn new_scan_plan(
         layout: Layout<Self>,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ScanNodeRef> {
-        scan_dict::new_scan_node(layout, req, cx)
+        req: &mut ScanRequest,
+        session: &VortexSession,
+    ) -> VortexResult<ScanPlanRef> {
+        scan_dict::new_scan_plan(layout, req, session)
     }
 }
 
@@ -1024,11 +1027,11 @@ impl VTable for Zoned {
         }
     }
 
-    fn new_scan_node(
+    fn new_scan_plan(
         layout: Layout<Self>,
-        req: &mut NodeRequest,
-        cx: &ExpandCtx,
-    ) -> VortexResult<ScanNodeRef> {
-        scan_zoned::new_scan_node(layout, req, cx)
+        req: &mut ScanRequest,
+        session: &VortexSession,
+    ) -> VortexResult<ScanPlanRef> {
+        scan_zoned::new_scan_plan(layout, req, session)
     }
 }

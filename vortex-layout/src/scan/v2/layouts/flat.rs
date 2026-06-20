@@ -21,37 +21,37 @@ use vortex_array::serde::SerializedArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_scan::plan::FileReader;
+use vortex_scan::plan::PrepareCtx;
+use vortex_scan::plan::PreparedRead;
+use vortex_scan::plan::PreparedReadRef;
+use vortex_scan::plan::PreparedStateKey;
+use vortex_scan::plan::RowScope;
+use vortex_scan::plan::ScanPlan;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::request::ScanRequest;
+use vortex_session::VortexSession;
 
 use crate::layout_v2::Flat;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
-use crate::scan::v2::node::ExpandCtx;
-use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::PrepareCtx;
-use crate::scan::v2::node::PreparedRead;
-use crate::scan::v2::node::PreparedReadRef;
-use crate::scan::v2::node::PreparedStateKey;
-use crate::scan::v2::node::RowScope;
-use crate::scan::v2::node::ScanNode;
-use crate::scan::v2::node::ScanNodeRef;
-use crate::scan::v2::node::StateCtx;
-use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
-pub(crate) fn new_scan_node(
+pub(crate) fn new_scan_plan(
     layout: Layout<Flat>,
-    _req: &mut NodeRequest,
-    _cx: &ExpandCtx,
-) -> VortexResult<ScanNodeRef> {
-    Ok(Arc::new(FlatScanNode {
+    _req: &mut ScanRequest,
+    _session: &VortexSession,
+) -> VortexResult<ScanPlanRef> {
+    Ok(Arc::new(FlatScanPlan {
         layout: layout.to_layout(),
     }))
 }
 
 /// Reads a flat layout: fetches its segment once per query, parses it
 /// into a (lazy) array, and slices per request.
-pub struct FlatScanNode {
+pub struct FlatScanPlan {
     layout: LayoutRef,
 }
 
@@ -64,11 +64,11 @@ pub struct FlatScanState {
 }
 
 struct FlatPreparedRead {
-    node: Arc<FlatScanNode>,
+    node: Arc<FlatScanPlan>,
     state: Arc<FlatScanState>,
 }
 
-impl ScanNode for FlatScanNode {
+impl ScanPlan for FlatScanPlan {
     type State = FlatScanState;
 
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<FlatScanState> {

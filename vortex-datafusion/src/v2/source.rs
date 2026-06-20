@@ -367,7 +367,7 @@ impl VortexDataSource {
 /// current projection, pushed filters, ordering hints, and row limit.
 ///
 /// For unordered scans without a limit, this integration reports DataFusion's
-/// requested partition count when the wrapped source supports ScanNode morsel
+/// requested partition count when the wrapped source supports ScanPlan morsel
 /// partitioning. The async morsel plan is still built lazily in [`DataSource::open`],
 /// so partitions beyond the discovered morsel count produce empty streams.
 /// Ordered and limited scans use one output partition so the source can preserve

@@ -15,12 +15,12 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_scan::SegmentSourceId;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::scheduler::SegmentSourceId;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -109,7 +109,7 @@ impl CancelGroup {
 /// A scheduler-visible request for one logical segment payload.
 ///
 /// The first scheduler API intentionally only models segment payloads. If a future custom
-/// `ScanNode` needs opaque or non-segment I/O, add that request shape next to this type rather
+/// `ScanPlan` needs opaque or non-segment I/O, add that request shape next to this type rather
 /// than smuggling physical locations into `SegmentRequest`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SegmentRequest {
@@ -723,11 +723,11 @@ mod tests {
     use parking_lot::Mutex;
     use vortex_array::buffer::BufferHandle;
     use vortex_buffer::ByteBuffer;
-    use vortex_scan::ScanMeta;
-    use vortex_scan::ScanScheduler;
-    use vortex_scan::SegmentSourceMeta;
 
     use super::*;
+    use crate::ScanMeta;
+    use crate::ScanScheduler;
+    use crate::SegmentSourceMeta;
 
     struct TestSegmentSource;
 

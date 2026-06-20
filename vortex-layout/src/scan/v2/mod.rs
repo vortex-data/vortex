@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scan2 layout-node machinery.
+//! Scan2 layout plan machinery.
 //!
 //! This module contains the layout-tree expansion vtables and executable
-//! [`ScanNode`](node::ScanNode) plans used by the alternate scan implementation.
+//! [`ScanPlan`](vortex_scan::plan::ScanPlan) plans used by the alternate scan implementation.
 
-pub mod evidence;
-pub mod request;
 pub mod session;
 
 pub(crate) mod layouts;
-pub mod node;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::StructFields;
@@ -22,6 +19,8 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+pub use vortex_scan::plan::evidence;
+pub use vortex_scan::plan::request;
 
 /// Environment variable selecting the file scan implementation.
 ///
@@ -29,7 +28,8 @@ use vortex_error::vortex_err;
 ///
 /// - `v1`, `scan`, `scan_builder`, `scan-builder`, `layout-reader`, or unset: use the
 ///   existing LayoutReader-based scan.
-/// - `v2`, `scan2`, `scan3`, or `native`: use the scan2 [`node::ScanNode`] implementation.
+/// - `v2`, `scan2`, `scan3`, or `native`: use the scan2
+///   [`ScanPlan`](vortex_scan::plan::ScanPlan) implementation.
 pub const SCAN_IMPL_ENV: &str = "VORTEX_SCAN_IMPL";
 
 /// Returns whether the scan2 implementation should be used by scan data sources.

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Runtime evidence requests for scan2.
+//! Runtime evidence requests for scan plans.
 //!
-//! Expansion produces layout-local [`ScanNode`](super::node::ScanNode)
+//! Expansion produces layout-local [`ScanPlan`](super::ScanPlan)
 //! trees. Predicate, projection, aggregate, and dynamic-filter handling
-//! then push expressions into those nodes and ask the resulting nodes for
+//! then push expressions into those plans and ask the resulting plans for
 //! prepared runtime handles. Evidence requests are the per-morsel inputs to
 //! those prepared evidence handles.
 
@@ -13,8 +13,8 @@ use std::ops::Range;
 
 use vortex_array::expr::Expression;
 
-use crate::scan::v2::evidence::PredicateId;
-use crate::scan::v2::evidence::PredicateVersion;
+use super::evidence::PredicateId;
+use super::evidence::PredicateVersion;
 
 /// Runtime evidence pass kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,15 +28,15 @@ pub enum EvidenceMode {
 
 /// Expansion-time context reserved for layout-local scan setup.
 ///
-/// Scan2 no longer carries predicates through expansion. Layout scan vtables
+/// Layout expansion does not carry predicates directly. Layout scan vtables
 /// must expose expression behavior through
-/// [`ScanNode::try_push_expr`](super::node::ScanNode::try_push_expr),
-/// [`ScanNode::prepare_read`](super::node::ScanNode::prepare_read), and
-/// [`ScanNode::prepare_evidence`](super::node::ScanNode::prepare_evidence).
+/// [`ScanPlan::try_push_expr`](super::ScanPlan::try_push_expr),
+/// [`ScanPlan::prepare_read`](super::ScanPlan::prepare_read), and
+/// [`ScanPlan::prepare_evidence`](super::ScanPlan::prepare_evidence).
 #[derive(Debug, Default)]
-pub struct NodeRequest;
+pub struct ScanRequest;
 
-impl NodeRequest {
+impl ScanRequest {
     /// A request with no relation-scoped predicate payload.
     pub fn empty() -> Self {
         Self
@@ -72,6 +72,7 @@ impl OwnedEvidenceRequest {
     }
 }
 
+/// Borrowed runtime evidence request for a prepared evidence handle.
 #[derive(Debug)]
 pub struct EvidenceRequest<'a> {
     /// The predicate's stable id within this scan.

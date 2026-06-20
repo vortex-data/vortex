@@ -42,6 +42,27 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_scan::plan::AggregateAnswer;
+use vortex_scan::plan::FileReader;
+use vortex_scan::plan::PrepareCtx;
+use vortex_scan::plan::PreparedAggregate;
+use vortex_scan::plan::PreparedAggregateRef;
+use vortex_scan::plan::PreparedEvidence;
+use vortex_scan::plan::PreparedEvidenceRef;
+use vortex_scan::plan::PreparedRead;
+use vortex_scan::plan::PreparedReadRef;
+use vortex_scan::plan::PreparedStateKey;
+use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::RowScope;
+use vortex_scan::plan::ScanPlan;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::ScanStateRef;
+use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::evidence::EvidenceFragment;
+use vortex_scan::plan::evidence::PredicateEvidenceKind;
+use vortex_scan::plan::read_dense;
+use vortex_scan::plan::request::EvidenceRequest;
+use vortex_scan::plan::request::ScanRequest;
 use vortex_session::VortexSession;
 
 use crate::layout_v2::Layout;
@@ -49,43 +70,21 @@ use crate::layout_v2::Zoned;
 use crate::layouts::zoned::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::MIN_IS_TRUNCATED;
 use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::scan::v2::evidence::EvidenceFragment;
-use crate::scan::v2::evidence::PredicateEvidenceKind;
-use crate::scan::v2::node::AggregateAnswer;
-use crate::scan::v2::node::ExpandCtx;
-use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::PrepareCtx;
-use crate::scan::v2::node::PreparedAggregate;
-use crate::scan::v2::node::PreparedAggregateRef;
-use crate::scan::v2::node::PreparedEvidence;
-use crate::scan::v2::node::PreparedEvidenceRef;
-use crate::scan::v2::node::PreparedRead;
-use crate::scan::v2::node::PreparedReadRef;
-use crate::scan::v2::node::PreparedStateKey;
-use crate::scan::v2::node::PushCtx;
-use crate::scan::v2::node::RowScope;
-use crate::scan::v2::node::ScanNode;
-use crate::scan::v2::node::ScanNodeRef;
-use crate::scan::v2::node::ScanStateRef;
-use crate::scan::v2::node::StateCtx;
-use crate::scan::v2::node::read_dense;
-use crate::scan::v2::request::EvidenceRequest;
-use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
-pub(crate) fn new_scan_node(
+pub(crate) fn new_scan_plan(
     layout: Layout<Zoned>,
-    req: &mut NodeRequest,
-    cx: &ExpandCtx,
-) -> VortexResult<ScanNodeRef> {
+    req: &mut ScanRequest,
+    session: &VortexSession,
+) -> VortexResult<ScanPlanRef> {
     let zones = layout.child(1)?;
-    Ok(Arc::new(ZonedScanNode {
+    Ok(Arc::new(ZonedScanPlan {
         // The data child preserves this node's rows: pass the
         // expansion request through.
-        data: cx.expand(&layout.child(0)?, req)?,
+        data: layout.child(0)?.new_scan_plan(req, session)?,
         nzones: zones.row_count(),
-        zones: cx.expand_free(&zones)?,
+        zones: zones.new_scan_plan(&mut ScanRequest::empty(), session)?,
         column_dtype: layout.dtype().clone(),
         zone_len: layout.data().zone_len() as u64,
         row_count: layout.row_count(),
@@ -95,10 +94,10 @@ pub(crate) fn new_scan_node(
 
 /// Reads a zoned layout by delegating to its data child; produces
 /// per-zone predicate evidence from the stats table.
-pub struct ZonedScanNode {
-    data: ScanNodeRef,
+pub struct ZonedScanPlan {
+    data: ScanPlanRef,
     /// The zones child (per-zone stats table), read through its own layout vtable.
-    zones: ScanNodeRef,
+    zones: ScanPlanRef,
     nzones: u64,
     column_dtype: DType,
     zone_len: u64,
@@ -142,23 +141,23 @@ struct ZonedPreparedEvidence {
 
 /// Planned ungrouped aggregate over a zoned node's root value.
 struct ZonedPreparedAggregate {
-    node: Arc<ZonedScanNode>,
+    node: Arc<ZonedScanPlan>,
     state: Arc<ZonedScanState>,
     zones_read: PreparedReadRef,
     funcs: Vec<AggregateFnRef>,
 }
 
 struct ZonedPreparedRead {
-    node: Arc<ZonedScanNode>,
+    node: Arc<ZonedScanPlan>,
     data: PreparedReadRef,
 }
 
 /// A pushed scalar expression through a zoned wrapper. Reads delegate to
 /// the pushed data-child expression; evidence combines zone-map proof for
 /// the expression with any child evidence for the same pushed value.
-struct ZonedExprScanNode {
-    data: ScanNodeRef,
-    zones: ScanNodeRef,
+struct ZonedExprScanPlan {
+    data: ScanPlanRef,
+    zones: ScanPlanRef,
     nzones: u64,
     column_dtype: DType,
     zone_len: u64,
@@ -170,7 +169,7 @@ struct ZonedExprScanNode {
 }
 
 struct ZonedExprPreparedRead {
-    node: Arc<ZonedExprScanNode>,
+    node: Arc<ZonedExprScanPlan>,
     data: PreparedReadRef,
 }
 
@@ -222,7 +221,7 @@ impl ZonedScanState {
     }
 }
 
-impl ZonedScanNode {
+impl ZonedScanPlan {
     fn shared_zone_state(&self, cx: &mut PrepareCtx) -> VortexResult<Arc<ZonedScanState>> {
         let key =
             PreparedStateKey::new::<ZonedScanState>(Arc::as_ptr(&self.zones) as *const () as usize);
@@ -665,11 +664,11 @@ impl PreparedEvidence for ZonedPreparedEvidence {
     }
 }
 
-impl ScanNode for ZonedScanNode {
+impl ScanPlan for ZonedScanPlan {
     type State = ZonedScanState;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ZonedScanState> {
-        Ok(Self::empty_state_with_data(cx.init_node(&self.data)?))
+        Ok(Self::empty_state_with_data(cx.init_plan(&self.data)?))
     }
 
     fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
@@ -683,7 +682,7 @@ impl ScanNode for ZonedScanNode {
         self: Arc<Self>,
         expr: &Expression,
         cx: &mut PushCtx,
-    ) -> VortexResult<Option<ScanNodeRef>> {
+    ) -> VortexResult<Option<ScanPlanRef>> {
         if is_root(expr) {
             return Ok(Some(self));
         }
@@ -699,7 +698,7 @@ impl ScanNode for ZonedScanNode {
         } else {
             (None, None)
         };
-        Ok(Some(Arc::new(ZonedExprScanNode {
+        Ok(Some(Arc::new(ZonedExprScanPlan {
             data,
             zones: Arc::clone(&self.zones),
             nzones: self.nzones,
@@ -841,12 +840,12 @@ impl PreparedAggregate for ZonedPreparedAggregate {
     }
 }
 
-impl ScanNode for ZonedExprScanNode {
+impl ScanPlan for ZonedExprScanPlan {
     type State = ZonedScanState;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        Ok(ZonedScanNode::empty_state_with_data(
-            cx.init_node(&self.data)?,
+        Ok(ZonedScanPlan::empty_state_with_data(
+            cx.init_plan(&self.data)?,
         ))
     }
 
@@ -866,7 +865,7 @@ impl ScanNode for ZonedExprScanNode {
             let key = PreparedStateKey::new::<ZonedScanState>(
                 Arc::as_ptr(&self.zones) as *const () as usize,
             );
-            let state = cx.shared_state(key, || Ok(ZonedScanNode::empty_state()))?;
+            let state = cx.shared_state(key, || Ok(ZonedScanPlan::empty_state()))?;
             let zones_read = Arc::clone(&self.zones)
                 .prepare_read(cx)?
                 .ok_or_else(|| vortex_err!("zoned stats child did not produce a prepared read"))?;

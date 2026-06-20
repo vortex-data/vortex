@@ -5,7 +5,7 @@ The writer accepts a stream of Vortex arrays, applies a layout strategy to organ
 and serializes the layout and its segments into a single file.
 
 The bulk of the file format specification describes the representation of the footer bytes such that the
-layout tree can be reconstructed for scans.
+layout tree can be reconstructed and expanded into scan plans.
 
 See the [Vortex File Format Specification](../specs/file-format.md) for full details.
 

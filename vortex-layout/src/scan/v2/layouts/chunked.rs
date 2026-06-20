@@ -40,45 +40,44 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_scan::plan::AggregateAnswer;
+use vortex_scan::plan::FileReader;
+use vortex_scan::plan::PrepareCtx;
+use vortex_scan::plan::PreparedAggregate;
+use vortex_scan::plan::PreparedAggregateRef;
+use vortex_scan::plan::PreparedEvidence;
+use vortex_scan::plan::PreparedEvidenceRef;
+use vortex_scan::plan::PreparedRead;
+use vortex_scan::plan::PreparedReadRef;
+use vortex_scan::plan::PreparedStateCacheRef;
+use vortex_scan::plan::PreparedStateKey;
+use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::RowScope;
+use vortex_scan::plan::ScanPlan;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::ScanStateRef;
+use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::evidence::EvidenceFragment;
+use vortex_scan::plan::request::EvidenceMode;
+use vortex_scan::plan::request::EvidenceRequest;
+use vortex_scan::plan::request::ScanRequest;
 use vortex_session::VortexSession;
 
 use crate::layout_v2::Chunked;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
-use crate::scan::v2::evidence::EvidenceFragment;
-use crate::scan::v2::node::AggregateAnswer;
-use crate::scan::v2::node::ExpandCtx;
-use crate::scan::v2::node::FileReader;
-use crate::scan::v2::node::PrepareCtx;
-use crate::scan::v2::node::PreparedAggregate;
-use crate::scan::v2::node::PreparedAggregateRef;
-use crate::scan::v2::node::PreparedEvidence;
-use crate::scan::v2::node::PreparedEvidenceRef;
-use crate::scan::v2::node::PreparedRead;
-use crate::scan::v2::node::PreparedReadRef;
-use crate::scan::v2::node::PreparedStateCacheRef;
-use crate::scan::v2::node::PreparedStateKey;
-use crate::scan::v2::node::PushCtx;
-use crate::scan::v2::node::RowScope;
-use crate::scan::v2::node::ScanNode;
-use crate::scan::v2::node::ScanNodeRef;
-use crate::scan::v2::node::ScanStateRef;
-use crate::scan::v2::node::StateCtx;
-use crate::scan::v2::request::EvidenceMode;
-use crate::scan::v2::request::EvidenceRequest;
-use crate::scan::v2::request::NodeRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
-pub(crate) fn new_scan_node(
+pub(crate) fn new_scan_plan(
     layout: Layout<Chunked>,
-    _req: &mut NodeRequest,
-    cx: &ExpandCtx,
-) -> VortexResult<ScanNodeRef> {
-    Ok(Arc::new(ChunkedScanNode {
+    _req: &mut ScanRequest,
+    session: &VortexSession,
+) -> VortexResult<ScanPlanRef> {
+    Ok(Arc::new(ChunkedScanPlan {
         layout: layout.to_layout(),
         offsets: layout.data().chunk_offsets().to_vec(),
-        cx: cx.clone(),
+        session: session.clone(),
         children: Mutex::new(FxHashMap::default()),
     }))
 }
@@ -86,17 +85,17 @@ pub(crate) fn new_scan_node(
 /// Reads a chunked layout: cumulative chunk offsets
 /// (`offsets.len() == chunks + 1`), with chunk children expanded lazily
 /// through their own layout vtables.
-pub struct ChunkedScanNode {
+pub struct ChunkedScanPlan {
     layout: LayoutRef,
     offsets: Vec<u64>,
-    cx: ExpandCtx,
+    session: VortexSession,
     /// Lazily expanded chunk nodes, shared across queries.
-    children: Mutex<FxHashMap<usize, ScanNodeRef>>,
+    children: Mutex<FxHashMap<usize, ScanPlanRef>>,
 }
 
 /// Per-query states of the lazily expanded chunk nodes. Chunk states
 /// behind the scan's morsel frontier are dropped by
-/// [`ScanNode::release`], so a long scan retains the working set, not
+/// [`ScanPlan::release`], so a long scan retains the working set, not
 /// every chunk it touched.
 #[derive(Default)]
 pub struct ChunkedScanState {
@@ -116,11 +115,11 @@ pub struct ChunkedScanState {
 /// Chunk children remain lazy: this node records the expression once and
 /// replays expression pushdown into each concrete child only when a read,
 /// evidence request, or aggregate touches that chunk.
-pub struct ChunkedExprScanNode {
-    chunked: Arc<ChunkedScanNode>,
+pub struct ChunkedExprScanPlan {
+    chunked: Arc<ChunkedScanPlan>,
     expr: Expression,
     dtype: DType,
-    children: Mutex<FxHashMap<usize, ScanNodeRef>>,
+    children: Mutex<FxHashMap<usize, ScanPlanRef>>,
 }
 
 /// Per-query states of lazily pushed chunk children.
@@ -132,13 +131,13 @@ pub struct ChunkedExprScanState {
 }
 
 struct ChunkedPreparedEvidence {
-    node: Arc<ChunkedExprScanNode>,
+    node: Arc<ChunkedExprScanPlan>,
     state: Arc<ChunkedEvidenceState>,
 }
 
 enum ChunkedAggregateNode {
-    Root(Arc<ChunkedScanNode>),
-    Expr(Arc<ChunkedExprScanNode>),
+    Root(Arc<ChunkedScanPlan>),
+    Expr(Arc<ChunkedExprScanPlan>),
 }
 
 struct ChunkedPreparedAggregate {
@@ -149,12 +148,12 @@ struct ChunkedPreparedAggregate {
 }
 
 struct ChunkedPreparedRead {
-    node: Arc<ChunkedScanNode>,
+    node: Arc<ChunkedScanPlan>,
     state: Arc<ChunkedScanState>,
 }
 
 struct ChunkedExprPreparedRead {
-    node: Arc<ChunkedExprScanNode>,
+    node: Arc<ChunkedExprScanPlan>,
     state: Arc<ChunkedExprScanState>,
 }
 
@@ -206,22 +205,26 @@ impl ChunkedEvidenceState {
     }
 }
 
-impl ChunkedScanNode {
+impl ChunkedScanPlan {
     fn scan_state(&self, cx: &mut PrepareCtx) -> VortexResult<Arc<ChunkedScanState>> {
         let key =
             PreparedStateKey::new::<ChunkedScanState>(self as *const Self as *const () as usize);
         cx.shared_state(key, || Ok(ChunkedScanState::default()))
     }
 
-    /// The scan node for chunk `idx`, expanding it on first use. Lazy
+    /// The scan plan for chunk `idx`, expanding it on first use. Lazy
     /// expansion is independent of pushed predicate expressions.
-    fn child(&self, idx: usize) -> VortexResult<ScanNodeRef> {
+    fn child(&self, idx: usize) -> VortexResult<ScanPlanRef> {
         if let Some(hit) = self.children.lock().get(&idx) {
             return Ok(Arc::clone(hit));
         }
-        let node = self.cx.expand_free(&self.layout.child(idx)?)?;
-        self.children.lock().insert(idx, Arc::clone(&node));
-        Ok(node)
+        let mut req = ScanRequest::empty();
+        let plan = self
+            .layout
+            .child(idx)?
+            .new_scan_plan(&mut req, &self.session)?;
+        self.children.lock().insert(idx, Arc::clone(&plan));
+        Ok(plan)
     }
 
     /// The planned value read for chunk `idx`, creating it on first use.
@@ -252,8 +255,8 @@ impl ChunkedScanNode {
     }
 }
 
-impl ChunkedExprScanNode {
-    fn new(chunked: Arc<ChunkedScanNode>, expr: Expression, dtype: DType) -> Self {
+impl ChunkedExprScanPlan {
+    fn new(chunked: Arc<ChunkedScanPlan>, expr: Expression, dtype: DType) -> Self {
         Self {
             chunked,
             expr,
@@ -262,7 +265,7 @@ impl ChunkedExprScanNode {
         }
     }
 
-    fn child(&self, idx: usize, session: &VortexSession) -> VortexResult<ScanNodeRef> {
+    fn child(&self, idx: usize, session: &VortexSession) -> VortexResult<ScanPlanRef> {
         if let Some(hit) = self.children.lock().get(&idx) {
             return Ok(Arc::clone(hit));
         }
@@ -313,7 +316,7 @@ impl ChunkedAggregateNode {
         }
     }
 
-    fn child(&self, idx: usize, io: &FileReader) -> VortexResult<ScanNodeRef> {
+    fn child(&self, idx: usize, io: &FileReader) -> VortexResult<ScanPlanRef> {
         match self {
             Self::Root(node) => node.child(idx),
             Self::Expr(node) => node.child(idx, io.session()),
@@ -450,7 +453,7 @@ impl PreparedAggregate for ChunkedPreparedAggregate {
     }
 }
 
-impl ScanNode for ChunkedScanNode {
+impl ScanPlan for ChunkedScanPlan {
     type State = ChunkedScanState;
 
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ChunkedScanState> {
@@ -466,12 +469,12 @@ impl ScanNode for ChunkedScanNode {
         self: Arc<Self>,
         expr: &Expression,
         _cx: &mut PushCtx,
-    ) -> VortexResult<Option<ScanNodeRef>> {
+    ) -> VortexResult<Option<ScanPlanRef>> {
         if is_root(expr) {
             return Ok(Some(self));
         }
         let dtype = expr.return_dtype(self.layout.dtype())?;
-        Ok(Some(Arc::new(ChunkedExprScanNode::new(
+        Ok(Some(Arc::new(ChunkedExprScanPlan::new(
             self,
             expr.clone(),
             dtype,
@@ -482,7 +485,7 @@ impl ScanNode for ChunkedScanNode {
         self: Arc<Self>,
         cx: &mut PrepareCtx,
     ) -> VortexResult<Vec<PreparedEvidenceRef>> {
-        let node = Arc::new(ChunkedExprScanNode::new(
+        let node = Arc::new(ChunkedExprScanPlan::new(
             Arc::clone(&self),
             root(),
             self.layout.dtype().clone(),
@@ -733,7 +736,7 @@ impl PreparedRead for ChunkedPreparedRead {
     }
 }
 
-impl ScanNode for ChunkedExprScanNode {
+impl ScanPlan for ChunkedExprScanPlan {
     type State = ChunkedExprScanState;
 
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ChunkedExprScanState> {

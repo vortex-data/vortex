@@ -3,7 +3,7 @@
 
 //! Coarse-grained resource scheduling for scans.
 //!
-//! The scheduler deliberately starts with one primitive: a slot permit. The V2 ScanNode runtime
+//! The scheduler deliberately starts with one primitive: a slot permit. The ScanPlan runtime
 //! uses one slot per in-flight morsel, which is enough to preserve the existing scan concurrency
 //! model while giving integrations a shared object they can use to bound concurrent work across
 //! scans.

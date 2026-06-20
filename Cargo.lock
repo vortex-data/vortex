@@ -10167,6 +10167,7 @@ dependencies = [
  "futures",
  "parking_lot",
  "roaring",
+ "rustc-hash",
  "tracing",
  "vortex-array",
  "vortex-buffer",

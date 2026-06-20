@@ -373,7 +373,7 @@ impl FileOpener for VortexOpener {
                             ),
                             None => scan_projection.clone(),
                         };
-                        let morsels = scan_node_morsel_ranges_for_file(
+                        let morsels = scan_plan_morsel_ranges_for_file(
                             natural_split_ranges.as_ref(),
                             &file.object_meta.location,
                             &vxf,
@@ -403,7 +403,7 @@ impl FileOpener for VortexOpener {
                     Field::new_struct("", stream_schema.fields().clone(), false);
                 let file_location = file.object_meta.location.clone();
                 let array_stream = vxf
-                    .scan_node_stream(ScanRequest {
+                    .scan_plan_stream(ScanRequest {
                         projection: scan_projection,
                         filter,
                         row_range,
@@ -668,12 +668,12 @@ fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Ar
 const SCAN_FALLBACK_SPLIT_SIZE: u64 = 100_000;
 
 /// Compute the V2 scan's morsel ranges for a file: the row ranges the scan reads as independent
-/// units. Mirrors [`PreparedScanNodeFile::splits`] — the read plan's chunk hints when the read
+/// units. Mirrors `PreparedScanPlanFile::splits` — the read plan's chunk hints when the read
 /// columns are chunked, otherwise the 100k-row fallback for single-chunk columns. These are the
 /// units `split_aligned_row_range` distributes across DataFusion's byte-range partitions; using the
 /// scan's own morsels (rather than coarse chunk boundaries) keeps every morsel within one partition,
 /// so a coarsely-encoded read column no longer collapses the scan onto a single partition.
-async fn scan_node_morsel_ranges_for_file(
+async fn scan_plan_morsel_ranges_for_file(
     morsel_ranges: &DashMap<Path, Arc<[Range<u64>]>>,
     path: &Path,
     file: &VortexFile,

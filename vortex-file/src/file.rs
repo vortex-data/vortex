@@ -215,37 +215,37 @@ impl VortexFile {
         ))
     }
 
-    /// Execute a ScanNode-backed V2 scan for this file.
-    pub fn scan_node_stream(&self, request: ScanRequest) -> VortexResult<SendableArrayStream> {
-        scan_v2::scan_node_file_stream(self.clone(), request)
+    /// Execute a ScanPlan-backed scan for this file.
+    pub fn scan_plan_stream(&self, request: ScanRequest) -> VortexResult<SendableArrayStream> {
+        scan_v2::scan_plan_file_stream(self.clone(), request)
     }
 
-    /// Return ScanNode-backed aggregate-function statistics for this file.
-    pub async fn scan_node_statistics(
+    /// Return ScanPlan-backed aggregate-function statistics for this file.
+    pub async fn scan_plan_statistics(
         &self,
         expr: &Expression,
         funcs: &[AggregateFnRef],
     ) -> VortexResult<Vec<Precision<Scalar>>> {
-        scan_v2::scan_node_file_statistics(self.clone(), expr, funcs).await
+        scan_v2::scan_plan_file_statistics(self.clone(), expr, funcs).await
     }
 
-    /// Return ScanNode-backed aggregate-function statistics for several expressions in this file.
-    pub async fn scan_node_statistics_many(
+    /// Return ScanPlan-backed aggregate-function statistics for several expressions in this file.
+    pub async fn scan_plan_statistics_many(
         &self,
         exprs: &[Expression],
         funcs: &[AggregateFnRef],
     ) -> VortexResult<Vec<Vec<Precision<Scalar>>>> {
-        scan_v2::scan_node_file_statistics_many(self.clone(), exprs, funcs).await
+        scan_v2::scan_plan_file_statistics_many(self.clone(), exprs, funcs).await
     }
 
-    /// Return ScanNode natural row split ranges for this file.
-    pub fn scan_node_splits(&self) -> VortexResult<Vec<Range<u64>>> {
-        scan_v2::scan_node_file_splits(self)
+    /// Return ScanPlan natural row split ranges for this file.
+    pub fn scan_plan_splits(&self) -> VortexResult<Vec<Range<u64>>> {
+        scan_v2::scan_plan_file_splits(self)
     }
 
-    /// Plan ScanNode natural row split ranges for a projected scan of this file.
+    /// Plan ScanPlan natural row split ranges for a projected scan of this file.
     pub async fn plan_splits(&self, projection: &Expression) -> VortexResult<Vec<Range<u64>>> {
-        scan_v2::scan_node_file_plan_splits(self.clone(), projection).await
+        scan_v2::scan_plan_file_plan_splits(self.clone(), projection).await
     }
 
     /// Returns `true` if file-level statistics prove the expression cannot
