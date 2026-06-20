@@ -70,13 +70,16 @@ fn take_10_contiguous(bencher: Bencher) {
         })
 }
 
-// The four `*take_10k_{random,contiguous,...}` benches below are excluded from CodSpeed's CPU
-// simulation. Each gathers 10k elements and canonicalizes the result, so its instruction count is
-// bimodal under simulation (~195 us vs ~255 us, ±23% for unchanged code) due to output-buffer
-// allocation + `memcpy` and the SIMD bit-unpack's code-layout sensitivity across runner images
-// ("different runtime environments"). They fired in 4+ recent unrelated PRs and on this PR itself.
-// Per `docs/developer-guide/benchmarking.md` they are gated with `#[cfg(not(codspeed))]` and remain
-// available via local `cargo bench`. The other take variants here have not shown this and are kept.
+// The four `*take_10k_*` benches below are excluded from CodSpeed's CPU simulation. Each gathers 10k
+// elements and canonicalizes the result, so its simulated instruction count is bimodal: it is driven
+// by output-buffer allocation plus glibc `memcpy` and by the SIMD bit-unpack's code-layout
+// sensitivity across runner images, rather than by stable Vortex compute. That makes them report
+// spurious, bidirectional regressions under simulation even when the code is unchanged, and they
+// cannot be stabilized by tuning inputs because the data movement is the thing being measured. The
+// smaller take variants here are compute-bound and stable, so they are kept. Per
+// `docs/developer-guide/benchmarking.md` such benchmarks are gated with `#[cfg(not(codspeed))]` and
+// remain available via local `cargo bench`. See https://github.com/vortex-data/vortex/pull/8519 for
+// the supporting analysis.
 #[cfg(not(codspeed))]
 #[divan::bench]
 fn take_10k_random(bencher: Bencher) {

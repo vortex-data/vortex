@@ -14,11 +14,6 @@ use vortex_alp::ALPRDFloat;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_alp::decompress_into_array;
-// Only used by `decompress_rd`, which is excluded from CodSpeed (see below).
-#[cfg(not(codspeed))]
-use vortex_array::Canonical;
-#[cfg(not(codspeed))]
-use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
@@ -153,16 +148,21 @@ fn compress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f64)
         .bench_refs(|(primitive, encoder, ctx)| encoder.encode(primitive.as_view(), ctx))
 }
 
-// Excluded from CodSpeed's CPU simulation: this benchmark canonicalizes the decoded array, so its
-// instruction count is dominated by output-buffer allocation and `memcpy`/`memmove` (whose glibc
-// `ifunc`-selected implementation differs across runner images) rather than by the ALP-RD decode
-// itself. Under simulation it produces only false-positive regressions (it moved in 7 of the last
-// 9 PRs, bidirectionally, ranging 842-1025 us for the same code, while CodSpeed flagged "different
-// runtime environments"). Per `docs/developer-guide/benchmarking.md`, CodSpeed-incompatible
-// benchmarks are gated with `#[cfg(not(codspeed))]`; it remains available via local `cargo bench`.
+// Excluded from CodSpeed's CPU simulation. This benchmark canonicalizes the decoded array, so its
+// simulated instruction count is dominated by output-buffer allocation and glibc `memcpy`/`memmove`
+// (whose `ifunc`-selected implementation varies across runner images) rather than by the ALP-RD
+// decode itself. That makes it report spurious, bidirectional regressions under simulation even when
+// the Vortex code is byte-identical, and it cannot be stabilized by tuning inputs because the data
+// movement is the thing being measured. The compute-bound `compress_rd` encode benchmark above does
+// not have this problem and is kept. Per `docs/developer-guide/benchmarking.md` such benchmarks are
+// gated with `#[cfg(not(codspeed))]`; it remains available via local `cargo bench`. See
+// https://github.com/vortex-data/vortex/pull/8519 for the supporting analysis.
 #[cfg(not(codspeed))]
 #[divan::bench(types = [f32, f64], args = RD_BENCH_ARGS)]
 fn decompress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f64)) {
+    use vortex_array::Canonical;
+    use vortex_array::IntoArray;
+
     let (n, fraction_patch) = args;
     let primitive = make_rd_array::<T>(n, fraction_patch);
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
