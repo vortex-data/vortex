@@ -12,10 +12,10 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::AggregateFnOpts;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::DynGroupedAccumulator;
 use vortex_array::aggregate_fn::GroupedAccumulator;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::count::Count;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::arrays::ListViewArray;
@@ -149,11 +149,11 @@ fn list_element_dtype(list_view: &ArrayRef) -> DType {
 
 fn grouped_accumulator<V>(list_view: &ArrayRef, vtable: V) -> ArrayRef
 where
-    V: AggregateFnVTable<Options = AggregateFnOpts> + Clone,
+    V: AggregateFnVTable<Options = NumericalAggregateOpts> + Clone,
 {
     let mut acc = GroupedAccumulator::try_new(
         vtable,
-        AggregateFnOpts::default(),
+        NumericalAggregateOpts::default(),
         list_element_dtype(list_view),
     )
     .unwrap();

@@ -65,7 +65,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::aggregate_fn::AggregateFnOpts;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
     use vortex_array::aggregate_fn::fns::min_max::min_max;
     use vortex_array::scalar::Scalar;
@@ -103,13 +103,13 @@ mod tests {
         let kernel: Option<MinMaxResult> = min_max(
             &arr,
             &mut SESSION.create_execution_ctx(),
-            AggregateFnOpts::default(),
+            NumericalAggregateOpts::default(),
         )
         .unwrap();
         let canonical: Option<MinMaxResult> = min_max(
             &arr,
             &mut CANONICAL_SESSION.create_execution_ctx(),
-            AggregateFnOpts::default(),
+            NumericalAggregateOpts::default(),
         )
         .unwrap();
         assert_eq!(kernel, canonical);

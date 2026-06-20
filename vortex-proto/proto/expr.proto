@@ -28,7 +28,7 @@ message AggregateFn {
 
 // Options for numeric aggregate functions (`vortex.sum`, `vortex.min`, `vortex.max`),
 // controlling how NaN values in floating-point inputs are handled.
-message AggregateFnOpts {
+message NumericalAggregateOpts {
   bool skip_nans = 1;
 }
 

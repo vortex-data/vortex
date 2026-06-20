@@ -10,8 +10,8 @@ use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::AggregateFnOpts;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -23,7 +23,7 @@ use crate::scalar::Scalar;
 /// Applies to all types. Returns a `u64` count.
 /// The identity value is zero.
 ///
-/// For float inputs, NaN handling is controlled by [`AggregateFnOpts`]: with `skip_nans` (the
+/// For float inputs, NaN handling is controlled by [`NumericalAggregateOpts`]: with `skip_nans` (the
 /// default) NaN values are treated as missing and excluded from the count, otherwise they are
 /// counted like any other non-null value.
 #[derive(Clone, Debug)]
@@ -37,7 +37,7 @@ pub struct CountPartial {
 }
 
 impl AggregateFnVTable for Count {
-    type Options = AggregateFnOpts;
+    type Options = NumericalAggregateOpts;
     type Partial = CountPartial;
 
     fn id(&self) -> AggregateFnId {
@@ -136,9 +136,9 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
-    use crate::aggregate_fn::AggregateFnOpts;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::count::Count;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -155,8 +155,11 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     pub fn count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
-        let mut acc =
-            Accumulator::try_new(Count, AggregateFnOpts::default(), array.dtype().clone())?;
+        let mut acc = Accumulator::try_new(
+            Count,
+            NumericalAggregateOpts::default(),
+            array.dtype().clone(),
+        )?;
         acc.accumulate(array, ctx)?;
         let result = acc.finish()?;
 
@@ -197,7 +200,7 @@ mod tests {
     #[test]
     fn count_empty() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Count, AggregateFnOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Count, NumericalAggregateOpts::default(), dtype)?;
         let result = acc.finish()?;
         assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
@@ -207,7 +210,7 @@ mod tests {
     fn count_multi_batch() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-        let mut acc = Accumulator::try_new(Count, AggregateFnOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Count, NumericalAggregateOpts::default(), dtype)?;
 
         let batch1 = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -224,7 +227,7 @@ mod tests {
     fn count_finish_resets_state() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-        let mut acc = Accumulator::try_new(Count, AggregateFnOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Count, NumericalAggregateOpts::default(), dtype)?;
 
         let batch1 = PrimitiveArray::from_option_iter([Some(1i32), None]).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -241,7 +244,7 @@ mod tests {
     #[test]
     fn count_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = Count.empty_partial(&AggregateFnOpts::default(), &dtype)?;
+        let mut state = Count.empty_partial(&NumericalAggregateOpts::default(), &dtype)?;
 
         let scalar1 = Scalar::primitive(5u64, Nullability::NonNullable);
         Count.combine_partials(&mut state, scalar1)?;
@@ -258,7 +261,7 @@ mod tests {
     fn count_with_options(
         array: &ArrayRef,
         ctx: &mut ExecutionCtx,
-        options: AggregateFnOpts,
+        options: NumericalAggregateOpts,
     ) -> VortexResult<u64> {
         let mut acc = Accumulator::try_new(Count, options, array.dtype().clone())?;
         acc.accumulate(array, ctx)?;
@@ -286,7 +289,7 @@ mod tests {
                 .into_array();
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
-            count_with_options(&array, &mut ctx, AggregateFnOpts::include_nans())?,
+            count_with_options(&array, &mut ctx, NumericalAggregateOpts::include_nans())?,
             3
         );
         Ok(())
@@ -312,7 +315,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(count(&array, &mut ctx)?, 0);
         assert_eq!(
-            count_with_options(&array, &mut ctx, AggregateFnOpts::include_nans())?,
+            count_with_options(&array, &mut ctx, NumericalAggregateOpts::include_nans())?,
             5
         );
         Ok(())

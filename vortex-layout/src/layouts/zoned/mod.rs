@@ -492,9 +492,9 @@ mod tests {
     use std::panic;
 
     use rstest::rstest;
-    use vortex_array::aggregate_fn::AggregateFnOpts;
     use vortex_array::aggregate_fn::AggregateFnRef;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
     use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
     use vortex_array::aggregate_fn::fns::max::Max;
@@ -525,8 +525,8 @@ mod tests {
     #[case::min_max(ZonedMetadata {
             zone_len: 314,
             aggregate_specs: Arc::new([
-                aggregate_spec(Max.bind(AggregateFnOpts::skip_nans())),
-                aggregate_spec(Min.bind(AggregateFnOpts::skip_nans())),
+                aggregate_spec(Max.bind(NumericalAggregateOpts::skip_nans())),
+                aggregate_spec(Min.bind(NumericalAggregateOpts::skip_nans())),
             ]),
         })]
     fn test_metadata_serialization(#[case] metadata: ZonedMetadata) {

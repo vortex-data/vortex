@@ -17,10 +17,10 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::AggregateFnOpts;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::max::Max;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
@@ -196,7 +196,7 @@ impl AggregateFnVTable for BoundedMax {
             Columnar::Canonical(canonical) => canonical.clone().into_array(),
             Columnar::Constant(constant) => constant.clone().into_array(),
         };
-        let Some(result) = min_max(&array, ctx, AggregateFnOpts::default())? else {
+        let Some(result) = min_max(&array, ctx, NumericalAggregateOpts::default())? else {
             return Ok(());
         };
         match truncate_max(result.max, partial.max_bytes.get())? {
@@ -217,7 +217,7 @@ impl AggregateFnVTable for BoundedMax {
 
 fn supported_dtype<'a>(_options: &BoundedMaxOptions, input_dtype: &'a DType) -> Option<&'a DType> {
     MinMax
-        .return_dtype(&AggregateFnOpts::default(), input_dtype)
+        .return_dtype(&NumericalAggregateOpts::default(), input_dtype)
         .map(|_| input_dtype)
 }
 
@@ -253,11 +253,11 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
-    use crate::aggregate_fn::AggregateFnOpts;
     use crate::aggregate_fn::AggregateFnSatisfaction;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::bounded_max::BoundedMax;
     use crate::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
     use crate::aggregate_fn::fns::max::Max;
@@ -420,24 +420,25 @@ mod tests {
             AggregateFnSatisfaction::No
         );
         assert_eq!(
-            stored.can_satisfy(&Max.bind(AggregateFnOpts::default())),
+            stored.can_satisfy(&Max.bind(NumericalAggregateOpts::default())),
             AggregateFnSatisfaction::Approximate
         );
         assert_eq!(
-            stored.can_satisfy(&Max.bind(AggregateFnOpts::include_nans())),
+            stored.can_satisfy(&Max.bind(NumericalAggregateOpts::include_nans())),
             AggregateFnSatisfaction::No
         );
         assert_eq!(
-            Max.bind(AggregateFnOpts::include_nans())
+            Max.bind(NumericalAggregateOpts::include_nans())
                 .can_satisfy(&stored),
             AggregateFnSatisfaction::No
         );
         assert_eq!(
-            Max.bind(AggregateFnOpts::default()).can_satisfy(&stored),
+            Max.bind(NumericalAggregateOpts::default())
+                .can_satisfy(&stored),
             AggregateFnSatisfaction::Approximate
         );
         assert_eq!(
-            stored.can_satisfy(&Min.bind(AggregateFnOpts::default())),
+            stored.can_satisfy(&Min.bind(NumericalAggregateOpts::default())),
             AggregateFnSatisfaction::No
         );
     }

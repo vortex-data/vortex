@@ -10,10 +10,10 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::AggregateFnOpts;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
@@ -29,7 +29,7 @@ use crate::scalar::Scalar;
 
 /// Compute the maximum non-null value of an array.
 ///
-/// NaN handling for float inputs is controlled by [`AggregateFnOpts`]: with `skip_nans` (the
+/// NaN handling for float inputs is controlled by [`NumericalAggregateOpts`]: with `skip_nans` (the
 /// default) NaN values are ignored, otherwise any NaN value poisons the maximum to NaN.
 #[derive(Clone, Debug)]
 pub struct Max;
@@ -72,7 +72,7 @@ impl MaxPartial {
 }
 
 impl AggregateFnVTable for Max {
-    type Options = AggregateFnOpts;
+    type Options = NumericalAggregateOpts;
     type Partial = MaxPartial;
 
     fn id(&self) -> AggregateFnId {
@@ -88,7 +88,7 @@ impl AggregateFnVTable for Max {
         metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        AggregateFnOpts::deserialize(metadata)
+        NumericalAggregateOpts::deserialize(metadata)
     }
 
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -194,7 +194,7 @@ impl AggregateFnVTable for Max {
             Columnar::Canonical(canonical) => canonical.clone().into_array(),
             Columnar::Constant(constant) => constant.clone().into_array(),
         };
-        let options = AggregateFnOpts {
+        let options = NumericalAggregateOpts {
             skip_nans: partial.skip_nans,
         };
         if let Some(result) = min_max(&array, ctx, options)? {
@@ -221,8 +221,8 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
-    use crate::aggregate_fn::AggregateFnOpts;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::max::Max;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
@@ -238,7 +238,7 @@ mod tests {
     fn max_aggregate_fn() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Max, AggregateFnOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Max, NumericalAggregateOpts::default(), dtype)?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20, 5], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn max_empty_group_returns_null() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Max, AggregateFnOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Max, NumericalAggregateOpts::default(), dtype)?;
 
         assert_eq!(
             acc.finish()?,
@@ -269,7 +269,7 @@ mod tests {
     fn max_with_nan_not_skipping() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Max, AggregateFnOpts::include_nans(), dtype)?;
+        let mut acc = Accumulator::try_new(Max, NumericalAggregateOpts::include_nans(), dtype)?;
 
         let batch = PrimitiveArray::new(buffer![1.0f64, f64::NAN, -5.0], Validity::NonNullable)
             .into_array();
@@ -295,8 +295,11 @@ mod tests {
         batch
             .statistics()
             .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(1u64)));
-        let mut acc =
-            Accumulator::try_new(Max, AggregateFnOpts::include_nans(), batch.dtype().clone())?;
+        let mut acc = Accumulator::try_new(
+            Max,
+            NumericalAggregateOpts::include_nans(),
+            batch.dtype().clone(),
+        )?;
         acc.accumulate(&batch, &mut ctx)?;
         let result = acc.finish()?;
         assert!(
@@ -321,8 +324,11 @@ mod tests {
         array
             .statistics()
             .set(Stat::Max, Precision::Exact(ScalarValue::from(3.0f64)));
-        let mut acc =
-            Accumulator::try_new(Max, AggregateFnOpts::include_nans(), array.dtype().clone())?;
+        let mut acc = Accumulator::try_new(
+            Max,
+            NumericalAggregateOpts::include_nans(),
+            array.dtype().clone(),
+        )?;
         acc.accumulate(&array, &mut ctx)?;
         assert_eq!(
             acc.finish()?,
@@ -338,7 +344,11 @@ mod tests {
         batch
             .statistics()
             .set(Stat::Max, Precision::Exact(ScalarValue::from(25i32)));
-        let mut acc = Accumulator::try_new(Max, AggregateFnOpts::default(), batch.dtype().clone())?;
+        let mut acc = Accumulator::try_new(
+            Max,
+            NumericalAggregateOpts::default(),
+            batch.dtype().clone(),
+        )?;
 
         acc.accumulate(&batch, &mut ctx)?;
 

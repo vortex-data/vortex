@@ -3,10 +3,10 @@
 
 //! Expression constructors for statistics backed by aggregate functions.
 
-use crate::aggregate_fn::AggregateFnOpts;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
@@ -31,13 +31,13 @@ pub fn stat(expr: Expression, aggregate_fn: AggregateFnRef) -> Expression {
 /// Creates `stat(expr, min_max)`, returning a nullable `{ min, max }` struct statistic.
 pub fn min_max(expr: Expression) -> Expression {
     // Statistics follow NaN-skipping semantics; request it explicitly rather than via the default.
-    stat(expr, MinMax.bind(AggregateFnOpts::skip_nans()))
+    stat(expr, MinMax.bind(NumericalAggregateOpts::skip_nans()))
 }
 
 /// Creates `stat(expr, sum)`, returning a nullable sum statistic.
 pub fn sum(expr: Expression) -> Expression {
     // Statistics follow NaN-skipping semantics; request it explicitly rather than via the default.
-    stat(expr, Sum.bind(AggregateFnOpts::skip_nans()))
+    stat(expr, Sum.bind(NumericalAggregateOpts::skip_nans()))
 }
 
 /// Creates `stat(expr, null_count)`, returning a nullable null-count statistic.

@@ -94,9 +94,9 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::aggregate_fn::AggregateFnOpts;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::GroupedAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::count::Count;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListViewArray;
@@ -111,8 +111,11 @@ mod tests {
 
     /// Run a grouped count through the accumulator.
     fn grouped_count_actual(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut acc =
-            GroupedAccumulator::try_new(Count, AggregateFnOpts::default(), elem_dtype.clone())?;
+        let mut acc = GroupedAccumulator::try_new(
+            Count,
+            NumericalAggregateOpts::default(),
+            elem_dtype.clone(),
+        )?;
         acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
         acc.finish()
     }
@@ -221,7 +224,7 @@ mod tests {
         assert_arrays_eq!(&actual, &expected);
 
         let mut acc =
-            GroupedAccumulator::try_new(Count, AggregateFnOpts::include_nans(), elem_dtype)?;
+            GroupedAccumulator::try_new(Count, NumericalAggregateOpts::include_nans(), elem_dtype)?;
         acc.accumulate_list(&groups, &mut LEGACY_SESSION.create_execution_ctx())?;
         let actual = acc.finish()?;
         let expected = PrimitiveArray::new(buffer![2u64, 1], Validity::NonNullable).into_array();

@@ -161,9 +161,9 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::aggregate_fn::AggregateFnOpts;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::GroupedAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::arrays::FixedSizeListArray;
@@ -179,8 +179,11 @@ mod tests {
 
     /// Run a grouped sum through the accumulator.
     fn grouped_sum_actual(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut acc =
-            GroupedAccumulator::try_new(Sum, AggregateFnOpts::default(), elem_dtype.clone())?;
+        let mut acc = GroupedAccumulator::try_new(
+            Sum,
+            NumericalAggregateOpts::default(),
+            elem_dtype.clone(),
+        )?;
         acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
         acc.finish()
     }
@@ -197,7 +200,7 @@ mod tests {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let sum_dtype = Sum
-            .partial_dtype(&AggregateFnOpts::default(), elem_dtype)
+            .partial_dtype(&NumericalAggregateOpts::default(), elem_dtype)
             .expect("sum partial dtype");
         let mut builder = builder_with_capacity(&sum_dtype, ranges.len());
         for (i, &(offset, size)) in ranges.iter().enumerate() {
@@ -362,7 +365,7 @@ mod tests {
         let groups = listview(elements, &[(0, 3), (3, 2)], &[true, true])?;
 
         let mut acc =
-            GroupedAccumulator::try_new(Sum, AggregateFnOpts::include_nans(), elem_dtype)?;
+            GroupedAccumulator::try_new(Sum, NumericalAggregateOpts::include_nans(), elem_dtype)?;
         acc.accumulate_list(&groups, &mut LEGACY_SESSION.create_execution_ctx())?;
         let actual = acc.finish()?;
 

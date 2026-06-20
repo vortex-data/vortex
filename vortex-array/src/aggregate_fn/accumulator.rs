@@ -271,10 +271,10 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
-    use crate::aggregate_fn::AggregateFnOpts;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::combined::Combined;
     use crate::aggregate_fn::combined::PairOptions;
     use crate::aggregate_fn::fns::mean::Mean;
@@ -348,7 +348,10 @@ mod tests {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         Accumulator::try_new(
             Mean::combined(),
-            PairOptions(AggregateFnOpts::default(), AggregateFnOpts::default()),
+            PairOptions(
+                NumericalAggregateOpts::default(),
+                NumericalAggregateOpts::default(),
+            ),
             dtype,
         )
     }

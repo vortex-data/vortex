@@ -24,11 +24,11 @@ pub use provider::*;
 pub use stat_bound::*;
 
 use crate::aggregate_fn;
-use crate::aggregate_fn::AggregateFnOpts;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::NumericalAggregateOpts;
 
 #[derive(
     Debug,
@@ -189,7 +189,7 @@ impl Stat {
             Self::Sum => {
                 // Statistics follow NaN-skipping semantics; request it explicitly.
                 return aggregate_fn::fns::sum::Sum
-                    .return_dtype(&AggregateFnOpts::skip_nans(), data_type);
+                    .return_dtype(&NumericalAggregateOpts::skip_nans(), data_type);
             }
         })
     }
@@ -198,9 +198,9 @@ impl Stat {
     pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
         // Statistics follow NaN-skipping semantics; request it explicitly rather than the default.
         Some(match self {
-            Self::Max => aggregate_fn::fns::max::Max.bind(AggregateFnOpts::skip_nans()),
-            Self::Min => aggregate_fn::fns::min::Min.bind(AggregateFnOpts::skip_nans()),
-            Self::Sum => aggregate_fn::fns::sum::Sum.bind(AggregateFnOpts::skip_nans()),
+            Self::Max => aggregate_fn::fns::max::Max.bind(NumericalAggregateOpts::skip_nans()),
+            Self::Min => aggregate_fn::fns::min::Min.bind(NumericalAggregateOpts::skip_nans()),
+            Self::Sum => aggregate_fn::fns::sum::Sum.bind(NumericalAggregateOpts::skip_nans()),
             Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
             Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
             Self::UncompressedSizeInBytes => {

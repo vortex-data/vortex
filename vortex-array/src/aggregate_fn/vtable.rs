@@ -180,15 +180,15 @@ impl Display for EmptyOptions {
 ///
 /// The option has no effect on non-float inputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct AggregateFnOpts {
+pub struct NumericalAggregateOpts {
     /// Whether NaN values are skipped (treated as missing) during aggregation.
     pub skip_nans: bool,
 }
 
-impl AggregateFnOpts {
+impl NumericalAggregateOpts {
     /// Options that skip NaN values, treating them as missing during aggregation.
     ///
-    /// This is the default configuration; see [`AggregateFnOpts::include_nans`] for the
+    /// This is the default configuration; see [`NumericalAggregateOpts::include_nans`] for the
     /// NaN-including variant.
     pub const fn skip_nans() -> Self {
         Self { skip_nans: true }
@@ -197,14 +197,14 @@ impl AggregateFnOpts {
     /// Options that include NaN values in the aggregate: `count` counts them, while any NaN
     /// poisons the result of `sum`/`min`/`max`/`mean` to NaN.
     ///
-    /// See [`AggregateFnOpts::skip_nans`] for the default NaN-skipping variant.
+    /// See [`NumericalAggregateOpts::skip_nans`] for the default NaN-skipping variant.
     pub const fn include_nans() -> Self {
         Self { skip_nans: false }
     }
 
     /// Serialize these options to protobuf-encoded metadata bytes.
     pub fn serialize(&self) -> Vec<u8> {
-        pb::AggregateFnOpts {
+        pb::NumericalAggregateOpts {
             skip_nans: self.skip_nans,
         }
         .encode_to_vec()
@@ -212,20 +212,20 @@ impl AggregateFnOpts {
 
     /// Deserialize these options from protobuf-encoded metadata bytes.
     pub fn deserialize(metadata: &[u8]) -> VortexResult<Self> {
-        let opts = pb::AggregateFnOpts::decode(metadata)?;
+        let opts = pb::NumericalAggregateOpts::decode(metadata)?;
         Ok(Self {
             skip_nans: opts.skip_nans,
         })
     }
 }
 
-impl Default for AggregateFnOpts {
+impl Default for NumericalAggregateOpts {
     fn default() -> Self {
         Self::skip_nans()
     }
 }
 
-impl Display for AggregateFnOpts {
+impl Display for NumericalAggregateOpts {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         // Only the non-default configuration is displayed, so that aggregates with default
         // options render identically to their pre-options form, e.g. `vortex.sum()`.

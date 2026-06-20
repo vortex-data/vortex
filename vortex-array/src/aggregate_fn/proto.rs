@@ -69,11 +69,11 @@ mod tests {
     use crate::Columnar;
     use crate::ExecutionCtx;
     use crate::aggregate_fn::AggregateFnId;
-    use crate::aggregate_fn::AggregateFnOpts;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::session::AggregateFnSession;
     use crate::aggregate_fn::session::AggregateFnSessionExt;
@@ -174,9 +174,11 @@ mod tests {
     /// The `skip_nans` option must survive a protobuf serialize/deserialize round-trip for the
     /// numeric aggregates, including the non-default NaN-including configuration.
     #[rstest]
-    #[case(AggregateFnOpts::skip_nans())]
-    #[case(AggregateFnOpts::include_nans())]
-    fn numeric_aggregate_options_round_trip(#[case] options: AggregateFnOpts) -> VortexResult<()> {
+    #[case(NumericalAggregateOpts::skip_nans())]
+    #[case(NumericalAggregateOpts::include_nans())]
+    fn numeric_aggregate_options_round_trip(
+        #[case] options: NumericalAggregateOpts,
+    ) -> VortexResult<()> {
         let session = crate::array_session();
         let agg_fn = Sum.bind(options);
 

@@ -246,7 +246,7 @@ fn values_fit_in(
     aggregate_fn::fns::min_max::min_max(
         array.array(),
         ctx,
-        aggregate_fn::AggregateFnOpts::default(),
+        aggregate_fn::NumericalAggregateOpts::default(),
     )
     .ok()
     .flatten()

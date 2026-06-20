@@ -22,7 +22,7 @@ pub struct AggregateFn {
 /// Options for numeric aggregate functions (`vortex.sum`, `vortex.min`, `vortex.max`),
 /// controlling how NaN values in floating-point inputs are handled.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct AggregateFnOpts {
+pub struct NumericalAggregateOpts {
     #[prost(bool, tag = "1")]
     pub skip_nans: bool,
 }

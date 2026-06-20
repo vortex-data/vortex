@@ -22,7 +22,7 @@ use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
-use crate::aggregate_fn::AggregateFnOpts;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -571,7 +571,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         let end = min_max(
             &offsets.binary(sizes, Operator::Add)?,
             ctx,
-            AggregateFnOpts::default(),
+            NumericalAggregateOpts::default(),
         )?
         .vortex_expect("non-empty array must report a min/max")
         .max

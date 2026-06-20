@@ -11,11 +11,11 @@ use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::AggregateFnOpts;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions;
 use vortex_array::aggregate_fn::fns::bounded_min::BoundedMin;
@@ -189,17 +189,17 @@ fn default_zoned_aggregate_fns(dtype: &DType) -> Arc<[AggregateFnRef]> {
             }),
         ),
         _ => (
-            Max.bind(AggregateFnOpts::skip_nans()),
-            Min.bind(AggregateFnOpts::skip_nans()),
+            Max.bind(NumericalAggregateOpts::skip_nans()),
+            Min.bind(NumericalAggregateOpts::skip_nans()),
         ),
     };
 
     let mut aggregate_fns = vec![max, min];
     if Sum
-        .return_dtype(&AggregateFnOpts::skip_nans(), dtype)
+        .return_dtype(&NumericalAggregateOpts::skip_nans(), dtype)
         .is_some()
     {
-        aggregate_fns.push(Sum.bind(AggregateFnOpts::skip_nans()));
+        aggregate_fns.push(Sum.bind(NumericalAggregateOpts::skip_nans()));
     }
     aggregate_fns.push(NanCount.bind(EmptyOptions));
     aggregate_fns.push(NullCount.bind(EmptyOptions));

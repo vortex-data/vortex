@@ -46,8 +46,8 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
-    use crate::aggregate_fn::AggregateFnOpts;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
@@ -59,7 +59,11 @@ mod tests {
 
     fn run_sum(batch: &crate::ArrayRef) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let mut acc = Accumulator::try_new(Sum, AggregateFnOpts::default(), batch.dtype().clone())?;
+        let mut acc = Accumulator::try_new(
+            Sum,
+            NumericalAggregateOpts::default(),
+            batch.dtype().clone(),
+        )?;
         acc.accumulate(batch, &mut ctx)?;
         acc.finish()
     }
