@@ -70,6 +70,14 @@ fn take_10_contiguous(bencher: Bencher) {
         })
 }
 
+// The four `*take_10k_{random,contiguous,...}` benches below are excluded from CodSpeed's CPU
+// simulation. Each gathers 10k elements and canonicalizes the result, so its instruction count is
+// bimodal under simulation (~195 us vs ~255 us, ±23% for unchanged code) due to output-buffer
+// allocation + `memcpy` and the SIMD bit-unpack's code-layout sensitivity across runner images
+// ("different runtime environments"). They fired in 4+ recent unrelated PRs and on this PR itself.
+// Per `docs/developer-guide/benchmarking.md` they are gated with `#[cfg(not(codspeed))]` and remain
+// available via local `cargo bench`. The other take variants here have not shown this and are kept.
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn take_10k_random(bencher: Bencher) {
     let values = fixture(65_536, 8);
@@ -92,6 +100,8 @@ fn take_10k_random(bencher: Bencher) {
         })
 }
 
+// Excluded from CodSpeed: bimodal 10k take+canonicalize (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn take_10k_contiguous(bencher: Bencher) {
     let values = fixture(65_536, 8);
@@ -221,6 +231,8 @@ fn patched_take_10_contiguous(bencher: Bencher) {
         })
 }
 
+// Excluded from CodSpeed: bimodal 10k take+canonicalize (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn patched_take_10k_random(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
@@ -262,6 +274,8 @@ fn patched_take_10k_contiguous_not_patches(bencher: Bencher) {
         })
 }
 
+// Excluded from CodSpeed: bimodal 10k take+canonicalize (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn patched_take_10k_contiguous_patches(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
