@@ -22,7 +22,7 @@ use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::canonical;
-use crate::exporter::new_array_exporter;
+use crate::exporter::new_array_exporter_with_flatten;
 
 /// We export run-end arrays to a DuckDB dictionary vector, using a selection vector to
 /// repeat the values in the run-end array.
@@ -50,7 +50,9 @@ pub(crate) fn new_exporter_with_flatten(
     let ends = array.ends().clone();
     let values = array.values().clone();
     let ends = ends.execute::<PrimitiveArray>(ctx)?;
-    let values_exporter = new_array_exporter(values.clone(), cache, ctx)?;
+    // REE exports values in run-index space, not outer row space. Materialize the dictionary
+    // payload so chunked physical boundaries in the values child cannot constrain row batches.
+    let values_exporter = new_array_exporter_with_flatten(values.clone(), cache, ctx, true)?;
 
     match_each_integer_ptype!(ends.ptype(), |E| {
         Ok(Box::new(RunEndExporter {
@@ -134,6 +136,48 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
             .export(start_run_idx, values_len as usize, vector, ctx)?;
         vector.dictionary(vector, values_len as usize, &sel_vec, len as _);
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::ChunkedArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::buffer::buffer;
+    use vortex::encodings::runend::RunEnd;
+    use vortex::error::VortexResult;
+
+    use crate::SESSION;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
+    use crate::exporter::ArrayExporter;
+    use crate::exporter::ConversionCache;
+
+    #[test]
+    fn run_end_with_chunked_values_exports_across_value_chunks() -> VortexResult<()> {
+        let values0 = PrimitiveArray::from_iter([10i32]).into_array();
+        let dtype = values0.dtype().clone();
+        let values1 = PrimitiveArray::from_iter([20i32]).into_array();
+        let values = ChunkedArray::try_new(vec![values0, values1], dtype)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let field = RunEnd::try_new(buffer![1u32, 2].into_array(), values, &mut ctx)?.into_array();
+        let array = StructArray::from_fields(&[("field", field)])?;
+        let mut exporter = ArrayExporter::try_new(&array, &ConversionCache::default(), ctx)?;
+        let mut chunk = DataChunk::new([LogicalType::int32()]);
+
+        assert!(exporter.export(&mut chunk, None, None)?);
+        assert_eq!(
+            format!("{}", String::try_from(&*chunk)?),
+            r#"Chunk - [1 Columns]
+- DICTIONARY INTEGER: 2 = [ 10, 20]
+"#
+        );
+
+        assert!(!exporter.export(&mut chunk, None, None)?);
         Ok(())
     }
 }
