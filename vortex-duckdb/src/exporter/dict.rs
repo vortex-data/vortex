@@ -25,6 +25,7 @@ use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::constant;
 use crate::exporter::new_array_exporter;
+use crate::exporter::new_array_exporter_with_flatten;
 
 struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
@@ -104,7 +105,7 @@ pub(crate) fn new_exporter_with_flatten(
             None => {
                 // Create a new reusable dictionary for the values.
                 let mut reusable_dict = ReusableDict::new(values.dtype().try_into()?, values.len());
-                new_array_exporter(values.clone(), cache, ctx)?.export(
+                new_array_exporter_with_flatten(values.clone(), cache, ctx, true)?.export(
                     0,
                     values.len(),
                     reusable_dict.vector(),
