@@ -13,6 +13,7 @@ use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -24,7 +25,6 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbin::VarBinArrayExt;
 use vortex::array::builtins::ArrayBuiltins;
-use vortex::array::session::ArraySession;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
@@ -53,8 +53,7 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
 const NUM_VALUES: u64 = 100_000;
 

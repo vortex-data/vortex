@@ -7,13 +7,14 @@
 // vortex::compute is deprecated and will be ported over to expressions.
 pub use vortex_array::aggregate_fn;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::arrow::ArrowSession;
 pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
 // pulled back out into a vortex_expr crate.
 pub use vortex_array::expr;
 use vortex_array::memory::MemorySession;
-use vortex_array::optimizer::kernels::ArrayKernels;
+use vortex_array::optimizer::kernels::KernelSession;
 pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
@@ -167,16 +168,22 @@ impl VortexSessionDefault for VortexSession {
         let session = VortexSession::empty()
             .with::<DTypeSession>()
             .with::<ArraySession>()
+            .with::<KernelSession>()
             .with::<LayoutSession>()
             .with::<ScalarFnSession>()
             .with::<StatsSession>()
-            .with::<ArrayKernels>()
             .with::<AggregateFnSession>()
+            .with::<ArrowSession>()
             .with::<MemorySession>()
-            .with::<RuntimeSession>();
+            .with::<RuntimeSession>()
+            .with::<vortex_scan::ScanSchedulerSession>();
 
         #[cfg(feature = "files")]
-        file::register_default_encodings(&session);
+        let session = {
+            let session = session.with::<file::multi::MultiFileSession>();
+            file::register_default_encodings(&session);
+            session
+        };
 
         session
     }

@@ -437,7 +437,6 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
     use vortex_error::vortex_err;
@@ -448,8 +447,7 @@ mod test {
     use crate::bitpack_compress::test_harness::make_array;
     use crate::bitpacking::array::BitPackedArrayExt;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[test]
     fn test_best_bit_width() {

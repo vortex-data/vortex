@@ -23,7 +23,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::session::ArraySession;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_session::VortexSession;
@@ -32,8 +31,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_fsst::initialize(&session);
+    session
+});
 
 // [(string_count, avg_len, unique_chars)]
 const BENCH_ARGS: &[(usize, usize, u8)] = &[

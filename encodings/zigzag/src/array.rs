@@ -38,7 +38,6 @@ use vortex_session::registry::CachedId;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
-use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 use crate::zigzag_decode;
 
@@ -142,15 +141,6 @@ impl VTable for ZigZag {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

@@ -17,6 +17,7 @@ use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::expr::Expression;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -26,10 +27,15 @@ use vortex_scan::plan::PrepareCtx;
 use vortex_scan::plan::PreparedRead;
 use vortex_scan::plan::PreparedReadRef;
 use vortex_scan::plan::PreparedStateKey;
+use vortex_scan::plan::PushCtx;
 use vortex_scan::plan::RowScope;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::ScanState;
+use vortex_scan::plan::ScanStateRef;
 use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::default_try_push_expr;
+use vortex_scan::plan::downcast_state;
 use vortex_scan::plan::request::ScanRequest;
 use vortex_session::VortexSession;
 
@@ -69,10 +75,16 @@ struct FlatPreparedRead {
 }
 
 impl ScanPlan for FlatScanPlan {
-    type State = FlatScanState;
+    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(FlatScanState::default()))
+    }
 
-    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<FlatScanState> {
-        Ok(FlatScanState::default())
+    fn try_push_expr(
+        self: Arc<Self>,
+        expr: &Expression,
+        _cx: &mut PushCtx,
+    ) -> VortexResult<Option<ScanPlanRef>> {
+        default_try_push_expr(self, expr)
     }
 
     fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
@@ -84,7 +96,8 @@ impl ScanPlan for FlatScanPlan {
     /// A flat leaf releases only once *wholly* behind the frontier: a
     /// partially-covered flat is the working set, and dropping it would
     /// thrash the segment fetch.
-    fn release(&self, frontier: u64, state: &FlatScanState) -> VortexResult<()> {
+    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
+        let state = downcast_state::<FlatScanState>(state)?;
         if frontier >= self.layout.row_count() {
             *state.array.lock() = None;
         }

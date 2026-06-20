@@ -41,9 +41,17 @@
 //! [spec]: https://arrow.apache.org/docs/format/CanonicalExtensions.html#bit-boolean
 
 pub use array::*;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
 
 mod array;
 mod compute;
 mod kernel;
 mod rules;
 mod slice;
+
+/// Initialize bytebool encoding in the given session.
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(ByteBool);
+    kernel::initialize(session);
+}

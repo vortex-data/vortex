@@ -11,6 +11,11 @@ use vortex_error::vortex_ensure;
 
 pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}
+
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;

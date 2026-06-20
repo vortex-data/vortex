@@ -935,7 +935,6 @@ impl ZstdData {
         } else if dtype.is_nullable() && matches!(slice_validity, Validity::NonNullable) {
             slice_validity = Validity::AllValid;
         }
-        //
         // END OF IMPORTANT BLOCK
         //
 

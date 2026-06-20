@@ -14,8 +14,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout as fbl;
+use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+use crate::LayoutBuildContext;
 use crate::LayoutRef;
 use crate::layouts::foreign::new_foreign_layout;
 use crate::segments::SegmentId;
@@ -105,6 +107,7 @@ pub(crate) struct ViewedLayoutChildren {
     layout_read_ctx: ReadContext,
     layouts: LayoutRegistry,
     allow_unknown: bool,
+    session: VortexSession,
     cache: Arc<[OnceCell<LayoutRef>]>,
 }
 
@@ -121,6 +124,7 @@ impl ViewedLayoutChildren {
         layout_read_ctx: ReadContext,
         layouts: LayoutRegistry,
         allow_unknown: bool,
+        session: VortexSession,
     ) -> Self {
         // SAFETY: guaranteed by caller
         let nchildren = unsafe { fbl::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) }
@@ -135,6 +139,7 @@ impl ViewedLayoutChildren {
             layout_read_ctx,
             layouts,
             allow_unknown,
+            session,
             cache,
         }
     }
@@ -206,6 +211,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                     self.layout_read_ctx.clone(),
                     self.layouts.clone(),
                     self.allow_unknown,
+                    self.session.clone(),
                 )
             };
 
@@ -223,6 +229,10 @@ impl LayoutChildren for ViewedLayoutChildren {
                 ));
             };
 
+            let build_ctx = LayoutBuildContext {
+                session: &self.session,
+                array_read_ctx: &self.array_read_ctx,
+            };
             encoding.build(
                 dtype,
                 fb_child.row_count(),
@@ -237,7 +247,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                     .map(SegmentId::from)
                     .collect_vec(),
                 &viewed_children,
-                &self.array_read_ctx,
+                &build_ctx,
             )
         })?;
         Ok(Arc::clone(layout_ref))

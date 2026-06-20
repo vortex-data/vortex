@@ -92,7 +92,6 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::encodings::sequence::Sequence;
     use vortex::scalar::PValue;
-    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::CudaSession;
@@ -125,7 +124,7 @@ mod tests {
         len: usize,
         nullability: Nullability,
     ) {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session()).unwrap();
 
         let array = Sequence::try_new_typed(base, multiplier, nullability, len).unwrap();
 

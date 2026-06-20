@@ -308,7 +308,6 @@ mod tests {
     use vortex::dtype::DecimalDType;
     use vortex::dtype::i256;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -325,7 +324,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_u32_values_u8_codes() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values: [100, 200, 300, 400]
@@ -357,7 +356,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_u64_values_u16_codes() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values: large u64 values
@@ -392,7 +391,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_i32_values_u32_codes() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values: signed integers including negatives
@@ -423,7 +422,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_large_array() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Dictionary with 256 values
@@ -455,7 +454,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values with nulls: [100, null, 300, 400]
@@ -487,7 +486,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_codes_with_validity() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values: [100, 200, 300, 400]
@@ -524,7 +523,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_both_with_validity() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values with nulls: [100, null, 300, 400]
@@ -568,7 +567,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_i64_values_with_validity() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values with nulls (i64)
@@ -613,7 +612,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_all_valid_matches_baseline() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Non-nullable values
@@ -656,7 +655,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i8_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Precision 2 uses i8 backing type
@@ -684,7 +683,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i16_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Precision 4 uses i16 backing type
@@ -712,7 +711,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i32_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Precision 9 uses i32 backing type
@@ -740,7 +739,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i64_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Precision 18 uses i64 backing type
@@ -771,7 +770,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i128_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Precision 38 uses i128 backing type
@@ -815,7 +814,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_values_u8_codes() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let values = VarBinViewArray::from_iter_str(["cat", "dog", "bird", "fish"]);
@@ -840,7 +839,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_values_u16_codes() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let values = VarBinViewArray::from_iter_str(["alpha", "beta", "gamma", "delta", "epsilon"]);
@@ -865,7 +864,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_max_inlined_12_bytes() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Exactly 12 bytes — the maximum inlined BinaryView size
@@ -892,7 +891,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_outlined_views() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // 13+ bytes — outlined BinaryViews that reference data buffers
@@ -922,7 +921,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_empty_strings() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let values = VarBinViewArray::from_iter_str(["", "a", ""]);
@@ -947,7 +946,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_values_with_validity() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let values = VarBinViewArray::from_iter_nullable_str([Some("hello"), None, Some("world")]);
@@ -973,7 +972,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_outlined_with_validity() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Mix of inlined, outlined, and null dictionary values
@@ -1006,7 +1005,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i256_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Precision 76 uses i256 backing type

@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -131,6 +132,28 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.values.extend(iter);
         self.nulls.append_validity_mask(mask);
     }
+
+    pub(crate) fn append_primitive_array(
+        &mut self,
+        array: &PrimitiveArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        debug_assert_eq!(
+            array.ptype(),
+            T::PTYPE,
+            "Cannot append primitive array with different ptype"
+        );
+
+        self.values.extend_from_slice(array.as_slice::<T>());
+        self.nulls.append_validity_mask(
+            &array
+                .as_ref()
+                .validity()
+                .vortex_expect("validity_mask")
+                .execute_mask(array.as_ref().len(), ctx)?,
+        );
+        Ok(())
+    }
 }
 
 impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
@@ -181,25 +204,8 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         #[expect(deprecated)]
         let array = array.to_primitive();
 
-        // This should be checked in `extend_from_array` but we can check it again.
-        debug_assert_eq!(
-            array.ptype(),
-            T::PTYPE,
-            "Cannot extend from array with different ptype"
-        );
-
-        self.values.extend_from_slice(array.as_slice::<T>());
-        self.nulls.append_validity_mask(
-            &array
-                .as_ref()
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(
-                    array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
-                .vortex_expect("Failed to compute validity mask"),
-        );
+        self.append_primitive_array(&array, &mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("Failed to append primitive array");
     }
 
     fn reserve_exact(&mut self, additional: usize) {

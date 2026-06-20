@@ -188,8 +188,5 @@ mod test {
 
     use vortex_session::VortexSession;
 
-    use crate::dtype::session::DTypeSession;
-
-    pub(crate) static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<DTypeSession>());
+    pub(crate) static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 }

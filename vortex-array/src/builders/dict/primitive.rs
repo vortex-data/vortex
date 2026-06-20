@@ -168,10 +168,8 @@ mod test {
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::builders::dict::primitive::PrimitiveArray;
-    use crate::session::ArraySession;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     #[test]
     fn encode_primitive() {

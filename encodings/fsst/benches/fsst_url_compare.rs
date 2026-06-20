@@ -18,7 +18,6 @@ use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::session::ArraySession;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_fsst::test_utils::HIGH_MATCH_DOMAIN;
@@ -31,8 +30,11 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_fsst::initialize(&session);
+    session
+});
 
 const NUM_URLS: usize = NUM_STRINGS;
 

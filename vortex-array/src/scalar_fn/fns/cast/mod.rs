@@ -32,11 +32,8 @@ use crate::arrays::VarBinView;
 use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::StatsCatalog;
-use crate::expr::cast;
 use crate::expr::expression::Expression;
 use crate::expr::lit;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -150,39 +147,6 @@ impl ScalarFnVTable for Cast {
             return Ok(Some(child));
         }
         Ok(None)
-    }
-
-    fn stat_expression(
-        &self,
-        dtype: &DType,
-        expr: &Expression,
-        stat: Stat,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        match stat {
-            Stat::IsConstant
-            | Stat::IsSorted
-            | Stat::IsStrictSorted
-            | Stat::NaNCount
-            | Stat::Sum
-            | Stat::UncompressedSizeInBytes => expr.child(0).stat_expression(stat, catalog),
-            Stat::Max | Stat::Min => {
-                // We cast min/max to the new type
-                expr.child(0)
-                    .stat_expression(stat, catalog)
-                    .map(|x| cast(x, dtype.clone()))
-            }
-            Stat::NullCount => {
-                // if !expr.data().is_nullable() {
-                // NOTE(ngates): we should decide on the semantics here. In theory, the null
-                //  count of something cast to non-nullable will be zero. But if we return
-                //  that we know this to be zero, then a pruning predicate may eliminate data
-                //  that would otherwise have caused the cast to error.
-                // return Some(lit(0u64));
-                // }
-                None
-            }
-        }
     }
 
     fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Option<Expression>> {

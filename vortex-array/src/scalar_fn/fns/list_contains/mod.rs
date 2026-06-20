@@ -33,13 +33,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::and_collect;
-use crate::expr::gt;
-use crate::expr::lit;
-use crate::expr::lt;
-use crate::expr::or;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::ListScalar;
@@ -51,7 +44,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -127,43 +119,6 @@ impl ScalarFnVTable for ListContains {
         }
 
         compute_list_contains(&list_array, &value_array, ctx)
-    }
-
-    fn stat_falsification(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let list = expr.child(0);
-        let needle = expr.child(1);
-
-        // falsification(contains([1,2,5], x)) =>
-        //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
-        let min = list.stat_min(catalog)?;
-        let max = list.stat_max(catalog)?;
-        // If the list is constant when we can compare each element to the value
-        if min == max {
-            let list_ = min
-                .as_opt::<Literal>()
-                .and_then(|l| l.as_list_opt())
-                .and_then(|l| l.elements())?;
-            if list_.is_empty() {
-                // contains([], x) is always false.
-                return Some(lit(true));
-            }
-            let value_max = needle.stat_max(catalog)?;
-            let value_min = needle.stat_min(catalog)?;
-
-            return and_collect(list_.iter().map(move |v| {
-                or(
-                    lt(value_max.clone(), lit(v.clone())),
-                    gt(value_min.clone(), lit(v.clone())),
-                )
-            }));
-        }
-
-        None
     }
 
     // Nullability matters for contains([], x) where x is false.
@@ -415,7 +370,7 @@ fn list_is_not_empty(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // Short-circuit for all invalid.
-    if matches!(list_array.validity()?, Validity::AllInvalid) {
+    if list_array.validity()?.definitely_all_null() {
         return Ok(ConstantArray::new(
             Scalar::null(DType::Bool(Nullability::Nullable)),
             list_array.len(),
@@ -439,13 +394,14 @@ fn list_is_not_empty(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use itertools::Itertools;
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
-    use vortex_utils::aliases::hash_map::HashMap;
-    use vortex_utils::aliases::hash_set::HashSet;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -457,12 +413,10 @@ mod tests {
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
-    use crate::dtype::Field;
-    use crate::dtype::FieldPath;
-    use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
+    use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::col;
     use crate::expr::get_item;
@@ -471,7 +425,6 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::lt;
     use crate::expr::or;
-    use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
@@ -479,7 +432,16 @@ mod tests {
     use crate::scalar_fn::fns::list_contains::ConstantArray;
     use crate::scalar_fn::fns::list_contains::ListViewArray;
     use crate::scalar_fn::fns::list_contains::PrimitiveArray;
+    use crate::stats::StatsSession;
+    use crate::stats::stat as stat_expr;
     use crate::validity::Validity;
+
+    static STATS_SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
+
+    fn stat(expr: Expression, stat: Stat) -> Expression {
+        stat_expr(expr, stat.aggregate_fn().unwrap())
+    }
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
@@ -621,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    pub fn list_falsification() {
+    pub fn list_falsification() -> VortexResult<()> {
         let expr = list_contains(
             lit(Scalar::list(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
@@ -630,34 +592,34 @@ mod tests {
             )),
             col("a"),
         );
-
-        let (expr, st) = checked_pruning_expr(
-            &expr,
-            &FieldPathSet::from_iter([
-                FieldPath::from_iter([Field::Name("a".into()), Field::Name("max".into())]),
-                FieldPath::from_iter([Field::Name("a".into()), Field::Name("min".into())]),
-            ]),
-        )
-        .unwrap();
+        let scope = DType::Struct(
+            StructFields::new(
+                ["a"].into(),
+                vec![DType::Primitive(I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
 
         assert_eq!(
-            &expr,
-            &and(
+            expr.falsify(&scope, &STATS_SESSION)?,
+            Some(and(
                 and(
-                    or(lt(col("a_max"), lit(1i32)), gt(col("a_min"), lit(1i32)),),
-                    or(lt(col("a_max"), lit(2i32)), gt(col("a_min"), lit(2i32)),)
+                    or(
+                        lt(stat(col("a"), Stat::Max), lit(1i32)),
+                        gt(stat(col("a"), Stat::Min), lit(1i32)),
+                    ),
+                    or(
+                        lt(stat(col("a"), Stat::Max), lit(2i32)),
+                        gt(stat(col("a"), Stat::Min), lit(2i32)),
+                    )
                 ),
-                or(lt(col("a_max"), lit(3i32)), gt(col("a_min"), lit(3i32)),)
-            )
+                or(
+                    lt(stat(col("a"), Stat::Max), lit(3i32)),
+                    gt(stat(col("a"), Stat::Min), lit(3i32)),
+                )
+            ))
         );
-
-        assert_eq!(
-            st.map(),
-            &HashMap::from_iter([(
-                FieldPath::from_name("a"),
-                HashSet::from([Stat::Min, Stat::Max])
-            )])
-        );
+        Ok(())
     }
 
     #[test]

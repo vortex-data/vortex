@@ -9,9 +9,13 @@ mod session;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::stream;
+pub use session::MultiFileSession;
 use session::MultiFileSessionExt;
 use tracing::debug;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::InstrumentedReadAt;
@@ -72,6 +76,11 @@ pub struct MultiFileDataSource {
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 }
+
+/// In-flight glob resolutions in [`MultiFileDataSource::build`]. Callers like the JNI data
+/// source add one exact path per glob source, where each resolution is a single remote
+/// metadata lookup; resolving them concurrently avoids one round trip of latency per file.
+const GLOB_RESOLUTION_CONCURRENCY: usize = 16;
 
 impl MultiFileDataSource {
     /// Create a new [`MultiFileDataSource`] builder.
@@ -143,31 +152,39 @@ impl MultiFileDataSource {
             .then(|| create_local_filesystem(&self.session))
             .transpose()?;
 
-        // Collect files from all glob sources.
-        let mut all_files: Vec<(FileListing, FileSystemRef)> = Vec::new();
-        for (glob, maybe_fs) in &self.glob_sources {
-            // Use the provided filesystem, or fall back to the local filesystem.
-            // We know local_fs is Some when maybe_fs is None (by construction above).
-            let fs = maybe_fs
-                .as_ref()
-                .or(local_fs.as_ref())
-                .map(Arc::clone)
-                .unwrap_or_else(|| {
-                    unreachable!("local_fs is set when any glob lacks a filesystem")
-                });
-            let files: Vec<FileListing> = fs.glob(glob)?.try_collect().await?;
-            for file in files {
-                all_files.push((file, Arc::clone(&fs)));
-            }
-        }
+        let globs: Vec<String> = self.glob_sources.iter().map(|(g, _)| g.clone()).collect();
+
+        // Resolve glob sources concurrently while preserving their order, since the order
+        // determines partition indices and which file is opened eagerly for the schema.
+        let resolved: Vec<Vec<(FileListing, FileSystemRef)>> =
+            stream::iter(self.glob_sources.into_iter().map(|(glob, maybe_fs)| {
+                // Use the provided filesystem, or fall back to the local filesystem.
+                // We know local_fs is Some when maybe_fs is None (by construction above).
+                let fs = maybe_fs
+                    .or_else(|| local_fs.as_ref().map(Arc::clone))
+                    .unwrap_or_else(|| {
+                        unreachable!("local_fs is set when any glob lacks a filesystem")
+                    });
+                async move {
+                    let files: Vec<FileListing> = fs.glob(&glob)?.try_collect().await?;
+                    Ok::<_, VortexError>(
+                        files
+                            .into_iter()
+                            .map(|file| (file, Arc::clone(&fs)))
+                            .collect(),
+                    )
+                }
+            }))
+            .buffered(GLOB_RESOLUTION_CONCURRENCY)
+            .try_collect()
+            .await?;
+        let all_files: Vec<(FileListing, FileSystemRef)> = resolved.into_iter().flatten().collect();
 
         if all_files.is_empty() {
-            let globs: Vec<_> = self.glob_sources.iter().map(|(g, _)| g.as_str()).collect();
             vortex_bail!("No files matched the glob pattern(s): {:?}", globs);
         }
 
         let file_count = all_files.len();
-        let globs: Vec<_> = self.glob_sources.iter().map(|(g, _)| g.as_str()).collect();
         debug!(file_count, glob = ?globs, "discovered files");
 
         // Open first file eagerly for dtype.
@@ -183,6 +200,8 @@ impl MultiFileDataSource {
         .await?;
         let first_reader = first_file.layout_reader()?;
 
+        let byte_sizes: Vec<Option<u64>> = all_files.iter().map(|(file, _)| file.size).collect();
+
         let factories: Vec<Arc<dyn LayoutReaderFactory>> = all_files[1..]
             .iter()
             .map(|(file, fs)| {
@@ -196,7 +215,12 @@ impl MultiFileDataSource {
             })
             .collect();
 
-        let inner = MultiLayoutDataSource::new_with_first(first_reader, factories, &self.session);
+        let inner = MultiLayoutDataSource::new_with_first(
+            first_reader,
+            factories,
+            byte_sizes,
+            &self.session,
+        );
 
         debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
 

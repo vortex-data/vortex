@@ -156,14 +156,14 @@ impl LayoutReader for FlatReader {
                 let array = array.apply(&expr)?;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
+                let array_mask = array.null_as_false().execute(&mut ctx)?;
 
                 mask.intersect_by_rank(&array_mask)
             } else {
                 // Run over the full array, with a simpler bitand at the end.
                 let array = array.apply(&expr)?;
                 let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
+                let array_mask = array.null_as_false().execute(&mut ctx)?;
 
                 mask.bitand(&array_mask)
             };

@@ -50,11 +50,8 @@ pub fn get_session_context() -> SessionContext {
         .expect("could not build runtime environment");
 
     let factory = VortexFormatFactory::new_with_options(
-        vortex_session_from_env().expect("invalid VORTEX_SCAN_SCHEDULER"),
-        VortexTableOptions {
-            projection_pushdown: true,
-            ..Default::default()
-        },
+        vortex_session_from_env().expect("invalid Vortex benchmark scan scheduler env"),
+        vortex_table_options(),
     );
 
     let mut session_state_builder = SessionStateBuilder::new()
@@ -117,17 +114,18 @@ pub fn make_object_store(
 }
 
 pub fn format_to_df_format(format: Format) -> anyhow::Result<Arc<dyn FileFormat>> {
-    match format {
-        Format::Csv => Ok(Arc::new(CsvFormat::default()) as _),
-        Format::Arrow => Ok(Arc::new(ArrowFormat)),
-        Format::Parquet => Ok(Arc::new(ParquetFormat::new())),
-        Format::OnDiskVortex | Format::VortexCompact => {
-            Ok(Arc::new(VortexFormat::new(vortex_session_from_env()?)))
-        }
+    Ok(match format {
+        Format::Csv => Arc::new(CsvFormat::default()) as _,
+        Format::Arrow => Arc::new(ArrowFormat),
+        Format::Parquet => Arc::new(ParquetFormat::new()),
+        Format::OnDiskVortex | Format::VortexCompact => Arc::new(VortexFormat::new_with_options(
+            vortex_session_from_env()?,
+            vortex_table_options(),
+        )),
         Format::OnDiskDuckDB | Format::Lance => {
             anyhow::bail!("Format {format} cannot be turned into a DataFusion `FileFormat`")
         }
-    }
+    })
 }
 
 fn vortex_session_from_env() -> anyhow::Result<VortexSession> {
@@ -157,4 +155,12 @@ fn scan_scheduler_config_from_env() -> anyhow::Result<ScanSchedulerConfig> {
         })
         .transpose()?
         .unwrap_or_else(ScanSchedulerConfig::default_morsel_slots))
+}
+
+fn vortex_table_options() -> VortexTableOptions {
+    VortexTableOptions {
+        projection_pushdown: true,
+        predicate_pushdown: true,
+        ..Default::default()
+    }
 }

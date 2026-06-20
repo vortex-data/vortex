@@ -17,34 +17,33 @@ use vortex_session::registry::CachedId;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
-use crate::expr::StatsCatalog;
+use crate::dtype::Nullability;
 use crate::expr::and;
-use crate::expr::and_collect;
-use crate::expr::eq;
 use crate::expr::expression::Expression;
-use crate::expr::gt;
-use crate::expr::gt_eq;
 use crate::expr::lit;
-use crate::expr::lt;
-use crate::expr::lt_eq;
-use crate::expr::or_collect;
-use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::SimplifyCtx;
+use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
-pub(crate) mod boolean;
-pub(crate) use boolean::*;
+pub mod boolean;
+pub use boolean::BooleanExecuteAdaptor;
+pub use boolean::BooleanKernel;
+pub(crate) use boolean::execute_boolean;
+pub use boolean::kleene_boolean_buffer_scalar;
+pub use boolean::kleene_boolean_buffers;
 mod compare;
 pub use compare::*;
 mod numeric;
 pub(crate) use numeric::*;
 
 use crate::scalar::NumericOperator;
+use crate::scalar::Scalar;
 
 #[derive(Clone)]
 pub struct Binary;
@@ -165,108 +164,73 @@ impl ScalarFnVTable for Binary {
         }
     }
 
-    fn stat_falsification(
+    fn simplify_untyped(
         &self,
         operator: &Operator,
         expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        // Wrap another predicate with an optional NaNCount check, if the stat is available.
-        //
-        // For example, regular pruning conversion for `A >= B` would be
-        //
-        //      A.max < B.min
-        //
-        // With NaN predicate introduction, we'd conjunct it with a check for NaNCount, resulting
-        // in:
-        //
-        //      (A.nan_count = 0) AND (B.nan_count = 0) AND A.max < B.min
-        //
-        // Non-floating point column and literal expressions should be unaffected as they do not
-        // have a nan_count statistic defined.
-        fn with_nan_predicate(
-            lhs: &Expression,
-            rhs: &Expression,
-            value_predicate: Expression,
-            catalog: &dyn StatsCatalog,
-        ) -> Expression {
-            let nan_predicate = and_collect(
-                lhs.stat_expression(Stat::NaNCount, catalog)
-                    .into_iter()
-                    .chain(rhs.stat_expression(Stat::NaNCount, catalog))
-                    .map(|nans| eq(nans, lit(0u64))),
-            );
-
-            if let Some(nan_check) = nan_predicate {
-                and(nan_check, value_predicate)
-            } else {
-                value_predicate
-            }
-        }
-
+    ) -> VortexResult<Option<Expression>> {
         let lhs = expr.child(0);
         let rhs = expr.child(1);
-        match operator {
-            Operator::Eq => {
-                let min_lhs = lhs.stat_min(catalog);
-                let max_lhs = lhs.stat_max(catalog);
 
-                let min_rhs = rhs.stat_min(catalog);
-                let max_rhs = rhs.stat_max(catalog);
+        let bool_literal = |expr: &Expression| {
+            expr.as_opt::<Literal>()?
+                .as_bool_opt()
+                .map(|value| value.value())
+        };
 
-                let left = min_lhs.zip(max_rhs).map(|(a, b)| gt(a, b));
-                let right = min_rhs.zip(max_lhs).map(|(a, b)| gt(a, b));
+        // AND/OR use Kleene three-valued logic. `None` below is a boolean null.
+        //
+        // AND:
+        // - false AND x => false
+        // - true  AND x => x
+        // - null  AND null => null
+        //
+        // OR:
+        // - true  OR x => true
+        // - false OR x => x
+        // - null  OR null => null
+        //
+        // Other null cases either fall out of the identity/annihilator rules
+        // above (`null AND true`, `null OR false`) or cannot be simplified under
+        // Kleene semantics (`null AND x`, `null OR x` for non-literal `x`).
+        Ok(match operator {
+            Operator::And => match (bool_literal(lhs), bool_literal(rhs)) {
+                (Some(Some(false)), _) | (_, Some(Some(false))) => Some(lit(false)),
+                (Some(Some(true)), _) => Some(rhs.clone()),
+                (_, Some(Some(true))) => Some(lhs.clone()),
+                (Some(None), Some(None)) => Some(lhs.clone()),
+                _ => None,
+            },
+            Operator::Or => match (bool_literal(lhs), bool_literal(rhs)) {
+                (Some(Some(true)), _) | (_, Some(Some(true))) => Some(lit(true)),
+                (Some(Some(false)), _) => Some(rhs.clone()),
+                (_, Some(Some(false))) => Some(lhs.clone()),
+                (Some(None), Some(None)) => Some(lhs.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+    }
 
-                let min_max_check = or_collect(left.into_iter().chain(right))?;
+    fn simplify(
+        &self,
+        operator: &Operator,
+        expr: &Expression,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>> {
+        let is_literal_null =
+            |expr: &Expression| expr.as_opt::<Literal>().is_some_and(Scalar::is_null);
 
-                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::NotEq => {
-                let min_lhs = lhs.stat_min(catalog)?;
-                let max_lhs = lhs.stat_max(catalog)?;
-
-                let min_rhs = rhs.stat_min(catalog)?;
-                let max_rhs = rhs.stat_max(catalog)?;
-
-                let min_max_check = and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs));
-
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::Gt => {
-                let min_max_check = lt_eq(lhs.stat_max(catalog)?, rhs.stat_min(catalog)?);
-
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::Gte => {
-                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = lt(lhs.stat_max(catalog)?, rhs.stat_min(catalog)?);
-
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::Lt => {
-                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = gt_eq(lhs.stat_min(catalog)?, rhs.stat_max(catalog)?);
-
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::Lte => {
-                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = gt(lhs.stat_min(catalog)?, rhs.stat_max(catalog)?);
-
-                Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
-            }
-            Operator::And => or_collect(
-                lhs.stat_falsification(catalog)
-                    .into_iter()
-                    .chain(rhs.stat_falsification(catalog)),
-            ),
-            Operator::Or => Some(and(
-                lhs.stat_falsification(catalog)?,
-                rhs.stat_falsification(catalog)?,
-            )),
-            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
+        if operator.is_comparison()
+            && (is_literal_null(expr.child(0)) || is_literal_null(expr.child(1)))
+        {
+            // Validate the comparison before reducing it. This preserves type
+            // errors for expressions like `int_col = null_utf8`.
+            ctx.return_dtype(expr)?;
+            return Ok(Some(lit(Scalar::null(DType::Bool(Nullability::Nullable)))));
         }
+
+        Ok(None)
     }
 
     fn validity(
@@ -314,6 +278,7 @@ impl ScalarFnVTable for Binary {
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
 
     use super::*;
     use crate::LEGACY_SESSION;
@@ -322,11 +287,16 @@ mod tests {
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::Expression;
     use crate::expr::and_collect;
     use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::gt;
+    use crate::expr::gt_eq;
     use crate::expr::lit;
     use crate::expr::lt;
+    use crate::expr::lt_eq;
     use crate::expr::not_eq;
     use crate::expr::or;
     use crate::expr::or_collect;
@@ -440,6 +410,36 @@ mod tests {
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn comparison_with_typed_null_simplifies_after_type_check() -> VortexResult<()> {
+        let dtype = test_harness::struct_dtype();
+
+        let expr = eq(
+            col("col1"),
+            lit(Scalar::null(DType::Primitive(
+                PType::U16,
+                Nullability::Nullable,
+            ))),
+        );
+
+        assert_eq!(
+            expr.optimize_recursive(&dtype)?,
+            lit(Scalar::null(DType::Bool(Nullability::Nullable)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn comparison_with_incompatible_null_still_type_checks() {
+        let dtype = test_harness::struct_dtype();
+        let expr = eq(
+            col("col1"),
+            lit(Scalar::null(DType::Utf8(Nullability::Nullable))),
+        );
+
+        assert!(expr.optimize_recursive(&dtype).is_err());
     }
 
     #[test]

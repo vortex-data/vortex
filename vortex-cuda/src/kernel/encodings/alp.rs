@@ -153,7 +153,6 @@ mod tests {
     use vortex::encodings::alp::Exponents;
     use vortex::encodings::alp::alp_encode;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -171,7 +170,7 @@ mod tests {
     /// Patches must carry `chunk_offsets` — the fused kernel requires them.
     #[crate::test]
     async fn test_cuda_alp_decompression_f32() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // For f32 with exponents (e=0, f=2): decoded = encoded * F10[2] * IF10[0]
@@ -218,7 +217,7 @@ mod tests {
     /// preserved through the standalone ALP GPU executor.
     #[crate::test]
     async fn test_cuda_alp_nullable_with_patches() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Values that will produce ALP exceptions at non-null positions.
@@ -259,7 +258,7 @@ mod tests {
     /// elements are actually null.
     #[crate::test]
     async fn test_cuda_alp_all_valid_nullable() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let values = PrimitiveArray::new(
@@ -292,7 +291,7 @@ mod tests {
     /// (zero patches) via the offset math rather than the NULL sentinel.
     #[crate::test]
     async fn test_cuda_alp_multi_chunk_sparse_patches() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // 3072 values (3 chunks). Inject exceptions (values ALP can't encode
@@ -337,7 +336,7 @@ mod tests {
     /// so this guards the fast-path for the (i64, f64) kernel variant.
     #[crate::test]
     async fn test_cuda_alp_f64_multi_chunk_with_patches() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // 3072 values (3 chunks). Sprinkle exceptions into each chunk.
@@ -381,7 +380,7 @@ mod tests {
     /// (existing tests have ≤ 6 patches per chunk).
     #[crate::test]
     async fn test_cuda_alp_dense_patches_single_chunk() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         // Build a 1024-element ALP array manually with exactly 40 patches
@@ -429,7 +428,7 @@ mod tests {
     /// loop. Includes a patch in the tail.
     #[crate::test]
     async fn test_cuda_alp_partial_tail_chunk() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let values: Buffer<f64> = (0u32..1500)

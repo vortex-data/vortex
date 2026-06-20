@@ -27,6 +27,7 @@ use vortex_session::VortexSession;
 /// Initialize sequence encoding in the given session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(Sequence);
+    kernel::initialize(session);
 
     // Register the Sequence-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(

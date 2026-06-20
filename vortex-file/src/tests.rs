@@ -54,8 +54,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
-use vortex_array::scalar_fn::session::ScalarFnSession;
-use vortex_array::session::ArraySession;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -67,8 +65,11 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::Layout;
+use vortex_layout::layouts::zoned::LegacyStats;
+use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::session::LayoutSession;
+use vortex_scan::ScanSchedulerSession;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
@@ -78,15 +79,16 @@ use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::footer::SegmentSpec;
 use crate::multi::MultiFileDataSource;
+use crate::multi::MultiFileSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(new_test_session);
 
 pub(crate) fn new_test_session() -> VortexSession {
-    let session = VortexSession::empty()
-        .with::<ArraySession>()
+    let session = vortex_array::array_session()
         .with::<LayoutSession>()
-        .with::<ScalarFnSession>()
-        .with::<RuntimeSession>();
+        .with::<RuntimeSession>()
+        .with::<ScanSchedulerSession>()
+        .with::<MultiFileSession>();
 
     crate::register_default_encodings(&session);
 
@@ -2101,7 +2103,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
 
     // Find all zoned layouts and verify data segments come before zone map segments.
     fn check_zoned_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
-        if layout.encoding_id().as_ref() == "vortex.stats" {
+        if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             let data_offsets =
                 collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
@@ -2133,7 +2135,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         all_data: &mut Vec<u64>,
         all_zones: &mut Vec<u64>,
     ) {
-        if layout.encoding_id().as_ref() == "vortex.stats" {
+        if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             all_data.extend(collect_segment_offsets(
                 layout.child(0).unwrap().as_ref(),
@@ -2199,5 +2201,83 @@ async fn test_can_prune_composite_predicates() -> VortexResult<()> {
     assert!(!file.can_prune(&eq(col("age"), lit(18)))?);
     assert!(!file.can_prune(&and(gt(col("age"), lit(20)), gt(col("price"), lit(100))))?);
 
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
+    use vortex_buffer::ByteBuffer;
+
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let empty: Vec<u8> = vec![];
+    let chunk0: Vec<Vec<u8>> = vec![
+        vec![0x1d, 0x00],
+        empty.clone(),
+        vec![0x1d, 0x10, 0x9d, 0x08],
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+    ];
+    let chunk1: Vec<Vec<u8>> = vec![
+        empty.clone(),
+        empty.clone(),
+        vec![0x40],
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        empty.clone(),
+        vec![0x24],
+        vec![0x43, 0xff],
+    ];
+    let mut big = vec![0xffu8; 112];
+    big[89] = 0x03;
+    let mut chunk2: Vec<Vec<u8>> = vec![empty.clone(); 10];
+    chunk2[8] = big;
+
+    let bin = DType::Binary(Nullability::NonNullable);
+    let mk_struct = |vals: Vec<Vec<u8>>| -> VortexResult<ArrayRef> {
+        let yyw = VarBinArray::from_vec(vals, bin.clone()).into_array();
+        Ok(StructArray::from_fields(&[("yyw", yyw)])?.into_array())
+    };
+    let array =
+        ChunkedArray::from_iter([mk_struct(chunk0)?, mk_struct(chunk1)?, mk_struct(chunk2)?])
+            .into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    let mut literal = vec![0x6fu8; 5];
+    literal.extend(iter::repeat_n(0xffu8, 57));
+    literal.push(0x98);
+    assert_eq!(literal.len(), 63);
+
+    let filter = gt(
+        get_item("yyw", root()),
+        lit(Scalar::binary(
+            ByteBuffer::from(literal),
+            Nullability::NonNullable,
+        )),
+    );
+
+    let result = SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .with_filter(filter)
+        .into_array_stream()?
+        .read_all()
+        .await?
+        .execute::<StructArray>(&mut ctx)?;
+
+    assert_eq!(result.len(), 1);
     Ok(())
 }

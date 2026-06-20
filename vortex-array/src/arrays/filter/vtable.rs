@@ -32,7 +32,6 @@ use crate::arrays::filter::array::FilterData;
 use crate::arrays::filter::array::SLOT_NAMES;
 use crate::arrays::filter::execute::execute_filter;
 use crate::arrays::filter::execute::execute_filter_fast_paths;
-use crate::arrays::filter::kernel::PARENT_KERNELS;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::arrays::filter::rules::RULES;
 use crate::buffer::BufferHandle;
@@ -169,15 +168,6 @@ impl VTable for Filter {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {

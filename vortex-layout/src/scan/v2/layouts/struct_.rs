@@ -32,6 +32,7 @@ use vortex_scan::plan::PreparedReadRef;
 use vortex_scan::plan::PushCtx;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::ScanStateRef;
 use vortex_scan::plan::StateCtx;
 use vortex_scan::plan::StructValueScanPlan;
 use vortex_scan::plan::request::ScanRequest;
@@ -75,10 +76,8 @@ pub struct StructScanPlan {
 }
 
 impl ScanPlan for StructScanPlan {
-    type State = ();
-
-    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<()> {
-        Ok(())
+    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(()))
     }
 
     fn try_push_expr(

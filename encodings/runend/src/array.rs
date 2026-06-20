@@ -48,7 +48,6 @@ use crate::compress::runend_decode_primitive;
 use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
 use crate::decompress_bool::runend_decode_bools;
-use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
 /// A [`RunEnd`]-encoded Vortex array.
@@ -170,15 +169,6 @@ impl VTable for RunEnd {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -521,14 +511,12 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
     use crate::RunEnd;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[test]
     fn test_runend_constructor() {

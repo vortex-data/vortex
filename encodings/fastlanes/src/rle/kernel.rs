@@ -4,20 +4,26 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayVTable;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Slice;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
-use vortex_array::kernel::ParentKernelSet;
+use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
 use crate::rle::RLEArrayExt;
 
-pub(crate) static PARENT_KERNELS: ParentKernelSet<RLE> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(RLE))]);
+pub(crate) fn initialize(session: &VortexSession) {
+    session
+        .kernels()
+        .register_execute_parent_kernel(Slice.id(), RLE, SliceExecuteAdaptor(RLE));
+}
 
 impl SliceKernel for RLE {
     fn slice(

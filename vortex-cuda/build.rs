@@ -206,6 +206,7 @@ fn generate_arrow_device_array_bindings(manifest_dir: &Path, out_dir: &Path) {
         .header(header.to_string_lossy())
         .allowlist_type("ArrowArray")
         .allowlist_type("ArrowDeviceArray")
+        .allowlist_type("ArrowDeviceArrayStream")
         .allowlist_type("ArrowDeviceType")
         .allowlist_var("ARROW_DEVICE_.*")
         // ArrowArray/ArrowDeviceArray own producer state through release/private_data.

@@ -356,7 +356,6 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::encodings::zstd::Zstd;
     use vortex::error::VortexResult;
-    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -365,7 +364,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_zstd_decompression_utf8() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let strings = VarBinViewArray::from_iter_str([
@@ -391,7 +390,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_zstd_decompression_multiple_frames() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let strings = VarBinViewArray::from_iter_str([
@@ -427,7 +426,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_zstd_decompression_sliced() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let strings = VarBinViewArray::from_iter_str([
@@ -462,7 +461,7 @@ mod tests {
     /// correct results instead of panicking.
     #[crate::test]
     async fn test_cuda_zstd_nullable_falls_back_to_cpu() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let strings = VarBinViewArray::from_iter_nullable_str([

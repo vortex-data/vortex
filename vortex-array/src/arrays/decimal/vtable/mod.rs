@@ -3,7 +3,6 @@
 
 use std::hash::Hasher;
 
-use kernel::PARENT_KERNELS;
 use prost::Message;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
@@ -42,6 +41,10 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 /// A [`Decimal`]-encoded Vortex array.
 pub type DecimalArray = Array<Decimal>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]
@@ -191,15 +194,6 @@ impl VTable for Decimal {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

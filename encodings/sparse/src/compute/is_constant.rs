@@ -73,7 +73,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::is_constant::is_constant;
     use vortex_array::scalar::Scalar;
-    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -85,14 +84,14 @@ mod tests {
 
     /// Session with Sparse + its pushdown kernels.
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         initialize(&session);
         session
     });
 
     /// Baseline session: Sparse registered but no pushdown kernels.
     static CANONICAL_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         session.arrays().register(Sparse);
         session
     });

@@ -4,7 +4,6 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
@@ -16,12 +15,13 @@ use crate::layouts::chunked::ChunkedLayoutEncoding;
 use crate::layouts::dict::DictLayoutEncoding;
 use crate::layouts::flat::FlatLayoutEncoding;
 use crate::layouts::struct_::StructLayoutEncoding;
+use crate::layouts::zoned::LegacyStatsLayoutEncoding;
 use crate::layouts::zoned::ZonedLayoutEncoding;
 
 pub type LayoutRegistry = Registry<LayoutEncodingRef>;
 
 /// Session state for layout encodings.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LayoutSession {
     registry: LayoutRegistry,
     v2_registry: layout_v2::LayoutVTableRegistry,
@@ -67,6 +67,10 @@ impl Default for LayoutSession {
         layouts.register(FlatLayoutEncoding.id(), FlatLayoutEncoding.as_ref());
         layouts.register(StructLayoutEncoding.id(), StructLayoutEncoding.as_ref());
         layouts.register(ZonedLayoutEncoding.id(), ZonedLayoutEncoding.as_ref());
+        layouts.register(
+            LegacyStatsLayoutEncoding.id(),
+            LegacyStatsLayoutEncoding.as_ref(),
+        );
         layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
 
         // Register the built-in v2 layout vtables.
@@ -85,6 +89,10 @@ impl Default for LayoutSession {
         v2_layouts.register(
             layout_v2::Zoned.id(),
             Arc::new(layout_v2::Zoned) as layout_v2::LayoutVTableRef,
+        );
+        v2_layouts.register(
+            layout_v2::LegacyStats.id(),
+            Arc::new(layout_v2::LegacyStats) as layout_v2::LayoutVTableRef,
         );
         v2_layouts.register(
             layout_v2::Dict.id(),
@@ -110,7 +118,7 @@ impl SessionVar for LayoutSession {
 /// Extension trait for accessing layout session data.
 pub trait LayoutSessionExt: SessionExt {
     /// Returns the layout encoding registry.
-    fn layouts(&self) -> Ref<'_, LayoutSession> {
+    fn layouts(&self) -> &LayoutSession {
         self.get::<LayoutSession>()
     }
 }

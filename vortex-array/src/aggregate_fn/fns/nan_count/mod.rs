@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use self::primitive::accumulate_primitive;
 use crate::ArrayRef;
@@ -87,7 +88,15 @@ impl AggregateFnVTable for NanCount {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        unimplemented!("NanCount is not yet serializable");
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

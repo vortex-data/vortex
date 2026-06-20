@@ -4,6 +4,7 @@ members = [
     "vortex-array-macros",
     "vortex-error",
     "vortex-buffer",
+    "vortex-compute",
     "vortex-mask",
     "vortex-utils",
     "vortex-session",
@@ -157,6 +158,7 @@ flatbuffers = "25.2.10"
 fsst-rs = "0.5.11"
 futures = { version = "0.3.31", default-features = false }
 fuzzy-matcher = "0.3"
+geo = "0.31.0"
 geo-traits = "0.3.0"
 geo-types = "0.7.19"
 geoarrow = "0.8.0"
@@ -174,7 +176,7 @@ jetscii = "0.5.3"
 jiff = "0.2.0"
 jni = { version = "0.22.0" }
 kanal = "0.1.1"
-lasso = { version = "0.7", features = ["multi-threaded"] }
+lasso = { version = "0.7", features = ["multi-threaded", "inline-more"] }
 lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
 libloading = "0.8"
@@ -209,10 +211,10 @@ proc-macro2 = "1.0.95"
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
-pyo3 = { version = "0.28.0" }
-pyo3-bytes = "0.6"
+pyo3 = { version = "0.29.0" }
+pyo3-bytes = "0.7"
 pyo3-log = "0.13.0"
-pyo3-object_store = "0.9.0"
+pyo3-object_store = "0.11.0"
 quote = "1.0.44"
 rand = "0.10.1"
 rand_distr = "0.6"
@@ -282,6 +284,7 @@ vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-fea
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
 vortex-compressor = { version = "0.1.0", path = "./vortex-compressor", default-features = false }
+vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }

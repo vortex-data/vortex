@@ -22,11 +22,9 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::assert_arrays_eq;
 use crate::compute::conformance::filter::test_filter_conformance;
-use crate::session::ArraySession;
 use crate::validity::Validity;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
 // Conformance tests for common filter scenarios.
 #[rstest]

@@ -13,6 +13,10 @@ mod vtable;
 pub use compute::rules::DecimalMaskedValidityRule;
 pub use vtable::Decimal;
 
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}
+
 mod utils;
 pub use utils::*;
 

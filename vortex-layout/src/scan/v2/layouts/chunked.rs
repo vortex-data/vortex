@@ -55,8 +55,11 @@ use vortex_scan::plan::PushCtx;
 use vortex_scan::plan::RowScope;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::ScanState;
 use vortex_scan::plan::ScanStateRef;
 use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::default_try_push_expr;
+use vortex_scan::plan::downcast_state;
 use vortex_scan::plan::evidence::EvidenceFragment;
 use vortex_scan::plan::request::EvidenceMode;
 use vortex_scan::plan::request::EvidenceRequest;
@@ -349,19 +352,18 @@ impl ChunkedPreparedAggregate {
 }
 
 impl PreparedAggregate for ChunkedPreparedAggregate {
-    type State = ChunkedAggregateState;
-
-    fn init_state(&self, _ctx: &VortexSession) -> VortexResult<ChunkedAggregateState> {
-        Ok(ChunkedAggregateState::default())
+    fn init_state(&self, _ctx: &VortexSession) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(ChunkedAggregateState::default()))
     }
 
     fn aggregate_partial<'a>(
         &'a self,
         range: Range<u64>,
         io: &'a FileReader,
-        state: &'a ChunkedAggregateState,
+        state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Option<Vec<AggregateAnswer>>>> {
         Box::pin(async move {
+            let state = downcast_state::<ChunkedAggregateState>(state)?;
             if range.start >= range.end {
                 return Ok(None);
             }
@@ -454,10 +456,8 @@ impl PreparedAggregate for ChunkedPreparedAggregate {
 }
 
 impl ScanPlan for ChunkedScanPlan {
-    type State = ChunkedScanState;
-
-    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ChunkedScanState> {
-        Ok(ChunkedScanState::default())
+    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(ChunkedScanState::default()))
     }
 
     fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
@@ -522,7 +522,8 @@ impl ScanPlan for ChunkedScanPlan {
     /// boundary chunk so nested layouts release their own state. The
     /// expanded chunk *nodes* stay: they are shared across queries and
     /// hold no data.
-    fn release(&self, frontier: u64, state: &ChunkedScanState) -> VortexResult<()> {
+    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
+        let state = downcast_state::<ChunkedScanState>(state)?;
         state
             .reads
             .lock()
@@ -737,16 +738,22 @@ impl PreparedRead for ChunkedPreparedRead {
 }
 
 impl ScanPlan for ChunkedExprScanPlan {
-    type State = ChunkedExprScanState;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ChunkedExprScanState> {
+    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         let _ = cx;
-        Ok(ChunkedExprScanState {
+        Ok(Arc::new(ChunkedExprScanState {
             chunked: Arc::new(ChunkedScanState::default()),
             reads: Mutex::new(FxHashMap::default()),
             #[cfg(debug_assertions)]
             released: AtomicU64::new(0),
-        })
+        }))
+    }
+
+    fn try_push_expr(
+        self: Arc<Self>,
+        expr: &Expression,
+        _cx: &mut PushCtx,
+    ) -> VortexResult<Option<ScanPlanRef>> {
+        default_try_push_expr(self, expr)
     }
 
     fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
@@ -802,7 +809,8 @@ impl ScanPlan for ChunkedExprScanPlan {
         Some(&self.chunked.offsets)
     }
 
-    fn release(&self, frontier: u64, state: &ChunkedExprScanState) -> VortexResult<()> {
+    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
+        let state = downcast_state::<ChunkedExprScanState>(state)?;
         state
             .reads
             .lock()

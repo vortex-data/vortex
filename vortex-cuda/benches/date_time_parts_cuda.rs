@@ -30,7 +30,6 @@ use vortex::encodings::datetime_parts::DateTimePartsArray;
 use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
@@ -68,10 +67,11 @@ fn benchmark_datetimeparts(c: &mut Criterion) {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
 
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                        .vortex_expect("failed to create execution context")
-                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
-                        .with_launch_strategy(Arc::new(timed));
+                    let mut cuda_ctx =
+                        CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+                            .vortex_expect("failed to create execution context")
+                            .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
+                            .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
                         // block on immediately here

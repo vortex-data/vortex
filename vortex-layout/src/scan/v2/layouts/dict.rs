@@ -53,7 +53,10 @@ use vortex_scan::plan::PushCtx;
 use vortex_scan::plan::RowScope;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::ScanState;
+use vortex_scan::plan::ScanStateRef;
 use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::default_try_push_expr;
 use vortex_scan::plan::request::ScanRequest;
 use vortex_session::VortexSession;
 
@@ -214,10 +217,8 @@ impl DictScanPlan {
 }
 
 impl ScanPlan for DictScanPlan {
-    type State = DictScanState;
-
-    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<DictScanState> {
-        Ok(DictScanState::new())
+    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(DictScanState::new()))
     }
 
     fn try_push_expr(
@@ -260,7 +261,7 @@ impl ScanPlan for DictScanPlan {
     /// cached values relation and value-domain expression results stay:
     /// they are read once per query by design and consulted by every
     /// remaining morsel.
-    fn release(&self, frontier: u64, state: &DictScanState) -> VortexResult<()> {
+    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
         let _ = (frontier, state);
         Ok(())
     }
@@ -273,10 +274,16 @@ impl ScanPlan for DictScanPlan {
 }
 
 impl ScanPlan for DictExprScanPlan {
-    type State = DictScanState;
+    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(DictScanState::new()))
+    }
 
-    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        Ok(DictScanState::new())
+    fn try_push_expr(
+        self: Arc<Self>,
+        expr: &Expression,
+        _cx: &mut PushCtx,
+    ) -> VortexResult<Option<ScanPlanRef>> {
+        default_try_push_expr(self, expr)
     }
 
     fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
@@ -297,7 +304,7 @@ impl ScanPlan for DictExprScanPlan {
         })))
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
+    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
         self.dict.release(frontier, state)
     }
 

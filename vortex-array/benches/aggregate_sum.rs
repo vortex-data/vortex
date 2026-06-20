@@ -9,7 +9,6 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::expr::stats::Stat;
-use vortex_array::session::ArraySession;
 use vortex_session::VortexSession;
 
 fn main() {
@@ -18,8 +17,7 @@ fn main() {
 
 const N: usize = 100_000;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[divan::bench]
 fn sum_i32(bencher: Bencher) {

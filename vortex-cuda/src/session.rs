@@ -12,7 +12,6 @@ use vortex::array::ArrayId;
 use vortex::array::VortexSessionExecute;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::session::Ref;
 use vortex::session::SessionExt;
 use vortex::session::SessionVar;
 use vortex::utils::aliases::dash_map::DashMap;
@@ -183,7 +182,7 @@ impl SessionVar for CudaSession {
 /// Extension trait for accessing the CUDA session from a Vortex session.
 pub trait CudaSessionExt: SessionExt {
     /// Returns the CUDA session.
-    fn cuda_session(&self) -> Ref<'_, CudaSession> {
+    fn cuda_session(&self) -> &CudaSession {
         self.get::<CudaSession>()
     }
 }

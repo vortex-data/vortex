@@ -39,6 +39,8 @@ pub fn initialize(session: &VortexSession) {
         session.arrays().register(ALP);
     }
     session.arrays().register(ALPRD);
+    alp::initialize(session);
+    alp_rd::initialize(session);
 
     // Register the ALP-specific NaN count aggregate kernel.
     session.aggregate_fns().register_aggregate_kernel(

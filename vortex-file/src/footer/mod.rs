@@ -109,7 +109,7 @@ impl Footer {
             &dtype,
             &layout_read_ctx,
             &array_read_ctx,
-            session.layouts().registry(),
+            session,
             session.allows_unknown(),
         )?;
         let root_layout2 = layout_v2::layout_from_flatbuffer(
@@ -118,6 +118,7 @@ impl Footer {
             &layout_read_ctx,
             &array_read_ctx,
             session.layouts().v2_registry(),
+            session,
         )?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer

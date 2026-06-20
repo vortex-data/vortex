@@ -66,6 +66,22 @@ crate::box_wrapper!(
     VxPartitionScan,
     vx_partition);
 
+/// Consume an owned partition pointer for layered FFI crates and return its Vortex array stream.
+///
+/// # Safety
+///
+/// `partition` must be a non-null owned partition handle created by `vortex-ffi`. This function
+/// consumes the handle; callers must not use or free it after calling this function.
+pub unsafe fn vx_partition_into_array_stream(
+    partition: *mut vx_partition,
+) -> VortexResult<SendableArrayStream> {
+    vortex_ensure!(!partition.is_null(), "null vx_partition");
+    match *vx_partition::into_box(partition) {
+        VxPartitionScan::Pending(partition) => partition.execute(),
+        _ => vortex_bail!("partition already being consumed"),
+    }
+}
+
 // We parse Selection from vx_scan_selection[_include], so we don't need
 // to instantiate VX_SELECTION_* items directly.
 #[repr(C)]

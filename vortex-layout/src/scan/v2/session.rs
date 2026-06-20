@@ -17,6 +17,14 @@ pub struct ScanV2Session {
     default_enabled: AtomicBool,
 }
 
+impl Clone for ScanV2Session {
+    fn clone(&self) -> Self {
+        Self {
+            default_enabled: AtomicBool::new(self.default_enabled()),
+        }
+    }
+}
+
 impl ScanV2Session {
     /// Whether scans expand through scan2 by default in this session.
     pub fn default_enabled(&self) -> bool {
@@ -51,7 +59,7 @@ impl SessionVar for ScanV2Session {
 /// Session accessor for the scan2 implementation switch.
 pub trait ScanV2SessionExt: SessionExt {
     /// The scan2 session variable.
-    fn scan_v2(&self) -> vortex_session::Ref<'_, ScanV2Session> {
+    fn scan_v2(&self) -> &ScanV2Session {
         self.get::<ScanV2Session>()
     }
 }

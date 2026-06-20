@@ -48,7 +48,6 @@ use vortex_session::registry::CachedId;
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
-use crate::alp::rules::PARENT_KERNELS;
 use crate::alp::rules::RULES;
 
 /// A [`ALP`]-encoded Vortex array.
@@ -187,15 +186,6 @@ impl VTable for ALP {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -485,7 +475,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::session::ArraySession;
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
@@ -493,8 +482,7 @@ mod tests {
     use crate::alp_encode;
     use crate::decompress_into_array;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[rstest]
     #[case(0)]

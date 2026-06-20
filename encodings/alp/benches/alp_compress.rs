@@ -19,7 +19,6 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
-use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
@@ -51,8 +50,11 @@ const BENCH_ARGS: &[(usize, f64, f64)] = &[
     (10_000, 0.1, 1.0),
 ];
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    vortex_alp::initialize(&session);
+    session
+});
 
 #[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
 fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, f64)) {

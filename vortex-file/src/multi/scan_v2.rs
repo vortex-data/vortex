@@ -76,8 +76,10 @@ use vortex_scan::plan::PreparedStatsRef;
 use vortex_scan::plan::PushCtx;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::ScanState;
 use vortex_scan::plan::ScanStateRef;
 use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::downcast_state;
 use vortex_scan::plan::evidence::EvidenceFragment;
 use vortex_scan::plan::evidence::PredicateEvidence;
 use vortex_scan::plan::evidence::PredicateEvidenceKind;
@@ -160,9 +162,7 @@ impl FileStatsScanPlan {
 }
 
 impl ScanPlan for FileStatsScanPlan {
-    type State = ScanStateRef;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
+    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         cx.init_plan(&self.data)
     }
 
@@ -209,7 +209,8 @@ impl ScanPlan for FileStatsScanPlan {
         self.data.split_hints()
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
+    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
+        let state = downcast_state::<ScanStateRef>(state)?;
         self.data.release(frontier, state.as_ref())
     }
 
@@ -220,9 +221,7 @@ impl ScanPlan for FileStatsScanPlan {
 }
 
 impl ScanPlan for FileStatsExprScanPlan {
-    type State = ScanStateRef;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
+    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         cx.init_plan(&self.data)
     }
 
@@ -271,7 +270,8 @@ impl ScanPlan for FileStatsExprScanPlan {
         self.data.split_hints()
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
+    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
+        let state = downcast_state::<ScanStateRef>(state)?;
         self.data.release(frontier, state.as_ref())
     }
 
@@ -282,17 +282,15 @@ impl ScanPlan for FileStatsExprScanPlan {
 }
 
 impl PreparedStats for FilePreparedStats {
-    type State = ();
-
-    fn init_state(&self, _ctx: &VortexSession) -> VortexResult<Self::State> {
-        Ok(())
+    fn init_state(&self, _ctx: &VortexSession) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(()))
     }
 
     fn stats<'a>(
         &'a self,
         range: Range<u64>,
         _io: &'a FileReader,
-        _state: &'a Self::State,
+        _state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Vec<Precision<Scalar>>>> {
         Box::pin(async move {
             if range != (0..self.row_count) {
@@ -1941,7 +1939,8 @@ impl PreparedScanPlanFile {
                     let compact = task
                         .read(&prepared.reader, &mut ctx)
                         .await?
-                        .execute::<Mask>(&mut ctx)?;
+                        .null_as_false()
+                        .execute(&mut ctx)?;
                     if compact.len() != need.true_count() {
                         vortex_bail!(
                             "compacted residual result length {} does not match demanded row count {}",
@@ -1954,7 +1953,8 @@ impl PreparedScanPlanFile {
                     task
                         .read(&prepared.reader, &mut ctx)
                         .await?
-                        .execute::<Mask>(&mut ctx)?
+                        .null_as_false()
+                        .execute(&mut ctx)?
                 };
                 if result.len() != len {
                     vortex_bail!(

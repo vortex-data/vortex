@@ -22,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -478,24 +479,27 @@ pub trait ScanSchedulerSessionExt: SessionExt {
     }
 
     /// Configure this session to share one scheduler across scans.
-    fn with_scan_scheduler(self, scheduler: Arc<ScanScheduler>) -> Self {
-        self.get_mut::<ScanSchedulerSession>().provider =
+    fn with_scan_scheduler(self, scheduler: Arc<ScanScheduler>) -> VortexSession {
+        let mut builder = self.session().to_builder();
+        builder.get_mut::<ScanSchedulerSession>().provider =
             Arc::new(ScanSchedulerProvider::Shared(scheduler));
-        self
+        builder.build()
     }
 
     /// Configure this session to create one scheduler per logical scan.
-    fn with_new_scan_scheduler_per_scan(self, config: ScanSchedulerConfig) -> Self {
-        self.get_mut::<ScanSchedulerSession>().provider =
+    fn with_new_scan_scheduler_per_scan(self, config: ScanSchedulerConfig) -> VortexSession {
+        let mut builder = self.session().to_builder();
+        builder.get_mut::<ScanSchedulerSession>().provider =
             Arc::new(ScanSchedulerProvider::PerScan(config));
-        self
+        builder.build()
     }
 
     /// Configure this session to run scans without scheduler limits.
-    fn with_unbounded_scan_scheduler(self) -> Self {
-        self.get_mut::<ScanSchedulerSession>().provider =
+    fn with_unbounded_scan_scheduler(self) -> VortexSession {
+        let mut builder = self.session().to_builder();
+        builder.get_mut::<ScanSchedulerSession>().provider =
             Arc::new(ScanSchedulerProvider::Unbounded);
-        self
+        builder.build()
     }
 }
 

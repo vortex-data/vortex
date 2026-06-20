@@ -26,7 +26,6 @@ use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::pruning::PruningState;
-use crate::layouts::zoned::schema::stats_table_dtype;
 use crate::segments::SegmentSource;
 
 pub struct ZonedReader {
@@ -44,9 +43,10 @@ impl ZonedReader {
         session: VortexSession,
         ctx: crate::LayoutReaderContext,
     ) -> VortexResult<Self> {
+        let aggregate_fns = layout.aggregate_fns(&session)?;
         let dtypes = vec![
             layout.dtype.clone(),
-            stats_table_dtype(layout.dtype(), layout.present_stats()),
+            layout.stats_table_dtype_for(&aggregate_fns),
         ];
         let names = vec![Arc::clone(&name), format!("{}.zones", name).into()];
         let lazy_children = Arc::new(LazyReaderChildren::new(
@@ -59,7 +59,7 @@ impl ZonedReader {
         ));
 
         Ok(Self {
-            pruning: PruningState::new(&layout, Arc::clone(&lazy_children), session),
+            pruning: PruningState::new(&layout, aggregate_fns, Arc::clone(&lazy_children), session),
             layout,
             name,
             lazy_children,
@@ -227,12 +227,13 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::gt;
+    use vortex_array::expr::is_not_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
-    use vortex_array::scalar_fn::session::ScalarFnSession;
-    use vortex_array::session::ArraySession;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::Handle;
@@ -244,15 +245,17 @@ mod test {
     use vortex_session::registry::ReadContext;
 
     use crate::IntoLayout;
+    use crate::LayoutBuildContext;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::VTable;
     use crate::children::OwnedLayoutChildren;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::zoned::LegacyStats;
+    use crate::layouts::zoned::LegacyStatsLayoutEncoding;
+    use crate::layouts::zoned::LegacyStatsMetadata;
     use crate::layouts::zoned::Zoned;
-    use crate::layouts::zoned::ZonedLayoutEncoding;
-    use crate::layouts::zoned::ZonedMetadata;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
     use crate::segments::SegmentSource;
@@ -262,10 +265,8 @@ mod test {
     use crate::session::LayoutSession;
 
     fn session_with_handle(handle: Handle) -> VortexSession {
-        VortexSession::empty()
-            .with::<ArraySession>()
+        vortex_array::array_session()
             .with::<LayoutSession>()
-            .with::<ScalarFnSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
     }
@@ -357,6 +358,70 @@ mod test {
         })
     }
 
+    #[test]
+    fn test_default_zoned_null_count_pruning_mask() {
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let strategy = ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: 3,
+                ..Default::default()
+            },
+        );
+        let array_stream = ChunkedArray::from_iter([
+            PrimitiveArray::new(
+                buffer![0i32, 0, 0],
+                Validity::from_iter([false, false, false]),
+            )
+            .into_array(),
+            PrimitiveArray::new(buffer![1i32, 2, 3], Validity::from_iter([true, true, true]))
+                .into_array(),
+            PrimitiveArray::new(
+                buffer![0i32, 0, 0],
+                Validity::from_iter([false, false, false]),
+            )
+            .into_array(),
+        ])
+        .into_array()
+        .to_array_stream()
+        .sequenced(ptr);
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+
+        let layout = block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            strategy
+                .write_stream(ctx, segments2, array_stream, eof, &session)
+                .await
+        })
+        .unwrap();
+
+        block_on(|handle| async {
+            let row_count = layout.row_count();
+            let session = session_with_handle(handle);
+            let reader = layout
+                .new_reader("".into(), segments, &session, &Default::default())
+                .unwrap();
+
+            let result = reader
+                .pruning_evaluation(
+                    &(0..row_count),
+                    &is_not_null(root()),
+                    Mask::new_true(row_count.try_into().unwrap()),
+                )
+                .unwrap()
+                .await
+                .unwrap();
+
+            assert_eq!(
+                result,
+                Mask::from_iter([false, false, false, true, true, true, false, false, false])
+            );
+        })
+    }
+
     #[rstest]
     fn test_legacy_zero_zone_len_skips_zoned_pruning(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
@@ -364,17 +429,23 @@ mod test {
         let zoned_layout = layout.as_::<Zoned>();
         let children =
             OwnedLayoutChildren::layout_children(vec![layout.child(0)?, layout.child(1)?]);
-        let legacy_layout = <Zoned as VTable>::build(
-            &ZonedLayoutEncoding,
+        let session = vortex_array::array_session();
+        let read_ctx = ReadContext::new([]);
+        let build_ctx = LayoutBuildContext {
+            session: &session,
+            array_read_ctx: &read_ctx,
+        };
+        let legacy_layout = <LegacyStats as VTable>::build(
+            &LegacyStatsLayoutEncoding,
             layout.dtype(),
             layout.row_count(),
-            &ZonedMetadata {
+            &LegacyStatsMetadata {
                 zone_len: 0,
-                present_stats: Arc::clone(zoned_layout.present_stats()),
+                zone_map_schema: zoned_layout.zone_map_schema.clone(),
             },
             vec![],
             children.as_ref(),
-            &ReadContext::new([]),
+            &build_ctx,
         )?
         .into_layout();
 

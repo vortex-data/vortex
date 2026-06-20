@@ -39,7 +39,6 @@ use crate::array::VALIDITY_SLOT;
 use crate::array::VALUE_SLOT;
 use crate::array::core_storage_without_typed_value;
 use crate::array::logical_shredded_from_parquet_typed_value;
-use crate::kernel::PARENT_KERNELS;
 
 /// VTable for Arrow's canonical `arrow.parquet.variant` extension storage.
 ///
@@ -280,15 +279,6 @@ impl VTable for ParquetVariant {
             VariantArray::try_new(core_storage, shredded)?.into_array(),
         ))
     }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
 }
 
 #[cfg(test)]
@@ -323,7 +313,6 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
-    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
@@ -348,7 +337,7 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         session.arrays().register(ParquetVariant);
 
         let ctx = ArrayContext::empty();
@@ -387,8 +376,7 @@ mod tests {
 
     #[fixture]
     fn parquet_variant_file_session() -> VortexSession {
-        let session = VortexSession::empty()
-            .with::<ArraySession>()
+        let session = vortex_array::array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         vortex_file::register_default_encodings(&session);

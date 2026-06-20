@@ -15,11 +15,10 @@ use flatbuffers::root_with_opts;
 use once_cell::sync::OnceCell;
 use vortex_array::DeserializeMetadata;
 use vortex_array::EmptyMetadata;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::stats::Stat;
-use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -35,7 +34,12 @@ use vortex_session::registry::Registry;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
-use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts::zoned::LegacyStatsMetadata;
+use crate::layouts::zoned::ZoneMapSchema;
+use crate::layouts::zoned::ZonedMetadata;
+use crate::layouts::zoned::aggregate_fns_from_specs;
+use crate::layouts::zoned::aggregate_stats_table_dtype;
+use crate::layouts::zoned::legacy_stats_table_dtype;
 use crate::scan::v2::layouts::chunked as scan_chunked;
 use crate::scan::v2::layouts::dict as scan_dict;
 use crate::scan::v2::layouts::flat as scan_flat;
@@ -144,6 +148,8 @@ pub struct LayoutDeserializeArgs<'a> {
     pub children: Arc<dyn LayoutChildren>,
     /// Array read context captured from the file footer.
     pub array_ctx: &'a ReadContext,
+    /// Session used to deserialize session-registered layout metadata.
+    pub session: &'a VortexSession,
 }
 
 /// Pieces used to construct a v2 layout.
@@ -490,6 +496,7 @@ struct ViewedLayoutChildren {
     array_ctx: ReadContext,
     layout_ctx: ReadContext,
     layouts: LayoutVTableRegistry,
+    session: VortexSession,
     cache: Arc<[OnceCell<LayoutRef>]>,
 }
 
@@ -500,6 +507,7 @@ impl ViewedLayoutChildren {
         array_ctx: ReadContext,
         layout_ctx: ReadContext,
         layouts: LayoutVTableRegistry,
+        session: VortexSession,
     ) -> Self {
         // SAFETY: guaranteed by caller.
         let nchildren = unsafe { layout::Layout::follow(flatbuffer.as_ref(), flatbuffer_loc) }
@@ -513,6 +521,7 @@ impl ViewedLayoutChildren {
             array_ctx,
             layout_ctx,
             layouts,
+            session,
             cache,
         }
     }
@@ -538,6 +547,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                     self.array_ctx.clone(),
                     self.layout_ctx.clone(),
                     self.layouts.clone(),
+                    self.session.clone(),
                 )
             };
             layout_from_fb_layout(
@@ -546,6 +556,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                 self.layout_ctx.clone(),
                 self.array_ctx.clone(),
                 self.layouts.clone(),
+                &self.session,
                 Arc::new(children),
             )
         })?;
@@ -576,6 +587,7 @@ pub fn layout_from_flatbuffer(
     layout_ctx: &ReadContext,
     array_ctx: &ReadContext,
     layouts: &LayoutVTableRegistry,
+    session: &VortexSession,
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
     // SAFETY: the flatbuffer was verified by root_with_opts.
@@ -586,6 +598,7 @@ pub fn layout_from_flatbuffer(
             array_ctx.clone(),
             layout_ctx.clone(),
             layouts.clone(),
+            session.clone(),
         )
     };
     layout_from_fb_layout(
@@ -594,6 +607,7 @@ pub fn layout_from_flatbuffer(
         layout_ctx.clone(),
         array_ctx.clone(),
         layouts.clone(),
+        session,
         Arc::new(children),
     )
 }
@@ -604,6 +618,7 @@ fn layout_from_fb_layout(
     layout_ctx: ReadContext,
     array_ctx: ReadContext,
     layouts: LayoutVTableRegistry,
+    session: &VortexSession,
     children: Arc<dyn LayoutChildren>,
 ) -> VortexResult<LayoutRef> {
     let encoding_id = layout_ctx
@@ -627,6 +642,7 @@ fn layout_from_fb_layout(
             .collect(),
         children,
         array_ctx: &array_ctx,
+        session,
     })
 }
 
@@ -964,11 +980,16 @@ impl VTable for Dict {
 #[derive(Clone, Debug)]
 pub struct Zoned;
 
+/// V2 legacy stats layout vtable.
+#[derive(Clone, Debug)]
+pub struct LegacyStats;
+
 /// V2 zoned layout data.
 #[derive(Clone, Debug)]
 pub struct ZonedData {
     pub(crate) zone_len: usize,
-    pub(crate) present_stats: Arc<[Stat]>,
+    pub(crate) zone_map_schema: ZoneMapSchema,
+    pub(crate) aggregate_fns: Arc<[AggregateFnRef]>,
 }
 
 impl ZonedData {
@@ -977,9 +998,23 @@ impl ZonedData {
         self.zone_len
     }
 
-    /// Returns the stats present in the zone table.
-    pub fn present_stats(&self) -> &Arc<[Stat]> {
-        &self.present_stats
+    /// Returns the aggregate functions stored in the zone table.
+    pub fn aggregate_fns(&self) -> &Arc<[AggregateFnRef]> {
+        &self.aggregate_fns
+    }
+
+    /// Returns the zone-map schema used by the zone table.
+    pub(crate) fn zone_map_schema(&self) -> &ZoneMapSchema {
+        &self.zone_map_schema
+    }
+
+    fn stats_table_dtype(&self, dtype: &DType) -> DType {
+        match &self.zone_map_schema {
+            ZoneMapSchema::LegacyStats(stats) => legacy_stats_table_dtype(dtype, stats),
+            ZoneMapSchema::AggregateFns(aggregate_fns) => {
+                aggregate_stats_table_dtype(dtype, aggregate_fns)
+            }
+        }
     }
 }
 
@@ -987,34 +1022,23 @@ impl VTable for Zoned {
     type LayoutData = ZonedData;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.stats")
+        LayoutId::new("vortex.zoned")
     }
 
     fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
-        vortex_ensure!(
-            args.metadata.len() >= 4,
-            "Zoned metadata must contain at least 4 bytes for zone length, got {}",
-            args.metadata.len()
-        );
-        let mut zone_len = [0; 4];
-        zone_len.copy_from_slice(&args.metadata[0..4]);
+        let metadata = ZonedMetadata::deserialize(args.metadata)?;
+        let aggregate_fns = aggregate_fns_from_specs(&metadata.aggregate_specs, args.session)?;
         Ok(ZonedData {
-            zone_len: u32::from_le_bytes(zone_len) as usize,
-            present_stats: stats_from_bitset_bytes(&args.metadata[4..]).into(),
+            zone_len: metadata.zone_len as usize,
+            zone_map_schema: ZoneMapSchema::AggregateFns(Arc::clone(&aggregate_fns)),
+            aggregate_fns,
         })
     }
 
     fn child_dtype(layout: Layout<Self>, idx: usize) -> VortexResult<DType> {
         match idx {
             0 => Ok(layout.dtype().clone()),
-            1 => {
-                #[expect(deprecated)]
-                let dtype = ZoneMap::dtype_for_stats_table(
-                    layout.dtype(),
-                    layout.data().present_stats.as_ref(),
-                );
-                Ok(dtype)
-            }
+            1 => Ok(layout.data().stats_table_dtype(layout.dtype())),
             _ => vortex_bail!("Zoned child index out of bounds: {idx}"),
         }
     }
@@ -1024,6 +1048,55 @@ impl VTable for Zoned {
             0 => Ok(LayoutChildType::Transparent("data".into())),
             1 => Ok(LayoutChildType::Auxiliary("zones".into())),
             _ => vortex_bail!("Zoned child index out of bounds: {idx}"),
+        }
+    }
+
+    fn new_scan_plan(
+        layout: Layout<Self>,
+        req: &mut ScanRequest,
+        session: &VortexSession,
+    ) -> VortexResult<ScanPlanRef> {
+        scan_zoned::new_scan_plan(layout, req, session)
+    }
+}
+
+impl VTable for LegacyStats {
+    type LayoutData = ZonedData;
+
+    fn id(&self) -> LayoutId {
+        LayoutId::new("vortex.stats")
+    }
+
+    fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
+        let metadata = LegacyStatsMetadata::deserialize(args.metadata)?;
+        let aggregate_fns = match &metadata.zone_map_schema {
+            ZoneMapSchema::LegacyStats(stats) => stats
+                .iter()
+                .filter_map(|stat| stat.aggregate_fn())
+                .collect::<Vec<_>>()
+                .into(),
+            ZoneMapSchema::AggregateFns(aggregate_fns) => Arc::clone(aggregate_fns),
+        };
+        Ok(ZonedData {
+            zone_len: metadata.zone_len as usize,
+            zone_map_schema: metadata.zone_map_schema,
+            aggregate_fns,
+        })
+    }
+
+    fn child_dtype(layout: Layout<Self>, idx: usize) -> VortexResult<DType> {
+        match idx {
+            0 => Ok(layout.dtype().clone()),
+            1 => Ok(layout.data().stats_table_dtype(layout.dtype())),
+            _ => vortex_bail!("Legacy stats child index out of bounds: {idx}"),
+        }
+    }
+
+    fn child_type(_layout: Layout<Self>, idx: usize) -> VortexResult<LayoutChildType> {
+        match idx {
+            0 => Ok(LayoutChildType::Transparent("data".into())),
+            1 => Ok(LayoutChildType::Auxiliary("zones".into())),
+            _ => vortex_bail!("Legacy stats child index out of bounds: {idx}"),
         }
     }
 

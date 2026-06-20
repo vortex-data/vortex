@@ -58,7 +58,6 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_session::VortexSession;
@@ -66,8 +65,7 @@ mod tests {
     use crate::RLEData;
     use crate::rle::RLEArray;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn rle(primitive: &PrimitiveArray, ctx: &mut ExecutionCtx) -> RLEArray {
         RLEData::encode(primitive.as_view(), ctx).unwrap()

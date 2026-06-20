@@ -13,9 +13,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::registry::Id;
-use vortex_session::registry::ReadContext;
 
 use crate::IntoLayout;
+use crate::LayoutBuildContext;
 use crate::LayoutChildren;
 use crate::LayoutRef;
 use crate::VTable;
@@ -37,7 +37,7 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: &ReadContext,
+        build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef>;
 }
 
@@ -60,7 +60,7 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: &ReadContext,
+        build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef> {
         let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
         let layout = V::build(
@@ -70,7 +70,7 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
             &metadata,
             segment_ids,
             children,
-            ctx,
+            build_ctx,
         )?;
 
         // Validate that the builder function returned the expected values.

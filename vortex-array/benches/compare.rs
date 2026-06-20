@@ -15,7 +15,6 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_buffer::Buffer;
-use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
@@ -30,7 +29,7 @@ fn compare_bool(bencher: Bencher) {
 
     let arr1 = BoolArray::from_iter((0..ARRAY_SIZE).map(|_| rng.sample(range) == 0)).into_array();
     let arr2 = BoolArray::from_iter((0..ARRAY_SIZE).map(|_| rng.sample(range) == 0)).into_array();
-    let session = VortexSession::empty();
+    let session = vortex_array::array_session();
 
     bencher
         .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))
@@ -58,7 +57,7 @@ fn compare_int(bencher: Bencher) {
         .map(|_| rng.sample(range))
         .collect::<Buffer<_>>()
         .into_array();
-    let session = VortexSession::empty();
+    let session = vortex_array::array_session();
 
     bencher
         .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))

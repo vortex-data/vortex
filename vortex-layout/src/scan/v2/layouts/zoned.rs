@@ -56,8 +56,11 @@ use vortex_scan::plan::PushCtx;
 use vortex_scan::plan::RowScope;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::ScanState;
 use vortex_scan::plan::ScanStateRef;
 use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::default_try_push_expr;
+use vortex_scan::plan::downcast_state;
 use vortex_scan::plan::evidence::EvidenceFragment;
 use vortex_scan::plan::evidence::PredicateEvidenceKind;
 use vortex_scan::plan::read_dense;
@@ -66,15 +69,17 @@ use vortex_scan::plan::request::ScanRequest;
 use vortex_session::VortexSession;
 
 use crate::layout_v2::Layout;
-use crate::layout_v2::Zoned;
+use crate::layout_v2::VTable;
+use crate::layout_v2::ZonedData;
 use crate::layouts::zoned::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::MIN_IS_TRUNCATED;
+use crate::layouts::zoned::ZoneMapSchema;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
-pub(crate) fn new_scan_plan(
-    layout: Layout<Zoned>,
+pub(crate) fn new_scan_plan<V: VTable<LayoutData = ZonedData>>(
+    layout: Layout<V>,
     req: &mut ScanRequest,
     session: &VortexSession,
 ) -> VortexResult<ScanPlanRef> {
@@ -88,7 +93,8 @@ pub(crate) fn new_scan_plan(
         column_dtype: layout.dtype().clone(),
         zone_len: layout.data().zone_len() as u64,
         row_count: layout.row_count(),
-        present_stats: Arc::clone(layout.data().present_stats()),
+        zone_map_schema: layout.data().zone_map_schema().clone(),
+        aggregate_fns: Arc::clone(layout.data().aggregate_fns()),
     }))
 }
 
@@ -102,7 +108,8 @@ pub struct ZonedScanPlan {
     column_dtype: DType,
     zone_len: u64,
     row_count: u64,
-    present_stats: Arc<[Stat]>,
+    zone_map_schema: ZoneMapSchema,
+    aggregate_fns: Arc<[AggregateFnRef]>,
 }
 
 /// Per-zone masks proven for one predicate.
@@ -133,7 +140,8 @@ struct ZonedPreparedEvidence {
     column_dtype: DType,
     zone_len: u64,
     row_count: u64,
-    present_stats: Arc<[Stat]>,
+    zone_map_schema: ZoneMapSchema,
+    aggregate_fns: Arc<[AggregateFnRef]>,
     predicate: Expression,
     falsifier: Option<Expression>,
     satisfier: Option<Expression>,
@@ -162,7 +170,8 @@ struct ZonedExprScanPlan {
     column_dtype: DType,
     zone_len: u64,
     row_count: u64,
-    present_stats: Arc<[Stat]>,
+    zone_map_schema: ZoneMapSchema,
+    aggregate_fns: Arc<[AggregateFnRef]>,
     expr: Expression,
     falsifier: Option<Expression>,
     satisfier: Option<Expression>,
@@ -539,13 +548,29 @@ impl ZonedPreparedEvidence {
             return Ok(hit);
         }
         let table = self.table(io, state).await?;
-        let zone_map = Arc::new(ZoneMap::try_new(
-            self.column_dtype.clone(),
-            (*table).clone(),
-            Arc::clone(&self.present_stats),
-            self.zone_len,
-            self.row_count,
-        )?);
+        let zone_map = match &self.zone_map_schema {
+            ZoneMapSchema::AggregateFns(_) => ZoneMap::try_new(
+                self.column_dtype.clone(),
+                (*table).clone(),
+                Arc::clone(&self.aggregate_fns),
+                self.zone_len,
+                self.row_count,
+            )?,
+            ZoneMapSchema::LegacyStats(_) => {
+                // Legacy stats-table dtypes are validated by child dtype construction.
+                // SAFETY: V2 layout child deserialization checked the legacy stats-table dtype.
+                unsafe {
+                    ZoneMap::new_unchecked(
+                        self.column_dtype.clone(),
+                        (*table).clone(),
+                        Arc::clone(&self.aggregate_fns),
+                        self.zone_len,
+                        self.row_count,
+                    )
+                }
+            }
+        };
+        let zone_map = Arc::new(zone_map);
         *state.zone_map.lock() = Some(Arc::clone(&zone_map));
         Ok(zone_map)
     }
@@ -665,10 +690,10 @@ impl PreparedEvidence for ZonedPreparedEvidence {
 }
 
 impl ScanPlan for ZonedScanPlan {
-    type State = ZonedScanState;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ZonedScanState> {
-        Ok(Self::empty_state_with_data(cx.init_plan(&self.data)?))
+    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(Self::empty_state_with_data(
+            cx.init_plan(&self.data)?,
+        )))
     }
 
     fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
@@ -705,7 +730,8 @@ impl ScanPlan for ZonedScanPlan {
             column_dtype: self.column_dtype.clone(),
             zone_len: self.zone_len,
             row_count: self.row_count,
-            present_stats: Arc::clone(&self.present_stats),
+            zone_map_schema: self.zone_map_schema.clone(),
+            aggregate_fns: Arc::clone(&self.aggregate_fns),
             expr: expr.clone(),
             falsifier,
             satisfier,
@@ -741,7 +767,8 @@ impl ScanPlan for ZonedScanPlan {
                     column_dtype: self.column_dtype.clone(),
                     zone_len: self.zone_len,
                     row_count: self.row_count,
-                    present_stats: Arc::clone(&self.present_stats),
+                    zone_map_schema: self.zone_map_schema.clone(),
+                    aggregate_fns: Arc::clone(&self.aggregate_fns),
                     predicate,
                     falsifier,
                     satisfier,
@@ -779,7 +806,8 @@ impl ScanPlan for ZonedScanPlan {
     /// node's row domain. The decoded stats table, zone map, and
     /// per-predicate masks stay: they are small, deliberately per-query,
     /// and consulted for every remaining morsel.
-    fn release(&self, frontier: u64, state: &ZonedScanState) -> VortexResult<()> {
+    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
+        let state = downcast_state::<ZonedScanState>(state)?;
         self.data.release(frontier, state.data.as_ref())
     }
 
@@ -819,17 +847,15 @@ impl PreparedRead for ZonedPreparedRead {
 }
 
 impl PreparedAggregate for ZonedPreparedAggregate {
-    type State = ();
-
-    fn init_state(&self, _ctx: &VortexSession) -> VortexResult<Self::State> {
-        Ok(())
+    fn init_state(&self, _ctx: &VortexSession) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(()))
     }
 
     fn aggregate_partial<'a>(
         &'a self,
         range: Range<u64>,
         io: &'a FileReader,
-        _state: &'a Self::State,
+        _state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Option<Vec<AggregateAnswer>>>> {
         self.node
             .aggregate_partial(range, &self.funcs, &self.zones_read, io, &self.state)
@@ -841,12 +867,18 @@ impl PreparedAggregate for ZonedPreparedAggregate {
 }
 
 impl ScanPlan for ZonedExprScanPlan {
-    type State = ZonedScanState;
-
-    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<Self::State> {
-        Ok(ZonedScanPlan::empty_state_with_data(
+    fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(ZonedScanPlan::empty_state_with_data(
             cx.init_plan(&self.data)?,
-        ))
+        )))
+    }
+
+    fn try_push_expr(
+        self: Arc<Self>,
+        expr: &Expression,
+        _cx: &mut PushCtx,
+    ) -> VortexResult<Option<ScanPlanRef>> {
+        default_try_push_expr(self, expr)
     }
 
     fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
@@ -878,7 +910,8 @@ impl ScanPlan for ZonedExprScanPlan {
                     column_dtype: self.column_dtype.clone(),
                     zone_len: self.zone_len,
                     row_count: self.row_count,
-                    present_stats: Arc::clone(&self.present_stats),
+                    zone_map_schema: self.zone_map_schema.clone(),
+                    aggregate_fns: Arc::clone(&self.aggregate_fns),
                     predicate: self.expr.clone(),
                     falsifier: self.falsifier.clone(),
                     satisfier: self.satisfier.clone(),
@@ -888,7 +921,8 @@ impl ScanPlan for ZonedExprScanPlan {
         Ok(plans)
     }
 
-    fn release(&self, frontier: u64, state: &Self::State) -> VortexResult<()> {
+    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
+        let state = downcast_state::<ZonedScanState>(state)?;
         self.data.release(frontier, state.data.as_ref())
     }
 

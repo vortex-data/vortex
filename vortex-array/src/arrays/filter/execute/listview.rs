@@ -73,11 +73,9 @@ mod test {
     use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
-    use crate::session::ArraySession;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     #[test]
     fn test_filter_listview_conformance() {

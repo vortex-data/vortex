@@ -4,6 +4,7 @@
 #include "duckdb_vx/data.hpp"
 #include "duckdb_vx/error.hpp"
 #include "duckdb_vx/table_function.h"
+#include "duckdb_vx/expr.h"
 #include "vortex.h"
 
 #include "duckdb.h"
@@ -14,6 +15,7 @@
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
+#include "duckdb/planner/operator/logical_get.hpp"
 
 using namespace std::string_literals;
 using namespace duckdb;
@@ -170,21 +172,39 @@ struct CTableBindResult {
     vector<string> &names;
 };
 
+bool projection_expression_pushdown(ClientContext &, const TableFunctionProjectionExpressionInput &input) {
+    const auto &bind = input.get.bind_data->Cast<CTableBindData>();
+
+    // This is a flaw of Duckdb API which doesn't allow passing non-const
+    // expressions. We never modify the value on Rust side.
+    auto ffi_expr = reinterpret_cast<duckdb_vx_expr>(const_cast<Expression *>(&input.expression));
+    void *const ffi_bind = bind.ffi_data->DataPtr();
+    duckdb_vx_error error_out = nullptr;
+
+    const bool ret = duckdb_table_function_pushdown_projection_expression( //
+        ffi_bind,
+        ffi_expr,
+        input.projection_idx,
+        &error_out);
+    if (error_out) {
+        throw BinderException(IntoErrString(error_out));
+    }
+    return ret;
+}
+
 /**
  * Called for every new query. For example, if there is a VIEW over *.vortex,
  * and after a query another file is added matching the glob, for second query
  * bind() will be called again.
  */
-unique_ptr<FunctionData> c_bind(ClientContext &context,
-                                TableFunctionBindInput &input,
-                                vector<LogicalType> &return_types,
-                                vector<string> &names) {
+unique_ptr<FunctionData> duckdb_vx_table_function_bind(ClientContext &,
+                                                       TableFunctionBindInput &input,
+                                                       vector<LogicalType> &return_types,
+                                                       vector<string> &names) {
     CTableBindResult result = {return_types, names};
 
     duckdb_vx_error error_out = nullptr;
-    auto ctx = reinterpret_cast<duckdb_client_context>(&context);
-    auto ffi_bind_data = duckdb_table_function_bind(ctx,
-                                                    reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
+    auto ffi_bind_data = duckdb_table_function_bind(reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
                                                     reinterpret_cast<duckdb_vx_tfunc_bind_result>(&result),
                                                     &error_out);
     if (error_out) {
@@ -364,7 +384,7 @@ InsertionOrderPreservingMap<string> c_to_string(TableFunctionToStringInput &inpu
 }
 
 duckdb_state register_table_function(DatabaseInstance &db, LogicalType parameter, const std::string &name) {
-    TableFunction tf(name, {}, function, c_bind, c_init_global, init_local);
+    TableFunction tf(name, {}, function, duckdb_vx_table_function_bind, c_init_global, init_local);
 
     tf.projection_pushdown = true;
     tf.filter_pushdown = true;

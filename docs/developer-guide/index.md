@@ -25,6 +25,7 @@ internals/async-runtime
 internals/scan-scheduler
 internals/vtables
 internals/execution
+internals/stats-pruning
 internals/io
 internals/serialization
 internals/cuda
