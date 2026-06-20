@@ -5,6 +5,7 @@ mod all_invalid;
 mod bool;
 mod cache;
 mod canonical;
+mod chunked;
 mod constant;
 mod decimal;
 mod dict;
@@ -26,6 +27,7 @@ pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::array::arrays::Chunked;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
@@ -37,6 +39,7 @@ use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::VectorRef;
@@ -96,8 +99,18 @@ impl ArrayExporter {
             vortex_bail!("Expected {expected_cols} columns in output chunk, got {chunk_cols}");
         }
 
-        let chunk_len = duckdb_vector_size().min(self.remaining);
         let position = self.array_len - self.remaining;
+        let mut chunk_len = duckdb_vector_size().min(self.remaining);
+        if !zero_projection {
+            for field in &self.fields {
+                chunk_len = field.preferred_batch_len(position, chunk_len);
+            }
+        }
+        vortex_ensure!(
+            chunk_len > 0,
+            "column exporter returned zero rows for non-empty export"
+        );
+
         self.remaining -= chunk_len;
         chunk.set_len(chunk_len);
 
@@ -156,6 +169,14 @@ impl ArrayExporter {
 ///  the offset, len and `WritableVector` as options. Not sure what it should return though?
 ///  This would allow Vortex extension authors to plug into the DuckDB exporter system.
 pub trait ColumnExporter: 'static {
+    /// Preferred number of rows to export next, capped by `max_len`.
+    ///
+    /// Exporters that preserve physical structure can use this to keep a DuckDB vector inside a
+    /// natural boundary, such as a chunked-array child boundary.
+    fn preferred_batch_len(&self, _offset: usize, max_len: usize) -> usize {
+        max_len
+    }
+
     /// Export the given range of data from the Vortex array to the DuckDB vector.
     fn export(
         &self,
@@ -198,6 +219,11 @@ fn new_array_exporter_with_flatten(
 
     let array = match array.try_downcast::<Dict>() {
         Ok(array) => return dict::new_exporter_with_flatten(&array, cache, ctx, flatten),
+        Err(array) => array,
+    };
+
+    let array = match array.try_downcast::<Chunked>() {
+        Ok(array) => return chunked::new_exporter_with_flatten(array, cache, ctx, flatten),
         Err(array) => array,
     };
 
