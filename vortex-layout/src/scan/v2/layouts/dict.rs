@@ -140,10 +140,11 @@ struct DictExprPreparedRead {
 }
 
 fn value_expr_is_expensive(expr: &Expression) -> bool {
+    // TODO: Move this cost classification onto ScalarFnVTable instead of matching function IDs
+    // here.
     matches!(
         expr.id().as_str(),
         "vortex.like"
-            | "vortex.byte_length"
             | "vortex.list.contains"
             | "vortex.dynamic"
             | "vortex.variant_get"

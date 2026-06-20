@@ -100,13 +100,14 @@ impl ScanPlan for StructScanPlan {
             return self.push_struct(names, cx).map(Some);
         }
         if let Some(pack) = expr.as_opt::<Pack>()
-            && pack.names.len() == 1
-            && expr.child(0).is::<Root>()
+            && is_direct_field_projection(expr, &pack.names)
         {
             return self.push_struct(pack.names.clone(), cx).map(Some);
         }
         let fields = referenced_fields(expr, &scope);
-        if let [name] = fields.as_slice() {
+        if let [name] = fields.as_slice()
+            && can_push_as_single_field(expr, name)
+        {
             let scoped = replace(expr.clone(), &get_item(name.clone(), root()), root());
             let child = self.child_field(name)?;
             return Ok(self.apply_validity(child.try_push_expr(&scoped, cx)?));
@@ -183,4 +184,56 @@ impl StructScanPlan {
 fn root_field(expr: &Expression) -> Option<&FieldName> {
     let name = expr.as_opt::<GetItem>()?;
     expr.child(0).is::<Root>().then_some(name)
+}
+
+fn is_direct_field_projection(expr: &Expression, names: &FieldNames) -> bool {
+    if names.len() != expr.children().len() {
+        return false;
+    }
+
+    names
+        .iter()
+        .zip(expr.children().iter())
+        .all(|(name, child)| root_field(child).is_some_and(|field| field == name))
+}
+
+fn can_push_as_single_field(expr: &Expression, name: &FieldName) -> bool {
+    if let Some(field) = root_field(expr) {
+        return field == name;
+    }
+    if expr.is::<Root>() {
+        return false;
+    }
+    expr.children()
+        .iter()
+        .all(|child| can_push_as_single_field(child, name))
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::dtype::Nullability;
+    use vortex_array::expr::pack;
+
+    use super::*;
+
+    #[test]
+    fn pack_of_root_field_is_direct_projection() {
+        let expr = pack(
+            [("labels", get_item("labels", root()))],
+            Nullability::NonNullable,
+        );
+        let pack = expr.as_opt::<Pack>().expect("pack expression");
+
+        assert!(is_direct_field_projection(&expr, &pack.names));
+        assert!(can_push_as_single_field(&expr, &FieldName::from("labels")));
+    }
+
+    #[test]
+    fn pack_of_root_is_not_child_field_projection() {
+        let expr = pack([("labels", root())], Nullability::NonNullable);
+        let pack = expr.as_opt::<Pack>().expect("pack expression");
+
+        assert!(!is_direct_field_projection(&expr, &pack.names));
+        assert!(!can_push_as_single_field(&expr, &FieldName::from("labels")));
+    }
 }

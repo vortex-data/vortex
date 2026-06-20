@@ -33,6 +33,7 @@ use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_array::scalar_fn::fns::get_item::GetItem;
 use vortex_array::scalar_fn::fns::root::Root;
 use vortex_array::stats::StatsSet;
@@ -47,6 +48,7 @@ use vortex_io::filesystem::FileSystemRef;
 use vortex_io::runtime::Handle;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::scan::v2::validate_temporal_comparisons;
+use vortex_layout::scan::v2::with_row_idx;
 use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::DataSource;
@@ -968,6 +970,7 @@ fn expand_file_root(file: &VortexFile, session: &VortexSession) -> VortexResult<
         .layout2()
         .ok_or_else(|| vortex_err!("scan2 requires a v2 footer layout"))?;
     let root = layout.new_scan_plan(&mut plan_request, session)?;
+    let root = with_row_idx(root, file.dtype().clone(), 0);
     Ok(match file.footer().statistics().cloned() {
         Some(stats) => FileStatsScanPlan::try_new(
             Arc::clone(&root),
@@ -1106,6 +1109,7 @@ struct MorselState {
     evidence: Vec<Option<PredicateEvidence>>,
     pending_evidence: usize,
     next_predicate: usize,
+    next_recheck_predicate: usize,
 }
 
 struct PartitionWorkSchedulerState {
@@ -1388,6 +1392,12 @@ impl PartitionWorkSchedulerState {
                 return Ok(());
             }
             if morsel.next_predicate >= morsel.prepared.predicates.len() {
+                if self.enqueue_recheck_evidence(morsel_id)? {
+                    return Ok(());
+                }
+                let Some(morsel) = self.morsels.get(morsel_id).and_then(Option::as_ref) else {
+                    return Ok(());
+                };
                 let projection = morsel.prepared.plan_projection_work(
                     morsel_id,
                     morsel.range.clone(),
@@ -1414,6 +1424,8 @@ impl PartitionWorkSchedulerState {
                         morsel_id,
                         predicate_idx,
                         morsel.range.clone(),
+                        morsel.prepared.predicates[predicate_idx].version(),
+                        EvidenceMode::Normal,
                     )?;
                     let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut)
                     else {
@@ -1426,7 +1438,7 @@ impl PartitionWorkSchedulerState {
 
                 let evidence = PredicateEvidence::new(
                     morsel.prepared.predicates[predicate_idx].id,
-                    PredicateVersion::STATIC,
+                    morsel.prepared.predicates[predicate_idx].version(),
                     morsel.range.clone(),
                 )?;
                 let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) else {
@@ -1452,6 +1464,7 @@ impl PartitionWorkSchedulerState {
                 predicate_idx,
                 morsel.range.clone(),
                 need,
+                morsel.prepared.predicates[predicate_idx].version(),
             )?;
             let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) else {
                 return Ok(());
@@ -1459,6 +1472,49 @@ impl PartitionWorkSchedulerState {
             morsel.next_predicate = predicate_idx.saturating_add(1);
             self.predicate_queue.push_back(work);
             return Ok(());
+        }
+    }
+
+    fn enqueue_recheck_evidence(&mut self, morsel_id: usize) -> VortexResult<bool> {
+        loop {
+            let Some(morsel) = self.morsels.get(morsel_id).and_then(Option::as_ref) else {
+                return Ok(false);
+            };
+            if morsel.next_recheck_predicate >= morsel.prepared.predicates.len() {
+                return Ok(false);
+            }
+
+            let predicate_idx = morsel.next_recheck_predicate;
+            let predicate = &morsel.prepared.predicates[predicate_idx];
+            let current_version = predicate.version();
+            let evidence_version = morsel.evidence[predicate_idx]
+                .as_ref()
+                .map(PredicateEvidence::version)
+                .unwrap_or(PredicateVersion::STATIC);
+
+            if predicate.dynamic_updates.is_some()
+                && predicate.has_recheck_evidence()
+                && current_version != evidence_version
+            {
+                let work = morsel.prepared.plan_evidence_work(
+                    morsel_id,
+                    predicate_idx,
+                    morsel.range.clone(),
+                    current_version,
+                    EvidenceMode::RecheckBeforeProjection,
+                )?;
+                let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) else {
+                    return Ok(false);
+                };
+                morsel.pending_evidence = morsel.pending_evidence.saturating_add(1);
+                self.evidence_queue.push_back(work);
+                return Ok(true);
+            }
+
+            let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) else {
+                return Ok(false);
+            };
+            morsel.next_recheck_predicate = morsel.next_recheck_predicate.saturating_add(1);
         }
     }
 
@@ -1709,8 +1765,24 @@ struct PreparedScanPlanFile {
 struct PreparedPredicate {
     id: PredicateId,
     expr: Expression,
+    dynamic_updates: Option<DynamicExprUpdates>,
     read: PreparedReadRef,
     evidence: Vec<PreparedEvidenceRef>,
+}
+
+impl PreparedPredicate {
+    fn version(&self) -> PredicateVersion {
+        self.dynamic_updates
+            .as_ref()
+            .map(|updates| PredicateVersion::new(updates.version()))
+            .unwrap_or(PredicateVersion::STATIC)
+    }
+
+    fn has_recheck_evidence(&self) -> bool {
+        self.evidence
+            .iter()
+            .any(|plan| plan.recheck_before_projection())
+    }
 }
 
 struct RegisteredScheduledSegmentSource {
@@ -1774,9 +1846,11 @@ impl PreparedScanPlanFile {
                     .prepare_read(&mut prepare_ctx)?
                     .ok_or_else(|| vortex_err!("scan2 could not plan predicate read {expr}"))?;
                 let evidence = pushed.prepare_evidence(&mut prepare_ctx)?;
+                let dynamic_updates = DynamicExprUpdates::new(&expr);
                 Ok(PreparedPredicate {
                     id,
                     expr,
+                    dynamic_updates,
                     read,
                     evidence,
                 })
@@ -1842,6 +1916,7 @@ impl PreparedScanPlanFile {
             evidence: (0..self.predicates.len()).map(|_| None).collect(),
             pending_evidence: 0,
             next_predicate: 0,
+            next_recheck_predicate: 0,
         };
 
         Ok(Some(PlannedMorselWork {
@@ -1855,18 +1930,23 @@ impl PreparedScanPlanFile {
         morsel_id: usize,
         predicate_idx: usize,
         range: Range<u64>,
+        version: PredicateVersion,
+        mode: EvidenceMode,
     ) -> VortexResult<QueuedWork> {
         let predicate = &self.predicates[predicate_idx];
         let mut registered = SubmittedSegmentRequests::default();
         let req = OwnedEvidenceRequest {
             id: predicate.id,
-            version: PredicateVersion::STATIC,
+            version,
             predicate: predicate.expr.clone(),
             range: range.clone(),
-            mode: EvidenceMode::Normal,
+            mode,
         };
         let mut tasks = Vec::with_capacity(predicate.evidence.len());
         for plan in &predicate.evidence {
+            if mode == EvidenceMode::RecheckBeforeProjection && !plan.recheck_before_projection() {
+                continue;
+            }
             let task = Arc::clone(plan).begin_evidence(req.clone())?;
             let mut segment_ctx = self.segment_plan_ctx(ScanIoPhase::EvidenceProbe);
             let requests = task.segment_requests(&mut segment_ctx)?;
@@ -1881,8 +1961,7 @@ impl PreparedScanPlanFile {
             registered,
             async move {
                 let predicate = &prepared.predicates[predicate_idx];
-                let mut acc =
-                    PredicateEvidence::new(predicate.id, PredicateVersion::STATIC, range.clone())?;
+                let mut acc = PredicateEvidence::new(predicate.id, version, range.clone())?;
                 for task in tasks {
                     for fragment in task.evidence(&prepared.reader).await? {
                         acc.absorb(fragment)?;
@@ -1908,6 +1987,7 @@ impl PreparedScanPlanFile {
         predicate_idx: usize,
         range: Range<u64>,
         need: Mask,
+        version: PredicateVersion,
     ) -> VortexResult<QueuedWork> {
         let len = range_len(&range)?;
         let predicate = &self.predicates[predicate_idx];
@@ -1964,8 +2044,7 @@ impl PreparedScanPlanFile {
                 }
                 let pass = &result & &need;
                 let exact = !&need | &pass;
-                let mut evidence =
-                    PredicateEvidence::new(predicate.id, PredicateVersion::STATIC, range.clone())?;
+                let mut evidence = PredicateEvidence::new(predicate.id, version, range.clone())?;
                 evidence.absorb(EvidenceFragment::new(
                     range,
                     PredicateEvidenceKind::ExactMask(exact),

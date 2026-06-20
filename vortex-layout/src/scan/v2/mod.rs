@@ -9,6 +9,8 @@
 pub mod session;
 
 pub(crate) mod layouts;
+mod row_idx;
+pub use row_idx::with_row_idx;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::StructFields;

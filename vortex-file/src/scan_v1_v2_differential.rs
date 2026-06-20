@@ -33,6 +33,8 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
+use vortex_array::expr::merge;
+use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
 use vortex_array::stats::PRUNING_STATS;
@@ -41,6 +43,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_layout::layouts::row_idx::row_idx;
 use vortex_scan::ScanRequest;
 use vortex_session::VortexSession;
 
@@ -310,6 +313,16 @@ async fn differential_multi_conjunct_dense() -> VortexResult<()> {
     keep[9] = 0;
     let file = write_file(id_and_name(&keep, &MULTI_CONJUNCT_NAMES), false).await?;
     assert_v1_eq_v2(&file, request(root(), Some(multi_conjunct_filter()))).await
+}
+
+#[tokio::test]
+async fn differential_single_field_merge_select_projection() -> VortexResult<()> {
+    let file = write_file(flat_primitive(false), true).await?;
+    let projection = merge([
+        pack([("file_row_number", row_idx())], Nullability::NonNullable),
+        select(["numbers"], root()),
+    ]);
+    assert_v1_eq_v2(&file, request(projection, None)).await
 }
 
 /// Reproduces the struct-null bug: projecting a single deep field out of a
