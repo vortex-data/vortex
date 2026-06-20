@@ -14,9 +14,13 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
+// Both traits/builders below are only used by benches excluded from CodSpeed (see below).
+#[cfg(not(codspeed))]
 use vortex_array::builders::ArrayBuilder;
+#[cfg(not(codspeed))]
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
+#[cfg(not(codspeed))]
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
@@ -34,6 +38,18 @@ const BENCH_ARGS: &[(usize, usize)] = &[
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
+// The following canonicalization benchmarks are excluded from CodSpeed's CPU simulation. Their
+// instruction count is dominated by output-buffer allocation and `memcpy`/`memmove` (whose
+// glibc `ifunc`-selected implementation differs across runner images) rather than by Vortex
+// compute, so under simulation they only ever report false-positive regressions: each moved in a
+// majority of recent PRs (bidirectionally, e.g. `chunked_bool_canonical_into` swung 16-35 us, a
+// ~2x range, for unchanged code) and CodSpeed flagged "different runtime environments" on the
+// comparisons. `chunked_bool_canonical_into` is additionally below the simulation noise floor
+// (~16-35 us). Per `docs/developer-guide/benchmarking.md`, CodSpeed-incompatible benchmarks are
+// gated with `#[cfg(not(codspeed))]`; they remain available via local `cargo bench`. The
+// `chunked_opt_bool_*` and `chunked_constant_*` benches below are compute-bound and stable under
+// simulation, so they are kept.
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_bool_chunks(len, chunk_count);
@@ -73,6 +89,8 @@ fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize,
         .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }
 
+// Excluded from CodSpeed: VarBinView canonicalization is `memcpy`-bound (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
@@ -91,6 +109,8 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
         })
 }
 
+// Excluded from CodSpeed: VarBinView canonicalization is `memcpy`-bound (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
@@ -100,6 +120,8 @@ fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usiz
         .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }
 
+// Excluded from CodSpeed: VarBinView canonicalization is `memcpy`-bound (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
@@ -118,6 +140,8 @@ fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (
         })
 }
 
+// Excluded from CodSpeed: VarBinView canonicalization is `memcpy`-bound (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
@@ -211,6 +235,7 @@ fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         .into_array()
 }
 
+#[cfg(not(codspeed))]
 fn make_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
 
@@ -220,6 +245,7 @@ fn make_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         .into_array()
 }
 
+#[cfg(not(codspeed))]
 fn make_string_chunks(nullable: bool, len: usize, chunk_count: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(123);
 

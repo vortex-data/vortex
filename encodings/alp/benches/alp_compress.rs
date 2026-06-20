@@ -14,7 +14,10 @@ use vortex_alp::ALPRDFloat;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_alp::decompress_into_array;
+// Only used by `decompress_rd`, which is excluded from CodSpeed (see below).
+#[cfg(not(codspeed))]
 use vortex_array::Canonical;
+#[cfg(not(codspeed))]
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -150,6 +153,14 @@ fn compress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f64)
         .bench_refs(|(primitive, encoder, ctx)| encoder.encode(primitive.as_view(), ctx))
 }
 
+// Excluded from CodSpeed's CPU simulation: this benchmark canonicalizes the decoded array, so its
+// instruction count is dominated by output-buffer allocation and `memcpy`/`memmove` (whose glibc
+// `ifunc`-selected implementation differs across runner images) rather than by the ALP-RD decode
+// itself. Under simulation it produces only false-positive regressions (it moved in 7 of the last
+// 9 PRs, bidirectionally, ranging 842-1025 us for the same code, while CodSpeed flagged "different
+// runtime environments"). Per `docs/developer-guide/benchmarking.md`, CodSpeed-incompatible
+// benchmarks are gated with `#[cfg(not(codspeed))]`; it remains available via local `cargo bench`.
+#[cfg(not(codspeed))]
 #[divan::bench(types = [f32, f64], args = RD_BENCH_ARGS)]
 fn decompress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f64)) {
     let (n, fraction_patch) = args;
