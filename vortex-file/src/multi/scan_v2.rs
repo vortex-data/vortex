@@ -1805,7 +1805,7 @@ struct PreparedScanPlanFile {
     segment_source_id: SegmentSourceId,
     scheduled_segment_source: Arc<dyn ScheduledSegmentSource>,
     segment_future_cache: Arc<SegmentFutureCache>,
-    root: ScanPlanRef,
+    split_hints: Option<Vec<u64>>,
     projection: PreparedReadRef,
     predicates: Vec<PreparedPredicate>,
 }
@@ -1873,8 +1873,12 @@ impl PreparedScanPlanFile {
         );
 
         let mut prepare_ctx = PrepareCtx::new(session.clone());
-        let projection_plan =
-            prepare_read(&root, &projection, file.dtype(), &session, &mut prepare_ctx)?;
+        let projection_pushed = push_expr(&root, &projection, file.dtype(), &session)?;
+        let mut split_hints = Vec::new();
+        extend_split_hints(&projection_pushed, &mut split_hints);
+        let projection_plan = Arc::clone(&projection_pushed)
+            .prepare_read(&mut prepare_ctx)?
+            .ok_or_else(|| vortex_err!("scan2 could not plan read for expression {projection}"))?;
 
         // Run cheap, likely-selective conjuncts first so an expensive residual (e.g. an FSST `LIKE`)
         // only evaluates over the rows that survive the cheaper predicates. AND is commutative, so
@@ -1890,6 +1894,7 @@ impl PreparedScanPlanFile {
                     u32::try_from(idx).map_err(|_| vortex_err!("too many predicates"))?,
                 );
                 let pushed = push_expr(&root, &expr, file.dtype(), &session)?;
+                extend_split_hints(&pushed, &mut split_hints);
                 let read = Arc::clone(&pushed)
                     .prepare_read(&mut prepare_ctx)?
                     .ok_or_else(|| vortex_err!("scan2 could not plan predicate read {expr}"))?;
@@ -1918,7 +1923,7 @@ impl PreparedScanPlanFile {
             segment_source_id,
             scheduled_segment_source,
             segment_future_cache,
-            root,
+            split_hints: normalize_split_hints(split_hints),
             projection: projection_plan,
             predicates,
         })
@@ -2158,7 +2163,7 @@ impl PreparedScanPlanFile {
 
     fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
         let mut points = vec![self.row_range.start];
-        if let Some(hints) = self.root.split_hints() {
+        if let Some(hints) = &self.split_hints {
             points.extend(
                 hints
                     .iter()
@@ -2204,16 +2209,16 @@ fn push_expr(
         .ok_or_else(|| vortex_err!("scan2 could not push expression {expr}"))
 }
 
-fn prepare_read(
-    root: &ScanPlanRef,
-    expr: &Expression,
-    dtype: &DType,
-    session: &VortexSession,
-    cx: &mut PrepareCtx,
-) -> VortexResult<PreparedReadRef> {
-    push_expr(root, expr, dtype, session)?
-        .prepare_read(cx)?
-        .ok_or_else(|| vortex_err!("scan2 could not plan read for expression {expr}"))
+fn extend_split_hints(plan: &ScanPlanRef, points: &mut Vec<u64>) {
+    if let Some(hints) = plan.split_hints() {
+        points.extend_from_slice(hints);
+    }
+}
+
+fn normalize_split_hints(mut hints: Vec<u64>) -> Option<Vec<u64>> {
+    hints.sort_unstable();
+    hints.dedup();
+    (!hints.is_empty()).then_some(hints)
 }
 
 fn check_range(range: &Range<u64>, row_count: u64) -> VortexResult<()> {
