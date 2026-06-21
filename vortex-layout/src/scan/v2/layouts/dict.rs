@@ -166,6 +166,27 @@ fn sparse_value_expr_candidate(expr: &Expression, values_len: u64, rows: RowScop
     sparse_dict_candidate(values_len, rows) && value_expr_is_expensive(expr)
 }
 
+fn value_expr_candidate(expr: &Expression, values_len: u64, rows: RowScope<'_>) -> bool {
+    if sparse_value_expr_candidate(expr, values_len, rows) {
+        return false;
+    }
+    if !value_expr_is_expensive(expr) {
+        return true;
+    }
+
+    let Ok(values_len) = usize::try_from(values_len) else {
+        return false;
+    };
+    let demand = rows.demand.true_count();
+    // Dense scans will usually touch every morsel in this dictionary. Since value-domain
+    // expressions are cached per DictScanState, allow a small amount of look-ahead instead of
+    // repeatedly evaluating expensive predicates over decoded row values.
+    values_len <= demand
+        || (rows.selection.all_true()
+            && rows.demand.all_true()
+            && values_len <= demand.saturating_mul(4))
+}
+
 impl DictScanPlan {
     /// The values relation wrapped in a `SharedArray`, read once per query.
     fn values(
@@ -648,12 +669,9 @@ impl PreparedRead for DictExprPreparedRead {
         Box::pin(async move {
             let sparse_candidate =
                 sparse_value_expr_candidate(&self.node.expr, self.node.dict.values_len, rows);
-            let value_expr = if !sparse_candidate
-                && (!value_expr_is_expensive(&self.node.expr)
-                    || matches!(
-                        usize::try_from(self.node.dict.values_len),
-                        Ok(values_len) if values_len <= rows.demand.true_count()
-                    )) {
+            let value_candidate =
+                value_expr_candidate(&self.node.expr, self.node.dict.values_len, rows);
+            let value_expr = if value_candidate {
                 self.value_expr(io, &self.state, local).await?
             } else {
                 None

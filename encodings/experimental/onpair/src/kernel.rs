@@ -10,6 +10,8 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_array::scalar_fn::fns::byte_length::ByteLength;
 use vortex_array::scalar_fn::fns::byte_length::ByteLengthExecuteAdaptor;
+use vortex_array::scalar_fn::fns::like::Like;
+use vortex_array::scalar_fn::fns::like::LikeExecuteAdaptor;
 use vortex_session::VortexSession;
 
 use crate::OnPair;
@@ -24,4 +26,5 @@ pub(super) fn initialize(session: &VortexSession) {
         OnPair,
         ByteLengthExecuteAdaptor(OnPair),
     );
+    kernels.register_execute_parent_kernel(Like.id(), OnPair, LikeExecuteAdaptor(OnPair));
 }

@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use futures::future::BoxFuture;
+use futures::future::try_join_all;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::ArrayRef;
@@ -1000,10 +1001,13 @@ impl PreparedRead for StructValuePreparedRead {
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
-            let mut arrays = Vec::with_capacity(self.fields.len());
-            for field in &self.fields {
-                arrays.push(field.read_scoped(range.clone(), rows, io, local).await?);
-            }
+            let session = local.session().clone();
+            let arrays = try_join_all(self.fields.iter().map(|field| {
+                let range = range.clone();
+                let mut child_ctx = session.create_execution_ctx();
+                async move { field.read_scoped(range, rows, io, &mut child_ctx).await }
+            }))
+            .await?;
             let validity = match &self.validity {
                 Some(validity) => {
                     let array = validity.read_scoped(range, rows, io, local).await?;

@@ -34,7 +34,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayId;
-use crate::arrays::ScalarFn;
 use crate::arrays::Shared;
 use crate::arrays::shared::SharedArrayExt;
 use crate::builders::ArrayBuilder;
@@ -576,21 +575,19 @@ fn execute_parent_for_child(
         return Ok(Some(result));
     }
 
-    // Shared is a transparent cache wrapper. For scalar-function parents, try kernels against the
-    // wrapped source/current array before forcing Shared to canonicalize and populate its cache.
-    if parent.is::<ScalarFn>() {
-        let mut current = child.clone();
-        while let Some(source) = current
-            .as_opt::<Shared>()
-            .map(|shared| shared.current_array_ref().clone())
+    // Shared is a transparent cache wrapper. Try kernels against the wrapped source/current array
+    // before forcing Shared to canonicalize and populate its cache.
+    let mut current = child.clone();
+    while let Some(source) = current
+        .as_opt::<Shared>()
+        .map(|shared| shared.current_array_ref().clone())
+    {
+        if let Some(result) =
+            execute_parent_for_exact_child(parent, &source, slot_idx, kernels, ctx)?
         {
-            if let Some(result) =
-                execute_parent_for_exact_child(parent, &source, slot_idx, kernels, ctx)?
-            {
-                return Ok(Some(result));
-            }
-            current = source;
+            return Ok(Some(result));
         }
+        current = source;
     }
 
     Ok(None)
