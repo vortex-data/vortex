@@ -7,6 +7,7 @@ use datafusion_common::stats::Precision;
 use vortex::array::aggregate_fn::AggregateFnRef;
 use vortex::array::aggregate_fn::AggregateFnVTableExt;
 use vortex::array::aggregate_fn::EmptyOptions;
+use vortex::array::aggregate_fn::NumericalAggregateOpts;
 use vortex::array::aggregate_fn::fns::max::Max;
 use vortex::array::aggregate_fn::fns::min::Min;
 use vortex::array::aggregate_fn::fns::null_count::NullCount;
@@ -34,9 +35,9 @@ const BYTE_SIZE_INDEX: usize = 4;
 
 pub(crate) fn column_statistics_aggregate_fns() -> Vec<AggregateFnRef> {
     vec![
-        Min.bind(EmptyOptions),
-        Max.bind(EmptyOptions),
-        Sum.bind(EmptyOptions),
+        Min.bind(NumericalAggregateOpts::default()),
+        Max.bind(NumericalAggregateOpts::default()),
+        Sum.bind(NumericalAggregateOpts::default()),
         NullCount.bind(EmptyOptions),
         UncompressedSizeInBytes.bind(EmptyOptions),
     ]

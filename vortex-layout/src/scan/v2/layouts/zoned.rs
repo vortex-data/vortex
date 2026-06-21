@@ -27,7 +27,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
-use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::count::Count;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::arrays::StructArray;
@@ -370,7 +370,9 @@ impl ZonedScanPlan {
             // minus the summed per-zone null counts.
             let values = col.values.slice(zones)?;
             let partial = if is_count {
-                let mut nulls = Sum.bind(EmptyOptions).accumulator(values.dtype())?;
+                let mut nulls = Sum
+                    .bind(NumericalAggregateOpts::default())
+                    .accumulator(values.dtype())?;
                 nulls.accumulate(&values, ctx)?;
                 let nulls = nulls
                     .flush()?

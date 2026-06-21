@@ -42,6 +42,7 @@ pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
 use crate::ArrayRef;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -154,7 +155,7 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
             return Ok(self.to_owned());
         }
 
-        let Some(min_max) = min_max(self.as_ref(), ctx)? else {
+        let Some(min_max) = min_max(self.as_ref(), ctx, NumericalAggregateOpts::default())? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
                 self.validity(),

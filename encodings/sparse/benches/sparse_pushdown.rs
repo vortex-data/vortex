@@ -19,6 +19,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::null_count::null_count;
@@ -106,7 +107,10 @@ fn sparse_min_max(bencher: Bencher) {
     bencher
         .with_inputs(|| (make_sparse(40_000, false), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
-            divan::black_box(min_max(&array, &mut ctx).vortex_expect("min_max"))
+            divan::black_box(
+                min_max(&array, &mut ctx, NumericalAggregateOpts::default())
+                    .vortex_expect("min_max"),
+            )
         });
 }
 

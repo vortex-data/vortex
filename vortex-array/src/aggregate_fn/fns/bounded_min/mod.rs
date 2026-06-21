@@ -20,7 +20,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
@@ -126,7 +126,11 @@ impl AggregateFnVTable for BoundedMin {
             };
         }
 
-        if requested.is::<Min>() {
+        // The stored bound skips NaNs, so it cannot stand in for a NaN-including minimum.
+        if requested
+            .as_opt::<Min>()
+            .is_some_and(|options| options.skip_nans)
+        {
             AggregateFnSatisfaction::Approximate
         } else {
             AggregateFnSatisfaction::No
@@ -182,7 +186,7 @@ impl AggregateFnVTable for BoundedMin {
             Columnar::Canonical(canonical) => canonical.clone().into_array(),
             Columnar::Constant(constant) => constant.clone().into_array(),
         };
-        let Some(result) = min_max(&array, ctx)? else {
+        let Some(result) = min_max(&array, ctx, NumericalAggregateOpts::default())? else {
             return Ok(());
         };
         if let Some(bound) = truncate_min(result.min, partial.max_bytes.get())? {
@@ -202,7 +206,7 @@ impl AggregateFnVTable for BoundedMin {
 
 fn supported_dtype<'a>(_options: &BoundedMinOptions, input_dtype: &'a DType) -> Option<&'a DType> {
     MinMax
-        .return_dtype(&EmptyOptions, input_dtype)
+        .return_dtype(&NumericalAggregateOpts::default(), input_dtype)
         .map(|_| input_dtype)
 }
 
@@ -241,7 +245,7 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::bounded_min::BoundedMin;
     use crate::aggregate_fn::fns::bounded_min::BoundedMinOptions;
     use crate::aggregate_fn::fns::max::Max;
@@ -350,15 +354,25 @@ mod tests {
             AggregateFnSatisfaction::No
         );
         assert_eq!(
-            stored.can_satisfy(&Min.bind(EmptyOptions)),
+            stored.can_satisfy(&Min.bind(NumericalAggregateOpts::default())),
             AggregateFnSatisfaction::Approximate
         );
         assert_eq!(
-            Min.bind(EmptyOptions).can_satisfy(&stored),
+            stored.can_satisfy(&Min.bind(NumericalAggregateOpts::include_nans())),
+            AggregateFnSatisfaction::No
+        );
+        assert_eq!(
+            Min.bind(NumericalAggregateOpts::include_nans())
+                .can_satisfy(&stored),
+            AggregateFnSatisfaction::No
+        );
+        assert_eq!(
+            Min.bind(NumericalAggregateOpts::default())
+                .can_satisfy(&stored),
             AggregateFnSatisfaction::Approximate
         );
         assert_eq!(
-            stored.can_satisfy(&Max.bind(EmptyOptions)),
+            stored.can_satisfy(&Max.bind(NumericalAggregateOpts::default())),
             AggregateFnSatisfaction::No
         );
     }

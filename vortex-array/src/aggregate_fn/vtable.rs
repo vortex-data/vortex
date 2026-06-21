@@ -7,8 +7,10 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 
+use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -164,6 +166,73 @@ pub struct EmptyOptions;
 impl Display for EmptyOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "")
+    }
+}
+
+/// Options for aggregate functions over primitive numeric inputs, controlling how NaN values in
+/// floating-point arrays are handled.
+///
+/// When `skip_nans` is `true` (the default), NaN values are treated as missing: they contribute
+/// nothing to `sum`/`min`/`max`/`mean` and are excluded from `count`.
+///
+/// When `skip_nans` is `false`, NaN values participate in the aggregate: `count` includes them,
+/// while any NaN value poisons the result of `sum`/`min`/`max`/`mean` to NaN.
+///
+/// The option has no effect on non-float inputs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct NumericalAggregateOpts {
+    /// Whether NaN values are skipped (treated as missing) during aggregation.
+    pub skip_nans: bool,
+}
+
+impl NumericalAggregateOpts {
+    /// Options that skip NaN values, treating them as missing during aggregation.
+    ///
+    /// This is the default configuration; see [`NumericalAggregateOpts::include_nans`] for the
+    /// NaN-including variant.
+    pub const fn skip_nans() -> Self {
+        Self { skip_nans: true }
+    }
+
+    /// Options that include NaN values in the aggregate: `count` counts them, while any NaN
+    /// poisons the result of `sum`/`min`/`max`/`mean` to NaN.
+    ///
+    /// See [`NumericalAggregateOpts::skip_nans`] for the default NaN-skipping variant.
+    pub const fn include_nans() -> Self {
+        Self { skip_nans: false }
+    }
+
+    /// Serialize these options to protobuf-encoded metadata bytes.
+    pub fn serialize(&self) -> Vec<u8> {
+        pb::NumericalAggregateOpts {
+            skip_nans: self.skip_nans,
+        }
+        .encode_to_vec()
+    }
+
+    /// Deserialize these options from protobuf-encoded metadata bytes.
+    pub fn deserialize(metadata: &[u8]) -> VortexResult<Self> {
+        let opts = pb::NumericalAggregateOpts::decode(metadata)?;
+        Ok(Self {
+            skip_nans: opts.skip_nans,
+        })
+    }
+}
+
+impl Default for NumericalAggregateOpts {
+    fn default() -> Self {
+        Self::skip_nans()
+    }
+}
+
+impl Display for NumericalAggregateOpts {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        // Only the non-default configuration is displayed, so that aggregates with default
+        // options render identically to their pre-options form, e.g. `vortex.sum()`.
+        if !self.skip_nans {
+            write!(f, "skip_nans=false")?;
+        }
+        Ok(())
     }
 }
 

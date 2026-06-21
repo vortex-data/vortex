@@ -11,6 +11,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeKernel;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_error::VortexResult;
@@ -61,7 +62,7 @@ impl LikeKernel for FSST {
             // For short substring patterns, bulk FSST decode plus Arrow's memmem-backed LIKE is
             // faster than walking the compressed stream through the byte-at-a-time DFA.
             let decoded = canonicalize_fsst(array, ctx)?;
-            let result = vortex_array::scalar_fn::fns::like::Like
+            let result = Like
                 .try_new_array(array.len(), options, [decoded, pattern.clone()])?
                 .into_array()
                 .execute::<Canonical>(ctx)?

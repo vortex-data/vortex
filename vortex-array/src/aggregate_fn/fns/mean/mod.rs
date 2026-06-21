@@ -10,7 +10,7 @@ use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::combined::BinaryCombined;
 use crate::aggregate_fn::combined::Combined;
 use crate::aggregate_fn::combined::CombinedOptions;
@@ -30,7 +30,10 @@ use crate::scalar_fn::fns::operators::Operator;
 pub fn mean(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
     let mut acc = Accumulator::try_new(
         Mean::combined(),
-        PairOptions(EmptyOptions, EmptyOptions),
+        PairOptions(
+            NumericalAggregateOpts::default(),
+            NumericalAggregateOpts::default(),
+        ),
         array.dtype().clone(),
     )?;
     acc.accumulate(array, ctx)?;
@@ -232,6 +235,34 @@ mod tests {
     }
 
     #[test]
+    fn mean_skips_nans_by_default() -> VortexResult<()> {
+        // NaNs are excluded from both the sum and the count.
+        let array =
+            PrimitiveArray::new(buffer![1.0f64, f64::NAN, 3.0], Validity::NonNullable).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = mean(&array, &mut ctx)?;
+        assert_eq!(result.as_primitive().as_::<f64>(), Some(2.0));
+        Ok(())
+    }
+
+    #[test]
+    fn mean_with_nan_not_skipping() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::new(buffer![1.0f64, f64::NAN, 3.0], Validity::NonNullable).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let keep_nans = NumericalAggregateOpts::include_nans();
+        let mut acc = Accumulator::try_new(
+            Mean::combined(),
+            PairOptions(keep_nans, keep_nans),
+            array.dtype().clone(),
+        )?;
+        acc.accumulate(&array, &mut ctx)?;
+        let result = acc.finish()?;
+        assert!(result.as_primitive().as_::<f64>().is_some_and(f64::is_nan));
+        Ok(())
+    }
+
+    #[test]
     fn mean_all_null_returns_nan() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<f64, _>([None, None, None]).into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
@@ -246,7 +277,10 @@ mod tests {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(
             Mean::combined(),
-            PairOptions(EmptyOptions, EmptyOptions),
+            PairOptions(
+                NumericalAggregateOpts::default(),
+                NumericalAggregateOpts::default(),
+            ),
             dtype,
         )?;
 

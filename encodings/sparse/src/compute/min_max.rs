@@ -7,7 +7,6 @@ use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::Accumulator;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::DynAccumulator;
-use vortex_array::aggregate_fn::EmptyOptions;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
 use vortex_array::arrays::ConstantArray;
@@ -32,9 +31,9 @@ impl DynAggregateKernel for SparseMinMaxKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        if !aggregate_fn.is::<MinMax>() {
+        let Some(options) = aggregate_fn.as_opt::<MinMax>() else {
             return Ok(None);
-        }
+        };
 
         let Some(sparse) = batch.as_opt::<Sparse>() else {
             return Ok(None);
@@ -42,7 +41,7 @@ impl DynAggregateKernel for SparseMinMaxKernel {
 
         let patches = sparse.patches();
 
-        let mut acc = Accumulator::try_new(MinMax, EmptyOptions, batch.dtype().clone())?;
+        let mut acc = Accumulator::try_new(MinMax, *options, batch.dtype().clone())?;
 
         if !patches.values().is_empty() {
             acc.accumulate(patches.values(), ctx)?;
@@ -66,6 +65,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
     use vortex_array::aggregate_fn::fns::min_max::min_max;
     use vortex_array::scalar::Scalar;
@@ -100,10 +100,18 @@ mod tests {
     #[case(Sparse::try_new(buffer![0u64, 1, 2].into_array(), buffer![7i32, 3, 9].into_array(), 3, Scalar::from(99i32)).unwrap())]
     fn min_max_matches_canonical(#[case] array: SparseArray) {
         let arr = array.into_array();
-        let kernel: Option<MinMaxResult> =
-            min_max(&arr, &mut SESSION.create_execution_ctx()).unwrap();
-        let canonical: Option<MinMaxResult> =
-            min_max(&arr, &mut CANONICAL_SESSION.create_execution_ctx()).unwrap();
+        let kernel: Option<MinMaxResult> = min_max(
+            &arr,
+            &mut SESSION.create_execution_ctx(),
+            NumericalAggregateOpts::default(),
+        )
+        .unwrap();
+        let canonical: Option<MinMaxResult> = min_max(
+            &arr,
+            &mut CANONICAL_SESSION.create_execution_ctx(),
+            NumericalAggregateOpts::default(),
+        )
+        .unwrap();
         assert_eq!(kernel, canonical);
     }
 }

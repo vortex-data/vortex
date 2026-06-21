@@ -30,9 +30,9 @@ impl DynAggregateKernel for DictMinMaxKernel {
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>> {
-        if !aggregate_fn.is::<MinMax>() {
+        let Some(options) = aggregate_fn.as_opt::<MinMax>() else {
             return Ok(None);
-        }
+        };
 
         let Some(dict) = batch.as_opt::<Dict>() else {
             return Ok(None);
@@ -42,13 +42,13 @@ impl DynAggregateKernel for DictMinMaxKernel {
 
         let result = if dict.has_all_values_referenced() {
             // All values are referenced, compute min/max directly on the values array.
-            min_max(dict.values(), ctx)?
+            min_max(dict.values(), ctx, *options)?
         } else {
             // Filter to only referenced values, then compute min/max.
             let referenced_mask = dict.compute_referenced_values_mask(true)?;
             let mask = Mask::from(referenced_mask);
             let filtered_values = dict.values().filter(mask)?;
-            min_max(&filtered_values, ctx)?
+            min_max(&filtered_values, ctx, *options)?
         };
 
         match result {
@@ -70,6 +70,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::min_max::min_max;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
@@ -79,7 +80,10 @@ mod tests {
 
     fn assert_min_max(array: &ArrayRef, expected: Option<(i32, i32)>) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        match (min_max(array, &mut ctx)?, expected) {
+        match (
+            min_max(array, &mut ctx, NumericalAggregateOpts::default())?,
+            expected,
+        ) {
             (Some(result), Some((expected_min, expected_max))) => {
                 assert_eq!(i32::try_from(&result.min)?, expected_min);
                 assert_eq!(i32::try_from(&result.max)?, expected_max);

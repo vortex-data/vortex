@@ -20,6 +20,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -212,7 +213,7 @@ impl ListData {
 
         // Validate that offsets min is non-negative, and max does not exceed the length of
         // the elements array.
-        if let Some(min_max) = min_max(offsets, &mut ctx)? {
+        if let Some(min_max) = min_max(offsets, &mut ctx, NumericalAggregateOpts::default())? {
             match_each_integer_ptype!(offsets_ptype, |P| {
                 #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
                 {

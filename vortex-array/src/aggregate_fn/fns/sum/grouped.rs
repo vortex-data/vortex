@@ -32,10 +32,10 @@ impl DynGroupedAggregateKernel for PrimitiveGroupedSumEncodingKernel {
         groups: &GroupedArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !aggregate_fn.is::<Sum>() {
+        let Some(options) = aggregate_fn.as_opt::<Sum>() else {
             return Ok(None);
-        }
-        try_grouped_sum(groups, ctx)
+        };
+        try_grouped_sum(groups, ctx, options.skip_nans)
     }
 }
 
@@ -48,6 +48,7 @@ impl DynGroupedAggregateKernel for PrimitiveGroupedSumEncodingKernel {
 pub(super) fn try_grouped_sum(
     groups: &GroupedArray,
     ctx: &mut ExecutionCtx,
+    skip_nans: bool,
 ) -> VortexResult<Option<ArrayRef>> {
     if !groups.elements().is::<Primitive>() {
         return Ok(None);
@@ -61,6 +62,7 @@ pub(super) fn try_grouped_sum(
         &group_ranges,
         &group_validity,
         ctx,
+        skip_nans,
     )?))
 }
 
@@ -70,6 +72,7 @@ fn grouped_sum(
     group_ranges: &GroupRanges,
     group_validity: &Mask,
     ctx: &mut ExecutionCtx,
+    skip_nans: bool,
 ) -> VortexResult<ArrayRef> {
     let elem_mask = elements
         .as_ref()
@@ -91,7 +94,7 @@ fn grouped_sum(
         floating: |T| {
             let values = elements.as_slice::<T>();
             collect_sums::<T, f64>(values, group_ranges, group_validity, &elem_mask, all_valid,
-                |acc, slice| { sum_float_all(acc, slice); false })
+                |acc, slice| { sum_float_all(acc, slice, skip_nans); false })
         }
     );
 
@@ -159,8 +162,8 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::DynGroupedAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::GroupedAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::arrays::FixedSizeListArray;
@@ -176,7 +179,11 @@ mod tests {
 
     /// Run a grouped sum through the accumulator.
     fn grouped_sum_actual(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut acc = GroupedAccumulator::try_new(Sum, EmptyOptions, elem_dtype.clone())?;
+        let mut acc = GroupedAccumulator::try_new(
+            Sum,
+            NumericalAggregateOpts::default(),
+            elem_dtype.clone(),
+        )?;
         acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
         acc.finish()
     }
@@ -193,7 +200,7 @@ mod tests {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let sum_dtype = Sum
-            .partial_dtype(&EmptyOptions, elem_dtype)
+            .partial_dtype(&NumericalAggregateOpts::default(), elem_dtype)
             .expect("sum partial dtype");
         let mut builder = builder_with_capacity(&sum_dtype, ranges.len());
         for (i, &(offset, size)) in ranges.iter().enumerate() {
@@ -344,6 +351,30 @@ mod tests {
                 .unwrap()
                 .is_nan()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn listview_float_nan_not_skipping() -> VortexResult<()> {
+        let elements = PrimitiveArray::new(
+            buffer![1.0f64, f64::NAN, 2.0, 3.0, 4.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let elem_dtype = DType::Primitive(PType::F64, NonNullable);
+        let groups = listview(elements, &[(0, 3), (3, 2)], &[true, true])?;
+
+        let mut acc =
+            GroupedAccumulator::try_new(Sum, NumericalAggregateOpts::include_nans(), elem_dtype)?;
+        acc.accumulate_list(&groups, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let actual = acc.finish()?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        // Group 0 contains a NaN -> NaN sum; group 1 sums normally.
+        let g0 = actual.execute_scalar(0, &mut ctx)?;
+        assert!(g0.as_primitive().typed_value::<f64>().unwrap().is_nan());
+        let g1 = actual.execute_scalar(1, &mut ctx)?;
+        assert_eq!(g1.as_primitive().typed_value::<f64>(), Some(7.0));
         Ok(())
     }
 

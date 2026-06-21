@@ -458,9 +458,7 @@ pub fn default_try_push_expr(
 
 /// Return a scan plan for a scalar literal expression.
 pub fn literal_scan_plan(expr: &Expression, row_count: u64) -> Option<ScanPlanRef> {
-    let Some(scalar) = expr.as_opt::<Literal>() else {
-        return None;
-    };
+    let scalar = expr.as_opt::<Literal>()?;
     Some(Arc::new(LiteralScanPlan::new(scalar.clone(), row_count)) as ScanPlanRef)
 }
 
@@ -1339,7 +1337,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
-    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::arrays::Constant;
@@ -1433,7 +1431,10 @@ mod tests {
     fn stats_plan_erasure_preserves_positional_results() -> VortexResult<()> {
         let session = VortexSession::empty();
         let plan_root: ScanPlanRef = Arc::new(TestStatsNode);
-        let funcs = vec![Min.bind(EmptyOptions), Max.bind(EmptyOptions)];
+        let funcs = vec![
+            Min.bind(NumericalAggregateOpts::default()),
+            Max.bind(NumericalAggregateOpts::default()),
+        ];
 
         let plan = plan_root
             .prepare_field_stats(

@@ -1017,6 +1017,7 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
 /// Aggregate operations on sliced arrays must produce correct results
 /// regardless of the underlying encoding's offset handling.
 fn test_slice_aggregate_consistency(array: &ArrayRef) {
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::min_max::min_max;
     use crate::aggregate_fn::fns::nan_count::nan_count;
     use crate::aggregate_fn::fns::sum::sum;
@@ -1075,8 +1076,12 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
 
     // Test min_max
     if let (Ok(slice_minmax), Ok(canonical_minmax)) = (
-        min_max(&sliced, &mut ctx),
-        min_max(&canonical_sliced, &mut ctx),
+        min_max(&sliced, &mut ctx, NumericalAggregateOpts::default()),
+        min_max(
+            &canonical_sliced,
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        ),
     ) {
         match (slice_minmax, canonical_minmax) {
             (Some(s_result), Some(c_result)) => {

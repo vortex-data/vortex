@@ -22,6 +22,7 @@ use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -567,12 +568,16 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         });
         let offsets = self.offsets().cast(wide_dtype.clone())?;
         let sizes = self.sizes().cast(wide_dtype)?;
-        let end = min_max(&offsets.binary(sizes, Operator::Add)?, ctx)?
-            .vortex_expect("non-empty array must report a min/max")
-            .max
-            .as_primitive()
-            .as_::<usize>()
-            .vortex_expect("max `offset + size` must fit in a usize");
+        let end = min_max(
+            &offsets.binary(sizes, Operator::Add)?,
+            ctx,
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("non-empty array must report a min/max")
+        .max
+        .as_primitive()
+        .as_::<usize>()
+        .vortex_expect("max `offset + size` must fit in a usize");
 
         Ok((start, end))
     }

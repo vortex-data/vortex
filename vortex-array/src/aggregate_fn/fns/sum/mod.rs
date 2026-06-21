@@ -26,7 +26,7 @@ use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::MAX_PRECISION;
@@ -35,6 +35,7 @@ use crate::dtype::PType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::expr::stats::StatsProviderExt;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
@@ -49,7 +50,11 @@ pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
 
     // Compute using Accumulator<Sum>.
     // TODO(ngates): we may want to wrap this three-step dance up into an extension crate maybe.
-    let mut acc = Accumulator::try_new(Sum, EmptyOptions, array.dtype().clone())?;
+    let mut acc = Accumulator::try_new(
+        Sum,
+        NumericalAggregateOpts::default(),
+        array.dtype().clone(),
+    )?;
     acc.accumulate(array, ctx)?;
     let result = acc.finish()?;
 
@@ -65,27 +70,30 @@ pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
 ///
 /// If the sum overflows, a null scalar will be returned.
 /// If the array is all-invalid, the sum will be zero.
+///
+/// NaN handling for float inputs is controlled by [`NumericalAggregateOpts`]: with `skip_nans` (the
+/// default) NaN values contribute nothing, otherwise any NaN value poisons the sum to NaN.
 #[derive(Clone, Debug)]
 pub struct Sum;
 
 impl AggregateFnVTable for Sum {
-    type Options = EmptyOptions;
+    type Options = NumericalAggregateOpts;
     type Partial = SumPartial;
 
     fn id(&self) -> AggregateFnId {
         AggregateFnId::new("vortex.sum")
     }
 
-    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(options.serialize()))
     }
 
     fn deserialize(
         &self,
-        _metadata: &[u8],
+        metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        Ok(EmptyOptions)
+        NumericalAggregateOpts::deserialize(metadata)
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -139,6 +147,7 @@ impl AggregateFnVTable for Sum {
         Ok(SumPartial {
             return_dtype,
             current: Some(initial),
+            skip_nans: options.skip_nans,
         })
     }
 
@@ -223,6 +232,43 @@ impl AggregateFnVTable for Sum {
         }
     }
 
+    fn try_accumulate(
+        &self,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        // NaN-aware shortcircuits only apply to NaN-including float sums; everything else takes
+        // the default dispatch path.
+        if partial.skip_nans || !matches!(partial.current, Some(SumState::Float(_))) {
+            return Ok(false);
+        }
+        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
+            Precision::Exact(0) => {
+                // NaN-free batch: the cached NaN-skipping sum (if any) equals the
+                // NaN-including sum.
+                if let Precision::Exact(sum) = batch.statistics().get(Stat::Sum) {
+                    let sum = if sum.dtype() == &partial.return_dtype {
+                        sum
+                    } else {
+                        sum.cast(&partial.return_dtype)?
+                    };
+                    self.combine_partials(partial, sum)?;
+                    return Ok(true);
+                }
+                Ok(false)
+            }
+            Precision::Exact(_) => {
+                // At least one NaN value: the sum is NaN without scanning the batch.
+                if let Some(SumState::Float(acc)) = partial.current.as_mut() {
+                    *acc = f64::NAN;
+                }
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     fn accumulate(
         &self,
         partial: &mut Self::Partial,
@@ -231,12 +277,17 @@ impl AggregateFnVTable for Sum {
     ) -> VortexResult<()> {
         // Constants compute scalar * len and combine via combine_partials.
         if let Columnar::Constant(c) = batch {
+            // NaN constants are treated as missing when skipping NaNs.
+            if partial.skip_nans && c.scalar().as_primitive_opt().is_some_and(|p| p.is_nan()) {
+                return Ok(());
+            }
             if let Some(product) = multiply_constant(c.scalar(), c.len(), &partial.return_dtype)? {
                 self.combine_partials(partial, product)?;
             }
             return Ok(());
         }
 
+        let skip_nans = partial.skip_nans;
         let mut inner = match partial.current.take() {
             Some(inner) => inner,
             None => return Ok(()),
@@ -244,7 +295,7 @@ impl AggregateFnVTable for Sum {
 
         let result = match batch {
             Columnar::Canonical(c) => match c {
-                Canonical::Primitive(p) => accumulate_primitive(&mut inner, p, ctx),
+                Canonical::Primitive(p) => accumulate_primitive(&mut inner, p, ctx, skip_nans),
                 Canonical::Bool(b) => accumulate_bool(&mut inner, b, ctx),
                 Canonical::Decimal(d) => accumulate_decimal(&mut inner, d, ctx),
                 _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
@@ -278,6 +329,8 @@ pub struct SumPartial {
     return_dtype: DType,
     /// The current accumulated state, or `None` if saturated (checked overflow).
     current: Option<SumState>,
+    /// Whether NaN values in float inputs are skipped.
+    skip_nans: bool,
 }
 
 /// The accumulated sum value.
@@ -347,8 +400,8 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::DynGroupedAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::GroupedAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::arrays::BoolArray;
@@ -433,7 +486,7 @@ mod tests {
     fn sum_multi_batch() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -450,7 +503,7 @@ mod tests {
     fn sum_finish_resets_state() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -469,7 +522,7 @@ mod tests {
     #[test]
     fn sum_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = Sum.empty_partial(&EmptyOptions, &dtype)?;
+        let mut state = Sum.empty_partial(&NumericalAggregateOpts::default(), &dtype)?;
 
         let scalar1 = Scalar::primitive(100i64, Nullable);
         Sum.combine_partials(&mut state, scalar1)?;
@@ -522,7 +575,11 @@ mod tests {
     // Grouped sum tests
 
     fn run_grouped_sum(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut acc = GroupedAccumulator::try_new(Sum, EmptyOptions, elem_dtype.clone())?;
+        let mut acc = GroupedAccumulator::try_new(
+            Sum,
+            NumericalAggregateOpts::default(),
+            elem_dtype.clone(),
+        )?;
         acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
         acc.finish()
     }
@@ -605,7 +662,8 @@ mod tests {
     fn grouped_sum_finish_resets() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = GroupedAccumulator::try_new(Sum, EmptyOptions, elem_dtype)?;
+        let mut acc =
+            GroupedAccumulator::try_new(Sum, NumericalAggregateOpts::default(), elem_dtype)?;
 
         let elements1 =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();

@@ -243,10 +243,14 @@ fn values_fit_in(
     if !compute {
         return false;
     }
-    aggregate_fn::fns::min_max::min_max(array.array(), ctx)
-        .ok()
-        .flatten()
-        .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
+    aggregate_fn::fns::min_max::min_max(
+        array.array(),
+        ctx,
+        aggregate_fn::NumericalAggregateOpts::default(),
+    )
+    .ok()
+    .flatten()
+    .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
 }
 
 /// Cached-only check: returns `Some(fits)` if both `Min` and `Max` are present as `Exact` in the

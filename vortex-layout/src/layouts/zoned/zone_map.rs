@@ -361,6 +361,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::NumericalAggregateOpts;
     use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
     use vortex_array::aggregate_fn::fns::all_null::AllNull;
     use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
@@ -425,8 +426,8 @@ mod tests {
         // +----------+----------+
         // |  3       |  7       |
         // +----------+----------+
-        let max = Max.bind(EmptyOptions);
-        let min = Min.bind(EmptyOptions);
+        let max = Max.bind(NumericalAggregateOpts::skip_nans());
+        let min = Min.bind(NumericalAggregateOpts::skip_nans());
         let zone_map = ZoneMap::try_new(
             PType::I32.into(),
             StructArray::from_fields(&[
@@ -737,7 +738,7 @@ mod tests {
 
     #[test]
     fn float_min_max_stat_fn_requires_nan_count() {
-        let max = Max.bind(EmptyOptions);
+        let max = Max.bind(NumericalAggregateOpts::skip_nans());
         let zone_map = ZoneMap::try_new(
             PType::F32.into(),
             StructArray::from_fields(&[(

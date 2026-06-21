@@ -125,6 +125,7 @@ fn multi_file_scan_plan_data_source_filters_and_projects() -> VortexResult<()> {
             use futures::stream::BoxStream;
             use vortex_array::aggregate_fn::AggregateFnVTableExt;
             use vortex_array::aggregate_fn::EmptyOptions;
+            use vortex_array::aggregate_fn::NumericalAggregateOpts;
             use vortex_array::aggregate_fn::fns::max::Max;
             use vortex_array::aggregate_fn::fns::min::Min;
             use vortex_array::aggregate_fn::fns::null_count::NullCount;
@@ -217,8 +218,8 @@ fn multi_file_scan_plan_data_source_filters_and_projects() -> VortexResult<()> {
                 .statistics(
                     &col("numbers"),
                     &[
-                        Min.bind(EmptyOptions),
-                        Max.bind(EmptyOptions),
+                        Min.bind(NumericalAggregateOpts::default()),
+                        Max.bind(NumericalAggregateOpts::default()),
                         NullCount.bind(EmptyOptions),
                     ],
                 )

@@ -27,7 +27,12 @@ impl DynGroupedAggregateKernel for CountGroupedKernel {
         groups: &GroupedArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !aggregate_fn.is::<Count>() {
+        let Some(options) = aggregate_fn.as_opt::<Count>() else {
+            return Ok(None);
+        };
+        // NaN-skipping counts over floats must inspect the element values, which this
+        // validity-only kernel cannot do; fall back to the per-group accumulator path.
+        if options.skip_nans && groups.elements().dtype().is_float() {
             return Ok(None);
         }
         try_grouped_count(groups, ctx)
@@ -90,8 +95,8 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::DynGroupedAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::GroupedAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::count::Count;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListViewArray;
@@ -106,7 +111,11 @@ mod tests {
 
     /// Run a grouped count through the accumulator.
     fn grouped_count_actual(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut acc = GroupedAccumulator::try_new(Count, EmptyOptions, elem_dtype.clone())?;
+        let mut acc = GroupedAccumulator::try_new(
+            Count,
+            NumericalAggregateOpts::default(),
+            elem_dtype.clone(),
+        )?;
         acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
         acc.finish()
     }
@@ -196,6 +205,29 @@ mod tests {
 
         let direct = PrimitiveArray::new(buffer![1u64, 1, 1], Validity::NonNullable).into_array();
         assert_arrays_eq!(&actual, &direct);
+        assert_arrays_eq!(&actual, &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_size_counts_float_nans() -> VortexResult<()> {
+        let elements =
+            PrimitiveArray::from_option_iter([Some(1.0f64), Some(f64::NAN), None, Some(2.0)])
+                .into_array();
+        let elem_dtype = DType::Primitive(PType::F64, Nullable);
+        let groups =
+            FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 2)?.into_array();
+
+        // NaNs are excluded by default and counted otherwise.
+        let actual = grouped_count_actual(&groups, &elem_dtype)?;
+        let expected = PrimitiveArray::new(buffer![1u64, 1], Validity::NonNullable).into_array();
+        assert_arrays_eq!(&actual, &expected);
+
+        let mut acc =
+            GroupedAccumulator::try_new(Count, NumericalAggregateOpts::include_nans(), elem_dtype)?;
+        acc.accumulate_list(&groups, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let actual = acc.finish()?;
+        let expected = PrimitiveArray::new(buffer![2u64, 1], Validity::NonNullable).into_array();
         assert_arrays_eq!(&actual, &expected);
         Ok(())
     }

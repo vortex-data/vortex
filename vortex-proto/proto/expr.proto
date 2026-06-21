@@ -26,6 +26,12 @@ message AggregateFn {
   optional bytes metadata = 2;
 }
 
+// Options for numeric aggregate functions (`vortex.sum`, `vortex.min`, `vortex.max`),
+// controlling how NaN values in floating-point inputs are handled.
+message NumericalAggregateOpts {
+  bool skip_nans = 1;
+}
+
 // Options for `vortex.literal`
 message LiteralOpts {
   vortex.scalar.Scalar value = 1;

@@ -19,6 +19,13 @@ pub struct AggregateFn {
     #[prost(bytes = "vec", optional, tag = "2")]
     pub metadata: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
+/// Options for numeric aggregate functions (`vortex.sum`, `vortex.min`, `vortex.max`),
+/// controlling how NaN values in floating-point inputs are handled.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NumericalAggregateOpts {
+    #[prost(bool, tag = "1")]
+    pub skip_nans: bool,
+}
 /// Options for `vortex.literal`
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LiteralOpts {

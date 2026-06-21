@@ -12,6 +12,7 @@ use std::sync::LazyLock;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 
 use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
@@ -26,14 +27,17 @@ use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::half::f16;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::expr::stats::StatsProviderExt;
 use crate::partial_ord::partial_max;
 use crate::partial_ord::partial_min;
 use crate::scalar::Scalar;
@@ -42,9 +46,40 @@ static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "
 
 /// The minimum and maximum non-null values of an array, or `None` if there are no non-null values.
 ///
+/// NaN handling for float inputs is controlled by [`NumericalAggregateOpts`]: with `skip_nans` (the
+/// default) NaN values are ignored and the cached `Stat::Min`/`Stat::Max` statistics are consulted
+/// and updated. With `skip_nans=false`, any NaN value in a float array poisons both extrema to
+/// NaN; an exact `Stat::NaNCount` statistic shortcircuits the NaN scan in either direction.
+///
 /// The result scalars have the non-nullable version of the array dtype.
 /// This will update the stats set of the array as a side effect.
-pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<MinMaxResult>> {
+pub fn min_max(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+    options: NumericalAggregateOpts,
+) -> VortexResult<Option<MinMaxResult>> {
+    if !options.skip_nans && array.dtype().is_float() {
+        match array.statistics().get_as::<u64>(Stat::NaNCount) {
+            // NaN-free: identical to the NaN-skipping path below, including its stat caching.
+            Precision::Exact(0) => {}
+            // At least one NaN value poisons both extrema.
+            Precision::Exact(_) => return Ok(Some(nan_minmax_result(array.dtype()))),
+            _ => {
+                if array.is_empty() || array.valid_count(ctx)? == 0 {
+                    return Ok(None);
+                }
+                // Compute with NaN-including options; the NaN-skipping `Stat::Min`/`Stat::Max`
+                // caches are neither read nor written.
+                let mut acc = Accumulator::try_new(MinMax, options, array.dtype().clone())?;
+                acc.accumulate(array, ctx)?;
+                return MinMaxResult::from_scalar(acc.finish()?);
+            }
+        }
+    }
+
+    // NaN-skipping path. Also reached for NaN-free not-skipping float arrays and all non-float
+    // arrays, where `skip_nans` has no effect.
+
     // Short-circuit using cached array statistics.
     let cached_min = array.statistics().get(Stat::Min).as_exact();
     let cached_max = array.statistics().get(Stat::Max).as_exact();
@@ -67,7 +102,11 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
     }
 
     // Compute using Accumulator<MinMax>.
-    let mut acc = Accumulator::try_new(MinMax, EmptyOptions, array.dtype().clone())?;
+    let mut acc = Accumulator::try_new(
+        MinMax,
+        NumericalAggregateOpts::default(),
+        array.dtype().clone(),
+    )?;
     acc.accumulate(array, ctx)?;
     let result_scalar = acc.finish()?;
     let result = MinMaxResult::from_scalar(result_scalar)?;
@@ -87,6 +126,30 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
     }
 
     Ok(result)
+}
+
+/// A `{min: NaN, max: NaN}` result for a poisoned NaN-including min/max over `dtype`.
+fn nan_minmax_result(dtype: &DType) -> MinMaxResult {
+    let nan = nan_scalar(dtype);
+    MinMaxResult {
+        min: nan.clone(),
+        max: nan,
+    }
+}
+
+/// A non-nullable NaN scalar of the float `dtype`.
+pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
+    match dtype.as_ptype() {
+        PType::F16 => Scalar::primitive(f16::NAN, Nullability::NonNullable),
+        PType::F32 => Scalar::primitive(f32::NAN, Nullability::NonNullable),
+        PType::F64 => Scalar::primitive(f64::NAN, Nullability::NonNullable),
+        _ => vortex_panic!("NaN scalar requested for non-float dtype {dtype}"),
+    }
+}
+
+/// Whether a scalar holds a primitive float NaN value.
+pub(crate) fn scalar_is_nan(scalar: &Scalar) -> bool {
+    scalar.as_primitive_opt().is_some_and(|p| p.is_nan())
 }
 
 /// The minimum and maximum non-null values of an array.
@@ -119,6 +182,9 @@ impl MinMaxResult {
 ///
 /// Returns a nullable struct scalar `{min: T, max: T}` where `T` is the non-nullable input dtype.
 /// The struct is null when the array is empty or all-null.
+///
+/// NaN handling for float inputs is controlled by [`NumericalAggregateOpts`]: with `skip_nans` (the
+/// default) NaN values are ignored, otherwise any NaN value poisons both extrema to NaN.
 #[derive(Clone, Debug)]
 pub struct MinMax;
 
@@ -127,6 +193,7 @@ pub struct MinMaxPartial {
     min: Option<Scalar>,
     max: Option<Scalar>,
     element_dtype: DType,
+    skip_nans: bool,
 }
 
 impl MinMaxPartial {
@@ -135,6 +202,16 @@ impl MinMaxPartial {
         let Some(MinMaxResult { min, max }) = local else {
             return;
         };
+
+        // NaN scalars are incomparable under `partial_min`/`partial_max`, so they are handled
+        // explicitly: a NaN extremum poisons the partial state when NaNs participate, and is
+        // dropped when they are skipped.
+        if scalar_is_nan(&min) || scalar_is_nan(&max) || self.is_poisoned() {
+            if !self.skip_nans {
+                self.poison();
+            }
+            return;
+        }
 
         self.min = Some(match self.min.take() {
             Some(current) => partial_min(min, current).vortex_expect("incomparable min scalars"),
@@ -145,6 +222,18 @@ impl MinMaxPartial {
             Some(current) => partial_max(max, current).vortex_expect("incomparable max scalars"),
             None => max,
         });
+    }
+
+    /// Poison the partial state to `{min: NaN, max: NaN}`.
+    fn poison(&mut self) {
+        let nan = nan_scalar(&self.element_dtype);
+        self.min = Some(nan.clone());
+        self.max = Some(nan);
+    }
+
+    /// Whether the partial state is poisoned to NaN.
+    fn is_poisoned(&self) -> bool {
+        self.min.as_ref().is_some_and(scalar_is_nan)
     }
 }
 
@@ -194,7 +283,7 @@ fn minmax_compute_supported_dtype(input_dtype: &DType) -> bool {
 }
 
 impl AggregateFnVTable for MinMax {
-    type Options = EmptyOptions;
+    type Options = NumericalAggregateOpts;
     type Partial = MinMaxPartial;
 
     fn id(&self) -> AggregateFnId {
@@ -215,13 +304,14 @@ impl AggregateFnVTable for MinMax {
 
     fn empty_partial(
         &self,
-        _options: &Self::Options,
+        options: &Self::Options,
         input_dtype: &DType,
     ) -> VortexResult<Self::Partial> {
         Ok(MinMaxPartial {
             min: None,
             max: None,
             element_dtype: input_dtype.clone(),
+            skip_nans: options.skip_nans,
         })
     }
 
@@ -245,8 +335,46 @@ impl AggregateFnVTable for MinMax {
     }
 
     #[inline]
-    fn is_saturated(&self, _partial: &Self::Partial) -> bool {
-        false
+    fn is_saturated(&self, partial: &Self::Partial) -> bool {
+        // A poisoned NaN-including min/max is fully determined.
+        partial.is_poisoned()
+    }
+
+    fn try_accumulate(
+        &self,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        // NaN-aware shortcircuits only apply to NaN-including float min/max; everything else
+        // takes the default dispatch path.
+        if partial.skip_nans || !partial.element_dtype.is_float() {
+            return Ok(false);
+        }
+        match batch.statistics().get_as::<u64>(Stat::NaNCount) {
+            Precision::Exact(0) => {
+                // NaN-free batch: the cached NaN-skipping extrema (if any) are valid.
+                let cached_min = batch.statistics().get(Stat::Min).as_exact();
+                let cached_max = batch.statistics().get(Stat::Max).as_exact();
+                if let Some((min, max)) = cached_min.zip(cached_max) {
+                    // Cached float stats carry the (possibly nullable) array dtype; `to_scalar`
+                    // builds a struct with non-nullable fields, so normalise here.
+                    let non_nullable_dtype = partial.element_dtype.as_nonnullable();
+                    partial.merge(Some(MinMaxResult {
+                        min: min.cast(&non_nullable_dtype)?,
+                        max: max.cast(&non_nullable_dtype)?,
+                    }));
+                    return Ok(true);
+                }
+                Ok(false)
+            }
+            Precision::Exact(_) => {
+                // At least one NaN value poisons both extrema without scanning the batch.
+                partial.poison();
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
 
     fn accumulate(
@@ -261,8 +389,11 @@ impl AggregateFnVTable for MinMax {
                 if scalar.is_null() {
                     return Ok(());
                 }
-                // Skip NaN float constants
-                if scalar.as_primitive_opt().is_some_and(|p| p.is_nan()) {
+                // NaN float constants are skipped or poison the extrema, per the options.
+                if scalar_is_nan(scalar) {
+                    if !partial.skip_nans {
+                        partial.poison();
+                    }
                     return Ok(());
                 }
                 let non_nullable_dtype = scalar.dtype().as_nonnullable();
@@ -302,19 +433,20 @@ impl AggregateFnVTable for MinMax {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray as _;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::min_max::MinMax;
     use crate::aggregate_fn::fns::min_max::MinMaxResult;
     use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
@@ -332,17 +464,21 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+
     #[test]
     fn test_prim_min_max() -> VortexResult<()> {
         let p = PrimitiveArray::new(buffer![1, 2, 3], Validity::NonNullable).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
-            min_max(&p, &mut ctx)?,
+            min_max(&p, &mut ctx, NumericalAggregateOpts::default())?,
             Some(MinMaxResult {
                 min: 1.into(),
                 max: 3.into()
@@ -366,9 +502,9 @@ mod tests {
             Some(7),
         ])
         .into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(
-            min_max(&p, &mut ctx)?,
+            min_max(&p, &mut ctx, NumericalAggregateOpts::default())?,
             Some(MinMaxResult {
                 min: 1.into(),
                 max: 9.into()
@@ -379,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_bool_min_max() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let all_true = BoolArray::new(
             BitBuffer::from([true, true, true].as_slice()),
@@ -387,7 +523,7 @@ mod tests {
         )
         .into_array();
         assert_eq!(
-            min_max(&all_true, &mut ctx)?,
+            min_max(&all_true, &mut ctx, NumericalAggregateOpts::default())?,
             Some(MinMaxResult {
                 min: true.into(),
                 max: true.into()
@@ -400,7 +536,7 @@ mod tests {
         )
         .into_array();
         assert_eq!(
-            min_max(&all_false, &mut ctx)?,
+            min_max(&all_false, &mut ctx, NumericalAggregateOpts::default())?,
             Some(MinMaxResult {
                 min: false.into(),
                 max: false.into()
@@ -413,7 +549,7 @@ mod tests {
         )
         .into_array();
         assert_eq!(
-            min_max(&mixed, &mut ctx)?,
+            min_max(&mixed, &mut ctx, NumericalAggregateOpts::default())?,
             Some(MinMaxResult {
                 min: false.into(),
                 max: true.into()
@@ -425,8 +561,11 @@ mod tests {
     #[test]
     fn test_null_array() -> VortexResult<()> {
         let p = NullArray::new(1).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(min_max(&p, &mut ctx)?, None);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(
+            min_max(&p, &mut ctx, NumericalAggregateOpts::default())?,
+            None
+        );
         Ok(())
     }
 
@@ -436,8 +575,13 @@ mod tests {
             buffer![f32::NAN, -f32::NAN, -1.0, 1.0],
             Validity::NonNullable,
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max(&array.into_array(), &mut ctx)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(
+            &array.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("should have result");
         assert_eq!(f32::try_from(&result.min)?, -1.0);
         assert_eq!(f32::try_from(&result.max)?, 1.0);
         Ok(())
@@ -449,8 +593,13 @@ mod tests {
             buffer![f32::INFINITY, f32::NEG_INFINITY, -1.0, 1.0],
             Validity::NonNullable,
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max(&array.into_array(), &mut ctx)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(
+            &array.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("should have result");
         assert_eq!(f32::try_from(&result.min)?, f32::NEG_INFINITY);
         assert_eq!(f32::try_from(&result.max)?, f32::INFINITY);
         Ok(())
@@ -458,9 +607,9 @@ mod tests {
 
     #[test]
     fn test_multi_batch() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(MinMax, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(MinMax, NumericalAggregateOpts::default(), dtype)?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20, 5], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -476,9 +625,9 @@ mod tests {
 
     #[test]
     fn test_finish_resets_state() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(MinMax, EmptyOptions, dtype)?;
+        let mut acc = Accumulator::try_new(MinMax, NumericalAggregateOpts::default(), dtype)?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -497,7 +646,7 @@ mod tests {
     #[test]
     fn test_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = MinMax.empty_partial(&EmptyOptions, &dtype)?;
+        let mut state = MinMax.empty_partial(&NumericalAggregateOpts::default(), &dtype)?;
 
         let struct_dtype = make_minmax_dtype(&dtype);
         let scalar1 = Scalar::struct_(
@@ -520,9 +669,128 @@ mod tests {
     fn test_constant_nan() -> VortexResult<()> {
         let scalar = Scalar::primitive(f16::NAN, Nullability::NonNullable);
         let array = ConstantArray::new(scalar, 2).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(min_max(&array, &mut ctx)?, None);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(
+            min_max(&array, &mut ctx, NumericalAggregateOpts::default())?,
+            None
+        );
         Ok(())
+    }
+
+    const KEEP_NANS: NumericalAggregateOpts = NumericalAggregateOpts::include_nans();
+
+    fn assert_poisoned(result: Option<MinMaxResult>) -> VortexResult<()> {
+        let result = result.vortex_expect("should have result");
+        assert!(f64::try_from(&result.min.cast(&result.min.dtype().as_nullable())?)?.is_nan());
+        assert!(f64::try_from(&result.max.cast(&result.max.dtype().as_nullable())?)?.is_nan());
+        Ok(())
+    }
+
+    #[test]
+    fn test_prim_nan_not_skipping() -> VortexResult<()> {
+        let array = PrimitiveArray::new(
+            buffer![f32::NAN, -f32::NAN, -1.0, 1.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_poisoned(min_max(&array, &mut ctx, KEEP_NANS)?)
+    }
+
+    #[test]
+    fn test_prim_no_nan_not_skipping() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::new(buffer![3.0f32, -1.0, 1.0], Validity::NonNullable).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
+        assert_eq!(f32::try_from(&result.min)?, -1.0);
+        assert_eq!(f32::try_from(&result.max)?, 3.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_constant_nan_not_skipping() -> VortexResult<()> {
+        let scalar = Scalar::primitive(f64::NAN, Nullability::NonNullable);
+        let array = ConstantArray::new(scalar, 2).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_poisoned(min_max(&array, &mut ctx, KEEP_NANS)?)
+    }
+
+    #[test]
+    fn test_not_skipping_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> {
+        // The array has no NaNs; a planted exact NaNCount stat proves the poisoning came from
+        // the stat rather than a scan.
+        let array =
+            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(2u64)));
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_poisoned(min_max(&array, &mut ctx, KEEP_NANS)?)
+    }
+
+    #[test]
+    fn test_not_skipping_uses_cached_stats_when_nan_free() -> VortexResult<()> {
+        // With an exact NaNCount of zero, the planted exact Min/Max stats are usable as-is.
+        let array =
+            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
+        array
+            .statistics()
+            .set(Stat::Min, Precision::Exact(ScalarValue::from(-10.0f64)));
+        array
+            .statistics()
+            .set(Stat::Max, Precision::Exact(ScalarValue::from(10.0f64)));
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(&array, &mut ctx, KEEP_NANS)?.vortex_expect("should have result");
+        assert_eq!(f64::try_from(&result.min)?, -10.0);
+        assert_eq!(f64::try_from(&result.max)?, 10.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_accumulator_nan_including_nullable_cached_stats() -> VortexResult<()> {
+        // A nullable float array's cached Min/Max stats are reconstructed as nullable scalars.
+        // The NaN-including accumulator shortcircuit must normalise them to the non-nullable
+        // struct field dtype before building the result scalar.
+        let mut ctx = SESSION.create_execution_ctx();
+        let array =
+            PrimitiveArray::from_option_iter([Some(1.0f64), Some(2.0), Some(3.0)]).into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
+        array
+            .statistics()
+            .set(Stat::Min, Precision::Exact(ScalarValue::from(1.0f64)));
+        array
+            .statistics()
+            .set(Stat::Max, Precision::Exact(ScalarValue::from(3.0f64)));
+
+        let mut acc = Accumulator::try_new(MinMax, KEEP_NANS, array.dtype().clone())?;
+        acc.accumulate(&array, &mut ctx)?;
+        let result = MinMaxResult::from_scalar(acc.finish()?)?.vortex_expect("should have result");
+        assert_eq!(f64::try_from(&result.min)?, 1.0);
+        assert_eq!(f64::try_from(&result.max)?, 3.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_multi_batch_nan_poisoning() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let mut acc = Accumulator::try_new(MinMax, KEEP_NANS, dtype)?;
+
+        let batch1 = PrimitiveArray::new(buffer![1.0f64, 2.0], Validity::NonNullable).into_array();
+        acc.accumulate(&batch1, &mut ctx)?;
+        assert!(!acc.is_saturated());
+
+        let batch2 = PrimitiveArray::new(buffer![f64::NAN], Validity::NonNullable).into_array();
+        acc.accumulate(&batch2, &mut ctx)?;
+        assert!(acc.is_saturated());
+
+        assert_poisoned(MinMaxResult::from_scalar(acc.finish()?)?)
     }
 
     #[test]
@@ -531,8 +799,13 @@ mod tests {
         let chunk2 = PrimitiveArray::from_option_iter([Some(10i32), Some(3), None]);
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max(&chunked.into_array(), &mut ctx)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(
+            &chunked.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("should have result");
         assert_eq!(result.min, Scalar::from(1i32));
         assert_eq!(result.max, Scalar::from(10i32));
         Ok(())
@@ -541,8 +814,11 @@ mod tests {
     #[test]
     fn test_all_null() -> VortexResult<()> {
         let p = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]);
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(min_max(&p.into_array(), &mut ctx)?, None);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(
+            min_max(&p.into_array(), &mut ctx, NumericalAggregateOpts::default())?,
+            None
+        );
         Ok(())
     }
 
@@ -557,8 +833,13 @@ mod tests {
             ],
             DType::Utf8(Nullability::Nullable),
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max(&array.into_array(), &mut ctx)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(
+            &array.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("should have result");
         assert_eq!(
             result.min,
             Scalar::utf8("hello world", Nullability::NonNullable)
@@ -580,8 +861,13 @@ mod tests {
             DecimalDType::new(4, 2),
             Validity::from_iter([true, false, true]),
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let result = min_max(&decimal.into_array(), &mut ctx)?.vortex_expect("should have result");
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = min_max(
+            &decimal.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )?
+        .vortex_expect("should have result");
 
         let non_nullable_dtype = DType::Decimal(DecimalDType::new(4, 2), Nullability::NonNullable);
         let expected_min = Scalar::try_new(
@@ -605,18 +891,18 @@ mod tests {
             DType::FixedSizeList(Arc::new(element_dtype), 1, Nullability::Nullable);
 
         assert_eq!(
-            MinMax.return_dtype(&EmptyOptions, &list_dtype),
+            MinMax.return_dtype(&NumericalAggregateOpts::default(), &list_dtype),
             Some(make_minmax_dtype(&list_dtype))
         );
         assert_eq!(
-            MinMax.return_dtype(&EmptyOptions, &fixed_size_list_dtype),
+            MinMax.return_dtype(&NumericalAggregateOpts::default(), &fixed_size_list_dtype),
             Some(make_minmax_dtype(&fixed_size_list_dtype))
         );
     }
 
     #[test]
     fn list_and_fixed_size_list_min_max_returns_none() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let list_array = ListArray::try_new(
             buffer![1i32, 2, 3].into_array(),
@@ -624,7 +910,10 @@ mod tests {
             Validity::NonNullable,
         )?
         .into_array();
-        assert_eq!(min_max(&list_array, &mut ctx)?, None);
+        assert_eq!(
+            min_max(&list_array, &mut ctx, NumericalAggregateOpts::default())?,
+            None
+        );
 
         let fixed_size_list_array = FixedSizeListArray::try_new(
             buffer![1i32, 2, 3, 4].into_array(),
@@ -633,7 +922,14 @@ mod tests {
             2,
         )?
         .into_array();
-        assert_eq!(min_max(&fixed_size_list_array, &mut ctx)?, None);
+        assert_eq!(
+            min_max(
+                &fixed_size_list_array,
+                &mut ctx,
+                NumericalAggregateOpts::default()
+            )?,
+            None
+        );
 
         Ok(())
     }
@@ -642,11 +938,12 @@ mod tests {
 
     #[test]
     fn test_bool_with_nulls() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let result = min_max(
             &BoolArray::from_iter(vec![Some(true), Some(true), None, None]).into_array(),
             &mut ctx,
+            NumericalAggregateOpts::default(),
         )?;
         assert_eq!(
             result,
@@ -659,6 +956,7 @@ mod tests {
         let result = min_max(
             &BoolArray::from_iter(vec![None, Some(true), Some(true)]).into_array(),
             &mut ctx,
+            NumericalAggregateOpts::default(),
         )?;
         assert_eq!(
             result,
@@ -671,6 +969,7 @@ mod tests {
         let result = min_max(
             &BoolArray::from_iter(vec![None, Some(true), Some(true), None]).into_array(),
             &mut ctx,
+            NumericalAggregateOpts::default(),
         )?;
         assert_eq!(
             result,
@@ -683,6 +982,7 @@ mod tests {
         let result = min_max(
             &BoolArray::from_iter(vec![Some(false), Some(false), None, None]).into_array(),
             &mut ctx,
+            NumericalAggregateOpts::default(),
         )?;
         assert_eq!(
             result,
@@ -701,7 +1001,7 @@ mod tests {
     /// partial state.
     #[test]
     fn test_bool_chunked_with_empty_chunk() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let empty = BoolArray::new(BitBuffer::from([].as_slice()), Validity::NonNullable);
         let chunk1 = BoolArray::new(
@@ -717,7 +1017,11 @@ mod tests {
             DType::Bool(Nullability::NonNullable),
         )?;
 
-        let result = min_max(&chunked.into_array(), &mut ctx)?;
+        let result = min_max(
+            &chunked.into_array(),
+            &mut ctx,
+            NumericalAggregateOpts::default(),
+        )?;
         assert_eq!(
             result,
             Some(MinMaxResult {
@@ -736,7 +1040,7 @@ mod tests {
     /// running min/max. Empty chunks are now skipped during chunked aggregation.
     #[test]
     fn test_chunked_with_empty_constant_chunk() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let empty = ConstantArray::new(Scalar::primitive(u32::MAX, Nullability::NonNullable), 0)
             .into_array();
@@ -748,7 +1052,11 @@ mod tests {
         )?;
 
         assert_eq!(
-            min_max(&chunked.into_array(), &mut ctx)?,
+            min_max(
+                &chunked.into_array(),
+                &mut ctx,
+                NumericalAggregateOpts::default()
+            )?,
             Some(MinMaxResult {
                 min: Scalar::primitive(0u32, Nullability::NonNullable),
                 max: Scalar::primitive(7631471u32, Nullability::NonNullable),
@@ -763,8 +1071,15 @@ mod tests {
             vec![Option::<&str>::None, None, None],
             DType::Utf8(Nullability::Nullable),
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(min_max(&array.into_array(), &mut ctx)?, None);
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(
+            min_max(
+                &array.into_array(),
+                &mut ctx,
+                NumericalAggregateOpts::default()
+            )?,
+            None
+        );
         Ok(())
     }
 }
