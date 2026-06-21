@@ -103,6 +103,8 @@ pub(crate) struct VortexOpener {
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Shared full-file natural split ranges keyed by file path.
     pub natural_split_ranges: Arc<DashMap<Path, Arc<[Range<u64>]>>>,
+    /// Shared V2 file handles keyed by file path.
+    pub vortex_files: Arc<DashMap<Path, Arc<VortexFile>>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
 
@@ -139,6 +141,7 @@ impl FileOpener for VortexOpener {
         let limit = self.limit;
         let layout_readers = Arc::clone(&self.layout_readers);
         let natural_split_ranges = Arc::clone(&self.natural_split_ranges);
+        let vortex_files = Arc::clone(&self.vortex_files);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
 
@@ -216,10 +219,24 @@ impl FileOpener for VortexOpener {
                 open_opts = open_opts.with_footer(footer);
             }
 
-            let vxf = open_opts
-                .open_read(reader)
-                .await
-                .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
+            let vxf = if let Some(hit) = vortex_files.get(&file.object_meta.location) {
+                Arc::clone(hit.value())
+            } else {
+                let opened = Arc::new(
+                    open_opts
+                        .open_read(reader)
+                        .await
+                        .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?,
+                );
+
+                match vortex_files.entry(file.object_meta.location.clone()) {
+                    Entry::Occupied(entry) => Arc::clone(entry.get()),
+                    Entry::Vacant(entry) => {
+                        entry.insert(Arc::clone(&opened));
+                        opened
+                    }
+                }
+            };
 
             // On a miss, cache the parsed footer so other partitions and later executions
             // skip the footer fetch and parse. `infer_schema`/`infer_stats` also populate
@@ -915,6 +932,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            vortex_files: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1111,6 +1129,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            vortex_files: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1199,6 +1218,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            vortex_files: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1357,6 +1377,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            vortex_files: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1418,6 +1439,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            vortex_files: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1628,6 +1650,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            vortex_files: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,

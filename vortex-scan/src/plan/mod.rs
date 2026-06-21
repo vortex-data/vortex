@@ -1242,6 +1242,20 @@ impl PreparedRead for MaskPreparedRead {
         })
     }
 
+    fn segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let mut requests = self.input.segment_requests(range.clone(), rows, cx)?;
+        if requests.is_unknown() {
+            return Ok(requests);
+        }
+        requests.extend(self.validity.segment_requests(range, rows, cx)?);
+        Ok(requests)
+    }
+
     fn release(&self, frontier: u64) -> VortexResult<()> {
         self.input.release(frontier)?;
         self.validity.release(frontier)

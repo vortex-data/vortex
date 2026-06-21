@@ -1089,8 +1089,9 @@ impl<T: Send + 'static> Work<T> {
     ) -> Self {
         let known_bytes = registered.bytes();
         let future = async move {
-            let _registered = registered;
-            future.await
+            let result = future.await;
+            drop(registered);
+            result
         }
         .boxed();
         Self {
@@ -1862,7 +1863,7 @@ impl PreparedScanPlanFile {
             },
         );
         let scheduled_segment_source = Arc::clone(&registered_source.source);
-        let segment_future_cache = Arc::new(SegmentFutureCache::new());
+        let segment_future_cache = file.scan_plan_segment_future_cache();
         let reader = FileReader::new(
             Arc::new(ScheduledSegmentSourceReader::new(
                 segment_source_id,
@@ -1872,7 +1873,8 @@ impl PreparedScanPlanFile {
             session.clone(),
         );
 
-        let mut prepare_ctx = PrepareCtx::new(session.clone());
+        let mut prepare_ctx =
+            PrepareCtx::with_state_cache(session.clone(), file.scan_plan_state_cache());
         let projection_pushed = push_expr(&root, &projection, file.dtype(), &session)?;
         let mut split_hints = Vec::new();
         extend_split_hints(&projection_pushed, &mut split_hints);

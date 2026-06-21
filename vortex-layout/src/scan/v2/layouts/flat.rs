@@ -13,6 +13,7 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
@@ -21,6 +22,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::SliceArray;
 use vortex_array::expr::Expression;
 use vortex_array::serde::SerializedArray;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -44,6 +46,7 @@ use vortex_session::VortexSession;
 use crate::layout_v2::Flat;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
+use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
@@ -63,17 +66,36 @@ pub struct FlatScanPlan {
     layout: LayoutRef,
 }
 
-/// Per-query cache of the parsed (still lazy) array. Concurrent decodes
-/// are benign: the segment fetch is deduplicated by the shared segment
-/// source, and last-write-wins on the parsed array.
+/// Per-query cache of the parsed (still lazy) array.
 #[derive(Default)]
 pub struct FlatScanState {
-    array: Mutex<Option<ArrayRef>>,
+    array: Mutex<Option<SharedArrayFuture>>,
 }
 
 struct FlatPreparedRead {
     node: Arc<FlatScanPlan>,
     state: Arc<FlatScanState>,
+}
+
+impl FlatScanPlan {
+    fn array(&self, io: &FileReader, state: &FlatScanState) -> SharedArrayFuture {
+        if let Some(hit) = state.array.lock().clone() {
+            return hit;
+        }
+
+        let mut guard = state.array.lock();
+        if let Some(hit) = guard.clone() {
+            return hit;
+        }
+
+        let layout = self.layout.clone();
+        let io = io.clone();
+        let future = async move { decode_flat(&layout, &io).await.map_err(Arc::new) }
+            .boxed()
+            .shared();
+        *guard = Some(future.clone());
+        future
+    }
 }
 
 impl ScanPlan for FlatScanPlan {
@@ -90,7 +112,10 @@ impl ScanPlan for FlatScanPlan {
     }
 
     fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
-        let key = PreparedStateKey::new::<FlatScanState>(Arc::as_ptr(&self) as *const () as usize);
+        let flat = self.layout.as_opt::<Flat>().ok_or_else(|| {
+            vortex_err!("expected flat layout, got {}", self.layout.encoding_id())
+        })?;
+        let key = PreparedStateKey::new::<FlatScanState>(*flat.data().segment_id() as usize);
         let state = cx.shared_state(key, || Ok(FlatScanState::default()))?;
         Ok(Some(Arc::new(FlatPreparedRead { node: self, state })))
     }
@@ -120,13 +145,11 @@ impl PreparedRead for FlatPreparedRead {
         _local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
-            let array = if let Some(hit) = self.state.array.lock().clone() {
-                hit
-            } else {
-                let decoded = decode_flat(&self.node.layout, io).await?;
-                *self.state.array.lock() = Some(decoded.clone());
-                decoded
-            };
+            let array = self
+                .node
+                .array(io, &self.state)
+                .await
+                .map_err(VortexError::from)?;
             let dense = slice_to_range(array, &range)?;
             if rows.selection.len() != dense.len() {
                 vortex_bail!(

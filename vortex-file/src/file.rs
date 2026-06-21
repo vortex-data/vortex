@@ -30,7 +30,10 @@ use vortex_layout::segments::SegmentInfo;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_scan::ScanRequest;
+use vortex_scan::plan::PreparedStateCache;
+use vortex_scan::plan::PreparedStateCacheRef;
 use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::segments::SegmentFutureCache;
 use vortex_session::VortexSession;
 
 use crate::FileStatistics;
@@ -58,6 +61,10 @@ pub struct VortexFile {
     layout_reader_cache: Option<OnceLock<Arc<dyn LayoutReader>>>,
     /// Shared cache for the v2 physical scan plan root.
     scan_plan_root_cache: Arc<OnceLock<ScanPlanRef>>,
+    /// Shared cache for v2 prepared state across row-range scans of this file.
+    scan_plan_state_cache: PreparedStateCacheRef,
+    /// Shared cache for v2 in-flight segment futures across row-range scans of this file.
+    scan_plan_segment_future_cache: Arc<SegmentFutureCache>,
 }
 
 fn layout_reader(
@@ -104,6 +111,8 @@ impl VortexFile {
             session,
             layout_reader_cache: None,
             scan_plan_root_cache: Arc::new(OnceLock::new()),
+            scan_plan_state_cache: Arc::new(PreparedStateCache::default()),
+            scan_plan_segment_future_cache: Arc::new(SegmentFutureCache::new()),
         }
     }
 
@@ -116,6 +125,8 @@ impl VortexFile {
             session: self.session,
             layout_reader_cache: Some(OnceLock::new()),
             scan_plan_root_cache: self.scan_plan_root_cache,
+            scan_plan_state_cache: self.scan_plan_state_cache,
+            scan_plan_segment_future_cache: self.scan_plan_segment_future_cache,
         }
     }
 
@@ -201,6 +212,14 @@ impl VortexFile {
             return Ok(Arc::clone(root));
         }
         Ok(root)
+    }
+
+    pub(crate) fn scan_plan_state_cache(&self) -> PreparedStateCacheRef {
+        Arc::clone(&self.scan_plan_state_cache)
+    }
+
+    pub(crate) fn scan_plan_segment_future_cache(&self) -> Arc<SegmentFutureCache> {
+        Arc::clone(&self.scan_plan_segment_future_cache)
     }
 
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.
