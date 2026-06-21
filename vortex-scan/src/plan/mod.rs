@@ -31,13 +31,21 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::FieldPath;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
+use vortex_array::expr::get_item;
 use vortex_array::expr::is_root;
+use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -393,17 +401,30 @@ pub trait ScanPlan: 'static + Send + Sync {
         Ok(None)
     }
 
-    /// Prepare metadata statistics for this plan's root value.
+    /// Prepare metadata statistics for a field path rooted at this plan's root value.
     ///
-    /// The returned handle answers the requested aggregate functions positionally over runtime row
-    /// ranges using metadata only. `None` means this plan cannot answer these functions from
-    /// metadata.
-    fn prepare_stats(
+    /// The root path means statistics for this plan's root value. Non-root field paths default to
+    /// expression pushdown followed by preparing stats for the pushed root value. The returned
+    /// handle answers the requested aggregate functions positionally over runtime row ranges using
+    /// metadata only. `None` means this plan cannot answer these functions from metadata.
+    fn prepare_field_stats(
         self: Arc<Self>,
-        _funcs: &[AggregateFnRef],
-        _cx: &mut PrepareCtx,
+        field_path: &FieldPath,
+        funcs: &[AggregateFnRef],
+        cx: &mut PrepareCtx,
     ) -> VortexResult<Option<PreparedStatsRef>> {
-        Ok(None)
+        if field_path.is_root() {
+            return Ok(None);
+        }
+        let Some(expr) = field_path_expr(field_path) else {
+            return Ok(None);
+        };
+        let Some(pushed) =
+            Arc::clone(&self).try_push_expr(&expr, &mut PushCtx::new(cx.session().clone()))?
+        else {
+            return Ok(None);
+        };
+        pushed.prepare_field_stats(&FieldPath::root(), funcs, cx)
     }
 
     /// Preferred morsel boundaries (chunk edges), for alignment hints.
@@ -435,6 +456,184 @@ pub fn default_try_push_expr(
     }
 }
 
+/// Return a scan plan for a scalar literal expression.
+pub fn literal_scan_plan(expr: &Expression, row_count: u64) -> Option<ScanPlanRef> {
+    let Some(scalar) = expr.as_opt::<Literal>() else {
+        return None;
+    };
+    Some(Arc::new(LiteralScanPlan::new(scalar.clone(), row_count)) as ScanPlanRef)
+}
+
+fn field_path_expr(field_path: &FieldPath) -> Option<Expression> {
+    let mut expr = root();
+    for field in field_path.parts() {
+        let Field::Name(name) = field else {
+            return None;
+        };
+        expr = get_item(name.clone(), expr);
+    }
+    Some(expr)
+}
+
+/// Virtual plan that reads a scalar literal in any row domain.
+pub struct LiteralScanPlan {
+    scalar: Scalar,
+    row_count: u64,
+}
+
+impl LiteralScanPlan {
+    /// Create a plan that produces `scalar` for every selected row.
+    pub fn new(scalar: Scalar, row_count: u64) -> Self {
+        Self { scalar, row_count }
+    }
+}
+
+struct LiteralPreparedRead {
+    scalar: Scalar,
+    row_count: u64,
+}
+
+struct LiteralPreparedStats {
+    scalar: Scalar,
+    row_count: u64,
+    funcs: Vec<AggregateFnRef>,
+}
+
+impl ScanPlan for LiteralScanPlan {
+    fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(()))
+    }
+
+    fn try_push_expr(
+        self: Arc<Self>,
+        expr: &Expression,
+        _cx: &mut PushCtx,
+    ) -> VortexResult<Option<ScanPlanRef>> {
+        if let Some(literal) = literal_scan_plan(expr, self.row_count) {
+            return Ok(Some(literal));
+        }
+        default_try_push_expr(self, expr)
+    }
+
+    fn prepare_read(
+        self: Arc<Self>,
+        _cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedReadRef>> {
+        Ok(Some(Arc::new(LiteralPreparedRead {
+            scalar: self.scalar.clone(),
+            row_count: self.row_count,
+        })))
+    }
+
+    fn prepare_field_stats(
+        self: Arc<Self>,
+        field_path: &FieldPath,
+        funcs: &[AggregateFnRef],
+        _cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedStatsRef>> {
+        if !field_path.is_root() {
+            return Ok(None);
+        }
+        Ok(Some(Arc::new(LiteralPreparedStats {
+            scalar: self.scalar.clone(),
+            row_count: self.row_count,
+            funcs: funcs.to_vec(),
+        })))
+    }
+
+    fn fmt_chain(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "literal({}, rows={})", self.scalar, self.row_count)
+    }
+}
+
+impl PreparedRead for LiteralPreparedRead {
+    fn read_scoped<'a>(
+        &'a self,
+        range: Range<u64>,
+        rows: RowScope<'a>,
+        _io: &'a FileReader,
+        _local: &'a mut ExecutionCtx,
+    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
+        Box::pin(async move {
+            check_scan_range(&range, self.row_count)?;
+            Ok(ConstantArray::new(self.scalar.clone(), rows.selection.true_count()).into_array())
+        })
+    }
+
+    fn segment_requests(
+        &self,
+        _range: Range<u64>,
+        _rows: RowScope<'_>,
+        _cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        Ok(SegmentRequests::none())
+    }
+
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "literal")
+    }
+}
+
+impl PreparedStats for LiteralPreparedStats {
+    fn init_state(&self, _ctx: &VortexSession) -> VortexResult<ScanStateRef> {
+        Ok(Arc::new(()))
+    }
+
+    fn stats<'a>(
+        &'a self,
+        range: Range<u64>,
+        _io: &'a FileReader,
+        _state: &'a ScanState,
+    ) -> BoxFuture<'a, VortexResult<Vec<Precision<Scalar>>>> {
+        Box::pin(async move {
+            check_scan_range(&range, self.row_count)?;
+            self.funcs
+                .iter()
+                .map(|func| self.stat_for_func(func, range.end - range.start))
+                .collect()
+        })
+    }
+
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "literal_stats")
+    }
+}
+
+impl LiteralPreparedStats {
+    fn stat_for_func(&self, func: &AggregateFnRef, len: u64) -> VortexResult<Precision<Scalar>> {
+        let Some(stat) = Stat::from_aggregate_fn(func) else {
+            return Ok(Precision::Absent);
+        };
+        let Some(dtype) = func.return_dtype(self.scalar.dtype()) else {
+            return Ok(Precision::Absent);
+        };
+        let value = match stat {
+            Stat::Min | Stat::Max => {
+                if len == 0 {
+                    return Ok(Precision::Absent);
+                }
+                if self.scalar.value().is_some() {
+                    self.scalar.cast(&dtype)?
+                } else if dtype.is_nullable() {
+                    Scalar::null(dtype)
+                } else {
+                    return Ok(Precision::Absent);
+                }
+            }
+            Stat::NullCount => Scalar::primitive(
+                if self.scalar.value().is_none() {
+                    len
+                } else {
+                    0
+                },
+                Nullability::NonNullable,
+            ),
+            _ => return Ok(Precision::Absent),
+        };
+        Ok(Precision::exact(value))
+    }
+}
+
 /// Read every row in `range` through a prepared read.
 pub fn read_dense<'a>(
     read: &'a PreparedReadRef,
@@ -456,6 +655,17 @@ fn range_len(range: &Range<u64>) -> VortexResult<usize> {
         .checked_sub(range.start)
         .ok_or_else(|| vortex_err!("read range end is before start: {range:?}"))?;
     usize::try_from(len).map_err(|_| vortex_err!("read range exceeds usize"))
+}
+
+fn check_scan_range(range: &Range<u64>, row_count: u64) -> VortexResult<()> {
+    if range.start > range.end || range.end > row_count {
+        vortex_bail!(
+            "scan row range {:?} is out of bounds for row count {}",
+            range,
+            row_count
+        );
+    }
+    range_len(range).map(|_| ())
 }
 
 /// Prepared value read for one pushed expression.
@@ -645,9 +855,9 @@ pub trait PreparedStats: 'static + Send + Sync {
     /// Answer aggregate-function statistics over every row of `range`.
     ///
     /// The returned vector is positional against the functions passed to
-    /// [`ScanPlan::prepare_stats`]. Each element is exact, inexact, or absent for the requested
-    /// aggregate function over `range`. Implementations must not read row values merely to improve
-    /// an estimate.
+    /// [`ScanPlan::prepare_field_stats`]. Each element is exact, inexact, or absent for the
+    /// requested aggregate function over `range`. Implementations must not read row values merely
+    /// to improve an estimate.
     fn stats<'a>(
         &'a self,
         range: Range<u64>,
@@ -1132,8 +1342,10 @@ mod tests {
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
+    use vortex_array::arrays::Constant;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::dtype::Nullability;
+    use vortex_array::expr::lit;
     use vortex_buffer::ByteBuffer;
 
     use super::*;
@@ -1158,6 +1370,9 @@ mod tests {
             expr: &Expression,
             _cx: &mut PushCtx,
         ) -> VortexResult<Option<ScanPlanRef>> {
+            if let Some(literal) = literal_scan_plan(expr, 20) {
+                return Ok(Some(literal));
+            }
             default_try_push_expr(self, expr)
         }
 
@@ -1168,11 +1383,15 @@ mod tests {
             Ok(None)
         }
 
-        fn prepare_stats(
+        fn prepare_field_stats(
             self: Arc<Self>,
+            field_path: &FieldPath,
             funcs: &[AggregateFnRef],
             _cx: &mut PrepareCtx,
         ) -> VortexResult<Option<PreparedStatsRef>> {
+            if !field_path.is_root() {
+                return Ok(None);
+            }
             Ok(Some(Arc::new(TestPreparedStats { len: funcs.len() })))
         }
 
@@ -1217,7 +1436,11 @@ mod tests {
         let funcs = vec![Min.bind(EmptyOptions), Max.bind(EmptyOptions)];
 
         let plan = plan_root
-            .prepare_stats(&funcs, &mut PrepareCtx::new(session.clone()))?
+            .prepare_field_stats(
+                &FieldPath::root(),
+                &funcs,
+                &mut PrepareCtx::new(session.clone()),
+            )?
             .ok_or_else(|| vortex_err!("test scan plan did not return a stats plan"))?;
         let state = plan.init_state(&session)?;
         let io = FileReader::new(Arc::new(TestSegments), session);
@@ -1226,6 +1449,30 @@ mod tests {
         assert_eq!(stats.len(), funcs.len());
         assert!(matches!(stats[0], Precision::Exact(_)));
         assert!(matches!(stats[1], Precision::Exact(_)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn literal_pushdown_prepares_without_input_read() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        let plan_root: ScanPlanRef = Arc::new(TestStatsNode);
+        let literal = lit(42i32);
+
+        let plan = plan_root
+            .try_push_expr(&literal, &mut PushCtx::new(session.clone()))?
+            .ok_or_else(|| vortex_err!("literal expression was not pushed"))?;
+        let read = plan
+            .prepare_read(&mut PrepareCtx::new(session.clone()))?
+            .ok_or_else(|| vortex_err!("literal scan plan did not return a prepared read"))?;
+        let io = FileReader::new(Arc::new(TestSegments), session);
+        let array = futures::executor::block_on(read_dense(&read, 10..15, &io))?;
+        let constant = array
+            .as_opt::<Constant>()
+            .ok_or_else(|| vortex_err!("literal read did not produce a constant array"))?;
+
+        assert_eq!(array.len(), 5);
+        assert_eq!(constant.scalar(), &Scalar::from(42i32));
 
         Ok(())
     }

@@ -199,6 +199,33 @@ impl ScanPlan for FileStatsScanPlan {
         Arc::clone(&self.data).prepare_evidence(cx)
     }
 
+    fn prepare_field_stats(
+        self: Arc<Self>,
+        field_path: &FieldPath,
+        funcs: &[AggregateFnRef],
+        cx: &mut PrepareCtx,
+    ) -> VortexResult<Option<PreparedStatsRef>> {
+        if field_path.parts().len() != 1 {
+            return Arc::clone(&self.data).prepare_field_stats(field_path, funcs, cx);
+        }
+        let Some(name) = field_path.parts()[0].as_name() else {
+            return Arc::clone(&self.data).prepare_field_stats(field_path, funcs, cx);
+        };
+        let Some(field_idx) = self.fields.find(name) else {
+            return Ok(None);
+        };
+        let Some(field_dtype) = self.fields.field_by_index(field_idx) else {
+            return Ok(None);
+        };
+        let stats = self.stats.stats_sets()[field_idx].clone();
+        Ok(Some(Arc::new(FilePreparedStats {
+            stats,
+            field_dtype,
+            row_count: self.row_count,
+            funcs: funcs.to_vec(),
+        })))
+    }
+
     fn prepare_aggregate_partial(
         self: Arc<Self>,
         funcs: &[AggregateFnRef],
@@ -254,11 +281,15 @@ impl ScanPlan for FileStatsExprScanPlan {
         Arc::clone(&self.data).prepare_aggregate_partial(funcs, cx)
     }
 
-    fn prepare_stats(
+    fn prepare_field_stats(
         self: Arc<Self>,
+        field_path: &FieldPath,
         funcs: &[AggregateFnRef],
-        _cx: &mut PrepareCtx,
+        cx: &mut PrepareCtx,
     ) -> VortexResult<Option<PreparedStatsRef>> {
+        if !field_path.is_root() {
+            return Arc::clone(&self.data).prepare_field_stats(field_path, funcs, cx);
+        }
         let stats = self.stats.stats_sets()[self.field_idx].clone();
         Ok(Some(Arc::new(FilePreparedStats {
             stats,
@@ -328,6 +359,13 @@ impl FilePreparedStats {
 fn root_field(expr: &Expression) -> Option<&FieldName> {
     let name = expr.as_opt::<GetItem>()?;
     expr.child(0).is::<Root>().then_some(name)
+}
+
+fn root_field_path(expr: &Expression) -> Option<FieldPath> {
+    if expr.is::<Root>() {
+        return Some(FieldPath::root());
+    }
+    root_field(expr).cloned().map(FieldPath::from_name)
 }
 
 /// Static cost estimate for a filter conjunct, used to order predicate evaluation cheapest-first.
@@ -900,14 +938,25 @@ pub(crate) async fn scan_plan_file_statistics_many(
     funcs: &[AggregateFnRef],
 ) -> VortexResult<Vec<Vec<Precision<Scalar>>>> {
     let session = file.session().clone();
-    let root = expand_file_root(&file, &session)?;
+    let root = file.scan_plan_root()?;
     let reader = FileReader::new(file.segment_source(), session);
     let mut result = Vec::with_capacity(exprs.len());
     for expr in exprs {
-        let pushed = push_expr(&root, expr, file.dtype(), reader.session())?;
-        let Some(plan) =
-            pushed.prepare_stats(funcs, &mut PrepareCtx::new(reader.session().clone()))?
-        else {
+        let plan = if let Some(field_path) = root_field_path(expr) {
+            Arc::clone(&root).prepare_field_stats(
+                &field_path,
+                funcs,
+                &mut PrepareCtx::new(reader.session().clone()),
+            )?
+        } else {
+            let pushed = push_expr(&root, expr, file.dtype(), reader.session())?;
+            pushed.prepare_field_stats(
+                &FieldPath::root(),
+                funcs,
+                &mut PrepareCtx::new(reader.session().clone()),
+            )?
+        };
+        let Some(plan) = plan else {
             result.push(absent_statistics(funcs));
             continue;
         };
@@ -921,8 +970,7 @@ pub(crate) async fn scan_plan_file_statistics_many(
 }
 
 pub(crate) fn scan_plan_file_splits(file: &VortexFile) -> VortexResult<Vec<Range<u64>>> {
-    let session = file.session().clone();
-    let root = expand_file_root(file, &session)?;
+    let root = file.scan_plan_root()?;
     split_ranges_from_node(&root, file.row_count())
 }
 
@@ -931,7 +979,7 @@ pub(crate) async fn scan_plan_file_plan_splits(
     projection: &Expression,
 ) -> VortexResult<Vec<Range<u64>>> {
     let session = file.session().clone();
-    let root = expand_file_root(&file, &session)?;
+    let root = file.scan_plan_root()?;
     let pushed = push_expr(&root, projection, file.dtype(), &session)?;
     let Some(plan) = pushed.prepare_splits(&mut PrepareCtx::new(session.clone()))? else {
         return Ok(std::iter::once(0..file.row_count()).collect());
@@ -963,13 +1011,13 @@ fn split_ranges_from_node(node: &ScanPlanRef, row_count: u64) -> VortexResult<Ve
         .collect())
 }
 
-fn expand_file_root(file: &VortexFile, session: &VortexSession) -> VortexResult<ScanPlanRef> {
+pub(crate) fn build_file_scan_plan_root(file: &VortexFile) -> VortexResult<ScanPlanRef> {
     let mut plan_request = ScanRequest::empty();
     let layout = file
         .footer()
         .layout2()
         .ok_or_else(|| vortex_err!("scan2 requires a v2 footer layout"))?;
-    let root = layout.new_scan_plan(&mut plan_request, session)?;
+    let root = layout.new_scan_plan(&mut plan_request, file.session())?;
     let root = with_row_idx(root, file.dtype().clone(), 0);
     Ok(match file.footer().statistics().cloned() {
         Some(stats) => FileStatsScanPlan::try_new(
@@ -1803,7 +1851,7 @@ impl PreparedScanPlanFile {
             .map(|filter| filter.optimize_recursive(file.dtype()))
             .transpose()?;
 
-        let root = expand_file_root(&file, &session)?;
+        let root = file.scan_plan_root()?;
         let registered_source = Arc::new(RegisteredScheduledSegmentSource {
             source: file.scheduled_segment_source(),
         });

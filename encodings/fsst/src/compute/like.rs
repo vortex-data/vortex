@@ -3,10 +3,12 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::like::LikeKernel;
@@ -15,8 +17,12 @@ use vortex_error::VortexResult;
 
 use crate::FSST;
 use crate::FSSTArrayExt;
+use crate::canonical::canonicalize_fsst;
 use crate::dfa::FsstMatcher;
+use crate::dfa::LikeKind;
 use crate::dfa::dfa_scan_to_bitbuf;
+
+const DECODE_CONTAINS_MAX_NEEDLE_LEN: usize = 16;
 
 impl LikeKernel for FSST {
     fn like(
@@ -47,9 +53,24 @@ impl LikeKernel for FSST {
             return Ok(None);
         };
 
+        let like_kind = LikeKind::parse(pattern_bytes);
+        if let Some(LikeKind::Contains(needle)) = like_kind
+            && !needle.is_empty()
+            && needle.len() <= DECODE_CONTAINS_MAX_NEEDLE_LEN
+        {
+            // For short substring patterns, bulk FSST decode plus Arrow's memmem-backed LIKE is
+            // faster than walking the compressed stream through the byte-at-a-time DFA.
+            let decoded = canonicalize_fsst(array, ctx)?;
+            let result = vortex_array::scalar_fn::fns::like::Like
+                .try_new_array(array.len(), options, [decoded, pattern.clone()])?
+                .into_array()
+                .execute::<Canonical>(ctx)?
+                .into_bool();
+            return Ok(Some(result.into_array()));
+        }
+
         let symbols = array.symbols();
         let symbol_lengths = array.symbol_lengths();
-
         let Some(matcher) =
             FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_bytes)?
         else {

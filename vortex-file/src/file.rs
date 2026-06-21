@@ -30,6 +30,7 @@ use vortex_layout::segments::SegmentInfo;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_scan::ScanRequest;
+use vortex_scan::plan::ScanPlanRef;
 use vortex_session::VortexSession;
 
 use crate::FileStatistics;
@@ -55,6 +56,8 @@ pub struct VortexFile {
     session: VortexSession,
     /// None id LayoutReader caching is turned off
     layout_reader_cache: Option<OnceLock<Arc<dyn LayoutReader>>>,
+    /// Shared cache for the v2 physical scan plan root.
+    scan_plan_root_cache: Arc<OnceLock<ScanPlanRef>>,
 }
 
 fn layout_reader(
@@ -100,6 +103,7 @@ impl VortexFile {
             scheduled_segment_source,
             session,
             layout_reader_cache: None,
+            scan_plan_root_cache: Arc::new(OnceLock::new()),
         }
     }
 
@@ -111,6 +115,7 @@ impl VortexFile {
             scheduled_segment_source: self.scheduled_segment_source,
             session: self.session,
             layout_reader_cache: Some(OnceLock::new()),
+            scan_plan_root_cache: self.scan_plan_root_cache,
         }
     }
 
@@ -182,6 +187,20 @@ impl VortexFile {
                 }
             }
         }
+    }
+
+    pub(crate) fn scan_plan_root(&self) -> VortexResult<ScanPlanRef> {
+        if let Some(root) = self.scan_plan_root_cache.get() {
+            return Ok(Arc::clone(root));
+        }
+
+        let root = scan_v2::build_file_scan_plan_root(self)?;
+        if self.scan_plan_root_cache.set(Arc::clone(&root)).is_err()
+            && let Some(root) = self.scan_plan_root_cache.get()
+        {
+            return Ok(Arc::clone(root));
+        }
+        Ok(root)
     }
 
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.

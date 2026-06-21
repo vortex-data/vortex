@@ -7,7 +7,6 @@ use vortex::array::aggregate_fn::EmptyOptions;
 use vortex::array::aggregate_fn::fns::max::Max;
 use vortex::array::aggregate_fn::fns::min::Min;
 use vortex::array::aggregate_fn::fns::null_count::NullCount;
-use vortex::array::aggregate_fn::fns::sum::Sum;
 use vortex::array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
@@ -22,14 +21,13 @@ use crate::duckdb::Value;
 
 const MIN_INDEX: usize = 0;
 const MAX_INDEX: usize = 1;
-const NULL_COUNT_INDEX: usize = 3;
-const BYTE_SIZE_INDEX: usize = 4;
+const NULL_COUNT_INDEX: usize = 2;
+const BYTE_SIZE_INDEX: usize = 3;
 
 pub fn column_statistics_aggregate_fns() -> Vec<AggregateFnRef> {
     vec![
         Min.bind(EmptyOptions),
         Max.bind(EmptyOptions),
-        Sum.bind(EmptyOptions),
         NullCount.bind(EmptyOptions),
         UncompressedSizeInBytes.bind(EmptyOptions),
     ]
@@ -75,7 +73,7 @@ impl ColumnStatistics {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ColumnStatisticsAggregate {
     pub min: Option<ScalarValue>,
     pub max: Option<ScalarValue>,

@@ -35,6 +35,7 @@ use vortex_scan::plan::ScanPlanRef;
 use vortex_scan::plan::ScanStateRef;
 use vortex_scan::plan::StateCtx;
 use vortex_scan::plan::StructValueScanPlan;
+use vortex_scan::plan::literal_scan_plan;
 use vortex_scan::plan::request::ScanRequest;
 use vortex_session::VortexSession;
 
@@ -86,6 +87,9 @@ impl ScanPlan for StructScanPlan {
         cx: &mut PushCtx,
     ) -> VortexResult<Option<ScanPlanRef>> {
         let scope = struct_fields(self.layout.dtype())?;
+        if let Some(literal) = literal_scan_plan(expr, self.layout.row_count()) {
+            return Ok(Some(literal));
+        }
         if is_root(expr) {
             return self.push_struct(scope.names().clone(), cx).map(Some);
         }

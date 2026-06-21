@@ -50,6 +50,7 @@ pub struct Projection {
     pub projection: Expression,
     pub file_index_column_pos: Option<usize>,
     pub file_row_number_column_pos: Option<usize>,
+    pub is_zero_column: bool,
 }
 
 impl Projection {
@@ -106,6 +107,10 @@ impl Projection {
 
             real_column_count += 1;
         }
+        let is_zero_column = real_column_count == 0
+            && file_index_column_pos.is_none()
+            && file_row_number_column_pos.is_none();
+
         // Duckdb can request less columns than there are in table i.e. [0, 1] with
         // 5 columns total.
         is_star &= real_column_count == column_fields.len() as u64;
@@ -123,6 +128,7 @@ impl Projection {
                 projection,
                 file_index_column_pos,
                 file_row_number_column_pos,
+                is_zero_column,
             };
         }
 
@@ -185,6 +191,7 @@ impl Projection {
             projection,
             file_index_column_pos,
             file_row_number_column_pos,
+            is_zero_column,
         }
     }
 }

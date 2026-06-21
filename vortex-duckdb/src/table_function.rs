@@ -5,26 +5,32 @@ use std::cmp::max;
 use std::fmt::Formatter;
 use std::fmt::{self};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
+use futures::stream;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use static_assertions::assert_impl_all;
 use tracing::debug;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
+use vortex::array::validity::Validity;
+use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::col;
 use vortex::expr::stats::Precision;
@@ -40,6 +46,7 @@ use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
+use vortex::scan::selection::Selection;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::RUNTIME;
@@ -56,6 +63,7 @@ use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
+use crate::duckdb::duckdb_vector_size;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 use crate::multi_file::bind_multi_file_scan;
@@ -69,6 +77,7 @@ pub struct TableFunctionBind {
     statistics_source: Option<Arc<MultiLayoutDataSource>>,
     filter_exprs: Vec<Expression>,
     column_fields: Vec<DuckdbField>,
+    column_statistics: Arc<Vec<OnceLock<Option<ColumnStatisticsAggregate>>>>,
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
     has_non_optional_filter: AtomicBool,
@@ -83,6 +92,7 @@ impl Clone for TableFunctionBind {
             // filter_exprs are consumed once in `init_global`.
             filter_exprs: vec![],
             column_fields: self.column_fields.clone(),
+            column_statistics: Arc::clone(&self.column_statistics),
             has_non_optional_filter: AtomicBool::new(
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
@@ -142,6 +152,8 @@ pub struct PartitionData {
 pub enum Cardinality {
     /// Unknown number of rows
     Unknown,
+    /// The exact number of rows.
+    Exact(u64),
     /// An estimate of the number of rows.
     Estimate(u64),
 }
@@ -156,6 +168,11 @@ pub fn bind(input: &BindInputRef, result: &mut BindResultRef) -> VortexResult<Ta
         data_source: data_source.data_source,
         statistics_source: data_source.statistics_source,
         filter_exprs: vec![],
+        column_statistics: Arc::new(
+            (0..column_fields.len())
+                .map(|_| OnceLock::new())
+                .collect::<Vec<_>>(),
+        ),
         column_fields,
         has_non_optional_filter: AtomicBool::new(false),
     })
@@ -172,6 +189,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         projection,
         file_index_column_pos,
         file_row_number_column_pos,
+        is_zero_column,
     } = Projection::new(projection_ids, column_ids, &bind_data.column_fields);
 
     let Filter {
@@ -207,6 +225,18 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         ?file_range,
         "table function scan input"
     );
+
+    if is_zero_column
+        && filter.is_none()
+        && matches!(&row_selection, Selection::All)
+        && row_range.is_none()
+        && matches!(&file_selection, Selection::All)
+        && file_range.is_none()
+        && let Precision::Exact(row_count) = bind_data.data_source.row_count()
+    {
+        debug!(row_count, "using zero-column exact-cardinality scan");
+        return Ok(zero_column_global(row_count));
+    }
 
     let request = ScanRequest {
         projection,
@@ -285,6 +315,44 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         file_index_column_pos,
         file_row_number_column_pos,
     })
+}
+
+fn zero_column_global(row_count: u64) -> TableFunctionGlobal {
+    TableFunctionGlobal {
+        iterator: zero_column_iterator(row_count),
+        batch_id: AtomicU64::new(0),
+        bytes_total: Arc::new(AtomicU64::new(row_count)),
+        bytes_read: AtomicU64::new(0),
+        file_index_column_pos: None,
+        file_row_number_column_pos: None,
+    }
+}
+
+fn zero_column_iterator(row_count: u64) -> DataSourceIterator {
+    let vector_size = u64::try_from(duckdb_vector_size())
+        .unwrap_or(u64::MAX)
+        .max(1);
+    RUNTIME.block_on_stream_thread_safe(move |_handle| {
+        let cache = Arc::new(ConversionCache::default());
+        stream::unfold((row_count, cache), move |(remaining, cache)| async move {
+            if remaining == 0 {
+                return None;
+            }
+            let batch_len = remaining.min(vector_size);
+            let item = usize::try_from(batch_len)
+                .map_err(|_| vortex_err!("zero-column batch length exceeds usize"))
+                .and_then(zero_column_array)
+                .map(|array| (array, Arc::clone(&cache)));
+            Some((item, (remaining - batch_len, cache)))
+        })
+    })
+}
+
+fn zero_column_array(len: usize) -> VortexResult<ArrayRef> {
+    Ok(
+        StructArray::try_new(FieldNames::empty(), Vec::new(), len, Validity::NonNullable)?
+            .into_array(),
+    )
 }
 
 pub fn init_local(global: &TableFunctionGlobal) -> TableFunctionLocal {
@@ -454,6 +522,18 @@ pub fn pushdown_projection_expression(
 /// Get column-wise statistics. Available only if we're reading a single file.
 pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<ColumnStatistics> {
     let dtype = bind_data.column_fields[column_index].dtype.clone();
+    let stats_aggregate = bind_data
+        .column_statistics
+        .get(column_index)?
+        .get_or_init(|| column_statistics_aggregate(bind_data, column_index))
+        .as_ref()?;
+    Some(ColumnStatistics::from(stats_aggregate, dtype))
+}
+
+fn column_statistics_aggregate(
+    bind_data: &TableFunctionBind,
+    column_index: usize,
+) -> Option<ColumnStatisticsAggregate> {
     if let Some(statistics_source) = bind_data.statistics_source.as_ref() {
         let children = statistics_source.children();
         // Otherwise we'd have to open all files eagerly which is a performance
@@ -470,8 +550,7 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
             Some(inner) => inner.file_stats().stats_sets(),
             None => return None,
         };
-        let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
-        return Some(ColumnStatistics::from(&stats_aggregate, dtype));
+        return Some(ColumnStatisticsAggregate::new(&stats_sets[column_index]));
     }
 
     let name = &bind_data.column_fields[column_index].name;
@@ -483,8 +562,7 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
                 .statistics(&col(name.as_str()), &funcs),
         )
         .ok()?;
-    let stats_aggregate = ColumnStatisticsAggregate::from_aggregate_stats(&stats);
-    Some(ColumnStatistics::from(&stats_aggregate, dtype))
+    Some(ColumnStatisticsAggregate::from_aggregate_stats(&stats))
 }
 
 /// Duckdb requires post-filter cardinality estimates, otherwise join planner
@@ -498,12 +576,18 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
 /// here.
 const DEFAULT_SELECTIVITY: f64 = 0.2;
 pub fn cardinality(bind_data: &TableFunctionBind) -> Cardinality {
+    let has_non_optional_filter = bind_data.has_non_optional_filter.load(Ordering::Relaxed);
     match bind_data.data_source.row_count() {
-        Precision::Exact(v) | Precision::Inexact(v) => {
-            if !bind_data.has_non_optional_filter.load(Ordering::Relaxed) {
-                // Although we may have an exact upper bound here, reporting
-                // it as exact has a negative performance impact on tpcds as
-                // it's not a real post-filter calculation.
+        Precision::Exact(v) => {
+            if !has_non_optional_filter {
+                return Cardinality::Exact(v);
+            }
+            let post_cardinality = v as f64 * DEFAULT_SELECTIVITY;
+            let post_cardinality: u64 = post_cardinality.as_();
+            Cardinality::Estimate(max(1, post_cardinality))
+        }
+        Precision::Inexact(v) => {
+            if !has_non_optional_filter {
                 return Cardinality::Estimate(v);
             }
             let post_cardinality = v as f64 * DEFAULT_SELECTIVITY;
