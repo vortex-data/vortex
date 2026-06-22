@@ -20,10 +20,14 @@ use vortex_array::ArrayVTable;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::Slice;
+use vortex_array::arrays::Struct;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::extension::ExtensionArrayExt;
@@ -52,6 +56,7 @@ use vortex_session::VortexSession;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
+use crate::compute::AllNonDistinctParquetVariant;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();
@@ -75,6 +80,12 @@ pub(crate) fn initialize(session: &VortexSession) {
         JsonToVariant.id(),
         Extension,
         JsonExtensionToVariantKernel,
+    );
+    let aggregates = session.aggregate_fns();
+    aggregates.register_aggregate_kernel(
+        Struct.id(),
+        Some(AllNonDistinct.id()),
+        &AllNonDistinctParquetVariant,
     );
 }
 

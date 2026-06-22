@@ -19,6 +19,7 @@ pub mod stream;
 mod test {
     use std::sync::LazyLock;
 
+    use vortex_array::aggregate_fn::session::AggregateFnSession;
     use vortex_array::dtype::session::DTypeSession;
     use vortex_array::optimizer::kernels::KernelSession;
     use vortex_array::session::ArraySession;
@@ -29,6 +30,7 @@ mod test {
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<KernelSession>()
+            .with::<AggregateFnSession>()
             .build()
     });
 }
