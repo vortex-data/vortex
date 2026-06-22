@@ -143,7 +143,6 @@ impl VTable for Variant {
         dtype: &DType,
         len: usize,
         metadata: &[u8],
-
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
