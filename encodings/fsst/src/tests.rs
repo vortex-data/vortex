@@ -4,7 +4,8 @@
 use std::sync::LazyLock;
 
 use fsst::CompressorBuilder;
-use vortex_array::{ArrayRef, ExecutionCtx};
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinViewArray;

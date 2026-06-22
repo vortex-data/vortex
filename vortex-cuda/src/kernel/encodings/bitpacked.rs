@@ -233,7 +233,6 @@ mod tests {
     use vortex::buffer::buffer;
     use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::error::VortexExpect;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -606,7 +605,8 @@ mod tests {
                 .map(|i| if i % 1000 == 0 { 600 } else { i % 512 })
                 .collect::<Buffer<_>>(),
             NonNullable,
-        ).into_array();
+        )
+        .into_array();
         let bitpacked = BitPacked::encode(&values, 9, &mut ctx)?;
         assert!(bitpacked.patches().is_some());
         let array = if let Some(range) = range {
