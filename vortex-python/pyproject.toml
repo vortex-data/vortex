@@ -37,6 +37,7 @@ classifiers = [
 vx = "vortex.cli:main"
 
 [project.optional-dependencies]
+cuda = ["vortex-data-cuda==0.1.0"]
 polars = ["polars>=1.31.0"]
 pandas = ["pandas>=2.2.0"]
 numpy = ["numpy>=1.26.0"]

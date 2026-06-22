@@ -8,6 +8,7 @@
 use std::env;
 use std::fs::File;
 use std::io;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -32,15 +33,6 @@ fn main() {
 
     std::fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
 
-    // Always emit the kernels output directory path as a compile-time env var so any binary
-    // linking against vortex-cuda can find the PTX files. This must be set regardless
-    // of CUDA availability since the code using env!() is always compiled.
-    // At runtime, VORTEX_CUDA_KERNELS_DIR can be set to override this path.
-    println!(
-        "cargo:rustc-env=VORTEX_CUDA_KERNELS_DIR={}",
-        kernels_gen.display()
-    );
-
     println!("cargo:rerun-if-env-changed=PROFILE");
 
     // Regenerate bit_unpack kernels only when the generator changes
@@ -59,6 +51,8 @@ fn main() {
     generate_arrow_device_array_bindings(Path::new(&manifest_dir), &out_dir);
     generate_dynamic_dispatch_bindings(&kernels_src, &out_dir);
     generate_patches_bindings(&kernels_src, &out_dir);
+
+    generate_embedded_ptx(&out_dir, &kernels_gen).expect("Failed to generate embedded PTX source");
 
     if !is_cuda_available() {
         return;
@@ -97,6 +91,57 @@ fn main() {
             }
         }
     }
+
+    // Refresh embedded_ptx.rs after nvcc has compiled PTX so the binary embeds the latest kernels.
+    generate_embedded_ptx(&out_dir, &kernels_gen).expect("Failed to generate embedded PTX source");
+}
+
+/// Generates `embedded_ptx.rs`, a module-name lookup table of `include_str!`-embedded PTX.
+///
+/// Called before the `nvcc` check to create an empty table for no-toolkit builds, then again after
+/// PTX compilation so runtime loading never depends on build-machine filesystem paths.
+fn generate_embedded_ptx(out_dir: &Path, kernels_gen: &Path) -> io::Result<()> {
+    let mut ptx_files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(kernels_gen) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("ptx") {
+                ptx_files.push(path);
+            }
+        }
+    }
+    ptx_files.sort();
+
+    let mut file = File::create(out_dir.join("embedded_ptx.rs"))?;
+    if ptx_files.is_empty() {
+        writeln!(
+            file,
+            "pub(crate) fn embedded_ptx(_module_name: &str) -> Option<&'static str> {{"
+        )?;
+        writeln!(file, "    None")?;
+        writeln!(file, "}}")?;
+        return Ok(());
+    }
+
+    writeln!(
+        file,
+        "pub(crate) fn embedded_ptx(module_name: &str) -> Option<&'static str> {{"
+    )?;
+    writeln!(file, "    match module_name {{")?;
+    for path in ptx_files {
+        let Some(module_name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        writeln!(
+            file,
+            "        {module_name:?} => Some(include_str!({:?})),",
+            path.to_string_lossy()
+        )?;
+    }
+    writeln!(file, "        _ => None,")?;
+    writeln!(file, "    }}")?;
+    writeln!(file, "}}")?;
+    Ok(())
 }
 
 fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<PathBuf> {

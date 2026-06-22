@@ -154,9 +154,9 @@ jobs:
         run: |
           # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
           # including all private docs.
-          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python
+          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
           # nextest doesn't support doc tests, so we run it here
-          cargo test --profile ci --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
+          cargo test --profile ci --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -187,7 +187,7 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"unsupported\"'"
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-sqllogictest --exclude vortex-parquet-variant"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda --exclude vortex-sqllogictest --exclude vortex-parquet-variant"
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -355,7 +355,7 @@ jobs:
             --exclude vortex-bench `
             --exclude vortex-python --exclude vortex-duckdb `
             --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-cuda-ffi `
-            --exclude vortex-nvcomp --exclude vortex-cub --exclude vortex-test-e2e-cuda `
+            --exclude vortex-nvcomp --exclude vortex-cub --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda `
             --exclude duckdb-bench `
             --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
