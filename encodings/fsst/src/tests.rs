@@ -27,13 +27,15 @@ pub(crate) fn build_fsst_array() -> ArrayRef {
         b"They said it existed and that whoever dared to exceed it was mercilessly struck down",
     );
     input_array.append_value(b"Nothing in present history can contradict them");
-    let input_array = input_array.finish(DType::Utf8(Nullability::NonNullable));
+    let input_array = input_array
+        .finish(DType::Utf8(Nullability::NonNullable))
+        .into_array();
 
-    let compressor = fsst_train_compressor(&input_array);
-    let len = input_array.len();
-    let dtype = input_array.dtype().clone();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    fsst_compress(input_array, len, &dtype, &compressor, &mut ctx).into_array()
+    let compressor = fsst_train_compressor(&input_array, &mut ctx).unwrap();
+    fsst_compress(&input_array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array()
 }
 
 #[test]
@@ -112,7 +114,7 @@ fn test_fsst_array_ops() {
 // TODO(someone): ideally CI would run this in release mode as well since debug builds make the
 // allocation and compression loop substantially slower.
 /// Regression for #7833: [`fsst_compress`] must accept inputs whose cumulative compressed
-/// bytes exceed [`i32::MAX`]. Before the fix, [`fsst_compress_iter`] hardcoded
+/// bytes exceed [`i32::MAX`]. Before the fix, the compress path hardcoded
 /// [`VarBinBuilder<i32>`] for the FSST output and panicked in
 /// [`VarBinBuilder::append_value`] once cumulative compressed bytes crossed the boundary.
 ///
@@ -132,7 +134,7 @@ fn test_fsst_array_ops() {
 /// CI=1 cargo test --release -p vortex-fsst fsst_compress_offsets
 /// ```
 ///
-/// [`fsst_compress_iter`]: crate::compress::fsst_compress_iter
+/// [`fsst_compress`]: crate::compress::fsst_compress
 #[test_with::env(CI)]
 #[test_with::no_env(VORTEX_SKIP_SLOW_TESTS)]
 fn fsst_compress_offsets_overflow_i32() {
@@ -148,15 +150,16 @@ fn fsst_compress_offsets_overflow_i32() {
     for _ in 0..N {
         builder.append_value(&string);
     }
-    let array = builder.finish(DType::Utf8(Nullability::NonNullable));
+    let array = builder
+        .finish(DType::Utf8(Nullability::NonNullable))
+        .into_array();
 
     let compressor = CompressorBuilder::default().build();
     let len = array.len();
-    let dtype = array.dtype().clone();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
     println!("compressing to FSST");
-    let compressed = fsst_compress(array, len, &dtype, &compressor, &mut ctx);
+    let compressed = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     assert_eq!(compressed.len(), len);
     // Prove the regression condition was exercised: compressed bytes crossed i32::MAX.
     assert!(compressed.codes_bytes().len() > i32::MAX as usize);

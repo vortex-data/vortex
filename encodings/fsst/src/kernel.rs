@@ -70,11 +70,12 @@ mod tests {
         builder.append_value(b"final string");
         let input = builder.finish(DType::Utf8(Nullability::NonNullable));
 
-        let compressor = fsst_train_compressor(&input);
-        let len = input.len();
-        let dtype = input.dtype().clone();
         let mut ctx = SESSION.create_execution_ctx();
-        fsst_compress(input, len, &dtype, &compressor, &mut ctx).into_array()
+        let arr = input.into_array();
+        let compressor = fsst_train_compressor(&arr, &mut ctx).unwrap();
+        fsst_compress(&arr, &compressor, &mut ctx)
+            .unwrap()
+            .into_array()
     }
 
     #[test]
@@ -144,17 +145,11 @@ mod tests {
             builder.append_null();
         }
         let input = builder.finish(DType::Utf8(Nullability::Nullable));
+        let array = input.clone().into_array();
 
-        let compressor = fsst_train_compressor(&input);
         let mut ctx = SESSION.create_execution_ctx();
-        let fsst_array: ArrayRef = fsst_compress(
-            input.clone(),
-            input.len(),
-            input.dtype(),
-            &compressor,
-            &mut ctx,
-        )
-        .into_array();
+        let compressor = fsst_train_compressor(&array, &mut ctx)?;
+        let fsst_array: ArrayRef = fsst_compress(&array, &compressor, &mut ctx)?.into_array();
 
         // Filter: only select the last element (index 22)
         let mut mask = vec![false; 22];
@@ -179,17 +174,11 @@ mod tests {
         builder.append_null();
 
         let input = builder.finish(DType::Utf8(Nullability::Nullable));
+        let array = input.clone().into_array();
 
-        let compressor = fsst_train_compressor(&input);
         let mut ctx = SESSION.create_execution_ctx();
-        let fsst_array: ArrayRef = fsst_compress(
-            input.clone(),
-            input.len(),
-            input.dtype(),
-            &compressor,
-            &mut ctx,
-        )
-        .into_array();
+        let compressor = fsst_train_compressor(&array, &mut ctx)?;
+        let fsst_array: ArrayRef = fsst_compress(&array, &compressor, &mut ctx)?.into_array();
 
         let mask = Mask::from_iter([true, false, true]);
 
@@ -226,12 +215,12 @@ mod tests {
         builder.append_value("Пуховички"); // 9 characters, 18 bytes
         builder.append_value(b"");
 
-        let varbin = builder.finish(DType::Utf8(Nullability::NonNullable));
-        let compressor = fsst_train_compressor(&varbin);
-        let len = varbin.len();
-        let dtype = varbin.dtype().clone();
+        let varbin = builder
+            .finish(DType::Utf8(Nullability::NonNullable))
+            .into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        let fsst = fsst_compress(varbin, len, &dtype, &compressor, &mut ctx).into_array();
+        let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
+        let fsst = fsst_compress(&varbin, &compressor, &mut ctx)?.into_array();
         let result = fsst.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 7, 18, 0]);
         assert_arrays_eq!(result, expected);
