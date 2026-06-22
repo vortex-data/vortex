@@ -414,7 +414,7 @@ fn bench_fsst_compress_string(bencher: Bencher) {
     let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| (varbinview_arr.clone(), SESSION.create_execution_ctx()))
+        .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
         .bench_refs(|(a, ctx)| fsst_compress(a, &fsst_compressor, ctx).unwrap());
 }
 
@@ -424,24 +424,23 @@ fn bench_fsst_decompress_string(bencher: Bencher) {
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005)).into_array();
     let mut ctx = SESSION.create_execution_ctx();
     let fsst_compressor = fsst_train_compressor(&varbinview_arr, &mut ctx).unwrap();
-    let fsst_array = fsst_compress(&varbinview_arr, &fsst_compressor, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&varbinview_arr, &fsst_compressor, &mut ctx).unwrap().into_array();
     let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
+        .bench_refs(|(a, ctx)| canonicalize(a.clone(), ctx));
 }
 
 #[cfg(feature = "zstd")]
 #[divan::bench(name = "zstd_compress_string")]
 fn bench_zstd_compress_string(bencher: Bencher) {
     let varbinview_arr =
-        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005)).into_array();
     let nbytes = varbinview_arr.nbytes() as u64;
-    let array = varbinview_arr.into_array();
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .with_inputs(|| (varbinview_arr, SESSION.create_execution_ctx()))
         .bench_values(|(a, mut ctx)| ZstdData::from_array(a, 3, 8192, &mut ctx).unwrap());
 }
 
@@ -449,7 +448,7 @@ fn bench_zstd_compress_string(bencher: Bencher) {
 #[divan::bench(name = "zstd_decompress_string")]
 fn bench_zstd_decompress_string(bencher: Bencher) {
     let varbinview_arr =
-        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005)).into_array();
     let dtype = varbinview_arr.dtype().clone();
     let validity = varbinview_arr.validity().unwrap();
     let compressed = Zstd::try_new(
@@ -465,7 +464,7 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
     )
     .unwrap()
     .into_array();
-    let nbytes = varbinview_arr.into_array().nbytes() as u64;
+    let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
