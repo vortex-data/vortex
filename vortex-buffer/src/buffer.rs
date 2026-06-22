@@ -145,7 +145,7 @@ impl<T> Buffer<T> {
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
     pub fn empty() -> Self {
-        Self::empty_aligned(Alignment::<T>::of())
+        Self::empty_aligned(Alignment::of::<T>())
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.

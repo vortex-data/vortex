@@ -298,6 +298,10 @@ impl<T> BufferMut<T> {
     /// reading from a file) before marking the data as initialized using the
     /// [`set_len`] method.
     ///
+    /// Note that the returned slice may be larger than the capacity requested at
+    /// construction, since the underlying allocation can be rounded up (e.g. to
+    /// satisfy alignment requirements).
+    ///
     /// [`set_len`]: BufferMut::set_len
     /// [`Vec::spare_capacity_mut`]: Vec::spare_capacity_mut
     ///
