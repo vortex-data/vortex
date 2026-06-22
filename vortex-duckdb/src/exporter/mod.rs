@@ -42,6 +42,7 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 
 use crate::duckdb::DataChunkRef;
+use crate::duckdb::ReusableDict;
 use crate::duckdb::VectorRef;
 use crate::duckdb::duckdb_vector_size;
 
@@ -195,6 +196,32 @@ fn new_array_exporter(
     new_array_exporter_with_flatten(array, cache, ctx, false)
 }
 
+/// Export "values" into a ReusableDict, saving the dictionary in "cache".
+fn cached_values_dict(
+    values: ArrayRef,
+    cache: &ConversionCache,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ReusableDict> {
+    let key = values.addr();
+    if let Some(entry) = cache.dict_cache.get(&key) {
+        return Ok(entry.value().1.clone());
+    }
+    let mut dict = ReusableDict::new(values.dtype().try_into()?, values.len());
+    // ReusableDict's values must be flattened. When we call
+    // vector.reuse_dictionary() with dict returned from this function, if
+    // data is not flat, duckdb's functions like TupleDataScatter read inner
+    // storage directly as T. If data inside was SEQUENCE or CONSTANT vectors
+    // which don't have a T buffer, we read garbage data.
+    new_array_exporter_with_flatten(values.clone(), cache, ctx, true)?.export(
+        0,
+        values.len(),
+        dict.vector(),
+        ctx,
+    )?;
+    cache.dict_cache.insert(key, (values, dict.clone()));
+    Ok(dict)
+}
+
 /// Create a DuckDB exporter for the given Vortex array.
 fn new_array_exporter_with_flatten(
     array: ArrayRef,
@@ -203,12 +230,12 @@ fn new_array_exporter_with_flatten(
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let array = match array.try_downcast::<Constant>() {
-        Ok(array) => return constant::new_exporter(array),
+        Ok(array) => return constant::new_exporter_with_flatten(array, cache, ctx, flatten),
         Err(array) => array,
     };
 
     let array = match array.try_downcast::<Sequence>() {
-        Ok(array) => return sequence::new_exporter(&array),
+        Ok(array) => return sequence::new_exporter_with_flatten(&array, cache, ctx, flatten),
         Err(array) => array,
     };
 
