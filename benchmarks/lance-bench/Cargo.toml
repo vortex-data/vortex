@@ -19,11 +19,11 @@ lance = { version = "7", default-features = false }
 lance-encoding = { version = "7" }
 
 anyhow = { workspace = true }
-arrow-cast = { version = "59" }
+arrow-cast = { version = "58" }
 async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
-parquet = { version = "59" }
+parquet = { version = "58" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
