@@ -18,6 +18,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::ParentRef;
 use vortex_array::TypedArrayRef;
 use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
@@ -141,7 +142,7 @@ impl VTable for ByteBool {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         crate::rules::RULES.evaluate(array, parent, child_idx)
@@ -176,8 +177,8 @@ impl Display for ByteBoolData {
 pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[VALIDITY_SLOT].as_ref(),
+            self.dtype().nullability(),
         )
     }
 }

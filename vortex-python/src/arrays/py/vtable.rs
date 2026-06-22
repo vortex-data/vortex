@@ -87,7 +87,7 @@ impl VTable for PythonVTable {
         0
     }
 
-    fn child(_array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
+    fn child(_array: ArrayView<'_, Self>, idx: usize) -> &ArrayRef {
         vortex_panic!("PythonArray child index {idx} out of bounds")
     }
 

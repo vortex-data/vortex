@@ -738,7 +738,7 @@ fn test_list_of_lists_nullable_inner() {
 
     // Check that second inner list is null.
     let second_inner = first_list
-        .array()
+        .materialize_array_ref()
         .execute_scalar(1, &mut SESSION.create_execution_ctx())
         .unwrap();
     assert!(second_inner.is_null());
@@ -780,7 +780,10 @@ fn test_list_of_lists_both_nullable() {
     assert_eq!(first_inner.len(), 2);
 
     // Second inner list should be null.
-    let second_inner = first_list.array().execute_scalar(1, &mut ctx).unwrap();
+    let second_inner = first_list
+        .materialize_array_ref()
+        .execute_scalar(1, &mut ctx)
+        .unwrap();
     assert!(second_inner.is_null());
 
     // Second outer list should be null.
@@ -798,7 +801,10 @@ fn test_list_of_lists_both_nullable() {
     let fourth_outer = list_of_lists.list_elements_at(3).unwrap();
     let fourth_list = fourth_outer.as_::<List>();
     assert_eq!(fourth_list.len(), 1);
-    let inner = fourth_list.array().execute_scalar(0, &mut ctx).unwrap();
+    let inner = fourth_list
+        .materialize_array_ref()
+        .execute_scalar(0, &mut ctx)
+        .unwrap();
     assert!(inner.is_null());
 }
 

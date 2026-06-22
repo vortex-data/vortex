@@ -26,7 +26,6 @@ use vortex_array::expr::label_tree;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::partition_annotations;
-use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -311,12 +310,9 @@ impl LayoutReader for DictReader {
             //  * The codes child reader ensures the correct dtype.
             //  * The layout stores `all_values_referenced` and if this is malicious then it must
             //    only affect correctness not memory safety.
-            let array = unsafe {
-                DictArray::new_unchecked(codes, values)
-                    .set_all_values_referenced(all_values_referenced)
-            }
-            .into_array()
-            .optimize()?;
+            let parts =
+                unsafe { DictArray::new_unchecked_parts(codes, values, all_values_referenced) };
+            let array = parts.optimize()?;
 
             array.apply(&expr_outer)
         }

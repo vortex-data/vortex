@@ -50,7 +50,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
 
     // Try to do fused unpack.
     if array.reference_scalar().dtype().is_unsigned_int()
-        && let Some(bp) = array.encoded().as_opt::<BitPacked>()
+        && let Some(bp) = array.encoded().as_typed::<BitPacked>()
     {
         return match_each_unsigned_integer_ptype!(array.ptype(), |T| {
             fused_decompress::<T>(array, bp, ctx)

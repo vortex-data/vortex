@@ -87,17 +87,14 @@ pub struct BoolDataParts {
 
 pub trait BoolArrayExt: TypedArrayRef<Bool> {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Bool(nullability) => *nullability,
             _ => unreachable!("BoolArrayExt requires a bool dtype"),
         }
     }
 
     fn validity(&self) -> Validity {
-        child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.slots()[VALIDITY_SLOT].as_ref(), self.nullability())
     }
 
     fn to_bit_buffer(&self) -> BitBuffer {
@@ -111,7 +108,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
     }
 
     fn maybe_execute_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Option<Mask>> {
-        let all_valid = match &self.validity() {
+        let all_valid = match &BoolArrayExt::validity(self) {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
             Validity::Array(a) => a.statistics().compute_min::<bool>(ctx).unwrap_or(false),
@@ -126,13 +123,12 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
     }
 
     fn to_mask_fill_null_false(&self, ctx: &mut ExecutionCtx) -> Mask {
-        let validity_mask = self
-            .validity()
-            .execute_mask(self.as_ref().len(), ctx)
+        let validity_mask = BoolArrayExt::validity(self)
+            .execute_mask(self.len(), ctx)
             .vortex_expect("Failed to compute validity mask");
         let buffer = match validity_mask {
             Mask::AllTrue(_) => self.to_bit_buffer(),
-            Mask::AllFalse(_) => return Mask::new_false(self.as_ref().len()),
+            Mask::AllFalse(_) => return Mask::new_false(self.len()),
             Mask::Values(validity) => validity.bit_buffer() & self.to_bit_buffer(),
         };
         Mask::from_buffer(buffer)

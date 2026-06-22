@@ -30,6 +30,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
+use crate::array::ParentRef;
 use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
@@ -208,7 +209,7 @@ impl VTable for Dict {
     ) -> VortexResult<()> {
         if !array.is_empty()
             && let (Some(codes), Some(values)) = (
-                array.codes().as_opt::<Primitive>(),
+                array.codes().as_typed::<Primitive>(),
                 array.values().as_opt::<AnyCanonical>(),
             )
             && !codes.validity()?.definitely_all_null()
@@ -230,7 +231,7 @@ impl VTable for Dict {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)

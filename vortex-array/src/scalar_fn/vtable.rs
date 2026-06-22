@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -20,6 +19,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::ExpressionReduceNode;
 use crate::expr::traversal::Node;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
@@ -114,7 +114,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Implementations may assume correct arity and will panic or return nonsensical results if
     /// violated.
     ///
-    /// [`Expression::try_new`]: crate::expr::Expression::try_new
+    /// [`Expression::try_new`]: Expression::try_new
     fn return_dtype(&self, options: &Self::Options, args: &[DType]) -> VortexResult<DType>;
 
     /// Execute the expression over the input arguments.
@@ -252,8 +252,9 @@ pub type ReduceNodeRef = Arc<dyn ReduceNode>;
 
 /// A node used for implementing abstract reduction rules.
 pub trait ReduceNode {
-    /// Downcast to Any.
-    fn as_any(&self) -> &dyn Any;
+    fn as_array(&self) -> ArrayRef;
+
+    fn as_expression(&self) -> ExpressionReduceNode;
 
     /// Return the data type of this node.
     fn node_dtype(&self) -> VortexResult<DType>;

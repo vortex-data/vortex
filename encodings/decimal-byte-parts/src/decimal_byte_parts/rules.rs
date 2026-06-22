@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::ParentView;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
@@ -34,7 +35,7 @@ impl ArrayParentReduceRule<DecimalByteParts> for DecimalBytePartsFilterPushDownR
     fn reduce_parent(
         &self,
         child: ArrayView<'_, DecimalByteParts>,
-        parent: ArrayView<'_, Filter>,
+        parent: ParentView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(ngates): we should benchmark whether to push-down filters with "lower parts".

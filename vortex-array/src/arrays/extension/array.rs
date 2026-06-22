@@ -24,14 +24,13 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["storage"];
 
 pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
     fn ext_dtype(&self) -> &ExtDTypeRef {
-        self.as_ref()
-            .dtype()
+        self.dtype()
             .as_extension_opt()
             .vortex_expect("extension array somehow did not have an extension dtype")
     }
 
     fn storage_array(&self) -> &ArrayRef {
-        self.as_ref().slots()[STORAGE_SLOT]
+        self.slots()[STORAGE_SLOT]
             .as_ref()
             .vortex_expect("ExtensionArray storage slot")
     }

@@ -22,6 +22,7 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
+use crate::array::ParentView;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
@@ -70,23 +71,118 @@ impl<V: VTable> ArrayParts<V> {
         self.slots = slots;
         self
     }
-}
 
-/// Shared bound for helpers that should work over both owned [`Array<V>`] and borrowed
-/// [`ArrayView<V>`].
-///
-/// Extension traits use this to share typed array logic while still exposing the backing
-/// [`ArrayRef`] and the encoding-specific [`VTable::TypedArrayData`].
-pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::TypedArrayData> {
-    /// Returns an owned [`Array<V>`] from the reference.
-    fn to_owned(&self) -> Array<V> {
-        self.as_ref().clone().downcast()
+    /// Materialize already-valid parts into an [`ArrayRef`] without attempting reduction.
+    ///
+    /// This intentionally skips vtable validation. Use
+    /// `Array::<V>::try_from_parts(parts)?.into_array()` when constructing parts from unchecked
+    /// inputs.
+    pub fn into_array(self) -> ArrayRef {
+        unsafe { Array::<V>::from_parts_unchecked(self).into_array() }
     }
 }
 
-impl<V: VTable> TypedArrayRef<V> for Array<V> {}
+/// Shared bound for helpers that should work over owned [`Array<V>`], heap-backed
+/// [`ArrayView<V>`], and stack-aware [`ParentView<V>`].
+///
+/// Extension traits use this to share typed array logic while still exposing the backing
+/// encoding-specific [`VTable::TypedArrayData`].
+///
+/// This trait deliberately does not require [`AsRef<ArrayRef>`]. [`ParentView`] is allowed to
+/// stay non-materialized, so any code that needs an [`ArrayRef`] must opt into ownership through
+/// [`Self::to_owned`] or call [`ParentView::materialize_array_ref`] explicitly.
+pub trait TypedArrayRef<V: VTable>: Deref<Target = V::TypedArrayData> {
+    /// Returns an owned [`Array<V>`] from the reference.
+    ///
+    /// For [`ParentView`], this explicitly materializes stack-backed construction parts.
+    fn to_owned(&self) -> Array<V>;
 
-impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {}
+    fn is_empty(&self) -> bool;
+
+    fn slots(&self) -> &[Option<ArrayRef>];
+
+    fn len(&self) -> usize;
+
+    fn dtype(&self) -> &DType;
+}
+
+impl<V: VTable> TypedArrayRef<V> for Array<V> {
+    fn to_owned(&self) -> Array<V> {
+        self.clone()
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn slots(&self) -> &[Option<ArrayRef>] {
+        Array::<V>::slots(self)
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn len(&self) -> usize {
+        Array::<V>::len(self)
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn dtype(&self) -> &DType {
+        Array::<V>::dtype(self)
+    }
+}
+
+impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {
+    fn to_owned(&self) -> Array<V> {
+        self.into_owned()
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn is_empty(&self) -> bool {
+        ArrayView::is_empty(self)
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn slots(&self) -> &[Option<ArrayRef>] {
+        ArrayView::slots(self)
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn len(&self) -> usize {
+        ArrayView::len(self)
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn dtype(&self) -> &DType {
+        ArrayView::dtype(self)
+    }
+}
+
+impl<V: VTable> TypedArrayRef<V> for ParentView<'_, V> {
+    fn to_owned(&self) -> Array<V> {
+        (*self).into_owned()
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn is_empty(&self) -> bool {
+        ParentView::is_empty(self)
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn slots(&self) -> &[Option<ArrayRef>] {
+        ParentView::slots(self)
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn len(&self) -> usize {
+        ParentView::len(self)
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn dtype(&self) -> &DType {
+        ParentView::dtype(self)
+    }
+}
 // =============================================================================
 // ArrayData<V> — the concrete type stored inside Arc<dyn DynArrayData>
 // =============================================================================
@@ -245,16 +341,19 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns the dtype.
+    #[allow(clippy::same_name_method)]
     pub fn dtype(&self) -> &DType {
         self.inner.dtype()
     }
 
     /// Returns the length.
+    #[allow(clippy::same_name_method)]
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
     /// Returns whether this array is empty.
+    #[allow(clippy::same_name_method)]
     pub fn is_empty(&self) -> bool {
         self.inner.len() == 0
     }
@@ -313,6 +412,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns the array slots.
+    #[allow(clippy::same_name_method)]
     pub fn slots(&self) -> &[Option<ArrayRef>] {
         self.inner.slots()
     }
@@ -328,6 +428,14 @@ impl<V: VTable> Array<V> {
         let inner = self.downcast_inner();
         // SAFETY: `inner.data` is the `V::TypedArrayData` stored inside `self.inner`.
         unsafe { ArrayView::new_unchecked(&self.inner, &inner.data) }
+    }
+
+    /// Returns a [`ParentView`] borrowing this array's data, for APIs that accept
+    /// both heap- and stack-backed parents.
+    pub fn as_parent_view(&self) -> ParentView<'_, V> {
+        let inner = self.downcast_inner();
+        // SAFETY: `inner.data` is the `V::TypedArrayData` stored inside `self.inner`.
+        unsafe { ParentView::new_unchecked(&self.inner, &inner.data) }
     }
 
     /// Downcast the inner `ArrayRef` to `&ArrayData<V>`.
@@ -373,6 +481,7 @@ impl<V: VTable> Array<V> {
         self.inner.take(indices)
     }
 
+    #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> VortexResult<Validity> {
         self.inner.validity()
     }

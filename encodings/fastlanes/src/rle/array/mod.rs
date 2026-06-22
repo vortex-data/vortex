@@ -82,21 +82,21 @@ impl RLEData {
 pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
     #[inline]
     fn values(&self) -> &ArrayRef {
-        self.as_ref().slots()[VALUES_SLOT]
+        self.slots()[VALUES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values slot must be populated")
     }
 
     #[inline]
     fn indices(&self) -> &ArrayRef {
-        self.as_ref().slots()[INDICES_SLOT]
+        self.slots()[INDICES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray indices slot must be populated")
     }
 
     #[inline]
     fn values_idx_offsets(&self) -> &ArrayRef {
-        self.as_ref().slots()[VALUES_IDX_OFFSETS_SLOT]
+        self.slots()[VALUES_IDX_OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values_idx_offsets slot must be populated")
     }

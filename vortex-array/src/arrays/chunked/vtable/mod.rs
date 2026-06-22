@@ -28,6 +28,8 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
+use crate::array::ParentRef;
+use crate::array::ParentView;
 use crate::array::VTable;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::chunked::ChunkedData;
@@ -71,6 +73,7 @@ impl VTable for Chunked {
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
+
     fn id(&self) -> ArrayId {
         static ID: CachedId = CachedId::new("vortex.chunked");
         *ID
@@ -262,7 +265,7 @@ impl VTable for Chunked {
         }
     }
 
-    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: ParentView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         Ok(match array.nchunks() {
             0 => Some(Canonical::empty(array.dtype()).into_array()),
             1 => Some(array.chunk(0).clone()),
@@ -272,7 +275,7 @@ impl VTable for Chunked {
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)

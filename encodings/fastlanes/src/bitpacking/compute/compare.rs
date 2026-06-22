@@ -246,7 +246,7 @@ mod tests {
             CompareOperator::Gte,
         ] {
             let got = <BitPacked as CompareKernel>::compare(
-                sliced.as_::<BitPacked>(),
+                sliced.as_::<BitPacked>().materialize_view(),
                 &rhs,
                 op,
                 &mut ctx,
@@ -284,7 +284,7 @@ mod tests {
             .expect("slice kernel produces a sliced bitpacked array");
         let rhs = ConstantArray::new(50i32, end - start).into_array();
         let got = <BitPacked as CompareKernel>::compare(
-            sliced.as_::<BitPacked>(),
+            sliced.as_::<BitPacked>().materialize_view(),
             &rhs,
             CompareOperator::Eq,
             &mut ctx,

@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::cell::RefCell;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::transform::match_between::find_between;
@@ -83,12 +83,7 @@ impl Expression {
                 scope: scope.clone(),
             };
             if let Some(reduced) = current.scalar_fn().reduce(&reduce_node, &reduce_ctx)? {
-                let reduced_expr = reduced
-                    .as_any()
-                    .downcast_ref::<ExpressionReduceNode>()
-                    .vortex_expect("ReduceNode not an ExpressionReduceNode")
-                    .expression
-                    .clone();
+                let reduced_expr = reduced.as_expression().expression;
                 current = reduced_expr;
                 changed = true;
                 any_optimizations = true;
@@ -252,14 +247,19 @@ impl SimplifyCtx for SimplifyCache<'_> {
     }
 }
 
-struct ExpressionReduceNode {
+#[derive(Clone)]
+pub struct ExpressionReduceNode {
     expression: Expression,
     scope: DType,
 }
 
 impl ReduceNode for ExpressionReduceNode {
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn as_array(&self) -> ArrayRef {
+        vortex_panic!("Cannot produce ArrayRef out of Expression node")
+    }
+
+    fn as_expression(&self) -> ExpressionReduceNode {
+        self.clone()
     }
 
     fn node_dtype(&self) -> VortexResult<DType> {
@@ -285,6 +285,7 @@ impl ReduceNode for ExpressionReduceNode {
 struct ExpressionReduceCtx {
     scope: DType,
 }
+
 impl ReduceCtx for ExpressionReduceCtx {
     fn new_node(
         &self,
@@ -295,13 +296,7 @@ impl ReduceCtx for ExpressionReduceCtx {
             scalar_fn,
             children
                 .iter()
-                .map(|c| {
-                    c.as_any()
-                        .downcast_ref::<ExpressionReduceNode>()
-                        .vortex_expect("ReduceNode not an ExpressionReduceNode")
-                        .expression
-                        .clone()
-                })
+                .map(|c| c.as_expression().expression)
                 .collect::<Vec<_>>(),
         )?;
 

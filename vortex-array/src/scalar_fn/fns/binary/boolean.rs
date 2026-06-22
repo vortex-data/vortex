@@ -23,9 +23,7 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrow::ArrowSessionExt;
 use crate::arrow::FromArrowArray;
@@ -82,12 +80,9 @@ where
             return Ok(None);
         }
 
-        let Some(scalar_fn_array) = parent.as_opt::<ScalarFn>() else {
-            return Ok(None);
-        };
         let other = match child_idx {
-            0 => scalar_fn_array.get_child(1),
-            1 => scalar_fn_array.get_child(0),
+            0 => parent.get_child(1),
+            1 => parent.get_child(0),
             _ => return Ok(None),
         };
 
@@ -131,13 +126,13 @@ pub(crate) fn execute_boolean(
         return Ok(result);
     }
 
-    if let Some(lhs) = lhs.as_opt::<Bool>()
+    if let Some(lhs) = lhs.as_typed::<Bool>()
         && let Some(result) = <Bool as BooleanKernel>::boolean(lhs, rhs, op, ctx)?
     {
         return Ok(result);
     }
 
-    if let Some(rhs) = rhs.as_opt::<Bool>()
+    if let Some(rhs) = rhs.as_typed::<Bool>()
         && let Some(result) = <Bool as BooleanKernel>::boolean(rhs, lhs, op, ctx)?
     {
         return Ok(result);

@@ -6,6 +6,7 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -86,7 +87,12 @@ impl<V: VTable> ArrayPlugin for V {
             array.encoding_id(),
             "Invoked for incorrect array ID"
         );
-        V::serialize(array.as_::<V>(), session)
+        V::serialize(
+            array
+                .as_typed::<V>()
+                .vortex_expect("Invoked for incorrect array type"),
+            session,
+        )
     }
 
     fn deserialize(

@@ -43,7 +43,7 @@ impl ZipKernel for ListView {
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(if_false) = if_false.as_opt::<ListView>() else {
+        let Some(if_false) = if_false.as_typed::<ListView>() else {
             return Ok(None);
         };
 

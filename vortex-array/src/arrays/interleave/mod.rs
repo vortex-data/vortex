@@ -120,21 +120,21 @@ pub trait InterleaveArrayExt: TypedArrayRef<Interleave> {
 
     /// The `idx`-th value array (holding the rows that `array_indices` routes to it).
     fn value(&self, idx: usize) -> &ArrayRef {
-        self.as_ref().slots()[idx]
+        self.slots()[idx]
             .as_ref()
             .vortex_expect("validated interleave value slot")
     }
 
     /// The selector routing each output row to a value array.
     fn array_indices(&self) -> &ArrayRef {
-        self.as_ref().slots()[self.num_values]
+        self.slots()[self.num_values]
             .as_ref()
             .vortex_expect("validated interleave array_indices slot")
     }
 
     /// The selector naming each output row's position within its value array.
     fn row_indices(&self) -> &ArrayRef {
-        self.as_ref().slots()[self.num_values + 1]
+        self.slots()[self.num_values + 1]
             .as_ref()
             .vortex_expect("validated interleave row_indices slot")
     }

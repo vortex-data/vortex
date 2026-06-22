@@ -42,6 +42,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arc_swap_map::ArcSwapMap;
+use crate::array::ParentRef;
 use crate::array::VTable;
 use crate::arrays::Struct;
 use crate::arrays::struct_::compute::rules::struct_cast_reduce_parent;
@@ -61,8 +62,11 @@ static FN_HASHER: LazyLock<DefaultHashBuilder> = LazyLock::new(DefaultHashBuilde
 ///
 /// Implementations must preserve the parent's logical length and dtype, matching the invariant
 /// required of static parent-reduce rules.
-pub type ReduceParentFn =
-    fn(child: &ArrayRef, parent: &ArrayRef, child_idx: usize) -> VortexResult<Option<ArrayRef>>;
+pub type ReduceParentFn = fn(
+    child: &ArrayRef,
+    parent: &ParentRef<'_>,
+    child_idx: usize,
+) -> VortexResult<Option<ArrayRef>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
@@ -144,7 +148,7 @@ where
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(child) = child.as_opt::<V>() else {
+        let Some(child) = child.as_typed::<V>() else {
             return Ok(None);
         };
         let Some(parent) = K::Parent::try_match(parent) else {
@@ -201,7 +205,7 @@ impl ArrayKernels {
     fn register_builtin_reduce_parent(&self) {
         self.register_reduce_parent(
             Cast.id(),
-            Struct.id(),
+            VTable::id(&Struct),
             &[struct_cast_reduce_parent as ReduceParentFn],
         );
     }

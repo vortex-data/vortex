@@ -65,10 +65,10 @@ impl VarBinViewArray {
     where
         F: FnMut(&Ref),
     {
-        match self.as_ref().validity()?.execute_mask(
-            self.as_ref().len(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )? {
+        match self
+            .validity()?
+            .execute_mask(self.len(), &mut LEGACY_SESSION.create_execution_ctx())?
+        {
             Mask::AllTrue(_) => {
                 for &view in self.views().iter() {
                     if !view.is_inlined() {

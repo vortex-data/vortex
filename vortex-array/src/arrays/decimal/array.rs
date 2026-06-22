@@ -130,28 +130,25 @@ pub struct DecimalDataParts {
 
 pub trait DecimalArrayExt: TypedArrayRef<Decimal> {
     fn decimal_dtype(&self) -> DecimalDType {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Decimal(decimal_dtype, _) => *decimal_dtype,
             _ => unreachable!("DecimalArrayExt requires a decimal dtype"),
         }
     }
 
     fn nullability(&self) -> Nullability {
-        match self.as_ref().dtype() {
+        match self.dtype() {
             DType::Decimal(_, nullability) => *nullability,
             _ => unreachable!("DecimalArrayExt requires a decimal dtype"),
         }
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
+        self.slots()[VALIDITY_SLOT].as_ref()
     }
 
     fn validity(&self) -> Validity {
-        child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.slots()[VALIDITY_SLOT].as_ref(), self.nullability())
     }
 
     fn values_type(&self) -> DecimalType {

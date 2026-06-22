@@ -51,24 +51,24 @@ impl Display for ChunkedData {
 
 pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
     fn chunk_offsets_array(&self) -> &ArrayRef {
-        self.as_ref().slots()[CHUNK_OFFSETS_SLOT]
+        self.slots()[CHUNK_OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("validated chunk offsets slot")
     }
 
     fn nchunks(&self) -> usize {
-        self.as_ref().slots().len().saturating_sub(CHUNKS_OFFSET)
+        self.slots().len().saturating_sub(CHUNKS_OFFSET)
     }
 
     fn chunk(&self, idx: usize) -> &ArrayRef {
-        self.as_ref().slots()[CHUNKS_OFFSET + idx]
+        self.slots()[CHUNKS_OFFSET + idx]
             .as_ref()
             .vortex_expect("validated chunk slot")
     }
 
     fn iter_chunks<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ArrayRef> + 'a> {
         Box::new(
-            self.as_ref().slots()[CHUNKS_OFFSET..]
+            self.slots()[CHUNKS_OFFSET..]
                 .iter()
                 .map(|slot| slot.as_ref().vortex_expect("validated chunk slot")),
         )
@@ -87,10 +87,7 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
     }
 
     fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
-        assert!(
-            index <= self.as_ref().len(),
-            "Index out of bounds of the array"
-        );
+        assert!(index <= self.len(), "Index out of bounds of the array");
         let chunk_offsets = self.chunk_offsets();
         let index_chunk = chunk_offsets
             .search_sorted(&index, SearchSortedSide::Right)?
@@ -103,14 +100,14 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
 
     fn array_iterator(&self) -> impl ArrayIterator + '_ {
         ArrayIteratorAdapter::new(
-            self.as_ref().dtype().clone(),
+            self.dtype().clone(),
             self.iter_chunks().map(|chunk| Ok(chunk.clone())),
         )
     }
 
     fn array_stream(&self) -> impl ArrayStream + '_ {
         ArrayStreamAdapter::new(
-            self.as_ref().dtype().clone(),
+            self.dtype().clone(),
             stream::iter(self.iter_chunks().map(|chunk| Ok(chunk.clone()))),
         )
     }

@@ -40,7 +40,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["core_storage", "shredded"];
 pub trait VariantArrayExt: TypedArrayRef<Variant> {
     /// Returns the logical variant storage that preserves the full value for every row.
     fn core_storage(&self) -> &ArrayRef {
-        self.as_ref().slots()[CORE_STORAGE_SLOT]
+        self.slots()[CORE_STORAGE_SLOT]
             .as_ref()
             .vortex_expect("validated variant core_storage slot")
     }
@@ -49,7 +49,7 @@ pub trait VariantArrayExt: TypedArrayRef<Variant> {
     /// This functions returns `Some` only if the array was canonicalized and the shredded data
     /// was pulled out of the underlying variant storage.
     fn shredded(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[SHREDDED_SLOT].as_ref()
+        self.slots()[SHREDDED_SLOT].as_ref()
     }
 }
 impl<T: TypedArrayRef<Variant>> VariantArrayExt for T {}

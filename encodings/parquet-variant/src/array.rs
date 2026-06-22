@@ -187,7 +187,7 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
         .into_array());
     }
 
-    let Some(struct_array) = typed_value.as_opt::<Struct>() else {
+    let Some(struct_array) = typed_value.as_typed::<Struct>() else {
         return Ok(typed_value);
     };
 
@@ -226,7 +226,7 @@ fn logical_shredded_from_parquet_field(
     field: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(field_struct) = field.as_opt::<Struct>() else {
+    let Some(field_struct) = field.as_typed::<Struct>() else {
         return Ok(Some(field));
     };
 
@@ -311,7 +311,7 @@ fn inferred_shredded_field_validity(
 pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     /// Returns the non-nullable Parquet Variant metadata child.
     fn metadata_array(&self) -> &ArrayRef {
-        self.as_ref().slots()[METADATA_SLOT]
+        self.slots()[METADATA_SLOT]
             .as_ref()
             .vortex_expect("ParquetVariantArray metadata slot")
     }
@@ -319,19 +319,19 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     /// Returns the outer row validity for the Variant values.
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
-            self.as_ref().dtype().nullability(),
+            self.slots()[VALIDITY_SLOT].as_ref(),
+            self.dtype().nullability(),
         )
     }
 
     /// Returns the optional raw Parquet Variant `value` child.
     fn value_array(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[VALUE_SLOT].as_ref()
+        self.slots()[VALUE_SLOT].as_ref()
     }
 
     /// Returns the optional shredded Parquet Variant `typed_value` child.
     fn typed_value_array(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[TYPED_VALUE_SLOT].as_ref()
+        self.slots()[TYPED_VALUE_SLOT].as_ref()
     }
 
     /// Converts this storage array to Arrow's canonical Parquet Variant extension storage.
@@ -342,7 +342,7 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
         let metadata = self.metadata_array();
         let len = metadata.len();
-        let nulls = to_arrow_null_buffer(self.validity(), len, ctx)?;
+        let nulls = to_arrow_null_buffer(ParquetVariantArrayExt::validity(self), len, ctx)?;
 
         let mut fields = Vec::with_capacity(3);
         let mut arrays: Vec<ArrowArrayRef> = Vec::with_capacity(3);

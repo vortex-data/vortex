@@ -6,6 +6,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::ParentRef;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Struct;
@@ -17,7 +18,6 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::struct_::compute::cast::struct_cast_fields;
 use crate::builtins::ArrayBuiltins;
-use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
@@ -35,13 +35,13 @@ pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
 
 pub(crate) fn struct_cast_reduce_parent(
     child: &ArrayRef,
-    parent: &ArrayRef,
+    parent: &ParentRef<'_>,
     _child_idx: usize,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(array) = child.as_opt::<Struct>() else {
+    let Some(array) = child.as_typed::<Struct>() else {
         return Ok(None);
     };
-    let Some(parent) = ExactScalarFn::<Cast>::try_match(parent) else {
+    let Some(parent) = parent.as_opt::<ExactScalarFn<Cast>>() else {
         return Ok(None);
     };
 
@@ -131,6 +131,7 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::ParentRef;
     use crate::array::ArrayPlugin;
     use crate::arrays::ScalarFn;
     use crate::arrays::Struct;
@@ -153,11 +154,12 @@ mod tests {
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::cast::Cast;
     use crate::validity::Validity;
+
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     fn no_struct_cast_plugin(
         _child: &ArrayRef,
-        _parent: &ArrayRef,
+        _parent: &ParentRef<'_>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(None)

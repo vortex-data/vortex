@@ -25,6 +25,8 @@ use crate::Canonical;
 use crate::EqMode;
 use crate::ExecutionResult;
 use crate::IntoArray;
+use crate::array::ParentRef;
+use crate::array::ParentView;
 pub use crate::array::plugin::*;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::Constant;
@@ -96,11 +98,11 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> &ArrayRef {
         array
             .slots()
             .iter()
-            .filter_map(|s| s.clone())
+            .filter_map(|s| s.as_ref())
             .nth(idx)
             .vortex_expect("child index out of bounds")
     }
@@ -186,7 +188,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// Attempt to reduce the array to a simpler representation.
-    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: ParentView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         _ = array;
         Ok(None)
     }
@@ -194,7 +196,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Attempt to perform a reduction of the parent of this array.
     fn reduce_parent(
         array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
+        parent: &ParentRef<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         _ = (array, parent, child_idx);
