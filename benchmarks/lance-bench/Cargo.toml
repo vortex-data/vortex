@@ -15,8 +15,8 @@ version.workspace = true
 publish = false
 
 [dependencies]
-lance = { version = "6", default-features = false }
-lance-encoding = { version = "6" }
+lance = { version = "7", default-features = false }
+lance-encoding = { version = "7" }
 
 anyhow = { workspace = true }
 arrow-cast = { version = "58" }

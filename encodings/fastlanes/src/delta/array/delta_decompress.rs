@@ -70,7 +70,9 @@ where
 
     // Allocate a result array.
     let mut output = BufferMut::with_capacity(deltas.len());
-    let (output_chunks, _) = output.spare_capacity_mut().as_chunks_mut::<1024>();
+    // Bound to the requested length: `spare_capacity_mut` may expose extra over-aligned capacity
+    // beyond `deltas.len()`, which would desync the `zip_eq` with `chunks` below and panic.
+    let (output_chunks, _) = output.spare_capacity_mut()[..deltas.len()].as_chunks_mut::<1024>();
 
     // Loop over all the chunks
     let mut transposed: [T; 1024] = [T::default(); 1024];

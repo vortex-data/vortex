@@ -36,7 +36,7 @@ vortex-array = { workspace = true, features = ["arbitrary", "_test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
-vortex-fsst = { workspace = true }
+vortex-fsst = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-runend = { workspace = true, features = ["arbitrary"] }

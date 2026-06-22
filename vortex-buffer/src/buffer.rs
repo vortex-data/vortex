@@ -95,8 +95,25 @@ impl<T> Buffer<T> {
     }
 
     /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
+    ///
+    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
+    /// `alignment`. Use [`copy_from_preferred_aligned`] to control the over-alignment.
+    ///
+    /// [`copy_from_preferred_aligned`]: Self::copy_from_preferred_aligned
     pub fn copy_from_aligned(values: impl AsRef<[T]>, alignment: Alignment) -> Self {
-        BufferMut::copy_from_aligned(values, alignment).freeze()
+        Self::copy_from_preferred_aligned(values, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+    }
+
+    /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
+    ///
+    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
+    /// of `alignment` and `preferred_alignment`.
+    pub fn copy_from_preferred_aligned(
+        values: impl AsRef<[T]>,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+    ) -> Self {
+        BufferMut::copy_from_preferred_aligned(values, alignment, preferred_alignment).freeze()
     }
 
     /// Create a new zeroed `Buffer` with the given value.
@@ -104,9 +121,26 @@ impl<T> Buffer<T> {
         Self::zeroed_aligned(len, Alignment::of::<T>())
     }
 
-    /// Create a new zeroed `Buffer` with the given value.
+    /// Create a new zeroed `Buffer` with the requested alignment.
+    ///
+    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
+    /// `alignment`. Use [`zeroed_preferred_aligned`] to control the over-alignment.
+    ///
+    /// [`zeroed_preferred_aligned`]: Self::zeroed_preferred_aligned
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
-        BufferMut::zeroed_aligned(len, alignment).freeze()
+        Self::zeroed_preferred_aligned(len, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+    }
+
+    /// Create a new zeroed `Buffer` with the requested alignment.
+    ///
+    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
+    /// of `alignment` and `preferred_alignment`.
+    pub fn zeroed_preferred_aligned(
+        len: usize,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+    ) -> Self {
+        BufferMut::zeroed_preferred_aligned(len, alignment, preferred_alignment).freeze()
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
@@ -800,6 +834,29 @@ mod test {
         let buf = Buffer::<u32>::zeroed_aligned(LEN, alignment);
 
         assert!(buf.is_aligned(alignment));
+        assert_eq!(buf.as_slice(), &[0; LEN]);
+    }
+
+    #[test]
+    fn copy_from_over_aligns_to_default() {
+        let values = [1u32, 2, 3];
+        let buf = Buffer::<u32>::copy_from(values);
+
+        // The buffer reports the scalar type's alignment, ...
+        assert_eq!(buf.alignment(), Alignment::of::<u32>());
+        // ... but the underlying allocation is over-aligned to DEFAULT_ALIGNMENT.
+        assert!(buf.is_aligned(Alignment::DEFAULT_ALIGNMENT));
+        assert_eq!(buf.as_slice(), &values);
+    }
+
+    #[test]
+    fn zeroed_over_aligns_to_default() {
+        const LEN: usize = 17;
+
+        let buf = Buffer::<u32>::zeroed(LEN);
+
+        assert_eq!(buf.alignment(), Alignment::of::<u32>());
+        assert!(buf.is_aligned(Alignment::DEFAULT_ALIGNMENT));
         assert_eq!(buf.as_slice(), &[0; LEN]);
     }
 

@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
@@ -41,7 +42,7 @@ pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,
     nulls: LazyBitBufferBuilder,
     completed: CompletedBuffers,
-    in_progress: ByteBufferMut,
+    in_progress: Option<ByteBufferMut>,
     growth_strategy: BufferGrowthStrategy,
     compaction_threshold: f64,
 }
@@ -83,10 +84,14 @@ impl VarBinViewBuilder {
             "VarBinViewBuilder DType must be Utf8 or Binary."
         );
         Self {
-            views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
+            views_builder: BufferMut::with_capacity_preferred_aligned(
+                capacity,
+                Alignment::of::<BinaryView>(),
+                None,
+            ),
             nulls: LazyBitBufferBuilder::new(capacity),
             completed,
-            in_progress: ByteBufferMut::empty(),
+            in_progress: None,
             dtype,
             growth_strategy,
             compaction_threshold,
@@ -129,20 +134,29 @@ impl VarBinViewBuilder {
     }
 
     fn flush_in_progress(&mut self) {
-        if self.in_progress.is_empty() {
+        let Some(block) = self.in_progress.take() else {
             return;
-        }
-        let block = std::mem::take(&mut self.in_progress).freeze();
+        };
 
         assert!(block.len() < u32::MAX as usize, "Block too large");
 
         let initial_len = self.completed.len();
-        self.completed.push(block);
+        self.completed.push(block.freeze());
         assert_eq!(
             self.completed.len(),
             initial_len + 1,
             "Invalid state, just completed block already exists"
         );
+    }
+
+    fn init_in_progress(&mut self, min_len: usize) {
+        let next_buffer_size = self.growth_strategy.next_size() as usize;
+        let to_reserve = next_buffer_size.max(min_len);
+        self.in_progress = Some(ByteBufferMut::with_capacity_preferred_aligned(
+            to_reserve,
+            Alignment::of::<u8>(),
+            None,
+        ));
     }
 
     /// append a non inlined value to self.in_progress.
@@ -151,17 +165,25 @@ impl VarBinViewBuilder {
             value.len() > BinaryView::MAX_INLINED_SIZE,
             "must inline small strings"
         );
-        let required_cap = self.in_progress.len() + value.len();
-        if self.in_progress.capacity() < required_cap {
-            self.flush_in_progress();
-            let next_buffer_size = self.growth_strategy.next_size() as usize;
-            let to_reserve = next_buffer_size.max(value.len());
-            self.in_progress.reserve(to_reserve);
-        }
+
+        if let Some(in_progress) = &mut self.in_progress {
+            let required_cap = in_progress.len() + value.len();
+            if in_progress.capacity() < required_cap {
+                self.flush_in_progress();
+                self.init_in_progress(value.len());
+            }
+        } else {
+            self.init_in_progress(value.len())
+        };
+
+        let in_progress = self
+            .in_progress
+            .as_mut()
+            .vortex_expect("in_progress just set");
 
         let buffer_idx = self.completed.len();
-        let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
-        self.in_progress.extend_from_slice(value);
+        let offset = u32::try_from(in_progress.len()).vortex_expect("too many buffers");
+        in_progress.extend_from_slice(value);
 
         (buffer_idx, offset)
     }
@@ -173,7 +195,7 @@ impl VarBinViewBuilder {
     /// Returns true if a non-empty in-progress buffer is staged (and would
     /// become a completed buffer on the next flush), false otherwise.
     pub fn in_progress(&self) -> bool {
-        !self.in_progress.is_empty()
+        self.in_progress.is_some()
     }
 
     /// Pushes buffers and pre-adjusted views into the builder.

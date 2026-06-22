@@ -107,8 +107,10 @@ fn bits_op_with_copy<F: Fn(&[u8; 128], &mut [u8; 128])>(
     let output_len = bytes.len().next_multiple_of(128);
     let mut output = ByteBufferMut::with_capacity(output_len);
     let (input_chunks, input_trailer) = bytes.as_chunks::<128>();
-    // We can ignore the spare trailer capacity that can be an artifact of allocator as we requested 128 multiple chunks
-    let (output_chunks, _) = output.spare_capacity_mut().as_chunks_mut::<128>();
+    // Bound to the requested `output_len`: `spare_capacity_mut` may expose extra over-aligned
+    // capacity, which would otherwise split into spurious trailing chunks and make `last_mut`
+    // below target a chunk past the data we actually initialize.
+    let (output_chunks, _) = output.spare_capacity_mut()[..output_len].as_chunks_mut::<128>();
 
     for (input, output) in input_chunks.iter().zip(output_chunks.iter_mut()) {
         op(input, unsafe {
@@ -188,5 +190,26 @@ mod tests {
         let transposed = transpose_bitbuffer(bits.clone());
         let roundtripped = untranspose_bitbuffer(transposed);
         assert_eq!(bits, roundtripped.slice(0..original_len));
+    }
+
+    /// Regression: the copy path split the over-aligned spare capacity into extra 128-byte
+    /// chunks and wrote the padded remainder via `last_mut()`, which landed past the requested
+    /// length and left the real trailing chunk uninitialized. Whether the surplus capacity
+    /// produced an extra chunk depended on the allocation address, so we repeat across sizes to
+    /// defeat that luck; the fix bounds the spare slice so the result no longer depends on it.
+    #[test]
+    fn transpose_copy_path_survives_overallocation() {
+        for original_len in [129, 500, 1500, 9999] {
+            let bits = make_validity_bits(original_len);
+            for _ in 0..64 {
+                let transposed = transpose_bitbuffer(bits.clone());
+                let roundtripped = untranspose_bitbuffer(transposed);
+                assert_eq!(
+                    roundtripped.slice(0..original_len),
+                    bits,
+                    "len={original_len}"
+                );
+            }
+        }
     }
 }

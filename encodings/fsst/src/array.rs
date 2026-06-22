@@ -856,7 +856,7 @@ mod test {
     use crate::FSST;
     use crate::array::FSSTArrayExt;
     use crate::array::FSSTMetadata;
-    use crate::fsst_compress_iter;
+    use crate::fsst_compress;
 
     #[test]
     fn slice_reuses_initialized_compressor() -> VortexResult<()> {
@@ -868,18 +868,8 @@ mod test {
 
         let compressor = Compressor::rebuild_from(symbols.as_slice(), symbol_lengths.as_slice());
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let fsst_array = fsst_compress_iter(
-            [
-                Some(b"abcabcab".as_ref()),
-                Some(b"defghijk".as_ref()),
-                Some(b"abcxyz".as_ref()),
-            ]
-            .into_iter(),
-            3,
-            DType::Utf8(Nullability::NonNullable),
-            &compressor,
-            &mut ctx,
-        );
+        let strings = VarBinViewArray::from_iter_str(["abcabcab", "defghijk", "abcxyz"]);
+        let fsst_array = fsst_compress(&strings.into_array(), &compressor, &mut ctx)?;
 
         let compressor_ptr = fsst_array.compressor() as *const Compressor;
         let sliced = fsst_array
@@ -922,13 +912,8 @@ mod test {
 
         let compressor = Compressor::rebuild_from(symbols.as_slice(), symbol_lengths.as_slice());
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let fsst_array = fsst_compress_iter(
-            [Some(b"abcabcab".as_ref()), Some(b"defghijk".as_ref())].into_iter(),
-            2,
-            DType::Utf8(Nullability::NonNullable),
-            &compressor,
-            &mut ctx,
-        );
+        let input = VarBinViewArray::from_iter_str(["abcabcab", "defghijk"]);
+        let fsst_array = fsst_compress(&input.into_array(), &compressor, &mut ctx).unwrap();
 
         let compressed_codes = fsst_array.codes();
 

@@ -114,7 +114,7 @@ impl ScanPlan for StructScanPlan {
         {
             return self.push_struct(pack.names.clone(), cx).map(Some);
         }
-        let fields = referenced_fields(expr, &scope);
+        let fields = referenced_fields(expr, scope);
         if let [name] = fields.as_slice()
             && can_push_as_single_field(expr, name)
         {

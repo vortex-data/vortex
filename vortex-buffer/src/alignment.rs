@@ -19,6 +19,15 @@ impl Alignment {
     /// Default alignment for device-to-host buffer copies.
     pub const HOST_COPY: Self = Alignment::new(256);
 
+    /// Default alignment for all buffers.
+    ///
+    /// Chosen to be larger than any SIMD register (e.g. AVX-512's 64-byte
+    /// registers) so that buffers can be processed with vectorized loads/stores
+    /// without alignment fixups, and to match the alignment guarantees of the
+    /// CUDA allocator (256 bytes) so host buffers can be copied to/from device
+    /// memory without re-alignment.
+    pub const DEFAULT_ALIGNMENT: Self = Alignment::new(256);
+
     /// Create a new alignment.
     ///
     /// ## Panics

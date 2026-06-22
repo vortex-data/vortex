@@ -12,6 +12,7 @@ use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::OnPair;
 use crate::OnPairArrayExt;
@@ -74,59 +75,100 @@ impl LikeKernel for OnPair {
         );
 
         let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
-        let code_offsets = collect_widened::<u64>(codes_offsets, ctx)?;
+        let code_offsets = normalize_code_offsets(
+            collect_widened::<u64>(codes_offsets, ctx)?.as_slice(),
+            code_start,
+            code_end,
+        )?;
         let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
         let dict_bytes = array.dict_bytes();
         let dict_bytes = dict_bytes.as_slice();
         let mut tail = Vec::new();
         let mut scratch = Vec::new();
-        let finder = match parsed {
-            SimpleLike::Contains(needle) => Some(Finder::new(needle)),
-            _ => None,
-        };
 
-        let bits = BitBuffer::collect_bool(array.len(), |row| {
-            let matched = match parsed {
-                SimpleLike::All => true,
-                SimpleLike::Exact(needle) => row_matches_exact(
-                    row_codes(&code_offsets, &codes, code_start, row),
+        let bits = match parsed {
+            SimpleLike::All => BitBuffer::collect_bool(array.len(), |_| true ^ options.negated),
+            SimpleLike::Exact(needle) => BitBuffer::collect_bool(array.len(), |row| {
+                row_matches_exact(
+                    row_codes(&code_offsets, &codes, row),
                     dict_bytes,
                     dict_offsets.as_slice(),
                     needle,
-                ),
-                SimpleLike::Prefix(needle) => row_matches_prefix(
-                    row_codes(&code_offsets, &codes, code_start, row),
+                ) ^ options.negated
+            }),
+            SimpleLike::Prefix(needle) => BitBuffer::collect_bool(array.len(), |row| {
+                row_matches_prefix(
+                    row_codes(&code_offsets, &codes, row),
                     dict_bytes,
                     dict_offsets.as_slice(),
                     needle,
-                ),
-                SimpleLike::Suffix(needle) => row_matches_suffix(
-                    row_codes(&code_offsets, &codes, code_start, row),
+                ) ^ options.negated
+            }),
+            SimpleLike::Suffix(needle) => BitBuffer::collect_bool(array.len(), |row| {
+                row_matches_suffix(
+                    row_codes(&code_offsets, &codes, row),
                     dict_bytes,
                     dict_offsets.as_slice(),
                     needle,
                     &mut tail,
-                ),
-                SimpleLike::Contains(needle) => row_matches_contains(
-                    row_codes(&code_offsets, &codes, code_start, row),
-                    dict_bytes,
-                    dict_offsets.as_slice(),
-                    needle,
-                    finder
-                        .as_ref()
-                        .expect("contains pattern has a memmem finder"),
-                    &mut tail,
-                    &mut scratch,
-                ),
-            };
-            matched ^ options.negated
-        });
+                ) ^ options.negated
+            }),
+            SimpleLike::Contains(needle) => {
+                let finder = Finder::new(needle);
+                BitBuffer::collect_bool(array.len(), |row| {
+                    row_matches_contains(
+                        row_codes(&code_offsets, &codes, row),
+                        dict_bytes,
+                        dict_offsets.as_slice(),
+                        needle,
+                        &finder,
+                        &mut tail,
+                        &mut scratch,
+                    ) ^ options.negated
+                })
+            }
+        };
 
         let validity = array
             .array_validity()
             .union_nullability(pattern_scalar.dtype().nullability());
         Ok(Some(BoolArray::new(bits, validity).into_array()))
     }
+}
+
+fn normalize_code_offsets(
+    code_offsets: &[u64],
+    code_start: usize,
+    code_end: usize,
+) -> VortexResult<Vec<usize>> {
+    let offsets = code_offsets
+        .iter()
+        .map(|&offset| {
+            usize::try_from(offset)
+                .map_err(|_| vortex_err!("OnPair code offset {} exceeds usize", offset))
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    for &offset in &offsets {
+        vortex_ensure!(
+            offset >= code_start && offset <= code_end,
+            "OnPair codes offset {} outside row window {}..{}",
+            offset,
+            code_start,
+            code_end
+        );
+    }
+    for window in offsets.windows(2) {
+        vortex_ensure!(
+            window[0] <= window[1],
+            "OnPair codes_offsets must be nondecreasing"
+        );
+    }
+
+    Ok(offsets
+        .into_iter()
+        .map(|offset| offset - code_start)
+        .collect())
 }
 
 fn parse_simple_like(pattern: &[u8]) -> Option<SimpleLike<'_>> {
@@ -154,14 +196,9 @@ fn parse_simple_like(pattern: &[u8]) -> Option<SimpleLike<'_>> {
     }
 }
 
-fn row_codes<'a>(
-    code_offsets: &[u64],
-    codes: &'a [u16],
-    code_start: usize,
-    row: usize,
-) -> &'a [u16] {
-    let start = code_offsets[row] as usize - code_start;
-    let end = code_offsets[row + 1] as usize - code_start;
+fn row_codes<'a>(code_offsets: &[usize], codes: &'a [u16], row: usize) -> &'a [u16] {
+    let start = code_offsets[row];
+    let end = code_offsets[row + 1];
     &codes[start..end]
 }
 
