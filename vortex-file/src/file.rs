@@ -36,6 +36,7 @@ use vortex_session::VortexSession;
 use crate::FileStatistics;
 use crate::footer::Footer;
 use crate::multi::scan_v2;
+use crate::multi::scan_v2::PreparedScanPlanCache;
 use crate::pruning::can_prune_file_stats;
 use crate::v2::FileStatsLayoutReader;
 
@@ -60,6 +61,8 @@ pub struct VortexFile {
     scan_plan_state_cache: PreparedStateCacheRef,
     /// Shared cache for v2 in-flight segment futures across row-range scans of this file.
     scan_plan_segment_future_cache: Arc<SegmentFutureCache>,
+    /// Shared cache for v2 request-level prepared plans across row-range scans of this file.
+    scan_plan_prepared_cache: Arc<PreparedScanPlanCache>,
 }
 
 fn layout_reader(
@@ -98,6 +101,7 @@ impl VortexFile {
             scan_plan_root_cache: Arc::new(OnceLock::new()),
             scan_plan_state_cache: Arc::new(PreparedStateCache::default()),
             scan_plan_segment_future_cache: Arc::new(SegmentFutureCache::new()),
+            scan_plan_prepared_cache: Arc::new(PreparedScanPlanCache::default()),
         }
     }
 
@@ -111,6 +115,7 @@ impl VortexFile {
             scan_plan_root_cache: self.scan_plan_root_cache,
             scan_plan_state_cache: self.scan_plan_state_cache,
             scan_plan_segment_future_cache: self.scan_plan_segment_future_cache,
+            scan_plan_prepared_cache: self.scan_plan_prepared_cache,
         }
     }
 
@@ -199,6 +204,10 @@ impl VortexFile {
 
     pub(crate) fn scan_plan_segment_future_cache(&self) -> Arc<SegmentFutureCache> {
         Arc::clone(&self.scan_plan_segment_future_cache)
+    }
+
+    pub(crate) fn scan_plan_prepared_cache(&self) -> Arc<PreparedScanPlanCache> {
+        Arc::clone(&self.scan_plan_prepared_cache)
     }
 
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.

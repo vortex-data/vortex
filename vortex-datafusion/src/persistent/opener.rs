@@ -370,20 +370,15 @@ impl FileOpener for VortexOpener {
                     if byte_range.start == 0 && byte_range.end == file.object_meta.size {
                         None
                     } else {
-                        // Distribute V2 natural split ranges across DataFusion's byte-range
-                        // file_groups. V2 prepares morsels from these same split ranges, so each
-                        // DataFusion partition owns whole V2 morsels instead of slicing through
-                        // chunk boundaries and forcing duplicate decode work.
-                        let split_ranges = scan_plan_split_ranges_for_file(
-                            natural_split_ranges.as_ref(),
-                            &file.object_meta.location,
-                            &vxf,
-                        )?;
-
-                        let Some(row_range) = split_aligned_row_range(
+                        // DataFusion partitions a single file by byte ranges. V2 may expose only
+                        // coarse top-level split hints, so assigning whole natural splits here can
+                        // collapse many byte ranges into a few row ranges. Slice proportionally by
+                        // row count; the V2 scan plan will still split the resulting row range into
+                        // layout-aware morsels during preparation.
+                        let Some(row_range) = byte_range_to_row_range(
                             byte_range,
                             file.object_meta.size,
-                            split_ranges.as_ref(),
+                            vxf.row_count(),
                         ) else {
                             return Ok(stream::empty().boxed());
                         };
@@ -662,43 +657,34 @@ fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Ar
     Ok(split_points.into())
 }
 
-/// Get or create V2 natural split ranges for a file. These ranges are produced by the file's V2
-/// ScanPlan root and cached per path so every byte-range partition sees the same row boundaries.
-fn scan_plan_split_ranges_for_file(
-    split_ranges_cache: &DashMap<Path, Arc<[Range<u64>]>>,
-    path: &Path,
-    file: &VortexFile,
-) -> DFResult<Arc<[Range<u64>]>> {
-    if let Some(ranges) = split_ranges_cache.get(path) {
-        return Ok(Arc::clone(ranges.value()));
+fn byte_range_to_row_range(
+    byte_range: Range<u64>,
+    total_size: u64,
+    row_count: u64,
+) -> Option<Range<u64>> {
+    if byte_range.start >= byte_range.end || total_size == 0 || row_count == 0 {
+        return None;
     }
 
-    let ranges: Arc<[Range<u64>]> = file
-        .scan_plan_splits()
-        .map_err(|e| exec_datafusion_err!("Failed to compute Vortex scan2 splits: {e}"))?
-        .into();
-    tracing::debug!(
-        target: "vortex_datafusion::persistent::opener",
-        path = %path,
-        split_count = ranges.len(),
-        first_split = ?ranges.first(),
-        last_split = ?ranges.last(),
-        "scan2 file split ranges"
-    );
-    tracing::trace!(
-        target: "vortex_datafusion::persistent::opener",
-        path = %path,
-        ?ranges,
-        "scan2 file split range detail"
-    );
-
-    match split_ranges_cache.entry(path.clone()) {
-        Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
-        Entry::Vacant(entry) => {
-            entry.insert(Arc::clone(&ranges));
-            Ok(ranges)
-        }
+    let start_byte = byte_range.start.min(total_size);
+    let end_byte = byte_range.end.min(total_size);
+    if start_byte >= end_byte {
+        return None;
     }
+
+    let start = byte_to_row(start_byte, total_size, row_count);
+    let end = if end_byte == total_size {
+        row_count
+    } else {
+        byte_to_row(end_byte, total_size, row_count)
+    };
+
+    (start < end).then_some(start..end)
+}
+
+fn byte_to_row(byte: u64, total_size: u64, row_count: u64) -> u64 {
+    let row = (u128::from(byte) * u128::from(row_count)) / u128::from(total_size);
+    u64::try_from(row).vortex_expect("byte-to-row projection should fit into u64")
 }
 
 /// Translate a DataFusion byte range to the contiguous natural split ranges it owns.
@@ -806,6 +792,57 @@ mod tests {
     use crate::persistent::reader::DefaultVortexReaderFactory;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+
+    #[rstest]
+    #[case(0..10, 100, 50, Some(0..5))]
+    #[case(10..20, 100, 50, Some(5..10))]
+    #[case(90..100, 100, 50, Some(45..50))]
+    #[case(100..110, 100, 50, None)]
+    #[case(0..1, 100, 50, None)]
+    fn test_byte_range_to_row_range(
+        #[case] byte_range: Range<u64>,
+        #[case] total_size: u64,
+        #[case] row_count: u64,
+        #[case] expected: Option<Range<u64>>,
+    ) {
+        assert_eq!(
+            byte_range_to_row_range(byte_range, total_size, row_count),
+            expected
+        );
+    }
+
+    #[test]
+    fn test_byte_ranges_cover_rows_exactly_once() {
+        let total_size = 179_114_706;
+        let row_count = 6_001_215;
+        let partitions = 18;
+        let byte_ranges = (0..partitions)
+            .map(|idx| {
+                let start = idx * total_size / partitions;
+                let end = (idx + 1) * total_size / partitions;
+                start..end
+            })
+            .collect::<Vec<_>>();
+
+        let row_ranges = byte_ranges
+            .into_iter()
+            .filter_map(|byte_range| byte_range_to_row_range(byte_range, total_size, row_count))
+            .collect::<Vec<_>>();
+
+        assert_eq!(row_ranges.len(), partitions as usize);
+        assert_eq!(row_ranges.first().map(|range| range.start), Some(0));
+        assert_eq!(row_ranges.last().map(|range| range.end), Some(row_count));
+        assert_eq!(
+            row_ranges
+                .iter()
+                .map(|range| range.end - range.start)
+                .sum::<u64>(),
+            row_count
+        );
+        for (left, right) in row_ranges.iter().tuple_windows() {
+            assert_eq!(left.end, right.start);
+        }
+    }
 
     #[rstest]
     #[case(0..3, 10, vec![0..2, 2..5, 5..10], Some(0..2))]

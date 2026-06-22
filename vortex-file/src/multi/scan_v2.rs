@@ -5,6 +5,8 @@
 
 use std::any::Any;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Range;
@@ -19,6 +21,7 @@ use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use futures::stream;
 use futures::stream::FuturesUnordered;
+use parking_lot::Mutex;
 use tracing::Instrument;
 use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
@@ -64,7 +67,6 @@ use vortex_scan::ScanRequest as DataSourceScanRequest;
 use vortex_scan::ScanScheduler;
 use vortex_scan::ScanSchedulerSessionExt;
 use vortex_scan::ScanTicket;
-use vortex_scan::WorkRequest;
 use vortex_scan::plan::OwnedRowScope;
 use vortex_scan::plan::PrepareCtx;
 use vortex_scan::plan::PreparedAggregateRef;
@@ -93,6 +95,7 @@ use vortex_scan::segments::ScanIoPhase;
 use vortex_scan::segments::ScanRead;
 use vortex_scan::segments::SegmentFutureCache;
 use vortex_scan::segments::SegmentPlanCtx;
+use vortex_scan::segments::SegmentRequestKey;
 use vortex_scan::segments::SegmentRequests;
 use vortex_scan::segments::SegmentSource;
 use vortex_scan::segments::register_segment_reads_cached;
@@ -111,8 +114,6 @@ const DEFAULT_CONCURRENCY: usize = 8;
 const IDEAL_SPLIT_SIZE: u64 = 100_000;
 const MAX_SELECTION_RANGE_SIZE: u64 = IDEAL_SPLIT_SIZE / 25;
 const MIN_SELECTION_GAP_BETWEEN_RANGES: u64 = IDEAL_SPLIT_SIZE / 2;
-const DEFAULT_EVIDENCE_MORSEL_WINDOW: usize = 8;
-
 /// Below this demanded-row density, evaluate a residual predicate over only the demanded rows
 /// (filter-first) rather than the whole morsel. Mirrors the V1 flat-reader threshold.
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
@@ -659,19 +660,23 @@ impl DataSource for ScanPlanDataSource {
 
         let mut planned_files = Vec::new();
         let mut total_morsels = 0usize;
-        let mut has_runtime_evidence = false;
         for (partition_idx, file) in self.open_files(false).await? {
             let Some(request) = file_scan_request(partition_idx, &file, scan_request.clone())?
             else {
                 continue;
             };
-            let prepared = Arc::new(PreparedScanPlan::try_new(&file, request)?);
+            let row_range = request
+                .row_range
+                .clone()
+                .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?;
+            let prepared = file
+                .scan_plan_prepared_cache()
+                .get_or_prepare(&file, &request)?;
             let execution = Arc::new(ScanExecution::try_new(file, prepared, &ticket)?);
-            let ranges = execution.splits()?;
+            let ranges = execution.splits(&row_range)?;
             if ranges.is_empty() {
                 continue;
             }
-            has_runtime_evidence |= execution.has_runtime_evidence();
             total_morsels = total_morsels.saturating_add(ranges.len());
             planned_files.push((execution, ranges));
         }
@@ -693,9 +698,8 @@ impl DataSource for ScanPlanDataSource {
             }
         }
 
-        let default_window = get_available_parallelism().unwrap_or(1).saturating_mul(4);
-        let (morsel_plan_window, morsel_launch_window) =
-            morsel_windows(&scheduler, false, has_runtime_evidence, default_window);
+        let morsel_plan_window = morsel_plan_window(&scheduler, false);
+        let read_byte_budget = read_byte_budget(&scheduler);
 
         Ok(Some(Arc::new(PlannedScanPlanScan {
             dtype,
@@ -703,7 +707,7 @@ impl DataSource for ScanPlanDataSource {
             scheduler,
             ticket,
             morsel_plan_window,
-            morsel_launch_window,
+            read_byte_budget,
         })))
     }
 
@@ -1064,7 +1068,7 @@ fn file_scan_request(
 
 struct Work<T> {
     phase: ScanIoPhase,
-    known_bytes: u64,
+    reads: Vec<WorkRead>,
     handle: Handle,
     future: BoxFuture<'static, VortexResult<T>>,
 }
@@ -1073,12 +1077,12 @@ impl<T: Send + 'static> Work<T> {
     fn new(
         phase: ScanIoPhase,
         handle: Handle,
-        known_bytes: u64,
+        reads: Vec<WorkRead>,
         future: BoxFuture<'static, VortexResult<T>>,
     ) -> Self {
         Self {
             phase,
-            known_bytes,
+            reads,
             handle,
             future,
         }
@@ -1092,19 +1096,35 @@ impl<T: Send + 'static> Work<T> {
         QueuedWork {
             morsel_id,
             phase: self.phase,
-            known_bytes: self.known_bytes,
+            reads: self.reads,
             handle: self.handle,
             future: async move { self.future.await.map(map) }.boxed(),
         }
     }
 }
 
+#[derive(Clone, Copy)]
+struct WorkRead {
+    key: SegmentRequestKey,
+    bytes: u64,
+}
+
 struct QueuedWork {
     morsel_id: usize,
     phase: ScanIoPhase,
-    known_bytes: u64,
+    reads: Vec<WorkRead>,
     handle: Handle,
     future: BoxFuture<'static, VortexResult<WorkOutput>>,
+}
+
+struct ActiveRead {
+    bytes: u64,
+    refs: usize,
+}
+
+struct LaunchedWorkOutput {
+    reads: Vec<WorkRead>,
+    output: VortexResult<WorkOutput>,
 }
 
 struct EvidenceWorkOutput {
@@ -1143,6 +1163,50 @@ struct MorselState {
     next_recheck_predicate: usize,
 }
 
+#[derive(Default)]
+pub(crate) struct PreparedScanPlanCache {
+    plans: Mutex<HashMap<PreparedScanPlanKey, Arc<PreparedScanPlan>>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct PreparedScanPlanKey {
+    projection: Expression,
+    filter: Option<Expression>,
+    ordered: bool,
+    limit: Option<u64>,
+}
+
+impl PreparedScanPlanKey {
+    fn try_new(request: &DataSourceScanRequest) -> Option<Self> {
+        matches!(request.selection, Selection::All).then(|| Self {
+            projection: request.projection.clone(),
+            filter: request.filter.clone(),
+            ordered: request.ordered,
+            limit: request.limit,
+        })
+    }
+}
+
+impl PreparedScanPlanCache {
+    fn get_or_prepare(
+        &self,
+        file: &VortexFile,
+        request: &DataSourceScanRequest,
+    ) -> VortexResult<Arc<PreparedScanPlan>> {
+        let Some(key) = PreparedScanPlanKey::try_new(request) else {
+            return PreparedScanPlan::try_new(file, request).map(Arc::new);
+        };
+
+        if let Some(plan) = self.plans.lock().get(&key) {
+            return Ok(Arc::clone(plan));
+        }
+
+        let plan = Arc::new(PreparedScanPlan::try_new(file, request)?);
+        let mut plans = self.plans.lock();
+        Ok(Arc::clone(plans.entry(key).or_insert(plan)))
+    }
+}
+
 struct PartitionWorkSchedulerState {
     pending: VecDeque<PlannedScanPlanMorsel>,
     morsels: Vec<Option<MorselState>>,
@@ -1152,13 +1216,13 @@ struct PartitionWorkSchedulerState {
     evidence_queue: VecDeque<QueuedWork>,
     predicate_queue: VecDeque<QueuedWork>,
     projection_queue: VecDeque<QueuedWork>,
-    in_flight: FuturesUnordered<BoxFuture<'static, VortexResult<WorkOutput>>>,
+    in_flight: FuturesUnordered<BoxFuture<'static, LaunchedWorkOutput>>,
     completed_morsels: BTreeMap<usize, CompletedMorsel>,
-    scheduler: Arc<ScanScheduler>,
-    ticket: ScanTicket,
     ordered: bool,
     plan_window: usize,
-    launch_window: usize,
+    read_byte_budget: u64,
+    active_read_bytes: u64,
+    active_reads: HashMap<SegmentRequestKey, ActiveRead>,
     phase_cursor: usize,
 }
 
@@ -1169,41 +1233,28 @@ const WEIGHTED_PHASES: &[ScanIoPhase] = &[
     ScanIoPhase::ProjectionRead,
 ];
 
-fn morsel_windows(
-    scheduler: &ScanScheduler,
-    limited: bool,
-    has_runtime_evidence: bool,
-    default_window: usize,
-) -> (usize, usize) {
+fn morsel_plan_window(scheduler: &ScanScheduler, limited: bool) -> usize {
     if limited {
-        return (1, 1);
+        return 1;
     }
-    let launch_window = scheduler
-        .config()
-        .morsel_launch_window()
-        .unwrap_or_else(|| {
-            if has_runtime_evidence {
-                default_window.min(DEFAULT_EVIDENCE_MORSEL_WINDOW)
-            } else {
-                default_window
-            }
-        })
-        .max(1);
-    let plan_window = scheduler
+
+    scheduler
         .config()
         .morsel_plan_window()
-        .map(|window| window.max(launch_window).max(1))
-        .unwrap_or(usize::MAX);
-    (plan_window, launch_window)
+        .unwrap_or(usize::MAX)
+}
+
+fn read_byte_budget(scheduler: &ScanScheduler) -> u64 {
+    scheduler.config().read_byte_budget().unwrap_or(u64::MAX)
 }
 
 fn partition_work_stream(
     morsels: Vec<PlannedScanPlanMorsel>,
-    scheduler: Arc<ScanScheduler>,
-    ticket: ScanTicket,
+    _scheduler: Arc<ScanScheduler>,
+    _ticket: ScanTicket,
     ordered: bool,
     plan_window: usize,
-    launch_window: usize,
+    read_byte_budget: u64,
 ) -> impl futures::Stream<Item = VortexResult<ArrayRef>> + Send + 'static {
     let state = PartitionWorkSchedulerState {
         pending: VecDeque::from(morsels),
@@ -1216,11 +1267,11 @@ fn partition_work_stream(
         projection_queue: VecDeque::new(),
         in_flight: FuturesUnordered::new(),
         completed_morsels: BTreeMap::new(),
-        scheduler,
-        ticket,
         ordered,
         plan_window,
-        launch_window,
+        read_byte_budget,
+        active_read_bytes: 0,
+        active_reads: HashMap::new(),
         phase_cursor: 0,
     };
 
@@ -1237,10 +1288,7 @@ fn partition_work_stream(
                 }
             }
 
-            while state.in_flight.len() < state.launch_window {
-                let Some(work) = state.pop_next_work() else {
-                    break;
-                };
+            while let Some(work) = state.pop_next_admissible_work() {
                 state.launch(work);
             }
 
@@ -1261,17 +1309,53 @@ fn partition_work_stream(
             }
 
             match state.in_flight.next().await {
-                Some(Ok(output)) => match state.complete_work(output) {
-                    Ok(Some(array)) => return Some((Ok(array), state)),
-                    Ok(None) => continue,
-                    Err(error) => return Some((Err(error), state)),
-                },
-                Some(Err(error)) => return Some((Err(error), state)),
+                Some(output) => {
+                    state.release_reads(&output.reads);
+                    match output.output.and_then(|output| state.complete_work(output)) {
+                        Ok(Some(array)) => return Some((Ok(array), state)),
+                        Ok(None) => continue,
+                        Err(error) => return Some((Err(error), state)),
+                    }
+                }
                 None if state.is_done() => return None,
                 None => continue,
             }
         }
     })
+}
+
+fn can_admit_work(
+    active_reads: &HashMap<SegmentRequestKey, ActiveRead>,
+    active_read_bytes: u64,
+    read_byte_budget: u64,
+    in_flight_empty: bool,
+    work: &QueuedWork,
+) -> bool {
+    let incremental = incremental_read_bytes(active_reads, &work.reads);
+    incremental == 0
+        || active_read_bytes.saturating_add(incremental) <= read_byte_budget
+        || in_flight_empty
+}
+
+fn incremental_read_bytes(
+    active_reads: &HashMap<SegmentRequestKey, ActiveRead>,
+    reads: &[WorkRead],
+) -> u64 {
+    let mut seen = HashSet::new();
+    reads
+        .iter()
+        .filter(|read| seen.insert(read.key) && !active_reads.contains_key(&read.key))
+        .map(|read| read.bytes)
+        .sum()
+}
+
+fn read_bytes(reads: &[WorkRead]) -> u64 {
+    let mut seen = HashSet::new();
+    reads
+        .iter()
+        .filter(|read| seen.insert(read.key))
+        .map(|read| read.bytes)
+        .sum()
 }
 
 impl PartitionWorkSchedulerState {
@@ -1285,6 +1369,8 @@ impl PartitionWorkSchedulerState {
         self.projection_queue.clear();
         self.in_flight = FuturesUnordered::new();
         self.completed_morsels.clear();
+        self.active_read_bytes = 0;
+        self.active_reads.clear();
     }
 
     fn is_done(&self) -> bool {
@@ -1321,11 +1407,11 @@ impl PartitionWorkSchedulerState {
         Ok(())
     }
 
-    fn pop_next_work(&mut self) -> Option<QueuedWork> {
+    fn pop_next_admissible_work(&mut self) -> Option<QueuedWork> {
         for _ in 0..WEIGHTED_PHASES.len() {
             let phase = WEIGHTED_PHASES[self.phase_cursor % WEIGHTED_PHASES.len()];
             self.phase_cursor = self.phase_cursor.wrapping_add(1);
-            if let Some(work) = self.pop_phase_work(phase) {
+            if let Some(work) = self.pop_phase_admissible_work(phase) {
                 return Some(work);
             }
         }
@@ -1335,46 +1421,110 @@ impl PartitionWorkSchedulerState {
             ScanIoPhase::ProjectionRead,
         ]
         .into_iter()
-        .find_map(|phase| self.pop_phase_work(phase))
+        .find_map(|phase| self.pop_phase_admissible_work(phase))
     }
 
-    fn pop_phase_work(&mut self, phase: ScanIoPhase) -> Option<QueuedWork> {
+    fn pop_phase_admissible_work(&mut self, phase: ScanIoPhase) -> Option<QueuedWork> {
+        let active_reads = &self.active_reads;
+        let active_read_bytes = self.active_read_bytes;
+        let read_byte_budget = self.read_byte_budget;
+        let in_flight_empty = self.in_flight.is_empty();
+        let morsels = &self.morsels;
         let queue = match phase {
             ScanIoPhase::EvidenceProbe | ScanIoPhase::EvidenceSetup => &mut self.evidence_queue,
             ScanIoPhase::PredicateRead => &mut self.predicate_queue,
             ScanIoPhase::ProjectionRead | ScanIoPhase::AggregateRead => &mut self.projection_queue,
         };
-        while let Some(work) = queue.pop_front() {
-            if self
-                .morsels
+        let len = queue.len();
+        for _ in 0..len {
+            let Some(work) = queue.pop_front() else {
+                break;
+            };
+            if morsels
                 .get(work.morsel_id)
                 .and_then(Option::as_ref)
-                .is_some()
+                .is_none()
             {
+                continue;
+            }
+            if can_admit_work(
+                active_reads,
+                active_read_bytes,
+                read_byte_budget,
+                in_flight_empty,
+                &work,
+            ) {
                 return Some(work);
             }
+            queue.push_back(work);
         }
         None
     }
 
     fn launch(&mut self, work: QueuedWork) {
-        let scheduler = Arc::clone(&self.scheduler);
-        let ticket = self.ticket.clone();
+        let reads = self.admit_reads(&work.reads);
+        let phase = work.phase;
+        let bytes = read_bytes(&reads);
         self.in_flight.push(
             work.handle
                 .spawn(
                     async move {
-                        let _permit = scheduler.acquire(&ticket, WorkRequest::morsel()).await?;
-                        work.future.await
+                        let output = work.future.await;
+                        LaunchedWorkOutput { reads, output }
                     }
                     .instrument(tracing::trace_span!(
                         "scan2_work",
-                        phase = ?work.phase,
-                        known_bytes = work.known_bytes,
+                        phase = ?phase,
+                        read_bytes = bytes,
                     )),
                 )
                 .boxed(),
         );
+    }
+
+    fn admit_reads(&mut self, reads: &[WorkRead]) -> Vec<WorkRead> {
+        let mut admitted = Vec::with_capacity(reads.len());
+        let mut seen = HashSet::new();
+        for read in reads {
+            if !seen.insert(read.key) {
+                continue;
+            }
+            match self.active_reads.entry(read.key) {
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    let active = entry.get_mut();
+                    active.refs = active.refs.saturating_add(1);
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    self.active_read_bytes = self.active_read_bytes.saturating_add(read.bytes);
+                    entry.insert(ActiveRead {
+                        bytes: read.bytes,
+                        refs: 1,
+                    });
+                }
+            }
+            admitted.push(*read);
+        }
+        admitted
+    }
+
+    fn release_reads(&mut self, reads: &[WorkRead]) {
+        let mut seen = HashSet::new();
+        for read in reads {
+            if !seen.insert(read.key) {
+                continue;
+            }
+            let std::collections::hash_map::Entry::Occupied(mut entry) =
+                self.active_reads.entry(read.key)
+            else {
+                continue;
+            };
+            if entry.get().refs > 1 {
+                entry.get_mut().refs -= 1;
+            } else {
+                let active = entry.remove();
+                self.active_read_bytes = self.active_read_bytes.saturating_sub(active.bytes);
+            }
+        }
     }
 
     fn complete_work(&mut self, output: WorkOutput) -> VortexResult<Option<ArrayRef>> {
@@ -1642,18 +1792,19 @@ impl Partition for ScanPlanPartition {
             ticket,
         } = *self;
 
-        let prepared = Arc::new(PreparedScanPlan::try_new(&file, request)?);
+        let row_range = request
+            .row_range
+            .clone()
+            .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?;
+        let prepared = file
+            .scan_plan_prepared_cache()
+            .get_or_prepare(&file, &request)?;
         let execution = Arc::new(ScanExecution::try_new(file, prepared, &ticket)?);
         let dtype = execution.plan.dtype().clone();
-        let ranges = execution.splits()?;
+        let ranges = execution.splits(&row_range)?;
         let ordered = execution.plan.ordered();
-        let default_window = get_available_parallelism().unwrap_or(1) * 4;
-        let (plan_window, launch_window) = morsel_windows(
-            &scheduler,
-            execution.limit_remaining.is_some(),
-            execution.has_runtime_evidence(),
-            default_window,
-        );
+        let plan_window = morsel_plan_window(&scheduler, execution.limit_remaining.is_some());
+        let read_byte_budget = read_byte_budget(&scheduler);
         let morsels = ranges
             .into_iter()
             .map(|range| PlannedScanPlanMorsel {
@@ -1668,7 +1819,7 @@ impl Partition for ScanPlanPartition {
             ticket,
             ordered,
             plan_window,
-            launch_window,
+            read_byte_budget,
         );
 
         Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
@@ -1683,7 +1834,7 @@ struct PlannedScanPlanScan {
     scheduler: Arc<ScanScheduler>,
     ticket: ScanTicket,
     morsel_plan_window: usize,
-    morsel_launch_window: usize,
+    read_byte_budget: u64,
 }
 
 #[derive(Clone)]
@@ -1764,7 +1915,7 @@ impl Partition for PlannedScanPlanPartition {
             ticket,
             false,
             planned.morsel_plan_window,
-            planned.morsel_launch_window,
+            planned.read_byte_budget,
         );
 
         Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
@@ -1779,7 +1930,8 @@ struct PreparedScanPlan {
     selection: Selection,
     ordered: bool,
     limit: Option<u64>,
-    splits: Vec<Range<u64>>,
+    row_count: u64,
+    split_hints: Vec<u64>,
     projection: ScanPlanRef,
     predicates: Vec<PreparedPredicatePlan>,
 }
@@ -1826,12 +1978,13 @@ impl ExecutionPredicate {
 }
 
 impl PreparedScanPlan {
-    fn try_new(file: &VortexFile, request: DataSourceScanRequest) -> VortexResult<Self> {
+    fn try_new(file: &VortexFile, request: &DataSourceScanRequest) -> VortexResult<Self> {
         let session = file.session().clone();
         let dtype = request.projection.return_dtype(file.dtype())?;
         let projection = request.projection.optimize_recursive(file.dtype())?;
         let filter = request
             .filter
+            .clone()
             .map(|filter| filter.optimize_recursive(file.dtype()))
             .transpose()?;
 
@@ -1863,20 +2016,13 @@ impl PreparedScanPlan {
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let row_range = request
-            .row_range
-            .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?;
-        let selection = request.selection;
-        let (splits, split_kind) =
-            prepare_split_ranges(file.row_count(), &row_range, &selection, split_hints);
-        trace_prepared_splits(&row_range, &splits, split_kind, filter.is_some());
-
         Ok(Self {
             dtype,
-            selection,
+            selection: request.selection.clone(),
             ordered: request.ordered,
             limit: request.limit,
-            splits,
+            row_count: file.row_count(),
+            split_hints,
             projection: projection_pushed,
             predicates,
         })
@@ -1910,8 +2056,16 @@ impl PreparedScanPlan {
         &self.projection
     }
 
-    fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
-        Ok(self.splits.clone())
+    fn splits(&self, row_range: &Range<u64>) -> VortexResult<Vec<Range<u64>>> {
+        check_range(row_range, self.row_count)?;
+        let (splits, split_kind) = prepare_split_ranges(
+            self.row_count,
+            row_range,
+            &self.selection,
+            self.split_hints.clone(),
+        );
+        trace_prepared_splits(row_range, &splits, split_kind, self.has_filter());
+        Ok(splits)
     }
 }
 
@@ -1985,14 +2139,18 @@ impl ScanExecution {
         )
     }
 
-    fn known_read_bytes(reads: &[ScanRead]) -> u64 {
-        reads.iter().map(|read| read.request.bytes).sum()
-    }
-
-    fn has_runtime_evidence(&self) -> bool {
-        self.predicates
+    fn work_reads(reads: &[ScanRead]) -> Vec<WorkRead> {
+        let mut seen = HashSet::new();
+        reads
             .iter()
-            .any(|predicate| !predicate.evidence.is_empty())
+            .filter_map(|read| {
+                let key = SegmentRequestKey::from(&read.request);
+                seen.insert(key).then_some(WorkRead {
+                    key,
+                    bytes: read.request.bytes,
+                })
+            })
+            .collect()
     }
 
     fn plan_morsel(
@@ -2037,7 +2195,7 @@ impl ScanExecution {
             range: range.clone(),
             mode,
         };
-        let mut known_bytes = 0u64;
+        let mut work_reads = Vec::new();
         let mut tasks = Vec::with_capacity(predicate.evidence.len());
         for plan in &predicate.evidence {
             if mode == EvidenceMode::RecheckBeforeProjection && !plan.recheck_before_projection() {
@@ -2046,7 +2204,7 @@ impl ScanExecution {
             let mut segment_ctx = self.segment_plan_ctx(ScanIoPhase::EvidenceProbe);
             let requests = plan.segment_requests(&req.as_request(), &mut segment_ctx)?;
             let reads = self.register_segment_reads(requests);
-            known_bytes = known_bytes.saturating_add(Self::known_read_bytes(&reads));
+            work_reads.extend(Self::work_reads(&reads));
             let task = Arc::clone(plan).create_task(req.clone(), reads)?;
             tasks.push(task);
         }
@@ -2055,7 +2213,7 @@ impl ScanExecution {
         Ok(Work::new(
             ScanIoPhase::EvidenceProbe,
             self.session.handle(),
-            known_bytes,
+            work_reads,
             async move {
                 let predicate = &execution.predicates[predicate_idx];
                 let mut acc = PredicateEvidence::new(predicate.id, version, range.clone())?;
@@ -2100,14 +2258,14 @@ impl ScanExecution {
                 .read
                 .segment_requests(range.clone(), rows.as_scope(), &mut segment_ctx)?;
         let reads = self.register_segment_reads(requests);
-        let known_bytes = Self::known_read_bytes(&reads);
+        let work_reads = Self::work_reads(&reads);
         let task = Arc::clone(&predicate.read).create_task(range.clone(), rows, reads)?;
 
         let execution = Arc::clone(self);
         Ok(Work::new(
             ScanIoPhase::PredicateRead,
             self.session.handle(),
-            known_bytes,
+            work_reads,
             async move {
                 let predicate = &execution.predicates[predicate_idx];
                 let mut ctx = execution.session.create_execution_ctx();
@@ -2192,7 +2350,7 @@ impl ScanExecution {
             self.projection
                 .segment_requests(range.clone(), rows.as_scope(), &mut segment_ctx)?;
         let reads = self.register_segment_reads(requests);
-        let known_bytes = Self::known_read_bytes(&reads);
+        let work_reads = Self::work_reads(&reads);
         let task = Arc::clone(&self.projection).create_task(range, rows, reads)?;
 
         let execution = Arc::clone(self);
@@ -2200,7 +2358,7 @@ impl ScanExecution {
             Work::new(
                 ScanIoPhase::ProjectionRead,
                 self.session.handle(),
-                known_bytes,
+                work_reads,
                 async move {
                     let mut ctx = execution.session.create_execution_ctx();
                     let array = task.read(&execution.reader, &mut ctx).await?;
@@ -2212,8 +2370,8 @@ impl ScanExecution {
         ))
     }
 
-    fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
-        self.plan.splits()
+    fn splits(&self, row_range: &Range<u64>) -> VortexResult<Vec<Range<u64>>> {
+        self.plan.splits(row_range)
     }
 }
 
