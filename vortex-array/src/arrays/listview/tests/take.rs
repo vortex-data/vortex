@@ -40,6 +40,7 @@ fn test_take_listview_conformance(#[case] listview: ListViewArray) {
 
 #[test]
 fn test_take_preserves_unreferenced_elements() {
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Test that take preserves the entire elements array
     // even when taking only a subset of lists.
     let elements = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
@@ -60,7 +61,8 @@ fn test_take_preserves_unreferenced_elements() {
     // Verify the entire elements array is preserved.
     assert_arrays_eq!(
         result_list.elements(),
-        PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+        PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        &mut ctx
     );
 
     // Verify offsets are preserved.
@@ -70,6 +72,7 @@ fn test_take_preserves_unreferenced_elements() {
 
 #[test]
 fn test_take_with_gaps() {
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Test with gaps in elements array.
     // Elements with gaps (999 values are "gaps" between used ranges).
     let elements = buffer![1i32, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12].into_array();
@@ -87,13 +90,15 @@ fn test_take_with_gaps() {
     // Verify the entire elements array is preserved including gaps.
     assert_arrays_eq!(
         result_list.elements(),
-        PrimitiveArray::from_iter([1i32, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12])
+        PrimitiveArray::from_iter([1i32, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12]),
+        &mut ctx
     );
 
     // Verify the lists still read correctly despite gaps.
     assert_arrays_eq!(
         result_list.list_elements_at(0).unwrap(),
-        PrimitiveArray::from_iter([7i32, 8, 9])
+        PrimitiveArray::from_iter([7i32, 8, 9]),
+        &mut ctx
     );
 }
 

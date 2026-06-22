@@ -441,6 +441,7 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::listview::ListViewArrayExt;
@@ -503,7 +504,8 @@ mod tests {
         // Check first list: [1, 2, 3].
         assert_arrays_eq!(
             listview.list_elements_at(0).unwrap(),
-            PrimitiveArray::from_iter([1i32, 2, 3])
+            PrimitiveArray::from_iter([1i32, 2, 3]),
+            &mut ctx
         );
 
         // Check empty list.
@@ -521,12 +523,14 @@ mod tests {
         // Check last list: [4, 5].
         assert_arrays_eq!(
             listview.list_elements_at(3).unwrap(),
-            PrimitiveArray::from_iter([4i32, 5])
+            PrimitiveArray::from_iter([4i32, 5]),
+            &mut ctx
         );
     }
 
     #[test]
     fn test_different_offset_size_types() {
+        let mut ctx = array_session().create_execution_ctx();
         // Test u32 offsets with u8 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
@@ -560,13 +564,15 @@ mod tests {
         // Verify first list: [1, 2].
         assert_arrays_eq!(
             listview.list_elements_at(0).unwrap(),
-            PrimitiveArray::from_iter([1i32, 2])
+            PrimitiveArray::from_iter([1i32, 2]),
+            &mut ctx
         );
 
         // Verify second list: [3, 4, 5].
         assert_arrays_eq!(
             listview.list_elements_at(1).unwrap(),
-            PrimitiveArray::from_iter([3i32, 4, 5])
+            PrimitiveArray::from_iter([3i32, 4, 5]),
+            &mut ctx
         );
 
         // Test u64 offsets with u16 sizes.
@@ -589,7 +595,8 @@ mod tests {
         for i in 0..5i32 {
             assert_arrays_eq!(
                 listview2.list_elements_at(i as usize).unwrap(),
-                PrimitiveArray::from_iter([i * 10])
+                PrimitiveArray::from_iter([i * 10]),
+                &mut ctx
             );
         }
     }
@@ -642,7 +649,8 @@ mod tests {
         // Last is the regular list: [10, 20].
         assert_arrays_eq!(
             listview.list_elements_at(4).unwrap(),
-            PrimitiveArray::from_iter([10i32, 20])
+            PrimitiveArray::from_iter([10i32, 20]),
+            &mut ctx
         );
     }
 
@@ -684,13 +692,15 @@ mod tests {
         // First list: [0] (initial data).
         assert_arrays_eq!(
             listview.list_elements_at(0).unwrap(),
-            PrimitiveArray::from_iter([0i32])
+            PrimitiveArray::from_iter([0i32]),
+            &mut ctx
         );
 
         // Second list: [1, 2, 3] (from source).
         assert_arrays_eq!(
             listview.list_elements_at(1).unwrap(),
-            PrimitiveArray::from_iter([1i32, 2, 3])
+            PrimitiveArray::from_iter([1i32, 2, 3]),
+            &mut ctx
         );
 
         // Third list: null (from source).
@@ -705,7 +715,8 @@ mod tests {
         // Fourth list: [4, 5] (from source).
         assert_arrays_eq!(
             listview.list_elements_at(3).unwrap(),
-            PrimitiveArray::from_iter([4i32, 5])
+            PrimitiveArray::from_iter([4i32, 5]),
+            &mut ctx
         );
     }
 
@@ -738,7 +749,8 @@ mod tests {
 
         assert_arrays_eq!(
             listview.list_elements_at(0).unwrap(),
-            PrimitiveArray::from_iter([10i32, 20])
+            PrimitiveArray::from_iter([10i32, 20]),
+            &mut ctx
         );
         assert!(
             !listview
@@ -750,7 +762,8 @@ mod tests {
         assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
         assert_arrays_eq!(
             listview.list_elements_at(2).unwrap(),
-            PrimitiveArray::from_iter([10i32])
+            PrimitiveArray::from_iter([10i32]),
+            &mut ctx
         );
     }
 
@@ -817,19 +830,22 @@ mod tests {
         // Verify elements array: [1, 2, 3, 10, 11, 4, 5].
         assert_arrays_eq!(
             listview.elements(),
-            PrimitiveArray::from_iter([1i32, 2, 3, 10, 11, 4, 5])
+            PrimitiveArray::from_iter([1i32, 2, 3, 10, 11, 4, 5]),
+            &mut ctx
         );
 
         // Verify offsets array.
         assert_arrays_eq!(
             listview.offsets(),
-            PrimitiveArray::from_iter([0u32, 3, 5, 7, 7])
+            PrimitiveArray::from_iter([0u32, 3, 5, 7, 7]),
+            &mut ctx
         );
 
         // Verify sizes array.
         assert_arrays_eq!(
             listview.sizes(),
-            PrimitiveArray::from_iter([3u32, 2, 2, 0, 0])
+            PrimitiveArray::from_iter([3u32, 2, 2, 0, 0]),
+            &mut ctx
         );
 
         // Test dtype mismatch error.

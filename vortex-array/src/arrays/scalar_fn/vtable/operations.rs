@@ -62,6 +62,7 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArray;
@@ -76,6 +77,7 @@ mod tests {
 
     #[test]
     fn test_scalar_fn_add() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let lhs = buffer![1i32, 2, 3].into_array();
         let rhs = buffer![10i32, 20, 30].into_array();
 
@@ -89,7 +91,7 @@ mod tests {
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
             .into_array();
         let expected = buffer![11i32, 22, 33].into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
 
         Ok(())
     }
@@ -130,6 +132,7 @@ mod tests {
 
     #[test]
     fn test_scalar_fn_mul() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let lhs = buffer![2i32, 3, 4].into_array();
         let rhs = buffer![5i32, 6, 7].into_array();
 
@@ -141,13 +144,14 @@ mod tests {
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
             .into_array();
         let expected = buffer![10i32, 18, 28].into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
 
         Ok(())
     }
 
     #[test]
     fn test_scalar_fn_with_nullable() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let lhs = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array();
         let rhs = PrimitiveArray::new(
             buffer![10i32, 20, 30],
@@ -167,13 +171,14 @@ mod tests {
             Validity::from_iter([true, false, true]),
         )
         .into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
 
         Ok(())
     }
 
     #[test]
     fn test_scalar_fn_comparison() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let lhs = buffer![1i32, 5, 3].into_array();
         let rhs = buffer![2i32, 5, 1].into_array();
 
@@ -185,7 +190,7 @@ mod tests {
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
             .into_array();
         let expected = BoolArray::from_iter([false, true, false]).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
 
         Ok(())
     }

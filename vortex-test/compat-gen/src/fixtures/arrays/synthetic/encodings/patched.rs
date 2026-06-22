@@ -3,8 +3,8 @@
 
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
@@ -29,7 +29,7 @@ impl FlatLayoutFixture for PatchedFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
-        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
 
         let array = PrimitiveArray::from_option_iter((0u64..2048).map(Some)).into_array();
         let patches = Patches::new(

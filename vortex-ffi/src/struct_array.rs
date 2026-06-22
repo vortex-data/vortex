@@ -242,7 +242,7 @@ mod tests {
                     .clone()
                     .execute::<StructArray>(&mut ctx)
                     .unwrap();
-                assert_arrays_eq!(array, struct_array);
+                assert_arrays_eq!(array, struct_array, &mut ctx);
             }
 
             vx_array_free(array);

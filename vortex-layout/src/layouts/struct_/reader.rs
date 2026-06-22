@@ -634,6 +634,7 @@ mod tests {
     fn test_struct_layout(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
+        let mut ctx = SESSION.create_execution_ctx();
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
@@ -645,13 +646,14 @@ mod tests {
         })
         .unwrap();
         let expected = BoolArray::from_iter([true, false, false]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[rstest]
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
+        let mut ctx = SESSION.create_execution_ctx();
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
@@ -668,7 +670,7 @@ mod tests {
         .unwrap();
 
         let expected = BoolArray::from_iter([true, false]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[rstest]
@@ -701,14 +703,16 @@ mod tests {
         let result_struct_a = result.clone().execute::<StructArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             result_struct_a.unmasked_field_by_name("a").unwrap(),
-            expected_a
+            expected_a,
+            &mut ctx
         );
 
         let expected_b = PrimitiveArray::from_iter([4i32, 5]);
         let result_struct_b = result.execute::<StructArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             result_struct_b.unmasked_field_by_name("b").unwrap(),
-            expected_b
+            expected_b,
+            &mut ctx
         );
     }
 
@@ -716,6 +720,7 @@ mod tests {
     fn test_struct_layout_nulls(
         #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
+        let mut ctx = SESSION.create_execution_ctx();
         // Read the layout source from the top.
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
@@ -739,8 +744,8 @@ mod tests {
                 .unwrap(),
             Scalar::null(result.dtype().clone()),
         );
-        assert_nth_scalar!(result, 1, 2);
-        assert_nth_scalar!(result, 2, 3);
+        assert_nth_scalar!(result, 1, 2, &mut ctx);
+        assert_nth_scalar!(result, 2, 3, &mut ctx);
     }
 
     #[rstest]

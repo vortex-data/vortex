@@ -759,6 +759,7 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::assert_arrays_eq;
@@ -772,6 +773,7 @@ mod tests {
 
     #[test]
     fn test_kleene_truth_table() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let lhs = BoolArray::from_iter([
             Some(true),
             Some(true),
@@ -809,7 +811,8 @@ mod tests {
                 None,
                 Some(false),
                 None,
-            ])
+            ]),
+            &mut ctx
         );
 
         assert_arrays_eq!(
@@ -824,7 +827,8 @@ mod tests {
                 Some(true),
                 None,
                 None,
-            ])
+            ]),
+            &mut ctx
         );
 
         Ok(())
@@ -832,17 +836,20 @@ mod tests {
 
     #[test]
     fn test_null_constant_kleene() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let lhs = BoolArray::from_iter([Some(false), Some(true), None]).into_array();
         let null = ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
             .into_array();
 
         assert_arrays_eq!(
             lhs.binary(null.clone(), Operator::And)?,
-            BoolArray::from_iter([Some(false), None, None])
+            BoolArray::from_iter([Some(false), None, None]),
+            &mut ctx
         );
         assert_arrays_eq!(
             lhs.binary(null, Operator::Or)?,
-            BoolArray::from_iter([None, Some(true), None])
+            BoolArray::from_iter([None, Some(true), None]),
+            &mut ctx
         );
 
         Ok(())

@@ -8,6 +8,8 @@ use vortex_buffer::buffer;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::assert_arrays_eq;
@@ -32,17 +34,21 @@ fn binary_array() -> ArrayRef {
 
 #[rstest]
 pub fn test_scalar_at(binary_array: ArrayRef) {
+    let mut ctx = array_session().create_execution_ctx();
     assert_arrays_eq!(
         binary_array,
-        VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
+        VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]),
+        &mut ctx
     );
 }
 
 #[rstest]
 pub fn slice_array(binary_array: ArrayRef) {
+    let mut ctx = array_session().create_execution_ctx();
     let binary_arr = binary_array.slice(1..2).unwrap();
     assert_arrays_eq!(
         binary_arr,
-        VarBinViewArray::from_iter_str(["hello world this is a long string"])
+        VarBinViewArray::from_iter_str(["hello world this is a long string"]),
+        &mut ctx
     );
 }

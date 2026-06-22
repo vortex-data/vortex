@@ -335,7 +335,7 @@ mod tests {
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
         let expected = PrimitiveArray::from_iter([1i32, 42, 3, 42, 5]);
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -349,7 +349,7 @@ mod tests {
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
         let expected = BoolArray::from(BitBuffer::from(vec![true, true, false, true]));
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -364,7 +364,7 @@ mod tests {
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
         let expected = VarBinViewArray::from_iter_str(["hello", "default", "world"]);
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -376,7 +376,7 @@ mod tests {
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
         let expected = PrimitiveArray::from_iter([100i32, 100, 100]);
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -388,7 +388,7 @@ mod tests {
         let result = fill_null_canonical_array(canonical(array), &fill_value, &mut ctx).unwrap();
 
         let expected = PrimitiveArray::from_iter([1i32, 2, 3]);
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -428,7 +428,7 @@ mod tests {
             [100i32, 999i32, 300i32, 999i32, 500i32],
             DecimalDType::new(10, 2),
         );
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -448,7 +448,7 @@ mod tests {
 
         let expected =
             DecimalArray::from_iter([1000i64, 9999i64, 3000i64], DecimalDType::new(15, 3));
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -470,7 +470,7 @@ mod tests {
             [10000i128, 99999i128, 30000i128, 99999i128],
             DecimalDType::new(20, 4),
         );
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -493,7 +493,7 @@ mod tests {
         .into_array()
         .cast(result.dtype().clone())
         .unwrap();
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -518,6 +518,6 @@ mod tests {
         .into_array()
         .cast(result.dtype().clone())
         .unwrap();
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 }

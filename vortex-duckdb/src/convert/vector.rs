@@ -403,6 +403,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
+    use vortex_array::array_session;
     use vortex_geo::extension::WellKnownBinaryData;
     use wkb::writer::WriteOptions;
     use wkb::writer::write_point;
@@ -415,6 +416,7 @@ mod tests {
 
     #[test]
     fn test_integer_vector_conversion() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = vec![1i32, 2, 3, 4, 5];
         let len = values.len();
 
@@ -431,7 +433,7 @@ mod tests {
         let result = flat_vector_to_vortex(&vector, len).unwrap();
         let expected =
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), Some(5)]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
@@ -642,7 +644,7 @@ mod tests {
         let result = flat_vector_to_vortex(&vector, len).unwrap();
         let vortex_array = result.execute::<BoolArray>(&mut ctx).unwrap();
         let expected = BoolArray::new(BitBuffer::from(values), Validity::AllValid);
-        assert_arrays_eq!(vortex_array, expected);
+        assert_arrays_eq!(vortex_array, expected, &mut ctx);
     }
 
     #[test]
@@ -712,7 +714,8 @@ mod tests {
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
             vortex_array.list_elements_at(0).unwrap(),
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]),
+            &mut ctx
         );
     }
 
@@ -741,7 +744,8 @@ mod tests {
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
             vortex_array.fixed_size_list_elements_at(0).unwrap(),
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]),
+            &mut ctx
         );
     }
 
@@ -797,11 +801,13 @@ mod tests {
         assert_eq!(vortex_array.struct_fields().nfields(), 2);
         assert_arrays_eq!(
             vortex_array.unmasked_field(0),
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]),
+            &mut ctx
         );
         assert_arrays_eq!(
             vortex_array.unmasked_field(1),
-            PrimitiveArray::from_option_iter([Some(5i32), Some(6), Some(7), Some(8)])
+            PrimitiveArray::from_option_iter([Some(5i32), Some(6), Some(7), Some(8)]),
+            &mut ctx
         );
     }
 
@@ -846,7 +852,8 @@ mod tests {
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
             vortex_array.list_elements_at(0).unwrap(),
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]),
+            &mut ctx
         );
         assert_eq!(
             vortex_array
@@ -897,11 +904,13 @@ mod tests {
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
             vortex_array.list_elements_at(0).unwrap(),
-            PrimitiveArray::from_option_iter([Some(3i32), Some(4)])
+            PrimitiveArray::from_option_iter([Some(3i32), Some(4)]),
+            &mut ctx
         );
         assert_arrays_eq!(
             vortex_array.list_elements_at(1).unwrap(),
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2)])
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2)]),
+            &mut ctx
         );
     }
 
@@ -955,11 +964,13 @@ mod tests {
         // Valid entries should work correctly.
         assert_arrays_eq!(
             vortex_array.list_elements_at(0).unwrap(),
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2)])
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2)]),
+            &mut ctx
         );
         assert_arrays_eq!(
             vortex_array.list_elements_at(2).unwrap(),
-            PrimitiveArray::from_option_iter([Some(3i32), Some(4)])
+            PrimitiveArray::from_option_iter([Some(3i32), Some(4)]),
+            &mut ctx
         );
 
         // Verify the null entry has sanitized offset/size (offset=2, size=0) rather than garbage.
@@ -1048,7 +1059,7 @@ mod tests {
             None,
             Some(wkb_b.as_slice()),
         ]);
-        assert_arrays_eq!(storage, expected);
+        assert_arrays_eq!(storage, expected, &mut ctx);
 
         Ok(())
     }

@@ -348,15 +348,14 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_buffer::buffer_mut;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
     use crate::ArrayContext;
     use crate::ArraySlots;
     use crate::Canonical;
-    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::Patched;
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
@@ -383,8 +382,8 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
+        let session = crate::array_session();
+        let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -416,8 +415,8 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
+        let session = crate::array_session();
+        let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -449,8 +448,8 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
+        let session = crate::array_session();
+        let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -467,7 +466,7 @@ mod tests {
         expected[3] = 30;
         let expected = expected.into_array();
 
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -482,8 +481,8 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
+        let session = crate::array_session();
+        let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -500,7 +499,7 @@ mod tests {
         expected[0] = 30;
         let expected = expected.into_array();
 
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
@@ -519,8 +518,8 @@ mod tests {
         )
         .unwrap();
 
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
+        let session = crate::array_session();
+        let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -546,7 +545,7 @@ mod tests {
         ])
         .into_array();
 
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     fn make_patched_array(
@@ -563,8 +562,8 @@ mod tests {
 
         let patches = Patches::new(len, 0, indices, patch_vals, None)?;
 
-        let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
+        let session = crate::array_session();
+        let mut ctx = session.create_execution_ctx();
 
         Patched::from_array_and_patches(array, &patches, &mut ctx)
     }
@@ -640,11 +639,11 @@ mod tests {
         assert_eq!(array_ref.dtype(), new_array.dtype());
 
         // Execute both and compare results
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = crate::array_session().create_execution_ctx();
         let original_executed = array_ref.execute::<Canonical>(&mut ctx)?.into_primitive();
         let new_executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
 
-        assert_arrays_eq!(original_executed, new_executed);
+        assert_arrays_eq!(original_executed, new_executed, &mut ctx);
 
         Ok(())
     }
@@ -666,12 +665,12 @@ mod tests {
         let new_array = array_ref.with_slots(slots.into_slots())?;
 
         // Execute and verify the inner values changed (except at patch positions)
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = crate::array_session().create_execution_ctx();
         let executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
 
         // Expected: all 5s except indices 1, 2, 3 which are patched to 10, 20, 30
         let expected = PrimitiveArray::from_iter([5u16, 10, 20, 30, 5, 5, 5, 5, 5, 5]);
-        assert_arrays_eq!(expected, executed);
+        assert_arrays_eq!(expected, executed, &mut ctx);
 
         Ok(())
     }

@@ -621,19 +621,27 @@ impl ValidityChild<ALPRD> for ALPRD {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use prost::Message;
     use rstest::rstest;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
+    use vortex_session::VortexSession;
 
     use super::ALPRDMetadata;
     use crate::ALPRDFloat;
     use crate::alp_rd;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]
@@ -642,7 +650,7 @@ mod test {
         #[case] reals: Vec<T>,
         #[case] seed: T,
     ) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(reals.len(), 1024, "test expects 1024-length fixture");
         // Null out some of the values.
         let mut reals: Vec<Option<T>> = reals.into_iter().map(Some).collect();
@@ -664,7 +672,7 @@ mod test {
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
-        assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
+        assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals), &mut ctx);
     }
 
     #[cfg_attr(miri, ignore)]

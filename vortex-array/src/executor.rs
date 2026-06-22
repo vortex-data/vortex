@@ -858,6 +858,7 @@ mod tests {
 
     use super::*;
     use crate::VTable as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::Bool;
     use crate::arrays::Primitive;
     use crate::optimizer::kernels::ExecuteParentFn;
@@ -878,7 +879,7 @@ mod tests {
         let session = VortexSession::empty().with_some(KernelSession::empty());
         let key = execute_parent_key(Bool.id(), Primitive.id());
 
-        let before_registration = ExecutionCtx::new(session.clone());
+        let before_registration = session.create_execution_ctx();
         assert!(
             !before_registration
                 .execute_parent_kernels
@@ -897,7 +898,7 @@ mod tests {
                 .contains_key(&key)
         );
 
-        let after_registration = ExecutionCtx::new(session);
+        let after_registration = session.create_execution_ctx();
         assert!(after_registration.execute_parent_kernels.contains_key(&key));
     }
 }

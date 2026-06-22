@@ -264,7 +264,7 @@ mod tests {
         .unwrap()
         .into_primitive();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut ctx);
     }
 
     fn force_cast<T: NativePType>(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> PrimitiveArray {

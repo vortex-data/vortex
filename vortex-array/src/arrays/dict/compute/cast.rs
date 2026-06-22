@@ -85,7 +85,11 @@ mod tests {
 
         #[expect(deprecated)]
         let decoded = casted.to_primitive();
-        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 2, 1]));
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([1i64, 2, 3, 2, 1]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -173,7 +177,11 @@ mod tests {
         let original_values = dict.as_array().to_primitive();
         #[expect(deprecated)]
         let final_values = back_to_non_nullable.to_primitive();
-        assert_arrays_eq!(original_values, final_values);
+        assert_arrays_eq!(
+            original_values,
+            final_values,
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[rstest]
@@ -222,6 +230,10 @@ mod tests {
         );
         #[expect(deprecated)]
         let casted_prim = casted.to_primitive();
-        assert_arrays_eq!(casted_prim, PrimitiveArray::from_iter([1.0f64, 3.0, 1.0]));
+        assert_arrays_eq!(
+            casted_prim,
+            PrimitiveArray::from_iter([1.0f64, 3.0, 1.0]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 }

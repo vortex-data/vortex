@@ -86,6 +86,7 @@ mod test {
 
     #[test]
     fn canonicalise_nullable_primitive() {
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<Option<i32>> = (0..65)
             .map(|i| match i % 3 {
                 0 => Some(42),
@@ -105,11 +106,12 @@ mod test {
 
         let expected = PrimitiveArray::from_option_iter(values);
 
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
     #[test]
     fn canonicalise_non_nullable_primitive_32_unique_values() {
+        let mut ctx = SESSION.create_execution_ctx();
         let unique_values: Vec<i32> = (0..32).collect();
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 32]));
 
@@ -121,11 +123,12 @@ mod test {
         #[expect(deprecated)]
         let actual = dict.as_array().to_primitive();
 
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
     #[test]
     fn canonicalise_non_nullable_primitive_100_unique_values() {
+        let mut ctx = SESSION.create_execution_ctx();
         let unique_values: Vec<i32> = (0..100).collect();
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 100]));
 
@@ -137,7 +140,7 @@ mod test {
         #[expect(deprecated)]
         let actual = dict.as_array().to_primitive();
 
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
     #[test]
@@ -180,6 +183,7 @@ mod test {
 
     #[test]
     fn compare_sliced_dict() {
+        let mut ctx = SESSION.create_execution_ctx();
         use crate::arrays::BoolArray;
         let sliced = sliced_dict_array();
         let compared = sliced
@@ -187,7 +191,7 @@ mod test {
             .unwrap();
 
         let expected = BoolArray::from_iter([Some(false), None, Some(true)]);
-        assert_arrays_eq!(compared, expected.into_array());
+        assert_arrays_eq!(compared, expected.into_array(), &mut ctx);
     }
 
     #[test]

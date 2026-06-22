@@ -160,27 +160,35 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
 #[cfg(test)]
 #[expect(clippy::cast_possible_truncation)]
 mod test {
+    use std::sync::LazyLock;
+
     use rand::RngExt;
     use rand::distr::Uniform;
     use rand::rng;
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::BitPackedArray;
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
     use crate::bitpacking::compute::take::take_primitive;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn take_indices() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let indices = buffer![0, 125, 2047, 2049, 2151, 2790].into_array();
 
         // Create a u8 array modulo 63.
@@ -190,25 +198,30 @@ mod test {
         let primitive_result = bitpacked.take(indices).unwrap();
         assert_arrays_eq!(
             primitive_result,
-            PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18])
+            PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18]),
+            &mut ctx
         );
     }
 
     #[test]
     fn take_with_patches() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let unpacked = Buffer::from_iter(0u32..1024).into_array();
         let bitpacked = BitPackedData::encode(&unpacked, 2, &mut ctx).unwrap();
 
         let indices = buffer![0, 2, 4, 6].into_array();
 
         let primitive_result = bitpacked.take(indices).unwrap();
-        assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([0u32, 2, 4, 6]));
+        assert_arrays_eq!(
+            primitive_result,
+            PrimitiveArray::from_iter([0u32, 2, 4, 6]),
+            &mut ctx
+        );
     }
 
     #[test]
     fn take_sliced_indices() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let indices = buffer![1919, 1921].into_array();
 
         // Create a u8 array modulo 63.
@@ -217,13 +230,17 @@ mod test {
         let sliced = bitpacked.slice(128..2050).unwrap();
 
         let primitive_result = sliced.take(indices).unwrap();
-        assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));
+        assert_arrays_eq!(
+            primitive_result,
+            PrimitiveArray::from_iter([31u8, 33]),
+            &mut ctx
+        );
     }
 
     #[test]
     #[cfg_attr(miri, ignore)] // This test is too slow on miri
     fn take_random_indices() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let num_patches: usize = 128;
         let values = (0..u16::MAX as u32 + num_patches as u32).collect::<Buffer<_>>();
         let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
@@ -256,7 +273,7 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn take_signed_with_patches() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let start =
             BitPackedData::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1, &mut ctx)
                 .unwrap();
@@ -268,12 +285,16 @@ mod test {
             &mut ctx,
         )
         .unwrap();
-        assert_arrays_eq!(taken_primitive, PrimitiveArray::from_iter([1i32, 2, 3, 4]));
+        assert_arrays_eq!(
+            taken_primitive,
+            PrimitiveArray::from_iter([1i32, 2, 3, 4]),
+            &mut ctx
+        );
     }
 
     #[test]
     fn take_nullable_with_nullables() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let start =
             BitPackedData::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1, &mut ctx)
                 .unwrap();
@@ -285,19 +306,15 @@ mod test {
             .unwrap();
         assert_arrays_eq!(
             taken_primitive,
-            PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)])
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)]),
+            &mut ctx
         );
         let taken_primitive_prim = taken_primitive.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_eq!(taken_primitive_prim.invalid_count(&mut ctx).unwrap(), 1);
     }
 
     fn bp(array: vortex_array::ArrayRef, bit_width: u8) -> BitPackedArray {
-        BitPackedData::encode(
-            &array,
-            bit_width,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
-        .unwrap()
+        BitPackedData::encode(&array, bit_width, &mut SESSION.create_execution_ctx()).unwrap()
     }
 
     #[rstest]

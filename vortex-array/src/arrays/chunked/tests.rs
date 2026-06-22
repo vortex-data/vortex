@@ -63,7 +63,8 @@ fn builder_kernel_path_canonicalizes_primitive_chunks() {
 
     assert_arrays_eq!(
         output,
-        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6, 7, 8, 9])
+        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6, 7, 8, 9]),
+        &mut ctx
     );
 }
 
@@ -96,7 +97,11 @@ fn builder_kernel_nested_chunked_of_chunked() {
     let mut builder = execute_into_builder(outer, builder, &mut ctx).unwrap();
     let output = builder.finish();
 
-    assert_arrays_eq!(output, PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6]));
+    assert_arrays_eq!(
+        output,
+        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6]),
+        &mut ctx
+    );
 }
 
 #[test]
@@ -128,8 +133,8 @@ fn builder_kernel_path_repeated_shared_chunked_dict_execution() {
 
     drop(keep_alive);
 
-    assert_arrays_eq!(first, expected);
-    assert_arrays_eq!(second, expected);
+    assert_arrays_eq!(first, expected, &mut ctx);
+    assert_arrays_eq!(second, expected, &mut ctx);
 }
 
 #[test]
@@ -154,8 +159,8 @@ fn execute_path_repeated_shared_chunked_dict_execution() {
 
     drop(keep_alive);
 
-    assert_arrays_eq!(first, expected);
-    assert_arrays_eq!(second, expected);
+    assert_arrays_eq!(first, expected, &mut ctx);
+    assert_arrays_eq!(second, expected, &mut ctx);
 }
 
 #[test]
@@ -192,12 +197,13 @@ fn execute_path_nested_chunked_dict_of_dict_into_canonical() {
 
     drop(keep_alive);
 
-    assert_arrays_eq!(first, expected);
-    assert_arrays_eq!(second, expected);
+    assert_arrays_eq!(first, expected, &mut ctx);
+    assert_arrays_eq!(second, expected, &mut ctx);
 }
 
 #[test]
 fn with_slot_rewrites_chunk_and_offsets() {
+    let mut ctx = SESSION.create_execution_ctx();
     let array = chunked_array().into_array();
 
     let replacement = buffer![10u64, 11, 12].into_array();
@@ -208,11 +214,13 @@ fn with_slot_rewrites_chunk_and_offsets() {
     assert_eq!(array.chunk_offsets(), [0, 3, 6, 9]);
     assert_arrays_eq!(
         array.chunk(0).clone(),
-        PrimitiveArray::from_iter([10u64, 11, 12])
+        PrimitiveArray::from_iter([10u64, 11, 12]),
+        &mut ctx
     );
     assert_arrays_eq!(
         array.array().clone(),
-        PrimitiveArray::from_iter([10u64, 11, 12, 4, 5, 6, 7, 8, 9])
+        PrimitiveArray::from_iter([10u64, 11, 12, 4, 5, 6, 7, 8, 9]),
+        &mut ctx
     );
 }
 
@@ -228,49 +236,61 @@ fn with_slot_rejects_len_mismatch() {
 
 #[test]
 fn slice_middle() {
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(2..5).unwrap(),
-        PrimitiveArray::from_iter([3u64, 4, 5])
+        PrimitiveArray::from_iter([3u64, 4, 5]),
+        &mut ctx
     );
 }
 
 #[test]
 fn slice_begin() {
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(1..3).unwrap(),
-        PrimitiveArray::from_iter([2u64, 3])
+        PrimitiveArray::from_iter([2u64, 3]),
+        &mut ctx
     );
 }
 
 #[test]
 fn slice_aligned() {
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(3..6).unwrap(),
-        PrimitiveArray::from_iter([4u64, 5, 6])
+        PrimitiveArray::from_iter([4u64, 5, 6]),
+        &mut ctx
     );
 }
 
 #[test]
 fn slice_many_aligned() {
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(0..6).unwrap(),
-        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6])
+        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6]),
+        &mut ctx
     );
 }
 
 #[test]
 fn slice_end() {
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(7..8).unwrap(),
-        PrimitiveArray::from_iter([8u64])
+        PrimitiveArray::from_iter([8u64]),
+        &mut ctx
     );
 }
 
 #[test]
 fn slice_exactly_end() {
+    let mut ctx = SESSION.create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(6..9).unwrap(),
-        PrimitiveArray::from_iter([7u64, 8, 9])
+        PrimitiveArray::from_iter([7u64, 8, 9]),
+        &mut ctx
     );
 }
 
@@ -284,6 +304,7 @@ fn slice_empty() {
 
 #[test]
 fn scalar_at_empty_children_both_sides() {
+    let mut ctx = SESSION.create_execution_ctx();
     let array = ChunkedArray::try_new(
         vec![
             Buffer::<u64>::empty().into_array(),
@@ -295,11 +316,12 @@ fn scalar_at_empty_children_both_sides() {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap();
-    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2]));
+    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2]), &mut ctx);
 }
 
 #[test]
 fn scalar_at_empty_children_trailing() {
+    let mut ctx = SESSION.create_execution_ctx();
     let array = ChunkedArray::try_new(
         vec![
             buffer![1u64, 2].into_array(),
@@ -310,11 +332,12 @@ fn scalar_at_empty_children_trailing() {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap();
-    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]));
+    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]), &mut ctx);
 }
 
 #[test]
 fn scalar_at_empty_children_leading() {
+    let mut ctx = SESSION.create_execution_ctx();
     let array = ChunkedArray::try_new(
         vec![
             Buffer::<u64>::empty().into_array(),
@@ -325,7 +348,7 @@ fn scalar_at_empty_children_leading() {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap();
-    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]));
+    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]), &mut ctx);
 }
 
 #[test]

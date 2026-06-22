@@ -499,7 +499,7 @@ mod tests {
             .arrow()
             .from_arrow_array(Arc::clone(&exported), &field)?;
 
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 
@@ -700,7 +700,7 @@ mod tests {
 
         let actual = session.arrow().from_arrow_array(exported, &field)?;
 
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 }

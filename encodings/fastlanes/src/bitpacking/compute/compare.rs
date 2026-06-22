@@ -125,7 +125,11 @@ mod tests {
     use crate::BitPackedArrayExt;
     use crate::BitPackedData;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     /// All six operators on a small in-range input.
     #[rstest]
@@ -146,7 +150,7 @@ mod tests {
             .unwrap()
             .execute::<BoolArray>(&mut ctx)
             .unwrap();
-        assert_arrays_eq!(result, BoolArray::from_iter(expected));
+        assert_arrays_eq!(result, BoolArray::from_iter(expected), &mut ctx);
     }
 
     /// Sweep every native int type across several bit-widths. 2048 elements spans two
@@ -177,7 +181,7 @@ mod tests {
                             .into_array()
                             .binary(rhs.clone(), Operator::from(op))?
                             .execute::<BoolArray>(&mut ctx)?;
-                        assert_arrays_eq!(got, want);
+                        assert_arrays_eq!(got, want, &mut SESSION.create_execution_ctx());
                     }
                 }
                 Ok(())
@@ -215,7 +219,7 @@ mod tests {
             .into_array()
             .binary(rhs, Operator::Eq)?
             .execute::<BoolArray>(&mut ctx)?;
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 
@@ -259,7 +263,7 @@ mod tests {
                 .slice(start..start + slice_len)?
                 .binary(rhs.clone(), Operator::from(op))?
                 .execute::<BoolArray>(&mut ctx)?;
-            assert_arrays_eq!(got, want);
+            assert_arrays_eq!(got, want, &mut ctx);
         }
         Ok(())
     }
@@ -296,7 +300,7 @@ mod tests {
             .slice(start..end)?
             .binary(rhs, Operator::Eq)?
             .execute::<BoolArray>(&mut ctx)?;
-        assert_arrays_eq!(got, want);
+        assert_arrays_eq!(got, want, &mut ctx);
         Ok(())
     }
 
@@ -315,7 +319,7 @@ mod tests {
             .into_array()
             .binary(rhs, Operator::Eq)?
             .execute::<BoolArray>(&mut ctx)?;
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 }

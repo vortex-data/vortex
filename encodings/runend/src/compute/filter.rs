@@ -146,7 +146,8 @@ mod tests {
                 PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
                 PrimitiveArray::from_iter([1i32, 4, 2]).into_array(),
                 &mut ctx,
-            )
+            ),
+            &mut ctx
         );
         Ok(())
     }
@@ -186,7 +187,7 @@ mod tests {
             .chain(std::iter::repeat_n(30, 16))
             .chain(std::iter::repeat_n(40, 16))
             .collect();
-        assert_arrays_eq!(executed, PrimitiveArray::from_iter(expected));
+        assert_arrays_eq!(executed, PrimitiveArray::from_iter(expected), &mut ctx);
 
         Ok(())
     }

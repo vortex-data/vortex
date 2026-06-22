@@ -27,7 +27,6 @@ use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
 use crate::schemes::integer::IntRLEScheme;
-
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
@@ -72,6 +71,7 @@ fn test_dict_encodable() -> VortexResult<()> {
 
 #[test]
 fn constant_mostly_nulls() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let array = PrimitiveArray::new(
         buffer![189u8, 189, 189, 189, 189, 189, 189, 189, 189, 0, 46],
         Validity::from_iter(vec![
@@ -89,12 +89,13 @@ fn constant_mostly_nulls() -> VortexResult<()> {
     let decoded = compressed;
     let expected =
         PrimitiveArray::new(buffer![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46], validity).into_array();
-    assert_arrays_eq!(decoded, expected);
+    assert_arrays_eq!(decoded, expected, &mut ctx);
     Ok(())
 }
 
 #[test]
 fn nullable_sequence() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let values = (0i32..20).step_by(7).collect_vec();
     let array = PrimitiveArray::from_option_iter(values.clone().into_iter().map(Some));
 
@@ -104,12 +105,13 @@ fn nullable_sequence() -> VortexResult<()> {
 
     let decoded = compressed;
     let expected = PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array();
-    assert_arrays_eq!(decoded, expected);
+    assert_arrays_eq!(decoded, expected, &mut ctx);
     Ok(())
 }
 
 #[test]
 fn test_rle_compression() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let mut values = Vec::new();
     values.extend(iter::repeat_n(42i32, 100));
     values.extend(iter::repeat_n(123i32, 200));
@@ -122,7 +124,7 @@ fn test_rle_compression() -> VortexResult<()> {
     assert!(compressed.is::<RLE>());
 
     let expected = Buffer::copy_from(&values).into_array();
-    assert_arrays_eq!(compressed, expected);
+    assert_arrays_eq!(compressed, expected, &mut ctx);
     Ok(())
 }
 

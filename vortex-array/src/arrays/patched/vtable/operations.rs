@@ -60,7 +60,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
-    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -83,7 +82,7 @@ mod tests {
         .unwrap();
 
         let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
+        let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -128,7 +127,7 @@ mod tests {
         .unwrap();
 
         let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
+        let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
@@ -160,7 +159,7 @@ mod tests {
         .unwrap();
 
         let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
+        let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()

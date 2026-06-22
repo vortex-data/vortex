@@ -53,6 +53,7 @@ mod test {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::fill_null::BoolArray;
     use crate::assert_arrays_eq;
@@ -64,6 +65,7 @@ mod test {
 
     #[test]
     fn fill_null_leading_none() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
         #[expect(deprecated)]
         let p = arr
@@ -71,7 +73,11 @@ mod test {
             .fill_null(Scalar::from(42u8))
             .unwrap()
             .to_primitive();
-        assert_arrays_eq!(p, PrimitiveArray::from_iter([42u8, 8, 42, 10, 42]));
+        assert_arrays_eq!(
+            p,
+            PrimitiveArray::from_iter([42u8, 8, 42, 10, 42]),
+            &mut ctx
+        );
         assert!(
             p.as_ref()
                 .validity()
@@ -84,6 +90,7 @@ mod test {
 
     #[test]
     fn fill_null_all_none() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None]);
 
         #[expect(deprecated)]
@@ -92,7 +99,11 @@ mod test {
             .fill_null(Scalar::from(255u8))
             .unwrap()
             .to_primitive();
-        assert_arrays_eq!(p, PrimitiveArray::from_iter([255u8, 255, 255, 255, 255]));
+        assert_arrays_eq!(
+            p,
+            PrimitiveArray::from_iter([255u8, 255, 255, 255, 255]),
+            &mut ctx
+        );
         assert!(
             p.as_ref()
                 .validity()
@@ -105,6 +116,7 @@ mod test {
 
     #[test]
     fn fill_null_nullable_non_null() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![8u8, 10, 12, 14, 16],
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
@@ -115,7 +127,11 @@ mod test {
             .fill_null(Scalar::from(255u8))
             .unwrap()
             .to_primitive();
-        assert_arrays_eq!(p, PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]));
+        assert_arrays_eq!(
+            p,
+            PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]),
+            &mut ctx
+        );
         assert!(
             p.as_ref()
                 .validity()
@@ -128,10 +144,15 @@ mod test {
 
     #[test]
     fn fill_null_non_nullable() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = buffer![8u8, 10, 12, 14, 16].into_array();
         #[expect(deprecated)]
         let p = arr.fill_null(Scalar::from(255u8)).unwrap().to_primitive();
-        assert_arrays_eq!(p, PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]));
+        assert_arrays_eq!(
+            p,
+            PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]),
+            &mut ctx
+        );
         assert!(
             p.as_ref()
                 .validity()

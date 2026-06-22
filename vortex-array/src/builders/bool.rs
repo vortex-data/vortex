@@ -163,6 +163,7 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
@@ -221,6 +222,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = BoolBuilder::with_capacity(Nullability::Nullable, 10);
 
         // Test appending true value.
@@ -237,7 +239,7 @@ mod tests {
 
         let array = builder.finish_into_bool();
         let expected = BoolArray::from_iter([Some(true), Some(false), None]);
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test wrong dtype error.
         let mut builder = BoolBuilder::with_capacity(Nullability::NonNullable, 10);
