@@ -175,6 +175,7 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex_array::ExecutionCtx;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -204,29 +205,27 @@ mod tests {
     #[case::u64_ends_i32_values(|ctx: &mut ExecutionCtx| make_runend_array(vec![2u64, 5, 10], vec![1i32, 2, 3], ctx))]
     #[crate::test]
     async fn test_cuda_runend_types(#[case] build: RunEndBuilder) -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let runend_array = build(cuda_ctx.execution_ctx());
-        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
-
         let gpu_result = RunEndExecutor
-            .execute(runend_array.into_array(), &mut cuda_ctx)
+            .execute(runend_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
+        assert_arrays_eq!(runend_array, gpu_result, &mut ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_runend_large_array() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -240,47 +239,43 @@ mod tests {
         let runend_array = make_runend_array(ends, values, cuda_ctx.execution_ctx());
         assert_eq!(runend_array.len(), total_len);
 
-        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
-
         let gpu_result = RunEndExecutor
-            .execute(runend_array.into_array(), &mut cuda_ctx)
+            .execute(runend_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
+        assert_arrays_eq!(runend_array, gpu_result, &mut ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_runend_single_run() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let runend_array = make_runend_array(vec![100u32], vec![42i32], cuda_ctx.execution_ctx());
 
-        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
-
         let gpu_result = RunEndExecutor
-            .execute(runend_array.into_array(), &mut cuda_ctx)
+            .execute(runend_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
+        assert_arrays_eq!(runend_array, gpu_result, &mut ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_runend_many_small_runs() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -291,24 +286,22 @@ mod tests {
 
         let runend_array = make_runend_array(ends, values, cuda_ctx.execution_ctx());
 
-        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?;
-
         let gpu_result = RunEndExecutor
-            .execute(runend_array.into_array(), &mut cuda_ctx)
+            .execute(runend_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result, &mut assertion_ctx);
+        assert_arrays_eq!(runend_array, gpu_result, &mut ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_runend_nullable_values_falls_back_to_cpu() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -322,10 +315,9 @@ mod tests {
             PrimitiveArray::new(Buffer::from(vec![10i32, 0, 30]), validity).into_array();
         let runend_array = RunEnd::new(ends_array, values_array, cuda_ctx.execution_ctx());
 
-        let cpu_result = crate::canonicalize_cpu(runend_array.clone())?.into_array();
-
         // execute_cuda should fall back to CPU and still produce the correct result.
         let gpu_result = runend_array
+            .clone()
             .into_array()
             .execute_cuda(&mut cuda_ctx)
             .await
@@ -334,7 +326,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
+        assert_arrays_eq!(runend_array, gpu_result, &mut ctx);
 
         Ok(())
     }

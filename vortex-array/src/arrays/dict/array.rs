@@ -462,7 +462,7 @@ mod test {
 
     #[test]
     fn test_dict_array_from_primitive_chunks() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let len = 2;
         let chunk_count = 2;
         let array = make_dict_primitive_chunks::<u64, u64>(len, 2, chunk_count);

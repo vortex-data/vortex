@@ -1222,7 +1222,7 @@ mod test {
 
     #[test]
     fn test_filter() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             100,
             0,
@@ -1254,7 +1254,7 @@ mod test {
 
     #[test]
     fn take_with_nulls() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1303,7 +1303,7 @@ mod test {
 
     #[test]
     fn take_search_with_nulls_chunked() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1352,7 +1352,7 @@ mod test {
 
     #[test]
     fn take_search_chunked_multiple_chunks() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             2048,
             0,
@@ -1403,7 +1403,7 @@ mod test {
 
     #[test]
     fn take_search_chunked_interleaved() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             30,
             0,
@@ -1455,7 +1455,7 @@ mod test {
 
     #[test]
     fn test_slice() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
@@ -1472,7 +1472,7 @@ mod test {
 
     #[test]
     fn doubly_sliced() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
@@ -1514,7 +1514,7 @@ mod test {
 
     #[test]
     fn test_mask_all_false() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1565,7 +1565,7 @@ mod test {
 
     #[test]
     fn test_mask_partial() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1602,7 +1602,7 @@ mod test {
 
     #[test]
     fn test_mask_with_offset() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             5,                                  // offset
@@ -1637,7 +1637,7 @@ mod test {
 
     #[test]
     fn test_mask_nullable_values() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1690,7 +1690,7 @@ mod test {
 
     #[test]
     fn test_filter_keep_all() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1740,7 +1740,7 @@ mod test {
 
     #[test]
     fn test_filter_with_indices() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1771,7 +1771,7 @@ mod test {
 
     #[test]
     fn test_slice_full_range() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1797,7 +1797,7 @@ mod test {
 
     #[test]
     fn test_slice_partial() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1842,7 +1842,7 @@ mod test {
 
     #[test]
     fn test_slice_with_offset() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             5,                                  // offset
@@ -1950,7 +1950,7 @@ mod test {
 
     #[test]
     fn test_mask_boundary_patches() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Test masking patches at array boundaries
         let patches = Patches::new(
             10,
@@ -2005,7 +2005,7 @@ mod test {
 
     #[test]
     fn test_mask_no_patches_removed() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Test when no patches are masked
         let patches = Patches::new(
             10,
@@ -2039,7 +2039,7 @@ mod test {
 
     #[test]
     fn test_mask_single_patch() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Test with a single patch
         let patches = Patches::new(
             5,
@@ -2072,7 +2072,7 @@ mod test {
 
     #[test]
     fn test_mask_contiguous_patches() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Test with contiguous patches
         let patches = Patches::new(
             10,
@@ -2106,7 +2106,7 @@ mod test {
 
     #[test]
     fn test_mask_with_large_offset() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Test with a large offset that shifts all indices
         let patches = Patches::new(
             20,

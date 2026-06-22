@@ -249,6 +249,7 @@ mod tests {
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
@@ -266,7 +267,7 @@ mod tests {
         let len = array.len();
 
         let ctx = ArrayContext::empty();
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let serialized = array
             .clone()
             .into_array()

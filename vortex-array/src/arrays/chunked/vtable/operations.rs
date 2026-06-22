@@ -30,6 +30,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -57,7 +58,7 @@ mod tests {
     #[case::end(7..8, &[8u64])]
     #[case::exactly_end(6..9, &[7u64, 8, 9])]
     fn slice(#[case] range: Range<usize>, #[case] expected: &[u64]) {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         assert_arrays_eq!(
             chunked_array().slice(range).unwrap(),
             PrimitiveArray::from_iter(expected.iter().copied()),
@@ -75,7 +76,7 @@ mod tests {
 
     #[test]
     fn scalar_at_empty_children_both_sides() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = ChunkedArray::try_new(
             vec![
                 Buffer::<u64>::empty().into_array(),
@@ -96,7 +97,7 @@ mod tests {
 
     #[test]
     fn scalar_at_empty_children_trailing() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = ChunkedArray::try_new(
             vec![
                 buffer![1u64, 2].into_array(),
@@ -116,7 +117,7 @@ mod tests {
 
     #[test]
     fn scalar_at_empty_children_leading() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = ChunkedArray::try_new(
             vec![
                 Buffer::<u64>::empty().into_array(),

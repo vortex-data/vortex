@@ -161,7 +161,7 @@ fn test_rle_compressed() -> VortexResult<()> {
 #[cfg(feature = "unstable_encodings")]
 #[test]
 fn test_delta_compressed() -> VortexResult<()> {
-    let mut assertion_ctx = vortex_array::array_execution_ctx();
+    let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
     use vortex_array::assert_arrays_eq;
     use vortex_fastlanes::Delta;
 

@@ -202,7 +202,7 @@ mod tests {
     use crate::dtype::Nullability;
     #[test]
     fn test_optimize_compacts_buffers() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Create a VarBinViewArray with some long strings that will create multiple buffers
         let original = VarBinViewArray::from_iter_nullable_str([
             Some("short"),
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn test_optimize_with_long_strings() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Create strings that are definitely longer than 12 bytes
         let long_string_1 = "this is definitely a very long string that exceeds the inline limit";
         let long_string_2 = "another extremely long string that also needs external buffer storage";
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn test_optimize_no_buffers() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Create an array with only short strings (all inlined)
         let original = VarBinViewArray::from_iter_str(["a", "bb", "ccc", "dddd"]);
 
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_optimize_single_buffer() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Create an array that naturally has only one buffer
         let str1 = "this is a long string that goes into a buffer";
         let str2 = "another long string in the same buffer";
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_selective_compaction_with_threshold_zero() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // threshold=0 should keep all buffers (no compaction)
         let original = VarBinViewArray::from_iter_str([
             "this is a longer string that will be stored in a buffer",
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_selective_compaction_with_high_threshold() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // threshold=1.0 should compact any buffer with waste
         let original = VarBinViewArray::from_iter_str([
             "this is a longer string that will be stored in a buffer",
@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn test_selective_compaction_preserves_well_utilized_buffers() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Create an array with multiple strings in one buffer (well-utilized)
         let str1 = "first long string that needs external buffer storage";
         let str2 = "second long string also in buffer";
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_selective_compaction_with_mixed_utilization() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Create array with some long strings
         let strings: Vec<String> = (0..10)
             .map(|i| {
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn test_slice_strategy_with_contiguous_range() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Create array with strings that will be in one buffer
         let strings: Vec<String> = (0..20)
             .map(|i| format!("this is a long string number {} for slice test", i))

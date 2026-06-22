@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn reading_nested_packs_works() {
         block_on(|handle| async move {
-            let mut assertion_ctx = vortex_array::array_execution_ctx();
+            let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
             let session = session_with_handle(handle);
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
@@ -522,7 +522,7 @@ mod tests {
         #[case] expected: Vec<bool>,
     ) {
         block_on(|handle| async move {
-            let mut assertion_ctx = vortex_array::array_execution_ctx();
+            let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
             let session = session_with_handle(handle);
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn reading_is_null_works() {
         block_on(|handle| async move {
-            let mut assertion_ctx = vortex_array::array_execution_ctx();
+            let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
             let mut ctx_exec = LEGACY_SESSION.create_execution_ctx();
             let session = session_with_handle(handle);
             let strategy = DictStrategy::new(
@@ -651,7 +651,7 @@ mod tests {
 
     #[test]
     fn reading_byte_length_pushdown_works() {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = VarBinArray::from_iter(
             [
                 Some("abc"),
@@ -709,7 +709,7 @@ mod tests {
     }
 
     fn test_apply(original: Expression, outer: Expression, inner: Expression) -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some("abc"), Some("def"), None],
             DType::Utf8(Nullability::Nullable),

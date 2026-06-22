@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_between_decimal() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let values = buffer![100i128, 200i128, 300i128, 400i128];
         let decimal_type = DecimalDType::new(3, 2);
         let array = DecimalArray::new(values, decimal_type, Validity::NonNullable).into_array();

@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn patch_sliced_bools() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.slice(4..12).unwrap();
         assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]), &mut assertion_ctx);
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn slice_array_in_middle() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let sliced = arr.slice(4..12).unwrap();
         assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]), &mut assertion_ctx);
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn patch_bools_owned() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let buf_ptr = arr.to_bit_buffer().inner().as_ptr();
 
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn patch_sliced_bools_offset() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.slice(4..15).unwrap();
         assert_arrays_eq!(sliced, BoolArray::from_iter([true; 11]), &mut assertion_ctx);

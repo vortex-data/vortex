@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let mut builder = BoolBuilder::with_capacity(Nullability::Nullable, 10);
 
         // Test appending true value.

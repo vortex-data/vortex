@@ -108,6 +108,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
@@ -138,7 +139,11 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
-        assert_arrays_eq!(result, storage, &mut crate::array_execution_ctx());
+        assert_arrays_eq!(
+            result,
+            storage,
+            &mut crate::array_session().create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -154,7 +159,11 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
         );
-        assert_arrays_eq!(result, storage, &mut crate::array_execution_ctx());
+        assert_arrays_eq!(
+            result,
+            storage,
+            &mut crate::array_session().create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -174,7 +183,7 @@ mod tests {
         assert_arrays_eq!(
             result,
             ConstantArray::new(storage_scalar, 3),
-            &mut crate::array_execution_ctx()
+            &mut crate::array_session().create_execution_ctx()
         );
         Ok(())
     }

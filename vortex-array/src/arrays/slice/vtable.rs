@@ -188,13 +188,14 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::SliceArray;
     use crate::assert_arrays_eq;
 
     #[test]
     fn test_slice_slice() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Slice(1..4, Slice(2..8, base)) combines to Slice(3..6, base)
         let arr = PrimitiveArray::from_iter(0i32..10).into_array();
         let inner_slice = SliceArray::new(arr, 2..8).into_array();

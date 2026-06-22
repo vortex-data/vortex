@@ -57,7 +57,7 @@ fn test_compress() -> VortexResult<()> {
 
 #[test]
 fn test_rle_compression() -> VortexResult<()> {
-    let mut assertion_ctx = vortex_array::array_execution_ctx();
+    let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
     let mut values = Vec::new();
     values.extend(iter::repeat_n(1.5f32, 100));
     values.extend(iter::repeat_n(2.7f32, 200));

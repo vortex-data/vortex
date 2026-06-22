@@ -772,7 +772,7 @@ mod tests {
 
     #[test]
     fn test_kleene_truth_table() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let lhs = BoolArray::from_iter([
             Some(true),
             Some(true),
@@ -835,7 +835,7 @@ mod tests {
 
     #[test]
     fn test_null_constant_kleene() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let lhs = BoolArray::from_iter([Some(false), Some(true), None]).into_array();
         let null = ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
             .into_array();

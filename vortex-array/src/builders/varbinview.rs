@@ -884,7 +884,7 @@ mod tests {
 
     #[test]
     fn test_utf8_builder() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_value("Hello");
@@ -912,7 +912,7 @@ mod tests {
 
     #[test]
     fn test_utf8_builder_with_extend() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = {
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
@@ -992,7 +992,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         use crate::scalar::Scalar;
 
         // Test with Utf8 builder.

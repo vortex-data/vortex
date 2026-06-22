@@ -53,6 +53,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -62,7 +63,7 @@ mod tests {
 
     #[test]
     fn test_take() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let ddtype = DecimalDType::new(19, 1);
         let array = DecimalArray::new(
             buffer![10i128, 11i128, 12i128, 13i128],
@@ -79,7 +80,7 @@ mod tests {
 
     #[test]
     fn test_take_null_indices() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let ddtype = DecimalDType::new(19, 1);
         let array = DecimalArray::new(
             buffer![i128::MAX, 11i128, 12i128, 13i128],

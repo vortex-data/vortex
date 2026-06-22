@@ -84,7 +84,7 @@ fn test_slice_comprehensive() {
 
 #[test]
 fn test_slice_out_of_order() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     // ListView-specific: Test slicing with out-of-order offsets.
     // Logical lists: [[70,80], [10,20,30], [40,50,60], [90], [30]]
     let elements = buffer![10i32, 20, 30, 40, 50, 60, 70, 80, 90].into_array();
@@ -394,7 +394,7 @@ fn test_cast_large_dataset() {
 
 #[test]
 fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     // [[1, 2], [3], [4]]
     let if_true = ListViewArray::new(
         buffer![1i32, 2, 3, 4].into_array(),
@@ -440,7 +440,7 @@ fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
 
 #[test]
 fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     // [[1, null], [3], [4]]
     let if_true = ListViewArray::new(
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array(),

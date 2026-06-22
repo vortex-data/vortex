@@ -225,6 +225,7 @@ mod test {
 
     use futures::io::Cursor;
     use vortex_array::IntoArray as _;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::stream::ArrayStream;
     use vortex_array::stream::ArrayStreamExt;
@@ -235,7 +236,7 @@ mod test {
 
     #[tokio::test]
     async fn test_async_stream() {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = buffer![1, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_stream()
@@ -272,7 +273,7 @@ mod test {
 
     #[tokio::test]
     async fn test_async_stream_chunked() {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let ipc_buffer = array
             .to_array_stream()
@@ -296,7 +297,7 @@ mod test {
     /// Test with 1-byte chunks to stress-test partial read handling.
     #[tokio::test]
     async fn test_async_stream_single_byte_chunks() {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = buffer![42i64, -1, 0, i64::MAX, i64::MIN].into_array();
         let ipc_buffer = array
             .to_array_stream()

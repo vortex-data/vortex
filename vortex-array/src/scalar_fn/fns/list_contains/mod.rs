@@ -752,7 +752,7 @@ mod tests {
         #[case] value: Option<&str>,
         #[case] expected: BoolArray,
     ) {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let element_nullability = list_array
             .dtype()
             .as_list_element_opt()
@@ -770,7 +770,7 @@ mod tests {
 
     #[test]
     fn test_constant_list() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let list_array = ConstantArray::new(
             Scalar::list(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
@@ -789,7 +789,7 @@ mod tests {
 
     #[test]
     fn test_all_nulls() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let list_array = ConstantArray::new(
             Scalar::null(DType::List(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
@@ -811,7 +811,7 @@ mod tests {
 
     #[test]
     fn test_list_array_element() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let list_scalar = Scalar::list(
             Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
             vec![1.into(), 3.into(), 6.into()],
@@ -828,7 +828,7 @@ mod tests {
 
     #[test]
     fn test_list_contains_empty_listview() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let empty_elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
         let offsets = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
         let sizes = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
@@ -852,7 +852,7 @@ mod tests {
 
     #[test]
     fn test_list_contains_all_null_elements() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let elements = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None, None]);
         let offsets = Buffer::from_iter([0u32, 2, 4]).into_array();
         let sizes = Buffer::from_iter([2u32, 2, 1]).into_array();
@@ -888,7 +888,7 @@ mod tests {
 
     #[test]
     fn test_list_contains_large_offsets() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let elements = Buffer::from_iter([1i32, 2, 3, 4, 5]).into_array();
 
         let offsets = Buffer::from_iter([0u32, 1, 4, 0]).into_array();
@@ -912,7 +912,7 @@ mod tests {
 
     #[test]
     fn test_list_contains_offset_size_boundary() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let elements = Buffer::from_iter(0..256).into_array();
         let offsets = Buffer::from_iter([0u8, 100, 200, 254]).into_array();
         let sizes = Buffer::from_iter([50u8, 50, 54, 2]).into_array();

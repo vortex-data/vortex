@@ -179,6 +179,7 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
@@ -208,7 +209,7 @@ mod tests {
 
     #[test]
     fn evaluate() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let test_array =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)])
                 .into_array();
@@ -229,7 +230,7 @@ mod tests {
 
     #[test]
     fn evaluate_struct_field() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let test_array = StructArray::from_fields(&[(
             "a",
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
@@ -253,7 +254,7 @@ mod tests {
 
     #[test]
     fn evaluate_non_nullable_input() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let test_array = buffer![1i32, 2, 3].into_array();
         let expr = fill_null(root(), lit(0i32));
         let result = test_array.apply(&expr).unwrap();

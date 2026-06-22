@@ -226,6 +226,7 @@ mod test {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -309,7 +310,7 @@ mod test {
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         block_on(|handle| async {
-            let mut assertion_ctx = vortex_array::array_execution_ctx();
+            let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
             let session = session_with_handle(handle);
             let result = layout
                 .new_reader("".into(), segments, &session, &Default::default())

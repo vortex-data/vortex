@@ -96,7 +96,7 @@ mod tests {
     #[case(DType::Utf8(Nullability::NonNullable))]
     #[case(DType::Binary(Nullability::NonNullable))]
     fn test_canonical_varbin_unsliced(#[case] dtype: DType) {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let varbin = VarBinArray::from_iter_nonnull(["foo", "bar", "baz"], dtype.clone());
         #[expect(deprecated)]
         let canonical = varbin.as_array().to_varbinview();

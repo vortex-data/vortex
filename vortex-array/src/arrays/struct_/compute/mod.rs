@@ -40,7 +40,7 @@ mod tests {
 
     #[test]
     fn take_empty_struct() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn take_field_struct() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let struct_arr =
             StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).into_array())])
                 .unwrap();

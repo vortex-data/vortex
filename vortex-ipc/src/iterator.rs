@@ -172,6 +172,7 @@ mod test {
     use std::io::Cursor;
 
     use vortex_array::IntoArray as _;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::iter::ArrayIterator;
     use vortex_array::iter::ArrayIteratorExt;
@@ -182,7 +183,7 @@ mod test {
 
     #[test]
     fn test_sync_stream() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = buffer![1i32, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_iterator()

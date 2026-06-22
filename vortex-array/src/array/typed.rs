@@ -489,6 +489,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::Array;
+    use crate::VortexSessionExecute;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -496,7 +497,7 @@ mod tests {
 
     #[test]
     fn typed_array_into_parts_roundtrips() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
         let expected = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
 
@@ -508,7 +509,7 @@ mod tests {
 
     #[test]
     fn typed_array_try_into_parts_requires_unique_owner() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
         let alias = array.clone();
 

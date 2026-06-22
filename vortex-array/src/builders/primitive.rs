@@ -385,7 +385,7 @@ mod tests {
     /// buffer.
     #[test]
     fn test_multiple_uninit_ranges_correct_offsets() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
 
         // First range.
@@ -496,7 +496,7 @@ mod tests {
     /// This verifies the new simplified API without the redundant `len` parameter.
     #[test]
     fn test_copy_from_slice_with_offsets() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
         let mut range = builder.uninit_range(6);
 

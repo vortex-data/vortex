@@ -17,7 +17,7 @@ pub fn fixtures() -> Vec<Box<dyn FlatLayoutFixture>> {
 
 #[cfg(test)]
 mod tests {
-
+    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
 
     use super::fixtures;
@@ -27,7 +27,7 @@ mod tests {
     #[test]
     fn roundtrip_fixtures_to_bytes() {
         for fixture in fixtures() {
-            let mut assertion_ctx = vortex_array::array_execution_ctx();
+            let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
             let array = fixture.build().unwrap();
             check_expected_encodings(&array, fixture.as_ref()).unwrap();
             let bytes = adapter::write_file_to_bytes(array.clone()).unwrap();

@@ -5,6 +5,7 @@ use vortex_buffer::buffer;
 
 use super::DictArray;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ListArray;
 use crate::arrays::PrimitiveArray;
@@ -14,7 +15,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_scalar_at_null_code() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     let dict = DictArray::try_new(
         PrimitiveArray::from_option_iter(vec![None, Some(0u32), None]).into_array(),
         buffer![1i32].into_array(),

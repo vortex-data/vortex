@@ -240,7 +240,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_test() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let arr = VarBinArray::from_vec(
             vec![
                 b"hello".as_slice(),
@@ -267,7 +267,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_slice_test() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let arr = VarBinArray::from_vec(
             vec![
                 b"hello".as_slice(),
@@ -297,7 +297,7 @@ mod test {
 
     #[test]
     fn filter_var_bin_slice_null() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let bytes = [
             b"one".as_slice(),
             b"two".as_slice(),
@@ -340,7 +340,7 @@ mod test {
 
     #[test]
     fn filter_varbin_nulls() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let bytes = [b"".as_slice(), b"two".as_slice(), b"two".as_slice()]
             .into_iter()
             .flat_map(|x| x.iter().cloned())
@@ -368,7 +368,7 @@ mod test {
 
     #[test]
     fn filter_varbin_all_null() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let offsets = buffer![0, 0, 0, 0].into_array();
         let validity = Validity::Array(BoolArray::from_iter([false, false, false]).into_array());
         let arr = VarBinArray::try_new(

@@ -49,6 +49,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -86,7 +87,7 @@ mod test {
 
     #[test]
     fn filter_struct_selects_correct_rows() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = StructArray::try_new(
             ["x", "y"].into(),
             vec![
@@ -117,7 +118,7 @@ mod test {
 
     #[test]
     fn filter_empty_struct() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let mask = Mask::from_iter([
@@ -132,7 +133,7 @@ mod test {
 
     #[test]
     fn filter_empty_struct_with_empty_filter() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 0, Validity::NonNullable).unwrap();
         let filtered = struct_arr.filter(Mask::from_iter::<[bool; 0]>([])).unwrap();

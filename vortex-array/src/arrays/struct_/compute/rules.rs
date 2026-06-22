@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_struct_cast_field_reorder() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Source: {a, b}, Target: {c, b, a} - reordered + new null field
         let source = StructArray::try_new(
             FieldNames::from(["a", "b"]),
@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn cast_struct_drop_field() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Casting to a struct with a subset of fields should succeed.
         let source = StructArray::try_new(
             FieldNames::from(["a", "b", "c"]),
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn cast_struct_field_type_widening() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Casting struct fields to wider types (i32 -> i64).
         let source = StructArray::try_new(
             FieldNames::from(["val"]),

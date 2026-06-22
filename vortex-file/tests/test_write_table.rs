@@ -123,7 +123,7 @@ async fn test_file_roundtrip() {
 /// with "Array vortex.fill_null does not support serialization".
 #[tokio::test]
 async fn test_dict_listview_validity_roundtrip() {
-    let mut assertion_ctx = vortex_array::array_execution_ctx();
+    let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
     let elements = PrimitiveArray::from_iter(vec![1i32, 2, 3, 4, 5]).into_array();
     let offsets = PrimitiveArray::from_iter(vec![0u32, 2, 4]).into_array();
     let sizes = PrimitiveArray::from_iter(vec![2u32, 2, 1]).into_array();

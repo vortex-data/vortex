@@ -203,7 +203,7 @@ fn execute_path_nested_chunked_dict_of_dict_into_canonical() {
 
 #[test]
 fn with_slot_rewrites_chunk_and_offsets() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     let array = chunked_array().into_array();
 
     let replacement = buffer![10u64, 11, 12].into_array();
@@ -236,7 +236,7 @@ fn with_slot_rejects_len_mismatch() {
 
 #[test]
 fn slice_middle() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(2..5).unwrap(),
         PrimitiveArray::from_iter([3u64, 4, 5]),
@@ -246,7 +246,7 @@ fn slice_middle() {
 
 #[test]
 fn slice_begin() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(1..3).unwrap(),
         PrimitiveArray::from_iter([2u64, 3]),
@@ -256,7 +256,7 @@ fn slice_begin() {
 
 #[test]
 fn slice_aligned() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(3..6).unwrap(),
         PrimitiveArray::from_iter([4u64, 5, 6]),
@@ -266,7 +266,7 @@ fn slice_aligned() {
 
 #[test]
 fn slice_many_aligned() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(0..6).unwrap(),
         PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6]),
@@ -276,7 +276,7 @@ fn slice_many_aligned() {
 
 #[test]
 fn slice_end() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(7..8).unwrap(),
         PrimitiveArray::from_iter([8u64]),
@@ -286,7 +286,7 @@ fn slice_end() {
 
 #[test]
 fn slice_exactly_end() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     assert_arrays_eq!(
         chunked_array().slice(6..9).unwrap(),
         PrimitiveArray::from_iter([7u64, 8, 9]),
@@ -304,7 +304,7 @@ fn slice_empty() {
 
 #[test]
 fn scalar_at_empty_children_both_sides() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     let array = ChunkedArray::try_new(
         vec![
             Buffer::<u64>::empty().into_array(),
@@ -325,7 +325,7 @@ fn scalar_at_empty_children_both_sides() {
 
 #[test]
 fn scalar_at_empty_children_trailing() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     let array = ChunkedArray::try_new(
         vec![
             buffer![1u64, 2].into_array(),
@@ -345,7 +345,7 @@ fn scalar_at_empty_children_trailing() {
 
 #[test]
 fn scalar_at_empty_children_leading() {
-    let mut assertion_ctx = crate::array_execution_ctx();
+    let mut assertion_ctx = crate::array_session().create_execution_ctx();
     let array = ChunkedArray::try_new(
         vec![
             Buffer::<u64>::empty().into_array(),

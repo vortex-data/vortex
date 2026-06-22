@@ -112,7 +112,7 @@ mod tests {
         #[case] input: ListViewArray,
         #[case] expect_list: bool,
     ) -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array_ref = input.clone().into_array();
         let result = BtrBlocksCompressor::default()
             .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_constant_all_true() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = BoolArray::new(BitBuffer::from(vec![true; 100]), Validity::NonNullable);
         let btr = BtrBlocksCompressor::default();
         let compressed = btr.compress(
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_constant_all_false() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = BoolArray::new(BitBuffer::from(vec![false; 100]), Validity::NonNullable);
         let btr = BtrBlocksCompressor::default();
         let compressed = btr.compress(
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_nullable_all_valid_compressed() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = BoolArray::new(
             BitBuffer::from(vec![true; 100]),
             Validity::from(BitBuffer::from(vec![true; 100])),
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_nullable_with_nulls_not_compressed() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let validity = Validity::from(BitBuffer::from_iter((0..100).map(|i| i % 3 != 0)));
         let array = BoolArray::new(BitBuffer::from(vec![true; 100]), validity);
         let btr = BtrBlocksCompressor::default();
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_mixed_not_constant() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = BoolArray::new(
             BitBuffer::from(vec![true, false, true, false, true]),
             Validity::NonNullable,
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn test_binary_constant_compressed() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let values = vec![Some(b"constant-bytes".as_slice()); 100];
         let array = VarBinViewArray::from_iter(values, DType::Binary(Nullability::NonNullable));
         let btr = BtrBlocksCompressor::default();
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_binary_dict_compressed() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let distinct_values: [&[u8]; 3] = [b"alpha", b"beta", b"gamma"];
         let values = (0..1000)
             .map(|idx| Some(distinct_values[idx % distinct_values.len()]))

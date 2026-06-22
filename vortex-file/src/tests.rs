@@ -477,7 +477,7 @@ async fn test_empty_varbin_array_roundtrip() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn issue_5385_filter_casted_column() {
-    let mut assertion_ctx = vortex_array::array_execution_ctx();
+    let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
     let array = StructArray::try_from_iter([("x", buffer![1u8, 2, 3, 4, 5])])
         .unwrap()
         .into_array();
@@ -1187,7 +1187,7 @@ async fn chunked_file() -> VortexResult<VortexFile> {
 
 #[tokio::test]
 async fn basic_file_roundtrip() -> VortexResult<()> {
-    let mut assertion_ctx = vortex_array::array_execution_ctx();
+    let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
     let vxf = chunked_file().await?;
     let result = vxf.scan()?.into_array_stream()?.read_all().await?;
 
@@ -1231,7 +1231,7 @@ async fn file_excluding_dtype() -> VortexResult<()> {
 
 #[tokio::test]
 async fn file_take() -> VortexResult<()> {
-    let mut assertion_ctx = vortex_array::array_execution_ctx();
+    let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
     let vxf = chunked_file().await?;
     let result = vxf
         .scan()?

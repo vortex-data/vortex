@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn variant_get_keeps_valid_shredded_rows_for_matching_dtype() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let core_storage = row_storage([1, 2, 3])?;
         let shredded = StructArray::try_from_iter([(
             "a",
@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn variant_get_treats_value_and_typed_value_as_logical_field_names() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let core_storage = row_storage([1, 2, 3])?;
         let shredded = StructArray::try_from_iter([
             (

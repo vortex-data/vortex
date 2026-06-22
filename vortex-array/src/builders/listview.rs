@@ -529,7 +529,7 @@ mod tests {
 
     #[test]
     fn test_different_offset_size_types() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         // Test u32 offsets with u8 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =

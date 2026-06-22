@@ -234,31 +234,26 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_primitive() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut cpu_ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let input = PrimitiveArray::from_iter(0i64..1024).into_array();
-        let compressed = ZstdBuffers::compress(&input, 3, &crate::cuda_session())?;
+        let compressed = ZstdBuffers::compress(&input, 3, &crate::cuda_session())?.into_array();
 
-        let cpu_result = crate::canonicalize_cpu(compressed.clone())?;
         let gpu_result = ZstdBuffersExecutor
-            .execute(compressed.into_array(), &mut cuda_ctx)
+            .execute(compressed.clone(), &mut cuda_ctx)
             .await?
             .into_host()
             .await?;
 
-        assert_arrays_eq!(
-            cpu_result.into_array(),
-            gpu_result.into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(compressed, gpu_result.into_array(), &mut cpu_ctx);
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_varbinview() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut cpu_ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -271,20 +266,15 @@ mod tests {
             "baz",
         ])
         .into_array();
-        let compressed = ZstdBuffers::compress(&input, 3, &crate::cuda_session())?;
+        let compressed = ZstdBuffers::compress(&input, 3, &crate::cuda_session())?.into_array();
 
-        let cpu_result = crate::canonicalize_cpu(compressed.clone())?;
         let gpu_result = ZstdBuffersExecutor
-            .execute(compressed.into_array(), &mut cuda_ctx)
+            .execute(compressed.clone(), &mut cuda_ctx)
             .await?
             .into_host()
             .await?;
 
-        assert_arrays_eq!(
-            cpu_result.into_array(),
-            gpu_result.into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(compressed, gpu_result.into_array(), &mut cpu_ctx);
         Ok(())
     }
 }

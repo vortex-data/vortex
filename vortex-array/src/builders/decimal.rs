@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         use crate::scalar::Scalar;
 
         // Simply test that the builder accepts its own finish output via scalar.

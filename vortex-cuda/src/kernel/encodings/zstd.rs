@@ -356,6 +356,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::encodings::zstd::Zstd;
     use vortex::error::VortexResult;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -364,7 +365,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_zstd_decompression_utf8() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -385,17 +386,13 @@ mod tests {
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
 
-        assert_arrays_eq!(
-            cpu_result.into_array(),
-            gpu_result.into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result.into_array(), &mut ctx);
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_zstd_decompression_multiple_frames() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -426,17 +423,13 @@ mod tests {
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
 
-        assert_arrays_eq!(
-            cpu_result.into_array(),
-            gpu_result.into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result.into_array(), &mut ctx);
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_zstd_decompression_sliced() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -458,16 +451,11 @@ mod tests {
         // Slice the array to get a subset (indices 2..7)
         let sliced_zstd = zstd_array.slice(2..7)?;
 
-        let cpu_result = crate::canonicalize_cpu(sliced_zstd.clone())?;
         let gpu_result = ZstdExecutor
             .execute(sliced_zstd.clone(), &mut cuda_ctx)
             .await?;
 
-        assert_arrays_eq!(
-            cpu_result.into_array(),
-            gpu_result.into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(sliced_zstd, gpu_result.into_array(), &mut ctx);
         Ok(())
     }
 
@@ -476,7 +464,7 @@ mod tests {
     /// correct results instead of panicking.
     #[crate::test]
     async fn test_cuda_zstd_nullable_falls_back_to_cpu() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_execution_ctx();
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -491,10 +479,9 @@ mod tests {
 
         let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
 
-        let cpu_result = crate::canonicalize_cpu(zstd_array.clone())?.into_array();
-
         // execute_cuda should fall back to CPU and still produce the correct result.
         let gpu_result = zstd_array
+            .clone()
             .into_array()
             .execute_cuda(&mut cuda_ctx)
             .await?
@@ -502,7 +489,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result, &mut assertion_ctx);
+        assert_arrays_eq!(zstd_array, gpu_result, &mut ctx);
         Ok(())
     }
 }

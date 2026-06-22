@@ -586,7 +586,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_fixed_size_list() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6], Validity::NonNullable).into_array();
         let groups = FixedSizeListArray::try_new(elements, 3, Validity::NonNullable, 2)?;
@@ -601,7 +601,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_with_null_elements() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5), Some(6)])
                 .into_array();
@@ -617,7 +617,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_with_null_group() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9], Validity::NonNullable)
                 .into_array();
@@ -635,7 +635,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_all_null_elements_in_group() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::from_option_iter([None::<i32>, None, Some(3), Some(4)]).into_array();
         let groups = FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 2)?;
@@ -650,7 +650,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_bool() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let elements: BoolArray = [true, false, true, true, true, true].into_iter().collect();
         let groups =
             FixedSizeListArray::try_new(elements.into_array(), 3, Validity::NonNullable, 2)?;
@@ -691,7 +691,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_listview_out_of_order_offsets_with_null_group() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_execution_ctx();
+        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![100i32, 200, 300], Validity::NonNullable).into_array();
         let offsets = PrimitiveArray::new(buffer![2i32, 0, 1], Validity::NonNullable).into_array();
