@@ -201,7 +201,7 @@ opentelemetry-otlp = "0.32.0"
 opentelemetry_sdk = "0.32.0"
 parking_lot = { version = "0.12.3", features = ["nightly"] }
 parquet = "58.3"
-parquet-variant = "58.3"
+parquet-variant = "59.0"
 parquet-variant-compute = "58.3"
 paste = "1.0.15"
 pco = "1.0.1"
