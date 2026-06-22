@@ -402,6 +402,7 @@ mod tests {
             FlatLayoutStrategy::default(),
             FlatLayoutStrategy::default(),
             DictLayoutOptions::default(),
+            Arc::new(BtrBlocksCompressor::default()),
         );
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
