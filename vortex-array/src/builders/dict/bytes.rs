@@ -89,6 +89,8 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         }
     }
 
+    /// Returns `None` when assigning a code would exceed the dictionary constraints,
+    /// and callers should stop encoding after the current prefix.
     fn encode_value(&mut self, lookup: &mut HashTable<Code>, val: &[u8]) -> Option<Code> {
         match lookup.entry(
             self.hasher.hash_one(val),
@@ -131,6 +133,8 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
         }
     }
 
+    /// Returns `None` when assigning the null code would exceed the dictionary constraints,
+    /// and callers should stop encoding after the current prefix.
     fn encode_null(&mut self) -> Option<Code> {
         if let Some(code) = self.null_code.get() {
             return Some(*code);

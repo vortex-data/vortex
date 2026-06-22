@@ -82,6 +82,8 @@ where
         }
     }
 
+    /// Returns `None` when assigning a code would exceed the dictionary constraints,
+    /// and callers should stop encoding after the current prefix.
     fn encode_value(&mut self, v: T) -> Option<Code> {
         match self.lookup.entry(NativeValue(v)) {
             Entry::Occupied(o) => Some(*o.get()),
@@ -99,6 +101,8 @@ where
         }
     }
 
+    /// Returns `None` when assigning the null code would exceed the dictionary constraints,
+    /// and callers should stop encoding after the current prefix.
     fn encode_null(&mut self) -> Option<Code> {
         if let Some(code) = self.null_code.get() {
             return Some(*code);
