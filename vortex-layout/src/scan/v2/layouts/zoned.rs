@@ -928,6 +928,10 @@ impl ScanPlan for ZonedExprScanPlan {
         self.data.release(frontier, state.data.as_ref())
     }
 
+    fn split_hints(&self) -> Option<&[u64]> {
+        self.data.split_hints()
+    }
+
     fn fmt_chain(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "zoned_expr({})", self.expr)
     }

@@ -39,10 +39,8 @@ use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::dtype::FieldMask;
-use vortex::dtype::Nullability;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
-use vortex::expr::pack;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::InstrumentedReadAt;
@@ -372,36 +370,20 @@ impl FileOpener for VortexOpener {
                     if byte_range.start == 0 && byte_range.end == file.object_meta.size {
                         None
                     } else {
-                        // Distribute the scan's own morsels across DataFusion's byte-range
-                        // file_groups. The morsels are the units the scan actually reads (read-column
-                        // chunk hints, or the 100k-row fallback for single-chunk columns), so each
-                        // morsel lands wholly in one partition: no collapse onto a single partition
-                        // (which serialized the probe), and no chunk straddling a partition boundary
-                        // (which would re-decode it). V2 needs this because it parallelizes the
-                        // scan/probe ACROSS DataFusion partitions, unlike V1 which fans out within
-                        // one partition.
-                        let read_expr = match &filter {
-                            Some(filter) => pack(
-                                [
-                                    ("projection", scan_projection.clone()),
-                                    ("filter", filter.clone()),
-                                ],
-                                Nullability::NonNullable,
-                            ),
-                            None => scan_projection.clone(),
-                        };
-                        let morsels = scan_plan_morsel_ranges_for_file(
+                        // Distribute V2 natural split ranges across DataFusion's byte-range
+                        // file_groups. V2 prepares morsels from these same split ranges, so each
+                        // DataFusion partition owns whole V2 morsels instead of slicing through
+                        // chunk boundaries and forcing duplicate decode work.
+                        let split_ranges = scan_plan_split_ranges_for_file(
                             natural_split_ranges.as_ref(),
                             &file.object_meta.location,
                             &vxf,
-                            &read_expr,
-                        )
-                        .await?;
+                        )?;
 
                         let Some(row_range) = split_aligned_row_range(
                             byte_range,
                             file.object_meta.size,
-                            morsels.as_ref(),
+                            split_ranges.as_ref(),
                         ) else {
                             return Ok(stream::empty().boxed());
                         };
@@ -680,50 +662,37 @@ fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Ar
     Ok(split_points.into())
 }
 
-/// Fallback morsel size used when a file's read columns are a single chunk. Mirrors the V2 scan's
-/// own `FALLBACK_SPLIT_SIZE` so the opener distributes the same morsels the scan would read.
-const SCAN_FALLBACK_SPLIT_SIZE: u64 = 100_000;
-
-/// Compute the V2 scan's morsel ranges for a file: the row ranges the scan reads as independent
-/// units. Mirrors `PreparedScanPlan::splits` — the read plan's chunk hints when the read
-/// columns are chunked, otherwise the 100k-row fallback for single-chunk columns. These are the
-/// units `split_aligned_row_range` distributes across DataFusion's byte-range partitions; using the
-/// scan's own morsels (rather than coarse chunk boundaries) keeps every morsel within one partition,
-/// so a coarsely-encoded read column no longer collapses the scan onto a single partition.
-async fn scan_plan_morsel_ranges_for_file(
-    morsel_ranges: &DashMap<Path, Arc<[Range<u64>]>>,
+/// Get or create V2 natural split ranges for a file. These ranges are produced by the file's V2
+/// ScanPlan root and cached per path so every byte-range partition sees the same row boundaries.
+fn scan_plan_split_ranges_for_file(
+    split_ranges_cache: &DashMap<Path, Arc<[Range<u64>]>>,
     path: &Path,
     file: &VortexFile,
-    read_expr: &vortex::expr::Expression,
 ) -> DFResult<Arc<[Range<u64>]>> {
-    if let Some(ranges) = morsel_ranges.get(path) {
+    if let Some(ranges) = split_ranges_cache.get(path) {
         return Ok(Arc::clone(ranges.value()));
     }
 
-    let chunks = file
-        .plan_splits(read_expr)
-        .await
-        .map_err(|e| exec_datafusion_err!("Failed to compute Vortex scan2 splits: {e}"))?;
+    let ranges: Arc<[Range<u64>]> = file
+        .scan_plan_splits()
+        .map_err(|e| exec_datafusion_err!("Failed to compute Vortex scan2 splits: {e}"))?
+        .into();
+    tracing::debug!(
+        target: "vortex_datafusion::persistent::opener",
+        path = %path,
+        split_count = ranges.len(),
+        first_split = ?ranges.first(),
+        last_split = ?ranges.last(),
+        "scan2 file split ranges"
+    );
+    tracing::trace!(
+        target: "vortex_datafusion::persistent::opener",
+        path = %path,
+        ?ranges,
+        "scan2 file split range detail"
+    );
 
-    let ranges: Arc<[Range<u64>]> = if chunks.len() > 1 {
-        chunks.into()
-    } else {
-        // Single chunk (or none): mirror the scan's fallback of FALLBACK_SPLIT_SIZE-row morsels so
-        // a single large chunk still spreads across partitions.
-        let row_count = file.row_count();
-        let mut ranges = Vec::new();
-        let mut start = 0u64;
-        while start < row_count {
-            let end = start
-                .saturating_add(SCAN_FALLBACK_SPLIT_SIZE)
-                .min(row_count);
-            ranges.push(start..end);
-            start = end;
-        }
-        ranges.into()
-    };
-
-    match morsel_ranges.entry(path.clone()) {
+    match split_ranges_cache.entry(path.clone()) {
         Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
         Entry::Vacant(entry) => {
             entry.insert(Arc::clone(&ranges));

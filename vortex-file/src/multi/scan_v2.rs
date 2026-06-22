@@ -108,7 +108,9 @@ use crate::VortexFile;
 use crate::VortexOpenOptions;
 
 const DEFAULT_CONCURRENCY: usize = 8;
-const FALLBACK_SPLIT_SIZE: u64 = 100_000;
+const IDEAL_SPLIT_SIZE: u64 = 100_000;
+const MAX_SELECTION_RANGE_SIZE: u64 = IDEAL_SPLIT_SIZE / 25;
+const MIN_SELECTION_GAP_BETWEEN_RANGES: u64 = IDEAL_SPLIT_SIZE / 2;
 const DEFAULT_EVIDENCE_MORSEL_WINDOW: usize = 8;
 
 /// Below this demanded-row density, evaluate a residual predicate over only the demanded rows
@@ -970,7 +972,7 @@ pub(crate) async fn scan_plan_file_statistics_many(
 
 pub(crate) fn scan_plan_file_splits(file: &VortexFile) -> VortexResult<Vec<Range<u64>>> {
     let root = file.scan_plan_root()?;
-    split_ranges_from_node(&root, file.row_count())
+    Ok(split_ranges_from_node(&root, file.row_count()))
 }
 
 pub(crate) async fn scan_plan_file_plan_splits(
@@ -989,25 +991,13 @@ pub(crate) async fn scan_plan_file_plan_splits(
         .await
 }
 
-fn split_ranges_from_node(node: &ScanPlanRef, row_count: u64) -> VortexResult<Vec<Range<u64>>> {
-    let mut points = vec![0, row_count];
+fn split_ranges_from_node(node: &ScanPlanRef, row_count: u64) -> Vec<Range<u64>> {
+    let mut points = Vec::new();
     if let Some(hints) = node.split_hints() {
-        points.extend(
-            hints
-                .iter()
-                .copied()
-                .filter(|&hint| 0 < hint && hint < row_count),
-        );
+        points.extend_from_slice(hints);
     }
-    points.sort_unstable();
-    points.dedup();
-    Ok(points
-        .windows(2)
-        .filter_map(|window| {
-            let range = window[0]..window[1];
-            (range.start < range.end).then_some(range)
-        })
-        .collect())
+    let points = normalize_split_points(row_count, points);
+    natural_split_ranges(&points, None)
 }
 
 pub(crate) fn build_file_scan_plan_root(file: &VortexFile) -> VortexResult<ScanPlanRef> {
@@ -1786,11 +1776,10 @@ impl Partition for PlannedScanPlanPartition {
 struct PreparedScanPlan {
     // Request-level physical plan after pushdown. This must stay free of per-scan IO state.
     dtype: DType,
-    row_range: Range<u64>,
     selection: Selection,
     ordered: bool,
     limit: Option<u64>,
-    split_hints: Option<Vec<u64>>,
+    splits: Vec<Range<u64>>,
     projection: ScanPlanRef,
     predicates: Vec<PreparedPredicatePlan>,
 }
@@ -1874,15 +1863,20 @@ impl PreparedScanPlan {
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
+        let row_range = request
+            .row_range
+            .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?;
+        let selection = request.selection;
+        let (splits, split_kind) =
+            prepare_split_ranges(file.row_count(), &row_range, &selection, split_hints);
+        trace_prepared_splits(&row_range, &splits, split_kind, filter.is_some());
+
         Ok(Self {
             dtype,
-            row_range: request
-                .row_range
-                .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?,
-            selection: request.selection,
+            selection,
             ordered: request.ordered,
             limit: request.limit,
-            split_hints: normalize_split_hints(split_hints),
+            splits,
             projection: projection_pushed,
             predicates,
         })
@@ -1917,38 +1911,7 @@ impl PreparedScanPlan {
     }
 
     fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
-        let mut points = vec![self.row_range.start];
-        if let Some(hints) = &self.split_hints {
-            points.extend(
-                hints
-                    .iter()
-                    .copied()
-                    .filter(|&hint| self.row_range.start < hint && hint < self.row_range.end),
-            );
-        }
-        if points.len() == 1 {
-            let mut next = self
-                .row_range
-                .start
-                .saturating_add(FALLBACK_SPLIT_SIZE)
-                .min(self.row_range.end);
-            while next < self.row_range.end {
-                points.push(next);
-                next = next
-                    .saturating_add(FALLBACK_SPLIT_SIZE)
-                    .min(self.row_range.end);
-            }
-        }
-        points.push(self.row_range.end);
-        points.sort_unstable();
-        points.dedup();
-        Ok(points
-            .windows(2)
-            .filter_map(|window| {
-                let range = window[0]..window[1];
-                (range.start < range.end).then_some(range)
-            })
-            .collect())
+        Ok(self.splits.clone())
     }
 }
 
@@ -2272,10 +2235,163 @@ fn extend_split_hints(plan: &ScanPlanRef, points: &mut Vec<u64>) {
     }
 }
 
-fn normalize_split_hints(mut hints: Vec<u64>) -> Option<Vec<u64>> {
+#[derive(Clone, Copy, Debug)]
+enum PreparedSplitKind {
+    SelectionRanges,
+    Natural,
+}
+
+fn prepare_split_ranges(
+    row_count: u64,
+    row_range: &Range<u64>,
+    selection: &Selection,
+    split_hints: Vec<u64>,
+) -> (Vec<Range<u64>>, PreparedSplitKind) {
+    let explicit_row_range = explicit_row_range(row_count, row_range);
+    if let Some(ranges) = selection_split_ranges(selection, explicit_row_range) {
+        return (ranges, PreparedSplitKind::SelectionRanges);
+    }
+
+    let file_range = 0..row_count;
+    let selection_range = intersect_ranges(Some(&file_range), selection_bounding_range(selection));
+    let bounded_range = intersect_ranges(explicit_row_range, selection_range);
+    let points = normalize_split_points(row_count, split_hints);
+    (
+        natural_split_ranges(&points, bounded_range.as_ref()),
+        PreparedSplitKind::Natural,
+    )
+}
+
+fn explicit_row_range<'a>(row_count: u64, row_range: &'a Range<u64>) -> Option<&'a Range<u64>> {
+    (row_range.start != 0 || row_range.end != row_count).then_some(row_range)
+}
+
+fn selection_split_ranges(
+    selection: &Selection,
+    row_range: Option<&Range<u64>>,
+) -> Option<Vec<Range<u64>>> {
+    let Selection::IncludeByIndex(buffer) = selection else {
+        return None;
+    };
+    if row_range.is_some() {
+        return None;
+    }
+
+    let indices = buffer.as_slice();
+    if indices.is_empty() {
+        return Some(Vec::new());
+    }
+    debug_assert!(indices.is_sorted());
+
+    let mut ranges = Vec::with_capacity((indices.len() as u64 / MAX_SELECTION_RANGE_SIZE) as usize);
+    let mut curr_start = indices[0];
+    let mut curr_end = indices[0].saturating_add(1);
+    for &idx in &indices[1..] {
+        let idx_end = idx.saturating_add(1);
+        let new_range_size = idx_end.saturating_sub(curr_start);
+        let gap = idx_end.saturating_sub(curr_end);
+        if new_range_size >= MAX_SELECTION_RANGE_SIZE {
+            if gap >= MIN_SELECTION_GAP_BETWEEN_RANGES {
+                ranges.push(curr_start..curr_end);
+                curr_start = idx;
+                curr_end = idx_end;
+            } else {
+                return None;
+            }
+        } else {
+            curr_end = idx_end;
+        }
+    }
+    ranges.push(curr_start..curr_end);
+    Some(ranges)
+}
+
+fn selection_bounding_range(selection: &Selection) -> Option<Range<u64>> {
+    match selection {
+        Selection::IncludeByIndex(buffer) => {
+            let indices = buffer.as_slice();
+            indices
+                .first()
+                .zip(indices.last())
+                .map(|(&first, &last)| first..last.saturating_add(1))
+        }
+        Selection::IncludeRoaring(roaring) if !roaring.is_empty() => {
+            Some(roaring.min()?..roaring.max()?.saturating_add(1))
+        }
+        _ => None,
+    }
+}
+
+fn intersect_ranges(left: Option<&Range<u64>>, right: Option<Range<u64>>) -> Option<Range<u64>> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.start.max(right.start)..left.end.min(right.end)),
+        (Some(left), None) => Some(left.clone()),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+    }
+}
+
+fn normalize_split_points(row_count: u64, mut hints: Vec<u64>) -> Vec<u64> {
+    hints.push(0);
+    hints.push(row_count);
+    hints.retain(|&hint| hint <= row_count);
     hints.sort_unstable();
     hints.dedup();
-    (!hints.is_empty()).then_some(hints)
+    hints
+}
+
+fn natural_split_ranges(split_points: &[u64], row_range: Option<&Range<u64>>) -> Vec<Range<u64>> {
+    let points = if let Some(row_range) = row_range {
+        if row_range.start >= row_range.end {
+            return Vec::new();
+        }
+        let mut points = Vec::new();
+        points.push(row_range.start);
+        points.extend(
+            split_points
+                .iter()
+                .copied()
+                .filter(|&point| row_range.start < point && point < row_range.end),
+        );
+        points.push(row_range.end);
+        points.sort_unstable();
+        points.dedup();
+        points
+    } else {
+        split_points.to_vec()
+    };
+
+    points
+        .windows(2)
+        .filter_map(|window| {
+            let range = window[0]..window[1];
+            (range.start < range.end).then_some(range)
+        })
+        .collect()
+}
+
+fn trace_prepared_splits(
+    row_range: &Range<u64>,
+    splits: &[Range<u64>],
+    split_kind: PreparedSplitKind,
+    has_filter: bool,
+) {
+    tracing::debug!(
+        target: "vortex_file::scan_v2",
+        ?split_kind,
+        split_count = splits.len(),
+        row_start = row_range.start,
+        row_end = row_range.end,
+        first_split = ?splits.first(),
+        last_split = ?splits.last(),
+        has_filter,
+        "prepared scan2 splits"
+    );
+    tracing::trace!(
+        target: "vortex_file::scan_v2",
+        ?splits,
+        "prepared scan2 split ranges"
+    );
 }
 
 fn check_range(range: &Range<u64>, row_count: u64) -> VortexResult<()> {
