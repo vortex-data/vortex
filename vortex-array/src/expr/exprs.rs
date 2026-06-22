@@ -29,6 +29,7 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
+use crate::scalar_fn::fns::ext_storage::ExtStorage;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
@@ -736,4 +737,16 @@ pub fn list_contains(list: Expression, value: Expression) -> Expression {
 /// ```
 pub fn byte_length(input: Expression) -> Expression {
     ByteLength.new_expr(EmptyOptions, [input])
+}
+
+// ---- ExtStorage ----
+
+/// Creates an expression that extracts the storage values from an extension array.
+///
+/// ```rust
+/// # use vortex_array::expr::{ext_storage, root};
+/// let expr = ext_storage(root());
+/// ```
+pub fn ext_storage(input: Expression) -> Expression {
+    ExtStorage.new_expr(EmptyOptions, [input])
 }
