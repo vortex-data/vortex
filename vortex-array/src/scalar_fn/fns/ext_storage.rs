@@ -138,7 +138,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
-        assert_arrays_eq!(result, storage);
+        assert_arrays_eq!(result, storage, &mut crate::array_execution_ctx());
         Ok(())
     }
 
@@ -154,7 +154,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
         );
-        assert_arrays_eq!(result, storage);
+        assert_arrays_eq!(result, storage, &mut crate::array_execution_ctx());
         Ok(())
     }
 
@@ -171,7 +171,11 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
-        assert_arrays_eq!(result, ConstantArray::new(storage_scalar, 3));
+        assert_arrays_eq!(
+            result,
+            ConstantArray::new(storage_scalar, 3),
+            &mut crate::array_execution_ctx()
+        );
         Ok(())
     }
 
