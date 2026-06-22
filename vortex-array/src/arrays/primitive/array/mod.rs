@@ -157,7 +157,7 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
         }
 
         let array = self.to_owned().as_array().clone();
-        let Some(min_max) = min_max(self.as_ref(), ctx, NumericalAggregateOpts::default())? else {
+        let Some(min_max) = min_max(&array, ctx, NumericalAggregateOpts::default())? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
                 PrimitiveArrayExt::validity(self),
