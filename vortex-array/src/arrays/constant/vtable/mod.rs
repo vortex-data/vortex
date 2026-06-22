@@ -270,7 +270,6 @@ fn append_value_or_nulls<B: ArrayBuilder + 'static>(
 mod tests {
     use rstest::rstest;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -286,7 +285,7 @@ mod tests {
 
     /// Appends `array` into a fresh builder and asserts the result matches `constant_canonicalize`.
     fn assert_append_matches_canonical(array: ConstantArray) -> VortexResult<()> {
-        let mut ctx = VortexSession::empty().create_execution_ctx();
+        let mut ctx = crate::array_session().create_execution_ctx();
 
         let expected = constant_canonicalize(array.as_view(), &mut ctx)?.into_array();
         let mut builder = builder_with_capacity(array.dtype(), array.len());
