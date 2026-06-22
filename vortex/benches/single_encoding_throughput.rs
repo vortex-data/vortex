@@ -424,7 +424,9 @@ fn bench_fsst_decompress_string(bencher: Bencher) {
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005)).into_array();
     let mut ctx = SESSION.create_execution_ctx();
     let fsst_compressor = fsst_train_compressor(&varbinview_arr, &mut ctx).unwrap();
-    let fsst_array = fsst_compress(&varbinview_arr, &fsst_compressor, &mut ctx).unwrap().into_array();
+    let fsst_array = fsst_compress(&varbinview_arr, &fsst_compressor, &mut ctx)
+        .unwrap()
+        .into_array();
     let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
