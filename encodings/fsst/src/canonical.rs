@@ -152,9 +152,9 @@ mod tests {
             .map(|_| {
                 let (array, data) = make_data();
                 let array = array.into_array();
-                let compressor = fsst_train_compressor(array.clone(), &mut ctx).unwrap();
+                let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
                 (
-                    fsst_compress(array, &compressor, &mut ctx)
+                    fsst_compress(&array, &compressor, &mut ctx)
                         .unwrap()
                         .into_array(),
                     data,
@@ -212,8 +212,8 @@ mod tests {
         .into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let fsst_array = fsst_compress(
-            varbin.clone(),
-            &fsst_train_compressor(varbin, &mut ctx)?,
+            &varbin,
+            &fsst_train_compressor(&varbin, &mut ctx)?,
             &mut ctx,
         )?
         .into_array();

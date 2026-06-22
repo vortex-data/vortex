@@ -71,8 +71,8 @@ fn eq_pushdown_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let mut ctx = SESSION.create_execution_ctx();
     let array = data.clone().into_array();
-    let compressor = fsst_train_compressor(array.clone(), &mut ctx).unwrap();
-    let fsst_array = fsst_compress(array, &compressor, &mut ctx).unwrap();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -94,8 +94,8 @@ fn eq_pushdown_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let mut ctx = SESSION.create_execution_ctx();
     let array = data.clone().into_array();
-    let compressor = fsst_train_compressor(array.clone(), &mut ctx).unwrap();
-    let fsst_array = fsst_compress(array, &compressor, &mut ctx).unwrap();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -117,8 +117,8 @@ fn eq_pushdown_high_match_view(bencher: Bencher) {
     let data = &*URL_VIEW_DATA;
     let mut ctx = SESSION.create_execution_ctx();
     let array = data.clone().into_array();
-    let compressor = fsst_train_compressor(array.clone(), &mut ctx).unwrap();
-    let fsst_array = fsst_compress(array, &compressor, &mut ctx).unwrap();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     let match_url = pick_url_with_domain(&URL_DATA, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -140,8 +140,8 @@ fn eq_pushdown_low_match_view(bencher: Bencher) {
     let data = &*URL_VIEW_DATA;
     let mut ctx = SESSION.create_execution_ctx();
     let array = data.clone().into_array();
-    let compressor = fsst_train_compressor(array.clone(), &mut ctx).unwrap();
-    let fsst_array = fsst_compress(array, &compressor, &mut ctx).unwrap();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     let match_url = pick_url_with_domain(&URL_DATA, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -163,8 +163,8 @@ fn eq_canonicalize_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let mut ctx = SESSION.create_execution_ctx();
     let array = data.clone().into_array();
-    let compressor = fsst_train_compressor(array.clone(), &mut ctx).unwrap();
-    let fsst_array = fsst_compress(array, &compressor, &mut ctx).unwrap();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -189,8 +189,8 @@ fn eq_canonicalize_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let mut ctx = SESSION.create_execution_ctx();
     let array = data.clone().into_array();
-    let compressor = fsst_train_compressor(array.clone(), &mut ctx).unwrap();
-    let fsst_array = fsst_compress(array, &compressor, &mut ctx).unwrap();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -219,8 +219,8 @@ fn like_substr_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let mut ctx = SESSION.create_execution_ctx();
     let array = data.clone().into_array();
-    let compressor = fsst_train_compressor(array.clone(), &mut ctx).unwrap();
-    let fsst_array = fsst_compress(array, &compressor, &mut ctx).unwrap();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     let pattern = format!("%{HIGH_MATCH_DOMAIN}%");
     let expr = like(root(), lit(pattern.as_str()));
 
@@ -242,8 +242,8 @@ fn like_substr_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let mut ctx = SESSION.create_execution_ctx();
     let array = data.clone().into_array();
-    let compressor = fsst_train_compressor(array.clone(), &mut ctx).unwrap();
-    let fsst_array = fsst_compress(array, &compressor, &mut ctx).unwrap();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     let pattern = format!("%{LOW_MATCH_DOMAIN}%");
     let expr = like(root(), lit(pattern.as_str()));
 

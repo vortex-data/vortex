@@ -104,15 +104,14 @@ impl FlatLayoutFixture for FsstFixture {
         .into_array();
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let url_comp = fsst_train_compressor(url_col.clone(), &mut ctx)?;
-        let log_comp = fsst_train_compressor(log_col.clone(), &mut ctx)?;
-        let nullable_comp = fsst_train_compressor(nullable_col.clone(), &mut ctx)?;
-        let short_comp = fsst_train_compressor(short_col.clone(), &mut ctx)?;
-        let empty_and_unicode_comp =
-            fsst_train_compressor(empty_and_unicode_col.clone(), &mut ctx)?;
-        let suffix_shared_comp = fsst_train_compressor(suffix_shared_col.clone(), &mut ctx)?;
-        let high_entropy_comp = fsst_train_compressor(high_entropy_col.clone(), &mut ctx)?;
-        let all_null_clustered_comp = fsst_train_compressor(all_null_clustered.clone(), &mut ctx)?;
+        let url_comp = fsst_train_compressor(&url_col, &mut ctx)?;
+        let log_comp = fsst_train_compressor(&log_col, &mut ctx)?;
+        let nullable_comp = fsst_train_compressor(&nullable_col, &mut ctx)?;
+        let short_comp = fsst_train_compressor(&short_col, &mut ctx)?;
+        let empty_and_unicode_comp = fsst_train_compressor(&empty_and_unicode_col, &mut ctx)?;
+        let suffix_shared_comp = fsst_train_compressor(&suffix_shared_col, &mut ctx)?;
+        let high_entropy_comp = fsst_train_compressor(&high_entropy_col, &mut ctx)?;
+        let all_null_clustered_comp = fsst_train_compressor(&all_null_clustered, &mut ctx)?;
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -126,15 +125,16 @@ impl FlatLayoutFixture for FsstFixture {
                 "all_null_clustered",
             ]),
             vec![
-                fsst_compress(url_col, &url_comp, &mut ctx)?.into_array(),
-                fsst_compress(log_col, &log_comp, &mut ctx)?.into_array(),
-                fsst_compress(nullable_col, &nullable_comp, &mut ctx)?.into_array(),
-                fsst_compress(short_col, &short_comp, &mut ctx)?.into_array(),
-                fsst_compress(empty_and_unicode_col, &empty_and_unicode_comp, &mut ctx)?
+                fsst_compress(&url_col, &url_comp, &mut ctx)?.into_array(),
+                fsst_compress(&log_col, &log_comp, &mut ctx)?.into_array(),
+                fsst_compress(&nullable_col, &nullable_comp, &mut ctx)?.into_array(),
+                fsst_compress(&short_col, &short_comp, &mut ctx)?.into_array(),
+                fsst_compress(&empty_and_unicode_col, &empty_and_unicode_comp, &mut ctx)?
                     .into_array(),
-                fsst_compress(suffix_shared_col, &suffix_shared_comp, &mut ctx)?.into_array(),
-                fsst_compress(high_entropy_col, &high_entropy_comp, &mut ctx)?.into_array(),
-                fsst_compress(all_null_clustered, &all_null_clustered_comp, &mut ctx)?.into_array(),
+                fsst_compress(&suffix_shared_col, &suffix_shared_comp, &mut ctx)?.into_array(),
+                fsst_compress(&high_entropy_col, &high_entropy_comp, &mut ctx)?.into_array(),
+                fsst_compress(&all_null_clustered, &all_null_clustered_comp, &mut ctx)?
+                    .into_array(),
             ],
             N,
             Validity::NonNullable,

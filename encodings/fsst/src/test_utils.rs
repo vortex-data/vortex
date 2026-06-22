@@ -48,9 +48,11 @@ pub fn gen_fsst_test_data(
         DType::Binary(Nullability::NonNullable),
     )
     .into_array();
-    let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
+    let compressor = fsst_train_compressor(&array, ctx).unwrap();
 
-    fsst_compress(array, &compressor, ctx).unwrap().into_array()
+    fsst_compress(&array, &compressor, ctx)
+        .unwrap()
+        .into_array()
 }
 
 pub fn gen_dict_fsst_test_data<T: NativePType>(
@@ -144,8 +146,8 @@ pub fn generate_url_data_n(n: usize) -> VarBinArray {
 
 pub fn make_fsst_urls(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     let array = generate_url_data_n(n).into_array();
-    let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-    fsst_compress(array, &compressor, ctx).unwrap()
+    let compressor = fsst_train_compressor(&array, ctx).unwrap();
+    fsst_compress(&array, &compressor, ctx).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -239,8 +241,8 @@ pub fn make_fsst_clickbench_urls(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray 
         DType::Utf8(Nullability::NonNullable),
     )
     .into_array();
-    let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-    fsst_compress(array, &compressor, ctx).unwrap()
+    let compressor = fsst_train_compressor(&array, ctx).unwrap();
+    fsst_compress(&array, &compressor, ctx).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -306,8 +308,8 @@ pub fn make_fsst_short_urls(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     )
     .into_array();
-    let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-    fsst_compress(array, &compressor, ctx).unwrap()
+    let compressor = fsst_train_compressor(&array, ctx).unwrap();
+    fsst_compress(&array, &compressor, ctx).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -377,8 +379,8 @@ pub fn make_fsst_log_lines(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     )
     .into_array();
-    let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-    fsst_compress(array, &compressor, ctx).unwrap()
+    let compressor = fsst_train_compressor(&array, ctx).unwrap();
+    fsst_compress(&array, &compressor, ctx).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -435,8 +437,8 @@ pub fn make_fsst_json_strings(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     )
     .into_array();
-    let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-    fsst_compress(array, &compressor, ctx).unwrap()
+    let compressor = fsst_train_compressor(&array, ctx).unwrap();
+    fsst_compress(&array, &compressor, ctx).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -506,8 +508,8 @@ pub fn make_fsst_file_paths(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     )
     .into_array();
-    let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-    fsst_compress(array, &compressor, ctx).unwrap()
+    let compressor = fsst_train_compressor(&array, ctx).unwrap();
+    fsst_compress(&array, &compressor, ctx).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -558,8 +560,8 @@ pub fn make_fsst_emails(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     )
     .into_array();
-    let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-    fsst_compress(array, &compressor, ctx).unwrap()
+    let compressor = fsst_train_compressor(&array, ctx).unwrap();
+    fsst_compress(&array, &compressor, ctx).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -596,6 +598,6 @@ pub fn make_fsst_rare_match(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     )
     .into_array();
-    let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-    fsst_compress(array, &compressor, ctx).unwrap()
+    let compressor = fsst_train_compressor(&array, ctx).unwrap();
+    fsst_compress(&array, &compressor, ctx).unwrap()
 }

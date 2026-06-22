@@ -7,19 +7,21 @@
 //! on the input encoding ([`VarBinView`] or [`VarBin`]). Callers don't need to know
 //! which string encoding they hold.
 
+use std::sync::Arc;
+
 use fsst::Compressor;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBin;
-use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinView;
-use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::arrays::varbinview::BinaryView;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::match_each_integer_ptype;
@@ -46,14 +48,14 @@ const DEFAULT_BUFFER_LEN: usize = 1024 * 1024;
 ///
 /// Accepts any [`VarBinView`] or [`VarBin`]-encoded array; other encodings error.
 pub fn fsst_compress(
-    array: ArrayRef,
+    array: &ArrayRef,
     compressor: &Compressor,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray> {
     if let Some(view) = array.as_opt::<VarBinView>() {
-        compress_varbinview(&view.into_owned(), compressor, ctx)
+        compress_varbinview(view, compressor, ctx)
     } else if let Some(varbin) = array.as_opt::<VarBin>() {
-        compress_varbin_array(&varbin.into_owned(), compressor, ctx)
+        compress_varbin_array(varbin, compressor, ctx)
     } else {
         vortex_bail!(
             "fsst_compress requires VarBinView or VarBin encoding, got {}",
@@ -65,11 +67,11 @@ pub fn fsst_compress(
 /// Train an FSST [`Compressor`] from a string array's non-null rows.
 ///
 /// Accepts any [`VarBinView`] or [`VarBin`]-encoded array; other encodings error.
-pub fn fsst_train_compressor(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Compressor> {
+pub fn fsst_train_compressor(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Compressor> {
     if let Some(view) = array.as_opt::<VarBinView>() {
-        train_varbinview(&view.into_owned(), ctx)
+        train_varbinview(view, ctx)
     } else if let Some(varbin) = array.as_opt::<VarBin>() {
-        train_varbin_array(&varbin.into_owned(), ctx)
+        train_varbin_array(varbin, ctx)
     } else {
         vortex_bail!(
             "fsst_train_compressor requires VarBinView or VarBin encoding, got {}",
@@ -79,7 +81,7 @@ pub fn fsst_train_compressor(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
 }
 
 fn compress_varbinview(
-    strings: &VarBinViewArray,
+    strings: ArrayView<VarBinView>,
     compressor: &Compressor,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray> {
@@ -106,7 +108,7 @@ fn compress_varbinview(
 }
 
 fn compress_varbin_array(
-    strings: &VarBinArray,
+    strings: ArrayView<VarBin>,
     compressor: &Compressor,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FSSTArray> {
@@ -127,22 +129,26 @@ fn compress_varbin_array(
     }
 }
 
-fn train_varbinview(strings: &VarBinViewArray, ctx: &mut ExecutionCtx) -> VortexResult<Compressor> {
+fn train_varbinview(
+    strings: ArrayView<VarBinView>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Compressor> {
     let mask = strings.validity()?.execute_mask(strings.len(), ctx)?;
     let views = strings.views();
+    let buffers = strings.data_buffers();
     let mut lines: Vec<&[u8]> = Vec::with_capacity(mask.true_count());
 
     match mask.bit_buffer() {
         AllOr::All => {
             for view in views {
-                lines.push(view_bytes(strings, view));
+                lines.push(view_bytes(view, buffers));
             }
         }
         AllOr::None => {}
         AllOr::Some(bits) => {
             for (view, valid) in views.iter().zip(bits.iter()) {
                 if valid {
-                    lines.push(view_bytes(strings, view));
+                    lines.push(view_bytes(view, buffers));
                 }
             }
         }
@@ -151,7 +157,10 @@ fn train_varbinview(strings: &VarBinViewArray, ctx: &mut ExecutionCtx) -> Vortex
     Ok(Compressor::train(&lines))
 }
 
-fn train_varbin_array(strings: &VarBinArray, ctx: &mut ExecutionCtx) -> VortexResult<Compressor> {
+fn train_varbin_array(
+    strings: ArrayView<VarBin>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Compressor> {
     let mask = strings.validity()?.execute_mask(strings.len(), ctx)?;
     let offsets = strings.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let bytes = strings.bytes().as_slice();
@@ -178,17 +187,17 @@ fn fsst_output_fits_in_i32_offsets(total_input_bytes: usize, non_null: usize) ->
 }
 
 #[inline]
-fn view_bytes<'a>(strings: &'a VarBinViewArray, view: &'a BinaryView) -> &'a [u8] {
+fn view_bytes<'a>(view: &'a BinaryView, buffers: &'a Arc<[BufferHandle]>) -> &'a [u8] {
     if view.is_inlined() {
         view.as_inlined().value()
     } else {
         let r = view.as_view();
-        &strings.buffer(r.buffer_index as usize).as_slice()[r.as_range()]
+        &buffers[r.buffer_index as usize].as_host()[r.as_range()]
     }
 }
 
 fn compress_views<O>(
-    strings: &VarBinViewArray,
+    strings: ArrayView<VarBinView>,
     mask: &Mask,
     compressor: &Compressor,
     ctx: &mut ExecutionCtx,
@@ -198,10 +207,11 @@ where
 {
     let mut sink = FsstSink::<O>::with_capacity(strings.len(), compressor);
     let views = strings.views();
+    let buffers = strings.data_buffers();
     match mask.bit_buffer() {
         AllOr::All => {
             for view in views {
-                sink.emit(Some(view_bytes(strings, view)));
+                sink.emit(Some(view_bytes(view, buffers)));
             }
         }
         AllOr::None => {
@@ -211,7 +221,7 @@ where
         }
         AllOr::Some(bits) => {
             for (view, valid) in views.iter().zip(bits.iter()) {
-                sink.emit(valid.then(|| view_bytes(strings, view)));
+                sink.emit(valid.then(|| view_bytes(view, buffers)));
             }
         }
     }
@@ -219,7 +229,7 @@ where
 }
 
 fn compress_varbin<O>(
-    strings: &VarBinArray,
+    strings: ArrayView<VarBin>,
     offsets: &PrimitiveArray,
     mask: &Mask,
     compressor: &Compressor,
@@ -321,8 +331,6 @@ impl<'c, O: IntegerPType + 'static> FsstSink<'c, O> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::varbin::VarBinArrayExt;
@@ -350,9 +358,9 @@ mod tests {
     #[test]
     fn codes_offsets_dtype_small_input_is_i32() -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_str(["hello", "world", "fsst encoded"]);
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let compressor = fsst_train_compressor(array.clone().into_array(), &mut ctx)?;
-        let fsst = fsst_compress(array.into_array(), &compressor, &mut ctx)?;
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let compressor = fsst_train_compressor(array.as_array(), &mut ctx)?;
+        let fsst = fsst_compress(array.as_array(), &compressor, &mut ctx)?;
         assert_eq!(fsst.codes().offsets().dtype().as_ptype(), PType::I32);
         Ok(())
     }

@@ -270,8 +270,8 @@ fn make_fsst_str(strings: &[Option<&str>]) -> FSSTArray {
     )
     .into_array();
     let mut ctx = SESSION.create_execution_ctx();
-    let compressor = fsst_train_compressor(array.clone(), &mut ctx).unwrap();
-    fsst_compress(array, &compressor, &mut ctx).unwrap()
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    fsst_compress(&array, &compressor, &mut ctx).unwrap()
 }
 
 fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> {

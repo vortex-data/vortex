@@ -101,8 +101,9 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::{fsst_compress, initialize};
+    use crate::fsst_compress;
     use crate::fsst_train_compressor;
+    use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
@@ -119,8 +120,8 @@ mod tests {
         )
         .into_array();
 
-        let compressor = fsst_train_compressor(strings.clone(), &mut ctx)?;
-        let fsst = fsst_compress(strings, &compressor, &mut ctx)?;
+        let compressor = fsst_train_compressor(&strings, &mut ctx)?;
+        let fsst = fsst_compress(&strings, &compressor, &mut ctx)?;
 
         // Cast to nullable
         let casted = fsst.into_array().cast(DType::Utf8(Nullability::Nullable))?;
@@ -144,8 +145,8 @@ mod tests {
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = array.into_array();
-        let compressor = fsst_train_compressor(array.clone(), &mut ctx)?;
-        let fsst = fsst_compress(array, &compressor, &mut ctx)?;
+        let compressor = fsst_train_compressor(&array, &mut ctx)?;
+        let fsst = fsst_compress(&array, &compressor, &mut ctx)?;
         test_cast_conformance(&fsst.into_array());
         Ok(())
     }

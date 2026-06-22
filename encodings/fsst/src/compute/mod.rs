@@ -80,8 +80,8 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr =
             VarBinArray::from_iter([Some("h")], DType::Utf8(Nullability::NonNullable)).into_array();
-        let compr = fsst_train_compressor(arr.clone(), &mut ctx)?;
-        let fsst = fsst_compress(arr, &compr, &mut ctx)?;
+        let compr = fsst_train_compressor(&arr, &mut ctx)?;
+        let fsst = fsst_compress(&arr, &compr, &mut ctx)?;
 
         let idx1: PrimitiveArray = (0..1).collect();
 
@@ -115,8 +115,8 @@ mod tests {
     fn test_take_fsst_conformance(#[case] varbin: VarBinArray) -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let varbin = varbin.into_array();
-        let compressor = fsst_train_compressor(varbin.clone(), &mut ctx)?;
-        let array = fsst_compress(varbin, &compressor, &mut ctx)?;
+        let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
+        let array = fsst_compress(&varbin, &compressor, &mut ctx)?;
         test_take_conformance(&array.into_array());
         Ok(())
     }
@@ -130,8 +130,8 @@ mod tests {
             ["hello world", "testing fsst", "compression test", "data array", "vortex encoding"].map(Some),
             DType::Utf8(Nullability::NonNullable),
         ).into_array();
-        let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-        fsst_compress(array, &compressor, ctx).unwrap()
+        let compressor = fsst_train_compressor(&array, ctx).unwrap();
+        fsst_compress(&array, &compressor, ctx).unwrap()
     })]
     // Nullable strings
     #[case::fsst_nullable(|ctx: &mut ExecutionCtx| {
@@ -139,8 +139,8 @@ mod tests {
             [Some("hello"), None, Some("world"), Some("test"), None],
             DType::Utf8(Nullability::Nullable),
         ).into_array();
-        let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-        fsst_compress(array, &compressor, ctx).unwrap()
+        let compressor = fsst_train_compressor(&array, ctx).unwrap();
+        fsst_compress(&array, &compressor, ctx).unwrap()
     })]
     // Repetitive patterns (good for FSST compression)
     #[case::fsst_repetitive(|ctx: &mut ExecutionCtx| {
@@ -148,8 +148,8 @@ mod tests {
             ["http://example.com", "http://test.com", "http://vortex.dev", "http://data.org"].map(Some),
             DType::Utf8(Nullability::NonNullable),
         ).into_array();
-        let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-        fsst_compress(array, &compressor, ctx).unwrap()
+        let compressor = fsst_train_compressor(&array, ctx).unwrap();
+        fsst_compress(&array, &compressor, ctx).unwrap()
     })]
     // Edge cases
     #[case::fsst_single(|ctx: &mut ExecutionCtx| {
@@ -157,16 +157,16 @@ mod tests {
             ["single element"].map(Some),
             DType::Utf8(Nullability::NonNullable),
         ).into_array();
-        let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-        fsst_compress(array, &compressor, ctx).unwrap()
+        let compressor = fsst_train_compressor(&array, ctx).unwrap();
+        fsst_compress(&array, &compressor, ctx).unwrap()
     })]
     #[case::fsst_empty_strings(|ctx: &mut ExecutionCtx| {
         let array = VarBinArray::from_iter(
             ["", "test", "", "hello", ""].map(Some),
             DType::Utf8(Nullability::NonNullable),
         ).into_array();
-        let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-        fsst_compress(array, &compressor, ctx).unwrap()
+        let compressor = fsst_train_compressor(&array, ctx).unwrap();
+        fsst_compress(&array, &compressor, ctx).unwrap()
     })]
     // Large arrays
     #[case::fsst_large(|ctx: &mut ExecutionCtx| {
@@ -185,8 +185,8 @@ mod tests {
             }))
             .collect();
         let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::NonNullable)).into_array();
-        let compressor = fsst_train_compressor(array.clone(), ctx).unwrap();
-        fsst_compress(array, &compressor, ctx).unwrap()
+        let compressor = fsst_train_compressor(&array, ctx).unwrap();
+        fsst_compress(&array, &compressor, ctx).unwrap()
     })]
 
     fn test_fsst_consistency(#[case] build: FsstBuilder) {

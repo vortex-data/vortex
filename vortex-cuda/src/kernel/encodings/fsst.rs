@@ -239,8 +239,9 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let varbin = VarBinArray::from_iter(strings, DType::Binary(nullability)).into_array();
-        let compressor = fsst_train_compressor(varbin.clone(), cuda_ctx.execution_ctx())?;
-        let fsst_array = fsst_compress(varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
+        let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
+        let fsst_array =
+            fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
 
         let cpu_result = crate::canonicalize_cpu(fsst_array.clone())?;
         let gpu_result = FSSTExecutor

@@ -71,8 +71,9 @@ mod tests {
         let input = builder.finish(DType::Utf8(Nullability::NonNullable));
 
         let mut ctx = SESSION.create_execution_ctx();
-        let compressor = fsst_train_compressor(input.clone().into_array(), &mut ctx).unwrap();
-        fsst_compress(input.into_array(), &compressor, &mut ctx)
+        let arr = input.into_array();
+        let compressor = fsst_train_compressor(&arr, &mut ctx).unwrap();
+        fsst_compress(&arr, &compressor, &mut ctx)
             .unwrap()
             .into_array()
     }
@@ -147,8 +148,8 @@ mod tests {
         let array = input.clone().into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
-        let compressor = fsst_train_compressor(array.clone(), &mut ctx)?;
-        let fsst_array: ArrayRef = fsst_compress(array, &compressor, &mut ctx)?.into_array();
+        let compressor = fsst_train_compressor(&array, &mut ctx)?;
+        let fsst_array: ArrayRef = fsst_compress(&array, &compressor, &mut ctx)?.into_array();
 
         // Filter: only select the last element (index 22)
         let mut mask = vec![false; 22];
@@ -176,8 +177,8 @@ mod tests {
         let array = input.clone().into_array();
 
         let mut ctx = SESSION.create_execution_ctx();
-        let compressor = fsst_train_compressor(array.clone(), &mut ctx)?;
-        let fsst_array: ArrayRef = fsst_compress(array, &compressor, &mut ctx)?.into_array();
+        let compressor = fsst_train_compressor(&array, &mut ctx)?;
+        let fsst_array: ArrayRef = fsst_compress(&array, &compressor, &mut ctx)?.into_array();
 
         let mask = Mask::from_iter([true, false, true]);
 
@@ -218,8 +219,8 @@ mod tests {
             .finish(DType::Utf8(Nullability::NonNullable))
             .into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        let compressor = fsst_train_compressor(varbin.clone(), &mut ctx)?;
-        let fsst = fsst_compress(varbin, &compressor, &mut ctx)?.into_array();
+        let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
+        let fsst = fsst_compress(&varbin, &compressor, &mut ctx)?.into_array();
         let result = fsst.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 7, 18, 0]);
         assert_arrays_eq!(result, expected);

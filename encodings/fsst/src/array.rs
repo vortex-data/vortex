@@ -869,7 +869,7 @@ mod test {
         let compressor = Compressor::rebuild_from(symbols.as_slice(), symbol_lengths.as_slice());
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let strings = VarBinViewArray::from_iter_str(["abcabcab", "defghijk", "abcxyz"]);
-        let fsst_array = fsst_compress(strings.into_array(), &compressor, &mut ctx)?;
+        let fsst_array = fsst_compress(&strings.into_array(), &compressor, &mut ctx)?;
 
         let compressor_ptr = fsst_array.compressor() as *const Compressor;
         let sliced = fsst_array
@@ -913,7 +913,7 @@ mod test {
         let compressor = Compressor::rebuild_from(symbols.as_slice(), symbol_lengths.as_slice());
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let input = VarBinViewArray::from_iter_str(["abcabcab", "defghijk"]);
-        let fsst_array = fsst_compress(input.into_array(), &compressor, &mut ctx).unwrap();
+        let fsst_array = fsst_compress(&input.into_array(), &compressor, &mut ctx).unwrap();
 
         let compressed_codes = fsst_array.codes();
 

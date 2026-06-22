@@ -32,8 +32,8 @@ pub(crate) fn build_fsst_array() -> ArrayRef {
         .into_array();
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let compressor = fsst_train_compressor(input_array.clone(), &mut ctx).unwrap();
-    fsst_compress(input_array, &compressor, &mut ctx)
+    let compressor = fsst_train_compressor(&input_array, &mut ctx).unwrap();
+    fsst_compress(&input_array, &compressor, &mut ctx)
         .unwrap()
         .into_array()
 }
@@ -159,7 +159,7 @@ fn fsst_compress_offsets_overflow_i32() {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
     println!("compressing to FSST");
-    let compressed = fsst_compress(array, &compressor, &mut ctx).unwrap();
+    let compressed = fsst_compress(&array, &compressor, &mut ctx).unwrap();
     assert_eq!(compressed.len(), len);
     // Prove the regression condition was exercised: compressed bytes crossed i32::MAX.
     assert!(compressed.codes_bytes().len() > i32::MAX as usize);
