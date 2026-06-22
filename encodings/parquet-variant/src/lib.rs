@@ -26,6 +26,7 @@
 
 mod array;
 mod arrow;
+mod compute;
 mod kernel;
 mod operations;
 mod validity;
