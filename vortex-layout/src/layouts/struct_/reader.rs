@@ -634,8 +634,7 @@ mod tests {
     fn test_struct_layout(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
@@ -654,8 +653,7 @@ mod tests {
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
@@ -722,8 +720,7 @@ mod tests {
     fn test_struct_layout_nulls(
         #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         // Read the layout source from the top.
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())

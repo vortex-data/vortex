@@ -384,8 +384,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_const_str() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let const_array = ConstantArray::new("four".to_string(), 4);
 
         let expected = VarBinArray::from(vec!["four", "four", "four", "four"]);

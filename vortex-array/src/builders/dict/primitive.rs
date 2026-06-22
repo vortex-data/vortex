@@ -173,8 +173,7 @@ mod test {
 
     #[test]
     fn encode_primitive() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let arr = buffer![1, 1, 3, 3, 3].into_array();
         let dict = dict_encode(&arr, &mut SESSION.create_execution_ctx()).unwrap();
 
@@ -187,8 +186,7 @@ mod test {
 
     #[test]
     fn encode_primitive_nulls() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([
             Some(1),
             Some(1),

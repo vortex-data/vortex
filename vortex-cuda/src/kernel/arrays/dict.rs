@@ -308,7 +308,6 @@ mod tests {
     use vortex::dtype::DecimalDType;
     use vortex::dtype::i256;
     use vortex::error::VortexExpect;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -325,8 +324,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_u32_values_u8_codes() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -363,8 +361,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_u64_values_u16_codes() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -404,8 +401,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_i32_values_u32_codes() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -441,8 +437,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_large_array() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -479,8 +474,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -517,8 +511,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_codes_with_validity() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -560,8 +553,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_both_with_validity() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -610,8 +602,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_i64_values_with_validity() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -661,8 +652,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_all_valid_matches_baseline() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -710,8 +700,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i8_values() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -744,8 +733,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i16_values() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -778,8 +766,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i32_values() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -812,8 +799,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i64_values() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -849,8 +835,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i128_values() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -899,8 +884,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_values_u8_codes() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -930,8 +914,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_values_u16_codes() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -961,8 +944,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_max_inlined_12_bytes() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -994,8 +976,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_outlined_views() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -1030,8 +1011,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_empty_strings() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -1061,8 +1041,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_values_with_validity() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -1093,8 +1072,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_string_outlined_with_validity() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -1132,8 +1110,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_dict_decimal_i256_values() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 

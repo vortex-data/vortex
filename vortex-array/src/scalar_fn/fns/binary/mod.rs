@@ -519,8 +519,7 @@ mod tests {
 
     #[test]
     fn test_or_kleene_validity() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         use crate::IntoArray;
         use crate::arrays::BoolArray;
         use crate::arrays::StructArray;
@@ -548,8 +547,7 @@ mod tests {
 
     #[test]
     fn test_scalar_subtract_unsigned() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
@@ -568,8 +566,7 @@ mod tests {
 
     #[test]
     fn test_scalar_subtract_signed() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
@@ -588,8 +585,7 @@ mod tests {
 
     #[test]
     fn test_scalar_subtract_nullable() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         use crate::IntoArray;
         use crate::arrays::ConstantArray;
         use crate::arrays::PrimitiveArray;
@@ -606,8 +602,7 @@ mod tests {
 
     #[test]
     fn test_scalar_subtract_float() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;

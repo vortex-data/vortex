@@ -124,7 +124,6 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::VortexSessionExecute;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -150,8 +149,7 @@ mod test {
 
     #[test]
     fn filter_fixed_size_list_selects_correct_lists() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let elements = PrimitiveArray::from_iter([10i32, 20, 30, 40, 50, 60]);
         let array = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
@@ -168,8 +166,7 @@ mod test {
 
     #[test]
     fn filter_degenerate_list_size_zero() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
         let array = FixedSizeListArray::new(elements.into_array(), 0, Validity::NonNullable, 5);
 
@@ -185,8 +182,7 @@ mod test {
 
     #[test]
     fn filter_nested_fixed_size_lists() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         // Inner lists of size 2, outer lists of size 2 (so 2 outer lists, each with 2 inner lists).
         let inner_elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array();
         let inner_fsl = FixedSizeListArray::new(inner_elements, 2, Validity::NonNullable, 4);

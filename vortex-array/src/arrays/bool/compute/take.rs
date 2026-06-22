@@ -90,7 +90,6 @@ mod test {
     use crate::IntoArray as _;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
-    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::bool::BoolArrayExt;
@@ -100,8 +99,7 @@ mod test {
 
     #[test]
     fn take_nullable() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let reference = BoolArray::from_iter(vec![
             Some(false),
             Some(true),
@@ -131,8 +129,7 @@ mod test {
 
     #[test]
     fn test_bool_array_take_with_null_out_of_bounds_indices() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let values = BoolArray::from_iter(vec![Some(false), Some(true), None, None, Some(false)]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
@@ -150,8 +147,7 @@ mod test {
 
     #[test]
     fn test_non_null_bool_array_take_with_null_out_of_bounds_indices() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let values = BoolArray::from_iter(vec![false, true, false, true, false]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
@@ -168,8 +164,7 @@ mod test {
 
     #[test]
     fn test_bool_array_take_all_null_indices() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let values = BoolArray::from_iter(vec![Some(false), Some(true), None, None, Some(false)]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],
@@ -185,8 +180,7 @@ mod test {
 
     #[test]
     fn test_non_null_bool_array_take_all_null_indices() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let values = BoolArray::from_iter(vec![false, true, false, true, false]);
         let indices = PrimitiveArray::new(
             buffer![0, 3, 100],

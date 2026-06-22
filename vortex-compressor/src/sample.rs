@@ -133,7 +133,6 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -144,8 +143,7 @@ mod tests {
 
     #[test]
     fn sample_is_deterministic() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         // Create a deterministic array with linear-with-noise pattern
         let values: Vec<i64> = (0i64..100_000).map(|i| i + (i * 7 + 3) % 11).collect();
 

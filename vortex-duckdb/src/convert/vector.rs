@@ -415,8 +415,7 @@ mod tests {
 
     #[test]
     fn test_integer_vector_conversion() {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let values = vec![1i32, 2, 3, 4, 5];
         let len = values.len();
 

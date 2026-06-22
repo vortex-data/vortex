@@ -8,7 +8,6 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
@@ -52,8 +51,7 @@ fn test_filter_degenerate_list_size_zero(
     #[case] mask_values: Vec<bool>,
     #[case] expected_len: usize,
 ) {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let new_validity = if matches!(validity, Validity::NonNullable) {
         Validity::NonNullable
     } else {
@@ -82,8 +80,7 @@ fn test_filter_degenerate_list_size_zero(
 
 #[test]
 fn test_filter_with_nulls() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let elements =
         PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4), Some(5), Some(6)]);
     let validity = Validity::from_iter([true, false, true]);
@@ -111,8 +108,7 @@ fn test_filter_with_nulls() {
 
 #[test]
 fn test_filter_all_null_array() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Create an array where all elements are null.
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let validity = Validity::AllInvalid;
@@ -129,8 +125,7 @@ fn test_filter_all_null_array() {
 
 #[test]
 fn test_filter_nested_fixed_size_lists() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Create nested fixed-size lists: FSL<FSL<i32>>.
     // Inner lists are of size 2, outer lists are of size 3.
     // So we have 2 outer lists, each containing 3 inner lists, each containing 2 i32s.
@@ -256,8 +251,7 @@ fn create_fsl_empty() -> ArrayRef {
 
 #[test]
 fn test_filter_all_null_various_list_sizes() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test filtering with all-null arrays of different list sizes.
     // The implementation returns ConstantArray only when validity_mask() is Mask::AllFalse.
 
@@ -296,8 +290,7 @@ fn test_filter_all_null_various_list_sizes() {
 
 #[test]
 fn test_mask_expansion_threshold_boundary() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test with list_size == 8 (the FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD).
     let list_size = 8u32;
     let num_lists = 100;
@@ -374,8 +367,7 @@ fn test_mask_expansion_threshold_boundary() {
 // Test FSL-specific behavior with very large list sizes.
 #[test]
 fn test_filter_large_list_size() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test with list_size=100, which is significantly larger than typical use cases.
     let list_size = 100u32;
     let num_lists = 5;

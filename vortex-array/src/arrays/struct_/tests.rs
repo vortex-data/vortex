@@ -24,8 +24,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_project() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
     let ys = VarBinArray::from_vec(
         vec!["a", "b", "c", "d", "e"],
@@ -68,8 +67,7 @@ fn test_project() {
 
 #[test]
 fn test_remove_column() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
     let ys = PrimitiveArray::new(buffer![4u64, 5, 6, 7, 8], Validity::NonNullable);
 
@@ -115,8 +113,7 @@ fn test_remove_column() {
 
 #[test]
 fn test_duplicate_field_names() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test that StructArray allows duplicate field names and returns the first match
     let field1 = buffer![1i32, 2, 3].into_array();
     let field2 = buffer![10i32, 20, 30].into_array();

@@ -228,7 +228,6 @@ mod tests {
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::patches::Patches;
     use vortex_error::VortexResult;
@@ -318,8 +317,7 @@ mod tests {
         #[case] chunk_offsets: ArrayRef,
         #[case] expected: ArrayRef,
     ) -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let indices = PrimitiveArray::from_iter([100u32, 1100, 2100, 3100, 4100]);
         let values = PrimitiveArray::from_iter([10u32, 11, 12, 13, 14]);

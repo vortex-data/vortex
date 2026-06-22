@@ -369,8 +369,7 @@ mod tests {
     #[case(VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array())]
     #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let res = left.binary(right, Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(res, expected, &mut assertion_ctx);
@@ -378,8 +377,7 @@ mod tests {
 
     #[test]
     fn test_list_array_comparison() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let values1 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
         let offsets1 = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
         let list1 = ListArray::try_new(
@@ -424,8 +422,7 @@ mod tests {
 
     #[test]
     fn test_list_array_constant_comparison() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
         let offsets = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
         let list = ListArray::try_new(
@@ -452,8 +449,7 @@ mod tests {
 
     #[test]
     fn test_struct_array_comparison() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let bool_field1 = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
         let int_field1 = PrimitiveArray::from_iter([1i32, 2, 3]);
 
@@ -490,8 +486,7 @@ mod tests {
 
     #[test]
     fn test_empty_struct_compare() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let empty1 = StructArray::try_new(
             FieldNames::from(Vec::<FieldName>::new()),
             Vec::new(),
@@ -520,8 +515,7 @@ mod tests {
     /// different Vortex encodings (VarBinArray vs VarBinViewArray) must not panic.
     #[test]
     fn struct_compare_mixed_binary_encodings() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         // LHS: struct with a VarBinArray (offset-based) binary field
         let bin_field1 = VarBinArray::from(vec![
             "apple".as_bytes(),

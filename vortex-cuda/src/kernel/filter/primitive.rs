@@ -46,7 +46,6 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
-    use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
     use crate::FilterExecutor;
@@ -83,8 +82,7 @@ mod tests {
         #[case] input: PrimitiveArray,
         #[case] mask: Mask,
     ) -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 
@@ -107,8 +105,7 @@ mod tests {
 
     #[crate::test]
     async fn test_gpu_filter_large_array() -> VortexResult<()> {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 

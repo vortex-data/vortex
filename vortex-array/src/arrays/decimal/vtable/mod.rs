@@ -209,7 +209,6 @@ mod tests {
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::VortexSessionExecute;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
@@ -249,8 +248,7 @@ mod tests {
 
     #[test]
     fn test_nullable_decimal_serde_roundtrip() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let array = DecimalArray::new(
             buffer![1234567i32, 0i32, -9999999i32],
             DecimalDType::new(7, 3),

@@ -113,8 +113,7 @@ fn test_simple_list_filter() {
 
 #[test]
 fn test_list_filter_dense_mask() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test filtering with a dense mask (high density of true values).
     let elements = buffer![0..100].into_array();
     let offsets = buffer![0, 10, 25, 40, 60, 85, 100].into_array();
@@ -146,8 +145,7 @@ fn test_list_filter_dense_mask() {
 
 #[test]
 fn test_list_filter_sparse_mask() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test filtering with a sparse mask (low density of true values).
     let elements = buffer![0..100].into_array();
     let offsets = buffer![0, 10, 25, 40, 60, 85, 100].into_array();
@@ -181,8 +179,7 @@ fn test_list_filter_sparse_mask() {
 
 #[test]
 fn test_list_filter_empty_lists() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test filtering arrays that contain empty lists.
     let elements = buffer![0..10].into_array();
     let offsets = buffer![0, 0, 3, 3, 7, 10, 10].into_array(); // Lists at indices 0, 2, 5 are empty.
@@ -239,8 +236,7 @@ fn test_list_filter_with_nulls() {
 
 #[test]
 fn test_list_filter_all_true() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test filtering with an all-true mask.
     let elements = buffer![0..20].into_array();
     let offsets = buffer![0, 5, 10, 15, 20].into_array();
@@ -283,8 +279,7 @@ fn test_list_filter_all_false() {
 
 #[test]
 fn test_list_filter_single_element() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test filtering to keep only one element.
     let elements = buffer![0..50].into_array();
     let offsets = buffer![0, 10, 20, 30, 40, 50].into_array();
@@ -313,8 +308,7 @@ fn test_list_filter_single_element() {
 
 #[test]
 fn test_list_filter_alternating_pattern() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test filtering with an alternating pattern.
     let elements = buffer![0..60].into_array();
     let offsets = buffer![0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60].into_array();
@@ -350,8 +344,7 @@ fn test_list_filter_alternating_pattern() {
 
 #[test]
 fn test_list_filter_variable_sizes() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Test filtering lists with highly variable sizes.
     let elements = buffer![0..100].into_array();
     let offsets = buffer![0, 1, 2, 5, 10, 20, 35, 60, 100].into_array();
@@ -588,8 +581,7 @@ fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray
 #[test]
 #[expect(clippy::cognitive_complexity)]
 fn test_list_of_lists() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let data = vec![
         Some(vec![Some(vec![Some(1), Some(2)]), Some(vec![Some(3)])]),
         Some(vec![Some(vec![Some(4), Some(5), Some(6)])]),

@@ -137,7 +137,6 @@ mod tests {
     use super::*;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
-    use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
     use crate::validity::Validity;
 
@@ -174,8 +173,7 @@ mod tests {
 
     #[test]
     fn patch_sliced() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = input.slice(2..8).unwrap();
         #[expect(deprecated)]

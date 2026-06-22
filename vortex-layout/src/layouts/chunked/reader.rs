@@ -353,7 +353,6 @@ mod test {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldMask;
@@ -472,8 +471,7 @@ mod test {
         #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         block_on(|_h| async {
-            let assertion_session = vortex_array::array_session();
-            let mut assertion_ctx = assertion_session.create_execution_ctx();
+            let mut assertion_ctx = vortex_array::array_execution_ctx();
             let result = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()

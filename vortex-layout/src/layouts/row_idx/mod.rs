@@ -327,7 +327,6 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::eq;
@@ -352,8 +351,7 @@ mod tests {
     #[test]
     fn flat_expr_no_row_id() {
         block_on(|handle| async {
-            let assertion_session = vortex_array::array_session();
-            let mut assertion_ctx = assertion_session.create_execution_ctx();
+            let mut assertion_ctx = vortex_array::array_execution_ctx();
             let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -398,8 +396,7 @@ mod tests {
     #[test]
     fn flat_expr_row_id() {
         block_on(|handle| async {
-            let assertion_session = vortex_array::array_session();
-            let mut assertion_ctx = assertion_session.create_execution_ctx();
+            let mut assertion_ctx = vortex_array::array_execution_ctx();
             let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -444,8 +441,7 @@ mod tests {
     #[test]
     fn flat_expr_or() {
         block_on(|handle| async {
-            let assertion_session = vortex_array::array_session();
-            let mut assertion_ctx = assertion_session.create_execution_ctx();
+            let mut assertion_ctx = vortex_array::array_execution_ctx();
             let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());

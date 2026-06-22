@@ -226,7 +226,6 @@ mod tests {
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::serde::SerializeOptions;
@@ -235,8 +234,7 @@ mod tests {
 
     #[test]
     fn test_nullable_primitive_serde_roundtrip() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let array = PrimitiveArray::new(
             buffer![1i32, 2, 3, 4],
             Validity::from_iter([true, false, true, false]),

@@ -104,8 +104,7 @@ mod tests {
 
     #[test]
     fn fill_null_leading_none() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
         let arr = DecimalArray::from_option_iter(
             [None, Some(800i128), None, Some(1000i128), None],
@@ -142,8 +141,7 @@ mod tests {
 
     #[test]
     fn fill_null_all_none() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
 
         let arr = DecimalArray::from_option_iter(
@@ -171,8 +169,7 @@ mod tests {
     /// fill_null with a value that overflows the array's storage type should upcast the array.
     #[test]
     fn fill_null_overflow_upcasts() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let decimal_dtype = DecimalDType::new(3, 0);
         let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
         // i8 max is 127, so 200 doesn't fit — the array should be widened to i16.
@@ -195,8 +192,7 @@ mod tests {
 
     #[test]
     fn fill_null_non_nullable() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let decimal_dtype = DecimalDType::new(19, 2);
 
         let arr = DecimalArray::new(

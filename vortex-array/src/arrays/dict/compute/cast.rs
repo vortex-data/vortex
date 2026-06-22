@@ -71,8 +71,7 @@ mod tests {
 
     #[test]
     fn test_cast_dict_to_wider_type() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let values = buffer![1i32, 2, 3, 2, 1].into_array();
         let dict = dict_encode(&values, &mut SESSION.create_execution_ctx()).unwrap();
 
@@ -112,8 +111,7 @@ mod tests {
 
     #[test]
     fn test_cast_dict_allvalid_to_nonnullable_and_back() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         // Create an AllValid dict array (no nulls)
         let values = buffer![10i32, 20, 30, 40].into_array();
         let dict = dict_encode(&values, &mut SESSION.create_execution_ctx()).unwrap();
@@ -195,8 +193,7 @@ mod tests {
 
     #[test]
     fn test_cast_dict_with_unreferenced_null_values_to_nonnullable() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         use crate::arrays::DictArray;
         use crate::validity::Validity;
 

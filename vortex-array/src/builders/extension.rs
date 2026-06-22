@@ -127,7 +127,6 @@ impl ArrayBuilder for ExtensionBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
@@ -138,8 +137,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let ext_dtype = Date::new(TimeUnit::Days, Nullability::Nullable).erased();
 
         let mut builder = ExtensionBuilder::new(ext_dtype.clone());

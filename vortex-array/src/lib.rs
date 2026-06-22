@@ -117,6 +117,14 @@ pub fn array_session() -> VortexSession {
         .build()
 }
 
+/// Builds a fresh session via [`array_session`] and returns an [`ExecutionCtx`](crate::ExecutionCtx)
+/// backed by it.
+///
+/// Convenience for the common `array_session().create_execution_ctx()` pattern.
+pub fn array_execution_ctx() -> ExecutionCtx {
+    array_session().create_execution_ctx()
+}
+
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...

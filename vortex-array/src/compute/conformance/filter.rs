@@ -62,8 +62,7 @@ pub fn create_runs_pattern(len: usize, run_length: usize) -> Vec<bool> {
 
 /// Tests that filtering with an all-true mask returns all elements unchanged
 fn test_all_filter(array: &ArrayRef) {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let len = array.len();
     let mask = Mask::new_true(len);
     let filtered = array

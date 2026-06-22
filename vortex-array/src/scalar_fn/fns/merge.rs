@@ -279,7 +279,6 @@ mod tests {
     use crate::IntoArray;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
-    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
@@ -319,8 +318,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_right_most() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let expr = merge_opts(
             vec![
                 get_item("0", root()),

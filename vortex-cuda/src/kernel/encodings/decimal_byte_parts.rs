@@ -70,7 +70,6 @@ mod tests {
     use vortex::dtype::DecimalDType;
     use vortex::encodings::decimal_byte_parts::DecimalByteParts;
     use vortex::error::VortexExpect;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::session::CudaSession;
@@ -86,8 +85,7 @@ mod tests {
         #[case] precision: u8,
         #[case] scale: i8,
     ) {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("create execution context");
 

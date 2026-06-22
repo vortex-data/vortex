@@ -40,8 +40,7 @@ fn test_take_fsl_conformance(#[case] fsl: FixedSizeListArray) {
 
 #[test]
 fn test_take_basic_smoke_test() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
@@ -109,8 +108,7 @@ fn test_take_degenerate_lists(
 
 #[test]
 fn test_take_large_list_size() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let elements = buffer![0i32..300].into_array();
     let fsl = FixedSizeListArray::new(elements, 100, Validity::NonNullable, 3);
 
@@ -125,8 +123,7 @@ fn test_take_large_list_size() {
 
 #[test]
 fn test_take_fsl_with_null_indices_preserves_elements() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
@@ -173,8 +170,7 @@ fn test_element_index_overflow(
     #[case] indices: ArrayRef,
     #[case] expected: FixedSizeListArray,
 ) {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let result = fsl.take(indices).unwrap();
     assert_arrays_eq!(result, expected, &mut assertion_ctx);
 }

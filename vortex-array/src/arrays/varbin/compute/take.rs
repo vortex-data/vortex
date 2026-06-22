@@ -256,7 +256,6 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::VortexSessionExecute;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::compute::take::PrimitiveArray;
@@ -305,8 +304,7 @@ mod tests {
 
     #[test]
     fn test_take_overflow() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let scream = std::iter::once("a").cycle().take(128).collect::<String>();
         let bytes = ByteBuffer::copy_from(scream.as_bytes());
         let offsets = buffer![0u8, 128u8].into_array();

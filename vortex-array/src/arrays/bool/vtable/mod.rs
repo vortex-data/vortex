@@ -212,7 +212,6 @@ mod tests {
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::serde::SerializeOptions;
@@ -220,8 +219,7 @@ mod tests {
 
     #[test]
     fn test_nullable_bool_serde_roundtrip() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let array = BoolArray::from_iter([Some(true), None, Some(false), None]);
         let dtype = array.dtype().clone();
         let len = array.len();

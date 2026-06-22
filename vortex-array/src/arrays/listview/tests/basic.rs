@@ -26,8 +26,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_basic_listview_comprehensive() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Comprehensive test for basic ListView functionality including scalar_at.
     // Logical lists: [[1,2,3], [4,5], [6,7,8,9]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
@@ -84,8 +83,7 @@ fn test_basic_listview_comprehensive() {
 
 #[test]
 fn test_out_of_order_offsets() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // ListView-specific: Tests that offsets can be non-sequential and out-of-order.
     // Logical lists: [[7,8,9], [1,2,3], [4,5,6]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
@@ -169,8 +167,7 @@ fn test_from_list_array() -> VortexResult<()> {
 #[case::constant_offsets(false, true)] // Varying sizes, constant offsets
 #[case::both_constant(true, true)] // Both constant
 fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_offsets: bool) {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     // Logical lists vary by case:
     // - constant_sizes: [[1,2,3], [4,5,6], [7,8,9]] (size 3 each, varying offsets)
     // - constant_offsets: [[1,2,3], [1,2], [1]] (all start at 0, varying sizes)

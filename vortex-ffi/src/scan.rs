@@ -532,8 +532,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_no_options() {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let (array, struct_array) = scan(ptr::null());
         assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut assertion_ctx);
         unsafe { vx_array_free(array) };
@@ -542,8 +541,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_project_all() {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let opts = vx_scan_options::default();
         let (array, struct_array) = scan(&raw const opts);
         assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut assertion_ctx);
@@ -554,8 +552,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_project_single_field() {
         unsafe {
-            let assertion_session = vortex_array::array_session();
-            let mut assertion_ctx = assertion_session.create_execution_ctx();
+            let mut assertion_ctx = vortex_array::array_execution_ctx();
             let root = vx_expression_root();
             let mut opts = vx_scan_options::default();
 
@@ -717,8 +714,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_ordered() {
-        let assertion_session = vortex_array::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = vortex_array::array_execution_ctx();
         let opts = vx_scan_options {
             ordered: true,
             ..Default::default()

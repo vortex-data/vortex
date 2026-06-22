@@ -303,15 +303,13 @@ mod tests {
 
     use super::*;
     use crate::IntoArray;
-    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
 
     #[test]
     fn filter_bool_test() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_iter([true, false, true]);
 
@@ -325,8 +323,7 @@ mod tests {
 
     #[test]
     fn filter_bool_sparse_index_mask() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_indices(3, [0, 2]);
 
@@ -340,8 +337,7 @@ mod tests {
 
     #[test]
     fn filter_bool_sparse_slice_mask() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_slices(3, vec![(0, 1), (2, 3)]);
 
@@ -355,8 +351,7 @@ mod tests {
 
     #[test]
     fn filter_bool_sparse_buffer_mask() {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true]));
 

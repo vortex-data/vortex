@@ -3,15 +3,13 @@
 
 #[expect(deprecated)]
 use crate::ToCanonical as _;
-use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::assert_arrays_eq;
 
 #[test]
 pub fn varbin_view() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let binary_arr =
         VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]);
     assert_arrays_eq!(
@@ -23,8 +21,7 @@ pub fn varbin_view() {
 
 #[test]
 pub fn slice_array() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let binary_arr =
         VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
             .slice(1..2)
@@ -38,8 +35,7 @@ pub fn slice_array() {
 
 #[test]
 pub fn flatten_array() {
-    let assertion_session = crate::array_session();
-    let mut assertion_ctx = assertion_session.create_execution_ctx();
+    let mut assertion_ctx = crate::array_execution_ctx();
     let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
     #[expect(deprecated)]
     let var_bin = binary_arr.as_array().to_varbinview();

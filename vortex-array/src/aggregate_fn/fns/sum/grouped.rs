@@ -236,8 +236,7 @@ mod tests {
 
     #[test]
     fn listview_matches_reference_unsigned() -> VortexResult<()> {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1u32, 2, 3, 4, 5, 6], Validity::NonNullable).into_array();
         let elem_dtype = DType::Primitive(PType::U32, NonNullable);
@@ -257,8 +256,7 @@ mod tests {
 
     #[test]
     fn listview_out_of_order_offsets_with_null_group() -> VortexResult<()> {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         // Offsets are not in group order and a group is null: the group validity must be indexed by
         // group index, not by element offset.
         let elements =
@@ -280,8 +278,7 @@ mod tests {
 
     #[test]
     fn listview_interior_and_full_nulls() -> VortexResult<()> {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         // Group 1 has an interior null, group 2 is entirely null, group 3 is empty.
         let elements =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, None, Some(9)])
@@ -303,8 +300,7 @@ mod tests {
 
     #[test]
     fn listview_overflow_group_is_null() -> VortexResult<()> {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![i64::MAX, 1, 2, 3], Validity::NonNullable).into_array();
         let elem_dtype = DType::Primitive(PType::I64, NonNullable);
@@ -388,8 +384,7 @@ mod tests {
 
     #[test]
     fn fixed_size_overflow_and_nan() -> VortexResult<()> {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         // FixedSize path: first group overflows -> null sum, second sums normally.
         let elements =
             PrimitiveArray::new(buffer![i64::MAX, 1, 2, 3], Validity::NonNullable).into_array();

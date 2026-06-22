@@ -76,8 +76,7 @@ mod tests {
 
     #[test]
     fn test_scalar_fn_add() -> VortexResult<()> {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let lhs = buffer![1i32, 2, 3].into_array();
         let rhs = buffer![10i32, 20, 30].into_array();
 
@@ -132,8 +131,7 @@ mod tests {
 
     #[test]
     fn test_scalar_fn_mul() -> VortexResult<()> {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let lhs = buffer![2i32, 3, 4].into_array();
         let rhs = buffer![5i32, 6, 7].into_array();
 
@@ -152,8 +150,7 @@ mod tests {
 
     #[test]
     fn test_scalar_fn_with_nullable() -> VortexResult<()> {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let lhs = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array();
         let rhs = PrimitiveArray::new(
             buffer![10i32, 20, 30],
@@ -180,8 +177,7 @@ mod tests {
 
     #[test]
     fn test_scalar_fn_comparison() -> VortexResult<()> {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let lhs = buffer![1i32, 5, 3].into_array();
         let rhs = buffer![2i32, 5, 1].into_array();
 

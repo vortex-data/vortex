@@ -121,8 +121,7 @@ mod tests {
 
     #[test]
     fn cast_timestamp_to_i64() -> VortexResult<()> {
-        let assertion_session = crate::array_session();
-        let mut assertion_ctx = assertion_session.create_execution_ctx();
+        let mut assertion_ctx = crate::array_execution_ctx();
         let ext_dtype = Timestamp::new_with_tz(
             TimeUnit::Nanoseconds,
             Some("UTC".into()),
