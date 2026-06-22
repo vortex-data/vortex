@@ -57,19 +57,20 @@ use vortex_session::VortexSession;
 use self::evidence::EvidenceFragment;
 use self::request::EvidenceRequest;
 use self::request::OwnedEvidenceRequest;
+use crate::segments::ScanRead;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 use crate::segments::SegmentSource;
 
-/// Per-file/query IO context for scan plan reads.
+/// Execution context for legacy prepared read calls.
 #[derive(Clone)]
-pub struct FileReader {
+pub struct ReadContext {
     segments: Arc<dyn SegmentSource>,
     session: VortexSession,
 }
 
-impl FileReader {
-    /// Create a reader context from a segment source and session.
+impl ReadContext {
+    /// Create a read context from a segment source and session.
     pub fn new(segments: Arc<dyn SegmentSource>, session: VortexSession) -> Self {
         Self { segments, session }
     }
@@ -550,7 +551,7 @@ impl PreparedRead for LiteralPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        _io: &'a FileReader,
+        _io: &'a ReadContext,
         _local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
@@ -581,7 +582,7 @@ impl PreparedStats for LiteralPreparedStats {
     fn stats<'a>(
         &'a self,
         range: Range<u64>,
-        _io: &'a FileReader,
+        _io: &'a ReadContext,
         _state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Vec<Precision<Scalar>>>> {
         Box::pin(async move {
@@ -637,14 +638,14 @@ impl LiteralPreparedStats {
 pub fn read_dense<'a>(
     read: &'a PreparedReadRef,
     range: Range<u64>,
-    io: &'a FileReader,
+    io: &'a ReadContext,
 ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
     Box::pin(async move {
         let len = range_len(&range)?;
         let rows = OwnedRowScope::selected(Mask::new_true(len));
         let mut local = io.session().create_execution_ctx();
-        let task = Arc::clone(read).begin_read(range, rows)?;
-        task.read(io, &mut local).await
+        read.read_scoped(range, rows.as_scope(), io, &mut local)
+            .await
     })
 }
 
@@ -680,7 +681,7 @@ pub trait PreparedRead: 'static + Send + Sync {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>>;
 
@@ -707,28 +708,30 @@ pub trait PreparedRead: 'static + Send + Sync {
 
 impl dyn PreparedRead {
     /// Create a morsel-level read task for this prepared read.
-    pub fn begin_read(
+    pub fn create_task(
         self: Arc<Self>,
         range: Range<u64>,
         rows: OwnedRowScope,
+        reads: Vec<ScanRead>,
     ) -> VortexResult<Box<dyn ReadTask>> {
         Ok(Box::new(DefaultReadTask {
             read: self,
             range,
             rows,
+            reads,
         }))
     }
 }
 
 /// A morsel-level read task.
 pub trait ReadTask: Send {
-    /// Return scheduler-visible segment requests needed for this task, when known exactly.
-    fn segment_requests(&self, cx: &mut SegmentPlanCtx) -> VortexResult<SegmentRequests>;
+    /// Registered reads needed by this task.
+    fn reads(&self) -> &[ScanRead];
 
     /// Execute the read task.
     fn read<'a>(
         self: Box<Self>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>>;
 }
@@ -737,23 +740,29 @@ struct DefaultReadTask {
     read: PreparedReadRef,
     range: Range<u64>,
     rows: OwnedRowScope,
+    reads: Vec<ScanRead>,
 }
 
 impl ReadTask for DefaultReadTask {
-    fn segment_requests(&self, cx: &mut SegmentPlanCtx) -> VortexResult<SegmentRequests> {
-        self.read
-            .segment_requests(self.range.clone(), self.rows.as_scope(), cx)
+    fn reads(&self) -> &[ScanRead] {
+        &self.reads
     }
 
     fn read<'a>(
         self: Box<Self>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
-            self.read
-                .read_scoped(self.range, self.rows.as_scope(), io, local)
-                .await
+            let Self {
+                read,
+                range,
+                rows,
+                reads,
+            } = *self;
+            let result = read.read_scoped(range, rows.as_scope(), io, local).await;
+            drop(reads);
+            result
         })
     }
 }
@@ -767,7 +776,7 @@ pub trait PreparedSplit: 'static + Send + Sync {
     fn splits<'a>(
         &'a self,
         range: Range<u64>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Vec<Range<u64>>>>;
 
@@ -795,7 +804,7 @@ impl PreparedSplit for HintPreparedSplit {
     fn splits<'a>(
         &'a self,
         range: Range<u64>,
-        _io: &'a FileReader,
+        _io: &'a ReadContext,
         _state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Vec<Range<u64>>>> {
         Box::pin(async move {
@@ -836,7 +845,7 @@ pub trait PreparedAggregate: 'static + Send + Sync {
     fn aggregate_partial<'a>(
         &'a self,
         range: Range<u64>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Option<Vec<AggregateAnswer>>>>;
 
@@ -860,7 +869,7 @@ pub trait PreparedStats: 'static + Send + Sync {
     fn stats<'a>(
         &'a self,
         range: Range<u64>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Vec<Precision<Scalar>>>>;
 
@@ -997,7 +1006,7 @@ impl PreparedRead for StructValuePreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
@@ -1117,7 +1126,7 @@ impl PreparedRead for ApplyPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
@@ -1229,7 +1238,7 @@ impl PreparedRead for MaskPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
@@ -1272,7 +1281,7 @@ pub trait PreparedEvidence: 'static + Send + Sync {
     fn evidence<'a>(
         &'a self,
         req: &'a EvidenceRequest<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>>;
 
     /// Return scheduler-visible segment requests needed for this evidence, when known exactly.
@@ -1299,44 +1308,56 @@ pub trait PreparedEvidence: 'static + Send + Sync {
 
 impl dyn PreparedEvidence {
     /// Create a morsel-level evidence task for this prepared evidence handle.
-    pub fn begin_evidence(
+    pub fn create_task(
         self: Arc<Self>,
         req: OwnedEvidenceRequest,
+        reads: Vec<ScanRead>,
     ) -> VortexResult<Box<dyn EvidenceTask>> {
         Ok(Box::new(DefaultEvidenceTask {
             evidence: self,
             req,
+            reads,
         }))
     }
 }
 
 /// A morsel-level evidence task.
 pub trait EvidenceTask: Send {
-    /// Return scheduler-visible segment requests needed for this task, when known exactly.
-    fn segment_requests(&self, cx: &mut SegmentPlanCtx) -> VortexResult<SegmentRequests>;
+    /// Registered reads needed by this task.
+    fn reads(&self) -> &[ScanRead];
 
     /// Execute the evidence task.
     fn evidence<'a>(
         self: Box<Self>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>>;
 }
 
 struct DefaultEvidenceTask {
     evidence: PreparedEvidenceRef,
     req: OwnedEvidenceRequest,
+    reads: Vec<ScanRead>,
 }
 
 impl EvidenceTask for DefaultEvidenceTask {
-    fn segment_requests(&self, cx: &mut SegmentPlanCtx) -> VortexResult<SegmentRequests> {
-        self.evidence.segment_requests(&self.req.as_request(), cx)
+    fn reads(&self) -> &[ScanRead] {
+        &self.reads
     }
 
     fn evidence<'a>(
         self: Box<Self>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>> {
-        Box::pin(async move { self.evidence.evidence(&self.req.as_request(), io).await })
+        Box::pin(async move {
+            let Self {
+                evidence,
+                req,
+                reads,
+            } = *self;
+            let result = evidence.evidence(&req.as_request(), io).await;
+            drop(reads);
+            result
+        })
     }
 }
 
@@ -1369,6 +1390,13 @@ mod tests {
     struct TestSegments;
 
     impl SegmentSource for TestSegments {
+        fn segment_info(
+            &self,
+            _id: crate::segments::SegmentId,
+        ) -> VortexResult<crate::segments::SegmentInfo> {
+            Ok(crate::segments::SegmentInfo::non_cacheable(0))
+        }
+
         fn request(&self, _id: crate::segments::SegmentId) -> crate::segments::SegmentFuture {
             Box::pin(async { Ok(BufferHandle::new_host(ByteBuffer::from(Vec::<u8>::new()))) })
         }
@@ -1428,7 +1456,7 @@ mod tests {
         fn stats<'a>(
             &'a self,
             range: Range<u64>,
-            _io: &'a FileReader,
+            _io: &'a ReadContext,
             _state: &'a ScanState,
         ) -> BoxFuture<'a, VortexResult<Vec<Precision<Scalar>>>> {
             Box::pin(async move {
@@ -1462,7 +1490,7 @@ mod tests {
             )?
             .ok_or_else(|| vortex_err!("test scan plan did not return a stats plan"))?;
         let state = plan.init_state(&session)?;
-        let io = FileReader::new(Arc::new(TestSegments), session);
+        let io = ReadContext::new(Arc::new(TestSegments), session);
         let stats = futures::executor::block_on(plan.stats(10..20, &io, state.as_ref()))?;
 
         assert_eq!(stats.len(), funcs.len());
@@ -1484,7 +1512,7 @@ mod tests {
         let read = plan
             .prepare_read(&mut PrepareCtx::new(session.clone()))?
             .ok_or_else(|| vortex_err!("literal scan plan did not return a prepared read"))?;
-        let io = FileReader::new(Arc::new(TestSegments), session);
+        let io = ReadContext::new(Arc::new(TestSegments), session);
         let array = futures::executor::block_on(read_dense(&read, 10..15, &io))?;
         let constant = array
             .as_opt::<Constant>()

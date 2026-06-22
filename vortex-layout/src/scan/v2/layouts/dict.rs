@@ -44,12 +44,12 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_scan::plan::FileReader;
 use vortex_scan::plan::PrepareCtx;
 use vortex_scan::plan::PreparedRead;
 use vortex_scan::plan::PreparedReadRef;
 use vortex_scan::plan::PreparedStateKey;
 use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::ReadContext;
 use vortex_scan::plan::RowScope;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
@@ -192,7 +192,7 @@ impl DictScanPlan {
     fn values(
         &self,
         values_read: PreparedReadRef,
-        io: &FileReader,
+        io: &ReadContext,
         state: &DictScanState,
     ) -> SharedArrayFuture {
         if let Some(hit) = state.shared.values.lock().clone() {
@@ -340,7 +340,7 @@ impl PreparedRead for DictPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
@@ -424,7 +424,7 @@ impl PreparedRead for DictPreparedRead {
 impl DictExprPreparedRead {
     async fn value_expr(
         &self,
-        io: &FileReader,
+        io: &ReadContext,
         state: &DictScanState,
         local: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -479,7 +479,7 @@ impl DictExprPreparedRead {
     async fn sparse_expr(
         &self,
         codes: ArrayRef,
-        io: &FileReader,
+        io: &ReadContext,
         local: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let values_len = usize::try_from(self.node.dict.values_len)
@@ -663,7 +663,7 @@ impl PreparedRead for DictExprPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {

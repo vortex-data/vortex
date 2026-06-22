@@ -43,7 +43,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_scan::plan::AggregateAnswer;
-use vortex_scan::plan::FileReader;
 use vortex_scan::plan::PrepareCtx;
 use vortex_scan::plan::PreparedAggregate;
 use vortex_scan::plan::PreparedAggregateRef;
@@ -53,6 +52,7 @@ use vortex_scan::plan::PreparedRead;
 use vortex_scan::plan::PreparedReadRef;
 use vortex_scan::plan::PreparedStateKey;
 use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::ReadContext;
 use vortex_scan::plan::RowScope;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
@@ -256,7 +256,7 @@ impl ZonedScanPlan {
     async fn table(
         &self,
         zones_read: &PreparedReadRef,
-        io: &FileReader,
+        io: &ReadContext,
         state: &ZonedScanState,
     ) -> VortexResult<Arc<StructArray>> {
         if let Some(hit) = state.table.lock().clone() {
@@ -276,7 +276,7 @@ impl ZonedScanPlan {
         &self,
         stat: Stat,
         zones_read: &PreparedReadRef,
-        io: &FileReader,
+        io: &ReadContext,
         state: &ZonedScanState,
     ) -> VortexResult<Option<Arc<StatColumn>>> {
         if let Some(hit) = state.stat_columns.lock().get(&stat) {
@@ -320,7 +320,7 @@ impl ZonedScanPlan {
         span: &ZoneSpan,
         func: &AggregateFnRef,
         zones_read: &PreparedReadRef,
-        io: &FileReader,
+        io: &ReadContext,
         state: &ZonedScanState,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<AggregateAnswer>> {
@@ -480,7 +480,7 @@ impl ZonedScanPlan {
         range: Range<u64>,
         funcs: &'a [AggregateFnRef],
         zones_read: &'a PreparedReadRef,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         state: &'a ZonedScanState,
     ) -> BoxFuture<'a, VortexResult<Option<Vec<AggregateAnswer>>>> {
         Box::pin(async move {
@@ -528,7 +528,7 @@ impl ZonedScanPlan {
 impl ZonedPreparedEvidence {
     async fn table(
         &self,
-        io: &FileReader,
+        io: &ReadContext,
         state: &ZonedScanState,
     ) -> VortexResult<Arc<StructArray>> {
         if let Some(hit) = state.table.lock().clone() {
@@ -543,7 +543,7 @@ impl ZonedPreparedEvidence {
 
     async fn zone_map(
         &self,
-        io: &FileReader,
+        io: &ReadContext,
         state: &ZonedScanState,
     ) -> VortexResult<Arc<ZoneMap>> {
         if let Some(hit) = state.zone_map.lock().clone() {
@@ -579,7 +579,7 @@ impl ZonedPreparedEvidence {
 
     async fn predicate_masks(
         &self,
-        io: &FileReader,
+        io: &ReadContext,
         state: &ZonedScanState,
     ) -> VortexResult<Arc<PredicateMasks>> {
         if let Some(hit) = state.masks.lock().get(&self.predicate) {
@@ -628,7 +628,7 @@ impl PreparedEvidence for ZonedPreparedEvidence {
     fn evidence<'a>(
         &'a self,
         req: &'a EvidenceRequest<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>> {
         Box::pin(async move {
             let mut fragments = Vec::new();
@@ -824,7 +824,7 @@ impl PreparedRead for ZonedPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         self.data.read_scoped(range, rows, io, local)
@@ -856,7 +856,7 @@ impl PreparedAggregate for ZonedPreparedAggregate {
     fn aggregate_partial<'a>(
         &'a self,
         range: Range<u64>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         _state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Option<Vec<AggregateAnswer>>>> {
         self.node
@@ -938,7 +938,7 @@ impl PreparedRead for ZonedExprPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         self.data.read_scoped(range, rows, io, local)

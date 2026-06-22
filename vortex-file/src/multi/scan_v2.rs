@@ -64,10 +64,7 @@ use vortex_scan::ScanRequest as DataSourceScanRequest;
 use vortex_scan::ScanScheduler;
 use vortex_scan::ScanSchedulerSessionExt;
 use vortex_scan::ScanTicket;
-use vortex_scan::SegmentSourceId;
-use vortex_scan::SegmentSourceMeta;
 use vortex_scan::WorkRequest;
-use vortex_scan::plan::FileReader;
 use vortex_scan::plan::OwnedRowScope;
 use vortex_scan::plan::PrepareCtx;
 use vortex_scan::plan::PreparedAggregateRef;
@@ -76,6 +73,7 @@ use vortex_scan::plan::PreparedReadRef;
 use vortex_scan::plan::PreparedStats;
 use vortex_scan::plan::PreparedStatsRef;
 use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::ReadContext;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
 use vortex_scan::plan::ScanState;
@@ -90,14 +88,14 @@ use vortex_scan::plan::evidence::PredicateVersion;
 use vortex_scan::plan::request::EvidenceMode;
 use vortex_scan::plan::request::OwnedEvidenceRequest;
 use vortex_scan::plan::request::ScanRequest;
+use vortex_scan::segments::CachedSegmentSource;
 use vortex_scan::segments::ScanIoPhase;
-use vortex_scan::segments::ScheduledSegmentSource;
-use vortex_scan::segments::ScheduledSegmentSourceReader;
+use vortex_scan::segments::ScanRead;
 use vortex_scan::segments::SegmentFutureCache;
 use vortex_scan::segments::SegmentPlanCtx;
 use vortex_scan::segments::SegmentRequests;
-use vortex_scan::segments::SubmittedSegmentRequests;
-use vortex_scan::segments::submit_segment_requests_cached;
+use vortex_scan::segments::SegmentSource;
+use vortex_scan::segments::register_segment_reads_cached;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -322,7 +320,7 @@ impl PreparedStats for FilePreparedStats {
     fn stats<'a>(
         &'a self,
         range: Range<u64>,
-        _io: &'a FileReader,
+        _io: &'a ReadContext,
         _state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Vec<Precision<Scalar>>>> {
         Box::pin(async move {
@@ -665,14 +663,15 @@ impl DataSource for ScanPlanDataSource {
             else {
                 continue;
             };
-            let prepared = Arc::new(PreparedScanPlanFile::try_new(file, request, &ticket)?);
-            let ranges = prepared.splits()?;
+            let prepared = Arc::new(PreparedScanPlan::try_new(&file, request)?);
+            let execution = Arc::new(ScanExecution::try_new(file, prepared, &ticket)?);
+            let ranges = execution.splits()?;
             if ranges.is_empty() {
                 continue;
             }
-            has_runtime_evidence |= prepared.has_runtime_evidence();
+            has_runtime_evidence |= execution.has_runtime_evidence();
             total_morsels = total_morsels.saturating_add(ranges.len());
-            planned_files.push((prepared, ranges));
+            planned_files.push((execution, ranges));
         }
 
         // The physical plan may expose more engine partitions than we can fill with morsels.
@@ -681,11 +680,11 @@ impl DataSource for ScanPlanDataSource {
         let partition_count = total_morsels.min(target_partitions);
         let mut partitions = vec![Vec::new(); partition_count];
         let mut morsel_idx = 0usize;
-        for (prepared, ranges) in planned_files {
+        for (execution, ranges) in planned_files {
             for range in ranges {
                 let partition = morsel_idx % partition_count;
                 partitions[partition].push(PlannedScanPlanMorsel {
-                    prepared: Arc::clone(&prepared),
+                    execution: Arc::clone(&execution),
                     range,
                 });
                 morsel_idx = morsel_idx.saturating_add(1);
@@ -939,7 +938,7 @@ pub(crate) async fn scan_plan_file_statistics_many(
 ) -> VortexResult<Vec<Vec<Precision<Scalar>>>> {
     let session = file.session().clone();
     let root = file.scan_plan_root()?;
-    let reader = FileReader::new(file.segment_source(), session);
+    let reader = ReadContext::new(file.segment_source(), session);
     let mut result = Vec::with_capacity(exprs.len());
     for expr in exprs {
         let plan = if let Some(field_path) = root_field_path(expr) {
@@ -984,7 +983,7 @@ pub(crate) async fn scan_plan_file_plan_splits(
     let Some(plan) = pushed.prepare_splits(&mut PrepareCtx::new(session.clone()))? else {
         return Ok(std::iter::once(0..file.row_count()).collect());
     };
-    let reader = FileReader::new(file.segment_source(), session.clone());
+    let reader = ReadContext::new(file.segment_source(), session.clone());
     let state = plan.init_state(&session)?;
     plan.splits(0..file.row_count(), &reader, state.as_ref())
         .await
@@ -1084,16 +1083,9 @@ impl<T: Send + 'static> Work<T> {
     fn new(
         phase: ScanIoPhase,
         handle: Handle,
-        registered: SubmittedSegmentRequests,
+        known_bytes: u64,
         future: BoxFuture<'static, VortexResult<T>>,
     ) -> Self {
-        let known_bytes = registered.bytes();
-        let future = async move {
-            let result = future.await;
-            drop(registered);
-            result
-        }
-        .boxed();
         Self {
             phase,
             known_bytes,
@@ -1152,7 +1144,7 @@ struct PlannedMorselWork {
 }
 
 struct MorselState {
-    prepared: Arc<PreparedScanPlanFile>,
+    execution: Arc<ScanExecution>,
     range: Range<u64>,
     selected: Mask,
     evidence: Vec<Option<PredicateEvidence>>,
@@ -1211,13 +1203,7 @@ fn morsel_windows(
         .config()
         .morsel_plan_window()
         .map(|window| window.max(launch_window).max(1))
-        .unwrap_or_else(|| {
-            if has_runtime_evidence {
-                launch_window
-            } else {
-                usize::MAX
-            }
-        });
+        .unwrap_or(usize::MAX);
     (plan_window, launch_window)
 }
 
@@ -1326,7 +1312,7 @@ impl PartitionWorkSchedulerState {
             return Ok(());
         };
         let morsel_id = self.next_morsel_id;
-        let Some(planned) = morsel.prepared.plan_morsel(morsel_id, morsel.range)? else {
+        let Some(planned) = morsel.execution.plan_morsel(morsel_id, morsel.range)? else {
             return Ok(());
         };
         self.next_morsel_id = self.next_morsel_id.saturating_add(1);
@@ -1440,14 +1426,14 @@ impl PartitionWorkSchedulerState {
             if morsel.pending_evidence != 0 {
                 return Ok(());
             }
-            if morsel.next_predicate >= morsel.prepared.predicates.len() {
+            if morsel.next_predicate >= morsel.execution.predicates.len() {
                 if self.enqueue_recheck_evidence(morsel_id)? {
                     return Ok(());
                 }
                 let Some(morsel) = self.morsels.get(morsel_id).and_then(Option::as_ref) else {
                     return Ok(());
                 };
-                let projection = morsel.prepared.plan_projection_work(
+                let projection = morsel.execution.plan_projection_work(
                     morsel_id,
                     morsel.range.clone(),
                     morsel.selected.clone(),
@@ -1464,16 +1450,16 @@ impl PartitionWorkSchedulerState {
             let predicate_idx = morsel.next_predicate;
             if morsel.evidence[predicate_idx].is_none() {
                 let should_probe = {
-                    let predicate = &morsel.prepared.predicates[predicate_idx];
+                    let predicate = &morsel.execution.predicates[predicate_idx];
                     !predicate.evidence.is_empty()
                         && morsel.selected.density() >= EXPR_EVAL_THRESHOLD
                 };
                 if should_probe {
-                    let work = morsel.prepared.plan_evidence_work(
+                    let work = morsel.execution.plan_evidence_work(
                         morsel_id,
                         predicate_idx,
                         morsel.range.clone(),
-                        morsel.prepared.predicates[predicate_idx].version(),
+                        morsel.execution.predicates[predicate_idx].version(),
                         EvidenceMode::Normal,
                     )?;
                     let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut)
@@ -1486,8 +1472,8 @@ impl PartitionWorkSchedulerState {
                 }
 
                 let evidence = PredicateEvidence::new(
-                    morsel.prepared.predicates[predicate_idx].id,
-                    morsel.prepared.predicates[predicate_idx].version(),
+                    morsel.execution.predicates[predicate_idx].id,
+                    morsel.execution.predicates[predicate_idx].version(),
                     morsel.range.clone(),
                 )?;
                 let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) else {
@@ -1508,12 +1494,12 @@ impl PartitionWorkSchedulerState {
                 continue;
             }
 
-            let work = morsel.prepared.plan_predicate_work(
+            let work = morsel.execution.plan_predicate_work(
                 morsel_id,
                 predicate_idx,
                 morsel.range.clone(),
                 need,
-                morsel.prepared.predicates[predicate_idx].version(),
+                morsel.execution.predicates[predicate_idx].version(),
             )?;
             let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) else {
                 return Ok(());
@@ -1529,12 +1515,12 @@ impl PartitionWorkSchedulerState {
             let Some(morsel) = self.morsels.get(morsel_id).and_then(Option::as_ref) else {
                 return Ok(false);
             };
-            if morsel.next_recheck_predicate >= morsel.prepared.predicates.len() {
+            if morsel.next_recheck_predicate >= morsel.execution.predicates.len() {
                 return Ok(false);
             }
 
             let predicate_idx = morsel.next_recheck_predicate;
-            let predicate = &morsel.prepared.predicates[predicate_idx];
+            let predicate = &morsel.execution.predicates[predicate_idx];
             let current_version = predicate.version();
             let evidence_version = morsel.evidence[predicate_idx]
                 .as_ref()
@@ -1545,7 +1531,7 @@ impl PartitionWorkSchedulerState {
                 && predicate.has_recheck_evidence()
                 && current_version != evidence_version
             {
-                let work = morsel.prepared.plan_evidence_work(
+                let work = morsel.execution.plan_evidence_work(
                     morsel_id,
                     predicate_idx,
                     morsel.range.clone(),
@@ -1666,21 +1652,22 @@ impl Partition for ScanPlanPartition {
             ticket,
         } = *self;
 
-        let prepared = Arc::new(PreparedScanPlanFile::try_new(file, request, &ticket)?);
-        let dtype = prepared.dtype.clone();
-        let ranges = prepared.splits()?;
-        let ordered = prepared.ordered;
+        let prepared = Arc::new(PreparedScanPlan::try_new(&file, request)?);
+        let execution = Arc::new(ScanExecution::try_new(file, prepared, &ticket)?);
+        let dtype = execution.plan.dtype().clone();
+        let ranges = execution.splits()?;
+        let ordered = execution.plan.ordered();
         let default_window = get_available_parallelism().unwrap_or(1) * 4;
         let (plan_window, launch_window) = morsel_windows(
             &scheduler,
-            prepared.limit_remaining.is_some(),
-            prepared.has_runtime_evidence(),
+            execution.limit_remaining.is_some(),
+            execution.has_runtime_evidence(),
             default_window,
         );
         let morsels = ranges
             .into_iter()
             .map(|range| PlannedScanPlanMorsel {
-                prepared: Arc::clone(&prepared),
+                execution: Arc::clone(&execution),
                 range,
             })
             .collect::<Vec<_>>();
@@ -1711,7 +1698,7 @@ struct PlannedScanPlanScan {
 
 #[derive(Clone)]
 struct PlannedScanPlanMorsel {
-    prepared: Arc<PreparedScanPlanFile>,
+    execution: Arc<ScanExecution>,
     range: Range<u64>,
 }
 
@@ -1759,8 +1746,9 @@ impl Partition for PlannedScanPlanPartition {
 
         for morsel in &self.planned.partitions[self.index] {
             let range_len = morsel.range.end - morsel.range.start;
-            row_count = row_count.saturating_add(morsel.prepared.selection.row_count(range_len));
-            has_filter |= !morsel.prepared.predicates.is_empty();
+            row_count =
+                row_count.saturating_add(morsel.execution.plan.selection().row_count(range_len));
+            has_filter |= morsel.execution.plan.has_filter();
         }
 
         if has_filter {
@@ -1795,23 +1783,37 @@ impl Partition for PlannedScanPlanPartition {
     }
 }
 
-struct PreparedScanPlanFile {
-    session: VortexSession,
-    reader: FileReader,
+struct PreparedScanPlan {
+    // Request-level physical plan after pushdown. This must stay free of per-scan IO state.
     dtype: DType,
     row_range: Range<u64>,
     selection: Selection,
     ordered: bool,
-    limit_remaining: Option<AtomicU64>,
-    segment_source_id: SegmentSourceId,
-    scheduled_segment_source: Arc<dyn ScheduledSegmentSource>,
-    segment_future_cache: Arc<SegmentFutureCache>,
+    limit: Option<u64>,
     split_hints: Option<Vec<u64>>,
-    projection: PreparedReadRef,
-    predicates: Vec<PreparedPredicate>,
+    projection: ScanPlanRef,
+    predicates: Vec<PreparedPredicatePlan>,
 }
 
-struct PreparedPredicate {
+struct PreparedPredicatePlan {
+    id: PredicateId,
+    expr: Expression,
+    plan: ScanPlanRef,
+}
+
+struct ScanExecution {
+    // Runtime instantiation of a prepared plan: source binding, prepared handles, and scan state.
+    session: VortexSession,
+    reader: ReadContext,
+    plan: Arc<PreparedScanPlan>,
+    limit_remaining: Option<AtomicU64>,
+    segment_source: Arc<dyn SegmentSource>,
+    segment_future_cache: Arc<SegmentFutureCache>,
+    projection: PreparedReadRef,
+    predicates: Vec<ExecutionPredicate>,
+}
+
+struct ExecutionPredicate {
     id: PredicateId,
     expr: Expression,
     dynamic_updates: Option<DynamicExprUpdates>,
@@ -1819,7 +1821,7 @@ struct PreparedPredicate {
     evidence: Vec<PreparedEvidenceRef>,
 }
 
-impl PreparedPredicate {
+impl ExecutionPredicate {
     fn version(&self) -> PredicateVersion {
         self.dynamic_updates
             .as_ref()
@@ -1834,16 +1836,8 @@ impl PreparedPredicate {
     }
 }
 
-struct RegisteredScheduledSegmentSource {
-    source: Arc<dyn ScheduledSegmentSource>,
-}
-
-impl PreparedScanPlanFile {
-    fn try_new(
-        file: VortexFile,
-        request: DataSourceScanRequest,
-        ticket: &ScanTicket,
-    ) -> VortexResult<Self> {
+impl PreparedScanPlan {
+    fn try_new(file: &VortexFile, request: DataSourceScanRequest) -> VortexResult<Self> {
         let session = file.session().clone();
         let dtype = request.projection.return_dtype(file.dtype())?;
         let projection = request.projection.optimize_recursive(file.dtype())?;
@@ -1853,34 +1847,9 @@ impl PreparedScanPlanFile {
             .transpose()?;
 
         let root = file.scan_plan_root()?;
-        let registered_source = Arc::new(RegisteredScheduledSegmentSource {
-            source: file.scheduled_segment_source(),
-        });
-        let segment_source_id = ticket.register_segment_source(
-            Arc::clone(&registered_source),
-            SegmentSourceMeta {
-                label: Some("vortex-file".to_string()),
-            },
-        );
-        let scheduled_segment_source = Arc::clone(&registered_source.source);
-        let segment_future_cache = file.scan_plan_segment_future_cache();
-        let reader = FileReader::new(
-            Arc::new(ScheduledSegmentSourceReader::new(
-                segment_source_id,
-                Arc::clone(&scheduled_segment_source),
-                Arc::clone(&segment_future_cache),
-            )),
-            session.clone(),
-        );
-
-        let mut prepare_ctx =
-            PrepareCtx::with_state_cache(session.clone(), file.scan_plan_state_cache());
         let projection_pushed = push_expr(&root, &projection, file.dtype(), &session)?;
         let mut split_hints = Vec::new();
         extend_split_hints(&projection_pushed, &mut split_hints);
-        let projection_plan = Arc::clone(&projection_pushed)
-            .prepare_read(&mut prepare_ctx)?
-            .ok_or_else(|| vortex_err!("scan2 could not plan read for expression {projection}"))?;
 
         // Run cheap, likely-selective conjuncts first so an expensive residual (e.g. an FSST `LIKE`)
         // only evaluates over the rows that survive the cheaper predicates. AND is commutative, so
@@ -1897,14 +1866,128 @@ impl PreparedScanPlanFile {
                 );
                 let pushed = push_expr(&root, &expr, file.dtype(), &session)?;
                 extend_split_hints(&pushed, &mut split_hints);
-                let read = Arc::clone(&pushed)
-                    .prepare_read(&mut prepare_ctx)?
-                    .ok_or_else(|| vortex_err!("scan2 could not plan predicate read {expr}"))?;
-                let evidence = pushed.prepare_evidence(&mut prepare_ctx)?;
-                let dynamic_updates = DynamicExprUpdates::new(&expr);
-                Ok(PreparedPredicate {
+                Ok(PreparedPredicatePlan {
                     id,
                     expr,
+                    plan: pushed,
+                })
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Ok(Self {
+            dtype,
+            row_range: request
+                .row_range
+                .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?,
+            selection: request.selection,
+            ordered: request.ordered,
+            limit: request.limit,
+            split_hints: normalize_split_hints(split_hints),
+            projection: projection_pushed,
+            predicates,
+        })
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn selection(&self) -> &Selection {
+        &self.selection
+    }
+
+    fn ordered(&self) -> bool {
+        self.ordered
+    }
+
+    fn limit(&self) -> Option<u64> {
+        self.limit
+    }
+
+    fn predicates(&self) -> &[PreparedPredicatePlan] {
+        &self.predicates
+    }
+
+    fn has_filter(&self) -> bool {
+        !self.predicates.is_empty()
+    }
+
+    fn projection(&self) -> &ScanPlanRef {
+        &self.projection
+    }
+
+    fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
+        let mut points = vec![self.row_range.start];
+        if let Some(hints) = &self.split_hints {
+            points.extend(
+                hints
+                    .iter()
+                    .copied()
+                    .filter(|&hint| self.row_range.start < hint && hint < self.row_range.end),
+            );
+        }
+        if points.len() == 1 {
+            let mut next = self
+                .row_range
+                .start
+                .saturating_add(FALLBACK_SPLIT_SIZE)
+                .min(self.row_range.end);
+            while next < self.row_range.end {
+                points.push(next);
+                next = next
+                    .saturating_add(FALLBACK_SPLIT_SIZE)
+                    .min(self.row_range.end);
+            }
+        }
+        points.push(self.row_range.end);
+        points.sort_unstable();
+        points.dedup();
+        Ok(points
+            .windows(2)
+            .filter_map(|window| {
+                let range = window[0]..window[1];
+                (range.start < range.end).then_some(range)
+            })
+            .collect())
+    }
+}
+
+impl ScanExecution {
+    fn try_new(
+        file: VortexFile,
+        plan: Arc<PreparedScanPlan>,
+        _ticket: &ScanTicket,
+    ) -> VortexResult<Self> {
+        let session = file.session().clone();
+        let segment_source = file.segment_source();
+        let segment_future_cache = file.scan_plan_segment_future_cache();
+        let reader = ReadContext::new(
+            Arc::new(CachedSegmentSource::new(
+                Arc::clone(&segment_source),
+                Arc::clone(&segment_future_cache),
+            )),
+            session.clone(),
+        );
+
+        let mut prepare_ctx =
+            PrepareCtx::with_state_cache(session.clone(), file.scan_plan_state_cache());
+        let projection = Arc::clone(plan.projection())
+            .prepare_read(&mut prepare_ctx)?
+            .ok_or_else(|| vortex_err!("scan2 could not plan read for pushed projection"))?;
+        let predicates = plan
+            .predicates()
+            .iter()
+            .map(|predicate| {
+                let read = Arc::clone(&predicate.plan)
+                    .prepare_read(&mut prepare_ctx)?
+                    .ok_or_else(|| {
+                        vortex_err!("scan2 could not plan predicate read {}", predicate.expr)
+                    })?;
+                let evidence = Arc::clone(&predicate.plan).prepare_evidence(&mut prepare_ctx)?;
+                let dynamic_updates = DynamicExprUpdates::new(&predicate.expr);
+                Ok(ExecutionPredicate {
+                    id: predicate.id,
+                    expr: predicate.expr.clone(),
                     dynamic_updates,
                     read,
                     evidence,
@@ -1912,40 +1995,35 @@ impl PreparedScanPlanFile {
             })
             .collect::<VortexResult<Vec<_>>>()?;
 
+        let limit_remaining = plan.limit().map(AtomicU64::new);
+
         Ok(Self {
             session,
             reader,
-            dtype,
-            row_range: request
-                .row_range
-                .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?,
-            selection: request.selection,
-            ordered: request.ordered,
-            limit_remaining: request.limit.map(AtomicU64::new),
-            segment_source_id,
-            scheduled_segment_source,
+            plan,
+            limit_remaining,
+            segment_source,
             segment_future_cache,
-            split_hints: normalize_split_hints(split_hints),
-            projection: projection_plan,
+            projection,
             predicates,
         })
     }
 
     fn segment_plan_ctx(&self, phase: ScanIoPhase) -> SegmentPlanCtx {
-        SegmentPlanCtx::new(
-            self.segment_source_id,
-            Arc::clone(&self.scheduled_segment_source),
-            self.session.clone(),
-        )
-        .with_phase(phase)
+        SegmentPlanCtx::new(Arc::clone(&self.segment_source), self.session.clone())
+            .with_phase(phase)
     }
 
-    fn submit_segment_requests(&self, requests: SegmentRequests) -> SubmittedSegmentRequests {
-        submit_segment_requests_cached(
+    fn register_segment_reads(&self, requests: SegmentRequests) -> Vec<ScanRead> {
+        register_segment_reads_cached(
             self.segment_future_cache.as_ref(),
-            self.scheduled_segment_source.as_ref(),
+            self.segment_source.as_ref(),
             requests,
         )
+    }
+
+    fn known_read_bytes(reads: &[ScanRead]) -> u64 {
+        reads.iter().map(|read| read.request.bytes).sum()
     }
 
     fn has_runtime_evidence(&self) -> bool {
@@ -1959,13 +2037,13 @@ impl PreparedScanPlanFile {
         _morsel_id: usize,
         range: Range<u64>,
     ) -> VortexResult<Option<PlannedMorselWork>> {
-        let selected = self.selection.row_mask(&range).mask().clone();
+        let selected = self.plan.selection().row_mask(&range).mask().clone();
         if selected.all_false() {
             return Ok(None);
         }
 
         let state = MorselState {
-            prepared: Arc::clone(self),
+            execution: Arc::clone(self),
             range,
             selected,
             evidence: (0..self.predicates.len()).map(|_| None).collect(),
@@ -1989,7 +2067,6 @@ impl PreparedScanPlanFile {
         mode: EvidenceMode,
     ) -> VortexResult<QueuedWork> {
         let predicate = &self.predicates[predicate_idx];
-        let mut registered = SubmittedSegmentRequests::default();
         let req = OwnedEvidenceRequest {
             id: predicate.id,
             version,
@@ -1997,28 +2074,30 @@ impl PreparedScanPlanFile {
             range: range.clone(),
             mode,
         };
+        let mut known_bytes = 0u64;
         let mut tasks = Vec::with_capacity(predicate.evidence.len());
         for plan in &predicate.evidence {
             if mode == EvidenceMode::RecheckBeforeProjection && !plan.recheck_before_projection() {
                 continue;
             }
-            let task = Arc::clone(plan).begin_evidence(req.clone())?;
             let mut segment_ctx = self.segment_plan_ctx(ScanIoPhase::EvidenceProbe);
-            let requests = task.segment_requests(&mut segment_ctx)?;
-            registered.extend(self.submit_segment_requests(requests));
+            let requests = plan.segment_requests(&req.as_request(), &mut segment_ctx)?;
+            let reads = self.register_segment_reads(requests);
+            known_bytes = known_bytes.saturating_add(Self::known_read_bytes(&reads));
+            let task = Arc::clone(plan).create_task(req.clone(), reads)?;
             tasks.push(task);
         }
 
-        let prepared = Arc::clone(self);
+        let execution = Arc::clone(self);
         Ok(Work::new(
             ScanIoPhase::EvidenceProbe,
             self.session.handle(),
-            registered,
+            known_bytes,
             async move {
-                let predicate = &prepared.predicates[predicate_idx];
+                let predicate = &execution.predicates[predicate_idx];
                 let mut acc = PredicateEvidence::new(predicate.id, version, range.clone())?;
                 for task in tasks {
-                    for fragment in task.evidence(&prepared.reader).await? {
+                    for fragment in task.evidence(&execution.reader).await? {
                         acc.absorb(fragment)?;
                     }
                     if acc.all_false() {
@@ -2052,19 +2131,23 @@ impl PreparedScanPlanFile {
         } else {
             OwnedRowScope::try_new(Mask::new_true(len), need.clone())?
         };
-        let task = Arc::clone(&predicate.read).begin_read(range.clone(), rows)?;
         let mut segment_ctx = self.segment_plan_ctx(ScanIoPhase::PredicateRead);
-        let requests = task.segment_requests(&mut segment_ctx)?;
-        let registered = self.submit_segment_requests(requests);
+        let requests =
+            predicate
+                .read
+                .segment_requests(range.clone(), rows.as_scope(), &mut segment_ctx)?;
+        let reads = self.register_segment_reads(requests);
+        let known_bytes = Self::known_read_bytes(&reads);
+        let task = Arc::clone(&predicate.read).create_task(range.clone(), rows, reads)?;
 
-        let prepared = Arc::clone(self);
+        let execution = Arc::clone(self);
         Ok(Work::new(
             ScanIoPhase::PredicateRead,
             self.session.handle(),
-            registered,
+            known_bytes,
             async move {
-                let predicate = &prepared.predicates[predicate_idx];
-                let mut ctx = prepared.session.create_execution_ctx();
+                let predicate = &execution.predicates[predicate_idx];
+                let mut ctx = execution.session.create_execution_ctx();
                 // Filter-first: when few rows are demanded, read with selection = `need` so the leaf
                 // returns the compacted (filtered) array and an expensive residual (e.g. an FSST
                 // `LIKE`) evaluates over only `need.true_count()` rows. The compacted verdict is
@@ -2072,7 +2155,7 @@ impl PreparedScanPlanFile {
                 // mask identical to the dense path's `result & need`. Mirrors V1's flat-reader gate.
                 let result = if compact {
                     let compact = task
-                        .read(&prepared.reader, &mut ctx)
+                        .read(&execution.reader, &mut ctx)
                         .await?
                         .null_as_false()
                         .execute(&mut ctx)?;
@@ -2086,7 +2169,7 @@ impl PreparedScanPlanFile {
                     need.intersect_by_rank(&compact)
                 } else {
                     task
-                        .read(&prepared.reader, &mut ctx)
+                        .read(&execution.reader, &mut ctx)
                         .await?
                         .null_as_false()
                         .execute(&mut ctx)?
@@ -2140,21 +2223,24 @@ impl PreparedScanPlanFile {
             );
         }
 
-        let task =
-            Arc::clone(&self.projection).begin_read(range, OwnedRowScope::selected(selected))?;
+        let rows = OwnedRowScope::selected(selected);
         let mut segment_ctx = self.segment_plan_ctx(ScanIoPhase::ProjectionRead);
-        let requests = task.segment_requests(&mut segment_ctx)?;
-        let registered = self.submit_segment_requests(requests);
+        let requests =
+            self.projection
+                .segment_requests(range.clone(), rows.as_scope(), &mut segment_ctx)?;
+        let reads = self.register_segment_reads(requests);
+        let known_bytes = Self::known_read_bytes(&reads);
+        let task = Arc::clone(&self.projection).create_task(range, rows, reads)?;
 
-        let prepared = Arc::clone(self);
+        let execution = Arc::clone(self);
         Ok(Some(
             Work::new(
                 ScanIoPhase::ProjectionRead,
                 self.session.handle(),
-                registered,
+                known_bytes,
                 async move {
-                    let mut ctx = prepared.session.create_execution_ctx();
-                    let array = task.read(&prepared.reader, &mut ctx).await?;
+                    let mut ctx = execution.session.create_execution_ctx();
+                    let array = task.read(&execution.reader, &mut ctx).await?;
                     Ok(ProjectionWorkOutput { morsel_id, array })
                 }
                 .boxed(),
@@ -2164,38 +2250,7 @@ impl PreparedScanPlanFile {
     }
 
     fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
-        let mut points = vec![self.row_range.start];
-        if let Some(hints) = &self.split_hints {
-            points.extend(
-                hints
-                    .iter()
-                    .copied()
-                    .filter(|&hint| self.row_range.start < hint && hint < self.row_range.end),
-            );
-        }
-        if points.len() == 1 {
-            let mut next = self
-                .row_range
-                .start
-                .saturating_add(FALLBACK_SPLIT_SIZE)
-                .min(self.row_range.end);
-            while next < self.row_range.end {
-                points.push(next);
-                next = next
-                    .saturating_add(FALLBACK_SPLIT_SIZE)
-                    .min(self.row_range.end);
-            }
-        }
-        points.push(self.row_range.end);
-        points.sort_unstable();
-        points.dedup();
-        Ok(points
-            .windows(2)
-            .filter_map(|window| {
-                let range = window[0]..window[1];
-                (range.start < range.end).then_some(range)
-            })
-            .collect())
+        self.plan.splits()
     }
 }
 

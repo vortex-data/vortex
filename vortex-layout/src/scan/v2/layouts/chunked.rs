@@ -41,7 +41,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_scan::plan::AggregateAnswer;
-use vortex_scan::plan::FileReader;
 use vortex_scan::plan::PrepareCtx;
 use vortex_scan::plan::PreparedAggregate;
 use vortex_scan::plan::PreparedAggregateRef;
@@ -52,6 +51,7 @@ use vortex_scan::plan::PreparedReadRef;
 use vortex_scan::plan::PreparedStateCacheRef;
 use vortex_scan::plan::PreparedStateKey;
 use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::ReadContext;
 use vortex_scan::plan::RowScope;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
@@ -319,7 +319,7 @@ impl ChunkedAggregateNode {
         }
     }
 
-    fn child(&self, idx: usize, io: &FileReader) -> VortexResult<ScanPlanRef> {
+    fn child(&self, idx: usize, io: &ReadContext) -> VortexResult<ScanPlanRef> {
         match self {
             Self::Root(node) => node.child(idx),
             Self::Expr(node) => node.child(idx, io.session()),
@@ -332,7 +332,7 @@ impl ChunkedPreparedAggregate {
         &self,
         idx: usize,
         state: &ChunkedAggregateState,
-        io: &FileReader,
+        io: &ReadContext,
     ) -> VortexResult<Option<(PreparedAggregateRef, ScanStateRef)>> {
         if let Some(hit) = state.children.lock().get(&idx) {
             return Ok(hit.clone());
@@ -359,7 +359,7 @@ impl PreparedAggregate for ChunkedPreparedAggregate {
     fn aggregate_partial<'a>(
         &'a self,
         range: Range<u64>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         state: &'a ScanState,
     ) -> BoxFuture<'a, VortexResult<Option<Vec<AggregateAnswer>>>> {
         Box::pin(async move {
@@ -558,7 +558,7 @@ impl PreparedRead for ChunkedPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local_ctx: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
@@ -837,7 +837,7 @@ impl PreparedRead for ChunkedExprPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         local_ctx: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
@@ -1022,7 +1022,7 @@ impl PreparedEvidence for ChunkedPreparedEvidence {
     fn evidence<'a>(
         &'a self,
         req: &'a EvidenceRequest<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
     ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>> {
         Box::pin(async move {
             if req.range.start >= req.range.end {

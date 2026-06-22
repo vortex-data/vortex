@@ -22,6 +22,7 @@ use vortex_metrics::MetricsRegistry;
 
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
+use crate::segments::SegmentInfo;
 use crate::segments::SegmentSource;
 
 static NEXT_SEGMENT_CACHE_SOURCE_ID: AtomicU64 = AtomicU64::new(0);
@@ -194,6 +195,10 @@ impl SegmentCacheSourceAdapter {
 }
 
 impl SegmentSource for SegmentCacheSourceAdapter {
+    fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
+        self.source.segment_info(id)
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let key = SegmentCacheKey::new(self.source_id, id);
         let cache = Arc::clone(&self.cache);

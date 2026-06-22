@@ -23,6 +23,7 @@ use vortex_io::VortexReadAt;
 use vortex_io::runtime::Handle;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
+use vortex_layout::segments::SegmentInfo;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
@@ -147,6 +148,13 @@ impl FileSegmentSource {
 }
 
 impl SegmentSource for FileSegmentSource {
+    fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
+        self.segments
+            .get(*id as usize)
+            .map(|spec| SegmentInfo::cacheable(u64::from(spec.length)))
+            .ok_or_else(|| vortex_err!("Missing segment: {}", id))
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         // We eagerly register the read request here assuming the behaviour of [`FileSegmentSource`], where
         // coalescing becomes effective prior to the future being polled.
@@ -283,6 +291,13 @@ impl BufferSegmentSource {
 }
 
 impl SegmentSource for BufferSegmentSource {
+    fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
+        self.segments
+            .get(*id as usize)
+            .map(|spec| SegmentInfo::cacheable(u64::from(spec.length)))
+            .ok_or_else(|| vortex_err!("Missing segment: {}", id))
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let spec = match self.segments.get(*id as usize) {
             Some(spec) => spec,

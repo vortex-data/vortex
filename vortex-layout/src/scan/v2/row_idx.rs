@@ -24,11 +24,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_scan::plan::ApplyScanPlan;
-use vortex_scan::plan::FileReader;
 use vortex_scan::plan::PrepareCtx;
 use vortex_scan::plan::PreparedRead;
 use vortex_scan::plan::PreparedReadRef;
 use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::ReadContext;
 use vortex_scan::plan::RowScope;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
@@ -246,7 +246,7 @@ impl PreparedRead for RowIdxPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        _io: &'a FileReader,
+        _io: &'a ReadContext,
         local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {

@@ -26,12 +26,12 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scan::plan::FileReader;
 use vortex_scan::plan::PrepareCtx;
 use vortex_scan::plan::PreparedRead;
 use vortex_scan::plan::PreparedReadRef;
 use vortex_scan::plan::PreparedStateKey;
 use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::ReadContext;
 use vortex_scan::plan::RowScope;
 use vortex_scan::plan::ScanPlan;
 use vortex_scan::plan::ScanPlanRef;
@@ -78,7 +78,7 @@ struct FlatPreparedRead {
 }
 
 impl FlatScanPlan {
-    fn array(&self, io: &FileReader, state: &FlatScanState) -> SharedArrayFuture {
+    fn array(&self, io: &ReadContext, state: &FlatScanState) -> SharedArrayFuture {
         if let Some(hit) = state.array.lock().clone() {
             return hit;
         }
@@ -141,7 +141,7 @@ impl PreparedRead for FlatPreparedRead {
         &'a self,
         range: Range<u64>,
         rows: RowScope<'a>,
-        io: &'a FileReader,
+        io: &'a ReadContext,
         _local: &'a mut ExecutionCtx,
     ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
         Box::pin(async move {
@@ -202,7 +202,7 @@ impl PreparedRead for FlatPreparedRead {
     }
 }
 
-pub(crate) async fn decode_flat(layout: &LayoutRef, io: &FileReader) -> VortexResult<ArrayRef> {
+pub(crate) async fn decode_flat(layout: &LayoutRef, io: &ReadContext) -> VortexResult<ArrayRef> {
     let Some(flat) = layout.as_opt::<Flat>() else {
         vortex_bail!("expected flat layout, got {}", layout.encoding_id());
     };

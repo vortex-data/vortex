@@ -24,9 +24,6 @@ use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
-use vortex_layout::segments::ScheduledSegmentSource;
-use vortex_layout::segments::ScheduledSegmentSourceAdapter;
-use vortex_layout::segments::SegmentInfo;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
 use vortex_scan::ScanRequest;
@@ -53,8 +50,6 @@ pub struct VortexFile {
     footer: Footer,
     /// The segment source used to read segments from this file.
     segment_source: Arc<dyn SegmentSource>,
-    /// Scheduled view of the same segment source.
-    scheduled_segment_source: Arc<dyn ScheduledSegmentSource>,
     /// The Vortex session used to open this file.
     session: VortexSession,
     /// None id LayoutReader caching is turned off
@@ -95,19 +90,9 @@ impl VortexFile {
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
     ) -> Self {
-        let segment_infos: Arc<[SegmentInfo]> = footer
-            .segment_map()
-            .iter()
-            .map(|segment| SegmentInfo::cacheable(u64::from(segment.length)))
-            .collect::<Vec<_>>()
-            .into();
-        let scheduled_segment_source: Arc<dyn ScheduledSegmentSource> = Arc::new(
-            ScheduledSegmentSourceAdapter::new(Arc::clone(&segment_source), segment_infos),
-        );
         Self {
             footer,
             segment_source,
-            scheduled_segment_source,
             session,
             layout_reader_cache: None,
             scan_plan_root_cache: Arc::new(OnceLock::new()),
@@ -121,7 +106,6 @@ impl VortexFile {
         Self {
             footer: self.footer,
             segment_source: self.segment_source,
-            scheduled_segment_source: self.scheduled_segment_source,
             session: self.session,
             layout_reader_cache: Some(OnceLock::new()),
             scan_plan_root_cache: self.scan_plan_root_cache,
@@ -158,11 +142,6 @@ impl VortexFile {
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
         Arc::clone(&self.segment_source)
-    }
-
-    /// Return the scheduler-aware segment source for this file.
-    pub fn scheduled_segment_source(&self) -> Arc<dyn ScheduledSegmentSource> {
-        Arc::clone(&self.scheduled_segment_source)
     }
 
     /// Returns a reference to the Vortex session used to open this file.

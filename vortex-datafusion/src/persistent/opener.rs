@@ -685,7 +685,7 @@ fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Ar
 const SCAN_FALLBACK_SPLIT_SIZE: u64 = 100_000;
 
 /// Compute the V2 scan's morsel ranges for a file: the row ranges the scan reads as independent
-/// units. Mirrors `PreparedScanPlanFile::splits` — the read plan's chunk hints when the read
+/// units. Mirrors `PreparedScanPlan::splits` — the read plan's chunk hints when the read
 /// columns are chunked, otherwise the 100k-row fallback for single-chunk columns. These are the
 /// units `split_aligned_row_range` distributes across DataFusion's byte-range partitions; using the
 /// scan's own morsels (rather than coarse chunk boundaries) keeps every morsel within one partition,
