@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -10,13 +9,11 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Filter;
-use crate::arrays::Slice;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::filter::FilterArrayExt;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::filter::FilterReduceAdaptor;
-use crate::arrays::slice::SliceArrayExt;
 use crate::arrays::struct_::StructDataParts;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -26,7 +23,7 @@ pub(super) const PARENT_RULES: ParentRuleSet<Filter> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&FilterReduceAdaptor(Filter))]);
 
 pub(super) const RULES: ReduceRuleSet<Filter> =
-    ReduceRuleSet::new(&[&TrivialFilterRule, &FilterSliceRule, &FilterStructRule]);
+    ReduceRuleSet::new(&[&TrivialFilterRule, &FilterStructRule]);
 
 impl FilterReduce for Filter {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
@@ -47,32 +44,6 @@ impl ArrayReduceRule<Filter> for TrivialFilterRule {
             Mask::AllFalse(_) => Ok(Some(Canonical::empty(array.dtype()).into_array())),
             Mask::Values(_) => Ok(None),
         }
-    }
-}
-
-/// A reduce rule that pushes a filter through a slice by expanding the
-/// slice-local mask back into the child row domain.
-#[derive(Debug)]
-struct FilterSliceRule;
-
-impl ArrayReduceRule<Filter> for FilterSliceRule {
-    fn reduce(&self, array: ArrayView<'_, Filter>) -> VortexResult<Option<ArrayRef>> {
-        let mask = array.filter_mask();
-        let Some(slice) = array.child().as_opt::<Slice>() else {
-            return Ok(None);
-        };
-        let range = slice.slice_range();
-        let child_len = slice.child().len();
-        let child_mask = match mask.indices() {
-            AllOr::All => Mask::from_slices(child_len, vec![(range.start, range.end)]),
-            AllOr::None => Mask::new_false(child_len),
-            AllOr::Some(indices) => Mask::from_indices(
-                child_len,
-                indices.iter().copied().map(|idx| range.start + idx),
-            ),
-        };
-
-        Ok(Some(slice.child().filter(child_mask)?))
     }
 }
 

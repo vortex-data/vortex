@@ -27,6 +27,7 @@ pub mod row_mask;
 pub mod scheduler;
 pub mod segments;
 pub mod selection;
+pub mod task;
 
 use std::any::Any;
 use std::ops::Range;
@@ -46,6 +47,7 @@ pub use scheduler::WorkPermit;
 pub use scheduler::WorkRequest;
 pub use segments::*;
 use selection::Selection;
+pub use task::*;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;

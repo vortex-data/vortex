@@ -1275,6 +1275,51 @@ impl PreparedRead for MaskPreparedRead {
     }
 }
 
+/// Static cost class for a predicate-evidence provider.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EvidenceCost {
+    /// Cheap metadata evidence, such as zone maps.
+    Metadata,
+    /// Index-like evidence that may touch more state than metadata but avoids row decoding.
+    Index,
+    /// Evidence that performs row-level compute.
+    Compute,
+    /// Evidence with unknown cost.
+    Unknown,
+}
+
+/// Natural execution scope for a predicate-evidence provider.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EvidenceScope {
+    /// Evidence is produced independently for each morsel range.
+    #[default]
+    Morsel,
+    /// Evidence is produced over the scan row domain and consumed by many morsels.
+    Scan,
+}
+
+impl EvidenceCost {
+    /// Convert this cost class and estimated read bytes into a scheduling priority.
+    ///
+    /// Lower priorities run first. The returned value is intentionally coarse; runtime selectivity
+    /// feedback should dominate once a lane has observations.
+    pub fn priority(self, read_bytes: u64, dynamic_recheck: bool) -> u64 {
+        let base = match self {
+            Self::Metadata => 1_000,
+            Self::Index => 10_000,
+            Self::Unknown => 100_000,
+            Self::Compute => 1_000_000,
+        };
+        let read_penalty = read_bytes / 1024;
+        let priority = base + read_penalty;
+        if dynamic_recheck {
+            priority / 2
+        } else {
+            priority
+        }
+    }
+}
+
 /// Prepared predicate evidence for one predicate expression.
 pub trait PreparedEvidence: 'static + Send + Sync {
     /// Produce evidence for the prepared predicate over `req.range`.
@@ -1298,6 +1343,16 @@ pub trait PreparedEvidence: 'static + Send + Sync {
     /// the morsel is in flight.
     fn recheck_before_projection(&self) -> bool {
         false
+    }
+
+    /// Static cost class used by the scan scheduler when ordering evidence tasks.
+    fn cost(&self, _req: &EvidenceRequest<'_>) -> EvidenceCost {
+        EvidenceCost::Unknown
+    }
+
+    /// Return the natural execution scope for this evidence provider.
+    fn scope(&self) -> EvidenceScope {
+        EvidenceScope::Morsel
     }
 
     /// Compact description for plan display.

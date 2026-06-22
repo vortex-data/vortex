@@ -11,9 +11,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use rustc_hash::FxHashMap;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
 use vortex_array::expr::get_item;
 use vortex_array::expr::is_root;
@@ -39,7 +39,6 @@ use vortex_scan::plan::literal_scan_plan;
 use vortex_scan::plan::request::ScanRequest;
 use vortex_session::VortexSession;
 
-use crate::LayoutChildType;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
 use crate::layout_v2::Struct;
@@ -60,10 +59,15 @@ pub(crate) fn new_scan_plan(
                 .new_scan_plan(&mut ScanRequest::empty(), session)
         })
         .transpose()?;
+    let fields = struct_fields(layout.dtype())?;
+    let children = Mutex::new(vec![None; fields.nfields()]);
+    let field_child_offset = usize::from(layout.dtype().is_nullable());
     Ok(Arc::new(StructScanPlan {
         layout: layout.to_layout(),
         session: session.clone(),
-        children: Mutex::new(FxHashMap::default()),
+        fields,
+        children,
+        field_child_offset,
         validity,
     }))
 }
@@ -72,7 +76,9 @@ pub(crate) fn new_scan_plan(
 pub struct StructScanPlan {
     layout: LayoutRef,
     session: VortexSession,
-    children: Mutex<FxHashMap<FieldName, ScanPlanRef>>,
+    fields: StructFields,
+    children: Mutex<Vec<Option<ScanPlanRef>>>,
+    field_child_offset: usize,
     validity: Option<ScanPlanRef>,
 }
 
@@ -86,7 +92,7 @@ impl ScanPlan for StructScanPlan {
         expr: &Expression,
         cx: &mut PushCtx,
     ) -> VortexResult<Option<ScanPlanRef>> {
-        let scope = struct_fields(self.layout.dtype())?;
+        let scope = &self.fields;
         if let Some(literal) = literal_scan_plan(expr, self.layout.row_count()) {
             return Ok(Some(literal));
         }
@@ -149,29 +155,52 @@ impl StructScanPlan {
     }
 
     fn child_field(&self, name: &FieldName) -> VortexResult<ScanPlanRef> {
-        if let Some(hit) = self.children.lock().get(name) {
+        let Some(field_idx) = self.fields.find(name) else {
+            vortex_bail!("field {name} not found in struct layout")
+        };
+        self.child_field_by_index(field_idx, name)
+    }
+
+    fn child_field_by_index(
+        &self,
+        field_idx: usize,
+        name: &FieldName,
+    ) -> VortexResult<ScanPlanRef> {
+        let mut children = self.children.lock();
+        let Some(slot) = children.get_mut(field_idx) else {
+            vortex_bail!("field {name} not found in struct layout")
+        };
+        if let Some(hit) = slot {
             return Ok(Arc::clone(hit));
         }
-        for idx in 0..self.layout.nchildren() {
-            if let Ok(LayoutChildType::Field(field)) = self.layout.child_type(idx)
-                && field == *name
-            {
-                let child = self
-                    .layout
-                    .child(idx)?
-                    .new_scan_plan(&mut ScanRequest::empty(), &self.session)?;
-                let mut children = self.children.lock();
-                return Ok(Arc::clone(children.entry(name.clone()).or_insert(child)));
-            }
-        }
-        vortex_bail!("field {name} not found in struct layout")
+
+        let child_idx = field_idx + self.field_child_offset;
+        let child = self
+            .layout
+            .child(child_idx)?
+            .new_scan_plan(&mut ScanRequest::empty(), &self.session)?;
+        *slot = Some(Arc::clone(&child));
+        Ok(child)
     }
 
     fn push_struct(&self, names: FieldNames, cx: &mut PushCtx) -> VortexResult<ScanPlanRef> {
+        let field_indices = if names == self.fields.names() {
+            (0..names.len()).collect::<Vec<_>>()
+        } else {
+            names
+                .iter()
+                .map(|name| {
+                    self.fields
+                        .find(name)
+                        .ok_or_else(|| vortex_error::vortex_err!("field {name} not found"))
+                })
+                .collect::<VortexResult<Vec<_>>>()?
+        };
         let fields = names
             .iter()
-            .map(|name| {
-                let child = self.child_field(name)?;
+            .zip(field_indices)
+            .map(|(name, field_idx)| {
+                let child = self.child_field_by_index(field_idx, name)?;
                 child
                     .try_push_expr(&root(), cx)?
                     .ok_or_else(|| vortex_error::vortex_err!("field {name} did not push root"))

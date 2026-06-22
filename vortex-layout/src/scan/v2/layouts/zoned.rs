@@ -43,6 +43,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_scan::plan::AggregateAnswer;
+use vortex_scan::plan::EvidenceCost;
+use vortex_scan::plan::EvidenceScope;
 use vortex_scan::plan::PrepareCtx;
 use vortex_scan::plan::PreparedAggregate;
 use vortex_scan::plan::PreparedAggregateRef;
@@ -684,6 +686,14 @@ impl PreparedEvidence for ZonedPreparedEvidence {
 
     fn recheck_before_projection(&self) -> bool {
         true
+    }
+
+    fn cost(&self, _req: &EvidenceRequest<'_>) -> EvidenceCost {
+        EvidenceCost::Metadata
+    }
+
+    fn scope(&self) -> EvidenceScope {
+        EvidenceScope::Scan
     }
 
     fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
