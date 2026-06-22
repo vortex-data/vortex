@@ -477,12 +477,12 @@ mod tests {
             Some("another string"),
         ]);
 
-        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?;
+        let zstd_array =
+            Zstd::from_var_bin_view(&strings, 3, 0, cuda_ctx.execution_ctx())?.into_array();
 
         // execute_cuda should fall back to CPU and still produce the correct result.
         let gpu_result = zstd_array
             .clone()
-            .into_array()
             .execute_cuda(&mut cuda_ctx)
             .await?
             .into_host()

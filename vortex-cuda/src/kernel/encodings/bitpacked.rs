@@ -600,13 +600,14 @@ mod tests {
         #[case] expected_offset: u16,
         #[case] expected_packed_len: usize,
     ) -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let values = PrimitiveArray::new(
             (0u16..4096)
                 .map(|i| if i % 1000 == 0 { 600 } else { i % 512 })
                 .collect::<Buffer<_>>(),
             NonNullable,
-        );
-        let bitpacked = BitPacked::encode(&values.into_array(), 9, &mut ctx)?;
+        ).into_array();
+        let bitpacked = BitPacked::encode(&values, 9, &mut ctx)?;
         assert!(bitpacked.patches().is_some());
         let array = if let Some(range) = range {
             bitpacked.into_array().slice(range)?
@@ -658,7 +659,7 @@ mod tests {
                 .map(|a| a.into_array())
         })?;
 
-        assert_arrays_eq!(cpu_result, gpu_result, &mut ctx);
+        assert_arrays_eq!(sliced_array, gpu_result, &mut ctx);
 
         Ok(())
     }
