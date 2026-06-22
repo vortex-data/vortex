@@ -440,8 +440,8 @@ fn bench_zstd_compress_string(bencher: Bencher) {
     let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| (varbinview_arr, SESSION.create_execution_ctx()))
-        .bench_values(|(a, mut ctx)| ZstdData::from_array(a, 3, 8192, &mut ctx).unwrap());
+        .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| ZstdData::from_array(a, 3, 8192, ctx).unwrap());
 }
 
 #[cfg(feature = "zstd")]
@@ -468,5 +468,5 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
+        .bench_refs(|(a, ctx)| canonicalize(a.clone(), ctx));
 }
