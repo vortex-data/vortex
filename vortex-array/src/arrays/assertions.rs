@@ -10,7 +10,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
-use crate::aggregate_fn::fns::all_non_distinct::all_non_distinct;
 
 fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display {
     indices.into_iter().format(",")
@@ -118,14 +117,10 @@ macro_rules! assert_arrays_eq {
 pub fn assert_arrays_eq_impl(left: &ArrayRef, right: &ArrayRef, ctx: &mut ExecutionCtx) {
     let executed = execute_to_canonical(left.clone(), ctx);
 
-    let left_right_the_same =
-        all_non_distinct(left, right, ctx).vortex_expect("failed to compare left and right");
-    let executed_right_the_same = all_non_distinct(&executed, right, ctx)
-        .vortex_expect("failed to compare executed left and right");
+    let left_right = find_mismatched_indices(left, right, ctx);
+    let executed_right = find_mismatched_indices(&executed, right, ctx);
 
-    if !left_right_the_same || !executed_right_the_same {
-        let left_right = find_mismatched_indices(left, right, ctx);
-        let executed_right = find_mismatched_indices(&executed, right, ctx);
+    if !left_right.is_empty() || !executed_right.is_empty() {
         let mut msg = String::new();
         if !left_right.is_empty() {
             msg.push_str(&format!(
