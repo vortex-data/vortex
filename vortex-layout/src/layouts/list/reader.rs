@@ -26,6 +26,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -295,7 +296,7 @@ impl LayoutReader for ListReader {
         _expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        // All stats based pruning should already be done upstream
+        // All stats-based pruning should already be done upstream.
         Ok(MaskFuture::ready(mask))
     }
 

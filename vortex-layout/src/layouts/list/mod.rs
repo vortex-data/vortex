@@ -15,7 +15,7 @@ use vortex_array::dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -75,12 +75,11 @@ impl VTable for List {
     }
 
     fn nchildren(layout: &Self::Layout) -> usize {
-        let mut n = NUM_CHILDREN_NON_NULLABLE;
         if layout.dtype.is_nullable() {
-            n += 1;
+            NUM_CHILDREN_NON_NULLABLE + 1
+        } else {
+            NUM_CHILDREN_NON_NULLABLE
         }
-
-        n
     }
 
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
@@ -172,19 +171,14 @@ impl VTable for List {
 }
 
 /// Validates expected number of children based on `dtype`
-#[inline]
 fn validate_children(dtype: &DType, n_children: usize) -> VortexResult<()> {
-    let mut expected = NUM_CHILDREN_NON_NULLABLE;
-
-    if dtype.is_nullable() {
-        expected += 1;
+    let expected = if dtype.is_nullable() {
+        NUM_CHILDREN_NON_NULLABLE + 1
+    } else {
+        NUM_CHILDREN_NON_NULLABLE
     };
 
-    vortex_ensure!(
-        n_children == expected,
-        "ListLayout expects {expected} children, got {n_children}",
-    );
-
+    vortex_ensure_eq!(n_children, expected);
     Ok(())
 }
 
