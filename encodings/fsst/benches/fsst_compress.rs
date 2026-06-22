@@ -9,7 +9,8 @@ use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex_array::{ArrayRef, Canonical};
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
@@ -67,7 +68,9 @@ fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usi
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let mut ctx = SESSION.create_execution_ctx();
     let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
-    let encoded = fsst_compress(&array, &compressor, &mut ctx).unwrap().into_array();
+    let encoded = fsst_compress(&array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array();
 
     bencher
         .with_inputs(|| (&encoded, SESSION.create_execution_ctx()))
@@ -88,7 +91,9 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
     let len = array.len();
     let mut ctx = SESSION.create_execution_ctx();
     let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
-    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap().into_array();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array();
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), len);
 
     bencher
@@ -112,7 +117,9 @@ fn canonicalize_compare(
     let len = array.len();
     let mut ctx = SESSION.create_execution_ctx();
     let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
-    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap().into_array();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array();
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), len);
 
     bencher
@@ -196,7 +203,8 @@ fn generate_test_data(string_count: usize, avg_len: usize, unique_chars: u8) -> 
             .into_iter()
             .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
         DType::Binary(Nullability::NonNullable),
-    ).into_array()
+    )
+    .into_array()
 }
 
 fn generate_chunked_test_data(
