@@ -19,8 +19,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
-use vortex_session::registry::ReadContext;
 
+use crate::LayoutBuildContext;
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
@@ -124,7 +124,7 @@ impl VTable for List {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: &ReadContext,
+        _ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<Self::Layout> {
         validate_children(dtype, children.nchildren())?;
 
