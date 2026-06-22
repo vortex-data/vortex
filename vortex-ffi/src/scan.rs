@@ -454,6 +454,7 @@ mod tests {
     use vortex::array::arrays::StructArray;
     use vortex::session::VortexSession;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
 
@@ -532,19 +533,19 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_no_options() {
-        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let (array, struct_array) = scan(ptr::null());
-        assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut assertion_ctx);
+        assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_project_all() {
-        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let opts = vx_scan_options::default();
         let (array, struct_array) = scan(&raw const opts);
-        assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut assertion_ctx);
+        assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
     }
 
@@ -552,7 +553,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_project_single_field() {
         unsafe {
-            let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+            let mut ctx = array_session().create_execution_ctx();
             let root = vx_expression_root();
             let mut opts = vx_scan_options::default();
 
@@ -564,7 +565,7 @@ mod tests {
                 assert_arrays_eq!(
                     vx_array::as_ref(array),
                     struct_array.unmasked_field_by_name(field).unwrap(),
-                    &mut assertion_ctx
+                    &mut ctx
                 );
                 vx_array_free(array);
                 vx_expression_free(field_expr);
@@ -714,13 +715,13 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_ordered() {
-        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let opts = vx_scan_options {
             ordered: true,
             ..Default::default()
         };
         let (array, struct_array) = scan(&raw const opts);
-        assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut assertion_ctx);
+        assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
     }
 

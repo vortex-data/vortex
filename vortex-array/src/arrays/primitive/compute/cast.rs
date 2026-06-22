@@ -270,9 +270,11 @@ mod test {
     use vortex_error::VortexError;
     use vortex_mask::Mask;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
@@ -286,17 +288,13 @@ mod test {
 
     #[test]
     fn cast_u32_u8() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arr = buffer![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
         #[expect(deprecated)]
         let p = arr.cast(PType::U8.into()).unwrap().to_primitive();
-        assert_arrays_eq!(
-            p,
-            PrimitiveArray::from_iter([0u8, 10, 200]),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]), &mut ctx);
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable
@@ -309,7 +307,7 @@ mod test {
         assert_arrays_eq!(
             p,
             PrimitiveArray::new(buffer![0u8, 10, 200], Validity::AllValid),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
@@ -320,11 +318,7 @@ mod test {
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
             .to_primitive();
-        assert_arrays_eq!(
-            p,
-            PrimitiveArray::from_iter([0u8, 10, 200]),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]), &mut ctx);
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable u32
@@ -337,7 +331,7 @@ mod test {
         assert_arrays_eq!(
             p,
             PrimitiveArray::new(buffer![0u32, 10, 200], Validity::AllValid),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
@@ -348,24 +342,20 @@ mod test {
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
             .to_primitive();
-        assert_arrays_eq!(
-            p,
-            PrimitiveArray::from_iter([0u8, 10, 200]),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]), &mut ctx);
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
     }
 
     #[test]
     fn cast_u32_f32() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arr = buffer![0u32, 10, 200].into_array();
         #[expect(deprecated)]
         let u8arr = arr.cast(PType::F32.into()).unwrap().to_primitive();
         assert_arrays_eq!(
             u8arr,
             PrimitiveArray::from_iter([0.0f32, 10., 200.]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
@@ -400,7 +390,7 @@ mod test {
 
     #[test]
     fn cast_with_invalid_nulls() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![-1i32, 0, 10],
             Validity::from_iter([false, true, true]),
@@ -414,7 +404,7 @@ mod test {
         assert_arrays_eq!(
             p,
             PrimitiveArray::from_option_iter([None, Some(0u32), Some(10)]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_eq!(
             p.as_ref()
@@ -430,7 +420,7 @@ mod test {
     /// buffer without allocation (pointer identity).
     #[test]
     fn cast_same_width_int_reinterprets_buffer() -> vortex_error::VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let src = PrimitiveArray::from_iter([0u32, 10, 100]);
         let src_ptr = src.as_slice::<u32>().as_ptr();
 
@@ -440,11 +430,7 @@ mod test {
 
         // Zero-copy: the data pointer should be identical.
         assert_eq!(src_ptr as usize, dst_ptr as usize);
-        assert_arrays_eq!(
-            dst,
-            PrimitiveArray::from_iter([0i32, 10, 100]),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(dst, PrimitiveArray::from_iter([0i32, 10, 100]), &mut ctx);
         Ok(())
     }
 
@@ -480,7 +466,7 @@ mod test {
     /// not prevent the cast from succeeding.
     #[test]
     fn cast_same_width_int_nullable_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // The null position holds u32::MAX which doesn't fit in i32, but it's
         // masked as invalid so the cast should still succeed via reinterpret.
         let arr = PrimitiveArray::new(
@@ -495,14 +481,14 @@ mod test {
         assert_arrays_eq!(
             casted,
             PrimitiveArray::from_option_iter([None, Some(0i32), Some(42)]),
-            &mut assertion_ctx
+            &mut ctx
         );
         Ok(())
     }
 
     #[test]
     fn cast_u32_to_u8_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![1000u32, 10u32, 42u32],
             Validity::from_iter([false, true, true]),
@@ -515,7 +501,7 @@ mod test {
         assert_arrays_eq!(
             casted,
             PrimitiveArray::from_option_iter([None, Some(10u8), Some(42)]),
-            &mut assertion_ctx
+            &mut ctx
         );
         Ok(())
     }
@@ -536,7 +522,7 @@ mod test {
     #[case(PrimitiveArray::from_option_iter([Some(1u8), None, Some(255), Some(0), None]).into_array())]
     #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(-100), Some(0), None]).into_array())]
     #[case(buffer![42u32].into_array())]
-    fn test_cast_primitive_conformance(#[case] array: crate::ArrayRef) {
+    fn test_cast_primitive_conformance(#[case] array: ArrayRef) {
         test_cast_conformance(&array);
     }
 }

@@ -89,6 +89,7 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -105,11 +106,10 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
     #[test]
     fn stat_expr_reads_cached_sum() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = buffer![1i32, 2, 3].into_array();
         let sum_scalar = Scalar::primitive(6i64, Nullability::Nullable);
         array.statistics().set(
@@ -124,14 +124,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::primitive(6i64, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_returns_null_when_sum_is_missing() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = buffer![1i32, 2, 3].into_array();
 
         let result = array
@@ -144,14 +143,13 @@ mod tests {
             3,
         )
         .into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_reads_cached_sum_per_chunk() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let chunk0 = buffer![1i32, 2].into_array();
         let sum_scalar = Scalar::primitive(3i64, Nullability::Nullable);
         chunk0.statistics().set(
@@ -180,14 +178,13 @@ mod tests {
             Validity::from_iter([true, true, false, false, false]),
         )
         .into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_reads_cached_null_count() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None]).into_array();
         let null_count_scalar = Scalar::primitive(2u64, Nullability::NonNullable);
@@ -207,14 +204,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::primitive(2u64, Nullability::Nullable), 4).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_reads_cached_all_null_from_null_count() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]).into_array();
         array
             .statistics()
@@ -227,14 +223,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_reads_cached_all_null_false_from_inexact_low_null_count() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, Some(2), None]).into_array();
         array
             .statistics()
@@ -247,14 +242,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(false, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_returns_null_for_inexact_full_null_count_as_all_null() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, Some(2), None]).into_array();
         array
             .statistics()
@@ -267,14 +261,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_reads_cached_all_non_null_from_null_count() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = buffer![1i32, 2, 3].into_array();
         array
             .statistics()
@@ -287,14 +280,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_reads_cached_all_non_null_true_from_inexact_zero_null_count() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = buffer![1i32, 2, 3].into_array();
         array
             .statistics()
@@ -307,14 +299,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_returns_null_for_inexact_nonzero_null_count_as_all_non_null() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None]).into_array();
         array
@@ -328,7 +319,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 4).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -348,7 +339,6 @@ mod tests {
 
     #[test]
     fn stat_expr_reads_cached_all_nan_from_nan_count() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array =
             PrimitiveArray::from_option_iter([Some(f32::NAN), Some(f32::NAN), Some(f32::NAN)])
                 .into_array();
@@ -363,14 +353,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_reads_cached_all_nan_false_from_inexact_low_nan_count() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array =
             PrimitiveArray::from_option_iter([Some(f32::NAN), Some(1.0f32), Some(f32::NAN)])
                 .into_array();
@@ -385,14 +374,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(false, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_returns_null_for_inexact_full_nan_count_as_all_nan() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array =
             PrimitiveArray::from_option_iter([Some(f32::NAN), Some(1.0f32), Some(f32::NAN)])
                 .into_array();
@@ -407,14 +395,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_reads_cached_all_non_nan_true_from_inexact_zero_nan_count() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = buffer![1.0f32, 2.0, 3.0].into_array();
         array
             .statistics()
@@ -427,14 +414,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_returns_null_for_inexact_nonzero_nan_count_as_all_non_nan() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = PrimitiveArray::from_option_iter([Some(1.0f32), Some(f32::NAN), Some(3.0)])
             .into_array();
         array
@@ -448,14 +434,13 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 3).into_array();
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
 
     #[test]
     fn stat_expr_reads_cached_min_and_max() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
         let array = buffer![3i32, 1, 2].into_array();
         array
             .statistics()
@@ -476,7 +461,11 @@ mod tests {
             .into_array();
         let expected_min =
             ConstantArray::new(Scalar::primitive(1i32, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(min_result, expected_min, &mut assertion_ctx);
+        assert_arrays_eq!(
+            min_result,
+            expected_min,
+            &mut SESSION.create_execution_ctx()
+        );
 
         let max_result = array
             .apply(&stat(
@@ -489,7 +478,11 @@ mod tests {
             .into_array();
         let expected_max =
             ConstantArray::new(Scalar::primitive(3i32, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(max_result, expected_max, &mut assertion_ctx);
+        assert_arrays_eq!(
+            max_result,
+            expected_max,
+            &mut SESSION.create_execution_ctx()
+        );
 
         Ok(())
     }

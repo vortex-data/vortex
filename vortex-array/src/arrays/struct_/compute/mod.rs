@@ -22,6 +22,7 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::fns::is_constant::is_constant;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -40,7 +41,7 @@ mod tests {
 
     #[test]
     fn take_empty_struct() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
@@ -54,7 +55,7 @@ mod tests {
                 2,
                 Validity::from_iter([true, false])
             ),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
@@ -94,7 +95,7 @@ mod tests {
 
     #[test]
     fn take_field_struct() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let struct_arr =
             StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).into_array())])
                 .unwrap();
@@ -107,7 +108,7 @@ mod tests {
                 Validity::from_iter([true, false])
             )
             .unwrap(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 

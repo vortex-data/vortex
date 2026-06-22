@@ -441,6 +441,7 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::listview::ListViewArrayExt;
@@ -529,7 +530,7 @@ mod tests {
 
     #[test]
     fn test_different_offset_size_types() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Test u32 offsets with u8 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
@@ -564,14 +565,14 @@ mod tests {
         assert_arrays_eq!(
             listview.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([1i32, 2]),
-            &mut assertion_ctx
+            &mut ctx
         );
 
         // Verify second list: [3, 4, 5].
         assert_arrays_eq!(
             listview.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([3i32, 4, 5]),
-            &mut assertion_ctx
+            &mut ctx
         );
 
         // Test u64 offsets with u16 sizes.
@@ -595,7 +596,7 @@ mod tests {
             assert_arrays_eq!(
                 listview2.list_elements_at(i as usize).unwrap(),
                 PrimitiveArray::from_iter([i * 10]),
-                &mut assertion_ctx
+                &mut ctx
             );
         }
     }

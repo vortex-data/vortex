@@ -472,7 +472,7 @@ mod test {
         #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         block_on(|_h| async {
-            let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+            let mut ctx = SESSION.create_execution_ctx();
             let result = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()
@@ -486,7 +486,7 @@ mod test {
                 .unwrap();
 
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
-            assert_arrays_eq!(result, expected, &mut assertion_ctx);
+            assert_arrays_eq!(result, expected, &mut ctx);
         })
     }
 }

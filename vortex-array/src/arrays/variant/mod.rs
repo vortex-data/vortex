@@ -90,6 +90,7 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -379,7 +380,7 @@ mod tests {
 
     #[test]
     fn variant_get_keeps_valid_shredded_rows_for_matching_dtype() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let core_storage = row_storage([1, 2, 3])?;
         let shredded = StructArray::try_from_iter([(
             "a",
@@ -400,14 +401,14 @@ mod tests {
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),
-            &mut assertion_ctx
+            &mut ctx
         );
         Ok(())
     }
 
     #[test]
     fn variant_get_treats_value_and_typed_value_as_logical_field_names() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let core_storage = row_storage([1, 2, 3])?;
         let shredded = StructArray::try_from_iter([
             (
@@ -434,7 +435,7 @@ mod tests {
         assert_arrays_eq!(
             value_result,
             PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),
-            &mut assertion_ctx
+            &mut ctx
         );
 
         let typed_value_expr = variant_get(
@@ -449,7 +450,7 @@ mod tests {
         assert_arrays_eq!(
             typed_value_result,
             PrimitiveArray::from_option_iter([Some(40i32), Some(50), Some(60)]),
-            &mut assertion_ctx
+            &mut ctx
         );
         Ok(())
     }

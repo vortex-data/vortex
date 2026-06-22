@@ -31,6 +31,7 @@ mod tests {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
@@ -47,7 +48,7 @@ mod tests {
 
     #[test]
     fn test_slice() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
         #[expect(deprecated)]
         let sliced_arr = arr.into_array().slice(1..4).unwrap().to_bool();
@@ -55,7 +56,7 @@ mod tests {
         assert_arrays_eq!(
             sliced_arr,
             BoolArray::from_iter([Some(true), None, Some(false)]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 }

@@ -8,6 +8,7 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
@@ -24,7 +25,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_project() {
-    let mut assertion_ctx = crate::array_session().create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
     let ys = VarBinArray::from_vec(
         vec!["a", "b", "c", "d", "e"],
@@ -54,20 +55,20 @@ fn test_project() {
     assert_arrays_eq!(
         bools,
         BoolArray::from_iter([true, true, true, false, false]),
-        &mut assertion_ctx
+        &mut ctx
     );
 
     let prims = struct_b.unmasked_field(1);
     assert_arrays_eq!(
         prims,
         PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]),
-        &mut assertion_ctx
+        &mut ctx
     );
 }
 
 #[test]
 fn test_remove_column() {
-    let mut assertion_ctx = crate::array_session().create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
     let ys = PrimitiveArray::new(buffer![4u64, 5, 6, 7, 8], Validity::NonNullable);
 
@@ -87,7 +88,7 @@ fn test_remove_column() {
     assert_arrays_eq!(
         removed,
         PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]),
-        &mut assertion_ctx
+        &mut ctx
     );
 
     assert_eq!(data.names(), &["ys"]);
@@ -100,7 +101,7 @@ fn test_remove_column() {
     assert_arrays_eq!(
         data.unmasked_field(0),
         PrimitiveArray::from_iter([4u64, 5, 6, 7, 8]),
-        &mut assertion_ctx
+        &mut ctx
     );
 
     let empty = data.remove_column("non_existent");
@@ -113,7 +114,7 @@ fn test_remove_column() {
 
 #[test]
 fn test_duplicate_field_names() {
-    let mut assertion_ctx = crate::array_session().create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     // Test that StructArray allows duplicate field names and returns the first match
     let field1 = buffer![1i32, 2, 3].into_array();
     let field2 = buffer![10i32, 20, 30].into_array();
@@ -133,23 +134,19 @@ fn test_duplicate_field_names() {
     assert_arrays_eq!(
         first_value_field,
         PrimitiveArray::from_iter([1i32, 2, 3]),
-        &mut assertion_ctx
+        &mut ctx
     );
 
     // Verify field_by_name_opt also returns the first match
     let opt_field = struct_array.unmasked_field_by_name_opt("value").unwrap();
-    assert_arrays_eq!(
-        opt_field,
-        PrimitiveArray::from_iter([1i32, 2, 3]),
-        &mut assertion_ctx
-    );
+    assert_arrays_eq!(opt_field, PrimitiveArray::from_iter([1i32, 2, 3]), &mut ctx);
 
     // Verify the third field (second "value") can be accessed by index
     let third_field = struct_array.unmasked_field(2);
     assert_arrays_eq!(
         third_field,
         PrimitiveArray::from_iter([100i32, 200, 300]),
-        &mut assertion_ctx
+        &mut ctx
     );
 }
 

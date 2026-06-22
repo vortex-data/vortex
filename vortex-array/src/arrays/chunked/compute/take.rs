@@ -129,6 +129,7 @@ mod test {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
@@ -142,7 +143,7 @@ mod test {
 
     #[test]
     fn test_take() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let a = buffer![1i32, 2, 3].into_array();
         let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
             .unwrap();
@@ -151,16 +152,12 @@ mod test {
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
         let result = arr.take(indices).unwrap();
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_iter([1i32, 1, 1, 2]),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 1, 1, 2]), &mut ctx);
     }
 
     #[test]
     fn test_take_nullable_values() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let a = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array();
         let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
             .unwrap();
@@ -172,13 +169,13 @@ mod test {
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([1i32, 1, 1, 2].map(Some)),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_take_nullable_indices() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let a = buffer![1i32, 2, 3].into_array();
         let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
             .unwrap();
@@ -193,13 +190,13 @@ mod test {
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([Some(1i32), None, None, Some(2)]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_take_nullable_struct() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let struct_array =
             StructArray::try_new(FieldNames::default(), vec![], 100, Validity::NonNullable)
                 .unwrap();
@@ -220,12 +217,12 @@ mod test {
             Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array()),
         )
         .unwrap();
-        assert_arrays_eq!(result, expect, &mut assertion_ctx);
+        assert_arrays_eq!(result, expect, &mut ctx);
     }
 
     #[test]
     fn test_empty_take() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let a = buffer![1i32, 2, 3].into_array();
         let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
             .unwrap();
@@ -240,13 +237,13 @@ mod test {
         assert_arrays_eq!(
             result,
             PrimitiveArray::empty::<i32>(Nullability::NonNullable),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_take_shuffled_indices() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let c0 = buffer![0i32, 1, 2].into_array();
         let c1 = buffer![3i32, 4, 5].into_array();
         let c2 = buffer![6i32, 7, 8].into_array();
@@ -264,7 +261,7 @@ mod test {
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_iter([8i32, 0, 5, 3, 2, 7, 1, 6, 4]),
-            &mut assertion_ctx
+            &mut ctx
         );
         Ok(())
     }
@@ -315,7 +312,7 @@ mod test {
 
     #[test]
     fn test_take_null_indices() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let c0 = buffer![10i32, 20, 30].into_array();
         let c1 = buffer![40i32, 50, 60].into_array();
         let arr = ChunkedArray::try_new(
@@ -340,7 +337,7 @@ mod test {
                 None,
                 Some(30)
             ]),
-            &mut assertion_ctx
+            &mut ctx
         );
         Ok(())
     }

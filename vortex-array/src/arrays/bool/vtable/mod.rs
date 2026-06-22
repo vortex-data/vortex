@@ -211,8 +211,8 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::serde::SerializeOptions;
@@ -220,16 +220,17 @@ mod tests {
 
     #[test]
     fn test_nullable_bool_serde_roundtrip() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
         let array = BoolArray::from_iter([Some(true), None, Some(false), None]);
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let ctx = ArrayContext::empty();
+        let array_ctx = ArrayContext::empty();
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .serialize(&array_ctx, &session, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();
@@ -238,14 +239,9 @@ mod tests {
         }
         let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
-            .decode(
-                &dtype,
-                len,
-                &ReadContext::new(ctx.to_ids()),
-                &LEGACY_SESSION,
-            )
+            .decode(&dtype, len, &ReadContext::new(array_ctx.to_ids()), &session)
             .unwrap();
 
-        assert_arrays_eq!(decoded, array, &mut assertion_ctx);
+        assert_arrays_eq!(decoded, array, &mut ctx);
     }
 }

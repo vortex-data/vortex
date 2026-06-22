@@ -18,6 +18,7 @@ use crate::LEGACY_SESSION;
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
+use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListView;
@@ -84,7 +85,7 @@ fn test_slice_comprehensive() {
 
 #[test]
 fn test_slice_out_of_order() {
-    let mut assertion_ctx = crate::array_session().create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     // ListView-specific: Test slicing with out-of-order offsets.
     // Logical lists: [[70,80], [10,20,30], [40,50,60], [90], [30]]
     let elements = buffer![10i32, 20, 30, 40, 50, 60, 70, 80, 90].into_array();
@@ -125,17 +126,17 @@ fn test_slice_out_of_order() {
     assert_arrays_eq!(
         sliced_list.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter([10i32, 20, 30]),
-        &mut assertion_ctx
+        &mut ctx
     );
     assert_arrays_eq!(
         sliced_list.list_elements_at(1).unwrap(),
         PrimitiveArray::from_iter([40i32, 50, 60]),
-        &mut assertion_ctx
+        &mut ctx
     );
     assert_arrays_eq!(
         sliced_list.list_elements_at(2).unwrap(),
         PrimitiveArray::from_iter([90i32]),
-        &mut assertion_ctx
+        &mut ctx
     );
 }
 
@@ -394,7 +395,7 @@ fn test_cast_large_dataset() {
 
 #[test]
 fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
-    let mut assertion_ctx = crate::array_session().create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     // [[1, 2], [3], [4]]
     let if_true = ListViewArray::new(
         buffer![1i32, 2, 3, 4].into_array(),
@@ -434,13 +435,13 @@ fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
         Validity::NonNullable,
     )
     .into_array();
-    assert_arrays_eq!(result, expected, &mut assertion_ctx);
+    assert_arrays_eq!(result, expected, &mut ctx);
     Ok(())
 }
 
 #[test]
 fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
-    let mut assertion_ctx = crate::array_session().create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     // [[1, null], [3], [4]]
     let if_true = ListViewArray::new(
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array(),
@@ -480,7 +481,7 @@ fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
         Validity::NonNullable,
     )
     .into_array();
-    assert_arrays_eq!(result, expected, &mut assertion_ctx);
+    assert_arrays_eq!(result, expected, &mut ctx);
     Ok(())
 }
 

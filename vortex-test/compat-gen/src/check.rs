@@ -6,6 +6,7 @@ use std::path::Path;
 use clap::ValueEnum;
 use serde::Serialize;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::assert_arrays_eq;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -47,7 +48,7 @@ struct FailedFixture {
 /// Prints JSON result to stdout, human-readable progress to stderr.
 /// Returns error if any fixture failed or if mode constraints are violated.
 pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
-    let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let fixtures = all_fixtures();
     let fixtures: Vec<_> = fixtures
         .into_iter()
@@ -191,7 +192,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
             }
         };
 
-        assert_arrays_eq!(stored_array, fresh_array, &mut assertion_ctx);
+        assert_arrays_eq!(stored_array, fresh_array, &mut ctx);
         eprintln!("  pass {fresh_name}");
         result.passed.push(fresh_name.clone());
     }

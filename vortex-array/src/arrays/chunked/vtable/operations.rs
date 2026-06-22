@@ -31,6 +31,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -58,11 +59,11 @@ mod tests {
     #[case::end(7..8, &[8u64])]
     #[case::exactly_end(6..9, &[7u64, 8, 9])]
     fn slice(#[case] range: Range<usize>, #[case] expected: &[u64]) {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(
             chunked_array().slice(range).unwrap(),
             PrimitiveArray::from_iter(expected.iter().copied()),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
@@ -76,7 +77,7 @@ mod tests {
 
     #[test]
     fn scalar_at_empty_children_both_sides() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = ChunkedArray::try_new(
             vec![
                 Buffer::<u64>::empty().into_array(),
@@ -88,16 +89,12 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_arrays_eq!(
-            array,
-            PrimitiveArray::from_iter([1u64, 2]),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2]), &mut ctx);
     }
 
     #[test]
     fn scalar_at_empty_children_trailing() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = ChunkedArray::try_new(
             vec![
                 buffer![1u64, 2].into_array(),
@@ -108,16 +105,12 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_arrays_eq!(
-            array,
-            PrimitiveArray::from_iter([1u64, 2, 3, 4]),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]), &mut ctx);
     }
 
     #[test]
     fn scalar_at_empty_children_leading() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = ChunkedArray::try_new(
             vec![
                 Buffer::<u64>::empty().into_array(),
@@ -128,10 +121,6 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_arrays_eq!(
-            array,
-            PrimitiveArray::from_iter([1u64, 2, 3, 4]),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]), &mut ctx);
     }
 }

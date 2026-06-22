@@ -227,6 +227,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -266,7 +267,7 @@ mod test {
     use crate::session::LayoutSession;
 
     fn session_with_handle(handle: Handle) -> VortexSession {
-        vortex_array::array_session()
+        array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
@@ -310,7 +311,7 @@ mod test {
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         block_on(|handle| async {
-            let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+            let mut ctx = array_session().create_execution_ctx();
             let session = session_with_handle(handle);
             let result = layout
                 .new_reader("".into(), segments, &session, &Default::default())
@@ -325,7 +326,7 @@ mod test {
                 .unwrap();
 
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
-            assert_arrays_eq!(result, expected, &mut assertion_ctx);
+            assert_arrays_eq!(result, expected, &mut ctx);
         })
     }
 
@@ -431,7 +432,7 @@ mod test {
         let zoned_layout = layout.as_::<Zoned>();
         let children =
             OwnedLayoutChildren::layout_children(vec![layout.child(0)?, layout.child(1)?]);
-        let session = vortex_array::array_session();
+        let session = array_session();
         let read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
             session: &session,

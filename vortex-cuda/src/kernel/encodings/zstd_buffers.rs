@@ -227,6 +227,7 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -234,7 +235,7 @@ mod tests {
 
     #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_primitive() -> VortexResult<()> {
-        let mut cpu_ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -247,13 +248,13 @@ mod tests {
             .into_host()
             .await?;
 
-        assert_arrays_eq!(compressed, gpu_result.into_array(), &mut cpu_ctx);
+        assert_arrays_eq!(compressed, gpu_result.into_array(), &mut ctx);
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_varbinview() -> VortexResult<()> {
-        let mut cpu_ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -274,7 +275,7 @@ mod tests {
             .into_host()
             .await?;
 
-        assert_arrays_eq!(compressed, gpu_result.into_array(), &mut cpu_ctx);
+        assert_arrays_eq!(compressed, gpu_result.into_array(), &mut ctx);
         Ok(())
     }
 }

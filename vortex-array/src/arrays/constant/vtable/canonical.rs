@@ -384,11 +384,11 @@ mod tests {
 
     #[test]
     fn test_canonicalize_const_str() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let const_array = ConstantArray::new("four".to_string(), 4);
 
         let expected = VarBinArray::from(vec!["four", "four", "four", "four"]);
-        assert_arrays_eq!(const_array, expected, &mut assertion_ctx);
+        assert_arrays_eq!(const_array, expected, &mut ctx);
     }
 
     #[test]

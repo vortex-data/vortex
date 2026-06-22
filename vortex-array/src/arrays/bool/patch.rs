@@ -48,24 +48,25 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
 
     #[test]
     fn patch_sliced_bools() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.into_array().slice(4..12).unwrap();
         let expected = BoolArray::from_iter([true; 8]);
-        assert_arrays_eq!(sliced, expected, &mut assertion_ctx);
+        assert_arrays_eq!(sliced, expected, &mut ctx);
     }
 
     #[test]
     fn patch_sliced_bools_offset() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.into_array().slice(4..15).unwrap();
         let expected = BoolArray::from_iter([true; 11]);
-        assert_arrays_eq!(sliced, expected, &mut assertion_ctx);
+        assert_arrays_eq!(sliced, expected, &mut ctx);
     }
 }

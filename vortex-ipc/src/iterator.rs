@@ -183,7 +183,6 @@ mod test {
 
     #[test]
     fn test_sync_stream() -> VortexResult<()> {
-        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
         let array = buffer![1i32, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_iterator()
@@ -194,7 +193,7 @@ mod test {
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.read_all()?;
-        assert_arrays_eq!(result, array, &mut assertion_ctx);
+        assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }

@@ -783,7 +783,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_simple_condition() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array =
             StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
                 .unwrap()
@@ -799,13 +799,13 @@ mod tests {
         assert_arrays_eq!(
             result,
             buffer![0i32, 0, 100, 100, 100].into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_evaluate_nary_multiple_conditions() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test n-ary via nested_case_when
         let test_array =
             StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
@@ -821,16 +821,12 @@ mod tests {
         );
 
         let result = evaluate_expr(&expr, &test_array);
-        assert_arrays_eq!(
-            result,
-            buffer![10i32, 0, 30, 0, 0].into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(result, buffer![10i32, 0, 30, 0, 0].into_array(), &mut ctx);
     }
 
     #[test]
     fn test_evaluate_nary_first_match_wins() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array =
             StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
                 .unwrap()
@@ -849,13 +845,13 @@ mod tests {
         assert_arrays_eq!(
             result,
             buffer![0i32, 0, 100, 100, 100].into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_evaluate_no_else_returns_null() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array =
             StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
                 .unwrap()
@@ -869,13 +865,13 @@ mod tests {
             result,
             PrimitiveArray::from_option_iter([None::<i32>, None, None, Some(100), Some(100)])
                 .into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_evaluate_all_conditions_false() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array =
             StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
                 .unwrap()
@@ -888,16 +884,12 @@ mod tests {
         );
 
         let result = evaluate_expr(&expr, &test_array);
-        assert_arrays_eq!(
-            result,
-            buffer![0i32, 0, 0, 0, 0].into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(result, buffer![0i32, 0, 0, 0, 0].into_array(), &mut ctx);
     }
 
     #[test]
     fn test_evaluate_all_conditions_true() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array =
             StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
                 .unwrap()
@@ -913,13 +905,13 @@ mod tests {
         assert_arrays_eq!(
             result,
             buffer![100i32, 100, 100, 100, 100].into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_evaluate_all_true_no_else_returns_correct_dtype() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // CASE WHEN value > 0 THEN 100 END — condition is always true, no ELSE.
         // Result must be Nullable because the implicit ELSE is NULL.
         let test_array = StructArray::from_fields(&[("value", buffer![1i32, 2, 3].into_array())])
@@ -937,13 +929,13 @@ mod tests {
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([Some(100i32), Some(100), Some(100)]).into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_merge_case_branches_widens_nullability_of_later_branch() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // When a later THEN branch is Nullable and branches[0] and ELSE are NonNullable,
         // the result dtype must still be Nullable.
         //
@@ -974,28 +966,24 @@ mod tests {
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([Some(10), Some(20), Some(0)]).into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
         Ok(())
     }
 
     #[test]
     fn test_evaluate_with_literal_condition() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = buffer![1i32, 2, 3].into_array();
         let expr = case_when(lit(true), lit(100i32), lit(0i32));
         let result = evaluate_expr(&expr, &test_array);
 
-        assert_arrays_eq!(
-            result,
-            buffer![100i32, 100, 100].into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(result, buffer![100i32, 100, 100].into_array(), &mut ctx);
     }
 
     #[test]
     fn test_evaluate_with_bool_column_result() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array =
             StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
                 .unwrap()
@@ -1011,13 +999,13 @@ mod tests {
         assert_arrays_eq!(
             result,
             BoolArray::from_iter([false, false, true, true, true]).into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_evaluate_with_nullable_condition() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = StructArray::from_fields(&[(
             "cond",
             BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)]).into_array(),
@@ -1028,16 +1016,12 @@ mod tests {
         let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
 
         let result = evaluate_expr(&expr, &test_array);
-        assert_arrays_eq!(
-            result,
-            buffer![100i32, 0, 0, 0, 100].into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(result, buffer![100i32, 0, 0, 0, 100].into_array(), &mut ctx);
     }
 
     #[test]
     fn test_evaluate_with_nullable_result_values() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = StructArray::from_fields(&[
             ("value", buffer![1i32, 2, 3, 4, 5].into_array()),
             (
@@ -1060,13 +1044,13 @@ mod tests {
             result,
             PrimitiveArray::from_option_iter([Some(0i32), Some(0), Some(30), Some(40), Some(50)])
                 .into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_evaluate_with_all_null_condition() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = StructArray::from_fields(&[(
             "cond",
             BoolArray::from_iter([None, None, None]).into_array(),
@@ -1077,14 +1061,14 @@ mod tests {
         let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
 
         let result = evaluate_expr(&expr, &test_array);
-        assert_arrays_eq!(result, buffer![0i32, 0, 0].into_array(), &mut assertion_ctx);
+        assert_arrays_eq!(result, buffer![0i32, 0, 0].into_array(), &mut ctx);
     }
 
     // ==================== N-ary Evaluate Tests ====================
 
     #[test]
     fn test_evaluate_nary_no_else_returns_null() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array =
             StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
                 .unwrap()
@@ -1105,13 +1089,13 @@ mod tests {
             result,
             PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None, None])
                 .into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_evaluate_nary_many_conditions() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array =
             StructArray::from_fields(&[("value", buffer![1i32, 2, 3, 4, 5].into_array())])
                 .unwrap()
@@ -1133,13 +1117,13 @@ mod tests {
         assert_arrays_eq!(
             result,
             buffer![10i32, 20, 30, 40, 50].into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_evaluate_nary_all_false_no_else() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = StructArray::from_fields(&[("value", buffer![1i32, 2, 3].into_array())])
             .unwrap()
             .into_array();
@@ -1158,13 +1142,13 @@ mod tests {
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([None::<i32>, None, None]).into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_evaluate_nary_overlapping_conditions_first_wins() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array =
             StructArray::from_fields(&[("value", buffer![10i32, 20, 30].into_array())])
                 .unwrap()
@@ -1184,12 +1168,12 @@ mod tests {
 
         let result = evaluate_expr(&expr, &test_array);
         // First matching condition always wins
-        assert_arrays_eq!(result, buffer![1i32, 1, 1].into_array(), &mut assertion_ctx);
+        assert_arrays_eq!(result, buffer![1i32, 1, 1].into_array(), &mut ctx);
     }
 
     #[test]
     fn test_evaluate_nary_early_exit_when_remaining_empty() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // After branch 0 claims all rows, remaining becomes all_false.
         // The loop breaks before evaluating branch 1's condition.
         let test_array = StructArray::from_fields(&[("value", buffer![1i32, 2, 3].into_array())])
@@ -1206,16 +1190,12 @@ mod tests {
         );
 
         let result = evaluate_expr(&expr, &test_array);
-        assert_arrays_eq!(
-            result,
-            buffer![100i32, 100, 100].into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(result, buffer![100i32, 100, 100].into_array(), &mut ctx);
     }
 
     #[test]
     fn test_evaluate_nary_skips_branch_with_empty_effective_mask() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Branch 0 claims value=1. Branch 1 targets the same rows but they are already
         // matched → effective_mask is all_false → branch 1 is skipped (THEN not used).
         let test_array = StructArray::from_fields(&[("value", buffer![1i32, 2, 3].into_array())])
@@ -1234,11 +1214,7 @@ mod tests {
         );
 
         let result = evaluate_expr(&expr, &test_array);
-        assert_arrays_eq!(
-            result,
-            buffer![10i32, 20, 0].into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(result, buffer![10i32, 20, 0].into_array(), &mut ctx);
     }
 
     #[test]
@@ -1281,7 +1257,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_nary_with_nullable_conditions() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let test_array = StructArray::from_fields(&[
             (
                 "cond1",
@@ -1307,11 +1283,7 @@ mod tests {
         // row 0: cond1=true → 10
         // row 1: cond1=NULL(→false), cond2=true → 20
         // row 2: cond1=false, cond2=NULL(→false) → else=0
-        assert_arrays_eq!(
-            result,
-            buffer![10i32, 20, 0].into_array(),
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(result, buffer![10i32, 20, 0].into_array(), &mut ctx);
     }
 
     // ==================== Simplify: COALESCE -> fill_null ====================
@@ -1402,7 +1374,7 @@ mod tests {
 
     #[test]
     fn test_simplify_null_fill_semantic_equivalence() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // The collapse-to-input rewrite must preserve values (and `x`'s nullability).
         let array = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
         let scope = DType::Primitive(PType::I64, Nullability::Nullable);
@@ -1420,16 +1392,8 @@ mod tests {
         );
 
         let expected = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
-        assert_arrays_eq!(
-            evaluate_expr(&original, &array),
-            expected,
-            &mut assertion_ctx
-        );
-        assert_arrays_eq!(
-            evaluate_expr(&optimized, &array),
-            expected,
-            &mut assertion_ctx
-        );
+        assert_arrays_eq!(evaluate_expr(&original, &array), expected, &mut ctx);
+        assert_arrays_eq!(evaluate_expr(&optimized, &array), expected, &mut ctx);
         Ok(())
     }
 
@@ -1463,7 +1427,7 @@ mod tests {
 
     #[test]
     fn test_simplify_semantic_equivalence() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // The optimized expression must produce the same values as the original CASE WHEN.
         let array = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]).into_array();
         let scope = DType::Primitive(PType::I64, Nullability::Nullable);
@@ -1480,19 +1444,19 @@ mod tests {
         assert_arrays_eq!(
             evaluate_expr(&original, &array),
             PrimitiveArray::from_option_iter([Some(1i64), Some(0), Some(3)]).into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             evaluate_expr(&optimized, &array),
             buffer![1i64, 0, 3].into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
         Ok(())
     }
 
     #[test]
     fn test_merge_case_branches_alternating_mask() -> VortexResult<()> {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Exercises the scalar path: alternating rows produce one slice per row (no runs),
         // triggering the per-row cursor path in merge_case_branches.
         let n = 100usize;
@@ -1523,7 +1487,7 @@ mod tests {
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter(expected).into_array(),
-            &mut assertion_ctx
+            &mut ctx
         );
         Ok(())
     }

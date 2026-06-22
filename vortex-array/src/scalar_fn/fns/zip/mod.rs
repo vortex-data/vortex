@@ -278,6 +278,7 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::Struct;
@@ -317,7 +318,7 @@ mod tests {
 
     #[test]
     fn test_zip_basic() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mask = Mask::from_iter([true, false, false, true, false]);
         let if_true = buffer![10, 20, 30, 40, 50].into_array();
         let if_false = buffer![1, 2, 3, 4, 5].into_array();
@@ -325,12 +326,12 @@ mod tests {
         let result = mask.into_array().zip(if_true, if_false).unwrap();
         let expected = buffer![10, 2, 3, 40, 5].into_array();
 
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_zip_all_true() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mask = Mask::new_true(4);
         let if_true = buffer![10, 20, 30, 40].into_array();
         let if_false =
@@ -340,13 +341,13 @@ mod tests {
         let expected =
             PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), Some(40)]).into_array();
 
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
         assert_eq!(result.dtype(), if_false.dtype())
     }
 
     #[test]
     fn test_zip_all_false_widens_nullability() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mask = Mask::new_false(4);
         let if_true =
             PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), None]).into_array();
@@ -356,7 +357,7 @@ mod tests {
         let expected =
             PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), Some(4)]).into_array();
 
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
         assert_eq!(result.dtype(), if_true.dtype());
     }
 

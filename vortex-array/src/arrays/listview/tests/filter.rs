@@ -39,7 +39,7 @@ fn test_filter_listview_conformance(#[case] listview: ListViewArray) {
 
 #[test]
 fn test_filter_preserves_unreferenced_elements() {
-    let mut assertion_ctx = crate::array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Test that filter preserves the entire elements array.
     //
     // Logical list: [[5,6,7], [2,3], [8,9], [0,1], [1,2,3,4]]
@@ -63,7 +63,7 @@ fn test_filter_preserves_unreferenced_elements() {
     assert_arrays_eq!(
         result_list.elements(),
         PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
-        &mut assertion_ctx
+        &mut ctx
     );
 
     // Verify offsets are unchanged.
@@ -73,7 +73,7 @@ fn test_filter_preserves_unreferenced_elements() {
 
 #[test]
 fn test_filter_with_gaps() {
-    let mut assertion_ctx = crate::array_session().create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Test filtering with gaps in elements array.
     //
     // Logical list: [[1,2,3], [7,8,9], [11,12], [2,3], [8,9]]
@@ -97,7 +97,7 @@ fn test_filter_with_gaps() {
     assert_arrays_eq!(
         result_list.elements(),
         PrimitiveArray::from_iter([1i32, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12]),
-        &mut assertion_ctx
+        &mut ctx
     );
 
     // Verify offsets are unchanged.
@@ -109,7 +109,7 @@ fn test_filter_with_gaps() {
     assert_arrays_eq!(
         result_list.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter([7i32, 8, 9]),
-        &mut assertion_ctx
+        &mut ctx
     );
 }
 

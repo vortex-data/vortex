@@ -94,10 +94,8 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -108,7 +106,7 @@ mod tests {
 
     #[test]
     fn nullable_codes_fill_in_values() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dict = DictArray::try_new(
             PrimitiveArray::new(
                 buffer![0u32, 1, 2],
@@ -123,17 +121,12 @@ mod tests {
             .into_array()
             .fill_null(Scalar::primitive(20, Nullability::NonNullable))
             .vortex_expect("operation should succeed in test");
-        #[expect(deprecated)]
-        let filled_primitive = filled.to_primitive();
+        let filled_primitive = filled.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             filled_primitive,
             PrimitiveArray::from_iter([10, 20, 20]),
-            &mut assertion_ctx
+            &mut ctx
         );
-        assert!(
-            filled_primitive
-                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        );
+        assert!(filled_primitive.all_valid(&mut ctx).unwrap());
     }
 }

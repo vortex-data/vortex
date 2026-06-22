@@ -1210,10 +1210,10 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
     use crate::patches::PrimitiveArray;
@@ -1222,7 +1222,7 @@ mod test {
 
     #[test]
     fn test_filter() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             100,
             0,
@@ -1233,28 +1233,25 @@ mod test {
         .unwrap();
 
         let filtered = patches
-            .filter(
-                &Mask::from_indices(100, vec![10, 20, 30]),
-                &mut LEGACY_SESSION.create_execution_ctx(),
-            )
+            .filter(&Mask::from_indices(100, vec![10, 20, 30]), &mut ctx)
             .unwrap()
             .unwrap();
 
         assert_arrays_eq!(
             filtered.indices(),
             PrimitiveArray::from_iter([0u64, 1]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             filtered.values(),
             PrimitiveArray::from_iter([100i32, 200]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn take_with_nulls() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1268,7 +1265,7 @@ mod test {
             .take(
                 &PrimitiveArray::new(buffer![9, 0], Validity::from_iter(vec![true, false]))
                     .into_array(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1280,22 +1277,19 @@ mod test {
         assert_arrays_eq!(
             primitive_values,
             PrimitiveArray::from_option_iter([Some(44i32)]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             primitive_indices,
             PrimitiveArray::from_iter([0u64]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_eq!(
             primitive_values
                 .as_ref()
                 .validity()
                 .unwrap()
-                .execute_mask(
-                    primitive_values.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
-                )
+                .execute_mask(primitive_values.as_ref().len(), &mut ctx)
                 .unwrap(),
             Mask::from_iter(vec![true])
         );
@@ -1303,7 +1297,7 @@ mod test {
 
     #[test]
     fn take_search_with_nulls_chunked() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1317,7 +1311,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![9, 0], Validity::from_iter([true, false])),
                 true,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1328,12 +1322,12 @@ mod test {
         assert_arrays_eq!(
             primitive_values,
             PrimitiveArray::from_option_iter([Some(44i32), None]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             taken.indices(),
             PrimitiveArray::from_iter([0u64, 1]),
-            &mut assertion_ctx
+            &mut ctx
         );
 
         assert_eq!(
@@ -1341,10 +1335,7 @@ mod test {
                 .as_ref()
                 .validity()
                 .unwrap()
-                .execute_mask(
-                    primitive_values.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
-                )
+                .execute_mask(primitive_values.as_ref().len(), &mut ctx)
                 .unwrap(),
             Mask::from_iter([true, false])
         );
@@ -1352,7 +1343,7 @@ mod test {
 
     #[test]
     fn take_search_chunked_multiple_chunks() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             2048,
             0,
@@ -1366,7 +1357,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![500, 1200, 999], Validity::AllValid),
                 true,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1375,12 +1366,13 @@ mod test {
         assert_arrays_eq!(
             taken.values(),
             PrimitiveArray::from_option_iter([Some(20i32), Some(30)]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn take_search_chunked_indices_with_no_patches() {
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1394,7 +1386,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![3, 4, 5], Validity::AllValid),
                 true,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap();
 
@@ -1403,7 +1395,7 @@ mod test {
 
     #[test]
     fn take_search_chunked_interleaved() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             30,
             0,
@@ -1417,7 +1409,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![10, 15, 20, 99], Validity::AllValid),
                 true,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1426,12 +1418,13 @@ mod test {
         assert_arrays_eq!(
             taken.values(),
             PrimitiveArray::from_option_iter([Some(200i32), Some(300)]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_take_search_multiple_chunk_offsets() {
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             1500,
             0,
@@ -1445,7 +1438,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(BufferMut::from_iter(0..1500u64), Validity::AllValid),
                 false,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut ctx,
             )
             .unwrap()
             .unwrap();
@@ -1455,7 +1448,7 @@ mod test {
 
     #[test]
     fn test_slice() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
@@ -1466,13 +1459,13 @@ mod test {
         assert_arrays_eq!(
             sliced.values(),
             PrimitiveArray::from_iter([13531u32]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn doubly_sliced() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
@@ -1483,19 +1476,20 @@ mod test {
         assert_arrays_eq!(
             sliced.values(),
             PrimitiveArray::from_iter([13531u32]),
-            &mut assertion_ctx
+            &mut ctx
         );
 
         let doubly_sliced = sliced.slice(35..36).unwrap().unwrap();
         assert_arrays_eq!(
             doubly_sliced.values(),
             PrimitiveArray::from_iter([13531u32]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_mask_all_true() {
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1506,15 +1500,13 @@ mod test {
         .unwrap();
 
         let mask = Mask::new_true(10);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap();
         assert!(masked.is_none());
     }
 
     #[test]
     fn test_mask_all_false() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1525,47 +1517,29 @@ mod test {
         .unwrap();
 
         let mask = Mask::new_false(10);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap().unwrap();
 
         // No patch values should be masked
         assert_arrays_eq!(
             masked.values(),
             PrimitiveArray::from_iter([100i32, 200, 300]),
-            &mut assertion_ctx
+            &mut ctx
         );
-        assert!(
-            masked
-                .values()
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        );
-        assert!(
-            masked
-                .values()
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        );
-        assert!(
-            masked
-                .values()
-                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        );
+        assert!(masked.values().is_valid(0, &mut ctx).unwrap());
+        assert!(masked.values().is_valid(1, &mut ctx).unwrap());
+        assert!(masked.values().is_valid(2, &mut ctx).unwrap());
 
         // Indices should remain unchanged
         assert_arrays_eq!(
             masked.indices(),
             PrimitiveArray::from_iter([2u64, 5, 8]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_mask_partial() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1579,30 +1553,27 @@ mod test {
         let mask = Mask::from_iter([
             false, false, true, false, false, false, false, false, true, false,
         ]);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap().unwrap();
 
         // Only the patch at index 5 should remain
         assert_eq!(masked.values().len(), 1);
         assert_arrays_eq!(
             masked.values(),
             PrimitiveArray::from_iter([200i32]),
-            &mut assertion_ctx
+            &mut ctx
         );
 
         // Only index 5 should remain
         assert_arrays_eq!(
             masked.indices(),
             PrimitiveArray::from_iter([5u64]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_mask_with_offset() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             5,                                  // offset
@@ -1617,27 +1588,24 @@ mod test {
             false, false, true, false, false, false, false, false, false, false,
         ]);
 
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap().unwrap();
         assert_eq!(masked.array_len(), 10);
         assert_eq!(masked.offset(), 5);
         assert_arrays_eq!(
             masked.indices(),
             PrimitiveArray::from_iter([10u64, 13]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             masked.values(),
             PrimitiveArray::from_iter([200i32, 300]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_mask_nullable_values() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1651,46 +1619,30 @@ mod test {
         let mask = Mask::from_iter([
             false, false, true, false, false, false, false, false, false, false,
         ]);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap().unwrap();
 
         // Patches at indices 5 and 8 should remain
         assert_arrays_eq!(
             masked.indices(),
             PrimitiveArray::from_iter([5u64, 8]),
-            &mut assertion_ctx
+            &mut ctx
         );
 
         // Values should be the null and 300
         #[expect(deprecated)]
         let masked_values = masked.values().to_primitive();
         assert_eq!(masked_values.len(), 2);
-        assert!(
-            !masked_values
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        ); // the null value at index 5
-        assert!(
-            masked_values
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-        ); // the 300 value at index 8
+        assert!(!masked_values.is_valid(0, &mut ctx).unwrap()); // the null value at index 5
+        assert!(masked_values.is_valid(1, &mut ctx).unwrap()); // the 300 value at index 8
         assert_eq!(
-            i32::try_from(
-                &masked_values
-                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap()
-            )
-            .unwrap(),
+            i32::try_from(&masked_values.execute_scalar(1, &mut ctx).unwrap()).unwrap(),
             300i32
         );
     }
 
     #[test]
     fn test_filter_keep_all() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1702,25 +1654,23 @@ mod test {
 
         // Keep all indices (mask with indices 0-9)
         let mask = Mask::from_indices(10, 0..10);
-        let filtered = patches
-            .filter(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .unwrap();
+        let filtered = patches.filter(&mask, &mut ctx).unwrap().unwrap();
 
         assert_arrays_eq!(
             filtered.indices(),
             PrimitiveArray::from_iter([2u64, 5, 8]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             filtered.values(),
             PrimitiveArray::from_iter([100i32, 200, 300]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_filter_none() {
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1732,15 +1682,13 @@ mod test {
 
         // Filter out all (empty mask means keep nothing)
         let mask = Mask::from_indices(10, vec![]);
-        let filtered = patches
-            .filter(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let filtered = patches.filter(&mask, &mut ctx).unwrap();
         assert!(filtered.is_none());
     }
 
     #[test]
     fn test_filter_with_indices() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1752,26 +1700,23 @@ mod test {
 
         // Keep indices 2, 5, 9 (so patches at 2 and 5 remain)
         let mask = Mask::from_indices(10, vec![2, 5, 9]);
-        let filtered = patches
-            .filter(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .unwrap();
+        let filtered = patches.filter(&mask, &mut ctx).unwrap().unwrap();
 
         assert_arrays_eq!(
             filtered.indices(),
             PrimitiveArray::from_iter([0u64, 1]),
-            &mut assertion_ctx
+            &mut ctx
         ); // Adjusted indices
         assert_arrays_eq!(
             filtered.values(),
             PrimitiveArray::from_iter([100i32, 200]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_slice_full_range() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1786,18 +1731,18 @@ mod test {
         assert_arrays_eq!(
             sliced.indices(),
             PrimitiveArray::from_iter([2u64, 5, 8]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             sliced.values(),
             PrimitiveArray::from_iter([100i32, 200, 300]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_slice_partial() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1813,12 +1758,12 @@ mod test {
         assert_arrays_eq!(
             sliced.indices(),
             PrimitiveArray::from_iter([5u64]),
-            &mut assertion_ctx
+            &mut ctx
         ); // Index stays the same
         assert_arrays_eq!(
             sliced.values(),
             PrimitiveArray::from_iter([200i32]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_eq!(sliced.array_len(), 5); // 8 - 3 = 5
         assert_eq!(sliced.offset(), 3); // New offset
@@ -1842,7 +1787,7 @@ mod test {
 
     #[test]
     fn test_slice_with_offset() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             5,                                  // offset
@@ -1858,18 +1803,19 @@ mod test {
         assert_arrays_eq!(
             sliced.indices(),
             PrimitiveArray::from_iter([10u64]),
-            &mut assertion_ctx
+            &mut ctx
         ); // Index stays the same (offset + 5 = 10)
         assert_arrays_eq!(
             sliced.values(),
             PrimitiveArray::from_iter([200i32]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_eq!(sliced.offset(), 8); // New offset = 5 + 3
     }
 
     #[test]
     fn test_patch_values() {
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1882,30 +1828,15 @@ mod test {
         #[expect(deprecated)]
         let values = patches.values().to_primitive();
         assert_eq!(
-            i32::try_from(
-                &values
-                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap()
-            )
-            .unwrap(),
+            i32::try_from(&values.execute_scalar(0, &mut ctx).unwrap()).unwrap(),
             100i32
         );
         assert_eq!(
-            i32::try_from(
-                &values
-                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap()
-            )
-            .unwrap(),
+            i32::try_from(&values.execute_scalar(1, &mut ctx).unwrap()).unwrap(),
             200i32
         );
         assert_eq!(
-            i32::try_from(
-                &values
-                    .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap()
-            )
-            .unwrap(),
+            i32::try_from(&values.execute_scalar(2, &mut ctx).unwrap()).unwrap(),
             300i32
         );
     }
@@ -1950,7 +1881,7 @@ mod test {
 
     #[test]
     fn test_mask_boundary_patches() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Test masking patches at array boundaries
         let patches = Patches::new(
             10,
@@ -1964,25 +1895,24 @@ mod test {
         let mask = Mask::from_iter([
             true, false, false, false, false, false, false, false, false, false,
         ]);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap();
         assert!(masked.is_some());
         let masked = masked.unwrap();
         assert_arrays_eq!(
             masked.indices(),
             PrimitiveArray::from_iter([9u64]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             masked.values(),
             PrimitiveArray::from_iter([200i32]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_mask_all_patches_removed() {
+        let mut ctx = array_session().create_execution_ctx();
         // Test when all patches are masked out
         let patches = Patches::new(
             10,
@@ -1997,15 +1927,13 @@ mod test {
         let mask = Mask::from_iter([
             false, false, true, false, false, true, false, false, true, false,
         ]);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap();
         assert!(masked.is_none());
     }
 
     #[test]
     fn test_mask_no_patches_removed() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Test when no patches are masked
         let patches = Patches::new(
             10,
@@ -2020,26 +1948,23 @@ mod test {
         let mask = Mask::from_iter([
             true, false, false, true, false, false, true, false, false, true,
         ]);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap().unwrap();
 
         assert_arrays_eq!(
             masked.indices(),
             PrimitiveArray::from_iter([2u64, 5, 8]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             masked.values(),
             PrimitiveArray::from_iter([100i32, 200, 300]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_mask_single_patch() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Test with a single patch
         let patches = Patches::new(
             5,
@@ -2052,27 +1977,22 @@ mod test {
 
         // Mask that removes the single patch
         let mask = Mask::from_iter([false, false, true, false, false]);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap();
         assert!(masked.is_none());
 
         // Mask that keeps the single patch
         let mask = Mask::from_iter([true, false, false, true, false]);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap().unwrap();
         assert_arrays_eq!(
             masked.indices(),
             PrimitiveArray::from_iter([2u64]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_mask_contiguous_patches() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Test with contiguous patches
         let patches = Patches::new(
             10,
@@ -2087,26 +2007,23 @@ mod test {
         let mask = Mask::from_iter([
             false, false, false, false, true, true, false, false, false, false,
         ]);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap().unwrap();
 
         assert_arrays_eq!(
             masked.indices(),
             PrimitiveArray::from_iter([3u64, 6]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             masked.values(),
             PrimitiveArray::from_iter([100i32, 400]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     fn test_mask_with_large_offset() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Test with a large offset that shifts all indices
         let patches = Patches::new(
             20,
@@ -2122,26 +2039,24 @@ mod test {
             false, false, true, false, false, false, false, false, false, false, false, false,
             false, false, false, false, false, false, false, false,
         ]);
-        let masked = patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .unwrap();
+        let masked = patches.mask(&mask, &mut ctx).unwrap().unwrap();
 
         assert_arrays_eq!(
             masked.indices(),
             PrimitiveArray::from_iter([16u64, 19]),
-            &mut assertion_ctx
+            &mut ctx
         );
         assert_arrays_eq!(
             masked.values(),
             PrimitiveArray::from_iter([100i32, 300]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 
     #[test]
     #[should_panic(expected = "Filter mask length 5 does not match array length 10")]
     fn test_mask_wrong_length() {
+        let mut ctx = array_session().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -2153,9 +2068,7 @@ mod test {
 
         // Mask with wrong length
         let mask = Mask::from_iter([false, false, true, false, false]);
-        patches
-            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        patches.mask(&mask, &mut ctx).unwrap();
     }
 
     #[test]

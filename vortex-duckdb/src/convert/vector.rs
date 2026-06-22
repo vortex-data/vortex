@@ -403,6 +403,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
+    use vortex_array::array_session;
     use vortex_geo::extension::WellKnownBinaryData;
     use wkb::writer::WriteOptions;
     use wkb::writer::write_point;
@@ -415,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_integer_vector_conversion() {
-        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let values = vec![1i32, 2, 3, 4, 5];
         let len = values.len();
 
@@ -432,7 +433,7 @@ mod tests {
         let result = flat_vector_to_vortex(&vector, len).unwrap();
         let expected =
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), Some(5)]);
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]

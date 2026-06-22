@@ -67,6 +67,7 @@ mod test {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::filter::execute::ConstantArray;
@@ -75,7 +76,7 @@ mod test {
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
     #[test]
     fn test_filter_listview_conformance() {
@@ -135,7 +136,7 @@ mod test {
 
     #[test]
     fn filter_listview_selects_correct_lists() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // 3 lists: [10,20], [30,40], [50,60]
         let elements = PrimitiveArray::from_iter([10i32, 20, 30, 40, 50, 60]);
         let offsets = buffer![0u32, 2, 4].into_array();
@@ -158,12 +159,12 @@ mod test {
             Validity::NonNullable,
         );
 
-        assert_arrays_eq!(filtered, expected, &mut assertion_ctx);
+        assert_arrays_eq!(filtered, expected, &mut ctx);
     }
 
     #[test]
     fn test_filter_preserves_unreferenced_elements() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // ListView-specific: Test that filter preserves the entire elements array.
         //
         // Logical list: [[5,6,7], [2,3], [8,9], [0,1], [1,2,3,4]]
@@ -188,7 +189,7 @@ mod test {
         assert_arrays_eq!(
             result_list.elements(),
             PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
-            &mut assertion_ctx
+            &mut ctx
         );
 
         // Verify offsets are unchanged.
@@ -198,7 +199,7 @@ mod test {
 
     #[test]
     fn test_filter_with_gaps() {
-        let mut assertion_ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // ListView-specific: Test filtering with gaps in elements array.
         //
         // Logical list: [[1,2,3], [7,8,9], [11,12], [2,3], [8,9]]
@@ -223,7 +224,7 @@ mod test {
         assert_arrays_eq!(
             result_list.elements(),
             PrimitiveArray::from_iter([1i32, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12]),
-            &mut assertion_ctx
+            &mut ctx
         );
 
         // Verify offsets are unchanged.
@@ -235,7 +236,7 @@ mod test {
         assert_arrays_eq!(
             result_list.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([7i32, 8, 9]),
-            &mut assertion_ctx
+            &mut ctx
         );
     }
 

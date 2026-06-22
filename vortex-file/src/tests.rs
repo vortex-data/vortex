@@ -14,6 +14,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
+use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
@@ -76,7 +77,7 @@ use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::footer::SegmentSpec;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session()
+    let session = array_session()
         .with::<LayoutSession>()
         .with::<RuntimeSession>();
 
@@ -477,7 +478,6 @@ async fn test_empty_varbin_array_roundtrip() {
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn issue_5385_filter_casted_column() {
-    let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
     let array = StructArray::try_from_iter([("x", buffer![1u8, 2, 3, 4, 5])])
         .unwrap()
         .into_array();
@@ -511,7 +511,7 @@ async fn issue_5385_filter_casted_column() {
     assert_arrays_eq!(
         result,
         StructArray::try_from_iter([("x", buffer![1u8])]).unwrap(),
-        &mut assertion_ctx
+        &mut SESSION.create_execution_ctx()
     );
 }
 
@@ -1187,12 +1187,11 @@ async fn chunked_file() -> VortexResult<VortexFile> {
 
 #[tokio::test]
 async fn basic_file_roundtrip() -> VortexResult<()> {
-    let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
     let vxf = chunked_file().await?;
     let result = vxf.scan()?.into_array_stream()?.read_all().await?;
 
     let expected = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8].into_array();
-    assert_arrays_eq!(result, expected, &mut assertion_ctx);
+    assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
     Ok(())
 }
@@ -1231,7 +1230,6 @@ async fn file_excluding_dtype() -> VortexResult<()> {
 
 #[tokio::test]
 async fn file_take() -> VortexResult<()> {
-    let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
     let vxf = chunked_file().await?;
     let result = vxf
         .scan()?
@@ -1241,7 +1239,7 @@ async fn file_take() -> VortexResult<()> {
         .await?;
 
     let expected = buffer![0i32, 1, 8].into_array();
-    assert_arrays_eq!(result, expected, &mut assertion_ctx);
+    assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
     Ok(())
 }

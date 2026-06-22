@@ -634,7 +634,7 @@ mod tests {
     fn test_struct_layout(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
@@ -646,14 +646,14 @@ mod tests {
         })
         .unwrap();
         let expected = BoolArray::from_iter([true, false, false]);
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[rstest]
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
@@ -670,7 +670,7 @@ mod tests {
         .unwrap();
 
         let expected = BoolArray::from_iter([true, false]);
-        assert_arrays_eq!(result, expected, &mut assertion_ctx);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[rstest]
@@ -720,7 +720,7 @@ mod tests {
     fn test_struct_layout_nulls(
         #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let mut assertion_ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Read the layout source from the top.
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
@@ -744,8 +744,8 @@ mod tests {
                 .unwrap(),
             Scalar::null(result.dtype().clone()),
         );
-        assert_nth_scalar!(result, 1, 2, &mut assertion_ctx);
-        assert_nth_scalar!(result, 2, 3, &mut assertion_ctx);
+        assert_nth_scalar!(result, 1, 2, &mut ctx);
+        assert_nth_scalar!(result, 2, 3, &mut ctx);
     }
 
     #[rstest]
