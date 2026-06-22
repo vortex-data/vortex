@@ -6,12 +6,12 @@
 
 use std::fmt::Debug;
 
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::GroupIds;
 use crate::scalar::Scalar;
 
 /// A pluggable kernel for an aggregate function.
@@ -35,20 +35,27 @@ pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
 /// batch through `accumulate_partials`.
 #[derive(Clone, Debug)]
 pub struct GroupedAggregateKernelResult {
-    group_ids: Buffer<u32>,
+    group_ids: GroupIds,
     partials: ArrayRef,
 }
 
 impl GroupedAggregateKernelResult {
-    pub fn new(group_ids: Buffer<u32>, partials: ArrayRef) -> Self {
+    pub fn new(group_ids: GroupIds, partials: ArrayRef) -> Self {
         Self {
             group_ids,
             partials,
         }
     }
 
-    pub fn group_ids(&self) -> &[u32] {
-        self.group_ids.as_ref()
+    pub fn dense(partials: ArrayRef, num_groups: usize) -> VortexResult<Self> {
+        Ok(Self {
+            group_ids: GroupIds::range(num_groups)?,
+            partials,
+        })
+    }
+
+    pub fn group_ids(&self) -> &GroupIds {
+        &self.group_ids
     }
 
     pub fn partials(&self) -> &ArrayRef {
@@ -58,9 +65,8 @@ impl GroupedAggregateKernelResult {
 
 /// A pluggable kernel for batch aggregation of many groups.
 ///
-/// A grouped kernel can be registered for an aggregate function regardless of input encoding, or
-/// for a specific aggregate function and array encoding. Encoding-specific kernels are matched on
-/// the values array, not on a pre-grouped list wrapper.
+/// A grouped kernel can be registered for an aggregate function regardless of input encodings, or
+/// for a specific aggregate function plus values and/or group-id encoding.
 ///
 /// Kernels receive the same dense group ordinals that the caller passed to the grouped accumulator
 /// and may aggregate directly in the encoded domain.
@@ -72,8 +78,7 @@ pub trait DynGroupedAggregateKernel: 'static + Send + Sync + Debug {
         &self,
         aggregate_fn: &AggregateFnRef,
         batch: &ArrayRef,
-        group_ids: &[u32],
-        num_groups: usize,
+        group_ids: &GroupIds,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<GroupedAggregateKernelResult>>;
 }

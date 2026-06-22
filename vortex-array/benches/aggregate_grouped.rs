@@ -15,6 +15,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::DynGroupedAccumulator;
 use vortex_array::aggregate_fn::EmptyOptions;
+use vortex_array::aggregate_fn::GroupIds;
 use vortex_array::aggregate_fn::GroupedAccumulator;
 use vortex_array::aggregate_fn::fns::count::Count;
 use vortex_array::aggregate_fn::fns::sum::Sum;
@@ -45,24 +46,22 @@ fn total_element_count(group_sizes: &[usize]) -> usize {
 
 struct DenseGroupedInput {
     values: ArrayRef,
-    group_ids: Vec<u32>,
-    num_groups: usize,
+    group_ids: GroupIds,
 }
 
 fn dense_grouped_input(values: ArrayRef, group_sizes: &[usize]) -> DenseGroupedInput {
     assert_eq!(values.len(), total_element_count(group_sizes));
 
-    let group_ids = group_sizes
-        .iter()
-        .enumerate()
-        .flat_map(|(group_id, &size)| std::iter::repeat_n(group_id as u32, size))
-        .collect();
+    let group_ids = GroupIds::from_iter(
+        group_sizes
+            .iter()
+            .enumerate()
+            .flat_map(|(group_id, &size)| std::iter::repeat_n(group_id as u32, size)),
+        group_sizes.len(),
+    )
+    .unwrap();
 
-    DenseGroupedInput {
-        values,
-        group_ids,
-        num_groups: group_sizes.len(),
-    }
+    DenseGroupedInput { values, group_ids }
 }
 
 fn i32_nullable_all_valid_input() -> DenseGroupedInput {
@@ -142,14 +141,14 @@ where
 {
     let mut acc =
         GroupedAccumulator::try_new(vtable, EmptyOptions, input.values.dtype().clone()).unwrap();
+    let num_groups = input.group_ids.num_groups();
     acc.accumulate(
         &input.values,
         &input.group_ids,
-        input.num_groups,
         &mut LEGACY_SESSION.create_execution_ctx(),
     )
     .unwrap();
-    divan::black_box(acc.finish(input.num_groups).unwrap())
+    divan::black_box(acc.finish(num_groups).unwrap())
 }
 
 #[divan::bench]
