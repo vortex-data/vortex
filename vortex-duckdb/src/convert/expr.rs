@@ -22,6 +22,7 @@ use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
+use vortex::expr::list_length;
 use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
@@ -37,6 +38,7 @@ use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 
+use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb;
 use crate::duckdb::BoundFunction;
@@ -55,6 +57,15 @@ fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
         BoundConstant(constant) => Ok(constant.value.as_string().as_str().to_owned()),
         _ => vortex_bail!("Expected string expression, got {:?}", value.as_class_id()),
     }
+}
+
+/// Returns true if the expression's bound return type is a `LIST` or fixed-size `ARRAY`. Used to
+/// disambiguate the overloaded `len`/`length` functions, which also apply to strings and bits.
+fn is_list_typed(expr: &duckdb::ExpressionRef) -> bool {
+    matches!(
+        expr.return_type().as_type_id(),
+        DUCKDB_TYPE::DUCKDB_TYPE_LIST | DUCKDB_TYPE::DUCKDB_TYPE_ARRAY
+    )
 }
 
 fn try_from_bound_function(
@@ -115,6 +126,25 @@ fn try_from_bound_function(
             };
             Like.new_expr(LikeOptions::default(), [value, lit(pattern)])
         }
+        // `array_length` is list-only, but `len`/`length` are also defined for strings and bits,
+        // so we gate on the argument's bound return type being a list or fixed-size array.
+        "len" | "length" | "array_length" => {
+            let children: Vec<_> = func.children().collect();
+            // Only the single-argument form maps to list_length; the two-argument
+            // (dimension) form of array_length has different semantics.
+            if children.len() != 1 || !is_list_typed(children[0]) {
+                return Ok(None);
+            }
+            let Some(col) = try_from_expression_inner(children[0], col_sub)? else {
+                return Ok(None);
+            };
+            let col = list_length(col);
+            // list_length returns u64, len()/array_length() return i64. We don't know the
+            // column's nullability here, so we set it to nullable; for a non-nullable
+            // column the validity will be AllValid so it's a marginal cost.
+            let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
+            cast(col, dtype)
+        }
         _ => {
             debug!("bound function {}", func.scalar_function.name());
             return Ok(None);
@@ -173,6 +203,10 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
                 || name == "~~"
                 || name == "!~~"
                 || name == "strlen"
+                || (matches!(name, "len" | "length" | "array_length") && {
+                    let children: Vec<_> = func.children().collect();
+                    children.len() == 1 && is_list_typed(children[0])
+                })
         }
         ExpressionClass::BoundOperator(op) => {
             if !matches!(
@@ -207,6 +241,18 @@ pub fn try_from_projection_expression(
             let dtype = DType::Primitive(PType::I64, field.dtype.nullability());
             let col = cast(col, dtype);
             Some(col)
+        }
+        // `len`/`length`/`array_length` over a list column. The column dtype is known here, so
+        // unlike the filter path we can safely accept the overloaded `len`/`length` names by
+        // gating on the field being a list. Only the single-argument form is supported.
+        "len" | "length" | "array_length"
+            if matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..))
+                && func.children().count() == 1 =>
+        {
+            let col = list_length(get_item(field.name.as_str(), root()));
+            // list_length returns u64, len()/array_length() return i64 (BIGINT).
+            let dtype = DType::Primitive(PType::I64, field.dtype.nullability());
+            Some(cast(col, dtype))
         }
         _ => None,
     })

@@ -47,6 +47,14 @@ extern "C" duckdb_vx_expr_class duckdb_vx_expr_get_class(duckdb_vx_expr ffi_expr
     return static_cast<duckdb_vx_expr_class>(expr->GetExpressionClass());
 }
 
+extern "C" duckdb_logical_type duckdb_vx_expr_get_return_type(duckdb_vx_expr ffi_expr) {
+    if (!ffi_expr) {
+        return nullptr;
+    }
+    auto expr = reinterpret_cast<Expression *>(ffi_expr);
+    return reinterpret_cast<duckdb_logical_type>(&expr->return_type);
+}
+
 extern "C" const char *duckdb_vx_expr_get_bound_column_ref_get_name(duckdb_vx_expr ffi_expr) {
     if (!ffi_expr) {
         return nullptr;
