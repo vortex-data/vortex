@@ -2,8 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use crate::aggregate_fn::fns::all_non_distinct::all_non_distinct;
+
 use crate::ExecutionCtx;
+use crate::aggregate_fn::fns::all_non_distinct::all_non_distinct;
 use crate::arrays::VariantArray;
 use crate::arrays::variant::VariantArrayExt;
 
