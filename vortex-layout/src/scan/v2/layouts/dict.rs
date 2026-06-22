@@ -66,6 +66,10 @@ use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
+const DENSE_REMAP_MAX_VALUES: usize = 1 << 20;
+const DENSE_REMAP_VALUES_PER_CODE: usize = 4;
+const UNREFERENCED_VALUE: usize = usize::MAX;
+
 pub(crate) fn new_scan_plan(
     layout: Layout<Dict>,
     _req: &mut ScanRequest,
@@ -553,6 +557,10 @@ where
     Code: NativePType + TryFrom<usize>,
     usize: TryFrom<Code>,
 {
+    if use_dense_value_rank_map(codes.len(), valid.true_count(), values_len) {
+        return compact_codes_and_value_selection_dense(codes, validity, valid, values_len);
+    }
+
     let referenced = referenced_values(codes, valid, values_len)?;
     if referenced.is_empty() || referenced.len() == values_len {
         return Ok(None);
@@ -562,6 +570,73 @@ where
     let value_selection = Mask::from_indices(values_len, referenced);
     let compact_codes = PrimitiveArray::new(compact.freeze(), validity).into_array();
     Ok(Some((compact_codes, value_selection)))
+}
+
+fn use_dense_value_rank_map(codes_len: usize, valid_count: usize, values_len: usize) -> bool {
+    values_len <= DENSE_REMAP_MAX_VALUES
+        && values_len <= valid_count.saturating_mul(DENSE_REMAP_VALUES_PER_CODE)
+        && values_len <= codes_len.saturating_mul(DENSE_REMAP_VALUES_PER_CODE)
+}
+
+fn compact_codes_and_value_selection_dense<Code>(
+    codes: &[Code],
+    validity: Validity,
+    valid: &Mask,
+    values_len: usize,
+) -> VortexResult<Option<(ArrayRef, Mask)>>
+where
+    Code: NativePType + TryFrom<usize>,
+    usize: TryFrom<Code>,
+{
+    let mut rank_by_value = vec![UNREFERENCED_VALUE; values_len];
+    mark_referenced_values(codes, valid, values_len, &mut rank_by_value)?;
+
+    let mut referenced = Vec::with_capacity(valid.true_count().min(values_len));
+    let mut rank = 0;
+    for (value_idx, value_rank) in rank_by_value.iter_mut().enumerate() {
+        if *value_rank != UNREFERENCED_VALUE {
+            *value_rank = rank;
+            referenced.push(value_idx);
+            rank += 1;
+        }
+    }
+
+    if referenced.is_empty() || referenced.len() == values_len {
+        return Ok(None);
+    }
+
+    let compact = remap_codes_dense(codes, valid, values_len, &rank_by_value)?;
+    let value_selection = Mask::from_indices(values_len, referenced);
+    let compact_codes = PrimitiveArray::new(compact.freeze(), validity).into_array();
+    Ok(Some((compact_codes, value_selection)))
+}
+
+fn mark_referenced_values<Code>(
+    codes: &[Code],
+    valid: &Mask,
+    values_len: usize,
+    rank_by_value: &mut [usize],
+) -> VortexResult<()>
+where
+    Code: Copy + fmt::Display,
+    usize: TryFrom<Code>,
+{
+    match valid.bit_buffer() {
+        AllOr::All => {
+            for &code in codes {
+                let idx = checked_code_index(code, values_len)?;
+                rank_by_value[idx] = 0;
+            }
+        }
+        AllOr::None => {}
+        AllOr::Some(mask) => {
+            for idx in mask.set_indices() {
+                let value_idx = checked_code_index(codes[idx], values_len)?;
+                rank_by_value[value_idx] = 0;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn referenced_values<Code>(
@@ -626,6 +701,40 @@ where
     Ok(compact)
 }
 
+fn remap_codes_dense<Code>(
+    codes: &[Code],
+    valid: &Mask,
+    values_len: usize,
+    rank_by_value: &[usize],
+) -> VortexResult<BufferMut<Code>>
+where
+    Code: Copy + Default + fmt::Display + TryFrom<usize>,
+    usize: TryFrom<Code>,
+{
+    let mut compact = BufferMut::<Code>::with_capacity(codes.len());
+    match valid.bit_buffer() {
+        AllOr::All => {
+            for &code in codes {
+                compact.push(compact_code_dense(code, values_len, rank_by_value)?);
+            }
+        }
+        AllOr::None => compact.extend(std::iter::repeat_n(Code::default(), codes.len())),
+        AllOr::Some(mask) => {
+            let mut valid_indices = mask.set_indices();
+            let mut next_valid = valid_indices.next();
+            for (idx, &code) in codes.iter().enumerate() {
+                if next_valid == Some(idx) {
+                    compact.push(compact_code_dense(code, values_len, rank_by_value)?);
+                    next_valid = valid_indices.next();
+                } else {
+                    compact.push(Code::default());
+                }
+            }
+        }
+    }
+    Ok(compact)
+}
+
 fn checked_code_index<Code>(code: Code, values_len: usize) -> VortexResult<usize>
 where
     Code: Copy + fmt::Display,
@@ -640,6 +749,27 @@ where
         );
     }
     Ok(idx)
+}
+
+fn compact_code_dense<Code>(
+    code: Code,
+    values_len: usize,
+    rank_by_value: &[usize],
+) -> VortexResult<Code>
+where
+    Code: Copy + fmt::Display + TryFrom<usize>,
+    usize: TryFrom<Code>,
+{
+    let idx = checked_code_index(code, values_len)?;
+    let rank = rank_by_value[idx];
+    if rank == UNREFERENCED_VALUE {
+        vortex_bail!("dictionary code {idx} missing from sparse referenced value map");
+    }
+    Code::try_from(rank).map_err(|_| {
+        vortex_err!(
+            "sparse dictionary code rank {rank} cannot be represented by original code type"
+        )
+    })
 }
 
 fn compact_code<Code>(code: Code, values_len: usize, referenced: &[usize]) -> VortexResult<Code>
@@ -738,5 +868,61 @@ impl PreparedRead for DictExprPreparedRead {
 
     fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.node.fmt_chain(f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
+
+    use super::compact_codes_and_value_selection_typed;
+
+    #[test]
+    fn dense_compaction_preserves_sparse_value_order_and_validity() -> VortexResult<()> {
+        let validity = Validity::from_iter([true, false, true, true, true, true]);
+        let valid = validity.execute_mask(6, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let (compact_codes, value_selection) = compact_codes_and_value_selection_typed::<u8>(
+            &[7, 9, 3, 7, 1, 3],
+            validity,
+            &valid,
+            8,
+        )?
+        .expect("sparse dict compaction should be available");
+
+        assert_eq!(value_selection, Mask::from_indices(8, [1, 3, 7]));
+        let compact_codes =
+            compact_codes.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_eq!(compact_codes.as_slice::<u8>(), &[2, 0, 1, 2, 0, 1]);
+        assert_eq!(
+            compact_codes
+                .validity()?
+                .execute_mask(6, &mut LEGACY_SESSION.create_execution_ctx())?,
+            Mask::from_indices(6, [0, 2, 3, 4, 5])
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn dense_compaction_returns_none_when_all_values_referenced() -> VortexResult<()> {
+        let validity = Validity::NonNullable;
+        let valid = validity.execute_mask(4, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert!(
+            compact_codes_and_value_selection_typed::<u8>(
+                buffer![2u8, 0, 1, 3].as_slice(),
+                validity,
+                &valid,
+                4,
+            )?
+            .is_none()
+        );
+
+        Ok(())
     }
 }

@@ -1178,6 +1178,8 @@ struct PartitionWorkSchedulerState {
     pending: VecDeque<PlannedScanPlanMorsel>,
     morsels: Vec<Option<MorselState>>,
     active_morsels: usize,
+    has_dynamic_predicates: bool,
+    in_flight_projection_tasks: usize,
     next_morsel_id: usize,
     next_emit_morsel_id: usize,
     task_queue: ScanTaskQueue<WorkOutput>,
@@ -1212,18 +1214,24 @@ fn partition_work_stream(
     plan_window: usize,
     read_byte_budget: u64,
 ) -> impl futures::Stream<Item = VortexResult<ArrayRef>> + Send + 'static {
+    let has_dynamic_predicates = morsels
+        .iter()
+        .any(|morsel| morsel.execution.has_dynamic_predicates());
     tracing::debug!(
         target: "vortex_file::scan_v2",
         morsel_count = morsels.len(),
         ordered,
         plan_window,
         read_byte_budget,
+        has_dynamic_predicates,
         "created scan2 task stream"
     );
     let state = PartitionWorkSchedulerState {
         pending: VecDeque::from(morsels),
         morsels: Vec::new(),
         active_morsels: 0,
+        has_dynamic_predicates,
+        in_flight_projection_tasks: 0,
         next_morsel_id: 0,
         next_emit_morsel_id: 0,
         task_queue: ScanTaskQueue::new(read_byte_budget),
@@ -1287,6 +1295,7 @@ impl PartitionWorkSchedulerState {
         self.pending.clear();
         self.morsels.clear();
         self.active_morsels = 0;
+        self.in_flight_projection_tasks = 0;
         self.next_emit_morsel_id = 0;
         self.task_queue.clear();
         self.in_flight = FuturesUnordered::new();
@@ -1322,13 +1331,17 @@ impl PartitionWorkSchedulerState {
 
     fn launch_next_admissible_work(&mut self) -> bool {
         let in_flight_empty = self.in_flight.is_empty();
+        // Backlogged output should stop speculative projection for dynamic scans, but not the
+        // single projection needed to unblock an otherwise idle ordered stream.
+        let projection_admissible = !self.has_dynamic_predicates
+            || (self.in_flight_projection_tasks == 0 && !self.has_completed_output_backlog())
+            || in_flight_empty;
         let morsels = &self.morsels;
-        let Some(task) = self
-            .task_queue
-            .pop_next_admissible(in_flight_empty, |morsel_id| {
-                morsels.get(morsel_id).and_then(Option::as_ref).is_some()
-            })
-        else {
+        let Some(task) = self.task_queue.pop_next_admissible_with_projection_gate(
+            in_flight_empty,
+            projection_admissible,
+            |morsel_id| morsels.get(morsel_id).and_then(Option::as_ref).is_some(),
+        ) else {
             return false;
         };
         let (task, lane, reads) = task.into_parts();
@@ -1369,10 +1382,16 @@ impl PartitionWorkSchedulerState {
         } else {
             self.in_flight.push(self.handle.spawn(future).boxed());
         }
+        if matches!(lane, ScanTaskLane::Projection) {
+            self.in_flight_projection_tasks = self.in_flight_projection_tasks.saturating_add(1);
+        }
     }
 
     fn release_reads(&mut self, lane: ScanTaskLane, reads: &[ScanTaskRead]) {
         self.task_queue.release_reads(lane, reads);
+        if matches!(lane, ScanTaskLane::Projection) {
+            self.in_flight_projection_tasks = self.in_flight_projection_tasks.saturating_sub(1);
+        }
     }
 
     fn complete_work(&mut self, output: WorkOutput) -> VortexResult<Option<ArrayRef>> {
@@ -1853,6 +1872,12 @@ impl PartitionWorkSchedulerState {
                 None => return None,
             }
         }
+    }
+
+    fn has_completed_output_backlog(&self) -> bool {
+        self.completed_morsels
+            .values()
+            .any(|morsel| matches!(morsel, CompletedMorsel::Output(_)))
     }
 }
 

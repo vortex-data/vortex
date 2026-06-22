@@ -383,6 +383,20 @@ impl<T> ScanTaskQueue<T> {
         in_flight_empty: bool,
         mut is_live_morsel: impl FnMut(usize) -> bool,
     ) -> Option<AdmittedScanTask<T>> {
+        self.pop_next_admissible_with_projection_gate(in_flight_empty, true, &mut is_live_morsel)
+    }
+
+    /// Pop the next task admitted by the frontier policy and read byte budget, optionally
+    /// suppressing projection/aggregate work.
+    ///
+    /// This is useful when a caller wants predicate/evidence run-ahead but must avoid producing
+    /// more output batches until downstream has consumed earlier projection results.
+    pub fn pop_next_admissible_with_projection_gate(
+        &mut self,
+        in_flight_empty: bool,
+        projection_admissible: bool,
+        mut is_live_morsel: impl FnMut(usize) -> bool,
+    ) -> Option<AdmittedScanTask<T>> {
         self.drop_dead_heads(&mut is_live_morsel);
         let frontier = self.frontier_morsel()?;
 
@@ -394,6 +408,9 @@ impl<T> ScanTaskQueue<T> {
             (ScanTaskGroup::Projection, false),
             (ScanTaskGroup::Evidence, false),
         ] {
+            if group == ScanTaskGroup::Projection && !projection_admissible {
+                continue;
+            }
             if let Some(task) =
                 self.pop_group_admissible(group, enforce_target, in_flight_empty, frontier)
             {
@@ -856,6 +873,37 @@ mod tests {
             }
         );
         assert_eq!(reads, vec![read(1, 10)]);
+    }
+
+    #[test]
+    fn queue_projection_gate_still_allows_predicates() {
+        let mut queue = ScanTaskQueue::new(100);
+        queue.push(task_in_lane(
+            0,
+            ScanIoPhase::ProjectionRead,
+            ScanTaskLane::Projection,
+            vec![read(1, 10)],
+        ));
+        queue.push(task_in_lane(
+            0,
+            ScanIoPhase::PredicateRead,
+            ScanTaskLane::Predicate { predicate_idx: 0 },
+            vec![read(2, 10)],
+        ));
+
+        let next = queue
+            .pop_next_admissible_with_projection_gate(true, false, |_| true)
+            .expect("predicate task should still be admitted while projection is gated");
+        let (_task, lane, reads) = next.into_parts();
+        assert_eq!(lane, ScanTaskLane::Predicate { predicate_idx: 0 });
+        assert_eq!(reads, vec![read(2, 10)]);
+
+        assert!(
+            queue
+                .pop_next_admissible_with_projection_gate(false, false, |_| true)
+                .is_none(),
+            "projection task should remain queued while projection is gated"
+        );
     }
 
     #[test]
