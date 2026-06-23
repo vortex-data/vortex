@@ -450,7 +450,7 @@ mod tests {
             sizes.iter().copied().collect::<Buffer<u64>>().into_array(),
             Validity::NonNullable,
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 

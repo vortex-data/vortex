@@ -21,9 +21,10 @@ fn main() {
 }
 
 // Smaller than the value-path benches: listview zip cost is dominated by element concatenation and
-// per-list canonicalization, so a few thousand lists already exercises the select while keeping the
-// benchmark well under a few hundred microseconds.
-const LEN: usize = 8_192;
+// per-list canonicalization. A few thousand lists already exercise the select while keeping each
+// case well under a few hundred microseconds under CodSpeed's instruction-count simulation, which
+// runs ~10x the local walltime.
+const LEN: usize = 4_096;
 
 /// Fragmented (alternating) mask: the worst case for the per-element branch this kernel replaces.
 /// The branchless chunked select is mask-shape-independent, so one shape suffices.
