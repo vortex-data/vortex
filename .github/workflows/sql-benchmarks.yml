@@ -40,6 +40,29 @@ on:
               ]
             },
             {
+              "id": "clickbench-sorted-nvme",
+              "subcommand": "clickbench-sorted",
+              "name": "Clickbench Sorted on NVME",
+              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "datafusion", "format": "lance"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ]
+            },
+            {
               "id": "tpch-nvme",
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on NVME",
@@ -287,6 +310,25 @@ on:
               "id": "clickbench-nvme",
               "subcommand": "clickbench",
               "name": "Clickbench on NVME",
+              "data_formats": ["parquet", "vortex"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "lance"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"}
+              ]
+            },
+            {
+              "id": "clickbench-sorted-nvme",
+              "subcommand": "clickbench-sorted",
+              "name": "Clickbench Sorted on NVME",
               "data_formats": ["parquet", "vortex"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "parquet"},
