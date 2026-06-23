@@ -79,6 +79,7 @@ mod tests {
     )))]
 
     fn test_datetime_parts_consistency(#[case] array: DateTimePartsArray) {
-        test_array_consistency(&array.into_array());
+        let ctx = &mut array_session().create_execution_ctx();
+        test_array_consistency(&array.into_array(), ctx);
     }
 }

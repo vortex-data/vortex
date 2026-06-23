@@ -62,6 +62,6 @@ mod tests {
     ).unwrap())]
 
     fn test_runend_consistency(#[case] array: RunEndArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

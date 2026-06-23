@@ -192,6 +192,9 @@ mod tests {
     fn test_fsst_consistency(#[case] build: FsstBuilder) {
         let mut ctx = array_session().create_execution_ctx();
         let array = build(&mut ctx);
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

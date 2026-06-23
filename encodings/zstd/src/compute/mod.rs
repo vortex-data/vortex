@@ -76,6 +76,9 @@ mod tests {
     #[case::all_same(zstd_all_same())]
     #[case::negative(zstd_negative())]
     fn test_zstd_consistency(#[case] array: ZstdArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

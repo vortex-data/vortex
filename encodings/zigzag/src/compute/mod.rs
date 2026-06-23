@@ -218,7 +218,7 @@ mod tests {
     #[case::zigzag_large_i32(zigzag_encode(PrimitiveArray::from_iter(-500..500).as_view()).unwrap())]
     #[case::zigzag_large_i64(zigzag_encode(PrimitiveArray::from_iter((-1000..1000).map(|i| i as i64 * 100)).as_view()).unwrap())]
     fn test_zigzag_consistency(#[case] array: ZigZagArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[rstest]
@@ -228,6 +228,6 @@ mod tests {
     #[case::zigzag_i64_basic(zigzag_encode(PrimitiveArray::from_iter([-10000i64, -5000, 0, 5000, 10000]).as_view()).unwrap())]
     #[case::zigzag_i32_large(zigzag_encode(PrimitiveArray::from_iter((-50..50).map(|i| i * 10)).as_view()).unwrap())]
     fn test_zigzag_binary_numeric(#[case] array: ZigZagArray) {
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

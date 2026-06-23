@@ -107,6 +107,9 @@ mod test {
     #[case::null_array_large(NullArray::new(1000))]
     #[case::null_array_empty(NullArray::new(0))]
     fn test_null_consistency(#[case] array: NullArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }
