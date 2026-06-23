@@ -133,12 +133,12 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::all_nan::AllNan;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn all_nan_aggregate_fn() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::F32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(AllNan, EmptyOptions, dtype)?;
 
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn all_nan_false_with_non_nan() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::F32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(AllNan, EmptyOptions, dtype)?;
 
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn all_nan_false_with_null() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::F32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(AllNan, EmptyOptions, dtype)?;
 

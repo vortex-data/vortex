@@ -102,6 +102,8 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -145,7 +147,10 @@ mod tests {
     #[case::for_large_deltas(fa(buffer![100i64, 200, 300, 400, 500].into_array(), Scalar::from(100i64)))]
 
     fn test_for_consistency(#[case] array: FoRArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[rstest]
@@ -158,6 +163,9 @@ mod tests {
         Scalar::from(2000i32)
     ))]
     fn test_for_binary_numeric(#[case] array: FoRArray) {
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

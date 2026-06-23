@@ -138,8 +138,8 @@ mod tests {
     use vortex::encodings::fastlanes::FoRArray;
     use vortex::error::VortexExpect;
     use vortex::scalar::Scalar;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -160,7 +160,7 @@ mod tests {
     #[case::u64(make_for_array((0..2050).map(|i| (i % 2050) as u64).collect(), 1000000u64))]
     #[crate::test]
     async fn test_cuda_for_decompression(#[case] for_array: FoRArray) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -179,7 +179,7 @@ mod tests {
 
     #[crate::test]
     async fn test_signed_ffor() {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -188,7 +188,7 @@ mod tests {
             .take(1024)
             .collect::<Buffer<_>>()
             .into_array();
-        let packed = BitPacked::encode(&values, 3, &mut LEGACY_SESSION.create_execution_ctx())
+        let packed = BitPacked::encode(&values, 3, &mut array_session().create_execution_ctx())
             .unwrap()
             .into_array();
         let for_array = FoR::try_new(packed, (-8i8).into()).unwrap();

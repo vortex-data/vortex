@@ -73,7 +73,6 @@ mod tests {
     use vortex_mask::AllOr;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
@@ -117,7 +116,7 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .execute_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken.len(), &mut array_session().create_execution_ctx())
                 .unwrap()
                 .indices(),
             AllOr::Some(valid_indices)
@@ -145,7 +144,7 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .execute_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken.len(), &mut array_session().create_execution_ctx())
                 .unwrap()
                 .indices(),
             AllOr::All

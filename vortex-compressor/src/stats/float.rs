@@ -276,8 +276,8 @@ where
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_float_stats() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
         let floats = floats.execute::<PrimitiveArray>(&mut ctx)?;
 
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_float_stats_leading_nulls() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let floats = PrimitiveArray::new(
             buffer![0.0f32, 1.0f32, 2.0f32],
             Validity::from_iter([false, true, true]),

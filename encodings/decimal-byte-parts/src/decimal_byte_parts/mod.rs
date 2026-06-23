@@ -320,8 +320,8 @@ impl ValidityChild<DecimalByteParts> for DecimalByteParts {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
@@ -353,7 +353,7 @@ mod tests {
         assert_eq!(
             Scalar::null(dtype.clone()),
             array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
@@ -363,13 +363,13 @@ mod tests {
             )
             .unwrap(),
             array
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             Scalar::try_new(dtype, Some(ScalarValue::Decimal(DecimalValue::I64(400)))).unwrap(),
             array
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
     }

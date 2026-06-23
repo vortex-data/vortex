@@ -16,7 +16,7 @@
 //! to a canonical [`BoolArray`][vortex_array::arrays::BoolArray]:
 //!
 //! ```
-//! # use vortex_array::{IntoArray, LEGACY_SESSION, VortexSessionExecute};
+//! # use vortex_array::{IntoArray, VortexSessionExecute, array_session};
 //! # use vortex_array::arrays::BoolArray;
 //! # use vortex_array::arrays::bool::BoolArrayExt;
 //! # use vortex_array::buffer::BufferHandle;
@@ -25,7 +25,7 @@
 //! # use vortex_bytebool::ByteBool;
 //! # use vortex_error::VortexResult;
 //! # fn main() -> VortexResult<()> {
-//! # let mut ctx = LEGACY_SESSION.create_execution_ctx();
+//! # let mut ctx = array_session().create_execution_ctx();
 //! let handle = BufferHandle::new_host(ByteBuffer::from(vec![0u8, 1, 42, 0]));
 //! let array = ByteBool::new(handle, Validity::NonNullable);
 //!

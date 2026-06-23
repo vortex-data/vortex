@@ -19,7 +19,6 @@ mod tests {
 
     use crate::Canonical;
     use crate::IntoArray as _;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::fns::is_constant::is_constant;
     use crate::array_session;
@@ -70,13 +69,13 @@ mod tests {
         let taken = struct_arr
             .take(indices.into_array())
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut array_session().create_execution_ctx())
             .unwrap();
         assert_eq!(taken.len(), 1);
         assert!(
             taken
                 .into_array()
-                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+                .all_invalid(&mut array_session().create_execution_ctx())
                 .unwrap()
         );
     }
@@ -88,7 +87,7 @@ mod tests {
         let taken = arr
             .take(indices.into_array())
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut array_session().create_execution_ctx())
             .unwrap();
         assert_eq!(taken.len(), 1);
     }
@@ -259,7 +258,7 @@ mod tests {
     #[test]
     fn test_empty_struct_is_constant() {
         let array = StructArray::new_fieldless_with_len(2);
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = is_constant(&array.into_array(), &mut ctx)
             .vortex_expect("operation should succeed in test");
         assert!(result);
@@ -420,6 +419,9 @@ mod tests {
         StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 100, Validity::NonNullable).unwrap()
     })]
     fn test_struct_consistency(#[case] array: StructArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

@@ -272,7 +272,6 @@ mod test {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
@@ -410,7 +409,10 @@ mod test {
             p.as_ref()
                 .validity()
                 .unwrap()
-                .execute_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(
+                    p.as_ref().len(),
+                    &mut array_session().create_execution_ctx()
+                )
                 .unwrap(),
             Mask::from(BitBuffer::from(vec![false, true, true]))
         );

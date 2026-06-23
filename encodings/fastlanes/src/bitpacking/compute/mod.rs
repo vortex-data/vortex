@@ -46,8 +46,8 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -61,7 +61,7 @@ mod tests {
             array,
             bit_width,
             None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )
         .unwrap()
     }
@@ -98,7 +98,8 @@ mod tests {
     #[case::alternating_bits(bp(&PrimitiveArray::from_iter([0u16, 255, 0, 255, 0, 255]), 8))]
 
     fn test_bitpacked_consistency(#[case] array: BitPackedArray) {
-        test_array_consistency(&array.into_array());
+        let ctx = &mut array_session().create_execution_ctx();
+        test_array_consistency(&array.into_array(), ctx);
     }
 
     #[rstest]
@@ -109,6 +110,9 @@ mod tests {
     #[case::i32_basic(bp(&PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]), 7))]
     #[case::large_u32(bp(&PrimitiveArray::from_iter((0..100).map(|i| i as u32)), 7))]
     fn test_bitpacked_binary_numeric(#[case] array: BitPackedArray) {
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

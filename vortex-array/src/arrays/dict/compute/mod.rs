@@ -366,6 +366,6 @@ mod tests {
     #[case::dict_all_same(dict_encode(&buffer![5i32, 5, 5, 5, 5].into_array(), &mut SESSION.create_execution_ctx()).unwrap())]
     #[case::dict_large(dict_encode(&PrimitiveArray::from_iter((0..1000).map(|i| i % 10)).into_array(), &mut SESSION.create_execution_ctx()).unwrap())]
     fn test_dict_consistency(#[case] array: DictArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

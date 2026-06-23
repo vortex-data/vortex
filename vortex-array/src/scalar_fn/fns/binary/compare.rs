@@ -245,13 +245,12 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
@@ -281,71 +280,70 @@ mod tests {
 
     #[test]
     fn test_bool_basic_comparisons() {
-        use vortex_buffer::BitBuffer;
-
+        let ctx = &mut array_session().create_execution_ctx();
         let arr = BoolArray::new(
             BitBuffer::from_iter([true, true, false, true, false]),
             Validity::from_iter([false, true, true, true, true]),
         );
 
-        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
             .binary(arr.clone().into_array(), Operator::Eq)
             .unwrap()
-            .to_bool();
-        assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
+            .execute::<BoolArray>(ctx)
+            .vortex_expect("must be a bool array");
+        assert_eq!(to_int_indices(matches, ctx).unwrap(), [1u64, 2, 3, 4]);
 
-        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
             .binary(arr.clone().into_array(), Operator::NotEq)
             .unwrap()
-            .to_bool();
+            .execute::<BoolArray>(ctx)
+            .vortex_expect("must be a bool array");
         let empty: [u64; 0] = [];
-        assert_eq!(to_int_indices(matches).unwrap(), empty);
+        assert_eq!(to_int_indices(matches, ctx).unwrap(), empty);
 
         let other = BoolArray::new(
             BitBuffer::from_iter([false, false, false, true, true]),
             Validity::from_iter([false, true, true, true, true]),
         );
 
-        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
             .binary(other.clone().into_array(), Operator::Lte)
             .unwrap()
-            .to_bool();
-        assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
+            .execute::<BoolArray>(ctx)
+            .vortex_expect("must be a bool array");
+        assert_eq!(to_int_indices(matches, ctx).unwrap(), [2u64, 3, 4]);
 
-        #[expect(deprecated)]
         let matches = arr
             .clone()
             .into_array()
             .binary(other.clone().into_array(), Operator::Lt)
             .unwrap()
-            .to_bool();
-        assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
+            .execute::<BoolArray>(ctx)
+            .vortex_expect("must be a bool array");
+        assert_eq!(to_int_indices(matches, ctx).unwrap(), [4u64]);
 
-        #[expect(deprecated)]
         let matches = other
             .clone()
             .into_array()
             .binary(arr.clone().into_array(), Operator::Gte)
             .unwrap()
-            .to_bool();
-        assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
+            .execute::<BoolArray>(ctx)
+            .vortex_expect("must be a bool array");
+        assert_eq!(to_int_indices(matches, ctx).unwrap(), [2u64, 3, 4]);
 
-        #[expect(deprecated)]
         let matches = other
             .into_array()
             .binary(arr.into_array(), Operator::Gt)
             .unwrap()
-            .to_bool();
-        assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
+            .execute::<BoolArray>(ctx)
+            .vortex_expect("must be a bool array");
+        assert_eq!(to_int_indices(matches, ctx).unwrap(), [4u64]);
     }
 
     #[test]
@@ -359,7 +357,7 @@ mod tests {
             .unwrap();
         assert_eq!(result.len(), 10);
         let scalar = result
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap();
         assert_eq!(scalar.as_bool().value(), Some(false));
     }
@@ -572,6 +570,7 @@ mod tests {
 
     #[test]
     fn test_empty_list() {
+        let ctx = &mut array_session().create_execution_ctx();
         let list = ListViewArray::new(
             BoolArray::from_iter(Vec::<bool>::new()).into_array(),
             buffer![0i32, 0i32, 0i32].into_array(),
@@ -584,23 +583,8 @@ mod tests {
             .into_array()
             .binary(list.into_array(), Operator::Eq)
             .unwrap();
-        assert!(
-            result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-                .is_valid()
-        );
-        assert!(
-            result
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-                .is_valid()
-        );
-        assert!(
-            result
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-                .is_valid()
-        );
+        assert!(result.execute_scalar(0, ctx).unwrap().is_valid());
+        assert!(result.execute_scalar(1, ctx).unwrap().is_valid());
+        assert!(result.execute_scalar(2, ctx).unwrap().is_valid());
     }
 }

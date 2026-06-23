@@ -159,10 +159,10 @@ mod test {
     use vortex_buffer::ByteBuffer;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
@@ -200,7 +200,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     result.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
+                    &mut array_session().create_execution_ctx()
                 )
                 .unwrap()
                 .to_bit_buffer(),
@@ -236,7 +236,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     result.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
+                    &mut array_session().create_execution_ctx()
                 )
                 .unwrap()
                 .to_bit_buffer(),

@@ -218,12 +218,12 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray as _;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::max::Max;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn max_aggregate_fn() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Max, NumericalAggregateOpts::default(), dtype)?;
 
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn max_with_nan_not_skipping() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Max, NumericalAggregateOpts::include_nans(), dtype)?;
 
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn max_not_skipping_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // The array has no NaNs; a planted exact NaNCount stat proves the poisoning came from
         // the stat rather than a scan.
         let batch = PrimitiveArray::new(buffer![1.0f64, 2.0], Validity::NonNullable).into_array();
@@ -315,7 +315,7 @@ mod tests {
     fn max_nan_including_nullable_cached_stat() -> VortexResult<()> {
         // A nullable float array's cached Max stat is reconstructed as a nullable scalar. The
         // NaN-including shortcircuit merges it as-is; `to_scalar` re-casts to the result dtype.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array =
             PrimitiveArray::from_option_iter([Some(1.0f64), Some(2.0), Some(3.0)]).into_array();
         array
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn max_casts_nonnullable_legacy_stat_to_nullable_partial() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let batch = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         batch
             .statistics()

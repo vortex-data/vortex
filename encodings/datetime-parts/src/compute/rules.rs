@@ -180,9 +180,9 @@ fn is_constant_zero(array: &ArrayRef) -> bool {
 mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::ExecutionCtx;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::sum::sum;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
@@ -230,7 +230,7 @@ mod tests {
             time_unit,
             None,
         );
-        DateTimeParts::try_from_temporal(temporal, &mut LEGACY_SESSION.create_execution_ctx())
+        DateTimeParts::try_from_temporal(temporal, &mut array_session().create_execution_ctx())
             .vortex_expect("TemporalArray must produce valid DateTimeParts")
     }
 
@@ -296,7 +296,7 @@ mod tests {
         );
 
         // Verify correctness: days [0, 1, 2] <= 1 should give [true, true, false]
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(true_count(&optimized, &mut ctx), 2);
     }
 
@@ -325,7 +325,7 @@ mod tests {
         let optimized = between.optimize().unwrap();
 
         // Verify correctness: days [0, 1, 2, 3, 4] between 1 and 3 should give [false, true, true, true, false]
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(true_count(&optimized, &mut ctx), 3);
     }
 
@@ -348,7 +348,7 @@ mod tests {
         // (optimization doesn't apply, so we keep the original structure)
         // Just verify it still computes correctly
         // days [0, 1, 2] at midnight <= day 1 at noon: [true, true, false]
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(true_count(&optimized, &mut ctx), 2);
     }
 
@@ -366,7 +366,7 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtp = DateTimeParts::try_from_temporal(temporal, &mut ctx).unwrap();
         let len = dtp.len();
 

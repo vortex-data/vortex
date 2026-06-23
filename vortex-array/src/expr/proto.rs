@@ -74,7 +74,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::ExprSerializeProtoExt;
-    use crate::LEGACY_SESSION;
+    use crate::array_session;
     use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::between;
@@ -108,7 +108,7 @@ mod tests {
         let s_expr = expr.serialize_proto().unwrap();
         let buf = s_expr.encode_to_vec();
         let s_expr = pb::Expr::decode(buf.as_slice()).unwrap();
-        let deser_expr = Expression::from_proto(&s_expr, &LEGACY_SESSION).unwrap();
+        let deser_expr = Expression::from_proto(&s_expr, &array_session()).unwrap();
 
         assert_eq!(&deser_expr, &expr);
     }

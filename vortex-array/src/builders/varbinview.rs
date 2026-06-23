@@ -873,7 +873,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::assert_arrays_eq;
@@ -954,7 +953,7 @@ mod tests {
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         array.append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 1);
@@ -1082,7 +1081,7 @@ mod tests {
 
         // Verify the value was stored correctly
         let retrieved = array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_binary()
             .value()
