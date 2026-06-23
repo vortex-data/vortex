@@ -20,10 +20,13 @@ use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::PolygonType;
 use prost::Message;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrow::ArrowExport;
 use vortex_array::arrow::ArrowExportVTable;
 use vortex_array::arrow::ArrowImport;
@@ -109,6 +112,27 @@ static ARROW_POLYGON: CachedId = CachedId::new(PolygonType::NAME);
 /// matching `Polygon` storage.
 fn polygon_type(geo_metadata: &GeoMetadata, dimension: Dimension) -> PolygonType {
     PolygonType::new(dimension.into(), geoarrow_metadata(geo_metadata))
+}
+
+/// The coordinate `Struct<x, y, ...>` of `Polygon` storage, flattening both `List` levels of
+/// `List<List<Struct>>` to every vertex of every ring.
+pub(crate) fn polygon_coordinates(
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<StructArray> {
+    // Peel the outer ring list, then each ring's coordinate list, leaving the coordinate struct.
+    let rings = storage
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_listview()
+        .elements()
+        .clone();
+    let coords = rings
+        .execute::<Canonical>(ctx)?
+        .into_listview()
+        .elements()
+        .clone();
+    coords.execute::<StructArray>(ctx)
 }
 
 /// Decode `Polygon` storage (`List<List<coordinate>>`) to `geo_types` polygons, for the geo scalar

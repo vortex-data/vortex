@@ -19,12 +19,43 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 pub use wkb::*;
+
+/// Whether `dtype` is a native geometry extension.
+pub(crate) fn is_native_geometry(dtype: &DType) -> bool {
+    dtype
+        .as_extension_opt()
+        .is_some_and(|ext| ext.is::<Point>() || ext.is::<Polygon>())
+}
+
+/// The flat coordinate `Struct<x, y, ...>` of a native geometry column.
+pub(crate) fn coordinates(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
+    let Some(ext) = array.dtype().as_extension_opt() else {
+        vortex_bail!(
+            "geo: operand is not a geometry extension type, was {}",
+            array.dtype()
+        );
+    };
+    let storage = array
+        .clone()
+        .execute::<ExtensionArray>(ctx)?
+        .storage_array()
+        .clone();
+    if ext.is::<Point>() {
+        point_coordinates(&storage, ctx)
+    } else if ext.is::<Polygon>() {
+        polygon_coordinates(&storage, ctx)
+    } else {
+        vortex_bail!("geo: unsupported geometry extension {}", array.dtype())
+    }
+}
 
 /// Decode a native geometry column to `geo_types`. A non-geometry operand is an error.
 pub(crate) fn geometries(

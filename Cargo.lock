@@ -10087,6 +10087,7 @@ dependencies = [
  "rstest",
  "vortex-array",
  "vortex-error",
+ "vortex-layout",
  "vortex-session",
  "wkb",
 ]
