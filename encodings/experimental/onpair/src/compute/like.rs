@@ -377,6 +377,7 @@ mod tests {
 
     #[test]
     fn like_contains() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let result = run_like(
             &[
                 Some("https://google.example"),
@@ -389,13 +390,15 @@ mod tests {
         )?;
         assert_arrays_eq!(
             &result,
-            &BoolArray::from_iter([Some(false), Some(false), Some(true), None])
+            &BoolArray::from_iter([Some(false), Some(false), Some(true), None]),
+            &mut ctx
         );
         Ok(())
     }
 
     #[test]
     fn like_prefix_suffix_exact_and_negated() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = [
             Some("2020-10-01"),
             Some("2020-11-01"),
@@ -404,15 +407,18 @@ mod tests {
         ];
         assert_arrays_eq!(
             &run_like(&values, "2020-10-%", LikeOptions::default())?,
-            &BoolArray::from_iter([Some(true), Some(false), Some(false), Some(false)])
+            &BoolArray::from_iter([Some(true), Some(false), Some(false), Some(false)]),
+            &mut ctx
         );
         assert_arrays_eq!(
             &run_like(&values, "%-01", LikeOptions::default())?,
-            &BoolArray::from_iter([Some(true), Some(true), Some(true), Some(false)])
+            &BoolArray::from_iter([Some(true), Some(true), Some(true), Some(false)]),
+            &mut ctx
         );
         assert_arrays_eq!(
             &run_like(&values, "2020-10-01", LikeOptions::default())?,
-            &BoolArray::from_iter([Some(true), Some(false), Some(false), Some(false)])
+            &BoolArray::from_iter([Some(true), Some(false), Some(false), Some(false)]),
+            &mut ctx
         );
         assert_arrays_eq!(
             &run_like(
@@ -423,7 +429,8 @@ mod tests {
                     case_insensitive: false,
                 },
             )?,
-            &BoolArray::from_iter([Some(false), Some(false), Some(false), Some(true)])
+            &BoolArray::from_iter([Some(false), Some(false), Some(false), Some(true)]),
+            &mut ctx
         );
         Ok(())
     }
@@ -455,7 +462,12 @@ mod tests {
         let result = stepped
             .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_bool();
-        assert_arrays_eq!(&result, &BoolArray::from_iter([Some(true), Some(true)]));
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_arrays_eq!(
+            &result,
+            &BoolArray::from_iter([Some(true), Some(true)]),
+            &mut ctx
+        );
         Ok(())
     }
 

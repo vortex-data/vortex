@@ -253,7 +253,11 @@ mod tests {
         let shared = SharedArray::new(fsst).into_array();
 
         let lengths = shared.clone().apply(&byte_length(root()))?;
-        assert_arrays_eq!(lengths, PrimitiveArray::from_iter(vec![5u64, 0, 7]));
+        assert_arrays_eq!(
+            lengths,
+            PrimitiveArray::from_iter(vec![5u64, 0, 7]),
+            &mut ctx
+        );
 
         let not_empty = shared
             .binary(
@@ -261,7 +265,11 @@ mod tests {
                 Operator::NotEq,
             )?
             .execute::<BoolArray>(&mut ctx)?;
-        assert_arrays_eq!(not_empty, BoolArray::from_iter([true, false, true]));
+        assert_arrays_eq!(
+            not_empty,
+            BoolArray::from_iter([true, false, true]),
+            &mut ctx
+        );
 
         Ok(())
     }
