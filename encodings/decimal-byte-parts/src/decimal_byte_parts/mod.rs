@@ -46,7 +46,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::decimal_byte_parts::compute::kernel::PARENT_KERNELS;
 use crate::decimal_byte_parts::rules::PARENT_RULES;
 
 /// A [`DecimalByteParts`]-encoded Vortex array.
@@ -164,15 +163,6 @@ impl VTable for DecimalByteParts {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         to_canonical_decimal(&array, ctx).map(ExecutionResult::done)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -330,8 +320,8 @@ impl ValidityChild<DecimalByteParts> for DecimalByteParts {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
@@ -363,7 +353,7 @@ mod tests {
         assert_eq!(
             Scalar::null(dtype.clone()),
             array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
@@ -373,13 +363,13 @@ mod tests {
             )
             .unwrap(),
             array
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             Scalar::try_new(dtype, Some(ScalarValue::Decimal(DecimalValue::I64(400)))).unwrap(),
             array
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
     }

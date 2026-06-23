@@ -32,10 +32,20 @@ pub struct Buffer<T> {
     pub(crate) _marker: PhantomData<T>,
 }
 
+/// Zero-length backing for empty buffers, "aligned" to [`Alignment::MAX`] so it satisfies any
+/// valid alignment without allocating. A zero-length slice never reads memory, so it may use a
+/// dangling pointer as long as it is non-null and aligned.
+const EMPTY_BACKING: &[u8] = {
+    let addr = 1usize << 20;
+    assert!(Alignment::MAX.is_offset_aligned(addr));
+    // SAFETY: the pointer is non-null and aligned, and the slice is zero-length.
+    unsafe { std::slice::from_raw_parts(std::ptr::without_provenance(addr), 0) }
+};
+
 impl<T> Default for Buffer<T> {
     fn default() -> Self {
         Self {
-            bytes: Default::default(),
+            bytes: Bytes::from_static(EMPTY_BACKING),
             length: 0,
             alignment: Alignment::of::<T>(),
             _marker: PhantomData,
@@ -85,8 +95,25 @@ impl<T> Buffer<T> {
     }
 
     /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
+    ///
+    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
+    /// `alignment`. Use [`copy_from_preferred_aligned`] to control the over-alignment.
+    ///
+    /// [`copy_from_preferred_aligned`]: Self::copy_from_preferred_aligned
     pub fn copy_from_aligned(values: impl AsRef<[T]>, alignment: Alignment) -> Self {
-        BufferMut::copy_from_aligned(values, alignment).freeze()
+        Self::copy_from_preferred_aligned(values, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+    }
+
+    /// Returns a new `Buffer<T>` copied from the provided slice and with the requested alignment.
+    ///
+    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
+    /// of `alignment` and `preferred_alignment`.
+    pub fn copy_from_preferred_aligned(
+        values: impl AsRef<[T]>,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+    ) -> Self {
+        BufferMut::copy_from_preferred_aligned(values, alignment, preferred_alignment).freeze()
     }
 
     /// Create a new zeroed `Buffer` with the given value.
@@ -94,19 +121,51 @@ impl<T> Buffer<T> {
         Self::zeroed_aligned(len, Alignment::of::<T>())
     }
 
-    /// Create a new zeroed `Buffer` with the given value.
+    /// Create a new zeroed `Buffer` with the requested alignment.
+    ///
+    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
+    /// `alignment`. Use [`zeroed_preferred_aligned`] to control the over-alignment.
+    ///
+    /// [`zeroed_preferred_aligned`]: Self::zeroed_preferred_aligned
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
-        BufferMut::zeroed_aligned(len, alignment).freeze()
+        Self::zeroed_preferred_aligned(len, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+    }
+
+    /// Create a new zeroed `Buffer` with the requested alignment.
+    ///
+    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
+    /// of `alignment` and `preferred_alignment`.
+    pub fn zeroed_preferred_aligned(
+        len: usize,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+    ) -> Self {
+        BufferMut::zeroed_preferred_aligned(len, alignment, preferred_alignment).freeze()
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
     pub fn empty() -> Self {
-        BufferMut::empty().freeze()
+        Self::empty_aligned(Alignment::of::<T>())
     }
 
     /// Create a new empty `ByteBuffer` with the provided alignment.
+    ///
+    /// This does not allocate: empty buffers are backed by a zero-length `Bytes` that is
+    /// aligned to [`Alignment::MAX`].
     pub fn empty_aligned(alignment: Alignment) -> Self {
-        BufferMut::empty_aligned(alignment).freeze()
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!(
+                "Alignment {} must align to the scalar type's alignment {}",
+                alignment,
+                Alignment::of::<T>(),
+            );
+        }
+        Self {
+            bytes: Bytes::from_static(EMPTY_BACKING),
+            length: 0,
+            alignment,
+            _marker: PhantomData,
+        }
     }
 
     /// Create a new full `ByteBuffer` with the given value.
@@ -152,7 +211,7 @@ impl<T> Buffer<T> {
                 Alignment::of::<T>(),
             );
         }
-        if bytes.as_ptr().align_offset(*alignment) != 0 {
+        if !alignment.is_ptr_aligned(bytes.as_ptr()) {
             vortex_panic!(
                 "Bytes alignment must align to the requested alignment {}",
                 alignment,
@@ -320,7 +379,7 @@ impl<T> Buffer<T> {
         let begin_byte = begin * size_of::<T>();
         let end_byte = end * size_of::<T>();
 
-        if !begin_byte.is_multiple_of(*alignment) {
+        if !alignment.is_offset_aligned(begin_byte) {
             vortex_panic!(
                 "range start must be aligned to {alignment:?}, byte {}",
                 begin_byte
@@ -369,7 +428,7 @@ impl<T> Buffer<T> {
             vortex_panic!("slice_ref subset alignment must at least align to the buffer alignment")
         }
 
-        if subset.as_ptr().align_offset(*alignment) != 0 {
+        if !alignment.is_ptr_aligned(subset.as_ptr()) {
             vortex_panic!("slice_ref subset must be aligned to {:?}", alignment);
         }
 
@@ -435,17 +494,17 @@ impl<T> Buffer<T> {
     /// Convert self into `BufferMut<T>`, cloning the data if there are multiple strong references.
     pub fn into_mut(self) -> BufferMut<T> {
         self.try_into_mut()
-            .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
+            .unwrap_or_else(|buffer| BufferMut::<T>::copy_from_aligned(&buffer, buffer.alignment))
     }
 
     /// Returns whether a `Buffer<T>` is aligned to the given alignment.
     pub fn is_aligned(&self, alignment: Alignment) -> bool {
-        self.bytes.as_ptr().align_offset(*alignment) == 0
+        alignment.is_ptr_aligned(self.bytes.as_ptr())
     }
 
     /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
     pub fn aligned(mut self, alignment: Alignment) -> Self {
-        if self.as_ptr().align_offset(*alignment) == 0 {
+        if alignment.is_ptr_aligned(self.as_ptr()) {
             self.alignment = alignment;
             self
         } else {
@@ -462,7 +521,7 @@ impl<T> Buffer<T> {
 
     /// Return a `Buffer<T>` with the given alignment. Panics if the buffer is not aligned.
     pub fn ensure_aligned(mut self, alignment: Alignment) -> Self {
-        if self.as_ptr().align_offset(*alignment) == 0 {
+        if alignment.is_ptr_aligned(self.as_ptr()) {
             self.alignment = alignment;
             self
         } else {
@@ -634,7 +693,7 @@ impl Buf for ByteBuffer {
 
     #[inline]
     fn advance(&mut self, cnt: usize) {
-        if !cnt.is_multiple_of(*self.alignment) {
+        if !self.alignment.is_offset_aligned(cnt) {
             vortex_panic!(
                 "Cannot advance buffer by {} items, resulting alignment is not {}",
                 cnt,
@@ -779,11 +838,59 @@ mod test {
     }
 
     #[test]
+    fn copy_from_over_aligns_to_default() {
+        let values = [1u32, 2, 3];
+        let buf = Buffer::<u32>::copy_from(values);
+
+        // The buffer reports the scalar type's alignment, ...
+        assert_eq!(buf.alignment(), Alignment::of::<u32>());
+        // ... but the underlying allocation is over-aligned to DEFAULT_ALIGNMENT.
+        assert!(buf.is_aligned(Alignment::DEFAULT_ALIGNMENT));
+        assert_eq!(buf.as_slice(), &values);
+    }
+
+    #[test]
+    fn zeroed_over_aligns_to_default() {
+        const LEN: usize = 17;
+
+        let buf = Buffer::<u32>::zeroed(LEN);
+
+        assert_eq!(buf.alignment(), Alignment::of::<u32>());
+        assert!(buf.is_aligned(Alignment::DEFAULT_ALIGNMENT));
+        assert_eq!(buf.as_slice(), &[0; LEN]);
+    }
+
+    #[test]
     fn from_vec() {
         let vec = vec![1, 2, 3, 4, 5];
         let buff = Buffer::from(vec.clone());
         assert!(buff.is_aligned(Alignment::of::<i32>()));
         assert_eq!(vec, buff.as_ref());
+    }
+
+    #[test]
+    fn empty_aligned_max_alignment() {
+        // Empty buffers are backed by a static and must satisfy any valid alignment.
+        let buf = Buffer::<u8>::empty_aligned(Alignment::MAX);
+        assert!(buf.is_empty());
+        assert!(buf.is_aligned(Alignment::MAX));
+    }
+
+    #[test]
+    fn empty_slice_preserves_alignment() {
+        let buf = Buffer::<u64>::zeroed_aligned(8, Alignment::new(64));
+        let sliced = buf.slice(0..0);
+        assert!(sliced.is_empty());
+        assert_eq!(sliced.alignment(), Alignment::new(64));
+        assert!(sliced.is_aligned(Alignment::new(64)));
+    }
+
+    #[test]
+    fn empty_into_mut_preserves_alignment() {
+        let buf = Buffer::<u8>::empty_aligned(Alignment::new(64));
+        let buf_mut = buf.into_mut();
+        assert_eq!(buf_mut.alignment(), Alignment::new(64));
+        assert!(buf_mut.is_empty());
     }
 
     #[test]
@@ -796,5 +903,13 @@ mod test {
         // position can be arbitrary and only the beginning of the slice needs
         // to be aligned.
         aligned_buffer.slice(0..1);
+    }
+
+    #[test]
+    fn test_empty_equality() {
+        let a = Buffer::<u16>::empty();
+        let b = Buffer::<u16>::empty();
+
+        assert_eq!(a, b);
     }
 }

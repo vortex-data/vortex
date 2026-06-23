@@ -92,8 +92,8 @@ impl BoolStats {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn test_all_true() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = BoolArray::new(
             BitBuffer::from(vec![true, true, true]),
             Validity::NonNullable,
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_all_false() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = BoolArray::new(
             BitBuffer::from(vec![false, false, false]),
             Validity::NonNullable,
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_mixed() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = BoolArray::new(
             BitBuffer::from(vec![true, false, true]),
             Validity::NonNullable,
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn test_with_nulls() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = BoolArray::new(
             BitBuffer::from(vec![true, false, true]),
             Validity::from_iter([true, false, true]),

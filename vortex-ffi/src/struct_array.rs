@@ -106,7 +106,6 @@ pub unsafe extern "C" fn vx_struct_column_builder_add_field(
 ///
 /// vx_array_free(struct_array);
 /// vx_array_free(field_array);
-///
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn vx_struct_column_builder_finalize(
     builder: *mut vx_struct_column_builder,
@@ -133,8 +132,8 @@ mod tests {
     use std::sync::Arc;
 
     use vortex::array::IntoArray;
-    use vortex::array::LEGACY_SESSION;
     use vortex::array::VortexSessionExecute;
+    use vortex::array::array_session;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
@@ -171,7 +170,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_many() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let names = ["age", "name"];
         let age_field = PrimitiveArray::new(buffer![30u8, 25u8, 35u8], Validity::NonNullable);
         let name_field = VarBinViewArray::from_iter_str(["Alice", "Bob", "Charlie"]);
@@ -243,7 +242,7 @@ mod tests {
                     .clone()
                     .execute::<StructArray>(&mut ctx)
                     .unwrap();
-                assert_arrays_eq!(array, struct_array);
+                assert_arrays_eq!(array, struct_array, &mut ctx);
             }
 
             vx_array_free(array);

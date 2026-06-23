@@ -41,6 +41,8 @@ mod tests {
     // Consistency tests
     use rstest::rstest;
 
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -79,6 +81,9 @@ mod tests {
         None::<&str>, None, None, None
     ]))]
     fn test_varbinview_consistency(#[case] array: VarBinViewArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

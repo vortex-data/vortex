@@ -57,17 +57,26 @@ impl TakeExecute for ALPRD {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_session::VortexSession;
 
     use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
@@ -76,7 +85,7 @@ mod test {
         use vortex_array::IntoArray as _;
         use vortex_buffer::buffer;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
         let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
 
@@ -95,14 +104,14 @@ mod test {
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
-        assert_arrays_eq!(taken, PrimitiveArray::from_iter([a, outlier]));
+        assert_arrays_eq!(taken, PrimitiveArray::from_iter([a, outlier]), &mut ctx);
     }
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn take_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
         let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
 
@@ -123,7 +132,8 @@ mod test {
 
         assert_arrays_eq!(
             taken,
-            PrimitiveArray::from_option_iter([Some(a), Some(outlier), None])
+            PrimitiveArray::from_option_iter([Some(a), Some(outlier), None]),
+            &mut ctx
         );
     }
 
@@ -131,7 +141,7 @@ mod test {
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn test_take_conformance_alprd<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         test_take_conformance(
             &RDEncoder::new(&[a, b])
                 .encode(
@@ -146,7 +156,7 @@ mod test {
     #[case(0.1f32, 3e25f32)]
     #[case(0.5f64, 1e100f64)]
     fn test_take_with_nulls_conformance<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         test_take_conformance(
             &RDEncoder::new(&[a])
                 .encode(

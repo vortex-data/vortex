@@ -25,6 +25,7 @@ mod stream_pool;
 
 pub use arrow::ArrowDeviceArrayWithSchema;
 pub use arrow::DeviceArrayExt;
+pub use arrow::DeviceArrayStreamExt;
 pub use arrow::ExportDeviceArray;
 pub use canonical::CanonicalCudaExt;
 pub use device_buffer::CudaBufferExt;
@@ -88,18 +89,6 @@ pub use vortex_nvcomp as nvcomp;
 use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
 
-#[cfg(test)]
-pub(crate) fn canonicalize_cpu(
-    array: impl vortex::array::IntoArray,
-) -> vortex::error::VortexResult<vortex::array::Canonical> {
-    use vortex::array::LEGACY_SESSION;
-    use vortex::array::VortexSessionExecute;
-
-    array
-        .into_array()
-        .execute::<vortex::array::Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-}
-
 /// Checks if CUDA is available on the system by looking for nvcc.
 pub fn cuda_available() -> bool {
     Command::new("nvcc")
@@ -130,4 +119,18 @@ pub fn initialize_cuda(session: &CudaSession) {
     // Operation kernels
     session.register_kernel(Filter.id(), &FilterExecutor);
     session.register_kernel(Slice.id(), &SliceExecutor);
+}
+
+/// Builds a fresh [`VortexSession`](vortex::session::VortexSession) with all array session
+/// variables plus a default [`CudaSession`], for use in CUDA tests and benchmarks.
+///
+/// Each call returns an independent session with its own CUDA context and stream pool, matching
+/// the per-test isolation that lazily-initialized sessions previously provided.
+///
+/// # Panics
+///
+/// Panics if CUDA device 0 cannot be initialized (the same contract as [`CudaSession::default`]).
+#[cfg(any(test, feature = "_test-harness"))]
+pub fn cuda_session() -> vortex::session::VortexSession {
+    vortex::array::array_session().with::<CudaSession>()
 }

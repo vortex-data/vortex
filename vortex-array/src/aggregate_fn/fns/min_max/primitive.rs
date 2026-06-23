@@ -20,8 +20,9 @@ pub(super) fn accumulate_primitive(
     p: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
+    let skip_nans = partial.skip_nans;
     match_each_native_ptype!(p.ptype(), |T| {
-        let local = compute_min_max_with_validity::<T>(p, ctx)?;
+        let local = compute_min_max_with_validity::<T>(p, ctx, skip_nans)?;
         partial.merge(local);
         Ok(())
     })
@@ -30,6 +31,7 @@ pub(super) fn accumulate_primitive(
 fn compute_min_max_with_validity<T>(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
+    skip_nans: bool,
 ) -> VortexResult<Option<MinMaxResult>>
 where
     T: NativePType,
@@ -48,7 +50,7 @@ where
                 if T::PTYPE.is_int() {
                     integer_min_max_raw(slice).map(min_max_result)
                 } else {
-                    compute_min_max(slice.iter())
+                    compute_min_max(slice.iter(), skip_nans)
                 }
             }
             Mask::AllFalse(_) => None,
@@ -73,6 +75,7 @@ where
                         v.slices()
                             .iter()
                             .flat_map(|&(start, end)| slice[start..end].iter()),
+                        skip_nans,
                     )
                 }
             }
@@ -110,15 +113,29 @@ where
     }
 }
 
-fn compute_min_max<'a, T>(iter: impl Iterator<Item = &'a T>) -> Option<MinMaxResult>
+fn compute_min_max<'a, T>(
+    iter: impl Iterator<Item = &'a T>,
+    skip_nans: bool,
+) -> Option<MinMaxResult>
 where
     T: NativePType,
     PValue: From<T>,
 {
-    match iter
-        .filter(|v| !v.is_nan())
-        .minmax_by(|a, b| a.total_compare(**b))
-    {
+    if skip_nans {
+        minmax_by_total_order(iter.filter(|v| !v.is_nan()))
+    } else {
+        // Compute extrema under the total order (where NaNs sort to the ends) and let the
+        // partial's merge poison the result if either end is NaN.
+        minmax_by_total_order(iter)
+    }
+}
+
+fn minmax_by_total_order<'a, T>(iter: impl Iterator<Item = &'a T>) -> Option<MinMaxResult>
+where
+    T: NativePType,
+    PValue: From<T>,
+{
+    match iter.minmax_by(|a, b| a.total_compare(**b)) {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(&x) => {
             let scalar = Scalar::primitive(x, NonNullable);

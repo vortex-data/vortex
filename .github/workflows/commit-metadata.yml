@@ -1,0 +1,82 @@
+# Uploads commit metadata (an empty ingest envelope -- no benchmark records) on
+# every push to develop, to both the v3 server and the v4 Postgres, so the
+# `commits` dim stays populated even when no benchmark ran. Needed by both
+# backends, hence not named for either.
+
+name: Commit metadata
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch: { }
+
+permissions:
+  id-token: write  # enables AWS-GitHub OIDC for the best-effort v4 ingest step
+  contents: read
+
+jobs:
+  commit-metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+        with:
+          fetch-depth: 2
+
+      - name: Ingest commit metadata to v3 server
+        if: vars.V3_INGEST_URL != ''
+        shell: bash
+        env:
+          INGEST_BEARER_TOKEN: ${{ secrets.INGEST_BEARER_TOKEN }}
+        run: |
+          echo -n > empty.jsonl
+          python3 scripts/post-ingest.py empty.jsonl \
+            --server "${{ vars.V3_INGEST_URL }}" \
+            --commit-sha "${{ github.sha }}" \
+            --benchmark-id "commit-metadata" \
+            --repo-url "${{ github.server_url }}/${{ github.repository }}"
+
+      # v4 (Postgres) dual-write -- BEST-EFFORT (see bench.yml rationale). Empty records:
+      # post-ingest.py --postgres upserts the commit row only. v3 above stays required;
+      # a v4 failure never fails the job (promoted to required at cutover, PR-5.1).
+      # Gated on the ingest-role ARN var (the assume-role input that MUST exist) so
+      # it no-ops until v4 infra is wired.
+      #
+      # ORDER MATTERS: "Install uv" runs BEFORE "Configure AWS credentials".
+      # configure-aws-credentials persists the assumed ingest-role (rds-db:connect
+      # only) as the job's ambient AWS creds; the uv setup compiles via sccache
+      # (S3-backed), so running it after the role switch fails with S3 AccessDenied.
+      # Installing uv first keeps sccache on the original S3-capable creds; the role
+      # is assumed immediately before the ingest, which needs only rds-db:connect.
+      - name: Install uv for v4 ingest
+        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
+        continue-on-error: true
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+      - name: Configure AWS credentials for v4 ingest (OIDC)
+        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6
+        with:
+          role-to-assume: ${{ vars.GH_BENCH_INGEST_ROLE_ARN }}
+          aws-region: ${{ vars.RDS_BENCH_REGION }}
+      - name: Ingest commit metadata to v4 Postgres (best-effort)
+        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          RDS_BENCH_INSTANCE_ENDPOINT: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
+          RDS_BENCH_DB_NAME: ${{ vars.RDS_BENCH_DB_NAME }}
+          AWS_REGION: ${{ vars.RDS_BENCH_REGION }}
+          BENCH_SITE_BASE_URL: ${{ vars.BENCH_SITE_BASE_URL }}
+          BENCH_REVALIDATE_TOKEN: ${{ secrets.BENCH_REVALIDATE_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          echo -n > empty.jsonl
+          curl -fsSL https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+            -o "${RUNNER_TEMP}/rds-global-bundle.pem"
+          DSN="postgresql://bench_ingest@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
+          uv run --no-project --with 'psycopg[binary]' --with boto3 --with xxhash \
+            scripts/post-ingest.py empty.jsonl \
+            --postgres "${DSN}" \
+            --commit-sha "${{ github.sha }}" \
+            --region "${AWS_REGION}"

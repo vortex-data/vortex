@@ -16,6 +16,7 @@ use super::StatsSet;
 use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
 use crate::ArrayRef;
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
@@ -162,8 +163,10 @@ impl StatsSetRef<'_> {
         }
 
         Ok(match stat {
-            Stat::Min => min_max(self.dyn_array_ref, ctx)?.map(|MinMaxResult { min, max: _ }| min),
-            Stat::Max => min_max(self.dyn_array_ref, ctx)?.map(|MinMaxResult { min: _, max }| max),
+            Stat::Min => min_max(self.dyn_array_ref, ctx, NumericalAggregateOpts::default())?
+                .map(|MinMaxResult { min, max: _ }| min),
+            Stat::Max => min_max(self.dyn_array_ref, ctx, NumericalAggregateOpts::default())?
+                .map(|MinMaxResult { min: _, max }| max),
             Stat::Sum => {
                 Stat::Sum
                     .dtype(self.dyn_array_ref.dtype())

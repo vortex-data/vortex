@@ -13,7 +13,9 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 /// Segment cache containing the initial read segments.
 pub struct InitialReadSegmentCache {
+    /// Segments that were already covered by the footer initial read.
     pub initial: RwLock<HashMap<SegmentId, ByteBuffer>>,
+    /// Delegate cache used for all misses and stores.
     pub fallback: Arc<dyn SegmentCache>,
 }
 

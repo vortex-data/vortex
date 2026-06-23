@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use kernel::PARENT_KERNELS;
 use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -24,6 +23,8 @@ use crate::array::child_to_validity;
 use crate::arrays::bool::BoolData;
 use crate::arrays::bool::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::BoolBuilder;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -42,6 +43,10 @@ use crate::hash::ArrayHash;
 
 /// A [`Bool`]-encoded Vortex array.
 pub type BoolArray = Array<Bool>;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 #[derive(prost::Message)]
 pub struct BoolMetadata {
@@ -170,17 +175,21 @@ impl VTable for Bool {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array))
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<BoolBuilder>() {
+            return builder.append_bool_array(&array.into_owned(), ctx);
+        }
+
+        builder.extend_from_array(array.as_ref());
+        Ok(())
     }
 
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn reduce_parent(
@@ -202,7 +211,8 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::serde::SerializeOptions;
@@ -210,15 +220,17 @@ mod tests {
 
     #[test]
     fn test_nullable_bool_serde_roundtrip() {
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
         let array = BoolArray::from_iter([Some(true), None, Some(false), None]);
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let ctx = ArrayContext::empty();
+        let array_ctx = ArrayContext::empty();
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .serialize(&array_ctx, &session, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();
@@ -227,14 +239,9 @@ mod tests {
         }
         let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
-            .decode(
-                &dtype,
-                len,
-                &ReadContext::new(ctx.to_ids()),
-                &LEGACY_SESSION,
-            )
+            .decode(&dtype, len, &ReadContext::new(array_ctx.to_ids()), &session)
             .unwrap();
 
-        assert_arrays_eq!(decoded, array);
+        assert_arrays_eq!(decoded, array, &mut ctx);
     }
 }

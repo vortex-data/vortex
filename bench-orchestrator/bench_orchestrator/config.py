@@ -46,6 +46,7 @@ class Benchmark(Enum):
     TPCH = "tpch"
     TPCDS = "tpcds"
     CLICKBENCH = "clickbench"
+    CLICKBENCH_SORTED = "clickbench-sorted"
     FINEWEB = "fineweb"
     GHARCHIVE = "gh-archive"
     POLARSIGNALS = "polarsignals"

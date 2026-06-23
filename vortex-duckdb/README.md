@@ -77,6 +77,4 @@ loaded.
 ## Testing a custom DuckDB tag
 
 Change `DUCKDB_VERSION` environment variable value to a preferred hash or commit
-(local build), or change build.rs (for testing in CI). If you use a commit,
-DuckDB needs to link httpfs statically so you also need to install CURL
-development headers (e.g. `libcurl4-openssl-dev`).
+(local build), or change build.rs (for testing in CI).

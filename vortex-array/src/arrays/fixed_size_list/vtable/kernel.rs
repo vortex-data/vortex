@@ -1,14 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_session::VortexSession;
+
+use crate::ArrayVTable;
+use crate::arrays::Dict;
 use crate::arrays::FixedSizeList;
 use crate::arrays::dict::TakeExecuteAdaptor;
-use crate::kernel::ParentKernelSet;
+use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
 
-impl FixedSizeList {
-    pub(crate) const PARENT_KERNELS: ParentKernelSet<FixedSizeList> = ParentKernelSet::new(&[
-        ParentKernelSet::lift(&CastExecuteAdaptor(FixedSizeList)),
-        ParentKernelSet::lift(&TakeExecuteAdaptor(FixedSizeList)),
-    ]);
+pub(crate) fn initialize(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(
+        Cast.id(),
+        FixedSizeList,
+        CastExecuteAdaptor(FixedSizeList),
+    );
+    kernels.register_execute_parent_kernel(
+        Dict.id(),
+        FixedSizeList,
+        TakeExecuteAdaptor(FixedSizeList),
+    );
 }

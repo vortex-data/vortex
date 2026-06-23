@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Re-exports of third-party crates we use in macros exported from vortex-array.
-//!
 
 pub mod paste {
     //! Re-export of [`paste`](https://docs.rs/paste/latest/paste/).

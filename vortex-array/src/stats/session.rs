@@ -7,7 +7,6 @@ use std::any::Any;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -20,15 +19,15 @@ use crate::stats::rewrite::register_builtins;
 type StatsRewriteRuleSet = Arc<[StatsRewriteRuleRef]>;
 
 /// Session state for stats APIs.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StatsSession {
-    rewrite_rules: RwLock<HashMap<ScalarFnId, StatsRewriteRuleSet>>,
+    rewrite_rules: Arc<RwLock<HashMap<ScalarFnId, StatsRewriteRuleSet>>>,
 }
 
 impl Default for StatsSession {
     fn default() -> Self {
         let this = Self {
-            rewrite_rules: RwLock::new(HashMap::default()),
+            rewrite_rules: Arc::new(RwLock::new(HashMap::default())),
         };
         register_builtins(&this);
         this
@@ -37,14 +36,12 @@ impl Default for StatsSession {
 
 impl StatsSession {
     /// Register a stats rewrite rule.
-    #[allow(dead_code)]
-    pub(crate) fn register_rewrite<R: StatsRewriteRule>(&self, rule: R) {
+    pub fn register_rewrite<R: StatsRewriteRule>(&self, rule: R) {
         self.register_rewrite_ref(Arc::new(rule));
     }
 
     /// Register a shared stats rewrite rule.
-    #[allow(dead_code)]
-    pub(crate) fn register_rewrite_ref(&self, rule: StatsRewriteRuleRef) {
+    pub fn register_rewrite_ref(&self, rule: StatsRewriteRuleRef) {
         let mut rules = self.rewrite_rules.write();
         let rule_id = rule.scalar_fn_id();
         let mut updated_rules = rules
@@ -75,9 +72,9 @@ impl SessionVar for StatsSession {
 }
 
 /// Extension trait for accessing stats session data.
-pub(crate) trait StatsSessionExt: SessionExt {
+pub trait StatsSessionExt: SessionExt {
     /// Returns the stats session state.
-    fn stats(&self) -> Ref<'_, StatsSession> {
+    fn stats(&self) -> &StatsSession {
         self.get::<StatsSession>()
     }
 }

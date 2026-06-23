@@ -9,7 +9,9 @@ pub(crate) mod rules;
 mod slice;
 mod take;
 
-pub(crate) use kernels::PARENT_KERNELS;
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    kernels::initialize(session);
+}
 
 #[cfg(test)]
 mod tests {
@@ -17,6 +19,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
@@ -76,6 +80,9 @@ mod tests {
         Validity::NonNullable,
     ).unwrap())]
     fn test_list_consistency(#[case] array: ListArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

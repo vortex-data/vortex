@@ -48,7 +48,6 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::compress::sequence_decompress;
-use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
 /// A [`Sequence`]-encoded Vortex array.
@@ -381,15 +380,6 @@ impl VTable for Sequence {
         sequence_decompress(&array).map(ExecutionResult::done)
     }
 
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
-
     fn reduce_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,
@@ -501,7 +491,8 @@ impl Sequence {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::LEGACY_SESSION;
+    use std::sync::LazyLock;
+
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -512,8 +503,15 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::Sequence;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_sequence_canonical() {
@@ -521,7 +519,7 @@ mod tests {
 
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
-        assert_arrays_eq!(arr, canon);
+        assert_arrays_eq!(arr, canon, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -533,14 +531,14 @@ mod tests {
 
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 
-        assert_arrays_eq!(arr, canon);
+        assert_arrays_eq!(arr, canon, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn test_sequence_scalar_at() {
         let scalar = Sequence::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut SESSION.create_execution_ctx())
             .unwrap();
 
         assert_eq!(

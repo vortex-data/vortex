@@ -19,6 +19,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::null_count::null_count;
@@ -31,7 +32,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
@@ -45,7 +45,7 @@ const LEN: usize = 1_000_000;
 
 /// Session with Sparse and its pushdown kernels registered.
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty().with::<ArraySession>();
+    let session = vortex_array::array_session();
     vortex_sparse::initialize(&session);
     session
 });
@@ -107,7 +107,10 @@ fn sparse_min_max(bencher: Bencher) {
     bencher
         .with_inputs(|| (make_sparse(40_000, false), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
-            divan::black_box(min_max(&array, &mut ctx).vortex_expect("min_max"))
+            divan::black_box(
+                min_max(&array, &mut ctx, NumericalAggregateOpts::default())
+                    .vortex_expect("min_max"),
+            )
         });
 }
 

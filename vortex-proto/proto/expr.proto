@@ -26,6 +26,12 @@ message AggregateFn {
   optional bytes metadata = 2;
 }
 
+// Options for numeric aggregate functions (`vortex.sum`, `vortex.min`, `vortex.max`),
+// controlling how NaN values in floating-point inputs are handled.
+message NumericalAggregateOpts {
+  bool skip_nans = 1;
+}
+
 // Options for `vortex.literal`
 message LiteralOpts {
   vortex.scalar.Scalar value = 1;
@@ -53,6 +59,17 @@ message VariantPathElement {
     string field = 1;
     uint64 index = 2;
   }
+}
+
+// Options for `vortex.json_to_variant`
+message JsonToVariantOpts {
+  repeated ShreddingSpecField shredding = 1;
+}
+
+// One (path, dtype) shredding directive for `vortex.json_to_variant`.
+message ShreddingSpecField {
+  repeated VariantPathElement path = 1;
+  vortex.dtype.DType dtype = 2;
 }
 
 // Options for `vortex.binary`

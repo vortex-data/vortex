@@ -12,6 +12,12 @@ use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
 
 // [layout writer]
+/// Writes an ordered array stream into a layout tree and segment sink.
+///
+/// Layout strategies are writer-side extension points. Strategies may repartition, buffer,
+/// collect columns, compute statistics, compress arrays, or delegate to child strategies before
+/// finally emitting segments. They must preserve the logical row order represented by the
+/// [`SequencePointer`]s in the input stream.
 #[async_trait]
 pub trait LayoutStrategy: 'static + Send + Sync {
     /// Asynchronously process an ordered stream of array chunks, emitting them into a sink and

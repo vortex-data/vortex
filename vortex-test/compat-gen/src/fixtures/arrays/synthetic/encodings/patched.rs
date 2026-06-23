@@ -10,7 +10,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::vtable::ArrayVTable;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 
 use crate::fixtures::FlatLayoutFixture;
 
@@ -29,9 +28,7 @@ impl FlatLayoutFixture for PatchedFixture {
         "A set of patches to apply on top of an inner array"
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
-
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let array = PrimitiveArray::from_option_iter((0u64..2048).map(Some)).into_array();
         let patches = Patches::new(
             2048,
@@ -41,7 +38,7 @@ impl FlatLayoutFixture for PatchedFixture {
             None,
         )?;
 
-        Ok(Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array())
+        Ok(Patched::from_array_and_patches(array, &patches, ctx)?.into_array())
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {

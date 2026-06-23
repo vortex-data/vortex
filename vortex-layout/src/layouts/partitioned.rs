@@ -18,7 +18,6 @@ use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::validity::Validity;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ArrayFuture;
@@ -90,7 +89,10 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             .into_array();
 
             let mut ctx = session.create_execution_ctx();
-            let root_mask = root_scope.apply(&self.root)?.execute::<Mask>(&mut ctx)?;
+            let root_mask = root_scope
+                .apply(&self.root)?
+                .null_as_false()
+                .execute(&mut ctx)?;
 
             let mask = mask.bitand(&root_mask);
 

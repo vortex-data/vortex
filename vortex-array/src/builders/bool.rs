@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -71,6 +72,17 @@ impl BoolBuilder {
             self.nulls.finish_with_nullability(self.dtype.nullability()),
         )
     }
+
+    pub(crate) fn append_bool_array(
+        &mut self,
+        array: &BoolArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        self.inner.append_buffer(&array.to_bit_buffer());
+        self.nulls
+            .append_validity_mask(&BoolArrayExt::validity(array).execute_mask(array.len(), ctx)?);
+        Ok(())
+    }
 }
 
 impl ArrayBuilder for BoolBuilder {
@@ -118,19 +130,8 @@ impl ArrayBuilder for BoolBuilder {
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         #[expect(deprecated)]
         let bool_array = array.to_bool();
-
-        self.inner.append_buffer(&bool_array.to_bit_buffer());
-        self.nulls.append_validity_mask(
-            &bool_array
-                .as_ref()
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(
-                    bool_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
-                .vortex_expect("Failed to compute validity mask"),
-        );
+        self.append_bool_array(&bool_array, &mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("Failed to append bool array");
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -160,8 +161,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
@@ -198,7 +199,7 @@ mod tests {
         let chunk_count = 10;
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk
             .clone()
@@ -220,6 +221,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = BoolBuilder::with_capacity(Nullability::Nullable, 10);
 
         // Test appending true value.
@@ -236,7 +238,7 @@ mod tests {
 
         let array = builder.finish_into_bool();
         let expected = BoolArray::from_iter([Some(true), Some(false), None]);
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test wrong dtype error.
         let mut builder = BoolBuilder::with_capacity(Nullability::NonNullable, 10);

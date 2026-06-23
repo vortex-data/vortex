@@ -1,7 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! All the built-in encoding schemes and arrays.
+//! Built-in array encodings.
+//!
+//! Canonical arrays are the default uncompressed representation for a logical dtype:
+//! [`NullArray`], [`BoolArray`], [`PrimitiveArray`], [`DecimalArray`], [`VarBinViewArray`],
+//! [`ListViewArray`], [`FixedSizeListArray`], [`StructArray`], [`ExtensionArray`], and
+//! [`VariantArray`].
+//!
+//! Utility and lazy arrays represent common transformations without immediately materializing
+//! their result. Examples include [`ChunkedArray`] for concatenation, [`ConstantArray`] for repeated
+//! values, [`DictArray`] for dictionary encoding, [`FilterArray`] for masked rows, [`SliceArray`]
+//! for views, and [`ScalarFnArray`] for deferred scalar-function execution.
+//!
+//! Some public arrays are primarily internal building blocks. Their constructors and extension
+//! traits document the stable contract; avoid depending on undocumented slot order or metadata
+//! details.
 
 #[cfg(any(test, feature = "_test-harness"))]
 mod assertions;
@@ -105,6 +119,24 @@ pub use varbinview::VarBinViewArray;
 pub mod variant;
 pub use variant::Variant;
 pub use variant::VariantArray;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    bool::initialize(session);
+    chunked::initialize(session);
+    decimal::initialize(session);
+    dict::initialize(session);
+    extension::initialize(session);
+    filter::initialize(session);
+    fixed_size_list::initialize(session);
+    list::initialize(session);
+    listview::initialize(session);
+    patched::initialize(session);
+    primitive::initialize(session);
+    struct_::initialize(session);
+    varbin::initialize(session);
+    varbinview::initialize(session);
+    variant::initialize(session);
+}
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;

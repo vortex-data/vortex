@@ -55,7 +55,6 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
@@ -63,7 +62,7 @@ mod tests {
     use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = vortex_array::array_session();
         initialize(&session);
         session
     });
@@ -106,6 +105,6 @@ mod tests {
             .execute::<Canonical>(&mut ctx)
             .unwrap();
 
-        assert_arrays_eq!(kernel, baseline);
+        assert_arrays_eq!(kernel, baseline, &mut ctx);
     }
 }

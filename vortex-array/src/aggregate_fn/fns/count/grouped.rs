@@ -27,7 +27,12 @@ impl DynGroupedAggregateKernel for CountGroupedKernel {
         groups: &GroupedArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !aggregate_fn.is::<Count>() {
+        let Some(options) = aggregate_fn.as_opt::<Count>() else {
+            return Ok(None);
+        };
+        // NaN-skipping counts over floats must inspect the element values, which this
+        // validity-only kernel cannot do; fall back to the per-group accumulator path.
+        if options.skip_nans && groups.elements().dtype().is_float() {
             return Ok(None);
         }
         try_grouped_count(groups, ctx)
@@ -86,13 +91,14 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::ArrayRef;
+    use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::DynGroupedAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::GroupedAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::count::Count;
+    use crate::array_session;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
@@ -105,9 +111,17 @@ mod tests {
     use crate::validity::Validity;
 
     /// Run a grouped count through the accumulator.
-    fn grouped_count_actual(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut acc = GroupedAccumulator::try_new(Count, EmptyOptions, elem_dtype.clone())?;
-        acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
+    fn grouped_count_actual(
+        groups: &ArrayRef,
+        elem_dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let mut acc = GroupedAccumulator::try_new(
+            Count,
+            NumericalAggregateOpts::default(),
+            elem_dtype.clone(),
+        )?;
+        acc.accumulate_list(groups, ctx)?;
         acc.finish()
     }
 
@@ -116,7 +130,7 @@ mod tests {
         elements: &ArrayRef,
         ranges: &[(usize, usize)],
     ) -> VortexResult<ArrayRef> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let counts: Buffer<u64> = ranges
             .iter()
             .map(|&(offset, size)| {
@@ -142,24 +156,26 @@ mod tests {
 
     #[test]
     fn listview_counts_all_valid() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6], Validity::NonNullable).into_array();
         let elem_dtype = DType::Primitive(PType::I32, NonNullable);
         let ranges = [(0, 2), (2, 1), (3, 3), (6, 0)];
 
         let groups = listview(elements.clone(), &ranges)?;
-        let actual = grouped_count_actual(&groups, &elem_dtype)?;
+        let actual = grouped_count_actual(&groups, &elem_dtype, &mut ctx)?;
         let expected = grouped_count_reference(&elements, &ranges)?;
 
         let direct =
             PrimitiveArray::new(buffer![2u64, 1, 3, 0], Validity::NonNullable).into_array();
-        assert_arrays_eq!(&actual, &direct);
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct, &mut ctx);
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn listview_counts_with_nulls() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, None, Some(9)])
                 .into_array();
@@ -167,18 +183,19 @@ mod tests {
         let ranges = [(0, 3), (3, 2), (5, 1)];
 
         let groups = listview(elements.clone(), &ranges)?;
-        let actual = grouped_count_actual(&groups, &elem_dtype)?;
+        let actual = grouped_count_actual(&groups, &elem_dtype, &mut ctx)?;
         let expected = grouped_count_reference(&elements, &ranges)?;
 
         // Group 0: {1, null, 3} -> 2. Group 1: {null, null} -> 0. Group 2: {9} -> 1.
         let direct = PrimitiveArray::new(buffer![2u64, 0, 1], Validity::NonNullable).into_array();
-        assert_arrays_eq!(&actual, &direct);
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct, &mut ctx);
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn listview_counts_varbinview_with_nulls() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let elements = VarBinViewArray::from_iter_nullable_str([
             Some("a"),
             None,
@@ -191,26 +208,51 @@ mod tests {
         let ranges = [(0, 2), (2, 2), (4, 1)];
 
         let groups = listview(elements.clone(), &ranges)?;
-        let actual = grouped_count_actual(&groups, &elem_dtype)?;
+        let actual = grouped_count_actual(&groups, &elem_dtype, &mut ctx)?;
         let expected = grouped_count_reference(&elements, &ranges)?;
 
         let direct = PrimitiveArray::new(buffer![1u64, 1, 1], Validity::NonNullable).into_array();
-        assert_arrays_eq!(&actual, &direct);
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct, &mut ctx);
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_size_counts_float_nans() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let elements =
+            PrimitiveArray::from_option_iter([Some(1.0f64), Some(f64::NAN), None, Some(2.0)])
+                .into_array();
+        let elem_dtype = DType::Primitive(PType::F64, Nullable);
+        let groups =
+            FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 2)?.into_array();
+
+        // NaNs are excluded by default and counted otherwise.
+        let actual = grouped_count_actual(&groups, &elem_dtype, &mut ctx)?;
+        let expected = PrimitiveArray::new(buffer![1u64, 1], Validity::NonNullable).into_array();
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
+
+        let mut acc =
+            GroupedAccumulator::try_new(Count, NumericalAggregateOpts::include_nans(), elem_dtype)?;
+        acc.accumulate_list(&groups, &mut ctx)?;
+        let actual = acc.finish()?;
+        let expected = PrimitiveArray::new(buffer![2u64, 1], Validity::NonNullable).into_array();
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn fixed_size_counts_with_nulls() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array();
         let elem_dtype = DType::Primitive(PType::I32, Nullable);
         let groups =
             FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 2)?.into_array();
 
-        let actual = grouped_count_actual(&groups, &elem_dtype)?;
+        let actual = grouped_count_actual(&groups, &elem_dtype, &mut ctx)?;
         let direct = PrimitiveArray::new(buffer![1u64, 2], Validity::NonNullable).into_array();
-        assert_arrays_eq!(&actual, &direct);
+        assert_arrays_eq!(&actual, &direct, &mut ctx);
         Ok(())
     }
 }

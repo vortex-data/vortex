@@ -58,7 +58,7 @@ impl CompareKernel for VarBin {
 
             if rhs_is_empty {
                 let buffer = match operator {
-                    CompareOperator::Gte => BitBuffer::new_set(len), // Every possible value is >= ""
+                    CompareOperator::Gte => BitBuffer::new_set(len), /* Every possible value is >= "" */
                     CompareOperator::Lt => BitBuffer::new_unset(len), // No value is < ""
                     CompareOperator::Eq | CompareOperator::Lte => {
                         let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
@@ -159,10 +159,10 @@ mod test {
     use vortex_buffer::ByteBuffer;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
@@ -200,7 +200,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     result.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
+                    &mut array_session().create_execution_ctx()
                 )
                 .unwrap()
                 .to_bit_buffer(),
@@ -236,7 +236,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     result.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx()
+                    &mut array_session().create_execution_ctx()
                 )
                 .unwrap()
                 .to_bit_buffer(),
@@ -254,6 +254,8 @@ mod tests {
     use vortex_buffer::ByteBuffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
@@ -289,6 +291,7 @@ mod tests {
     /// [`CompareKernel`]: super::CompareKernel
     #[test]
     fn varbin_i64_offsets_compare_constant() {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = VarBinBuilder::<i64>::with_capacity(3);
         builder.append_value(b"abc");
         builder.append_value(b"xyz");
@@ -304,11 +307,12 @@ mod tests {
             .unwrap();
 
         let expected = BoolArray::from_iter([true, false, true]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn varbin_i64_offsets_compare_constant_binary() {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = VarBinBuilder::<i64>::with_capacity(3);
         builder.append_value(b"abc");
         builder.append_value(b"xyz");
@@ -328,6 +332,6 @@ mod tests {
             .unwrap();
 
         let expected = BoolArray::from_iter([true, false, true]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 }

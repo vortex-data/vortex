@@ -6,17 +6,24 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::binary::BooleanKernel;
+use vortex_array::scalar_fn::fns::binary::kleene_boolean_buffer_scalar;
+use vortex_array::scalar_fn::fns::binary::kleene_boolean_buffers;
 use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use super::ByteBool;
 
@@ -106,9 +113,62 @@ impl TakeExecute for ByteBool {
     }
 }
 
+impl BooleanKernel for ByteBool {
+    fn boolean(
+        lhs: ArrayView<'_, Self>,
+        rhs: &ArrayRef,
+        operator: Operator,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
+        let lhs_values = truthy_bit_buffer(lhs);
+
+        if let Some(rhs) = rhs.as_opt::<Constant>() {
+            let rhs = rhs
+                .scalar()
+                .as_bool_opt()
+                .ok_or_else(|| vortex_err!("expected boolean scalar"))?;
+            return kleene_boolean_buffer_scalar(
+                lhs_values,
+                lhs.validity()?,
+                &rhs,
+                operator,
+                nullability,
+                ctx,
+            )
+            .map(Some);
+        }
+
+        let Some(rhs) = rhs.as_opt::<ByteBool>() else {
+            return Ok(None);
+        };
+
+        kleene_boolean_buffers(
+            lhs_values,
+            lhs.validity()?,
+            truthy_bit_buffer(rhs),
+            rhs.validity()?,
+            operator,
+            nullability,
+            ctx,
+        )
+        .map(Some)
+    }
+}
+
+fn truthy_bit_buffer(array: ArrayView<'_, ByteBool>) -> BitBuffer {
+    let bytes = array.truthy_bytes();
+    BitBuffer::collect_bool(bytes.len(), |idx| bytes[idx] != 0)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -119,9 +179,17 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_error::vortex_err;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::ByteBoolArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = array_session();
+        crate::initialize(&session);
+        session
+    });
 
     fn bb(v: Vec<bool>) -> ByteBoolArray {
         ByteBool::from_vec(v, Validity::AllValid)
@@ -139,7 +207,11 @@ mod tests {
         let sliced_arr = vortex_arr.slice(1..4).unwrap();
 
         let expected = bb_opt(vec![Some(true), None, Some(false)]);
-        assert_arrays_eq!(sliced_arr, expected.into_array());
+        assert_arrays_eq!(
+            sliced_arr,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -153,7 +225,11 @@ mod tests {
             .unwrap();
 
         let expected = bb(vec![true; 5]);
-        assert_arrays_eq!(arr, expected.into_array());
+        assert_arrays_eq!(
+            arr,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -167,7 +243,11 @@ mod tests {
             .unwrap();
 
         let expected = bb(vec![false; 5]);
-        assert_arrays_eq!(arr, expected.into_array());
+        assert_arrays_eq!(
+            arr,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -181,7 +261,38 @@ mod tests {
             .unwrap();
 
         let expected = bb_opt(vec![Some(true), Some(true), Some(true), Some(false), None]);
-        assert_arrays_eq!(arr, expected.into_array());
+        assert_arrays_eq!(
+            arr,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
+    }
+
+    #[test]
+    fn test_boolean_kernel_kleene() -> VortexResult<()> {
+        let lhs = bb_opt(vec![Some(false), Some(true), None, Some(false), None]);
+        let rhs = bb_opt(vec![None, None, Some(true), Some(false), None]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let and_result =
+            <ByteBool as BooleanKernel>::boolean(lhs.as_view(), &rhs, Operator::And, &mut ctx)?
+                .ok_or_else(|| vortex_err!("ByteBool should handle ByteBool boolean AND"))?;
+        assert_arrays_eq!(
+            and_result,
+            BoolArray::from_iter([Some(false), None, None, Some(false), None]),
+            &mut ctx
+        );
+
+        let or_result =
+            <ByteBool as BooleanKernel>::boolean(lhs.as_view(), &rhs, Operator::Or, &mut ctx)?
+                .ok_or_else(|| vortex_err!("ByteBool should handle ByteBool boolean OR"))?;
+        assert_arrays_eq!(
+            or_result,
+            BoolArray::from_iter([None, Some(true), Some(true), Some(false), None]),
+            &mut ctx
+        );
+
+        Ok(())
     }
 
     #[test]
@@ -240,6 +351,7 @@ mod tests {
     #[case::single_null(bb_opt(vec![None]))]
     #[case::mixed_with_nulls(bb_opt(vec![Some(true), None, Some(false), None, Some(true)]))]
     fn test_bytebool_consistency(#[case] array: ByteBoolArray) {
-        test_array_consistency(&array.into_array());
+        let ctx = &mut array_session().create_execution_ctx();
+        test_array_consistency(&array.into_array(), ctx);
     }
 }

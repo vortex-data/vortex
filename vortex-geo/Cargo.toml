@@ -16,6 +16,9 @@ version.workspace = true
 [dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+geo = { workspace = true }
+geo-traits = { workspace = true }
+geo-types = { workspace = true }
 geoarrow = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
@@ -24,8 +27,6 @@ vortex-session = { workspace = true }
 wkb = { workspace = true }
 
 [dev-dependencies]
-geo-traits = { workspace = true }
-geo-types = { workspace = true }
 rstest = { workspace = true }
 
 [lints]

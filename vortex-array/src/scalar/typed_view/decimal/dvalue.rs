@@ -19,6 +19,23 @@ use crate::dtype::NativeDecimalType;
 use crate::dtype::ToI256;
 use crate::dtype::i256;
 use crate::match_each_decimal_value;
+use crate::match_each_decimal_value_type;
+
+/// Widens both operands to the larger of their two decimal types, then applies the checked op.
+macro_rules! checked_widening_binary_op {
+    ($self:expr, $other:expr, $op:path) => {{
+        let target = $self.decimal_type().max($other.decimal_type());
+        match_each_decimal_value_type!(target, |T| {
+            let a: T = $self
+                .cast()
+                .vortex_expect("widening cast to wider decimal type must always succeed");
+            let b: T = $other
+                .cast()
+                .vortex_expect("widening cast to wider decimal type must always succeed");
+            Some(DecimalValue::from($op(&a, &b)?))
+        })
+    }};
+}
 
 /// A decimal value that can be stored in various integer widths.
 ///
@@ -134,36 +151,24 @@ impl DecimalValue {
         value_i256 > min_value && value_i256 < max_value
     }
 
-    /// Helper function to perform a checked binary operation on two decimal values.
-    ///
-    /// Both values are upcast to i256 before the operation, and the result is returned as I256.
-    fn checked_binary_op<F>(&self, other: &Self, op: F) -> Option<Self>
-    where
-        F: FnOnce(i256, i256) -> Option<i256>,
-    {
-        let self_upcast = self.as_i256();
-        let other_upcast = other.as_i256();
-        op(self_upcast, other_upcast).map(DecimalValue::I256)
-    }
-
     /// Checked addition. Returns `None` on overflow.
     pub fn checked_add(&self, other: &Self) -> Option<Self> {
-        self.checked_binary_op(other, |a, b| a.checked_add(&b))
+        checked_widening_binary_op!(self, other, CheckedAdd::checked_add)
     }
 
     /// Checked subtraction. Returns `None` on overflow.
     pub fn checked_sub(&self, other: &Self) -> Option<Self> {
-        self.checked_binary_op(other, |a, b| a.checked_sub(&b))
+        checked_widening_binary_op!(self, other, CheckedSub::checked_sub)
     }
 
     /// Checked multiplication. Returns `None` on overflow.
     pub fn checked_mul(&self, other: &Self) -> Option<Self> {
-        self.checked_binary_op(other, |a, b| a.checked_mul(&b))
+        checked_widening_binary_op!(self, other, CheckedMul::checked_mul)
     }
 
     /// Checked division. Returns `None` on overflow or division by zero.
     pub fn checked_div(&self, other: &Self) -> Option<Self> {
-        self.checked_binary_op(other, |a, b| a.checked_div(&b))
+        checked_widening_binary_op!(self, other, CheckedDiv::checked_div)
     }
 }
 

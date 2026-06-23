@@ -14,7 +14,6 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
@@ -60,7 +59,7 @@ fn bench_dict_mask(bencher: Bencher, (fraction_valid, fraction_masked): (f64, f6
     let values = PrimitiveArray::from_option_iter([None, Some(42i32)]).into_array();
     let array = DictArray::try_new(codes, values).unwrap().into_array();
     let filter_mask = filter_mask(len, fraction_masked, &mut rng);
-    let session = VortexSession::empty();
+    let session = vortex_array::array_session();
     bencher
         .with_inputs(|| (&array, &filter_mask, session.create_execution_ctx()))
         .bench_refs(|(array, filter_mask, ctx)| {

@@ -33,13 +33,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
-use crate::expr::Expression;
-use crate::expr::StatsCatalog;
-use crate::expr::and_collect;
-use crate::expr::gt;
-use crate::expr::lit;
-use crate::expr::lt;
-use crate::expr::or;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::ListScalar;
@@ -51,7 +44,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::binary::Binary;
-use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
@@ -127,43 +119,6 @@ impl ScalarFnVTable for ListContains {
         }
 
         compute_list_contains(&list_array, &value_array, ctx)
-    }
-
-    fn stat_falsification(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let list = expr.child(0);
-        let needle = expr.child(1);
-
-        // falsification(contains([1,2,5], x)) =>
-        //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
-        let min = list.stat_min(catalog)?;
-        let max = list.stat_max(catalog)?;
-        // If the list is constant when we can compare each element to the value
-        if min == max {
-            let list_ = min
-                .as_opt::<Literal>()
-                .and_then(|l| l.as_list_opt())
-                .and_then(|l| l.elements())?;
-            if list_.is_empty() {
-                // contains([], x) is always false.
-                return Some(lit(true));
-            }
-            let value_max = needle.stat_max(catalog)?;
-            let value_min = needle.stat_min(catalog)?;
-
-            return and_collect(list_.iter().map(move |v| {
-                or(
-                    lt(value_max.clone(), lit(v.clone())),
-                    gt(value_min.clone(), lit(v.clone())),
-                )
-            }));
-        }
-
-        None
     }
 
     // Nullability matters for contains([], x) where x is false.
@@ -415,7 +370,7 @@ fn list_is_not_empty(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // Short-circuit for all invalid.
-    if matches!(list_array.validity()?, Validity::AllInvalid) {
+    if list_array.validity()?.definitely_all_null() {
         return Ok(ConstantArray::new(
             Scalar::null(DType::Bool(Nullability::Nullable)),
             list_array.len(),
@@ -439,30 +394,29 @@ fn list_is_not_empty(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use itertools::Itertools;
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
-    use vortex_utils::aliases::hash_map::HashMap;
-    use vortex_utils::aliases::hash_set::HashSet;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ListArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
-    use crate::dtype::Field;
-    use crate::dtype::FieldPath;
-    use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
+    use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::col;
     use crate::expr::get_item;
@@ -471,7 +425,6 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::lt;
     use crate::expr::or;
-    use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
@@ -479,7 +432,16 @@ mod tests {
     use crate::scalar_fn::fns::list_contains::ConstantArray;
     use crate::scalar_fn::fns::list_contains::ListViewArray;
     use crate::scalar_fn::fns::list_contains::PrimitiveArray;
+    use crate::stats::StatsSession;
+    use crate::stats::stat as stat_expr;
     use crate::validity::Validity;
+
+    static STATS_SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
+
+    fn stat(expr: Expression, stat: Stat) -> Expression {
+        stat_expr(expr, stat.aggregate_fn().unwrap())
+    }
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
@@ -499,12 +461,12 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
@@ -518,12 +480,12 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
@@ -537,12 +499,12 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
@@ -562,12 +524,12 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
@@ -587,13 +549,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert!(
             !item
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(1, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
     }
@@ -621,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    pub fn list_falsification() {
+    pub fn list_falsification() -> VortexResult<()> {
         let expr = list_contains(
             lit(Scalar::list(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
@@ -630,34 +592,34 @@ mod tests {
             )),
             col("a"),
         );
-
-        let (expr, st) = checked_pruning_expr(
-            &expr,
-            &FieldPathSet::from_iter([
-                FieldPath::from_iter([Field::Name("a".into()), Field::Name("max".into())]),
-                FieldPath::from_iter([Field::Name("a".into()), Field::Name("min".into())]),
-            ]),
-        )
-        .unwrap();
+        let scope = DType::Struct(
+            StructFields::new(
+                ["a"].into(),
+                vec![DType::Primitive(I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
 
         assert_eq!(
-            &expr,
-            &and(
+            expr.falsify(&scope, &STATS_SESSION)?,
+            Some(and(
                 and(
-                    or(lt(col("a_max"), lit(1i32)), gt(col("a_min"), lit(1i32)),),
-                    or(lt(col("a_max"), lit(2i32)), gt(col("a_min"), lit(2i32)),)
+                    or(
+                        lt(stat(col("a"), Stat::Max), lit(1i32)),
+                        gt(stat(col("a"), Stat::Min), lit(1i32)),
+                    ),
+                    or(
+                        lt(stat(col("a"), Stat::Max), lit(2i32)),
+                        gt(stat(col("a"), Stat::Min), lit(2i32)),
+                    )
                 ),
-                or(lt(col("a_max"), lit(3i32)), gt(col("a_min"), lit(3i32)),)
-            )
+                or(
+                    lt(stat(col("a"), Stat::Max), lit(3i32)),
+                    gt(stat(col("a"), Stat::Min), lit(3i32)),
+                )
+            ))
         );
-
-        assert_eq!(
-            st.map(),
-            &HashMap::from_iter([(
-                FieldPath::from_name("a"),
-                HashSet::from([Stat::Min, Stat::Max])
-            )])
-        );
+        Ok(())
     }
 
     #[test]
@@ -685,7 +647,7 @@ mod tests {
         let result = arr.clone().apply(&expr).unwrap();
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::NonNullable)
         );
@@ -695,7 +657,7 @@ mod tests {
         let result = arr.apply(&expr).unwrap();
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::NonNullable)
         );
@@ -790,6 +752,7 @@ mod tests {
         #[case] value: Option<&str>,
         #[case] expected: BoolArray,
     ) {
+        let mut ctx = array_session().create_execution_ctx();
         let element_nullability = list_array
             .dtype()
             .as_list_element_opt()
@@ -802,11 +765,12 @@ mod tests {
         let elem = ConstantArray::new(scalar, list_array.len());
         let expr = list_contains(root(), lit(elem.scalar().clone()));
         let result = list_array.apply(&expr).unwrap();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_constant_list() {
+        let mut ctx = array_session().create_execution_ctx();
         let list_array = ConstantArray::new(
             Scalar::list(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
@@ -820,11 +784,12 @@ mod tests {
         let expr = list_contains(root(), lit(2i32));
         let contains = list_array.apply(&expr).unwrap();
         let expected = BoolArray::from_iter([true, true]);
-        assert_arrays_eq!(contains, expected);
+        assert_arrays_eq!(contains, expected, &mut ctx);
     }
 
     #[test]
     fn test_all_nulls() {
+        let mut ctx = array_session().create_execution_ctx();
         let list_array = ConstantArray::new(
             Scalar::null(DType::List(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
@@ -841,11 +806,12 @@ mod tests {
             [false, false, false, false, false].into_iter().collect(),
             Validity::AllInvalid,
         );
-        assert_arrays_eq!(contains, expected);
+        assert_arrays_eq!(contains, expected, &mut ctx);
     }
 
     #[test]
     fn test_list_array_element() {
+        let mut ctx = array_session().create_execution_ctx();
         let list_scalar = Scalar::list(
             Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
             vec![1.into(), 3.into(), 6.into()],
@@ -857,11 +823,12 @@ mod tests {
         let contains = arr.apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, true, false, false, true]);
-        assert_arrays_eq!(contains, expected);
+        assert_arrays_eq!(contains, expected, &mut ctx);
     }
 
     #[test]
     fn test_list_contains_empty_listview() {
+        let mut ctx = array_session().create_execution_ctx();
         let empty_elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
         let offsets = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
         let sizes = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
@@ -880,11 +847,12 @@ mod tests {
         let result = list_array.into_array().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, false]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
     }
 
     #[test]
     fn test_list_contains_all_null_elements() {
+        let mut ctx = array_session().create_execution_ctx();
         let elements = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None, None]);
         let offsets = Buffer::from_iter([0u32, 2, 4]).into_array();
         let sizes = Buffer::from_iter([2u32, 2, 1]).into_array();
@@ -908,18 +876,19 @@ mod tests {
             [false, false, false].into_iter().collect(),
             Validity::AllInvalid,
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
 
         // Searching for non-null
         let expr2 = list_contains(root(), lit(42i32));
         let result2 = list_array.into_array().apply(&expr2).unwrap();
 
         let expected2 = BoolArray::from_iter([false, false, false]);
-        assert_arrays_eq!(result2, expected2);
+        assert_arrays_eq!(result2, expected2, &mut ctx);
     }
 
     #[test]
     fn test_list_contains_large_offsets() {
+        let mut ctx = array_session().create_execution_ctx();
         let elements = Buffer::from_iter([1i32, 2, 3, 4, 5]).into_array();
 
         let offsets = Buffer::from_iter([0u32, 1, 4, 0]).into_array();
@@ -932,17 +901,18 @@ mod tests {
         let result = list_array.clone().into_array().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, false]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
 
         let expr5 = list_contains(root(), lit(5i32));
         let result5 = list_array.into_array().apply(&expr5).unwrap();
 
         let expected5 = BoolArray::from_iter([false, false, true, false]);
-        assert_arrays_eq!(result5, expected5);
+        assert_arrays_eq!(result5, expected5, &mut ctx);
     }
 
     #[test]
     fn test_list_contains_offset_size_boundary() {
+        let mut ctx = array_session().create_execution_ctx();
         let elements = Buffer::from_iter(0..256).into_array();
         let offsets = Buffer::from_iter([0u8, 100, 200, 254]).into_array();
         let sizes = Buffer::from_iter([50u8, 50, 54, 2]).into_array();
@@ -954,12 +924,12 @@ mod tests {
         let result = list_array.clone().into_array().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, true]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
 
         let expr_zero = list_contains(root(), lit(0i32));
         let result_zero = list_array.into_array().apply(&expr_zero).unwrap();
 
         let expected_zero = BoolArray::from_iter([true, false, false, false]);
-        assert_arrays_eq!(result_zero, expected_zero);
+        assert_arrays_eq!(result_zero, expected_zero, &mut ctx);
     }
 }

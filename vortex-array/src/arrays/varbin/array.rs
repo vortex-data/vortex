@@ -255,7 +255,7 @@ impl VarBinData {
             }
             _ => None,
         };
-        let all_invalid = matches!(validity, Validity::AllInvalid);
+        let all_invalid = validity.definitely_all_null();
 
         match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
             let offsets_slice = primitive_offsets.as_slice::<O>();

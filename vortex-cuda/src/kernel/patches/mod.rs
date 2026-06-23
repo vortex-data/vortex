@@ -175,8 +175,8 @@ mod tests {
     use cudarc::driver::DeviceRepr;
     use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
-    use vortex::array::LEGACY_SESSION;
     use vortex::array::VortexSessionExecute;
+    use vortex::array::array_session;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::primitive::PrimitiveDataParts;
     use vortex::array::assert_arrays_eq;
@@ -188,7 +188,6 @@ mod tests {
     use vortex::dtype::DType;
     use vortex::dtype::NativePType;
     use vortex::dtype::Nullability;
-    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::CudaDeviceBuffer;
@@ -217,8 +216,8 @@ mod tests {
     }
 
     async fn full_test_case<Values: NativePType + DeviceRepr, Indices: NativePType + DeviceRepr>() {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session()).unwrap();
+        let mut ctx = array_session().create_execution_ctx();
 
         let values = PrimitiveArray::from_iter(0..128);
         let values = force_cast::<Values>(values, &mut ctx);
@@ -265,7 +264,7 @@ mod tests {
         .unwrap()
         .into_primitive();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result, &mut ctx);
     }
 
     fn force_cast<T: NativePType>(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> PrimitiveArray {

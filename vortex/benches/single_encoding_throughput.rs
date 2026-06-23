@@ -14,6 +14,7 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
+use vortex::VortexSessionDefault;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
@@ -22,7 +23,6 @@ use vortex::array::arrays::VarBinViewArray;
 use vortex::array::builders::dict::dict_encode;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::dtype::Nullability;
-use vortex::array::session::ArraySession;
 use vortex::dtype::PType;
 use vortex::encodings::alp::RDEncoder;
 use vortex::encodings::alp::alp_encode;
@@ -46,8 +46,7 @@ use vortex_session::VortexSession;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
 fn main() {
     divan::main();
@@ -209,10 +208,11 @@ fn bench_for_decompress_i32(bencher: Bencher) {
 #[divan::bench(name = "dict_compress_u32")]
 fn bench_dict_compress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
+    let array = uint_array.into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| (&uint_array, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| dict_encode(&a.clone().into_array(), ctx).unwrap());
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| dict_encode(a, ctx).unwrap());
 }
 
 #[divan::bench(name = "dict_decompress_u32")]
@@ -384,10 +384,11 @@ fn bench_dict_compress_string(bencher: Bencher) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let nbytes = varbinview_arr.nbytes() as u64;
+    let array = varbinview_arr.into_array();
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| dict_encode(&a.clone().into_array(), ctx).unwrap());
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| dict_encode(a, ctx).unwrap());
 }
 
 #[divan::bench(name = "dict_decompress_string")]
@@ -409,52 +410,49 @@ fn bench_dict_decompress_string(bencher: Bencher) {
 #[divan::bench(name = "fsst_compress_string")]
 fn bench_fsst_compress_string(bencher: Bencher) {
     let varbinview_arr =
-        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
-    let fsst_compressor = fsst_train_compressor(&varbinview_arr);
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005)).into_array();
+    let fsst_compressor =
+        fsst_train_compressor(&varbinview_arr, &mut SESSION.create_execution_ctx()).unwrap();
     let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| fsst_compress(*a, a.len(), a.dtype(), &fsst_compressor, ctx));
+        .bench_refs(|(a, ctx)| fsst_compress(a, &fsst_compressor, ctx).unwrap());
 }
 
 #[divan::bench(name = "fsst_decompress_string")]
 fn bench_fsst_decompress_string(bencher: Bencher) {
     let varbinview_arr =
-        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
-    let fsst_compressor = fsst_train_compressor(&varbinview_arr);
-    let fsst_array = fsst_compress(
-        &varbinview_arr,
-        varbinview_arr.len(),
-        varbinview_arr.dtype(),
-        &fsst_compressor,
-        &mut SESSION.create_execution_ctx(),
-    );
-    let nbytes = varbinview_arr.into_array().nbytes() as u64;
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005)).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let fsst_compressor = fsst_train_compressor(&varbinview_arr, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&varbinview_arr, &fsst_compressor, &mut ctx)
+        .unwrap()
+        .into_array();
+    let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| (&fsst_array, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
+        .bench_refs(|(a, ctx)| canonicalize(a.clone(), ctx));
 }
 
 #[cfg(feature = "zstd")]
 #[divan::bench(name = "zstd_compress_string")]
 fn bench_zstd_compress_string(bencher: Bencher) {
     let varbinview_arr =
-        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005)).into_array();
     let nbytes = varbinview_arr.nbytes() as u64;
-    let array = varbinview_arr.into_array();
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
-        .bench_values(|(a, mut ctx)| ZstdData::from_array(a, 3, 8192, &mut ctx).unwrap());
+        .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| ZstdData::from_array(a.clone(), 3, 8192, ctx).unwrap());
 }
 
 #[cfg(feature = "zstd")]
 #[divan::bench(name = "zstd_decompress_string")]
 fn bench_zstd_decompress_string(bencher: Bencher) {
     let varbinview_arr =
-        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
+        VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005)).into_array();
     let dtype = varbinview_arr.dtype().clone();
     let validity = varbinview_arr.validity().unwrap();
     let compressed = Zstd::try_new(
@@ -470,9 +468,9 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
     )
     .unwrap()
     .into_array();
-    let nbytes = varbinview_arr.into_array().nbytes() as u64;
+    let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| canonicalize((**a).clone(), ctx));
+        .bench_refs(|(a, ctx)| canonicalize(a.clone(), ctx));
 }

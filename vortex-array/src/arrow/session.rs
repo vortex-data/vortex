@@ -39,7 +39,6 @@ use tracing::trace;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
@@ -163,7 +162,7 @@ pub type ArrowImportVTableRef = Arc<dyn ArrowImportVTable>;
 /// keyed by Arrow extension name. The default session pre-registers the builtin UUID
 /// plugin; temporal extensions are handled by the canonical Arrow ↔ Vortex path and do not
 /// need plugins.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ArrowSession {
     exporters: ArcSwapMap<Id, Arc<[ArrowExportVTableRef]>>,
     exporters_by_vortex: ArcSwapMap<ExtId, Arc<[ArrowExportVTableRef]>>,
@@ -610,11 +609,11 @@ impl SessionVar for ArrowSession {
 /// Extension trait for accessing the [`ArrowSession`] on a Vortex session.
 pub trait ArrowSessionExt: SessionExt {
     /// Get the Arrow session.
-    fn arrow(&self) -> Ref<'_, ArrowSession>;
+    fn arrow(&self) -> &ArrowSession;
 }
 
 impl<S: SessionExt> ArrowSessionExt for S {
-    fn arrow(&self) -> Ref<'_, ArrowSession> {
+    fn arrow(&self) -> &ArrowSession {
         self.get::<ArrowSession>()
     }
 }
@@ -631,8 +630,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::Nullability;
@@ -765,8 +764,9 @@ mod tests {
 
     #[test]
     fn execute_arrow_target_none_preserves_top_level_uuid_metadata() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let session = LEGACY_SESSION.arrow();
+        let vortex_session = array_session();
+        let mut ctx = vortex_session.create_execution_ctx();
+        let session = vortex_session.arrow();
 
         let mut field = Field::new("id", DataType::FixedSizeBinary(16), false);
         field.try_with_extension_type(ArrowUuid)?;

@@ -8,6 +8,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
@@ -51,6 +53,7 @@ fn test_filter_degenerate_list_size_zero(
     #[case] mask_values: Vec<bool>,
     #[case] expected_len: usize,
 ) {
+    let mut ctx = array_session().create_execution_ctx();
     let new_validity = if matches!(validity, Validity::NonNullable) {
         Validity::NonNullable
     } else {
@@ -74,11 +77,12 @@ fn test_filter_degenerate_list_size_zero(
         new_validity,
         expected_len,
     );
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
 fn test_filter_with_nulls() {
+    let mut ctx = array_session().create_execution_ctx();
     let elements =
         PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4), Some(5), Some(6)]);
     let validity = Validity::from_iter([true, false, true]);
@@ -97,15 +101,16 @@ fn test_filter_with_nulls() {
     let expected = FixedSizeListArray::new(
         expected_elements.into_array(),
         2,
-        Validity::from_iter([true, true]), // Both selected lists are valid, but type is still nullable.
+        Validity::from_iter([true, true]), /* Both selected lists are valid, but type is still nullable. */
         2,
     );
 
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
 fn test_filter_all_null_array() {
+    let mut ctx = array_session().create_execution_ctx();
     // Create an array where all elements are null.
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let validity = Validity::AllInvalid;
@@ -116,12 +121,13 @@ fn test_filter_all_null_array() {
 
     // Verify the result is an array of nulls.
     assert_eq!(filtered.len(), 2, "All-null FSL should produce 2 elements");
-    assert_nth_scalar_is_null!(filtered, 0);
-    assert_nth_scalar_is_null!(filtered, 1);
+    assert_nth_scalar_is_null!(filtered, 0, &mut ctx);
+    assert_nth_scalar_is_null!(filtered, 1, &mut ctx);
 }
 
 #[test]
 fn test_filter_nested_fixed_size_lists() {
+    let mut ctx = array_session().create_execution_ctx();
     // Create nested fixed-size lists: FSL<FSL<i32>>.
     // Inner lists are of size 2, outer lists are of size 3.
     // So we have 2 outer lists, each containing 3 inner lists, each containing 2 i32s.
@@ -160,7 +166,7 @@ fn test_filter_nested_fixed_size_lists() {
     let expected_outer =
         FixedSizeListArray::new(expected_inner.into_array(), 3, Validity::NonNullable, 1);
 
-    assert_arrays_eq!(filtered, expected_outer);
+    assert_arrays_eq!(filtered, expected_outer, &mut ctx);
 }
 
 // Conformance tests using rstest for various array configurations.
@@ -247,6 +253,7 @@ fn create_fsl_empty() -> ArrayRef {
 
 #[test]
 fn test_filter_all_null_various_list_sizes() {
+    let mut ctx = array_session().create_execution_ctx();
     // Test filtering with all-null arrays of different list sizes.
     // The implementation returns ConstantArray only when validity_mask() is Mask::AllFalse.
 
@@ -257,8 +264,8 @@ fn test_filter_all_null_various_list_sizes() {
     let filtered0 = fsl0.filter(mask0).unwrap();
     assert_eq!(filtered0.len(), 2);
     // Check that all elements are null (might be ConstantArray or FixedSizeListArray).
-    assert_nth_scalar_is_null!(filtered0, 0);
-    assert_nth_scalar_is_null!(filtered0, 1);
+    assert_nth_scalar_is_null!(filtered0, 0, &mut ctx);
+    assert_nth_scalar_is_null!(filtered0, 1, &mut ctx);
 
     // Case 2: list_size == 1.
     let elements1 = buffer![1i32, 2, 3].into_array();
@@ -267,8 +274,8 @@ fn test_filter_all_null_various_list_sizes() {
     let filtered1 = fsl1.filter(mask1).unwrap();
     assert_eq!(filtered1.len(), 2);
     // Check that all elements are null.
-    assert_nth_scalar_is_null!(filtered1, 0);
-    assert_nth_scalar_is_null!(filtered1, 1);
+    assert_nth_scalar_is_null!(filtered1, 0, &mut ctx);
+    assert_nth_scalar_is_null!(filtered1, 1, &mut ctx);
 
     // Case 3: list_size == 10 (large).
     let elements10 = buffer![0..50i32].into_array();
@@ -277,14 +284,15 @@ fn test_filter_all_null_various_list_sizes() {
     let filtered10 = fsl10.filter(mask10).unwrap();
     assert_eq!(filtered10.len(), 5);
     // Check that all elements are null.
-    assert_nth_scalar_is_null!(filtered10, 0);
-    assert_nth_scalar_is_null!(filtered10, 4);
+    assert_nth_scalar_is_null!(filtered10, 0, &mut ctx);
+    assert_nth_scalar_is_null!(filtered10, 4, &mut ctx);
 }
 
 // Note: test_filter_to_empty_degenerate has been consolidated into test_filter_degenerate_list_size_zero above.
 
 #[test]
 fn test_mask_expansion_threshold_boundary() {
+    let mut ctx = array_session().create_execution_ctx();
     // Test with list_size == 8 (the FSL_SPARSE_MASK_LIST_SIZE_THRESHOLD).
     let list_size = 8u32;
     let num_lists = 100;
@@ -323,7 +331,7 @@ fn test_mask_expansion_threshold_boundary() {
         3,
     );
 
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 
     // Test with list_size == 7 (just below threshold).
     let list_size_7 = 7u32;
@@ -355,12 +363,13 @@ fn test_mask_expansion_threshold_boundary() {
         3,
     );
 
-    assert_arrays_eq!(filtered7, expected7);
+    assert_arrays_eq!(filtered7, expected7, &mut ctx);
 }
 
 // Test FSL-specific behavior with very large list sizes.
 #[test]
 fn test_filter_large_list_size() {
+    let mut ctx = array_session().create_execution_ctx();
     // Test with list_size=100, which is significantly larger than typical use cases.
     let list_size = 100u32;
     let num_lists = 5;
@@ -394,7 +403,7 @@ fn test_filter_large_list_size() {
         3,
     );
 
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 
     // Test edge case: filter out all but one large list.
     let mask_single = Mask::from_iter([false, false, true, false, false]);
@@ -414,5 +423,5 @@ fn test_filter_large_list_size() {
         1,
     );
 
-    assert_arrays_eq!(filtered_single, expected_single);
+    assert_arrays_eq!(filtered_single, expected_single, &mut ctx);
 }

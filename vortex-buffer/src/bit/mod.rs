@@ -74,6 +74,19 @@ where
     }
 }
 
+/// Read up to 8 bytes as a little-endian `u64`, zero-padding the high bytes when fewer than 8
+/// bytes are supplied.
+///
+/// This preserves Vortex's least-significant-bit-first bitmap numbering on little- and big-endian
+/// targets. For a full 8-byte slice it lowers to a single word load.
+#[inline]
+pub fn read_u64_le(bytes: &[u8]) -> u64 {
+    debug_assert!(bytes.len() <= 8);
+    let mut buf = [0u8; 8];
+    buf[..bytes.len()].copy_from_slice(bytes);
+    u64::from_le_bytes(buf)
+}
+
 /// Splice a packed word `w` (whose bits above the highest valid bit are zero) into
 /// `words` at the given bit position.
 ///
@@ -178,6 +191,7 @@ pub unsafe fn unset_bit_unchecked(buf: *mut u8, index: usize) {
 mod tests {
     use super::collect_bool_word;
     use super::pack_bools_into_words;
+    use super::read_u64_le;
 
     #[test]
     fn collect_bool_word_packs_lsb_first() {
@@ -188,6 +202,12 @@ mod tests {
     #[test]
     fn collect_bool_word_empty() {
         assert_eq!(collect_bool_word(0, |_| true), 0);
+    }
+
+    #[test]
+    fn read_u64_le_zero_pads_tail() {
+        assert_eq!(read_u64_le(&[0x34, 0x12]), 0x1234);
+        assert_eq!(read_u64_le(&[0xff; 8]), u64::MAX);
     }
 
     #[test]

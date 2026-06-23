@@ -40,16 +40,28 @@
 //! # Example
 //!
 //! ```rust
+//! use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+//! use vortex_array::arrays::PrimitiveArray;
+//! use vortex_array::validity::Validity;
 //! use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, Scheme, SchemeExt};
 //! use vortex_btrblocks::schemes::integer::IntDictScheme;
+//! use vortex_buffer::buffer;
 //!
-//! // Default compressor with all schemes enabled.
+//! # fn example() -> vortex_error::VortexResult<()> {
+//! let session = array_session();
+//! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
+//!
 //! let compressor = BtrBlocksCompressor::default();
+//! let compressed = compressor.compress(&array, &mut session.create_execution_ctx())?;
+//! assert_eq!(compressed.dtype(), array.dtype());
 //!
 //! // Remove specific schemes using the builder.
 //! let compressor = BtrBlocksCompressorBuilder::default()
 //!     .exclude_schemes([IntDictScheme.id()])
 //!     .build();
+//! # let _ = compressor;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! [BtrBlocks]: https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf

@@ -46,7 +46,7 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
-    use vortex::session::VortexSession;
+    use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
     use crate::FilterExecutor;
@@ -83,29 +83,29 @@ mod tests {
         #[case] input: PrimitiveArray,
         #[case] mask: Mask,
     ) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 
         let filter_array = FilterArray::try_new(input.clone().into_array(), mask.clone())?;
 
-        let cpu_result = crate::canonicalize_cpu(filter_array.clone())?.into_array();
-
         let gpu_result = FilterExecutor
-            .execute(filter_array.into_array(), &mut cuda_ctx)
+            .execute(filter_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU filter failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(filter_array, gpu_result, &mut ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_gpu_filter_large_array() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create CUDA execution context");
 
         // Create a large array to test multi-block execution
@@ -117,18 +117,16 @@ mod tests {
 
         let filter_array = FilterArray::try_new(input.into_array(), mask)?;
 
-        let cpu_result = crate::canonicalize_cpu(filter_array.clone())?.into_array();
-
         let gpu_result = FilterExecutor
-            .execute(filter_array.into_array(), &mut cuda_ctx)
+            .execute(filter_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU filter failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_eq!(cpu_result.len(), gpu_result.len());
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_eq!(filter_array.len(), gpu_result.len());
+        assert_arrays_eq!(filter_array, gpu_result, &mut ctx);
 
         Ok(())
     }

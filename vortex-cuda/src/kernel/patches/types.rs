@@ -227,8 +227,8 @@ mod tests {
     use vortex::array::buffer::BufferHandle;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
-    use vortex::session::VortexSession;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::patches::Patches;
     use vortex_error::VortexResult;
@@ -274,7 +274,7 @@ mod tests {
         #[case] expected_offset: usize,
         #[case] expected_chunk_offsets: Vec<u32>,
     ) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let indices = PrimitiveArray::from_iter([100u32, 1100, 2100, 3100, 4100]);
         let values = PrimitiveArray::from_iter([10u32, 11, 12, 13, 14]);
         let chunk_offsets = PrimitiveArray::from_iter([0u32, 1, 2, 3, 4, 5]);
@@ -318,7 +318,8 @@ mod tests {
         #[case] chunk_offsets: ArrayRef,
         #[case] expected: ArrayRef,
     ) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let indices = PrimitiveArray::from_iter([100u32, 1100, 2100, 3100, 4100]);
         let values = PrimitiveArray::from_iter([10u32, 11, 12, 13, 14]);
         let patches = Patches::new(
@@ -338,7 +339,7 @@ mod tests {
             NonNullable,
         )
         .into_array();
-        assert_arrays_eq!(expected, actual);
+        assert_arrays_eq!(expected, actual, &mut ctx);
         assert_eq!(device_patches.n_chunks, 3);
         assert_eq!(device_patches.offset, 1024);
         assert_eq!(device_patches.offset_within_chunk, 0);

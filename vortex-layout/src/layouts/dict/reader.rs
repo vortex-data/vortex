@@ -18,9 +18,16 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::SharedArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
+use vortex_array::expr::direct_annotations;
+use vortex_array::expr::is_root;
+use vortex_array::expr::label_tree;
+use vortex_array::expr::pack;
 use vortex_array::expr::root;
+use vortex_array::expr::transform::partition_annotations;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -100,10 +107,7 @@ impl DictReader {
                     )
                     .vortex_expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
-                    .map(move |array| {
-                        let array = array?;
-                        Ok(SharedArray::new(array).into_array())
-                    })
+                    .map(move |array| Ok(SharedArray::new(array?).into_array()))
                     .boxed()
                     .shared()
             })
@@ -152,6 +156,44 @@ impl DictReader {
                     .shared()
             })
             .clone()
+    }
+}
+
+// On expression pushdown, "inner" is packed as field with this name.
+// "outer" expects this name as input.
+const PUSHDOWN_ANNOTATION: &str = "";
+
+/// Split expression into two parts:
+///
+/// left is the outer part that we want to apply to array after canonicalizing.
+/// right is the optional inner part that we want to apply to array before
+/// canonicalizing.
+///
+/// We want to push to array only if expression has a negative cost, is
+/// infallible and null-insensitive.
+fn split_expression_for_pushdown(
+    expr: Expression,
+    dtype: &DType,
+) -> VortexResult<(Expression, Option<Expression>)> {
+    let references_root = label_tree(&expr, is_root, |acc, &child| acc | child);
+    let annotations = direct_annotations(&expr, |expr| {
+        let signature = expr.signature();
+        if !signature.is_fallible()
+            && !signature.is_null_sensitive()
+            && is_negative_cost(expr.id())
+            && references_root.get(&expr).copied().unwrap_or(true)
+        {
+            vec![PUSHDOWN_ANNOTATION]
+        } else {
+            vec![]
+        }
+    });
+    let partition = partition_annotations(expr.clone(), dtype, annotations)?;
+    if partition.partitions.is_empty() {
+        Ok((partition.root, None))
+    } else {
+        debug_assert_eq!(1, partition.partitions.len());
+        Ok((partition.root, Some(partition.partitions[0].clone())))
     }
 }
 
@@ -216,7 +258,7 @@ impl LayoutReader for DictReader {
             let mask = mask.await?;
 
             let mut ctx = session.create_execution_ctx();
-            let dict_mask = values.take(codes)?.execute::<Mask>(&mut ctx)?;
+            let dict_mask = values.take(codes)?.null_as_false().execute(&mut ctx)?;
 
             Ok(mask.bitand(&dict_mask))
         }))
@@ -229,13 +271,37 @@ impl LayoutReader for DictReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO: fix up expr partitioning with fallible & null sensitive annotations
-        let values_eval = self.values_array();
         let codes_eval = self
             .codes
             .projection_evaluation(row_range, &root(), mask)
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
-        let expr = expr.clone();
 
+        let (expr_outer, expr_inner) = split_expression_for_pushdown(expr.clone(), self.dtype())?;
+
+        let values_eval = if let Some(inner) = expr_inner {
+            // "outer" takes a struct field with PUSHDOWN_ANNOTATION name, so
+            // pack inner with this name as well
+            let inner = pack([(PUSHDOWN_ANNOTATION, inner)], Nullability::NonNullable);
+
+            // We can't use values_eval as it uses values_array_uncanonical
+            // which in turn gets populated from self.values. If
+            // self.values_array() is called first, it will populate
+            // self.values with uncompressed data. Supply uncached data
+            let values_len = self.values_len;
+            self.values
+                .projection_evaluation(
+                    &(0..values_len as u64),
+                    &root(),
+                    MaskFuture::new_true(values_len),
+                )
+                .vortex_expect("must construct dict values array evaluation")
+                .map_err(Arc::new)
+                .map(move |array| Ok(SharedArray::new(array?.apply(&inner)?).into_array()))
+                .boxed()
+                .shared()
+        } else {
+            self.values_array()
+        };
         let all_values_referenced = self.layout.has_all_values_referenced();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
@@ -252,7 +318,7 @@ impl LayoutReader for DictReader {
             .into_array()
             .optimize()?;
 
-            array.apply(&expr)
+            array.apply(&expr_outer)
         }
         .boxed())
     }
@@ -268,11 +334,12 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray as _;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
@@ -281,15 +348,20 @@ mod tests {
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::byte_length;
+    use vortex_array::expr::cast;
     use vortex_array::expr::eq;
+    use vortex_array::expr::get_item;
     use vortex_array::expr::is_not_null;
+    use vortex_array::expr::like;
     use vortex_array::expr::lit;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
-    use vortex_array::scalar_fn::session::ScalarFnSession;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
@@ -299,6 +371,8 @@ mod tests {
     use crate::LayoutId;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::layouts::dict::reader::PUSHDOWN_ANNOTATION;
+    use crate::layouts::dict::reader::split_expression_for_pushdown;
     use crate::layouts::dict::writer::DictLayoutOptions;
     use crate::layouts::dict::writer::DictStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -312,18 +386,44 @@ mod tests {
     // FIXME(ngates): Deprecate the global `runtime::single::block_on` helper and require tests
     // to call `block_on` on an explicit runtime instance.
     fn session_with_handle(handle: Handle) -> VortexSession {
-        VortexSession::empty()
-            .with::<ArraySession>()
+        array_session()
             .with::<LayoutSession>()
-            .with::<ScalarFnSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
+    }
+
+    async fn write_dict_layout(
+        array: ArrayRef,
+        session: &VortexSession,
+    ) -> (LayoutRef, Arc<TestSegments>) {
+        let strategy = DictStrategy::new(
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
+            DictLayoutOptions::default(),
+        );
+        let segments = Arc::new(TestSegments::default());
+        let (ptr, eof) = SequenceId::root().split();
+        let dtype = array.dtype().clone();
+        let layout = strategy
+            .write_stream(
+                ArrayContext::empty(),
+                Arc::<TestSegments>::clone(&segments),
+                SequentialStreamAdapter::new(dtype, array.to_array_stream().sequenced(ptr))
+                    .sendable(),
+                eof,
+                session,
+            )
+            .await
+            .unwrap();
+        (layout, segments)
     }
 
     #[test]
     fn reading_nested_packs_works() {
         block_on(|handle| async move {
             let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -347,12 +447,12 @@ mod tests {
             )
             .into_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContext::empty();
+            let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
-                    ctx,
+                    array_ctx,
                     Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -401,7 +501,7 @@ mod tests {
             )
             .unwrap()
             .into_array();
-            assert_arrays_eq!(actual, expected);
+            assert_arrays_eq!(actual, expected, &mut ctx);
         })
     }
 
@@ -423,6 +523,7 @@ mod tests {
     ) {
         block_on(|handle| async move {
             let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -432,12 +533,12 @@ mod tests {
 
             let array =
                 VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).into_array();
-            let ctx = ArrayContext::empty();
+            let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
-                    ctx,
+                    array_ctx,
                     Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -465,15 +566,15 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_arrays_eq!(mask.into_array(), BoolArray::from_iter(expected));
+            assert_arrays_eq!(mask.into_array(), BoolArray::from_iter(expected), &mut ctx);
         })
     }
 
     #[test]
     fn reading_is_null_works() {
         block_on(|handle| async move {
-            let mut ctx_exec = LEGACY_SESSION.create_execution_ctx();
             let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -497,13 +598,13 @@ mod tests {
             )
             .into_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContext::empty();
+            let array_ctx = ArrayContext::empty();
 
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
-                    ctx,
+                    array_ctx,
                     Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -532,14 +633,134 @@ mod tests {
             let expected = array
                 .validity()
                 .unwrap()
-                .execute_mask(array.len(), &mut ctx_exec)
+                .execute_mask(array.len(), &mut ctx)
                 .unwrap()
                 .into_array();
             let actual_canonical = actual
-                .execute::<Canonical>(&mut ctx_exec)
+                .execute::<Canonical>(&mut ctx)
                 .vortex_expect("to_canonical failed")
                 .into_array();
-            assert_arrays_eq!(actual_canonical, expected);
+            assert_arrays_eq!(actual_canonical, expected, &mut ctx);
         })
+    }
+
+    #[test]
+    fn reading_byte_length_pushdown_works() {
+        let array = VarBinArray::from_iter(
+            [
+                Some("abc"),
+                Some("defg"),
+                None,
+                Some("abc"),
+                Some("defg"),
+                None,
+                Some("abc"),
+                Some("defg"),
+                None,
+            ],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+
+        let expected = array
+            .clone()
+            .apply(&byte_length(root()))
+            .unwrap()
+            .into_array();
+
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let (layout, segments) = write_dict_layout(array, &session).await;
+            assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
+            let actual = layout
+                .new_reader("".into(), segments, &session, &Default::default())
+                .unwrap()
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &byte_length(root()),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
+                .unwrap()
+                .await
+                .unwrap()
+                .into_array();
+            assert_arrays_eq!(actual, expected, &mut ctx);
+        })
+    }
+
+    fn pushed_inner(exprs: impl IntoIterator<Item = Expression>) -> Expression {
+        pack(
+            exprs
+                .into_iter()
+                .enumerate()
+                .map(|(idx, e)| (format!("_{idx}"), e)),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn pushed_ref(idx: usize) -> Expression {
+        get_item(format!("_{idx}"), get_item("", root()))
+    }
+
+    fn test_apply(original: Expression, outer: Expression, inner: Expression) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let array = VarBinArray::from_iter(
+            [Some("abc"), Some("def"), None],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+
+        let pushed = array.clone().apply(&pack(
+            [(PUSHDOWN_ANNOTATION, inner)],
+            Nullability::NonNullable,
+        ))?;
+        let actual = pushed.apply(&outer)?;
+        let expected = array.apply(&original)?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn split_expr_root() {
+        let (outer, inner) = split_expression_for_pushdown(root(), &DType::Null).unwrap();
+        assert_eq!(outer, root());
+        assert_eq!(inner, None);
+    }
+
+    #[test]
+    fn split_expr_partial_pushdown() -> VortexResult<()> {
+        // cast is fallible, thus not pushed
+        let target = DType::Primitive(PType::I64, Nullability::Nullable);
+        let expr = cast(byte_length(root()), target.clone());
+        let (outer, inner) =
+            split_expression_for_pushdown(expr.clone(), &DType::Utf8(false.into()))?;
+        let inner = inner.unwrap();
+        // [0] = cast([1], dtype)
+        // [1] = byte_length(root)
+        assert_eq!(outer, cast(pushed_ref(0), target));
+        assert_eq!(inner, pushed_inner([byte_length(root())]));
+        test_apply(expr, outer, inner)
+    }
+
+    #[test]
+    fn split_expr_full_pushdown() -> VortexResult<()> {
+        let expr = byte_length(root());
+        let (outer, inner) =
+            split_expression_for_pushdown(expr.clone(), &DType::Utf8(false.into()))?;
+        let inner = inner.unwrap();
+        assert_eq!(outer, pushed_ref(0));
+        assert_eq!(inner, pushed_inner([byte_length(root())]));
+        test_apply(expr, outer, inner)
+    }
+
+    #[test]
+    fn split_expr_no_pushdown() {
+        // like is fallible, thus not pushed. lit() does not reference root()
+        let expr = like(root(), lit(1u64));
+        let (outer, inner) =
+            split_expression_for_pushdown(expr.clone(), &DType::Utf8(true.into())).unwrap();
+        assert_eq!(outer, expr);
+        assert_eq!(inner, None);
     }
 }

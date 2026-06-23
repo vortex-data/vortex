@@ -52,7 +52,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::BoolArray;
-/// use vortex_array::{IntoArray, LEGACY_SESSION, VortexSessionExecute};
+/// use vortex_array::{IntoArray, array_session, VortexSessionExecute};
 ///
 /// // Create from iterator using FromIterator impl
 /// let array: BoolArray = [true, false, true, false].into_iter().collect();
@@ -62,7 +62,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // Access individual values
-/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let mut ctx = array_session().create_execution_ctx();
 /// let value = array.execute_scalar(0, &mut ctx).unwrap();
 /// assert_eq!(value, true.into());
 /// # Ok(())
@@ -371,8 +371,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::bool::BoolArrayExt;
@@ -382,76 +382,54 @@ mod tests {
 
     #[test]
     fn bool_array() {
+        let mut ctx = array_session().create_execution_ctx();
+
         let arr = BoolArray::from_iter([true, false, true]);
-        let scalar = bool::try_from(
-            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-        )
-        .unwrap();
+        let scalar = bool::try_from(&arr.execute_scalar(0, &mut ctx).unwrap()).unwrap();
         assert!(scalar);
     }
 
     #[test]
     fn test_all_some_iter() {
+        let mut ctx = array_session().create_execution_ctx();
+
         let arr = BoolArray::from_iter([Some(true), Some(false)]);
 
         assert!(matches!(arr.validity(), Ok(Validity::AllValid)));
 
-        let scalar = bool::try_from(
-            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-        )
-        .unwrap();
+        let scalar = bool::try_from(&arr.execute_scalar(0, &mut ctx).unwrap()).unwrap();
         assert!(scalar);
-        let scalar = bool::try_from(
-            &arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-        )
-        .unwrap();
+        let scalar = bool::try_from(&arr.execute_scalar(1, &mut ctx).unwrap()).unwrap();
         assert!(!scalar);
     }
 
     #[test]
     fn test_bool_from_iter() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
-        let scalar = bool::try_from(
-            &arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-        )
-        .unwrap();
+        let scalar = bool::try_from(&arr.execute_scalar(0, &mut ctx).unwrap()).unwrap();
         assert!(scalar);
 
-        let scalar = bool::try_from(
-            &arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-        )
-        .unwrap();
+        let scalar = bool::try_from(&arr.execute_scalar(1, &mut ctx).unwrap()).unwrap();
         assert!(scalar);
 
-        let scalar = arr
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let scalar = arr.execute_scalar(2, &mut ctx).unwrap();
         assert!(scalar.is_null());
 
-        let scalar = bool::try_from(
-            &arr.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-        )
-        .unwrap();
+        let scalar = bool::try_from(&arr.execute_scalar(3, &mut ctx).unwrap()).unwrap();
         assert!(!scalar);
 
-        let scalar = arr
-            .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let scalar = arr.execute_scalar(4, &mut ctx).unwrap();
         assert!(scalar.is_null());
     }
 
     #[test]
     fn patch_sliced_bools() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.slice(4..12).unwrap();
-        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]));
+        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]), &mut ctx);
 
         let arr = {
             let mut builder = BitBufferMut::new_unset(12);
@@ -460,7 +438,11 @@ mod tests {
         };
         let sliced = arr.slice(4..12).unwrap();
         let expected_slice: Vec<bool> = (4..12).map(|i| (1..12).contains(&i)).collect();
-        assert_arrays_eq!(sliced, BoolArray::from_iter(expected_slice.clone()));
+        assert_arrays_eq!(
+            sliced,
+            BoolArray::from_iter(expected_slice.clone()),
+            &mut ctx
+        );
 
         // patch the underlying array at index 4 to false
         let patches = Patches::new(
@@ -471,26 +453,26 @@ mod tests {
             None,
         )
         .unwrap();
-        let arr = arr
-            .patch(&patches, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let arr = arr.patch(&patches, &mut ctx).unwrap();
         // After patching index 4 to false: indices 1-3 and 5-11 are true, index 0 and 4 are false
         let expected_patched: Vec<bool> = (0..12).map(|i| (1..12).contains(&i) && i != 4).collect();
-        assert_arrays_eq!(arr, BoolArray::from_iter(expected_patched));
+        assert_arrays_eq!(arr, BoolArray::from_iter(expected_patched), &mut ctx);
 
         // the slice should be unchanged (still has original values before patch)
-        assert_arrays_eq!(sliced, BoolArray::from_iter(expected_slice));
+        assert_arrays_eq!(sliced, BoolArray::from_iter(expected_slice), &mut ctx);
     }
 
     #[test]
     fn slice_array_in_middle() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let sliced = arr.slice(4..12).unwrap();
-        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]));
+        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]), &mut ctx);
     }
 
     #[test]
     fn patch_bools_owned() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let buf_ptr = arr.to_bit_buffer().inner().as_ptr();
 
@@ -502,21 +484,20 @@ mod tests {
             None,
         )
         .unwrap();
-        let arr = arr
-            .patch(&patches, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap();
+        let arr = arr.patch(&patches, &mut ctx).unwrap();
         // Verify buffer was reused in place
         assert_eq!(arr.to_bit_buffer().inner().as_ptr(), buf_ptr);
 
         // After patching index 0 to false: [false, true, true, ..., true] (16 values)
         let expected: BoolArray = once(false).chain(repeat_n(true, 15)).collect();
-        assert_arrays_eq!(arr, expected);
+        assert_arrays_eq!(arr, expected, &mut ctx);
     }
 
     #[test]
     fn patch_sliced_bools_offset() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.slice(4..15).unwrap();
-        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 11]));
+        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 11]), &mut ctx);
     }
 }

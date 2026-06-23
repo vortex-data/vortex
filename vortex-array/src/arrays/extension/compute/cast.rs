@@ -63,10 +63,8 @@ mod tests {
     use crate::executor::VortexSessionExecute;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
-    use crate::session::ArraySession;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     #[test]
     fn cast_same_ext_dtype() {
@@ -123,6 +121,7 @@ mod tests {
 
     #[test]
     fn cast_timestamp_to_i64() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let ext_dtype = Timestamp::new_with_tz(
             TimeUnit::Nanoseconds,
             Some("UTC".into()),
@@ -137,7 +136,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
-        assert_arrays_eq!(result, buffer![1i64, 2, 3].into_array());
+        assert_arrays_eq!(result, buffer![1i64, 2, 3].into_array(), &mut ctx);
         Ok(())
     }
 

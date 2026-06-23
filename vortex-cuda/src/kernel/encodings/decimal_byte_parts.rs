@@ -70,7 +70,7 @@ mod tests {
     use vortex::dtype::DecimalDType;
     use vortex::encodings::decimal_byte_parts::DecimalByteParts;
     use vortex::error::VortexExpect;
-    use vortex::session::VortexSession;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::session::CudaSession;
@@ -86,7 +86,8 @@ mod tests {
         #[case] precision: u8,
         #[case] scale: i8,
     ) {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("create execution context");
 
         let decimal_dtype = DecimalDType::new(precision, scale);
@@ -96,14 +97,11 @@ mod tests {
         )
         .vortex_expect("create DecimalBytePartsArray");
 
-        let cpu_result =
-            crate::canonicalize_cpu(dbp_array.clone()).vortex_expect("CPU canonicalize");
-
         let gpu_result = DecimalBytePartsExecutor
-            .execute(dbp_array.into_array(), &mut cuda_ctx)
+            .execute(dbp_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decode");
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result.into_array());
+        assert_arrays_eq!(dbp_array, gpu_result.into_array(), &mut ctx);
     }
 }

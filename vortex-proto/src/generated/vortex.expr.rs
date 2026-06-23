@@ -19,6 +19,13 @@ pub struct AggregateFn {
     #[prost(bytes = "vec", optional, tag = "2")]
     pub metadata: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
+/// Options for numeric aggregate functions (`vortex.sum`, `vortex.min`, `vortex.max`),
+/// controlling how NaN values in floating-point inputs are handled.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct NumericalAggregateOpts {
+    #[prost(bool, tag = "1")]
+    pub skip_nans: bool,
+}
 /// Options for `vortex.literal`
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LiteralOpts {
@@ -61,6 +68,20 @@ pub mod variant_path_element {
         #[prost(uint64, tag = "2")]
         Index(u64),
     }
+}
+/// Options for `vortex.json_to_variant`
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct JsonToVariantOpts {
+    #[prost(message, repeated, tag = "1")]
+    pub shredding: ::prost::alloc::vec::Vec<ShreddingSpecField>,
+}
+/// One (path, dtype) shredding directive for `vortex.json_to_variant`.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ShreddingSpecField {
+    #[prost(message, repeated, tag = "1")]
+    pub path: ::prost::alloc::vec::Vec<VariantPathElement>,
+    #[prost(message, optional, tag = "2")]
+    pub dtype: ::core::option::Option<super::dtype::DType>,
 }
 /// Options for `vortex.binary`
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]

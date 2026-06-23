@@ -12,7 +12,6 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::display::DisplayOptions;
 use vortex_array::dtype::Nullability;
-use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer_mut;
@@ -23,9 +22,7 @@ use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
 use crate::schemes::float::FloatRLEScheme;
-
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
 fn test_empty() -> VortexResult<()> {
@@ -60,6 +57,7 @@ fn test_compress() -> VortexResult<()> {
 
 #[test]
 fn test_rle_compression() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let mut values = Vec::new();
     values.extend(iter::repeat_n(1.5f32, 100));
     values.extend(iter::repeat_n(2.7f32, 200));
@@ -73,7 +71,7 @@ fn test_rle_compression() -> VortexResult<()> {
     assert!(compressed.is::<RLE>());
 
     let expected = Buffer::copy_from(&values).into_array();
-    assert_arrays_eq!(compressed, expected);
+    assert_arrays_eq!(compressed, expected, &mut ctx);
     Ok(())
 }
 

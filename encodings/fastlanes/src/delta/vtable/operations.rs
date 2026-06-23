@@ -31,11 +31,11 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -44,8 +44,11 @@ mod tests {
     use crate::Delta;
     use crate::DeltaArray;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = array_session();
+        crate::initialize(&session);
+        session
+    });
 
     fn da(array: &PrimitiveArray) -> DeltaArray {
         Delta::try_from_primitive_array(array, &mut SESSION.create_execution_ctx())
@@ -58,7 +61,7 @@ mod tests {
 
         let actual = delta.slice(10..250).unwrap();
         let expected = PrimitiveArray::from_iter(10u32..250).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -67,7 +70,7 @@ mod tests {
 
         let actual = delta.slice(1024 + 10..1024 + 250).unwrap();
         let expected = PrimitiveArray::from_iter((1024 + 10u32)..(1024 + 250)).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -76,7 +79,7 @@ mod tests {
 
         let actual = delta.slice(1000..1048).unwrap();
         let expected = PrimitiveArray::from_iter(1000u32..1048).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -85,7 +88,7 @@ mod tests {
 
         let actual = delta.slice(2040..2050).unwrap();
         let expected = PrimitiveArray::from_iter(2040u32..2050).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -94,7 +97,7 @@ mod tests {
 
         let actual = delta.slice(0..4096).unwrap();
         let expected = PrimitiveArray::from_iter(0u32..4096).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -103,15 +106,15 @@ mod tests {
 
         let actual = delta.slice(0..0).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
 
         let actual = delta.slice(4096..4096).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
 
         let actual = delta.slice(1024..1024).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -120,7 +123,7 @@ mod tests {
 
         let actual = delta.slice(1024 + 10..1024 + 250).unwrap();
         let expected = PrimitiveArray::from_iter((1024 + 10u32)..(1024 + 250)).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -129,15 +132,15 @@ mod tests {
 
         let actual = delta.slice(0..0).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
 
         let actual = delta.slice(4000..4000).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
 
         let actual = delta.slice(1024..1024).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -148,7 +151,7 @@ mod tests {
         let sliced_again = sliced.slice(0..2).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![10u32, 11]).into_array();
-        assert_arrays_eq!(sliced_again, expected);
+        assert_arrays_eq!(sliced_again, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -159,7 +162,7 @@ mod tests {
         let sliced_again = sliced.slice(0..2).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![10u32, 11]).into_array();
-        assert_arrays_eq!(sliced_again, expected);
+        assert_arrays_eq!(sliced_again, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -170,7 +173,7 @@ mod tests {
         let sliced_again = sliced.slice(0..2).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![1034u32, 1035]).into_array();
-        assert_arrays_eq!(sliced_again, expected);
+        assert_arrays_eq!(sliced_again, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -181,7 +184,7 @@ mod tests {
         let sliced_again = sliced.slice(0..2).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![1034u32, 1035]).into_array();
-        assert_arrays_eq!(sliced_again, expected);
+        assert_arrays_eq!(sliced_again, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -192,7 +195,7 @@ mod tests {
         let sliced_again = sliced.slice(5..20).unwrap();
 
         let expected = PrimitiveArray::from_iter(1015u32..1030).into_array();
-        assert_arrays_eq!(sliced_again, expected);
+        assert_arrays_eq!(sliced_again, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -203,7 +206,7 @@ mod tests {
         let sliced_again = sliced.slice(5..20).unwrap();
 
         let expected = PrimitiveArray::from_iter(1015u32..1030).into_array();
-        assert_arrays_eq!(sliced_again, expected);
+        assert_arrays_eq!(sliced_again, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -211,7 +214,7 @@ mod tests {
         let delta = da(&(0u32..2048).collect()).into_array();
 
         let expected = PrimitiveArray::from_iter(0u32..2048).into_array();
-        assert_arrays_eq!(delta, expected);
+        assert_arrays_eq!(delta, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -227,7 +230,7 @@ mod tests {
         let delta = da(&(0u32..2000).collect()).into_array();
 
         let expected = PrimitiveArray::from_iter(0u32..2000).into_array();
-        assert_arrays_eq!(delta, expected);
+        assert_arrays_eq!(delta, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -254,7 +257,10 @@ mod tests {
     #[case::delta_large_i32((-1024i32..1024).collect())]
     #[case::delta_single_negative(PrimitiveArray::new(buffer![-42i32], Validity::NonNullable))]
     fn test_delta_consistency(#[case] array: PrimitiveArray) {
-        test_array_consistency(&da(&array).into_array());
+        test_array_consistency(
+            &da(&array).into_array(),
+            &mut SESSION.create_execution_ctx(),
+        );
     }
 
     #[rstest]
@@ -266,6 +272,9 @@ mod tests {
     #[case::delta_i8_basic(PrimitiveArray::new(buffer![-1i8, -1, -1, -1, -1], Validity::NonNullable))]
     #[case::delta_i32_basic(PrimitiveArray::new(buffer![-1i32, -1, -1, -1, -1], Validity::NonNullable))]
     fn test_delta_binary_numeric(#[case] array: PrimitiveArray) {
-        test_binary_numeric_array(da(&array).into_array());
+        test_binary_numeric_array(
+            &da(&array).into_array(),
+            &mut SESSION.create_execution_ctx(),
+        );
     }
 }

@@ -13,6 +13,7 @@ use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -24,7 +25,6 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbin::VarBinArrayExt;
 use vortex::array::builtins::ArrayBuiltins;
-use vortex::array::session::ArraySession;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
@@ -53,8 +53,7 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
 const NUM_VALUES: u64 = 100_000;
 
@@ -73,6 +72,7 @@ fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a
 
 mod setup {
     use rand::rngs::StdRng;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
 
@@ -240,15 +240,9 @@ mod setup {
 
         // Train and compress unique values with FSST
         let mut ctx = SESSION.create_execution_ctx();
-        let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings);
-        let fsst_compressor = fsst_train_compressor(&unique_varbinview);
-        let fsst_values = fsst_compress(
-            &unique_varbinview,
-            unique_varbinview.len(),
-            unique_varbinview.dtype(),
-            &fsst_compressor,
-            &mut ctx,
-        );
+        let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings).into_array();
+        let fsst_compressor = fsst_train_compressor(&unique_varbinview, &mut ctx).unwrap();
+        let fsst_values = fsst_compress(&unique_varbinview, &fsst_compressor, &mut ctx).unwrap();
 
         // Create codes array (random indices into unique values)
         let codes: Vec<u32> = (0..NUM_VALUES)
@@ -279,15 +273,9 @@ mod setup {
 
         // Train and compress unique values with FSST
         let mut ctx = SESSION.create_execution_ctx();
-        let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings);
-        let fsst_compressor = fsst_train_compressor(&unique_varbinview);
-        let fsst = fsst_compress(
-            &unique_varbinview,
-            unique_varbinview.len(),
-            unique_varbinview.dtype(),
-            &fsst_compressor,
-            &mut ctx,
-        );
+        let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings).into_array();
+        let fsst_compressor = fsst_train_compressor(&unique_varbinview, &mut ctx).unwrap();
+        let fsst = fsst_compress(&unique_varbinview, &fsst_compressor, &mut ctx).unwrap();
 
         // Compress the VarBin offsets with BitPacked
         let codes = fsst.codes();

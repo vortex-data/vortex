@@ -49,7 +49,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
 
       - name: Download fuzzer logs
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
@@ -118,7 +118,7 @@ jobs:
           steps.dedup.outputs.duplicate != 'true' ||
           steps.dedup.outputs.confidence != 'exact'
         continue-on-error: true
-        uses: anthropics/claude-code-action@fbda2eb1bdc90d319b8d853f5deb53bca199a7c1  # v1
+        uses: anthropics/claude-code-action@2fee15510437d71399d9139ed60433470484a8fb  # v1
         with:
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
           github_token: ${{ secrets.gh_token }}

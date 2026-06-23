@@ -309,8 +309,8 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
@@ -333,10 +333,10 @@ mod tests {
 
         for i in 0..i8s.len() {
             assert_eq!(
-                i8s.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                i8s.execute_scalar(i, &mut array_session().create_execution_ctx())
                     .unwrap(),
                 i128s
-                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(i, &mut array_session().create_execution_ctx())
                     .unwrap()
             );
         }
@@ -344,6 +344,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let mut ctx = array_session().create_execution_ctx();
         use crate::scalar::Scalar;
 
         // Simply test that the builder accepts its own finish output via scalar.
@@ -357,19 +358,19 @@ mod tests {
             [Some(1234i64), Some(5678), None],
             DecimalDType::new(10, 2),
         );
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test by taking a scalar from the array and appending it to a new builder.
         let mut builder2 = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
         for i in 0..array.len() {
             let scalar = array
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut array_session().create_execution_ctx())
                 .unwrap();
             builder2.append_scalar(&scalar).unwrap();
         }
 
         let array2 = builder2.finish();
-        assert_arrays_eq!(&array2, &array);
+        assert_arrays_eq!(&array2, &array, &mut ctx);
 
         // Test wrong dtype error.
         let mut builder = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), false.into());

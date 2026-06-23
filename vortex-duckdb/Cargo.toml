@@ -21,7 +21,7 @@ links = "duckdb"
 [lib]
 name = "vortex_duckdb"
 path = "src/lib.rs"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 async-fs = { workspace = true }

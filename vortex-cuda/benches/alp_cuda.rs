@@ -21,8 +21,8 @@ use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
+use vortex::array::array_session;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
@@ -32,7 +32,6 @@ use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::alp_encode;
 use vortex::error::VortexExpect;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
@@ -75,7 +74,7 @@ where
     let encoded = alp_encode(
         primitive_array.as_view(),
         None,
-        &mut LEGACY_SESSION.create_execution_ctx(),
+        &mut array_session().create_execution_ctx(),
     )
     .vortex_expect("failed to ALP-encode array");
 
@@ -110,7 +109,7 @@ where
                         let timer = timed.timer();
 
                         let mut cuda_ctx =
-                            CudaSession::create_execution_ctx(&VortexSession::empty())
+                            CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
                                 .vortex_expect("failed to create execution context")
                                 .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                                 .with_launch_strategy(Arc::new(timed));

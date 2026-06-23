@@ -40,8 +40,8 @@ mod tests {
     use rstest::rstest;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
@@ -56,7 +56,7 @@ mod tests {
 
     #[test]
     fn test_cast_decimal_byte_parts_nullability() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let array =
             DecimalByteParts::try_new(buffer![100i32, 200, 300, 400].into_array(), decimal_dtype)
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_cast_decimal_byte_parts_nullable_to_non_nullable() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let array = DecimalByteParts::try_new(
             PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),

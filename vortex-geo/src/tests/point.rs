@@ -29,7 +29,7 @@ use vortex_error::vortex_err;
 use super::SESSION;
 use crate::extension::Point;
 use crate::extension::coordinate::Coordinate;
-use crate::extension::coordinate::coordinate_from_scalar;
+use crate::test_harness::coordinate_from_scalar;
 use crate::test_harness::point_column;
 
 /// A `geoarrow.point` Arrow field with separated (struct) XY coordinates.

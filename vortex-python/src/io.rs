@@ -114,7 +114,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ...     secret_access_key="..."
 /// ... )
 /// >>> a = vx.io.read_url("s3://my-bucket/data.vortex", store=store)  # doctest: +SKIP
-///
 #[pyfunction]
 #[pyo3(signature = (url, *, store = None, projection = None, row_filter = None, indices = None, row_range = None))]
 pub fn read_url<'py>(
@@ -258,7 +257,7 @@ impl PyVortexWriteOptions {
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
-    /// 216004
+    /// 215940
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
     ///
@@ -268,7 +267,7 @@ impl PyVortexWriteOptions {
     ///
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
-    /// 55120
+    /// 55068
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]

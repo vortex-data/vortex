@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod boolean;
 mod cast;
 mod fill_null;
 pub(crate) mod filter;
@@ -15,6 +16,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::compute::conformance::consistency::test_array_consistency;
 
@@ -40,6 +43,9 @@ mod tests {
         None, None, Some(true), None, None, None, Some(false), None, None
     ]))]
     fn test_bool_consistency(#[case] array: BoolArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

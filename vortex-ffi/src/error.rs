@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+use std::panic::AssertUnwindSafe;
+use std::panic::catch_unwind;
 use std::ptr;
 use std::sync::Arc;
 
@@ -43,18 +46,33 @@ fn clear_error(error_out: *mut *mut vx_error) {
     unsafe { error_out.write(ptr::null_mut()) };
 }
 
+/// Convert a panic payload into the message stored in an FFI error.
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        format!("panic in Vortex FFI function: {message}")
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        format!("panic in Vortex FFI function: {message}")
+    } else {
+        "panic in Vortex FFI function".to_string()
+    }
+}
+
 #[inline]
 pub fn try_or_default<T: Default>(
     error_out: *mut *mut vx_error,
     function: impl FnOnce() -> VortexResult<T>,
 ) -> T {
-    match function() {
-        Ok(value) => {
+    match catch_unwind(AssertUnwindSafe(function)) {
+        Ok(Ok(value)) => {
             clear_error(error_out);
             value
         }
-        Err(err) => {
+        Ok(Err(err)) => {
             write_error(error_out, &err.to_string());
+            T::default()
+        }
+        Err(payload) => {
+            write_error(error_out, &panic_message(payload.as_ref()));
             T::default()
         }
     }
@@ -69,13 +87,17 @@ pub fn try_or<T>(
     error_value: T,
     function: impl FnOnce() -> VortexResult<T>,
 ) -> T {
-    match function() {
-        Ok(value) => {
+    match catch_unwind(AssertUnwindSafe(function)) {
+        Ok(Ok(value)) => {
             clear_error(error_out);
             value
         }
-        Err(err) => {
+        Ok(Err(err)) => {
             write_error(error_out, &err.to_string());
+            error_value
+        }
+        Err(payload) => {
+            write_error(error_out, &panic_message(payload.as_ref()));
             error_value
         }
     }
@@ -125,5 +147,19 @@ mod tests {
 
         assert_eq!(try_or(&raw mut error, -1, || Ok(42)), 42);
         assert!(error.is_null());
+    }
+
+    #[test]
+    fn test_try_or_catches_panic() {
+        let mut error: *mut vx_error = ptr::null_mut();
+
+        assert_eq!(try_or(&raw mut error, -1, || panic!("boom")), -1);
+        assert!(!error.is_null());
+        let message = unsafe { vx_error_get_message(error) };
+        assert_eq!(
+            vx_string::as_ref(message).as_ref(),
+            "panic in Vortex FFI function: boom"
+        );
+        unsafe { vx_error_free(error) };
     }
 }

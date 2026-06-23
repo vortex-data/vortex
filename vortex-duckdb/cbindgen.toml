@@ -3,30 +3,23 @@ cpp_compat = true
 usize_is_size_t = true
 style = "type"
 braces = "SameLine"
+documentation = false
+pragma_once = true
 
 header = """
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
 //
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
 //
 
 // clang-format off
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include "duckdb.h"
 """
-trailer = """
-#ifdef __cplusplus
-}
-#endif
 
-// clang-format on
-"""
+trailer = """
+// clang-format on"""
 
 [fn]
 prefix = "extern"

@@ -27,7 +27,6 @@ use futures::executor::block_on;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::session::VortexSession;
 use vortex_cub::filter::CubFilterable;
 use vortex_cub::filter::cudaStream_t;
 use vortex_cuda::CudaDeviceBuffer;
@@ -165,7 +164,7 @@ where
                 |b, (input_data, bitmask, true_count)| {
                     b.iter_custom(|iters| {
                         let mut cuda_ctx =
-                            CudaSession::create_execution_ctx(&VortexSession::empty())
+                            CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
                                 .vortex_expect("failed to create execution context");
 
                         let num_items = input_data.len() as i64;

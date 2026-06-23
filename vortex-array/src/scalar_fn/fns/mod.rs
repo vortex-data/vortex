@@ -7,6 +7,7 @@ pub mod byte_length;
 pub mod case_when;
 pub mod cast;
 pub mod dynamic;
+pub mod ext_storage;
 pub mod fill_null;
 pub mod get_item;
 pub mod is_not_null;

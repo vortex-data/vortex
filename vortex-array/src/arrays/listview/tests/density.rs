@@ -7,7 +7,6 @@
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
 
 use super::common::create_basic_listview;
 use super::common::create_empty_lists_listview;
@@ -23,13 +22,12 @@ use crate::arrays::listview::tests::common::create_empty_elements_listview;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::scalar::ScalarValue;
-use crate::session::ArraySession;
 use crate::validity::Validity;
 
 const EPS: f32 = 1e-6;
 
 fn test_execution_ctx() -> ExecutionCtx {
-    let session = VortexSession::empty().with::<ArraySession>();
+    let session = crate::array_session();
     session.create_execution_ctx()
 }
 

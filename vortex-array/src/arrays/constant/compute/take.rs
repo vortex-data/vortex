@@ -73,10 +73,10 @@ mod tests {
     use vortex_mask::AllOr;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -87,6 +87,7 @@ mod tests {
 
     #[test]
     fn take_nullable_indices() {
+        let mut ctx = array_session().create_execution_ctx();
         let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(
@@ -108,13 +109,14 @@ mod tests {
             PrimitiveArray::new(
                 buffer![42i32, 42, 42],
                 Validity::from_iter([false, true, false])
-            )
+            ),
+            &mut ctx
         );
         assert_eq!(
             taken
                 .validity()
                 .unwrap()
-                .execute_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken.len(), &mut array_session().create_execution_ctx())
                 .unwrap()
                 .indices(),
             AllOr::Some(valid_indices)
@@ -123,6 +125,7 @@ mod tests {
 
     #[test]
     fn take_all_valid_indices() {
+        let mut ctx = array_session().create_execution_ctx();
         let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array())
@@ -134,13 +137,14 @@ mod tests {
         assert_arrays_eq!(
             #[expect(deprecated)]
             taken.to_primitive(),
-            PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
+            PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid),
+            &mut ctx
         );
         assert_eq!(
             taken
                 .validity()
                 .unwrap()
-                .execute_mask(taken.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken.len(), &mut array_session().create_execution_ctx())
                 .unwrap()
                 .indices(),
             AllOr::All

@@ -146,6 +146,7 @@ config_namespace! {
     ///
     /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
     ///     projection_pushdown: true,
+    ///     predicate_pushdown: true,
     ///     scan_concurrency: Some(8),
     ///     ..Default::default()
     /// });
@@ -165,6 +166,12 @@ config_namespace! {
         /// the scan. When disabled, Vortex reads only the referenced columns and
         /// all expressions are evaluated after the scan.
         pub projection_pushdown: bool, default = false
+        /// Whether to enable predicate pushdown into the underlying Vortex scan.
+        ///
+        /// When enabled, supported filters are evaluated during the scan. When
+        /// disabled, DataFusion evaluates filters after the scan, while
+        /// `VortexSource` can still use the full predicate for file pruning.
+        pub predicate_pushdown: bool, default = true
         /// The intra-partition scan concurrency, controlling the number of row splits to process
         /// concurrently per-thread within each file.
         ///
@@ -198,6 +205,7 @@ impl Eq for VortexTableOptions {}
 ///
 /// let factory = Arc::new(VortexFormatFactory::new().with_options(VortexTableOptions {
 ///     projection_pushdown: true,
+///     predicate_pushdown: true,
 ///     ..Default::default()
 /// }));
 ///
@@ -263,6 +271,7 @@ impl VortexFormatFactory {
     ///
     /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
     ///     projection_pushdown: true,
+    ///     predicate_pushdown: true,
     ///     ..Default::default()
     /// });
     /// # let _ = factory;
@@ -617,14 +626,9 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
-        let mut source = VortexSource::new(table_schema, self.session.clone())
-            .with_projection_pushdown(self.opts.projection_pushdown);
-
-        if let Some(scan_concurrency) = self.opts.scan_concurrency {
-            source = source.with_scan_concurrency(scan_concurrency);
-        }
-
-        Arc::new(source) as _
+        Arc::new(
+            VortexSource::new(table_schema, self.session.clone()).with_options(self.opts.clone()),
+        ) as _
     }
 }
 
@@ -682,7 +686,7 @@ mod tests {
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
                 LOCATION 'table/' \
-                OPTIONS( footer_initial_read_size_bytes '12345', scan_concurrency '3' );",
+                OPTIONS( footer_initial_read_size_bytes '12345', predicate_pushdown 'false', scan_concurrency '3' );",
             )
             .await?
             .collect()
@@ -698,5 +702,25 @@ mod tests {
 
         let format = VortexFormat::new_with_options(VortexSession::default(), opts);
         assert_eq!(format.options().footer_initial_read_size_bytes, 12345);
+    }
+
+    #[test]
+    fn format_plumbs_source_options() -> anyhow::Result<()> {
+        let opts = VortexTableOptions {
+            projection_pushdown: true,
+            predicate_pushdown: false,
+            scan_concurrency: Some(3),
+            ..Default::default()
+        };
+        let format = VortexFormat::new_with_options(VortexSession::default(), opts.clone());
+        let table_schema = TableSchema::from_file_schema(Arc::new(Schema::empty()));
+
+        let source = format.file_source(table_schema);
+        let source = source
+            .downcast_ref::<VortexSource>()
+            .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
+
+        assert_eq!(source.options(), &opts);
+        Ok(())
     }
 }

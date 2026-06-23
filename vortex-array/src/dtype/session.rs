@@ -6,7 +6,6 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
@@ -22,7 +21,7 @@ use crate::extension::uuid::Uuid;
 pub type ExtDTypeRegistry = Registry<ExtDTypePluginRef>;
 
 /// Session for managing extension dtypes.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DTypeSession {
     registry: ExtDTypeRegistry,
 }
@@ -69,11 +68,11 @@ impl DTypeSession {
 /// Extension trait for accessing the DType session.
 pub trait DTypeSessionExt: SessionExt {
     /// Get the DType session.
-    fn dtypes(&self) -> Ref<'_, DTypeSession>;
+    fn dtypes(&self) -> &DTypeSession;
 }
 
 impl<S: SessionExt> DTypeSessionExt for S {
-    fn dtypes(&self) -> Ref<'_, DTypeSession> {
+    fn dtypes(&self) -> &DTypeSession {
         self.get::<DTypeSession>()
     }
 }

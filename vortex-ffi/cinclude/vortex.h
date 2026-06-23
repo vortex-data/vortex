@@ -654,7 +654,6 @@ bool vx_array_is_nullable(const vx_array *array);
  * const vx_array* array = vx_array_new_null(1);
  * assert(vx_array_has_dtype(array, DTYPE_NULL));
  * vx_array_free(array);
- *
  */
 bool vx_array_has_dtype(const vx_array *array, vx_dtype_variant variant);
 
@@ -664,7 +663,6 @@ bool vx_array_has_dtype(const vx_array *array, vx_dtype_variant variant);
  * const vx_array* array = vx_array_new_null(1);
  * assert(!vx_array_is_primitive(array, PTYPE_U32));
  * vx_array_free(array);
- *
  */
 bool vx_array_is_primitive(const vx_array *array, vx_ptype ptype);
 
@@ -722,7 +720,6 @@ const vx_array *vx_array_new_null(size_t len);
  * const vx_array* array = vx_array_new_primitive(PTYPE_U32, buffer, 3,
  *     &validity, &error);
  * vx_array_free(array);
- *
  */
 const vx_array *vx_array_new_primitive(vx_ptype ptype,
                                        const void *ptr,
@@ -753,7 +750,6 @@ const vx_array *vx_array_new_primitive(vx_ptype ptype,
  * const vx_array* vx = vx_array_from_arrow(&array, &schema, false, &error);
  * // ... push it to a sink or write it ...
  * vx_array_free(vx);
- *
  */
 const vx_array *
 vx_array_from_arrow(FFI_ArrowArray *array, FFI_ArrowSchema *schema, bool nullable, vx_error **error_out);
@@ -883,6 +879,21 @@ void vx_data_source_free(const vx_data_source *ptr);
  */
 const vx_data_source *
 vx_data_source_new(const vx_session *session, const vx_data_source_options *options, vx_error **err);
+
+/**
+ * Create a data source from a single in-memory Vortex file.
+ *
+ * "buffer_len" is the length of "buffer" in bytes.
+ * The bytes are borrowed, not copied: the caller must keep "buffer" alive and
+ * unmodified until the data source is freed.
+ *
+ * The returned pointer is owned by the caller and must be freed with
+ * vx_data_source_free.
+ *
+ * On error, returns NULL and sets "err".
+ */
+const vx_data_source *
+vx_data_source_new_buffer(const vx_session *session, const void *buffer, size_t buffer_len, vx_error **err);
 
 /**
  * Return the schema of the data source as a non-owned dtype.
@@ -1088,7 +1099,6 @@ void vx_expression_free(vx_expression *ptr);
  * vx_array_free(applied_array);
  * vx_expression_free(root);
  * vx_array_free(array);
- *
  */
 vx_expression *vx_expression_root(void);
 
@@ -1122,7 +1132,6 @@ vx_expression *vx_expression_root(void);
  * vx_expression_free(threshold);
  * vx_expression_free(age);
  * vx_expression_free(root);
- *
  */
 vx_expression *vx_expression_literal(const vx_scalar *scalar, vx_error **err);
 
@@ -1140,7 +1149,6 @@ vx_expression *vx_expression_literal(const vx_scalar *scalar, vx_error **err);
  * vx_expression* select = vx_expression_select(names, 2, root);
  * vx_expression_free(select);
  * vx_expression_free(root);
- *
  */
 vx_expression *vx_expression_select(const char *const *names, size_t len, const vx_expression *child);
 
@@ -1177,7 +1185,6 @@ vx_expression *vx_expression_or(const vx_expression *const *expressions, size_t 
  * ) {
  *     return vx_expression_binary(VX_OPERATOR_EQ, lhs, rhs);
  * }
- *
  */
 vx_expression *
 vx_expression_binary(vx_binary_operator operator_, const vx_expression *lhs, const vx_expression *rhs);
@@ -1679,7 +1686,6 @@ void vx_struct_column_builder_add_field(vx_struct_column_builder *builder,
  *
  * vx_array_free(struct_array);
  * vx_array_free(field_array);
- *
  */
 const vx_array *vx_struct_column_builder_finalize(vx_struct_column_builder *builder, vx_error **error);
 

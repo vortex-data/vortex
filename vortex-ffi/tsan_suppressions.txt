@@ -6,3 +6,23 @@
 # where ordering is correct but uses an explicit fence and not relaxed load
 race:oneshot-*/src/channel.rs
 race:oneshot-*/src/lib.rs
+
+# https://github.com/google/sanitizers/issues/1415
+# crossbeam-epoch's epoch-based reclamation synchronizes through SeqCst fences,
+# which TSan does not fully model. Its process-global collector frees a retired
+# bag/node on one thread while another thread pops from the same GC queue, both
+# inside `Global::collect`; the epoch protocol makes this safe but TSan reports a
+# benign race. Surfaced through moka's cache (the vortex-file MultiFileSession
+# footer cache) when one session's cache is dropped while another session's cache
+# is queried on a parallel thread.
+race:crossbeam_epoch*collect
+
+# Taken from crossbeam's CI - https://github.com/crossbeam-rs/crossbeam/blob/05f9478b333ead58c0bf8e5a37d9ef9bd3b5bf17/ci/tsan#L1
+# Push and steal operations in crossbeam-deque may cause data races, but such
+# data races are safe. If a data race happens, the value read by `steal` is
+# forgotten and the steal operation is then retried.
+race:crossbeam_deque*push
+race:crossbeam_deque*steal
+
+# Non-lock-free AtomicCell uses SeqLock which uses fences.
+race:crossbeam_utils::atomic::atomic_cell::atomic_compare_exchange_weak

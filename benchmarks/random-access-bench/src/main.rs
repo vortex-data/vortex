@@ -43,7 +43,7 @@ mod render;
 // ---------------------------------------------------------------------------
 
 /// Access pattern for random access benchmarks.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, ValueEnum)]
 pub enum AccessPattern {
     /// Multiple clusters of sequential indices scattered across the dataset,
     /// simulating workloads with spatial locality (e.g. scanning nearby records).
@@ -61,8 +61,6 @@ impl AccessPattern {
         }
     }
 }
-
-const ACCESS_PATTERNS: [AccessPattern; 2] = [AccessPattern::Correlated, AccessPattern::Uniform];
 
 /// Number of clusters for the correlated pattern.
 const NUM_CLUSTERS: usize = 5;
@@ -190,6 +188,14 @@ struct Args {
         default_values_t = vec![DatasetArg::Taxi, DatasetArg::FeatureVectors, DatasetArg::NestedLists, DatasetArg::NestedStructs]
     )]
     datasets: Vec<DatasetArg>,
+    /// Which access patterns to benchmark.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_enum,
+        default_values_t = vec![AccessPattern::Correlated, AccessPattern::Uniform]
+    )]
+    patterns: Vec<AccessPattern>,
     /// Whether to reopen the file on each iteration, use a cached handle, or run both.
     #[arg(long, value_enum, default_value_t = OpenMode::Both)]
     open_mode: OpenMode,
@@ -201,22 +207,22 @@ async fn main() -> Result<()> {
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    let datasets: Vec<Box<dyn BenchDataset>> = args
-        .datasets
-        .into_iter()
-        .map(|d| d.into_dataset())
-        .collect();
+    let config = RunConfig {
+        datasets: args
+            .datasets
+            .into_iter()
+            .map(|d| d.into_dataset())
+            .collect(),
+        formats: args.formats,
+        patterns: args.patterns,
+        time_limit: args.time_limit,
+        open_mode: args.open_mode,
+        display_format: args.display_format,
+        output_path: args.output_path,
+        gh_json_v3: args.gh_json_v3,
+    };
 
-    run_random_access(
-        &datasets,
-        args.formats,
-        args.time_limit,
-        args.open_mode,
-        args.display_format,
-        args.output_path,
-        args.gh_json_v3,
-    )
-    .await
+    run_random_access(config).await
 }
 
 // ---------------------------------------------------------------------------
@@ -379,15 +385,30 @@ const BENCHMARK_ID: &str = "random-access";
 /// Fixed indices used by the original taxi benchmark (preserved for historical continuity).
 const FIXED_TAXI_INDICES: [u64; 6] = [10, 11, 12, 13, 100_000, 3_000_000];
 
-async fn run_random_access(
-    datasets: &[Box<dyn BenchDataset>],
+/// Resolved configuration for a single random-access benchmark invocation.
+struct RunConfig {
+    datasets: Vec<Box<dyn BenchDataset>>,
     formats: Vec<Format>,
+    patterns: Vec<AccessPattern>,
     time_limit: u64,
     open_mode: OpenMode,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
     gh_json_v3: Option<PathBuf>,
-) -> Result<()> {
+}
+
+async fn run_random_access(config: RunConfig) -> Result<()> {
+    let RunConfig {
+        datasets,
+        formats,
+        patterns,
+        time_limit,
+        open_mode,
+        display_format,
+        output_path,
+        gh_json_v3,
+    } = config;
+
     let reopen_variants: &[bool] = match open_mode {
         OpenMode::Cached => &[false],
         OpenMode::Reopen => &[true],
@@ -398,7 +419,7 @@ async fn run_random_access(
         .iter()
         .map(|d| {
             let legacy_extra = if d.name() == "taxi" { formats.len() } else { 0 };
-            (formats.len() * ACCESS_PATTERNS.len() + legacy_extra) * reopen_variants.len()
+            (formats.len() * patterns.len() + legacy_extra) * reopen_variants.len()
         })
         .sum();
     let progress = ProgressBar::new(total_steps as u64);
@@ -408,7 +429,7 @@ async fn run_random_access(
 
     // Iteration order matters for the table renderer: row order is set by the
     // first time each `(dataset, pattern)` pair is observed.
-    for dataset in datasets {
+    for dataset in &datasets {
         for format in &formats {
             if dataset.name() == "taxi" {
                 let name = measurement_name(dataset.name(), None, *format);
@@ -436,7 +457,7 @@ async fn run_random_access(
                 }
             }
 
-            for pattern in &ACCESS_PATTERNS {
+            for pattern in &patterns {
                 let indices = generate_indices(dataset.as_ref(), *pattern);
                 let name = measurement_name(dataset.name(), Some(*pattern), *format);
                 for &reopen in reopen_variants {

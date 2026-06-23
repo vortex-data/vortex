@@ -23,6 +23,7 @@ use crate::footer::file_layout::FooterFlatBufferWriter;
 use crate::footer::postscript::Postscript;
 use crate::footer::postscript::PostscriptSegment;
 
+/// Serializes a [`Footer`] into footer buffers and the trailing postscript/EOF marker.
 pub struct FooterSerializer {
     footer: Footer,
     exclude_dtype: bool,

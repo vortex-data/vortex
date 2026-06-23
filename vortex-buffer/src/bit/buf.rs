@@ -228,10 +228,11 @@ impl BitBuffer {
             unsafe { buffer.push_unchecked(packed) }
         }
 
-        buffer.truncate(len.div_ceil(8));
+        let mut bytes = buffer.into_byte_buffer();
+        bytes.truncate(len.div_ceil(8));
 
         Self {
-            buffer: buffer.freeze().into_byte_buffer(),
+            buffer: bytes.freeze(),
             offset: 0,
             len,
         }
@@ -269,6 +270,23 @@ impl BitBuffer {
     #[inline(always)]
     pub fn inner(&self) -> &ByteBuffer {
         &self.buffer
+    }
+
+    /// Return the backing bytes for this bit buffer when its logical offset is byte-aligned.
+    ///
+    /// The returned slice contains exactly `self.len().div_ceil(8)` bytes. Bits past the logical
+    /// length in the final byte are outside the buffer's logical range and should be ignored by
+    /// callers.
+    #[inline]
+    pub fn byte_aligned_bytes(&self) -> Option<&[u8]> {
+        if !self.offset.is_multiple_of(8) {
+            return None;
+        }
+
+        let n_bytes = self.len.div_ceil(8);
+        let start = self.offset / 8;
+        let end = start + n_bytes;
+        Some(&self.buffer.as_slice()[start..end])
     }
 
     /// Retrieve the value at the given index.
@@ -312,7 +330,23 @@ impl BitBuffer {
         assert!(end <= self.len);
         let len = end - start;
 
-        Self::new_with_offset(self.buffer.clone(), len, self.offset + start)
+        let offset = self.offset + start;
+        let byte_offset = offset / 8;
+        let bit_offset = offset % 8;
+
+        // Trim whole bytes off the front directly rather than going through `new_with_offset`,
+        // which would slice (and re-clone) the clone we'd have to pass it.
+        let buffer = if byte_offset != 0 {
+            self.buffer.slice_unaligned(byte_offset..)
+        } else {
+            self.buffer.clone().aligned(Alignment::none())
+        };
+
+        Self {
+            buffer,
+            offset: bit_offset,
+            len,
+        }
     }
 
     /// Slice any full bytes from the buffer, leaving the offset < 8.
@@ -673,6 +707,19 @@ mod tests {
         assert_eq!(sliced.len(), 6);
         // Ensure the offset is modulo 8
         assert_eq!(sliced.offset(), 2);
+    }
+
+    #[test]
+    fn test_byte_aligned_bytes() {
+        let bytes: ByteBuffer = buffer![0b1010_0101u8, 0b0000_0011];
+        let buf = BitBuffer::new(bytes.clone(), 10);
+        assert_eq!(buf.byte_aligned_bytes(), Some(bytes.as_slice()));
+
+        let byte_sliced = buf.slice(8..10);
+        assert_eq!(byte_sliced.byte_aligned_bytes(), Some(&[0b0000_0011][..]));
+
+        let bit_sliced = buf.slice(1..9);
+        assert!(bit_sliced.byte_aligned_bytes().is_none());
     }
 
     #[test]

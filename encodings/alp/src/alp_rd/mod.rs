@@ -36,6 +36,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::match_each_alp_float_ptype;
@@ -54,6 +55,10 @@ macro_rules! bit_width {
 const CUT_LIMIT: usize = 16;
 
 const MAX_DICT_SIZE: u8 = 8;
+
+pub(crate) fn initialize(session: &VortexSession) {
+    kernel::initialize(session);
+}
 
 mod private {
     pub trait Sealed {}

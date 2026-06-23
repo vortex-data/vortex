@@ -16,7 +16,6 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
 use vortex_array::patches::Patches;
-use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -24,8 +23,7 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 const BENCH_ARGS: &[(f64, f64)] = &[
     // patches_sparsity, index_multiple

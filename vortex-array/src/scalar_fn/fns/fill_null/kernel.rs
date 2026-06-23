@@ -79,7 +79,7 @@ pub(super) fn precondition(
     }
 
     // If all values are null, replace the entire array with the fill value.
-    if matches!(array.validity()?, Validity::AllInvalid) {
+    if array.validity()?.definitely_all_null() {
         return Ok(Some(
             ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         ));

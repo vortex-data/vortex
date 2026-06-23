@@ -5,6 +5,7 @@ mod all_invalid;
 mod bool;
 mod cache;
 mod canonical;
+mod chunked;
 mod constant;
 mod decimal;
 mod dict;
@@ -14,6 +15,7 @@ mod geo;
 mod list;
 mod list_view;
 mod primitive;
+mod rle;
 mod run_end;
 mod sequence;
 mod struct_;
@@ -26,19 +28,23 @@ pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::array::arrays::Chunked;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::buffer::BitChunks;
+use vortex::encodings::fastlanes::RLE;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 
 use crate::duckdb::DataChunkRef;
+use crate::duckdb::ReusableDict;
 use crate::duckdb::VectorRef;
 use crate::duckdb::duckdb_vector_size;
 
@@ -96,8 +102,18 @@ impl ArrayExporter {
             vortex_bail!("Expected {expected_cols} columns in output chunk, got {chunk_cols}");
         }
 
-        let chunk_len = duckdb_vector_size().min(self.remaining);
         let position = self.array_len - self.remaining;
+        let mut chunk_len = duckdb_vector_size().min(self.remaining);
+        if !zero_projection {
+            for field in &self.fields {
+                chunk_len = field.preferred_batch_len(position, chunk_len);
+            }
+        }
+        vortex_ensure!(
+            chunk_len > 0,
+            "column exporter returned zero rows for non-empty export"
+        );
+
         self.remaining -= chunk_len;
         chunk.set_len(chunk_len);
 
@@ -156,6 +172,14 @@ impl ArrayExporter {
 ///  the offset, len and `WritableVector` as options. Not sure what it should return though?
 ///  This would allow Vortex extension authors to plug into the DuckDB exporter system.
 pub trait ColumnExporter: 'static {
+    /// Preferred number of rows to export next, capped by `max_len`.
+    ///
+    /// Exporters that preserve physical structure can use this to keep a DuckDB vector inside a
+    /// natural boundary, such as a chunked-array child boundary.
+    fn preferred_batch_len(&self, _offset: usize, max_len: usize) -> usize {
+        max_len
+    }
+
     /// Export the given range of data from the Vortex array to the DuckDB vector.
     fn export(
         &self,
@@ -174,6 +198,32 @@ fn new_array_exporter(
     new_array_exporter_with_flatten(array, cache, ctx, false)
 }
 
+/// Export "values" into a ReusableDict, saving the dictionary in "cache".
+fn cached_values_dict(
+    values: ArrayRef,
+    cache: &ConversionCache,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ReusableDict> {
+    let key = values.addr();
+    if let Some(entry) = cache.dict_cache.get(&key) {
+        return Ok(entry.value().1.clone());
+    }
+    let mut dict = ReusableDict::new(values.dtype().try_into()?, values.len());
+    // ReusableDict's values must be flattened. When we call
+    // vector.reuse_dictionary() with dict returned from this function, if
+    // data is not flat, duckdb's functions like TupleDataScatter read inner
+    // storage directly as T. If data inside was SEQUENCE or CONSTANT vectors
+    // which don't have a T buffer, we read garbage data.
+    new_array_exporter_with_flatten(values.clone(), cache, ctx, true)?.export(
+        0,
+        values.len(),
+        dict.vector(),
+        ctx,
+    )?;
+    cache.dict_cache.insert(key, (values, dict.clone()));
+    Ok(dict)
+}
+
 /// Create a DuckDB exporter for the given Vortex array.
 fn new_array_exporter_with_flatten(
     array: ArrayRef,
@@ -182,12 +232,12 @@ fn new_array_exporter_with_flatten(
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let array = match array.try_downcast::<Constant>() {
-        Ok(array) => return constant::new_exporter(array),
+        Ok(array) => return constant::new_exporter_with_flatten(array, cache, ctx, flatten),
         Err(array) => array,
     };
 
     let array = match array.try_downcast::<Sequence>() {
-        Ok(array) => return sequence::new_exporter(&array),
+        Ok(array) => return sequence::new_exporter_with_flatten(&array, cache, ctx, flatten),
         Err(array) => array,
     };
 
@@ -196,8 +246,18 @@ fn new_array_exporter_with_flatten(
         Err(array) => array,
     };
 
+    let array = match array.try_downcast::<RLE>() {
+        Ok(array) => return rle::new_exporter_with_flatten(array, cache, ctx, flatten),
+        Err(array) => array,
+    };
+
     let array = match array.try_downcast::<Dict>() {
         Ok(array) => return dict::new_exporter_with_flatten(&array, cache, ctx, flatten),
+        Err(array) => array,
+    };
+
+    let array = match array.try_downcast::<Chunked>() {
+        Ok(array) => return chunked::new_exporter_with_flatten(array, cache, ctx, flatten),
         Err(array) => array,
     };
 
@@ -480,7 +540,7 @@ mod tests {
         assert_eq!(copy_from_slice(&mut target, &source, 10, 64), 28,);
         assert_eq!(
             target[0],
-            0xff_99_59_0d_0c_cc_80_c0_u64, // Python: hex(0xff_fe_65_64_34_33_32_03_02 >> 2), then remove the high two hexits
+            0xff_99_59_0d_0c_cc_80_c0_u64, /* Python: hex(0xff_fe_65_64_34_33_32_03_02 >> 2), then remove the high two hexits */
             "{:#08x} == {:#08x}",
             target[0],
             0xff_99_59_0d_0c_cc_80_c0_u64

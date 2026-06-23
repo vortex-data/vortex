@@ -18,8 +18,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::FieldNames;
 use vortex_array::field_path;
-use vortex_array::scalar_fn::session::ScalarFnSession;
-use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::ByteBuffer;
@@ -31,12 +29,9 @@ use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
-
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty()
-        .with::<ArraySession>()
+    let session = vortex_array::array_session()
         .with::<LayoutSession>()
-        .with::<ScalarFnSession>()
         .with::<RuntimeSession>();
 
     vortex_file::register_default_encodings(&session);
@@ -168,6 +163,6 @@ async fn test_dict_listview_validity_roundtrip() {
         .await
         .unwrap()
         .expect("read back should succeed");
-    vortex_array::assert_arrays_eq!(data, chunk);
+    vortex_array::assert_arrays_eq!(data, chunk, &mut SESSION.create_execution_ctx());
     assert!(stream.next().await.is_none(), "expected a single chunk");
 }
