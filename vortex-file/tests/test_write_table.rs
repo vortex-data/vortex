@@ -166,3 +166,46 @@ async fn test_dict_listview_validity_roundtrip() {
     vortex_array::assert_arrays_eq!(data, chunk, &mut SESSION.create_execution_ctx());
     assert!(stream.next().await.is_none(), "expected a single chunk");
 }
+
+/// Regression test: writing a zero-row table with a nullable struct column used to
+/// panic in `CollectStrategy` ("must have visited at least one chunk").
+#[tokio::test]
+async fn test_write_empty_nullable_struct_column() {
+    let inner = StructArray::new(
+        FieldNames::from(["a"]),
+        vec![PrimitiveArray::from_iter(Vec::<i32>::new()).into_array()],
+        0,
+        Validity::AllValid,
+    )
+    .into_array();
+
+    let data = StructArray::new(
+        FieldNames::from(["c0"]),
+        vec![inner],
+        0,
+        Validity::NonNullable,
+    )
+    .into_array();
+
+    let mut bytes = Vec::new();
+    SESSION
+        .write_options()
+        .write(&mut bytes, data.to_array_stream())
+        .await
+        .expect("writing an empty nullable struct column should not panic");
+
+    let bytes = ByteBuffer::from(bytes);
+    let vxf = SESSION.open_options().open_buffer(bytes).expect("open");
+    let stream = vxf
+        .scan()
+        .expect("scan")
+        .into_stream()
+        .expect("into_stream");
+    pin_mut!(stream);
+
+    let mut rows = 0usize;
+    while let Some(next) = stream.next().await {
+        rows += next.expect("read back should succeed").len();
+    }
+    assert_eq!(rows, 0);
+}
