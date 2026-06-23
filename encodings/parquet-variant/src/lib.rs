@@ -26,7 +26,8 @@
 
 mod array;
 mod arrow;
-mod fns;
+#[cfg(test)]
+mod json_to_variant_tests;
 mod kernel;
 mod operations;
 mod validity;
@@ -35,30 +36,21 @@ mod vtable;
 use std::sync::Arc;
 
 pub use array::ParquetVariantArrayExt;
-pub use fns::JsonToVariant;
-pub use fns::JsonToVariantOptions;
-pub use fns::ShreddingSpec;
-pub use fns::VariantToJson;
-pub use fns::json_to_variant;
-pub use fns::variant_to_json;
 use vortex_array::arrow::ArrowSessionExt;
-use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::session::ArraySessionExt;
+pub use vortex_json::JsonToVariant;
+pub use vortex_json::JsonToVariantOptions;
+pub use vortex_json::ShreddingSpec;
+pub use vortex_json::json_to_variant;
 use vortex_session::VortexSession;
 pub use vtable::ParquetVariant;
 pub use vtable::ParquetVariantArray;
 
 /// Register Parquet Variant array, Arrow extension, and scalar function support with a
 /// session.
-///
-/// This also registers the [`Json`](vortex_json::Json) extension dtype so that sessions able
-/// to execute [`VariantToJson`] can serialize and deserialize its output dtype.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(ParquetVariant);
     kernel::initialize(session);
     session.arrow().register_exporter(Arc::new(ParquetVariant));
     session.arrow().register_importer(Arc::new(ParquetVariant));
-    vortex_json::initialize(session);
-    session.scalar_fns().register(JsonToVariant);
-    session.scalar_fns().register(VariantToJson);
 }
