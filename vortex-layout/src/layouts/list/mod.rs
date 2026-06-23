@@ -67,7 +67,10 @@ impl VTable for List {
     }
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
-        ProstMetadata(ListLayoutMetadata::new(layout.offsets_ptype()))
+        ProstMetadata(ListLayoutMetadata::new(
+            layout.offsets_ptype(),
+            layout.fixed_size(),
+        ))
     }
 
     fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
@@ -145,6 +148,7 @@ impl VTable for List {
             elements,
             offsets,
             validity,
+            fixed_size: metadata.fixed_size,
         })
     }
 
@@ -192,6 +196,7 @@ pub struct ListLayout {
     elements: LayoutRef,
     offsets: LayoutRef,
     validity: Option<LayoutRef>,
+    fixed_size: Option<u64>,
 }
 
 impl ListLayout {
@@ -215,7 +220,14 @@ impl ListLayout {
             elements,
             offsets,
             validity,
+            fixed_size: None,
         }
+    }
+
+    /// Return a copy of this layout with fixed-size list metadata attached.
+    pub fn with_fixed_size(mut self, fixed_size: Option<u64>) -> Self {
+        self.fixed_size = fixed_size;
+        self
     }
 
     /// Number of lists in this layout.
@@ -245,6 +257,12 @@ impl ListLayout {
         self.offsets.dtype().as_ptype()
     }
 
+    /// If present, every list row has exactly this many elements.
+    #[inline]
+    pub fn fixed_size(&self) -> Option<u64> {
+        self.fixed_size
+    }
+
     /// The dtype of the inner elements column.
     pub fn elements_dtype(&self) -> &DType {
         self.dtype
@@ -257,12 +275,15 @@ impl ListLayout {
 pub struct ListLayoutMetadata {
     #[prost(enumeration = "PType", tag = "1")]
     offsets_ptype: i32,
+    #[prost(uint64, optional, tag = "2")]
+    fixed_size: Option<u64>,
 }
 
 impl ListLayoutMetadata {
-    pub fn new(offsets_ptype: PType) -> Self {
+    pub fn new(offsets_ptype: PType, fixed_size: Option<u64>) -> Self {
         let mut metadata = Self::default();
         metadata.set_offsets_ptype(offsets_ptype);
+        metadata.fixed_size = fixed_size;
         metadata
     }
 }
