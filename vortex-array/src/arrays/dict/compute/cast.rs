@@ -49,6 +49,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
@@ -56,6 +57,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::arrays::Dict;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
@@ -65,6 +67,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
@@ -192,7 +195,7 @@ mod tests {
         // Codes: [0, 2, 0] (only reference indices 0 and 2, never 1)
         let values = PrimitiveArray::new(
             buffer![1.0f64, 0.0f64, 3.0f64],
-            Validity::from(vortex_buffer::BitBuffer::from(vec![true, false, true])),
+            Validity::from(BitBuffer::from(vec![true, false, true])),
         )
         .into_array();
         let codes = buffer![0u32, 2, 0].into_array();
@@ -217,11 +220,6 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
-        let casted_prim = casted.execute::<PrimitiveArray>(ctx).unwrap();
-        assert_arrays_eq!(
-            casted_prim,
-            PrimitiveArray::from_iter([1.0f64, 3.0, 1.0]),
-            ctx
-        );
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([1.0f64, 3.0, 1.0]), ctx);
     }
 }

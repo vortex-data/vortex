@@ -560,8 +560,7 @@ fn inner_loop_naive<T: IntegerPType>(
 #[cfg(test)]
 mod tests {
     use std::iter;
-    use std::sync::LazyLock;
-    use vortex_array::LEGACY_SESSION;
+
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
@@ -570,15 +569,13 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
+
     use super::IntegerStats;
     use super::typed_int_stats;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
-
     #[test]
     fn test_naive_count_distinct_values() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = PrimitiveArray::new(buffer![217u8, 0], Validity::NonNullable);
         let stats = typed_int_stats::<u8>(&array, true, &mut ctx)?;
         assert_eq!(stats.distinct_count().unwrap(), 2);
@@ -587,7 +584,7 @@ mod tests {
 
     #[test]
     fn test_naive_count_distinct_values_nullable() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = PrimitiveArray::new(
             buffer![217u8, 0],
             Validity::from(BitBuffer::from(vec![true, false])),
@@ -599,7 +596,7 @@ mod tests {
 
     #[test]
     fn test_count_distinct_values() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = PrimitiveArray::new((0..128u8).collect::<Buffer<u8>>(), Validity::NonNullable);
         let stats = typed_int_stats::<u8>(&array, true, &mut ctx)?;
         assert_eq!(stats.distinct_count().unwrap(), 128);
@@ -608,7 +605,7 @@ mod tests {
 
     #[test]
     fn test_count_distinct_values_nullable() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = PrimitiveArray::new(
             (0..128u8).collect::<Buffer<u8>>(),
             Validity::from(BitBuffer::from_iter(
@@ -622,7 +619,7 @@ mod tests {
 
     #[test]
     fn test_integer_stats_leading_nulls() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let ints = PrimitiveArray::new(buffer![0, 1, 2], Validity::from_iter([false, true, true]));
 
         let stats = IntegerStats::generate_opts(
