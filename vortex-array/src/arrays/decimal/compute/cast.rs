@@ -100,8 +100,18 @@ impl CastKernel for Decimal {
             .clone()
             .cast_nullability(*to_nullability, array.len(), ctx)?;
 
-        if from_decimal_dtype == to_decimal_dtype {
-            // SAFETY: new_validity has the same length, only its nullability tag changes.
+        // Reuse the values buffer untouched when no rescale is required, the target precision
+        // only widens (so every value still fits), and the current physical type is already wide
+        // enough to hold the target precision. This keeps the common precision-widening cast
+        // (and pure nullability changes) zero-copy instead of allocating and re-scanning.
+        if from_decimal_dtype.scale() == to_decimal_dtype.scale()
+            && to_decimal_dtype.precision() >= from_decimal_dtype.precision()
+            && array
+                .values_type()
+                .is_compatible_decimal_value_type(*to_decimal_dtype)
+        {
+            // SAFETY: the source values are bit-identical and remain in range for the wider
+            // precision, and new_validity has the same length, only its nullability tag changes.
             unsafe {
                 return Ok(Some(
                     DecimalArray::new_unchecked_handle(
@@ -206,12 +216,22 @@ where
                 )
             })
         }) {
-        Ok(_) => vortex_err!(
-            "decimal value cannot be represented as {} after casting from {} to {}",
-            T::DECIMAL_TYPE,
-            from_decimal_dtype,
-            to_decimal_dtype
-        ),
+        Ok(_) => {
+            // The fast path only returns `None` for values the slow path also rejects, so this
+            // arm should be unreachable. If it is hit, the fast and slow paths have drifted and
+            // we are erroring on a value that is actually representable.
+            debug_assert!(
+                false,
+                "decimal fast-path cast rejected value {value} that the slow path accepts \
+                 (from {from_decimal_dtype} to {to_decimal_dtype})"
+            );
+            vortex_err!(
+                "decimal value cannot be represented as {} after casting from {} to {}",
+                T::DECIMAL_TYPE,
+                from_decimal_dtype,
+                to_decimal_dtype
+            )
+        }
         Err(error) => error,
     }
 }
@@ -578,6 +598,33 @@ mod tests {
         assert_eq!(casted.len(), 3);
         // Should be stored in i128 now (precision 38 requires i128)
         assert_eq!(casted.values_type(), DecimalType::I128);
+    }
+
+    #[test]
+    fn cast_widening_same_physical_type_is_zero_copy() {
+        // Decimal(10,2) and Decimal(18,2) are both physically i64 with the same scale, so widening
+        // the precision must reuse the values buffer rather than allocate and re-scan it.
+        let array = DecimalArray::new(
+            buffer![100i64, 200, 300],
+            DecimalDType::new(10, 2),
+            Validity::NonNullable,
+        );
+        let src_ptr = array.buffer::<i64>().as_ptr();
+
+        let wider_dtype = DType::Decimal(DecimalDType::new(18, 2), Nullability::NonNullable);
+        #[expect(deprecated)]
+        let casted = array.into_array().cast(wider_dtype).unwrap().to_decimal();
+
+        assert_eq!(casted.precision(), 18);
+        assert_eq!(casted.scale(), 2);
+        assert_eq!(casted.values_type(), DecimalType::I64);
+        assert_eq!(casted.buffer::<i64>().as_ref(), &[100, 200, 300]);
+        // The values buffer must be shared with the source (zero-copy), not reallocated.
+        assert_eq!(
+            casted.buffer::<i64>().as_ptr(),
+            src_ptr,
+            "precision-widening cast must reuse the source values buffer"
+        );
     }
 
     #[test]
