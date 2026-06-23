@@ -453,7 +453,6 @@ mod tests {
     use super::*;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
-    use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::list::writer::ListLayoutStrategy;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
@@ -462,13 +461,7 @@ mod tests {
     use crate::test::SESSION;
 
     fn flat_list_strategy() -> ListLayoutStrategy {
-        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        ListLayoutStrategy::new(
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-        )
+        ListLayoutStrategy::default()
     }
 
     async fn write_layout<S: LayoutStrategy>(
