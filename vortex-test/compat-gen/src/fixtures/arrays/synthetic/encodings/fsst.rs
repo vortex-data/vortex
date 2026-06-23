@@ -5,8 +5,6 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::dtype::FieldNames;
@@ -15,6 +13,7 @@ use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -34,7 +33,7 @@ impl FlatLayoutFixture for FsstFixture {
         vec![FSST.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let prefixes = [
             "https://example.com/api/v1/users/",
             "https://example.com/api/v1/orders/",
@@ -103,15 +102,14 @@ impl FlatLayoutFixture for FsstFixture {
         )
         .into_array();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let url_comp = fsst_train_compressor(&url_col, &mut ctx)?;
-        let log_comp = fsst_train_compressor(&log_col, &mut ctx)?;
-        let nullable_comp = fsst_train_compressor(&nullable_col, &mut ctx)?;
-        let short_comp = fsst_train_compressor(&short_col, &mut ctx)?;
-        let empty_and_unicode_comp = fsst_train_compressor(&empty_and_unicode_col, &mut ctx)?;
-        let suffix_shared_comp = fsst_train_compressor(&suffix_shared_col, &mut ctx)?;
-        let high_entropy_comp = fsst_train_compressor(&high_entropy_col, &mut ctx)?;
-        let all_null_clustered_comp = fsst_train_compressor(&all_null_clustered, &mut ctx)?;
+        let url_comp = fsst_train_compressor(&url_col, ctx)?;
+        let log_comp = fsst_train_compressor(&log_col, ctx)?;
+        let nullable_comp = fsst_train_compressor(&nullable_col, ctx)?;
+        let short_comp = fsst_train_compressor(&short_col, ctx)?;
+        let empty_and_unicode_comp = fsst_train_compressor(&empty_and_unicode_col, ctx)?;
+        let suffix_shared_comp = fsst_train_compressor(&suffix_shared_col, ctx)?;
+        let high_entropy_comp = fsst_train_compressor(&high_entropy_col, ctx)?;
+        let all_null_clustered_comp = fsst_train_compressor(&all_null_clustered, ctx)?;
 
         let arr = StructArray::try_new(
             FieldNames::from([
@@ -125,16 +123,14 @@ impl FlatLayoutFixture for FsstFixture {
                 "all_null_clustered",
             ]),
             vec![
-                fsst_compress(&url_col, &url_comp, &mut ctx)?.into_array(),
-                fsst_compress(&log_col, &log_comp, &mut ctx)?.into_array(),
-                fsst_compress(&nullable_col, &nullable_comp, &mut ctx)?.into_array(),
-                fsst_compress(&short_col, &short_comp, &mut ctx)?.into_array(),
-                fsst_compress(&empty_and_unicode_col, &empty_and_unicode_comp, &mut ctx)?
-                    .into_array(),
-                fsst_compress(&suffix_shared_col, &suffix_shared_comp, &mut ctx)?.into_array(),
-                fsst_compress(&high_entropy_col, &high_entropy_comp, &mut ctx)?.into_array(),
-                fsst_compress(&all_null_clustered, &all_null_clustered_comp, &mut ctx)?
-                    .into_array(),
+                fsst_compress(&url_col, &url_comp, ctx)?.into_array(),
+                fsst_compress(&log_col, &log_comp, ctx)?.into_array(),
+                fsst_compress(&nullable_col, &nullable_comp, ctx)?.into_array(),
+                fsst_compress(&short_col, &short_comp, ctx)?.into_array(),
+                fsst_compress(&empty_and_unicode_col, &empty_and_unicode_comp, ctx)?.into_array(),
+                fsst_compress(&suffix_shared_col, &suffix_shared_comp, ctx)?.into_array(),
+                fsst_compress(&high_entropy_col, &high_entropy_comp, ctx)?.into_array(),
+                fsst_compress(&all_null_clustered, &all_null_clustered_comp, ctx)?.into_array(),
             ],
             N,
             Validity::NonNullable,
