@@ -248,12 +248,15 @@ impl WriteStrategyBuilder {
         // Nested lists (`list<list<...>>`) recurse, shredding each level into its own
         // `ListLayout`. Otherwise everything goes through the flat strategy.
         #[cfg(feature = "unstable_encodings")]
-        let leaf: Arc<dyn LayoutStrategy> = Arc::new(ListLayoutStrategy::new(
-            Arc::clone(&flat), // elements (non-list); list elements recurse into a nested ListLayout
-            Arc::clone(&flat), // offsets
-            Arc::clone(&flat), // validity
-            Arc::clone(&flat), // fallback for non-list dtypes
-        ));
+        let leaf: Arc<dyn LayoutStrategy> = Arc::new(
+            // Thread the configured `flat` (which carries `allow_encodings` / any custom flat
+            // override) through every child; list elements still recurse into a nested ListLayout.
+            ListLayoutStrategy::default()
+                .with_elements(Arc::clone(&flat))
+                .with_offsets(Arc::clone(&flat))
+                .with_validity(Arc::clone(&flat))
+                .with_fallback(Arc::clone(&flat)),
+        );
         #[cfg(not(feature = "unstable_encodings"))]
         let leaf: Arc<dyn LayoutStrategy> = Arc::clone(&flat);
 

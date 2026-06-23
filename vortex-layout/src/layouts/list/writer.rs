@@ -25,6 +25,7 @@ use vortex_session::VortexSession;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::list::ListLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -42,15 +43,6 @@ use crate::sequence::SequentialStreamExt;
 ///     (sorted, gapless, non-overlapping offsets) and produce a [`ListArray`].
 ///  3. Writes the `elements`, `offsets`, and (when nullable) `validity` columns into
 ///     separately configurable downstream strategies, producing a single [`ListLayout`].
-///
-/// # Nested lists
-///
-/// When the `elements` column is itself list-typed (e.g. `list<list<...>>`), the strategy
-/// recurses into a clone of itself instead of using the configured `elements` strategy, so the
-/// inner list is shredded into a nested [`ListLayout`] rather than written as a single opaque
-/// chunk. This mirrors how [`TableStrategy`](crate::layouts::table::TableStrategy) descends into
-/// nested struct fields. The configured `elements` strategy is therefore used for the innermost,
-/// non-list values.
 ///
 /// For input whose dtype is not [`DType::List`], the stream is forwarded unchanged to the
 /// configured `fallback` strategy. This lets `ListLayoutStrategy` slot in as a leaf strategy in
@@ -70,19 +62,43 @@ pub struct ListLayoutStrategy {
     fallback: Arc<dyn LayoutStrategy>,
 }
 
-impl ListLayoutStrategy {
-    pub fn new(
-        elements: Arc<dyn LayoutStrategy>,
-        offsets: Arc<dyn LayoutStrategy>,
-        validity: Arc<dyn LayoutStrategy>,
-        fallback: Arc<dyn LayoutStrategy>,
-    ) -> Self {
+impl Default for ListLayoutStrategy {
+    /// Routes every child (elements, offsets, validity) and the non-list fallback through
+    /// [`FlatLayoutStrategy`]. Override individual children with the `with_*` builder methods.
+    fn default() -> Self {
+        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
         Self {
-            elements,
-            offsets,
-            validity,
-            fallback,
+            elements: Arc::clone(&flat),
+            offsets: Arc::clone(&flat),
+            validity: Arc::clone(&flat),
+            fallback: flat,
         }
+    }
+}
+
+impl ListLayoutStrategy {
+    /// Strategy for the `elements` child.
+    pub fn with_elements(mut self, elements: Arc<dyn LayoutStrategy>) -> Self {
+        self.elements = elements;
+        self
+    }
+
+    /// Strategy for the `offsets` child.
+    pub fn with_offsets(mut self, offsets: Arc<dyn LayoutStrategy>) -> Self {
+        self.offsets = offsets;
+        self
+    }
+
+    /// Strategy for the `validity` child (written only when the list is nullable).
+    pub fn with_validity(mut self, validity: Arc<dyn LayoutStrategy>) -> Self {
+        self.validity = validity;
+        self
+    }
+
+    /// Strategy for non-list input, which is forwarded through this strategy unchanged.
+    pub fn with_fallback(mut self, fallback: Arc<dyn LayoutStrategy>) -> Self {
+        self.fallback = fallback;
+        self
     }
 }
 
@@ -130,17 +146,6 @@ impl LayoutStrategy for ListLayoutStrategy {
             })
             .transpose()?;
 
-        // Recurse into a clone of ourselves when the elements are themselves list-typed, so that
-        // `list<list<...>>` writes as `ListLayout { elements: ListLayout { .. } }` rather than
-        // collapsing the inner list into a single opaque chunk. Non-list elements use the
-        // configured `elements` strategy. Mirrors how `TableStrategy` descends into nested struct
-        // fields.
-        let elements_strategy: Arc<dyn LayoutStrategy> = if elements.dtype().is_list() {
-            Arc::new(self.clone())
-        } else {
-            Arc::clone(&self.elements)
-        };
-
         // Spawn each child write onto the runtime so they run concurrently
         let handle = session.handle();
         let (elements_task, offsets_task, validity_task) = {
@@ -159,7 +164,7 @@ impl LayoutStrategy for ListLayoutStrategy {
                 })
             };
             (
-                spawn_layout_writer(elements_strategy, elements),
+                spawn_layout_writer(Arc::clone(&self.elements), elements),
                 spawn_layout_writer(Arc::clone(&self.offsets), offsets),
                 validity_array.map(|arr| spawn_layout_writer(Arc::clone(&self.validity), arr)),
             )
@@ -182,8 +187,6 @@ impl LayoutStrategy for ListLayoutStrategy {
     }
 
     fn buffered_bytes(&self) -> u64 {
-        // A given input stream takes either the list path (elements + offsets + validity) or the
-        // fallback, so the back-pressure budget is the max of the two — not the sum.
         let list_bytes = self.elements.buffered_bytes()
             + self.offsets.buffered_bytes()
             + self.validity.buffered_bytes();
@@ -255,13 +258,7 @@ mod tests {
     use crate::test::SESSION;
 
     fn flat_list_strategy() -> ListLayoutStrategy {
-        let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
-        ListLayoutStrategy::new(
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-        )
+        ListLayoutStrategy::default()
     }
 
     async fn write<S: LayoutStrategy>(strategy: &S, array: ArrayRef) -> VortexResult<LayoutRef> {
@@ -332,7 +329,6 @@ mod tests {
     async fn non_list_input_routes_to_fallback() -> VortexResult<()> {
         let primitive = buffer![1i32, 2, 3].into_array();
         let layout = write(&flat_list_strategy(), primitive).await?;
-        // Fallback is FlatLayoutStrategy, so the result is a flat layout (not a list layout).
         insta::assert_snapshot!(layout.display_tree(), @"vortex.flat, dtype: i32, segment: 0");
         Ok(())
     }
@@ -394,12 +390,7 @@ mod tests {
         let flat: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
         let table_strategy: Arc<dyn LayoutStrategy> =
             Arc::new(TableStrategy::new(Arc::clone(&flat), Arc::clone(&flat)));
-        let writer = ListLayoutStrategy::new(
-            table_strategy,
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-            Arc::clone(&flat),
-        );
+        let writer = ListLayoutStrategy::default().with_elements(table_strategy);
 
         let layout = write(&writer, list).await?;
         insta::assert_snapshot!(layout.display_tree(), @"
@@ -427,9 +418,9 @@ mod tests {
         )?
         .into_array();
 
-        // The all-flat strategy still recurses on list-typed elements: the inner `list<i32>` is
-        // shredded into a nested ListLayout rather than written as a single opaque flat chunk.
-        let layout = write(&flat_list_strategy(), list).await?;
+        let writer =
+            ListLayoutStrategy::default().with_elements(Arc::new(ListLayoutStrategy::default()));
+        let layout = write(&writer, list).await?;
         insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(list(i32)), children: 2
         ├── elements: vortex.list, dtype: list(i32), children: 2
@@ -440,7 +431,6 @@ mod tests {
         Ok(())
     }
 
-    /// Recursion is unbounded: `list<list<list<i32>>>` produces three nested ListLayouts.
     #[tokio::test]
     async fn list_of_list_of_list_tree() -> VortexResult<()> {
         let innermost = ListArray::try_new(
@@ -459,7 +449,10 @@ mod tests {
             ListArray::try_new(middle, buffer![0u32, 1].into_array(), Validity::NonNullable)?
                 .into_array();
 
-        let layout = write(&flat_list_strategy(), outer).await?;
+        let writer = ListLayoutStrategy::default().with_elements(Arc::new(
+            ListLayoutStrategy::default().with_elements(Arc::new(ListLayoutStrategy::default())),
+        ));
+        let layout = write(&writer, outer).await?;
         insta::assert_snapshot!(layout.display_tree(), @"
         vortex.list, dtype: list(list(list(i32))), children: 2
         ├── elements: vortex.list, dtype: list(list(i32)), children: 2
