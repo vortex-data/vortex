@@ -679,7 +679,7 @@ mod tests {
             InterleaveArray::try_new(vec![value.clone(), value], array_indices, row_indices)?
                 .into_array();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let err = interleaved
             .execute::<Canonical>(&mut ctx)
             .err()
@@ -700,7 +700,7 @@ mod tests {
             InterleaveArray::try_new(vec![value.clone(), value], array_indices, row_indices)?
                 .into_array();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let err = interleaved
             .execute::<Canonical>(&mut ctx)
             .err()
