@@ -17,20 +17,21 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
 use crate::convert::ToDuckDBScalar;
+use crate::duckdb::ReusableDict;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::cache::ConversionCache;
+use crate::exporter::cached_values_dict;
 use crate::exporter::canonical;
-use crate::exporter::new_array_exporter_with_flatten;
 
-/// We export run-end arrays to a DuckDB dictionary vector, using a selection vector to
-/// repeat the values in the run-end array.
+/// We export run-end arrays to a DuckDB dictionary vector. Values are exported
+/// into a ReusableDict with SelectionVector applied in export().
 struct RunEndExporter<E: IntegerPType> {
     ends: PrimitiveArray,
     ends_type: PhantomData<E>,
     values: ArrayRef,
-    values_exporter: Box<dyn ColumnExporter>,
+    values_dict: ReusableDict,
     run_end_offset: usize,
 }
 
@@ -50,16 +51,14 @@ pub(crate) fn new_exporter_with_flatten(
     let ends = array.ends().clone();
     let values = array.values().clone();
     let ends = ends.execute::<PrimitiveArray>(ctx)?;
-    // REE exports values in run-index space, not outer row space. Materialize the dictionary
-    // payload so chunked physical boundaries in the values child cannot constrain row batches.
-    let values_exporter = new_array_exporter_with_flatten(values.clone(), cache, ctx, true)?;
+    let values_dict = cached_values_dict(values.clone(), cache, ctx)?;
 
     match_each_integer_ptype!(ends.ptype(), |E| {
         Ok(Box::new(RunEndExporter {
             ends,
             ends_type: PhantomData::<E>,
             values,
-            values_exporter,
+            values_dict,
             run_end_offset: offset,
         }))
     })
@@ -88,10 +87,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
 
         // Find the final run in case we can short-circuit and return a constant vector.
         let end_run_idx = ends_slice
-            .search_sorted(
-                &offset.add(E::from_usize(len).vortex_expect("len out of bounds")),
-                SearchSortedSide::Right,
-            )?
+            .search_sorted(&end_offset, SearchSortedSide::Right)?
             .to_ends_index(ends_slice.len());
 
         if start_run_idx == end_run_idx {
@@ -113,29 +109,16 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
                 .to_usize()
                 .vortex_expect("run_len is usize");
 
-            // Push the runs into the selection vector.
-            sel_vec_slice[..run_len].fill(u32::try_from(run_idx).vortex_expect("sel_idx is u32"));
+            let global_run_idx =
+                u32::try_from(start_run_idx + run_idx).vortex_expect("run index exceeds u32");
+            sel_vec_slice[..run_len].fill(global_run_idx);
             sel_vec_slice = &mut sel_vec_slice[run_len..];
 
             offset = next_end;
         }
-        assert!(
-            sel_vec_slice.is_empty(),
-            "Selection vector not completely filled"
-        );
+        debug_assert!(sel_vec_slice.is_empty());
 
-        // The values in the selection vector are the run indices, so we can find the number of
-        // values we referenced by looking at the last index of the selection vector.
-        let values_len = *unsafe { sel_vec.as_slice_mut(len) }
-            .last()
-            .vortex_expect("non-empty")
-            + 1;
-
-        // Export the run-end values into the vector, and then turn it into a dictionary vector.
-        self.values_exporter
-            .export(start_run_idx, values_len as usize, vector, ctx)?;
-        vector.dictionary(vector, values_len as usize, &sel_vec, len as _);
-
+        vector.reuse_dictionary(&self.values_dict, &sel_vec);
         Ok(())
     }
 }
