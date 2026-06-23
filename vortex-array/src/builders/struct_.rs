@@ -213,6 +213,7 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
@@ -266,6 +267,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let mut ctx = array_session().create_execution_ctx();
         use crate::scalar::Scalar;
 
         let dtype = DType::Struct(
@@ -328,7 +330,7 @@ mod tests {
             Validity::from_iter([true, true, false]),
         )
         .unwrap();
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test wrong dtype error.
         let struct_fields = match &dtype {

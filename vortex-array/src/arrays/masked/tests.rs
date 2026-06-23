@@ -12,6 +12,7 @@ use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -95,6 +96,7 @@ fn test_masked_child_with_validity() {
 
 #[test]
 fn test_masked_child_all_valid() {
+    let mut ctx = array_session().create_execution_ctx();
     // When validity is AllValid, masked_child should invert to AllInvalid.
     let child = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
@@ -108,7 +110,8 @@ fn test_masked_child_all_valid() {
     );
     assert_arrays_eq!(
         PrimitiveArray::from_option_iter([10i32, 20, 30].map(Some)),
-        array
+        array,
+        &mut ctx
     );
 }
 

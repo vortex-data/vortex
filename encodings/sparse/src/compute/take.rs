@@ -55,9 +55,12 @@ impl TakeExecute for Sparse {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -65,9 +68,16 @@ mod test {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::Sparse;
     use crate::SparseArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     fn test_array_fill_value() -> Scalar {
         // making this const is annoying
@@ -91,7 +101,11 @@ mod test {
         let sparse = sparse.slice(30..40).unwrap();
         let taken = sparse.take(buffer![6, 7, 8].into_array()).unwrap();
         let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47), None]);
-        assert_arrays_eq!(taken, expected.into_array());
+        assert_arrays_eq!(
+            taken,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -105,7 +119,11 @@ mod test {
             Some(1.23),
             Some(3.5),
         ]);
-        assert_arrays_eq!(taken, expected.into_array());
+        assert_arrays_eq!(
+            taken,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -113,7 +131,7 @@ mod test {
         let sparse = sparse_array();
         let taken = sparse.take(buffer![69].into_array()).unwrap();
         let expected = ConstantArray::new(test_array_fill_value(), 1).into_array();
-        assert_arrays_eq!(taken, expected);
+        assert_arrays_eq!(taken, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -123,7 +141,11 @@ mod test {
         let taken = sparse.take(buffer![69, 37].into_array()).unwrap();
         // Index 69 is not in sparse array (fill value is null), index 37 has value 0.47
         let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47f64)]);
-        assert_arrays_eq!(taken, expected.into_array());
+        assert_arrays_eq!(
+            taken,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -144,7 +166,11 @@ mod test {
             .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
-        assert_arrays_eq!(taken, expected.into_array());
+        assert_arrays_eq!(
+            taken,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -165,7 +191,11 @@ mod test {
             .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
-        assert_arrays_eq!(taken, expected.into_array());
+        assert_arrays_eq!(
+            taken,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[rstest]

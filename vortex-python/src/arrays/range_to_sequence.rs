@@ -78,6 +78,8 @@ mod test {
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
 
     use crate::arrays::range_to_sequence::range_len;
     use crate::arrays::range_to_sequence::sequence_array_from_range;
@@ -98,21 +100,26 @@ mod test {
 
     #[test]
     fn test_sequence_array_from_len() {
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::U16, Nullability::NonNullable);
         let arr = sequence_array_from_range::<u16>(0, 10, 1, dtype).unwrap();
-        assert_arrays_eq!(arr, buffer![0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array());
+        assert_arrays_eq!(
+            arr,
+            buffer![0u16, 1, 2, 3, 4, 5, 6, 7, 8, 9].into_array(),
+            &mut ctx
+        );
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let arr = sequence_array_from_range::<i32>(0, 10, 5, dtype).unwrap();
-        assert_arrays_eq!(arr, buffer![0i32, 5].into_array());
+        assert_arrays_eq!(arr, buffer![0i32, 5].into_array(), &mut ctx);
 
         let dtype = DType::Primitive(PType::I8, Nullability::NonNullable);
         let arr = sequence_array_from_range::<i8>(-5, 5, 3, dtype).unwrap();
-        assert_arrays_eq!(arr, buffer![-5i8, -2, 1, 4].into_array());
+        assert_arrays_eq!(arr, buffer![-5i8, -2, 1, 4].into_array(), &mut ctx);
 
         let dtype = DType::Primitive(PType::I8, Nullability::NonNullable);
         let arr = sequence_array_from_range::<i8>(3, -3, -1, dtype).unwrap();
-        assert_arrays_eq!(arr, buffer![3i8, 2, 1, 0, -1, -2].into_array());
+        assert_arrays_eq!(arr, buffer![3i8, 2, 1, 0, -1, -2].into_array(), &mut ctx);
 
         let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
         let result = sequence_array_from_range::<u32>(1_000_000, 10, -500_000, dtype);
@@ -122,6 +129,6 @@ mod test {
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let arr = sequence_array_from_range::<i32>(1_000_000, 10, -500_000, dtype).unwrap();
-        assert_arrays_eq!(arr, buffer![1_000_000i32, 500_000].into_array());
+        assert_arrays_eq!(arr, buffer![1_000_000i32, 500_000].into_array(), &mut ctx);
     }
 }

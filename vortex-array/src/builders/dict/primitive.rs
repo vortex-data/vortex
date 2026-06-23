@@ -173,18 +173,20 @@ mod test {
 
     #[test]
     fn encode_primitive() {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = buffer![1, 1, 3, 3, 3].into_array();
         let dict = dict_encode(&arr, &mut SESSION.create_execution_ctx()).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 1, 1].into_array();
-        assert_arrays_eq!(dict.codes(), expected_codes);
+        assert_arrays_eq!(dict.codes(), expected_codes, &mut ctx);
 
         let expected_values = buffer![1i32, 3].into_array();
-        assert_arrays_eq!(dict.values(), expected_values);
+        assert_arrays_eq!(dict.values(), expected_values, &mut ctx);
     }
 
     #[test]
     fn encode_primitive_nulls() {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([
             Some(1),
             Some(1),
@@ -198,10 +200,10 @@ mod test {
         let dict = dict_encode(&arr.into_array(), &mut SESSION.create_execution_ctx()).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 2, 2, 1, 2, 1].into_array();
-        assert_arrays_eq!(dict.codes(), expected_codes);
+        assert_arrays_eq!(dict.codes(), expected_codes, &mut ctx);
 
         let expected_values =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
-        assert_arrays_eq!(dict.values(), expected_values);
+        assert_arrays_eq!(dict.values(), expected_values, &mut ctx);
     }
 }

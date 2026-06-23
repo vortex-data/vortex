@@ -70,10 +70,11 @@ impl ZigZagEncoded for u64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -85,9 +86,16 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::ZigZagArray;
     use crate::zigzag_encode;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     pub fn nullable_scalar_at() -> VortexResult<()> {
@@ -95,7 +103,7 @@ mod tests {
             PrimitiveArray::new(buffer![-189, -160, 1], Validity::AllValid).as_view(),
         )?;
         assert_eq!(
-            zigzag.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            zigzag.execute_scalar(1, &mut SESSION.create_execution_ctx())?,
             Scalar::primitive(-160, Nullability::Nullable)
         );
         Ok(())
@@ -112,7 +120,7 @@ mod tests {
         let expected =
             zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid).as_view())?
                 .into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
@@ -127,7 +135,7 @@ mod tests {
         let expected =
             zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid).as_view())?
                 .into_array();
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
@@ -187,7 +195,7 @@ mod tests {
     fn test_take_zigzag_conformance(#[case] array: ArrayRef) -> VortexResult<()> {
         use vortex_array::compute::conformance::take::test_take_conformance;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array_primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
         let zigzag = zigzag_encode(array_primitive.as_view())?;
         test_take_conformance(&zigzag.into_array());

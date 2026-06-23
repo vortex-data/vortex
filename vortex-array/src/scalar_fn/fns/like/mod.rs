@@ -244,6 +244,8 @@ mod tests {
     use std::borrow::Cow;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -260,9 +262,11 @@ mod tests {
     fn invert_booleans() {
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert_arrays_eq!(
             bools.into_array().apply(&not_expr).unwrap(),
-            BoolArray::from_iter([true, false, true, true, false, false])
+            BoolArray::from_iter([true, false, true, true, false, false]),
+            &mut ctx
         );
     }
 

@@ -9,9 +9,7 @@ use vortex_error::VortexExpect;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::RecursiveCanonical;
-use crate::VortexSessionExecute;
 
 fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display {
     indices.into_iter().format(",")
@@ -28,14 +26,14 @@ fn execute_to_canonical(array: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 
 /// Finds indices where two arrays differ based on `scalar_at` comparison.
 #[expect(clippy::unwrap_used)]
-fn find_mismatched_indices(left: &ArrayRef, right: &ArrayRef) -> Vec<usize> {
+fn find_mismatched_indices(
+    left: &ArrayRef,
+    right: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> Vec<usize> {
     assert_eq!(left.len(), right.len());
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     (0..left.len())
-        .filter(|i| {
-            left.execute_scalar(*i, &mut ctx).unwrap()
-                != right.execute_scalar(*i, &mut ctx).unwrap()
-        })
+        .filter(|i| left.execute_scalar(*i, ctx).unwrap() != right.execute_scalar(*i, ctx).unwrap())
         .collect()
 }
 
@@ -46,22 +44,16 @@ fn find_mismatched_indices(left: &ArrayRef, right: &ArrayRef) -> Vec<usize> {
 /// # Example
 /// ```ignore
 /// let arr = PrimitiveArray::from_iter([1, 2, 3]);
-/// assert_nth_scalar!(arr, 0, 1);
-/// assert_nth_scalar!(arr, 1, 2);
+/// assert_nth_scalar!(arr, 0, 1, &mut ctx);
+/// assert_nth_scalar!(arr, 1, 2, &mut ctx);
 /// ```
 #[macro_export]
 macro_rules! assert_nth_scalar {
-    ($arr:expr, $n:expr, $expected:expr) => {{
+    ($arr:expr, $n:expr, $expected:expr, $ctx:expr) => {{
         use $crate::IntoArray as _;
-        use $crate::LEGACY_SESSION;
-        use $crate::VortexSessionExecute as _;
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
-        assert_eq!(
-            arr_ref
-                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap(),
-            $expected.try_into().unwrap()
-        );
+        let expected = $expected.try_into().unwrap();
+        assert_eq!(arr_ref.execute_scalar($n, $ctx).unwrap(), expected);
     }};
 }
 
@@ -71,33 +63,25 @@ macro_rules! assert_nth_scalar {
 ///
 /// ```ignore
 /// let arr = PrimitiveArray::from_option_iter([Some(1), None, Some(3)]);
-/// assert_nth_scalar_null!(arr, 1);
+/// assert_nth_scalar_null!(arr, 1, &mut ctx);
 /// ```
 #[macro_export]
 macro_rules! assert_nth_scalar_is_null {
-    ($arr:expr, $n:expr) => {{
-        use $crate::LEGACY_SESSION;
-        use $crate::VortexSessionExecute as _;
+    ($arr:expr, $n:expr, $ctx:expr) => {{
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
+        let scalar = arr_ref.execute_scalar($n, $ctx).unwrap();
         assert!(
-            arr_ref
-                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
-                .is_null(),
+            scalar.is_null(),
             "expected scalar at index {} to be null, but was {:?}",
             $n,
-            arr_ref
-                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
-                .unwrap()
+            scalar
         );
     }};
 }
 
 #[macro_export]
 macro_rules! assert_arrays_eq {
-    ($left:expr, $right:expr) => {{
-
-
+    ($left:expr, $right:expr, $ctx:expr) => {{
         let left: $crate::ArrayRef = $crate::IntoArray::into_array($left.clone());
         let right: $crate::ArrayRef = $crate::IntoArray::into_array($right.clone());
         if left.dtype() != right.dtype() {
@@ -122,7 +106,7 @@ macro_rules! assert_arrays_eq {
 
         let left = left.clone();
         let right = right.clone();
-        $crate::arrays::assert_arrays_eq_impl(&left, &right);
+        $crate::arrays::assert_arrays_eq_impl(&left, &right, $ctx);
     }};
 }
 
@@ -130,11 +114,11 @@ macro_rules! assert_arrays_eq {
 /// `ArrayRef`.
 #[track_caller]
 #[expect(clippy::panic)]
-pub fn assert_arrays_eq_impl(left: &ArrayRef, right: &ArrayRef) {
-    let executed = execute_to_canonical(left.clone(), &mut LEGACY_SESSION.create_execution_ctx());
+pub fn assert_arrays_eq_impl(left: &ArrayRef, right: &ArrayRef, ctx: &mut ExecutionCtx) {
+    let executed = execute_to_canonical(left.clone(), ctx);
 
-    let left_right = find_mismatched_indices(left, right);
-    let executed_right = find_mismatched_indices(&executed, right);
+    let left_right = find_mismatched_indices(left, right, ctx);
+    let executed_right = find_mismatched_indices(&executed, right, ctx);
 
     if !left_right.is_empty() || !executed_right.is_empty() {
         let mut msg = String::new();

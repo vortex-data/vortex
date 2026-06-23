@@ -177,8 +177,9 @@ fn filter_with_indices<T: NativePType + BitPacking>(
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray as _;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -187,13 +188,20 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn take_indices() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx).unwrap();
@@ -203,13 +211,14 @@ mod test {
         let primitive_result = bitpacked.filter(mask).unwrap();
         assert_arrays_eq!(
             primitive_result,
-            PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18])
+            PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18]),
+            &mut ctx
         );
     }
 
     #[test]
     fn take_sliced_indices() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx).unwrap();
@@ -218,25 +227,30 @@ mod test {
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 
         let primitive_result = sliced.filter(mask).unwrap();
-        assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));
+        assert_arrays_eq!(
+            primitive_result,
+            PrimitiveArray::from_iter([31u8, 33]),
+            &mut ctx
+        );
     }
 
     #[test]
     fn filter_bitpacked() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx).unwrap();
         let filtered = bitpacked.filter(Mask::from_indices(4096, 0..1024)).unwrap();
         let filtered_prim = filtered.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             filtered_prim,
-            PrimitiveArray::from_iter((0..1024).map(|i| (i % 63) as u8))
+            PrimitiveArray::from_iter((0..1024).map(|i| (i % 63) as u8)),
+            &mut ctx
         );
     }
 
     #[test]
     fn filter_bitpacked_signed() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Buffer<i64> = (0..500).collect();
         let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9, &mut ctx).unwrap();
@@ -248,13 +262,14 @@ mod test {
 
         assert_arrays_eq!(
             filtered,
-            PrimitiveArray::from_iter(values[0..250].iter().copied())
+            PrimitiveArray::from_iter(values[0..250].iter().copied()),
+            &mut ctx
         );
     }
 
     #[test]
     fn test_filter_bitpacked_conformance() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test with u8 values
         let unpacked = buffer![1u8, 2, 3, 4, 5].into_array();
         let bitpacked = BitPackedData::encode(&unpacked, 3, &mut ctx).unwrap();
@@ -278,7 +293,7 @@ mod test {
     /// This test ensures that the type handling is correct.
     #[test]
     fn filter_bitpacked_signed_with_patches() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create signed integer values where some exceed the bit width (causing patches).
         // Values 0-127 fit in 7 bits, but 1000 and 2000 do not.
         let values: Vec<i32> = vec![0, 10, 1000, 20, 30, 2000, 40, 50, 60, 70];
@@ -296,7 +311,11 @@ mod test {
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
-        assert_arrays_eq!(filtered, PrimitiveArray::from_iter([0i32, 1000, 2000, 70]));
+        assert_arrays_eq!(
+            filtered,
+            PrimitiveArray::from_iter([0i32, 1000, 2000, 70]),
+            &mut ctx
+        );
     }
 
     /// Regression test for signed integers with patches using low selectivity.
@@ -305,7 +324,7 @@ mod test {
     /// that doesn't fully decompress the array first.
     #[test]
     fn filter_bitpacked_signed_with_patches_low_selectivity() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a larger array with signed integers and some patches.
         let values: Vec<i32> = (0..1000)
             .map(|i| {
@@ -332,6 +351,6 @@ mod test {
             .unwrap();
 
         let expected: Vec<i32> = values[0..20].to_vec();
-        assert_arrays_eq!(filtered, PrimitiveArray::from_iter(expected));
+        assert_arrays_eq!(filtered, PrimitiveArray::from_iter(expected), &mut ctx);
     }
 }

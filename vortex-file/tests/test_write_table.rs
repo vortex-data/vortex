@@ -29,7 +29,6 @@ use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
-
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = vortex_array::array_session()
         .with::<LayoutSession>()
@@ -164,6 +163,6 @@ async fn test_dict_listview_validity_roundtrip() {
         .await
         .unwrap()
         .expect("read back should succeed");
-    vortex_array::assert_arrays_eq!(data, chunk);
+    vortex_array::assert_arrays_eq!(data, chunk, &mut SESSION.create_execution_ctx());
     assert!(stream.next().await.is_none(), "expected a single chunk");
 }

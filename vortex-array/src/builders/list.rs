@@ -483,9 +483,9 @@ mod tests {
 
         let actual = builder.finish_into_canonical().into_listview();
 
-        assert_arrays_eq!(actual.elements(), expected.elements());
+        assert_arrays_eq!(actual.elements(), expected.elements(), &mut ctx);
 
-        assert_arrays_eq!(actual.offsets(), expected.offsets());
+        assert_arrays_eq!(actual.offsets(), expected.offsets(), &mut ctx);
 
         assert!(
             actual
@@ -681,13 +681,15 @@ mod tests {
         // Verify elements array: [1, 2, 3, 10, 11, 4, 5].
         assert_arrays_eq!(
             list.elements(),
-            PrimitiveArray::from_iter([1i32, 2, 3, 10, 11, 4, 5])
+            PrimitiveArray::from_iter([1i32, 2, 3, 10, 11, 4, 5]),
+            &mut ctx
         );
 
         // Verify offsets array.
         assert_arrays_eq!(
             list.offsets(),
-            PrimitiveArray::from_iter([0u32, 3, 5, 7, 7, 7])
+            PrimitiveArray::from_iter([0u32, 3, 5, 7, 7, 7]),
+            &mut ctx
         );
 
         // Test dtype mismatch error.

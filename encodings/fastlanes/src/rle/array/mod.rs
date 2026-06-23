@@ -140,7 +140,6 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -274,7 +273,7 @@ mod tests {
         let invalid_slice = rle_array
             .slice(2..5)
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())
             .unwrap()
             .into_primitive();
         let mut ctx = SESSION.create_execution_ctx();
@@ -311,13 +310,10 @@ mod tests {
         let validity_mask = sliced_array
             .validity()
             .unwrap()
-            .execute_mask(
-                sliced_array.len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
-            )
+            .execute_mask(sliced_array.len(), &mut SESSION.create_execution_ctx())
             .unwrap();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let expected_mask = Validity::from_iter([false, true, false])
             .execute_mask(3, &mut ctx)
             .unwrap();
@@ -347,7 +343,7 @@ mod tests {
 
     #[test]
     fn test_multi_chunk_two_chunks() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
         let indices = PrimitiveArray::from_iter([0u16, 1].repeat(1024)).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64, 2]).into_array();
@@ -395,7 +391,11 @@ mod tests {
 
         let decoded_data = decoded.execute::<PrimitiveArray>(&mut exec_ctx)?;
 
-        assert_arrays_eq!(original_data, decoded_data);
+        assert_arrays_eq!(
+            original_data,
+            decoded_data,
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -442,7 +442,11 @@ mod tests {
             .execute::<PrimitiveArray>(&mut exec_ctx)?;
         let decoded_data = decoded.execute::<PrimitiveArray>(&mut exec_ctx)?;
 
-        assert_arrays_eq!(original_data, decoded_data);
+        assert_arrays_eq!(
+            original_data,
+            decoded_data,
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -493,7 +497,7 @@ mod tests {
             .as_array()
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(decoded, original);
+        assert_arrays_eq!(decoded, original, &mut ctx);
         Ok(())
     }
 }

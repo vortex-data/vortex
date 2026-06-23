@@ -279,6 +279,8 @@ mod tests {
     use crate::IntoArray;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
@@ -318,6 +320,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_right_most() {
+        let mut ctx = array_session().create_execution_ctx();
         let expr = merge_opts(
             vec![
                 get_item("0", root()),
@@ -367,23 +370,28 @@ mod tests {
 
         assert_arrays_eq!(
             primitive_field(&actual_array, &["a"]).unwrap(),
-            PrimitiveArray::from_iter([0i32, 0, 0])
+            PrimitiveArray::from_iter([0i32, 0, 0]),
+            &mut ctx
         );
         assert_arrays_eq!(
             primitive_field(&actual_array, &["b"]).unwrap(),
-            PrimitiveArray::from_iter([2i32, 2, 2])
+            PrimitiveArray::from_iter([2i32, 2, 2]),
+            &mut ctx
         );
         assert_arrays_eq!(
             primitive_field(&actual_array, &["c"]).unwrap(),
-            PrimitiveArray::from_iter([3i32, 3, 3])
+            PrimitiveArray::from_iter([3i32, 3, 3]),
+            &mut ctx
         );
         assert_arrays_eq!(
             primitive_field(&actual_array, &["d"]).unwrap(),
-            PrimitiveArray::from_iter([4i32, 4, 4])
+            PrimitiveArray::from_iter([4i32, 4, 4]),
+            &mut ctx
         );
         assert_arrays_eq!(
             primitive_field(&actual_array, &["e"]).unwrap(),
-            PrimitiveArray::from_iter([5i32, 5, 5])
+            PrimitiveArray::from_iter([5i32, 5, 5]),
+            &mut ctx
         );
     }
 

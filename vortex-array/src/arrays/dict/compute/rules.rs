@@ -278,6 +278,7 @@ mod tests {
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::assert_arrays_eq;
+    use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::fns::not::Not;
@@ -297,9 +298,11 @@ mod tests {
 
         assert!(ArrayRef::ptr_eq(dict.values(), &values));
         assert_eq!(codes.nchunks(), 2);
+        let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
         assert_arrays_eq!(
             optimized,
-            PrimitiveArray::from_iter([10u32, 20, 30, 10, 20])
+            PrimitiveArray::from_iter([10u32, 20, 30, 10, 20]),
+            &mut ctx
         );
 
         Ok(())
@@ -318,9 +321,11 @@ mod tests {
         let optimized = array.optimize()?;
 
         assert!(optimized.is::<Chunked>());
+        let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
         assert_arrays_eq!(
             optimized,
-            PrimitiveArray::from_iter([10u32, 20, 30, 10, 20])
+            PrimitiveArray::from_iter([10u32, 20, 30, 10, 20]),
+            &mut ctx
         );
 
         Ok(())

@@ -72,6 +72,7 @@ fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a
 
 mod setup {
     use rand::rngs::StdRng;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
 

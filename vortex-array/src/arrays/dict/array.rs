@@ -311,6 +311,7 @@ mod test {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
@@ -462,6 +463,7 @@ mod test {
 
     #[test]
     fn test_dict_array_from_primitive_chunks() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let len = 2;
         let chunk_count = 2;
         let array = make_dict_primitive_chunks::<u64, u64>(len, 2, chunk_count);
@@ -476,7 +478,7 @@ mod test {
         let into_prim = array.to_primitive();
         let prim_into = builder.finish_into_canonical().into_primitive();
 
-        assert_arrays_eq!(into_prim, prim_into);
+        assert_arrays_eq!(into_prim, prim_into, &mut ctx);
         Ok(())
     }
 

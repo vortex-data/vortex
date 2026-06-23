@@ -15,10 +15,13 @@ mod take;
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -31,8 +34,15 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::Sparse;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[fixture]
     fn array() -> ArrayRef {
@@ -64,7 +74,11 @@ mod test {
         )
         .unwrap();
 
-        assert_arrays_eq!(filtered_array, expected);
+        assert_arrays_eq!(
+            filtered_array,
+            expected,
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -93,7 +107,11 @@ mod test {
         )
         .unwrap();
 
-        assert_arrays_eq!(filtered_array, expected);
+        assert_arrays_eq!(
+            filtered_array,
+            expected,
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[rstest]

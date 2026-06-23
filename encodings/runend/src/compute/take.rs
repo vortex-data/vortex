@@ -484,11 +484,12 @@ fn advance_run<I: UnsignedPType>(ends: &[I], run_idx: &mut usize, logical_idx: u
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -497,6 +498,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use super::physical_indices_binary;
     use super::physical_indices_linear_sorted;
@@ -505,10 +507,16 @@ mod tests {
     use crate::RunEnd;
     use crate::RunEndArray;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     fn ree_array() -> RunEndArray {
         RunEnd::encode(
             buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     }
@@ -517,14 +525,14 @@ mod tests {
     fn ree_take() {
         let taken = ree_array().take(buffer![9, 8, 1, 3].into_array()).unwrap();
         let expected = PrimitiveArray::from_iter(vec![5i32, 5, 1, 4]).into_array();
-        assert_arrays_eq!(taken, expected);
+        assert_arrays_eq!(taken, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn ree_take_end() {
         let taken = ree_array().take(buffer![11].into_array()).unwrap();
         let expected = PrimitiveArray::from_iter(vec![5i32]).into_array();
-        assert_arrays_eq!(taken, expected);
+        assert_arrays_eq!(taken, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -533,7 +541,7 @@ mod tests {
             .take(buffer![0, 2, 3, 6, 8, 11].into_array())
             .unwrap();
         let expected = PrimitiveArray::from_iter(vec![1i32, 1, 4, 2, 5, 5]).into_array();
-        assert_arrays_eq!(taken, expected);
+        assert_arrays_eq!(taken, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -542,7 +550,7 @@ mod tests {
         let _array = ree_array()
             .take(buffer![12].into_array())
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())
             .unwrap();
     }
 
@@ -552,7 +560,7 @@ mod tests {
         let taken = sliced.take(buffer![1, 3, 4].into_array()).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![4i32, 2, 5]).into_array();
-        assert_arrays_eq!(taken, expected);
+        assert_arrays_eq!(taken, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -561,7 +569,7 @@ mod tests {
         let taken = sliced.take(buffer![4, 0, 2, 1].into_array()).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![5i32, 4, 2, 4]).into_array();
-        assert_arrays_eq!(taken, expected);
+        assert_arrays_eq!(taken, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -571,7 +579,11 @@ mod tests {
             .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1i32), None]);
-        assert_arrays_eq!(taken, expected.into_array());
+        assert_arrays_eq!(
+            taken,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -581,7 +593,11 @@ mod tests {
             .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([None::<i32>, None]);
-        assert_arrays_eq!(taken, expected.into_array());
+        assert_arrays_eq!(
+            taken,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -593,7 +609,11 @@ mod tests {
         let taken = ree_array().take(indices.into_array()).unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1i32), None]);
-        assert_arrays_eq!(taken, expected.into_array());
+        assert_arrays_eq!(
+            taken,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -605,7 +625,11 @@ mod tests {
         let taken = ree_array().take(indices.into_array()).unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(4i32), None, Some(1)]);
-        assert_arrays_eq!(taken, expected.into_array());
+        assert_arrays_eq!(
+            taken,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -635,7 +659,11 @@ mod tests {
             Some(5),
             None,
         ]);
-        assert_arrays_eq!(taken, expected.into_array());
+        assert_arrays_eq!(
+            taken,
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[rstest]
@@ -687,7 +715,7 @@ mod tests {
     #[case(ree_array())]
     #[case(RunEnd::encode(
         buffer![1u8, 1, 2, 2, 2, 3, 3, 3, 3, 4].into_array(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case(RunEnd::encode(
         PrimitiveArray::from_option_iter([
@@ -700,14 +728,14 @@ mod tests {
             Some(20),
         ])
         .into_array(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case(RunEnd::encode(buffer![42i32, 42, 42, 42, 42].into_array(),
-        &mut LEGACY_SESSION.create_execution_ctx())
+        &mut SESSION.create_execution_ctx())
         .unwrap())]
     #[case(RunEnd::encode(
         buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
+        &mut SESSION.create_execution_ctx(),
     ).unwrap())]
     #[case({
         let mut values = Vec::new();
@@ -718,7 +746,7 @@ mod tests {
         }
         RunEnd::encode(
             PrimitiveArray::from_iter(values).into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
     })]
@@ -731,7 +759,7 @@ mod tests {
     #[case({
         let array = RunEnd::encode(
             buffer![1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3].into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
         array.slice(2..8).unwrap()

@@ -106,7 +106,7 @@ mod tests {
         let result = arr
             .binary(ConstantArray::new("", input.len()).into_array(), op)?
             .execute::<BoolArray>(&mut ctx)?;
-        assert_arrays_eq!(&result, &BoolArray::from_iter(expected));
+        assert_arrays_eq!(&result, &BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
 
@@ -127,7 +127,8 @@ mod tests {
             .execute::<BoolArray>(&mut ctx)?;
         assert_arrays_eq!(
             &eq_empty,
-            &BoolArray::from_iter([Some(true), None, Some(false)])
+            &BoolArray::from_iter([Some(true), None, Some(false)]),
+            &mut ctx
         );
 
         let null_rhs =
@@ -135,7 +136,11 @@ mod tests {
         let eq_null = arr
             .binary(null_rhs.into_array(), Operator::Eq)?
             .execute::<BoolArray>(&mut ctx)?;
-        assert_arrays_eq!(&eq_null, &BoolArray::from_iter([None::<bool>, None, None]));
+        assert_arrays_eq!(
+            &eq_null,
+            &BoolArray::from_iter([None::<bool>, None, None]),
+            &mut ctx
+        );
         Ok(())
     }
 }

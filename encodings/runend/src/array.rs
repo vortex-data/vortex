@@ -401,12 +401,14 @@ impl RunEndData {
     /// ```
     /// # use vortex_array::arrays::BoolArray;
     /// # use vortex_array::IntoArray;
-    /// # use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
+    /// # use vortex_array::VortexSessionExecute;
     /// # use vortex_buffer::buffer;
     /// # use vortex_error::VortexResult;
     /// # use vortex_runend::RunEnd;
     /// # fn main() -> VortexResult<()> {
-    /// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    /// let session = vortex_array::array_session();
+    /// vortex_runend::initialize(&session);
+    /// let mut ctx = session.create_execution_ctx();
     /// let ends = buffer![2u8, 3u8].into_array();
     /// let values = BoolArray::from_iter([false, true]).into_array();
     /// let run_end = RunEnd::new(ends, values, &mut ctx);
@@ -516,7 +518,11 @@ mod tests {
 
     use crate::RunEnd;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_runend_constructor() {
@@ -536,7 +542,7 @@ mod tests {
         // 2, 3, 4 => 2
         // 5, 6, 7, 8, 9 => 3
         let expected = buffer![1, 1, 2, 2, 2, 3, 3, 3, 3, 3].into_array();
-        assert_arrays_eq!(arr.into_array(), expected);
+        assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
     }
 
     #[test]
@@ -550,7 +556,7 @@ mod tests {
         let expected =
             VarBinViewArray::from_iter_str(["a", "a", "b", "b", "b", "c", "c", "c", "c", "c"])
                 .into_array();
-        assert_arrays_eq!(arr.into_array(), expected);
+        assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
     }
 
     #[test]
@@ -571,6 +577,6 @@ mod tests {
         let expected =
             VarBinViewArray::from_iter_str(["x", "x", "y", "y", "y", "z", "z", "z", "z", "z"])
                 .into_array();
-        assert_arrays_eq!(arr.into_array(), expected);
+        assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
     }
 }

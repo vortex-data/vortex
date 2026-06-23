@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -101,7 +102,8 @@ async fn assert_v1_eq_v2(file: &VortexFile, request: ScanRequest) -> VortexResul
         request.projection,
         request.filter
     );
-    assert_arrays_eq!(v1, v2);
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(v1, v2, &mut ctx);
     Ok(())
 }
 
@@ -387,7 +389,8 @@ async fn v2_struct_layout_nulls() -> VortexResult<()> {
     );
 
     let expected = PrimitiveArray::from_option_iter([None, Some(2i32), Some(3)]).into_array();
-    assert_arrays_eq!(v2, expected);
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(v2, expected, &mut ctx);
     Ok(())
 }
 
@@ -437,7 +440,8 @@ async fn v2_struct_layout_nested() -> VortexResult<()> {
         ),
     )
     .await?;
-    assert_arrays_eq!(v1, v2);
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(v1, v2, &mut ctx);
 
     // Build the expected struct directly: rows 0 and 2 valid, row 1 null.
     let expected = StructArray::try_from_iter_with_validity(
@@ -445,6 +449,6 @@ async fn v2_struct_layout_nested() -> VortexResult<()> {
         Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
     )?
     .into_array();
-    assert_arrays_eq!(v2, expected);
+    assert_arrays_eq!(v2, expected, &mut ctx);
     Ok(())
 }

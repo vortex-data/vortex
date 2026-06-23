@@ -280,6 +280,7 @@ mod test {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArrayExt;
@@ -291,6 +292,7 @@ mod test {
 
     #[test]
     fn test_rechunk_one_chunk() {
+        let mut ctx = array_session().create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![buffer![0u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -299,11 +301,12 @@ mod test {
 
         let rechunked = chunked.rechunk(1 << 16, 1 << 16).unwrap();
 
-        assert_arrays_eq!(chunked, rechunked);
+        assert_arrays_eq!(chunked, rechunked, &mut ctx);
     }
 
     #[test]
     fn test_rechunk_two_chunks() {
+        let mut ctx = array_session().create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![buffer![0u64].into_array(), buffer![5u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -313,11 +316,12 @@ mod test {
         let rechunked = chunked.rechunk(1 << 16, 1 << 16).unwrap();
 
         assert_eq!(rechunked.nchunks(), 1);
-        assert_arrays_eq!(chunked, rechunked);
+        assert_arrays_eq!(chunked, rechunked, &mut ctx);
     }
 
     #[test]
     fn test_rechunk_tiny_target_chunks() {
+        let mut ctx = array_session().create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 buffer![0u64, 1, 2, 3].into_array(),
@@ -331,11 +335,12 @@ mod test {
 
         assert_eq!(rechunked.nchunks(), 2);
         assert!(rechunked.iter_chunks().all(|c| c.len() < 5));
-        assert_arrays_eq!(chunked, rechunked);
+        assert_arrays_eq!(chunked, rechunked, &mut ctx);
     }
 
     #[test]
     fn test_rechunk_with_too_big_chunk() {
+        let mut ctx = array_session().create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 buffer![0u64, 1, 2].into_array(),
@@ -352,7 +357,7 @@ mod test {
         // greedy so should be: [0, 1, 2] [42, 42, 42, 42, 42, 42] [4, 5, 6, 7] [8, 9]
 
         assert_eq!(rechunked.nchunks(), 4);
-        assert_arrays_eq!(chunked, rechunked);
+        assert_arrays_eq!(chunked, rechunked, &mut ctx);
     }
 
     #[test]

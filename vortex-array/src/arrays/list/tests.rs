@@ -15,6 +15,7 @@ use super::*;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::FilterArray;
 use crate::arrays::List;
 use crate::arrays::PrimitiveArray;
@@ -28,7 +29,7 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// A shared session for `List` tests, used to create execution contexts.
-static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 #[test]
 fn test_empty_list_array() {
@@ -113,6 +114,7 @@ fn test_simple_list_filter() {
 
 #[test]
 fn test_list_filter_dense_mask() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Test filtering with a dense mask (high density of true values).
     let elements = buffer![0..100].into_array();
     let offsets = buffer![0, 10, 25, 40, 60, 85, 100].into_array();
@@ -139,11 +141,12 @@ fn test_list_filter_dense_mask() {
     )
     .unwrap();
 
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
 fn test_list_filter_sparse_mask() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Test filtering with a sparse mask (low density of true values).
     let elements = buffer![0..100].into_array();
     let offsets = buffer![0, 10, 25, 40, 60, 85, 100].into_array();
@@ -172,11 +175,12 @@ fn test_list_filter_sparse_mask() {
     )
     .unwrap();
 
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
 fn test_list_filter_empty_lists() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Test filtering arrays that contain empty lists.
     let elements = buffer![0..10].into_array();
     let offsets = buffer![0, 0, 3, 3, 7, 10, 10].into_array(); // Lists at indices 0, 2, 5 are empty.
@@ -200,7 +204,7 @@ fn test_list_filter_empty_lists() {
     )
     .unwrap();
 
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
@@ -233,6 +237,7 @@ fn test_list_filter_with_nulls() {
 
 #[test]
 fn test_list_filter_all_true() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Test filtering with an all-true mask.
     let elements = buffer![0..20].into_array();
     let offsets = buffer![0, 5, 10, 15, 20].into_array();
@@ -250,7 +255,7 @@ fn test_list_filter_all_true() {
     assert_eq!(filtered.len(), 4);
 
     let expected = ListArray::try_new(elements, offsets, validity).unwrap();
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
@@ -275,6 +280,7 @@ fn test_list_filter_all_false() {
 
 #[test]
 fn test_list_filter_single_element() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Test filtering to keep only one element.
     let elements = buffer![0..50].into_array();
     let offsets = buffer![0, 10, 20, 30, 40, 50].into_array();
@@ -298,11 +304,12 @@ fn test_list_filter_single_element() {
     )
     .unwrap();
 
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
 fn test_list_filter_alternating_pattern() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Test filtering with an alternating pattern.
     let elements = buffer![0..60].into_array();
     let offsets = buffer![0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60].into_array();
@@ -333,11 +340,12 @@ fn test_list_filter_alternating_pattern() {
     )
     .unwrap();
 
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
 fn test_list_filter_variable_sizes() {
+    let mut ctx = SESSION.create_execution_ctx();
     // Test filtering lists with highly variable sizes.
     let elements = buffer![0..100].into_array();
     let offsets = buffer![0, 1, 2, 5, 10, 20, 35, 60, 100].into_array();
@@ -373,7 +381,7 @@ fn test_list_filter_variable_sizes() {
     )
     .unwrap();
 
-    assert_arrays_eq!(filtered, expected);
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 }
 
 #[test]
@@ -574,6 +582,7 @@ fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray
 #[test]
 #[expect(clippy::cognitive_complexity)]
 fn test_list_of_lists() {
+    let mut ctx = SESSION.create_execution_ctx();
     let data = vec![
         Some(vec![Some(vec![Some(1), Some(2)]), Some(vec![Some(3)])]),
         Some(vec![Some(vec![Some(4), Some(5), Some(6)])]),
@@ -604,11 +613,11 @@ fn test_list_of_lists() {
 
     // Check first inner list [1, 2].
     let first_inner = first_outer_list.list_elements_at(0).unwrap();
-    assert_arrays_eq!(first_inner, PrimitiveArray::from_iter([1, 2]));
+    assert_arrays_eq!(first_inner, PrimitiveArray::from_iter([1, 2]), &mut ctx);
 
     // Check second inner list [3].
     let second_inner = first_outer_list.list_elements_at(1).unwrap();
-    assert_arrays_eq!(second_inner, PrimitiveArray::from_iter([3]));
+    assert_arrays_eq!(second_inner, PrimitiveArray::from_iter([3]), &mut ctx);
 
     // Check the second list of lists [[4, 5, 6]].
     let second_outer = list_of_lists.list_elements_at(1).unwrap();
@@ -616,7 +625,7 @@ fn test_list_of_lists() {
     assert_eq!(second_outer_list.len(), 1);
 
     let inner = second_outer_list.list_elements_at(0).unwrap();
-    assert_arrays_eq!(inner, PrimitiveArray::from_iter([4, 5, 6]));
+    assert_arrays_eq!(inner, PrimitiveArray::from_iter([4, 5, 6]), &mut ctx);
 
     // Check the third list of lists (empty).
     let third_outer = list_of_lists.list_elements_at(2).unwrap();
@@ -629,7 +638,7 @@ fn test_list_of_lists() {
     assert_eq!(fourth_outer_list.len(), 1);
 
     let inner = fourth_outer_list.list_elements_at(0).unwrap();
-    assert_arrays_eq!(inner, PrimitiveArray::from_iter([7]));
+    assert_arrays_eq!(inner, PrimitiveArray::from_iter([7]), &mut ctx);
 
     // Test scalar conversion.
     let scalar = list_of_lists
@@ -792,7 +801,7 @@ fn test_list_of_lists_both_nullable() {
     let third_list = third_outer.as_::<List>();
     assert_eq!(third_list.len(), 1);
     let inner = third_list.list_elements_at(0).unwrap();
-    assert_arrays_eq!(inner, PrimitiveArray::from_iter([3]));
+    assert_arrays_eq!(inner, PrimitiveArray::from_iter([3]), &mut ctx);
 
     // Fourth outer list should have a null inner list.
     let fourth_outer = list_of_lists.list_elements_at(3).unwrap();

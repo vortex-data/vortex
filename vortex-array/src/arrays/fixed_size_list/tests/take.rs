@@ -13,6 +13,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
@@ -40,6 +41,7 @@ fn test_take_fsl_conformance(#[case] fsl: FixedSizeListArray) {
 
 #[test]
 fn test_take_basic_smoke_test() {
+    let mut ctx = array_session().create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
@@ -53,7 +55,7 @@ fn test_take_basic_smoke_test() {
         Validity::NonNullable,
         3,
     );
-    assert_arrays_eq!(expected, result);
+    assert_arrays_eq!(expected, result, &mut ctx);
 }
 
 // Parameterized test for FSL-specific degenerate (list_size=0) cases.
@@ -107,6 +109,7 @@ fn test_take_degenerate_lists(
 
 #[test]
 fn test_take_large_list_size() {
+    let mut ctx = array_session().create_execution_ctx();
     let elements = buffer![0i32..300].into_array();
     let fsl = FixedSizeListArray::new(elements, 100, Validity::NonNullable, 3);
 
@@ -116,11 +119,12 @@ fn test_take_large_list_size() {
     // Expected: [[200..300], [0..100]]
     let expected_elems = PrimitiveArray::from_iter((200i32..300).chain(0..100)).into_array();
     let expected = FixedSizeListArray::new(expected_elems, 100, Validity::NonNullable, 2);
-    assert_arrays_eq!(expected, result);
+    assert_arrays_eq!(expected, result, &mut ctx);
 }
 
 #[test]
 fn test_take_fsl_with_null_indices_preserves_elements() {
+    let mut ctx = array_session().create_execution_ctx();
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
@@ -135,7 +139,7 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
         Validity::from_iter([true, false, true]),
         3,
     );
-    assert_arrays_eq!(expected, result);
+    assert_arrays_eq!(expected, result, &mut ctx);
 }
 
 // Element index overflow: with u8 indices and list_size=16, data_idx=16 produces element index
@@ -167,8 +171,9 @@ fn test_element_index_overflow(
     #[case] indices: ArrayRef,
     #[case] expected: FixedSizeListArray,
 ) {
+    let mut ctx = array_session().create_execution_ctx();
     let result = fsl.take(indices).unwrap();
-    assert_arrays_eq!(result, expected);
+    assert_arrays_eq!(result, expected, &mut ctx);
 }
 
 // Parameterized test for nullable array scenarios that are specific to FSL's implementation.

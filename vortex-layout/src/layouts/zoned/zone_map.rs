@@ -359,6 +359,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::AggregateFnVTableExt;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::aggregate_fn::NumericalAggregateOpts;
@@ -446,6 +447,7 @@ mod tests {
             10,
         )
         .unwrap();
+        let ctx = &mut SESSION.create_execution_ctx();
 
         // A >= 6
         // => A.max < 6
@@ -454,7 +456,8 @@ mod tests {
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([true, false, false])
+            BoolArray::from_iter([true, false, false]),
+            ctx
         );
 
         // A > 5
@@ -464,7 +467,8 @@ mod tests {
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([true, false, false])
+            BoolArray::from_iter([true, false, false]),
+            ctx
         );
 
         // A < 2
@@ -472,7 +476,11 @@ mod tests {
         let expr = lt(root(), lit(2i32));
         let pruning_expr = falsify(&expr, PType::I32.into());
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true, true]));
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, true, true]),
+            ctx
+        );
     }
 
     #[test]
@@ -512,19 +520,25 @@ mod tests {
             10,
         )
         .unwrap();
+        let ctx = &mut SESSION.create_execution_ctx();
 
         let expr = gt(root(), lit(5i32));
         let pruning_expr = falsify(&expr, PType::I32.into());
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([true, false, false])
+            BoolArray::from_iter([true, false, false]),
+            ctx
         );
 
         let expr = lt(root(), lit(2i32));
         let pruning_expr = falsify(&expr, PType::I32.into());
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true, true]));
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, true, true]),
+            ctx
+        );
     }
 
     #[test]
@@ -548,7 +562,8 @@ mod tests {
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, false, true])
+            BoolArray::from_iter([false, false, true]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -595,7 +610,8 @@ mod tests {
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([true, false, false])
+            BoolArray::from_iter([true, false, false]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -615,7 +631,11 @@ mod tests {
         .unwrap();
 
         let mask = zone_map.prune(&all_null(root()), &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true, true]));
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, true, true]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -636,7 +656,8 @@ mod tests {
         let mask = zone_map.prune(&all_non_null(root()), &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([true, false, false])
+            BoolArray::from_iter([true, false, false]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -655,14 +676,20 @@ mod tests {
             10,
         )
         .unwrap();
+        let ctx = &mut SESSION.create_execution_ctx();
 
         let mask = zone_map.prune(&all_null(root()), &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([true, false, true]));
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([true, false, true]),
+            ctx
+        );
 
         let mask = zone_map.prune(&all_non_null(root()), &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, true, false])
+            BoolArray::from_iter([false, true, false]),
+            ctx
         );
     }
 
@@ -681,14 +708,20 @@ mod tests {
             10,
         )
         .unwrap();
+        let ctx = &mut SESSION.create_execution_ctx();
 
         let mask = zone_map.prune(&all_nan(root()), &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([true, false, true]));
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([true, false, true]),
+            ctx
+        );
 
         let mask = zone_map.prune(&all_non_nan(root()), &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, true, false])
+            BoolArray::from_iter([false, true, false]),
+            ctx
         );
     }
 
@@ -702,12 +735,13 @@ mod tests {
             8,
         )
         .unwrap();
+        let ctx = &mut SESSION.create_execution_ctx();
 
         let mask = zone_map.prune(&all_nan(root()), &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, false]));
+        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, false]), ctx);
 
         let mask = zone_map.prune(&all_non_nan(root()), &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([true, true]));
+        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([true, true]), ctx);
     }
 
     #[test]
@@ -720,11 +754,13 @@ mod tests {
             10,
         )
         .unwrap();
+        let ctx = &mut SESSION.create_execution_ctx();
 
         let mask = zone_map.prune(&all_non_null(root()), &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, false, false])
+            BoolArray::from_iter([false, false, false]),
+            ctx
         );
 
         let expr = gt(root(), lit(5u64));
@@ -732,7 +768,8 @@ mod tests {
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, false, false])
+            BoolArray::from_iter([false, false, false]),
+            ctx
         );
     }
 
@@ -751,13 +788,15 @@ mod tests {
             12,
         )
         .unwrap();
+        let ctx = &mut SESSION.create_execution_ctx();
 
         let expr = gt(root(), lit(5.0f32));
         let pruning_expr = falsify(&expr, PType::F32.into());
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, false, false])
+            BoolArray::from_iter([false, false, false]),
+            ctx
         );
 
         let nan_count = NanCount.bind(EmptyOptions);
@@ -783,7 +822,8 @@ mod tests {
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([true, false, false])
+            BoolArray::from_iter([true, false, false]),
+            ctx
         );
     }
 
@@ -825,7 +865,11 @@ mod tests {
         let pruning_expr = falsify(&expr, PType::F32.into());
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true]));
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -855,7 +899,11 @@ mod tests {
 
         // Missing StatFn lowers to a nullable null literal, so `is_null(...)` is true for every zone.
         let mask = zone_map.prune(&predicate, &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([true, true, true]));
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([true, true, true]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -905,7 +953,8 @@ mod tests {
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([false, true, false])
+            BoolArray::from_iter([false, true, false]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -926,7 +975,11 @@ mod tests {
         .unwrap();
 
         let mask = zone_map.prune(&all_null(root()), &SESSION).unwrap();
-        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true, true]));
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([false, true, true]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -948,7 +1001,8 @@ mod tests {
         let mask = zone_map.prune(&all_non_null(root()), &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
-            BoolArray::from_iter([true, false, false])
+            BoolArray::from_iter([true, false, false]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 }

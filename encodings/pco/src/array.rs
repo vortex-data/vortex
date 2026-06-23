@@ -696,7 +696,8 @@ mod tests {
                 Some(40),
                 Some(50),
                 None
-            ])
+            ]),
+            &mut ctx
         );
 
         // Slice to get only the non-null values in the middle
@@ -704,6 +705,6 @@ mod tests {
         let expected =
             PrimitiveArray::from_option_iter([Some(20u32), Some(30), Some(40), Some(50)])
                 .into_array();
-        assert_arrays_eq!(sliced, expected);
+        assert_arrays_eq!(sliced, expected, &mut ctx);
     }
 }

@@ -52,8 +52,10 @@ impl ListContainsElementReduce for Sequence {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
@@ -62,8 +64,15 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
+    use vortex_session::VortexSession;
 
     use crate::Sequence;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_list_contains_seq() {
@@ -84,7 +93,7 @@ mod tests {
             let expr = list_contains(lit(list_scalar.clone()), root());
             let result = array.into_array().apply(&expr).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
-            assert_arrays_eq!(result, expected);
+            assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         }
 
         {
@@ -98,7 +107,7 @@ mod tests {
             let expr = list_contains(lit(list_scalar), root());
             let result = array.into_array().apply(&expr).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(true), Some(false)]);
-            assert_arrays_eq!(result, expected);
+            assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
         }
     }
 }

@@ -98,14 +98,13 @@ impl ArrayRef {
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::NormalizeOptions;
     use super::Operation;
     use crate::ArrayRef;
-    use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::array::VTable;
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
@@ -128,7 +127,7 @@ mod tests {
         )?
         .into_array();
         let allowed = HashSet::from_iter([array.encoding_id(), field.encoding_id()]);
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = crate::array_session().create_execution_ctx();
 
         let normalized = array.clone().normalize(&mut NormalizeOptions {
             allowed: &allowed,
@@ -173,7 +172,7 @@ mod tests {
         )?
         .into_array();
         let allowed = HashSet::from_iter([array.encoding_id(), unchanged.encoding_id()]);
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = crate::array_session().create_execution_ctx();
 
         let normalized = array.clone().normalize(&mut NormalizeOptions {
             allowed: &allowed,
@@ -192,7 +191,11 @@ mod tests {
             &original_children[1],
             &normalized_children[1]
         ));
-        assert_arrays_eq!(normalized_children[1], PrimitiveArray::from_iter(12i32..16));
+        assert_arrays_eq!(
+            normalized_children[1],
+            PrimitiveArray::from_iter(12i32..16),
+            &mut ctx
+        );
 
         Ok(())
     }
@@ -208,7 +211,7 @@ mod tests {
         assert_eq!(sliced.encoding_id(), Slice.id());
 
         let allowed = HashSet::from_iter([Dict.id(), Primitive.id()]);
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let mut ctx = crate::array_session().create_execution_ctx();
 
         let normalized = sliced.normalize(&mut NormalizeOptions {
             allowed: &allowed,
@@ -224,7 +227,8 @@ mod tests {
         let normalized_canonical = normalized.to_canonical()?;
         assert_arrays_eq!(
             normalized_canonical,
-            PrimitiveArray::from_iter(vec![20i32, 10, 20])
+            PrimitiveArray::from_iter(vec![20i32, 10, 20]),
+            &mut ctx
         );
 
         Ok(())

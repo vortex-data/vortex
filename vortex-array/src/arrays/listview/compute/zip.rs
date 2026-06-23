@@ -232,7 +232,7 @@ mod tests {
             buffer![2u32, 2, 3].into_array(),
             Validity::NonNullable,
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
@@ -269,7 +269,7 @@ mod tests {
             buffer![1u32, 0, 1].into_array(),
             Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
@@ -307,7 +307,7 @@ mod tests {
             buffer![2u32, 1, 2].into_array(),
             Validity::AllValid,
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
@@ -362,7 +362,7 @@ mod tests {
             buffer![2u32, 1].into_array(),
             Validity::NonNullable,
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 }

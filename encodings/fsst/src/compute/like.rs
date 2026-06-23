@@ -126,7 +126,11 @@ mod tests {
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     fn make_fsst(strings: &[Option<&str>], nullability: Nullability) -> FSSTArray {
         let array =
@@ -166,7 +170,8 @@ mod tests {
         let result = like(fsst, "http%")?;
         assert_arrays_eq!(
             &result,
-            &BoolArray::from_iter([true, true, false, true, false])
+            &BoolArray::from_iter([true, true, false, true, false]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -180,7 +185,8 @@ mod tests {
         let result = like(fsst, "hel%")?; // spellchecker:disable-line
         assert_arrays_eq!(
             &result,
-            &BoolArray::from_iter([Some(true), None, Some(true), None, Some(false)])
+            &BoolArray::from_iter([Some(true), None, Some(true), None, Some(false)]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -197,7 +203,11 @@ mod tests {
             Nullability::NonNullable,
         );
         let result = like(fsst, "%hello%")?;
-        assert_arrays_eq!(&result, &BoolArray::from_iter([true, true, false, true]));
+        assert_arrays_eq!(
+            &result,
+            &BoolArray::from_iter([true, true, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -213,7 +223,11 @@ mod tests {
             Nullability::NonNullable,
         );
         let result = like(fsst, "%lazy dog%")?;
-        assert_arrays_eq!(&result, &BoolArray::from_iter([true, false, true, false]));
+        assert_arrays_eq!(
+            &result,
+            &BoolArray::from_iter([true, false, true, false]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -228,7 +242,11 @@ mod tests {
             case_insensitive: false,
         };
         let result = run_like(fsst, "%sdf%", opts)?;
-        assert_arrays_eq!(&result, &BoolArray::from_iter([false, false, true]));
+        assert_arrays_eq!(
+            &result,
+            &BoolArray::from_iter([false, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -239,7 +257,11 @@ mod tests {
             Nullability::NonNullable,
         );
         let result = like(fsst, "%")?;
-        assert_arrays_eq!(&result, &BoolArray::from_iter([true, true, true]));
+        assert_arrays_eq!(
+            &result,
+            &BoolArray::from_iter([true, true, true]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -258,7 +280,11 @@ mod tests {
         let fsst = fsst.as_view();
         let result = <FSST as LikeKernel>::like(fsst, &pattern, LikeOptions::default(), &mut ctx)?;
         assert!(result.is_some(), "FSST LikeKernel should handle prefix%");
-        assert_arrays_eq!(result.unwrap(), BoolArray::from_iter([true, false]));
+        assert_arrays_eq!(
+            result.unwrap(),
+            BoolArray::from_iter([true, false]),
+            &mut ctx
+        );
         Ok(())
     }
 
@@ -275,7 +301,11 @@ mod tests {
         let fsst = fsst.as_view();
         let result = <FSST as LikeKernel>::like(fsst, &pattern, LikeOptions::default(), &mut ctx)?;
         assert!(result.is_some(), "FSST LikeKernel should handle %needle%");
-        assert_arrays_eq!(result.unwrap(), BoolArray::from_iter([true, false]));
+        assert_arrays_eq!(
+            result.unwrap(),
+            BoolArray::from_iter([true, false]),
+            &mut ctx
+        );
         Ok(())
     }
 
@@ -333,7 +363,8 @@ mod tests {
         assert!(result.is_some(), "escaped percent prefix should use FSST");
         assert_arrays_eq!(
             result.unwrap(),
-            BoolArray::from_iter([true, false, false, false, false, false, false])
+            BoolArray::from_iter([true, false, false, false, false, false, false]),
+            &mut ctx
         );
 
         let pattern = ConstantArray::new(r"\_%", fsst.len()).into_array();
@@ -345,7 +376,8 @@ mod tests {
         );
         assert_arrays_eq!(
             result.unwrap(),
-            BoolArray::from_iter([false, true, false, false, false, false, false])
+            BoolArray::from_iter([false, true, false, false, false, false, false]),
+            &mut ctx
         );
 
         let pattern = ConstantArray::new(r"\\%", fsst.len()).into_array();
@@ -354,7 +386,8 @@ mod tests {
         assert!(result.is_some(), "escaped backslash prefix should use FSST");
         assert_arrays_eq!(
             result.unwrap(),
-            BoolArray::from_iter([false, false, true, false, false, false, false])
+            BoolArray::from_iter([false, false, true, false, false, false, false]),
+            &mut ctx
         );
 
         let pattern = ConstantArray::new(r"%\%%", fsst.len()).into_array();
@@ -363,7 +396,8 @@ mod tests {
         assert!(result.is_some(), "escaped percent contains should use FSST");
         assert_arrays_eq!(
             result.unwrap(),
-            BoolArray::from_iter([true, false, false, true, false, false, false])
+            BoolArray::from_iter([true, false, false, true, false, false, false]),
+            &mut ctx
         );
 
         let pattern = ConstantArray::new(r"%\_%", fsst.len()).into_array();
@@ -375,7 +409,8 @@ mod tests {
         );
         assert_arrays_eq!(
             result.unwrap(),
-            BoolArray::from_iter([false, true, false, false, true, false, false])
+            BoolArray::from_iter([false, true, false, false, true, false, false]),
+            &mut ctx
         );
 
         let pattern = ConstantArray::new(r"%\\%", fsst.len()).into_array();
@@ -387,7 +422,8 @@ mod tests {
         );
         assert_arrays_eq!(
             result.unwrap(),
-            BoolArray::from_iter([false, false, true, false, false, true, false])
+            BoolArray::from_iter([false, false, true, false, false, true, false]),
+            &mut ctx
         );
 
         Ok(())
@@ -416,7 +452,11 @@ mod tests {
             direct.is_some(),
             "14-byte prefixes are now handled by the flat prefix DFA"
         );
-        assert_arrays_eq!(direct.unwrap(), BoolArray::from_iter([true, false, true]));
+        assert_arrays_eq!(
+            direct.unwrap(),
+            BoolArray::from_iter([true, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -446,7 +486,11 @@ mod tests {
         );
 
         let result = like(fsst, &pattern)?;
-        assert_arrays_eq!(&result, &BoolArray::from_iter([true, false, true]));
+        assert_arrays_eq!(
+            &result,
+            &BoolArray::from_iter([true, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -473,7 +517,11 @@ mod tests {
             direct.is_some(),
             "254-byte contains needle should stay on the DFA path"
         );
-        assert_arrays_eq!(direct.unwrap(), BoolArray::from_iter([true, false, true]));
+        assert_arrays_eq!(
+            direct.unwrap(),
+            BoolArray::from_iter([true, false, true]),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 }
