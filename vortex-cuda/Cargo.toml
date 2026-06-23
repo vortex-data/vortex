@@ -45,6 +45,7 @@ vortex-error = { workspace = true, features = ["object_store"] }
 vortex-nvcomp = { path = "nvcomp" }
 
 [dev-dependencies]
+criterion = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
