@@ -34,7 +34,7 @@ use crate::codec;
 use crate::options::RowEncodingOptions;
 use crate::options::deserialize_row_encoding_options;
 use crate::options::serialize_row_encoding_options;
-use crate::size::ColKind;
+use crate::size::ColumnKind;
 use crate::size::compute_sizes;
 
 /// Variadic scalar function that encodes N input columns into a single `List<u8>`
@@ -135,15 +135,7 @@ fn execute_row_encode(
         usize::try_from(total).vortex_expect("validated row-encoded output size must fit usize");
 
     let mut out_buf: BufferMut<u8> = BufferMut::with_capacity(total_len);
-    // Every encoder writes every byte in its row range: fixed-width values write
-    // sentinel + value (null rows write sentinel + explicit zero-fill); varlen blocks
-    // zero-pad their final partial block; struct/FSL fixed children are written for all
-    // rows then null parent rows are overwritten with the canonical null body. So the
-    // size-pass + encoder contract guarantees `[0, total_len)` is fully written before
-    // the buffer is read out, making the pre-zero-init redundant. Skipping it saves a
-    // `total_len`-byte memset per call (significant for varlen-heavy inputs, where
-    // `total_len` reaches multiple MB).
-    //
+
     // SAFETY: `total_len` bytes of capacity were just reserved, and by the contract above
     // every byte in that range is written before `out_buf` is frozen and read.
     unsafe { out_buf.set_len(total_len) };
@@ -160,7 +152,7 @@ fn execute_row_encode(
         && col_kinds.iter().any(|k| {
             matches!(
                 k,
-                ColKind::Fixed {
+                ColumnKind::Fixed {
                     before_varlen: true,
                     ..
                 }
@@ -203,17 +195,10 @@ fn execute_row_encode(
 
     // Per-row write cursor (also doubles as the ListView `sizes` slot when done). We build
     // it as a BufferMut so we can hand it directly to the output PrimitiveArray.
-    //
-    // The cursor path begins at the first cursor-path column. Fixed-before-varlen columns
-    // are written by the arithmetic path and do not touch the cursor, so the cursor is
-    // pre-seeded with the within-row offset of the first varlen column (its `fixed_prefix`).
-    // When there are no varlen columns at all, every column takes the arithmetic path and
-    // the cursor loop runs zero iterations; seeding with `fixed_per_row` then leaves the
-    // cursors already correct as per-row sizes.
     let initial_cursor: u32 = match first_varlen_idx {
         Some(idx) => match col_kinds[idx] {
-            ColKind::Variable { fixed_prefix } => fixed_prefix,
-            ColKind::Fixed { .. } => unreachable!("first_varlen_idx points at a varlen column"),
+            ColumnKind::Variable { fixed_prefix } => fixed_prefix,
+            ColumnKind::Fixed { .. } => unreachable!("first_varlen_idx points at a varlen column"),
         },
         None => fixed_per_row,
     };
@@ -226,7 +211,7 @@ fn execute_row_encode(
     // path. Each column was canonicalized once during the size pass; reuse that form.
     for (i, canonical) in columns.iter().enumerate() {
         match col_kinds[i] {
-            ColKind::Fixed {
+            ColumnKind::Fixed {
                 prefix,
                 before_varlen: true,
                 ..
@@ -242,7 +227,7 @@ fn execute_row_encode(
                     ctx,
                 )?;
             }
-            ColKind::Fixed { .. } | ColKind::Variable { .. } => {
+            ColumnKind::Fixed { .. } | ColumnKind::Variable { .. } => {
                 codec::field_encode(
                     canonical,
                     options.fields[i],
@@ -260,14 +245,7 @@ fn execute_row_encode(
     let offsets_arr =
         PrimitiveArray::new(listview_offsets.freeze(), Validity::NonNullable).into_array();
     let sizes_arr = PrimitiveArray::new(row_cursors.freeze(), Validity::NonNullable).into_array();
-    // SAFETY: this encoder constructs `elements`, `offsets_arr`, and `sizes_arr` itself:
-    // - `elements` is a `PrimitiveArray<u8>` of length `total_len`.
-    // - `offsets_arr[i]` is `i * fixed_per_row + var_prefix[i]`, monotonically increasing and
-    //   in `0..=total_len`.
-    // - `offsets_arr[i] + sizes_arr[i] <= total_len` by construction, and each row's slice is
-    //   disjoint from every other row's.
-    // `try_new`'s validation re-walks every row to check exactly these invariants, which we
-    // already guarantee by construction, so we skip it.
+    // SAFETY: this encoder constructs `elements`, `offsets_arr`, and `sizes_arr` itself.
     Ok(unsafe {
         ListViewArray::new_unchecked(elements, offsets_arr, sizes_arr, Validity::NonNullable)
     }

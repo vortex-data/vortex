@@ -8,24 +8,24 @@ use smallvec::SmallVec;
 
 /// Per-column ordering options for row-oriented encoding.
 ///
-/// A `RowSortField` describes how one input column contributes to a row key. Descending order
+/// A `RowSortFieldOptions` describes how one input column contributes to a row key. Descending order
 /// reverses the encoded value bytes for that column. Null placement is controlled separately,
 /// so nulls keep the requested position relative to non-null values in either direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RowSortField {
+pub struct RowSortFieldOptions {
     /// If true, this column sorts in descending order.
     pub descending: bool,
     /// If true, nulls sort before non-null values.
     pub nulls_first: bool,
 }
 
-impl Default for RowSortField {
+impl Default for RowSortFieldOptions {
     fn default() -> Self {
         Self::ascending()
     }
 }
 
-impl Display for RowSortField {
+impl Display for RowSortFieldOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -35,8 +35,8 @@ impl Display for RowSortField {
     }
 }
 
-impl RowSortField {
-    /// Construct a new `RowSortField` with explicit options.
+impl RowSortFieldOptions {
+    /// Construct a new `RowSortFieldOptions` with explicit options.
     pub const fn new(descending: bool, nulls_first: bool) -> Self {
         Self {
             descending,
@@ -65,43 +65,24 @@ impl RowSortField {
         self.nulls_first = false;
         self
     }
-
-    /// Returns the sentinel byte to write for a non-null value.
-    #[inline]
-    pub(crate) fn non_null_sentinel(&self) -> u8 {
-        // Non-null is always 0x01. Null choices are < or > 0x01.
-        0x01
-    }
-
-    /// Returns the sentinel byte to write for a null value.
-    #[inline]
-    pub(crate) fn null_sentinel(&self) -> u8 {
-        if self.nulls_first {
-            // Nulls before non-nulls (smaller byte sorts first).
-            0x00
-        } else {
-            // Nulls after non-nulls (larger byte sorts later).
-            0x02
-        }
-    }
 }
 
 const FIELDS_INLINE: usize = 4;
 
 /// Ordering options for row-oriented encoding.
 ///
-/// The options contain one [`RowSortField`] per input column, in the same order as the columns
+/// The options contain one [`RowSortFieldOptions`] per input column, in the same order as the columns
 /// passed to [`convert_columns`](crate::convert_columns),
 /// [`compute_row_sizes`](crate::compute_row_sizes), [`RowSize`](crate::RowSize), or
 /// [`RowEncode`](crate::RowEncode).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RowEncodingOptions {
-    pub(crate) fields: SmallVec<[RowSortField; FIELDS_INLINE]>,
+    pub(crate) fields: SmallVec<[RowSortFieldOptions; FIELDS_INLINE]>,
 }
 
 impl RowEncodingOptions {
-    /// Construct a new `RowEncodingOptions` from any iterator of [`RowSortField`]s.
-    pub fn new(fields: impl IntoIterator<Item = RowSortField>) -> Self {
+    /// Construct a new `RowEncodingOptions` from any iterator of [`RowSortFieldOptions`]s.
+    pub fn new(fields: impl IntoIterator<Item = RowSortFieldOptions>) -> Self {
         Self {
             fields: fields.into_iter().collect(),
         }
@@ -109,11 +90,14 @@ impl RowEncodingOptions {
 
     /// Construct default ascending, nulls-first options for `column_count` input columns.
     pub fn default_for_columns(column_count: usize) -> Self {
-        Self::new(std::iter::repeat_n(RowSortField::default(), column_count))
+        Self::new(std::iter::repeat_n(
+            RowSortFieldOptions::default(),
+            column_count,
+        ))
     }
 
     /// Borrow the per-column sort fields.
-    pub fn fields(&self) -> &[RowSortField] {
+    pub fn fields(&self) -> &[RowSortFieldOptions] {
         &self.fields
     }
 
@@ -128,8 +112,8 @@ impl RowEncodingOptions {
     }
 }
 
-impl FromIterator<RowSortField> for RowEncodingOptions {
-    fn from_iter<T: IntoIterator<Item = RowSortField>>(iter: T) -> Self {
+impl FromIterator<RowSortFieldOptions> for RowEncodingOptions {
+    fn from_iter<T: IntoIterator<Item = RowSortFieldOptions>>(iter: T) -> Self {
         Self::new(iter)
     }
 }
@@ -180,10 +164,10 @@ pub(crate) fn deserialize_row_encoding_options(
             expected
         );
     }
-    let mut fields: SmallVec<[RowSortField; FIELDS_INLINE]> = SmallVec::with_capacity(n);
+    let mut fields: SmallVec<[RowSortFieldOptions; FIELDS_INLINE]> = SmallVec::with_capacity(n);
     let mut i = 4;
     for _ in 0..n {
-        fields.push(RowSortField {
+        fields.push(RowSortFieldOptions {
             descending: bytes[i] != 0,
             nulls_first: bytes[i + 1] != 0,
         });
