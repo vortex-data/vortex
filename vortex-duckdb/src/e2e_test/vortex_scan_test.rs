@@ -949,6 +949,13 @@ fn test_vortex_encodings_roundtrip() {
     assert_eq!(fixed_child_values, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 }
 
+// Spatial extension is not bundled with duckdb. If we're building from a
+// commit, don't run this test, since bundling spatial requires openssl-dev
+// which is an issue on macos runners.
+#[cfg_attr(
+    not(duckdb_release),
+    ignore = "spatial extension requires a release DuckDB build"
+)]
 #[test]
 fn test_geometry() {
     let file = RUNTIME.block_on(async {
