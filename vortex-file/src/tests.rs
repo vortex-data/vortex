@@ -58,6 +58,9 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
@@ -1812,6 +1815,16 @@ fn assert_offsets_ordered(before: &[u64], after: &[u64], context: &str) {
     }
 }
 
+/// Whether any node in the layout tree is a dict layout.
+fn layout_has_dict(layout: &dyn Layout) -> bool {
+    layout.encoding_id().as_ref() == "vortex.dict"
+        || layout
+            .children()
+            .unwrap()
+            .iter()
+            .any(|child| layout_has_dict(child.as_ref()))
+}
+
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
@@ -1856,6 +1869,75 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
     }
 
     check_dict_ordering(root.as_ref(), segment_specs);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn dict_probe_honours_configured_compressor() -> VortexResult<()> {
+    // Low-cardinality strings so the default cascade picks a dictionary.
+    let n = 32_768;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(crate::strategy::WriteStrategyBuilder::default().build())
+        .write(&mut buf, strings.clone().to_array_stream())
+        .await?;
+    assert!(
+        layout_has_dict(summary.footer().layout().as_ref()),
+        "default builder should produce a dict layout for low-cardinality strings"
+    );
+
+    let no_string_dict =
+        BtrBlocksCompressorBuilder::default().exclude_schemes([StringDictScheme.id()]);
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(
+            crate::strategy::WriteStrategyBuilder::default()
+                .with_btrblocks_builder(no_string_dict)
+                .build(),
+        )
+        .write(&mut buf, strings.to_array_stream())
+        .await?;
+    assert!(
+        !layout_has_dict(summary.footer().layout().as_ref()),
+        "excluding StringDict from the configured compressor should disable the dict layout"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn probe_compressor_override_is_independent() -> VortexResult<()> {
+    // Low-cardinality strings the default cascade would dict-encode.
+    let n = 32_768;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+
+    let probe_without_dict = BtrBlocksCompressorBuilder::default()
+        .exclude_schemes([StringDictScheme.id()])
+        .build();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_strategy(
+            crate::strategy::WriteStrategyBuilder::default()
+                .with_probe_compressor(probe_without_dict)
+                .build(),
+        )
+        .write(&mut buf, strings.to_array_stream())
+        .await?;
+    assert!(
+        !layout_has_dict(summary.footer().layout().as_ref()),
+        "probe override should disable the dict layout independently of the data/stats compressor"
+    );
 
     Ok(())
 }
