@@ -51,15 +51,26 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             return Ok(None);
         };
 
-        let identical = match (lhs.typed_value_array(), rhs.typed_value_array()) {
-            (Some(lhs_typed), Some(rhs_typed)) => all_non_distinct(lhs_typed, rhs_typed, ctx)?,
-            _ => match (lhs.value_array(), rhs.value_array()) {
+        let typed_identical = match (lhs.typed_value_array(), rhs.typed_value_array()) {
+            (Some(lhs_typed), Some(rhs_typed)) => {
+                if lhs_typed.dtype().eq_ignore_nullability(rhs.dtype()) {
+                    all_non_distinct(lhs_typed, rhs_typed, ctx)?
+                } else {
+                    return Ok(None);
+                }
+            }
+            _ => true,
+        };
+
+        if typed_identical {
+            let values_identical = match (lhs.value_array(), rhs.value_array()) {
                 (Some(lhs_value), Some(rhs_value)) => all_non_distinct(lhs_value, rhs_value, ctx)?,
                 // Mixed shredding layouts: let the generic canonical path handle it.
                 _ => return Ok(None),
-            },
-        };
-
-        Ok(Some(Scalar::bool(identical, Nullability::NonNullable)))
+            };
+            Ok(Some(Scalar::bool(values_identical, Nullability::NonNullable)))
+        } else {
+            Ok(Some(Scalar::bool(false, Nullability::NonNullable)))
+        }
     }
 }
