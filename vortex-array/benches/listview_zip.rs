@@ -20,30 +20,29 @@ fn main() {
     divan::main();
 }
 
-const LEN: usize = 65_536;
+// Smaller than the value-path benches: listview zip cost is dominated by element concatenation and
+// per-list canonicalization, so a few thousand lists already exercises the select while keeping the
+// benchmark well under a few hundred microseconds.
+const LEN: usize = 8_192;
 
-#[divan::bench(args = [MaskShape::Fragmented, MaskShape::Block, MaskShape::Sparse, MaskShape::Dense])]
-fn nonnull(bencher: Bencher, shape: MaskShape) {
-    run(
-        bencher,
-        list_view(0, false),
-        list_view(1_000_000, false),
-        shape,
-    );
+/// Fragmented (alternating) mask: the worst case for the per-element branch this kernel replaces.
+/// The branchless chunked select is mask-shape-independent, so one shape suffices.
+fn mask() -> Mask {
+    Mask::from_iter((0..LEN).map(|i| i.is_multiple_of(2)))
 }
 
-#[divan::bench(args = [MaskShape::Fragmented, MaskShape::Block, MaskShape::Sparse, MaskShape::Dense])]
-fn nullable(bencher: Bencher, shape: MaskShape) {
-    run(
-        bencher,
-        list_view(0, true),
-        list_view(1_000_000, true),
-        shape,
-    );
+#[divan::bench]
+fn nonnull(bencher: Bencher) {
+    run(bencher, list_view(0, false), list_view(1_000_000, false));
 }
 
-fn run(bencher: Bencher, if_true: ArrayRef, if_false: ArrayRef, shape: MaskShape) {
-    let mask = shape.mask(LEN);
+#[divan::bench]
+fn nullable(bencher: Bencher) {
+    run(bencher, list_view(0, true), list_view(1_000_000, true));
+}
+
+fn run(bencher: Bencher, if_true: ArrayRef, if_false: ArrayRef) {
+    let mask = mask();
     bencher
         .with_inputs(|| {
             (
@@ -83,23 +82,4 @@ fn list_view(base: i64, nullable: bool) -> ArrayRef {
     )
     .unwrap()
     .into_array()
-}
-
-#[derive(Clone, Copy, Debug)]
-enum MaskShape {
-    Fragmented,
-    Block,
-    Sparse,
-    Dense,
-}
-
-impl MaskShape {
-    fn mask(self, len: usize) -> Mask {
-        match self {
-            MaskShape::Fragmented => Mask::from_iter((0..len).map(|i| i.is_multiple_of(2))),
-            MaskShape::Block => Mask::from_iter((0..len).map(|i| (i / 128).is_multiple_of(2))),
-            MaskShape::Sparse => Mask::from_iter((0..len).map(|i| i.is_multiple_of(10))),
-            MaskShape::Dense => Mask::from_iter((0..len).map(|i| !i.is_multiple_of(10))),
-        }
-    }
 }
