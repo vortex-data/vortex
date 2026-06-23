@@ -47,6 +47,10 @@ use crate::segments::SegmentSource;
 
 type OptionalArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
+/// The threshold of mask density below which we push the input mask into projection evaluation,
+/// and above which we evaluate the expression over all rows and intersect afterward.
+const EXPR_EVAL_THRESHOLD: f64 = 0.2;
+
 /// Reader for [`ListLayout`].
 #[derive(Clone)]
 pub struct ListReader {
@@ -231,7 +235,6 @@ fn create_validity(validity_array: Option<ArrayRef>, nullability: Nullability) -
 /// Drives "fetch as little as possible": a projection/filter that only inspects the list's
 /// null-ness needs the validity child; everything else needs the element values. The ordering
 /// `Validity < Elements` lets us take the max over the operands of a compound expression.
-// TODO: have `filter_evaluation` use this too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum ExprClass {
     /// Only the list's validity is needed (`is_null` / `is_not_null` of the list itself).
@@ -462,11 +465,37 @@ impl LayoutReader for ListReader {
 
     fn filter_evaluation(
         &self,
-        _row_range: &Range<u64>,
-        _expr: &Expression,
-        _mask: MaskFuture,
+        row_range: &Range<u64>,
+        expr: &Expression,
+        mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        todo!()
+        let len = mask.len();
+        let reader = self.clone();
+        let row_range = row_range.clone();
+        let expr = expr.clone();
+        let session = self.session.clone();
+
+        Ok(MaskFuture::new(len, async move {
+            let mask = mask.await?;
+
+            if mask.all_false() {
+                return Ok(mask);
+            }
+
+            if mask.density() < EXPR_EVAL_THRESHOLD {
+                let predicate = reader
+                    .projection_evaluation(&row_range, &expr, MaskFuture::ready(mask.clone()))?
+                    .await?;
+                let predicate_mask = predicate_array_to_mask(predicate, &session)?;
+                Ok(mask.intersect_by_rank(&predicate_mask))
+            } else {
+                let predicate = reader
+                    .projection_evaluation(&row_range, &expr, MaskFuture::new_true(len))?
+                    .await?;
+                let predicate_mask = predicate_array_to_mask(predicate, &session)?;
+                Ok(mask & &predicate_mask)
+            }
+        }))
     }
 
     fn projection_evaluation(
@@ -518,6 +547,11 @@ fn build_list(
     ListArray::try_new(parts.elements, parts.offsets, validity)?
         .into_array()
         .apply(expr)
+}
+
+fn predicate_array_to_mask(array: ArrayRef, session: &VortexSession) -> VortexResult<Mask> {
+    let mut ctx = session.create_execution_ctx();
+    array.null_as_false().execute(&mut ctx)
 }
 
 struct ElementsProjection {
@@ -717,6 +751,65 @@ mod tests {
             &mut exec_ctx
         );
 
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::is_not_null_nullable(true, is_not_null(root()), Mask::from_iter([true, false, true]))]
+    #[case::is_not_null_non_nullable(false, is_not_null(root()), Mask::new_true(3))]
+    #[case::is_null_nullable(true, is_null(root()), Mask::from_iter([false, true, false]))]
+    #[case::is_null_non_nullable(false, is_null(root()), Mask::new_false(3))]
+    #[tokio::test]
+    async fn filter_evaluation_validity_class(
+        #[case] nullable: bool,
+        #[case] expr: Expression,
+        #[case] expected: Mask,
+    ) -> VortexResult<()> {
+        let list = create_basic_list_array(nullable);
+        let ctx = LayoutReaderContext::new();
+        let (segments, layout) = write_layout(&flat_list_strategy(), list).await?;
+        let reader = layout.new_reader("".into(), segments, &SESSION, &ctx)?;
+
+        let result = reader
+            .filter_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
+            .await?;
+
+        assert_eq!(result, expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn filter_evaluation_intersects_with_input_mask() -> VortexResult<()> {
+        let list = create_basic_list_array(true);
+        let ctx = LayoutReaderContext::new();
+        let (segments, layout) = write_layout(&flat_list_strategy(), list).await?;
+        let reader = layout.new_reader("".into(), segments, &SESSION, &ctx)?;
+
+        let input_mask = Mask::from_iter([true, true, false]);
+        let result = reader
+            .filter_evaluation(&(0..3), &is_not_null(root()), MaskFuture::ready(input_mask))?
+            .await?;
+
+        assert_eq!(result, Mask::from_iter([true, false, false]));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn filter_evaluation_sparse_mask_maps_by_rank() -> VortexResult<()> {
+        let list = create_six_list_array();
+        let ctx = LayoutReaderContext::new();
+        let (segments, layout) = write_layout(&flat_list_strategy(), list).await?;
+        let reader = layout.new_reader("".into(), segments, &SESSION, &ctx)?;
+
+        let input_mask = Mask::from_iter([false, false, false, false, true, false]);
+        let result = reader
+            .filter_evaluation(&(0..6), &is_not_null(root()), MaskFuture::ready(input_mask))?
+            .await?;
+
+        assert_eq!(
+            result,
+            Mask::from_iter([false, false, false, false, true, false])
+        );
         Ok(())
     }
 
@@ -929,6 +1022,20 @@ mod tests {
         ListArray::try_new(
             buffer![1i32, 2, 3, 4, 5].into_array(),
             buffer![0u32, 2, 4, 5].into_array(),
+            validity,
+        )
+        .expect("array is valid")
+        .into_array()
+    }
+
+    fn create_six_list_array() -> ArrayRef {
+        let validity = Validity::Array(
+            BoolArray::from_iter([true, false, true, false, true, true]).into_array(),
+        );
+
+        ListArray::try_new(
+            buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+            buffer![0u32, 1, 2, 3, 4, 5, 6].into_array(),
             validity,
         )
         .expect("array is valid")
