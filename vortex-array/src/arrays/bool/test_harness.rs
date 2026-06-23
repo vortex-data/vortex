@@ -5,8 +5,6 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::ExecutionCtx;
-use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
