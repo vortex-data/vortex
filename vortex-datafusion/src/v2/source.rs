@@ -450,23 +450,29 @@ async fn scan_to_array_stream(
     scan_request: ScanRequest,
     num_partitions: usize,
 ) -> DFResult<BoxStream<'static, VortexResult<ArrayRef>>> {
+    let ordered = scan_request.ordered;
     let scan = data_source
         .scan(scan_request)
         .await
         .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
     // Each split.execute() returns a lazy stream whose early polls do preparation
-    // work (expression resolution, layout traversal, first I/O spawns). We use
-    // try_flatten_unordered to poll multiple split streams concurrently so that
-    // the next split is already warm when the current one finishes.
+    // work (expression resolution, layout traversal, first I/O spawns). Unordered
+    // scans can poll multiple split streams concurrently so the next split is
+    // already warm when the current one finishes; ordered scans must preserve
+    // partition order.
     let scan_streams = scan.partitions().map(|split_result| {
         let split = split_result?;
         split.execute()
     });
 
-    Ok(scan_streams
-        .try_flatten_unordered(Some(num_partitions * 2))
-        .boxed())
+    if ordered {
+        Ok(scan_streams.try_flatten().boxed())
+    } else {
+        Ok(scan_streams
+            .try_flatten_unordered(Some(num_partitions * 2))
+            .boxed())
+    }
 }
 
 impl DataSource for VortexDataSource {

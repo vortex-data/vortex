@@ -179,8 +179,9 @@ impl VortexDataSourceBuilder {
 }
 ```
 
-The same options should be available on `VortexTable` and `VortexFormatFactory` so users who
-register tables through DataFusion's listing format path can still control scheduling.
+`VortexTable` should expose the same options when it builds a `VortexDataSource`. Listing-format
+users that go through `VortexFormatFactory` should configure scheduling on the `VortexSession`
+used by the factory; the factory does not currently carry a separate scheduler override.
 
 For DataFusion, `DataSource::open` creates a single Vortex scan for partition zero. A per-query
 scheduler can therefore be resolved immediately before calling

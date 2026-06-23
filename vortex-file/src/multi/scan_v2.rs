@@ -676,7 +676,7 @@ impl DataSource for ScanPlanDataSource {
                 .clone()
                 .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?;
             let prepared = Arc::new(PreparedScanPlan::try_new(&file, &request)?);
-            let execution = Arc::new(ScanExecution::try_new(file, prepared, &ticket)?);
+            let execution = Arc::new(ScanExecution::try_new(file, prepared, &ticket, None)?);
             let ranges = execution.splits(&row_range)?;
             if ranges.is_empty() {
                 continue;
@@ -730,14 +730,17 @@ impl DataSource for ScanPlanDataSource {
         let mut ready = VecDeque::new();
         let mut deferred = VecDeque::new();
 
-        for child in &self.children {
+        for (index, child) in self.children.iter().enumerate() {
             match child {
-                ScanPlanChild::Opened(file) => ready.push_back(file.clone()),
-                ScanPlanChild::Deferred(factory) => deferred.push_back(Arc::clone(factory)),
+                ScanPlanChild::Opened(file) => ready.push_back((index, file.clone())),
+                ScanPlanChild::Deferred(factory) => {
+                    deferred.push_back((index, Arc::clone(factory)));
+                }
             }
         }
 
         let dtype = scan_request.projection.return_dtype(&self.dtype)?;
+        let limit_remaining = scan_request.limit.map(AtomicU64::new).map(Arc::new);
 
         Ok(Box::new(ScanPlanDataSourceScan {
             dtype,
@@ -748,6 +751,7 @@ impl DataSource for ScanPlanDataSource {
             concurrency: self.concurrency,
             scheduler,
             ticket,
+            limit_remaining,
         }))
     }
 
@@ -800,12 +804,13 @@ impl DataSource for ScanPlanDataSource {
 struct ScanPlanDataSourceScan {
     dtype: DType,
     request: DataSourceScanRequest,
-    ready: VecDeque<VortexFile>,
-    deferred: VecDeque<Arc<dyn VortexFileFactory>>,
+    ready: VecDeque<(usize, VortexFile)>,
+    deferred: VecDeque<(usize, Arc<dyn VortexFileFactory>)>,
     handle: Handle,
     concurrency: usize,
     scheduler: Arc<ScanScheduler>,
     ticket: ScanTicket,
+    limit_remaining: Option<Arc<AtomicU64>>,
 }
 
 impl DataSourceScan for ScanPlanDataSourceScan {
@@ -832,16 +837,18 @@ impl DataSourceScan for ScanPlanDataSourceScan {
             concurrency,
             scheduler,
             ticket,
+            limit_remaining,
         } = *self;
 
         let ordered = request.ordered;
         let ready_stream = stream::iter(ready).map(Ok);
-        let spawned = stream::iter(deferred).map(move |factory| {
+        let spawned = stream::iter(deferred).map(move |(index, factory)| {
             handle.spawn(async move {
                 factory
                     .open()
                     .instrument(tracing::info_span!("VortexFileFactory::open"))
                     .await
+                    .map(|file| file.map(|file| (index, file)))
             })
         });
 
@@ -871,15 +878,16 @@ impl DataSourceScan for ScanPlanDataSourceScan {
 
         ready_stream
             .chain(deferred_stream)
-            .enumerate()
-            .filter_map(move |(index, file_result)| {
+            .filter_map(move |file_result| {
                 let request = request.clone();
                 let scheduler = Arc::clone(&scheduler);
                 let ticket = ticket.clone();
+                let limit_remaining = limit_remaining.clone();
                 async move {
                     match file_result {
-                        Ok(file) => {
-                            file_partition(index, file, request, scheduler, ticket).transpose()
+                        Ok((index, file)) => {
+                            file_partition(index, file, request, scheduler, ticket, limit_remaining)
+                                .transpose()
                         }
                         Err(error) => Some(Err(error)),
                     }
@@ -895,6 +903,7 @@ fn file_partition(
     request: DataSourceScanRequest,
     scheduler: Arc<ScanScheduler>,
     ticket: ScanTicket,
+    limit_remaining: Option<Arc<AtomicU64>>,
 ) -> VortexResult<Option<PartitionRef>> {
     let Some(request) = file_scan_request(partition_idx, &file, request)? else {
         return Ok(None);
@@ -912,6 +921,7 @@ fn file_partition(
         index: partition_idx,
         scheduler,
         ticket,
+        limit_remaining,
     })))
 }
 
@@ -930,7 +940,9 @@ pub(crate) fn scan_plan_file_stream(
     let scheduler = provider.scheduler_for_scan(&meta);
     let ticket = scheduler.register_scan(meta);
 
-    let Some(partition) = file_partition(0, file, request, scheduler, ticket)? else {
+    let limit_remaining = request.limit.map(AtomicU64::new).map(Arc::new);
+    let Some(partition) = file_partition(0, file, request, scheduler, ticket, limit_remaining)?
+    else {
         return Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype,
             stream::empty(),
@@ -1888,6 +1900,7 @@ struct ScanPlanPartition {
     index: usize,
     scheduler: Arc<ScanScheduler>,
     ticket: ScanTicket,
+    limit_remaining: Option<Arc<AtomicU64>>,
 }
 
 impl Partition for ScanPlanPartition {
@@ -1926,9 +1939,15 @@ impl Partition for ScanPlanPartition {
             index: _,
             scheduler,
             ticket,
+            limit_remaining,
         } = *self;
 
-        let execution = Arc::new(ScanExecution::try_new(file, prepared, &ticket)?);
+        let execution = Arc::new(ScanExecution::try_new(
+            file,
+            prepared,
+            &ticket,
+            limit_remaining,
+        )?);
         let handle = execution.session.handle();
         let dtype = execution.plan.dtype().clone();
         let ranges = execution.splits(&row_range)?;
@@ -2081,7 +2100,7 @@ struct ScanExecution {
     session: VortexSession,
     reader: ReadContext,
     plan: Arc<PreparedScanPlan>,
-    limit_remaining: Option<AtomicU64>,
+    limit_remaining: Option<Arc<AtomicU64>>,
     segment_source: Arc<dyn SegmentSource>,
     segment_future_cache: Arc<SegmentFutureCache>,
     projection: PreparedReadRef,
@@ -2217,6 +2236,7 @@ impl ScanExecution {
         file: VortexFile,
         plan: Arc<PreparedScanPlan>,
         _ticket: &ScanTicket,
+        limit_remaining: Option<Arc<AtomicU64>>,
     ) -> VortexResult<Self> {
         let session = file.session().clone();
         let segment_source = file.segment_source();
@@ -2271,8 +2291,6 @@ impl ScanExecution {
                 })
                 .collect(),
         };
-
-        let limit_remaining = plan.limit().map(AtomicU64::new);
 
         Ok(Self {
             session,
@@ -3131,31 +3149,57 @@ fn range_len(range: &Range<u64>) -> VortexResult<usize> {
 }
 
 fn limit_mask(mask: Mask, remaining: &AtomicU64) -> VortexResult<Mask> {
-    let available = remaining.load(Ordering::Relaxed);
-    if available == 0 {
-        return Ok(Mask::new_false(mask.len()));
-    }
     let true_count = mask.true_count();
-    if true_count as u64 <= available {
-        remaining.fetch_sub(true_count as u64, Ordering::Relaxed);
-        return Ok(mask);
+    let true_count =
+        u64::try_from(true_count).map_err(|_| vortex_err!("mask count exceeds u64"))?;
+
+    loop {
+        let available = remaining.load(Ordering::Acquire);
+        if available == 0 {
+            return Ok(Mask::new_false(mask.len()));
+        }
+
+        let take = true_count.min(available);
+        if remaining
+            .compare_exchange_weak(
+                available,
+                available - take,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            continue;
+        }
+
+        if take == true_count {
+            return Ok(mask);
+        }
+
+        let take = usize::try_from(take).unwrap_or(usize::MAX);
+        return Ok(Mask::from_indices(
+            mask.len(),
+            (0..mask.len()).filter(|idx| mask.value(*idx)).take(take),
+        ));
     }
-    let take = usize::try_from(available).unwrap_or(usize::MAX);
-    remaining.store(0, Ordering::Relaxed);
-    Ok(Mask::from_indices(
-        mask.len(),
-        (0..mask.len()).filter(|idx| mask.value(*idx)).take(take),
-    ))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::Ordering;
+
     use vortex_array::expr::get_item;
     use vortex_array::expr::like;
     use vortex_array::expr::lit;
     use vortex_array::expr::not_eq;
     use vortex_array::expr::root;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_mask::Mask;
 
+    use super::limit_mask;
     use super::predicate_cost;
 
     #[test]
@@ -3168,5 +3212,57 @@ mod tests {
             predicate_cost(&cheap),
             predicate_cost(&expensive),
         );
+    }
+
+    #[test]
+    fn limit_mask_consumes_full_mask_when_limit_allows() -> VortexResult<()> {
+        let remaining = AtomicU64::new(4);
+
+        let selected = limit_mask(Mask::from_indices(6, [1, 2, 4]), &remaining)?;
+
+        assert_eq!(selected.true_count(), 3);
+        assert!(selected.value(1));
+        assert!(selected.value(2));
+        assert!(selected.value(4));
+        assert_eq!(remaining.load(Ordering::Acquire), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn limit_mask_trims_mask_to_remaining_rows() -> VortexResult<()> {
+        let remaining = AtomicU64::new(2);
+
+        let selected = limit_mask(Mask::from_indices(6, [1, 2, 4]), &remaining)?;
+
+        assert_eq!(selected.true_count(), 2);
+        assert!(selected.value(1));
+        assert!(selected.value(2));
+        assert!(!selected.value(4));
+        assert_eq!(remaining.load(Ordering::Acquire), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn limit_mask_shared_counter_never_overselects() -> VortexResult<()> {
+        let remaining = Arc::new(AtomicU64::new(10));
+
+        let handles = (0..16)
+            .map(|_| {
+                let remaining = Arc::clone(&remaining);
+                std::thread::spawn(move || limit_mask(Mask::new_true(8), &remaining))
+            })
+            .collect::<Vec<_>>();
+
+        let mut selected_rows = 0;
+        for handle in handles {
+            let selected = handle
+                .join()
+                .map_err(|_| vortex_err!("limit mask worker thread panicked"))??;
+            selected_rows += selected.true_count();
+        }
+
+        assert_eq!(selected_rows, 10);
+        assert_eq!(remaining.load(Ordering::Acquire), 0);
+        Ok(())
     }
 }

@@ -829,7 +829,7 @@ mod tests {
             .filter_map(|byte_range| byte_range_to_row_range(byte_range, total_size, row_count))
             .collect::<Vec<_>>();
 
-        assert_eq!(row_ranges.len(), partitions as usize);
+        assert_eq!(u64::try_from(row_ranges.len()), Ok(partitions));
         assert_eq!(row_ranges.first().map(|range| range.start), Some(0));
         assert_eq!(row_ranges.last().map(|range| range.end), Some(row_count));
         assert_eq!(

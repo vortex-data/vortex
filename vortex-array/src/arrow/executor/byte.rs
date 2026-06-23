@@ -80,6 +80,8 @@ mod tests {
     use arrow_array::cast::AsArray;
     use arrow_schema::DataType;
     use rstest::rstest;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -178,5 +180,28 @@ mod tests {
         assert!(!arrow.is_null(0));
         assert!(arrow.is_null(1));
         assert!(!arrow.is_null(2));
+    }
+
+    #[test]
+    fn filtered_utf8_view_export_does_not_retain_unselected_buffers() -> VortexResult<()> {
+        let unselected = "x".repeat(1 << 20);
+        let array =
+            VarBinViewArray::from_iter_str(["selected", unselected.as_str(), unselected.as_str()]);
+        let filtered = array
+            .into_array()
+            .filter(Mask::from_iter([true, false, false]))?;
+
+        let arrow = filtered.execute_arrow(
+            Some(&DataType::Utf8View),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+
+        assert_eq!(arrow.as_string_view().value(0), "selected");
+        assert!(
+            arrow.get_array_memory_size() < unselected.len(),
+            "filtered export retained unselected payload: {} bytes",
+            arrow.get_array_memory_size()
+        );
+        Ok(())
     }
 }

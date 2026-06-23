@@ -30,7 +30,7 @@ pub use vortex_scan::plan::request;
 ///
 /// - `v1`, `scan`, `scan_builder`, `scan-builder`, `layout-reader`, or unset: use the
 ///   existing LayoutReader-based scan.
-/// - `v2`, `scan2`, `scan3`, or `native`: use the scan2
+/// - `v2` or `scan2`: use the scan2
 ///   [`ScanPlan`](vortex_scan::plan::ScanPlan) implementation.
 pub const SCAN_IMPL_ENV: &str = "VORTEX_SCAN_IMPL";
 
@@ -49,9 +49,9 @@ pub fn scan2_enabled() -> VortexResult<bool> {
 fn parse_scan_impl(value: &str) -> VortexResult<bool> {
     match value {
         "v1" | "scan" | "scan_builder" | "scan-builder" | "layout-reader" => Ok(false),
-        "v2" | "scan2" | "scan3" | "native" => Ok(true),
+        "v2" | "scan2" => Ok(true),
         other => vortex_bail!(
-            "{SCAN_IMPL_ENV} must be one of v1, scan, scan_builder, scan-builder, layout-reader, v2, scan2, scan3, or native, got {other:?}"
+            "{SCAN_IMPL_ENV} must be one of v1, scan, scan_builder, scan-builder, layout-reader, v2, or scan2, got {other:?}"
         ),
     }
 }

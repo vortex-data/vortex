@@ -156,17 +156,19 @@ fn scan_scheduler_config_from_env() -> anyhow::Result<ScanSchedulerConfig> {
         .transpose()?
         .unwrap_or_else(ScanSchedulerConfig::default_morsel_slots);
 
-    Ok(std::env::var("VORTEX_SCAN_MAX_READ_BYTES")
+    let read_byte_budget = std::env::var("VORTEX_SCAN_MAX_READ_BYTES")
         .ok()
         .map(|value| {
             value
                 .parse::<u64>()
                 .map_err(|e| anyhow::anyhow!("invalid scan scheduler byte budget {value}: {e}"))
         })
-        .transpose()?
-        .map_or(config.clone(), |bytes| {
-            config.with_read_byte_budget(Some(bytes))
-        }))
+        .transpose()?;
+
+    Ok(match read_byte_budget {
+        Some(bytes) => config.with_read_byte_budget(Some(bytes)),
+        None => config,
+    })
 }
 
 fn vortex_table_options() -> VortexTableOptions {

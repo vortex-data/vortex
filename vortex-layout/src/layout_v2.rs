@@ -678,7 +678,9 @@ fn metadata_bytes_field(metadata: &[u8], field_number: u64) -> VortexResult<Opti
                 vortex_bail!("metadata field {field_number} is not length-delimited");
             }
             let len = usize::try_from(read_varint(metadata, &mut offset)?)?;
-            let end = offset + len;
+            let end = offset
+                .checked_add(len)
+                .ok_or_else(|| vortex_err!("metadata field length overflows buffer offset"))?;
             if end > metadata.len() {
                 vortex_bail!("metadata field extends past end of buffer");
             }
@@ -695,14 +697,20 @@ fn skip_proto_field(metadata: &[u8], offset: &mut usize, wire_type: u64) -> Vort
             read_varint(metadata, offset)?;
         }
         1 => {
-            *offset += 8;
+            *offset = offset
+                .checked_add(8)
+                .ok_or_else(|| vortex_err!("metadata field offset overflow"))?;
         }
         2 => {
             let len = usize::try_from(read_varint(metadata, offset)?)?;
-            *offset += len;
+            *offset = offset
+                .checked_add(len)
+                .ok_or_else(|| vortex_err!("metadata field offset overflow"))?;
         }
         5 => {
-            *offset += 4;
+            *offset = offset
+                .checked_add(4)
+                .ok_or_else(|| vortex_err!("metadata field offset overflow"))?;
         }
         _ => vortex_bail!("unsupported protobuf wire type {wire_type}"),
     }
@@ -818,10 +826,12 @@ impl VTable for Chunked {
 
     fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
         EmptyMetadata::deserialize(args.metadata)?;
-        let mut chunk_offsets = Vec::with_capacity(args.children.nchildren() + 1);
+        let mut chunk_offsets: Vec<u64> = Vec::with_capacity(args.children.nchildren() + 1);
         chunk_offsets.push(0);
         for idx in 0..args.children.nchildren() {
-            let next = chunk_offsets[idx] + args.children.child_row_count(idx)?;
+            let next = chunk_offsets[idx]
+                .checked_add(args.children.child_row_count(idx)?)
+                .ok_or_else(|| vortex_err!("Chunked child row counts overflow"))?;
             chunk_offsets.push(next);
         }
         vortex_ensure!(
@@ -836,6 +846,9 @@ impl VTable for Chunked {
     }
 
     fn child_type(layout: Layout<Self>, idx: usize) -> VortexResult<LayoutChildType> {
+        if idx >= layout.nchildren() {
+            vortex_bail!("Chunked child index out of bounds: {idx}");
+        }
         let offset = *layout
             .data()
             .chunk_offsets
@@ -973,6 +986,110 @@ impl VTable for Dict {
         session: &VortexSession,
     ) -> VortexResult<ScanPlanRef> {
         scan_dict::new_scan_plan(layout, req, session)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_session::VortexSession;
+    use vortex_session::registry::ReadContext;
+
+    use super::*;
+
+    #[derive(Debug)]
+    struct TestChildren {
+        row_counts: Vec<u64>,
+    }
+
+    impl LayoutChildren for TestChildren {
+        fn child(&self, idx: usize, _dtype: &DType) -> VortexResult<LayoutRef> {
+            vortex_bail!("test child {idx} is not materialized")
+        }
+
+        fn child_row_count(&self, idx: usize) -> VortexResult<u64> {
+            self.row_counts
+                .get(idx)
+                .copied()
+                .ok_or_else(|| vortex_err!("test child index out of bounds: {idx}"))
+        }
+
+        fn nchildren(&self) -> usize {
+            self.row_counts.len()
+        }
+    }
+
+    fn primitive_dtype() -> DType {
+        DType::Primitive(PType::I32, Nullability::NonNullable)
+    }
+
+    fn read_context() -> ReadContext {
+        ReadContext::new([])
+    }
+
+    #[test]
+    fn metadata_bytes_field_rejects_length_overflow() {
+        let mut metadata = vec![0x0a];
+        metadata.extend_from_slice(&u64::MAX.to_le_bytes());
+        // Replace the fixed-width bytes with a protobuf varint for u64::MAX.
+        metadata.truncate(1);
+        metadata.extend([0xff; 9]);
+        metadata.push(0x01);
+
+        assert!(metadata_bytes_field(&metadata, 1).is_err());
+    }
+
+    #[test]
+    fn skip_proto_field_rejects_length_overflow() {
+        let mut metadata = vec![0x12];
+        metadata.extend([0xff; 9]);
+        metadata.push(0x01);
+
+        assert!(metadata_varint_field(&metadata, 1).is_err());
+    }
+
+    #[test]
+    fn chunked_deserialize_rejects_row_count_overflow() {
+        let dtype = primitive_dtype();
+        let read_context = read_context();
+        let session = VortexSession::empty();
+        let args = LayoutDeserializeArgs {
+            dtype: &dtype,
+            row_count: 0,
+            metadata: &[],
+            segment_ids: Vec::new(),
+            children: Arc::new(TestChildren {
+                row_counts: vec![u64::MAX, 1],
+            }),
+            array_ctx: &read_context,
+            session: &session,
+        };
+
+        assert!(VTable::deserialize(&Chunked, &args).is_err());
+    }
+
+    #[test]
+    fn chunked_child_type_rejects_terminal_offset_index() {
+        let dtype = primitive_dtype();
+        let layout = LayoutParts::new(
+            Chunked,
+            dtype,
+            1,
+            Vec::new(),
+            Arc::new(TestChildren {
+                row_counts: vec![1],
+            }),
+            ChunkedData {
+                chunk_offsets: vec![0, 1],
+            },
+        )
+        .into_typed();
+
+        assert!(layout.child_type(1).is_err());
     }
 }
 

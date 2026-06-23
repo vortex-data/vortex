@@ -360,6 +360,107 @@ impl fmt::Debug for WorkPermit {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::pin::pin;
+
+    use futures::FutureExt;
+    use futures::executor::block_on;
+
+    use super::*;
+
+    #[test]
+    fn permit_release_unblocks_waiting_work() -> VortexResult<()> {
+        block_on(async {
+            let scheduler = ScanScheduler::new(ScanSchedulerConfig::morsel_slots(1));
+            let ticket = scheduler.register_scan(ScanMeta::default());
+            let permit = scheduler.acquire(&ticket, WorkRequest::morsel()).await?;
+
+            let waiting = scheduler.acquire(&ticket, WorkRequest::morsel());
+            let mut waiting = pin!(waiting);
+            assert!(waiting.as_mut().now_or_never().is_none());
+
+            drop(permit);
+            let _permit = waiting.await?;
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn cancelled_ticket_rejects_new_work() -> VortexResult<()> {
+        block_on(async {
+            let scheduler = ScanScheduler::new(ScanSchedulerConfig::morsel_slots(1));
+            let ticket = scheduler.register_scan(ScanMeta::default());
+            ticket.cancel();
+
+            assert!(
+                scheduler
+                    .acquire(&ticket, WorkRequest::morsel())
+                    .await
+                    .is_err()
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn cancelled_waiter_releases_acquired_permit() -> VortexResult<()> {
+        block_on(async {
+            let scheduler = ScanScheduler::new(ScanSchedulerConfig::morsel_slots(1));
+            let ticket = scheduler.register_scan(ScanMeta::default());
+            let permit = scheduler.acquire(&ticket, WorkRequest::morsel()).await?;
+
+            let waiting = scheduler.acquire(&ticket, WorkRequest::morsel());
+            let mut waiting = pin!(waiting);
+            assert!(waiting.as_mut().now_or_never().is_none());
+
+            ticket.cancel();
+            drop(permit);
+            assert!(waiting.await.is_err());
+
+            let next_ticket = scheduler.register_scan(ScanMeta::default());
+            let _permit = scheduler
+                .acquire(&next_ticket, WorkRequest::morsel())
+                .await?;
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn invalid_slot_counts_are_rejected() -> VortexResult<()> {
+        block_on(async {
+            let scheduler = ScanScheduler::new(ScanSchedulerConfig::morsel_slots(1));
+            let ticket = scheduler.register_scan(ScanMeta::default());
+
+            assert!(
+                scheduler
+                    .acquire(
+                        &ticket,
+                        WorkRequest {
+                            class: ScanWorkClass::Morsel,
+                            slots: 0,
+                        },
+                    )
+                    .await
+                    .is_err()
+            );
+            assert!(
+                scheduler
+                    .acquire(
+                        &ticket,
+                        WorkRequest {
+                            class: ScanWorkClass::Morsel,
+                            slots: 2,
+                        },
+                    )
+                    .await
+                    .is_err()
+            );
+            Ok(())
+        })
+    }
+}
+
 /// Session state for scan scheduler configuration.
 #[derive(Clone, Debug)]
 pub struct ScanSchedulerSession {
