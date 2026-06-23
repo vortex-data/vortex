@@ -38,7 +38,7 @@ use crate::sequence::SequentialStreamExt;
 /// Strategy for writing list-typed arrays, with a fallback for non-list dtypes.
 ///
 /// Single-chunk only. For list-typed input the strategy:
-///  1. Canonicalizes the input chunk into a [`ListViewArray`].
+///  1. Canonicalizes the input chunk into a [`ListView`].
 ///  2. Calls [`list_from_list_view`] to rebuild it into zero-copy-to-list form
 ///     (sorted, gapless, non-overlapping offsets) and produce a [`ListArray`].
 ///  3. Writes the `elements`, `offsets`, and (when nullable) `validity` columns into
@@ -51,7 +51,7 @@ use crate::sequence::SequentialStreamExt;
 /// # Chunking
 ///
 /// `ListLayoutStrategy` bails on empty or multi-chunk input, matching the convention used by
-/// [`FlatLayoutStrategy`](crate::layouts::flat::writer::FlatLayoutStrategy).
+/// [`FlatLayoutStrategy`].
 ///
 /// [`ListArray`]: vortex_array::arrays::ListArray
 #[derive(Clone)]
