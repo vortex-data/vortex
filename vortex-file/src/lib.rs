@@ -6,13 +6,27 @@
 //! Read and write Vortex layouts, a serialization of Vortex arrays.
 //!
 //! A Vortex file stores a root [`Layout`](vortex_layout::Layout), the byte segments referenced by
-//! that layout, optional file-level statistics, and enough footer metadata to deserialize the tree.
-//! Layouts are recursive, so a file may organize data by row groups, columns, dictionaries,
-//! statistics, or other writer-chosen structures without changing the logical dtype seen by
-//! readers.
+//! that layout, an optional file-level [`DType`](vortex_array::dtype::DType) and statistics, and
+//! enough footer metadata to deserialize the tree. Layouts are recursive, so a file may organize
+//! data by row groups, columns, dictionaries, statistics, or other writer-chosen structures without
+//! changing the logical dtype seen by readers. The built-in layouts are:
 //!
-//! This crate owns the file reader/writer APIs. The byte-level format lives in the spec's docs:
-//! <https://docs.vortex.dev/specs/file-format.html>.
+//! - [`FlatLayout`](vortex_layout::layouts::flat::FlatLayout): a single contiguously serialized
+//!   array of buffers with a specific in-memory [`Alignment`](vortex_buffer::Alignment).
+//! - [`StructLayout`](vortex_layout::layouts::struct_::StructLayout): each column laid out at known
+//!   offsets, permitting a subset of columns to be read in linear time with constant-time random
+//!   access to any column.
+//! - [`ChunkedLayout`](vortex_layout::layouts::chunked::ChunkedLayout): each chunk laid out at known
+//!   offsets; locating the chunks covering a row range is an `N log(N)` search of the offsets.
+//! - [`DictLayout`](vortex_layout::layouts::dict::DictLayout): a shared dictionary of values with a
+//!   child layout holding indices.
+//! - [`ZonedLayout`](vortex_layout::layouts::zoned::ZonedLayout): a zone-map of statistics used for
+//!   filter pruning.
+//!
+//! A layout alone is _not_ a standalone Vortex file: it is not self-describing, so the file pairs it
+//! with the dtype and footer metadata needed to deserialize it. This crate owns the file
+//! reader/writer APIs; the byte-level format is described under [File Format](#file-format) below
+//! and specified in full in the docs: <https://docs.vortex.dev/specs/file-format.html>.
 //!
 //! # Reading
 //!
@@ -36,6 +50,46 @@
 //! repartitions rows, builds statistics layouts, dictionary-encodes suitable columns, compresses
 //! chunks with the BtrBlocks-style compressor, and writes flat leaf layouts. Advanced users can
 //! replace the whole strategy or override individual fields.
+//!
+//! # File Format
+//!
+//! A Vortex file begins and ends with the 4-byte magic `VTXF`. Data segments are written first, in
+//! writer-chosen order, followed by the footer flatbuffers, a postscript, and an 8-byte
+//! end-of-file marker:
+//!
+//! ```text
+//! ┌────────────────────────────┐
+//! │     Magic bytes 'VTXF'     │  4 bytes
+//! ├────────────────────────────┤
+//! │          Segments          │  serialized array chunks and per-column
+//! │     (data & statistics)    │  statistics, in writer-chosen order
+//! ├────────────────────────────┤
+//! │      DType flatbuffer      │  optional; omitted via `exclude_dtype`
+//! ├────────────────────────────┤
+//! │      Layout flatbuffer     │  required; the root Layout tree
+//! ├────────────────────────────┤
+//! │    Statistics flatbuffer   │  optional; file-level per-field statistics
+//! ├────────────────────────────┤
+//! │      Footer flatbuffer     │  required; dictionary-encoded segment map
+//! │                            │  and array/layout/compression/encryption specs
+//! ├────────────────────────────┤
+//! │         Postscript         │  offsets of the four footer segments above;
+//! │                            │  at most 65528 bytes
+//! ├────────────────────────────┤
+//! │     8-byte End of File     │  u16 version, u16 postscript length,
+//! │                            │  4 magic bytes 'VTXF'
+//! └────────────────────────────┘
+//! ```
+//!
+//! The postscript records the offset, length, and alignment of the dtype, layout, statistics, and
+//! footer segments, so a single read of the file tail (defaulting to 64KiB) is enough to locate and
+//! parse the footer. The byte-level format is specified in full at
+//! <https://docs.vortex.dev/specs/file-format.html>.
+//!
+//! A Parquet-style file is realized by nesting a chunked layout of struct layouts of chunked layouts
+//! of flat layouts: the outer chunked layout models row groups and the inner one models pages.
+//! Layouts are adaptive, so the writer is free to build arbitrarily complex layouts to trade off
+//! locality and parallelism, or to elide statistics entirely when an external index supplies them.
 //!
 //! # Footer Deserialization
 //!
