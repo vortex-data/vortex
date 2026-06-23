@@ -5,9 +5,11 @@ use std::fmt;
 use std::fmt::Display;
 use std::fs;
 use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::process::Stdio;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
@@ -293,12 +295,26 @@ fn generate_sorted_clickbench_inner(
         temp_output_dir.display()
     );
 
-    let output = Command::new("duckdb")
+    let mut child = Command::new("duckdb")
         .arg(&db_path)
-        .arg("-c")
-        .arg(script)
-        .output()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .context("Failed to run DuckDB CLI while generating sorted ClickBench data")?;
+
+    let mut stdin = child
+        .stdin
+        .take()
+        .context("Failed to open DuckDB stdin while generating sorted ClickBench data")?;
+    stdin
+        .write_all(script.as_bytes())
+        .context("Failed to write sorted ClickBench SQL to DuckDB stdin")?;
+    drop(stdin);
+
+    let output = child
+        .wait_with_output()
+        .context("Failed to wait for DuckDB while generating sorted ClickBench data")?;
 
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
