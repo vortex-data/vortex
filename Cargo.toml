@@ -125,7 +125,7 @@ cc = "1.2"
 cfg-if = "1.0.1"
 chrono = "0.4.44"
 clap = "4.5"
-criterion = "0.8"
+criterion = { package = "codspeed-criterion-compat-walltime", version = "5.0.0" }
 crossterm = "0.29"
 cudarc = { version = "0.19.0", features = [
     # The NSight Compute version available on lambda.ai hosts does not inject a symbol for
@@ -150,7 +150,7 @@ datafusion-physical-plan = { version = "54" }
 datafusion-pruning = { version = "54" }
 datafusion-sqllogictest = { version = "54" }
 dirs = "6.0.0"
-divan = { package = "codspeed-divan-compat", version = "4.0.4" }
+divan = { package = "codspeed-divan-compat", version = "5.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
 fastlanes = "0.5.1"
