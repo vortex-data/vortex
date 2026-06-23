@@ -309,7 +309,6 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::assert_arrays_eq;
@@ -334,10 +333,10 @@ mod tests {
 
         for i in 0..i8s.len() {
             assert_eq!(
-                i8s.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                i8s.execute_scalar(i, &mut array_session().create_execution_ctx())
                     .unwrap(),
                 i128s
-                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(i, &mut array_session().create_execution_ctx())
                     .unwrap()
             );
         }
@@ -365,7 +364,7 @@ mod tests {
         let mut builder2 = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
         for i in 0..array.len() {
             let scalar = array
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut array_session().create_execution_ctx())
                 .unwrap();
             builder2.append_scalar(&scalar).unwrap();
         }

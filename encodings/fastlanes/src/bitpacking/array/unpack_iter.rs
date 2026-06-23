@@ -62,7 +62,7 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 /// use vortex_fastlanes::BitPackedArrayExt;
 /// use vortex_fastlanes::unpack_iter::BitUnpackedChunks;
 ///
-/// let mut ctx = vortex_array::LEGACY_SESSION.create_execution_ctx();
+/// let mut ctx = vortex_array::array_session().create_execution_ctx();
 /// let array = BitPackedData::encode(&buffer![2, 3, 4, 5].into_array(), 2, &mut ctx).unwrap();
 /// let mut unpacked_chunks: BitUnpackedChunks<i32> = array.unpacked_chunks().unwrap();
 ///

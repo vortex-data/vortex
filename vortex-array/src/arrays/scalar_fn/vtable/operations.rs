@@ -60,7 +60,6 @@ mod tests {
 
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
@@ -88,7 +87,7 @@ mod tests {
 
         let result = scalar_fn_array
             .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut array_session().create_execution_ctx())?
             .into_array();
         let expected = buffer![11i32, 22, 33].into_array();
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -141,7 +140,7 @@ mod tests {
 
         let result = scalar_fn_array
             .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut array_session().create_execution_ctx())?
             .into_array();
         let expected = buffer![10i32, 18, 28].into_array();
         assert_arrays_eq!(result, expected, &mut ctx);
@@ -164,7 +163,7 @@ mod tests {
 
         let result = scalar_fn_array
             .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut array_session().create_execution_ctx())?
             .into_array();
         let expected = PrimitiveArray::new(
             buffer![11i32, 0, 33],
@@ -187,7 +186,7 @@ mod tests {
 
         let result = scalar_fn_array
             .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut array_session().create_execution_ctx())?
             .into_array();
         let expected = BoolArray::from_iter([false, true, false]).into_array();
         assert_arrays_eq!(result, expected, &mut ctx);

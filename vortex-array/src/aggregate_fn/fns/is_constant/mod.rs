@@ -439,9 +439,9 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray as _;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::fns::is_constant::is_constant;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::DecimalArray;
@@ -459,7 +459,7 @@ mod tests {
     // Tests migrated from compute/is_constant.rs
     #[test]
     fn is_constant_min_max_no_nan() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let arr = buffer![0, 1].into_array();
         arr.statistics()
@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn is_constant_min_max_with_nan() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let arr = PrimitiveArray::from_iter([0.0, 0.0, f32::NAN]).into_array();
         arr.statistics()
@@ -505,7 +505,7 @@ mod tests {
     }, false)]
     fn test_bool_is_constant(#[case] input: Vec<bool>, #[case] expected: bool) -> VortexResult<()> {
         let array = BoolArray::from_iter(input);
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(is_constant(&array.into_array(), &mut ctx)?, expected);
         Ok(())
     }
@@ -525,7 +525,7 @@ mod tests {
         )?
         .into_array();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert!(is_constant(&chunked, &mut ctx)?);
         Ok(())
     }
@@ -533,7 +533,7 @@ mod tests {
     // Tests migrated from arrays/decimal/compute/is_constant.rs
     #[test]
     fn test_decimal_is_constant() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let array = DecimalArray::new(
             buffer![0i128, 1i128, 2i128],
@@ -554,7 +554,7 @@ mod tests {
     // Tests migrated from arrays/list/compute/is_constant.rs
     #[test]
     fn test_is_constant_nested_list() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let xs = ListArray::try_new(
             buffer![0i32, 1, 0, 1].into_array(),
@@ -612,7 +612,7 @@ mod tests {
             Validity::NonNullable,
         )?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(is_constant(&list_array.into_array(), &mut ctx)?, expected);
         Ok(())
     }
@@ -630,7 +630,7 @@ mod tests {
             Validity::NonNullable,
         )?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Both outer lists contain [[1], [2]], so should be constant
         assert!(is_constant(&outer_list.into_array(), &mut ctx)?);
         Ok(())
@@ -675,7 +675,7 @@ mod tests {
             Validity::NonNullable,
         )?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(is_constant(&list_array.into_array(), &mut ctx)?, expected);
         Ok(())
     }

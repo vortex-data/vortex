@@ -168,8 +168,8 @@ mod tests {
 
     use super::*;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -180,7 +180,7 @@ mod tests {
     fn mean_all_valid() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0, 5.0], Validity::NonNullable)
             .into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mean(&array, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(3.0));
         Ok(())
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn mean_with_nulls() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter([Some(2.0f64), None, Some(4.0)]).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mean(&array, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(3.0));
         Ok(())
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn mean_integers() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![10i32, 20, 30], Validity::NonNullable).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mean(&array, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(20.0));
         Ok(())
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn mean_bool() -> VortexResult<()> {
         let array: BoolArray = [true, false, true, true].into_iter().collect();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mean(&array.into_array(), &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(0.75));
         Ok(())
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn mean_constant_non_null() -> VortexResult<()> {
         let array = ConstantArray::new(5.0f64, 4);
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mean(&array.into_array(), &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(5.0));
         Ok(())
@@ -228,7 +228,7 @@ mod tests {
         let chunk2 = PrimitiveArray::from_option_iter([Some(5.0f64), None]);
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mean(&chunked.into_array(), &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(3.0));
         Ok(())
@@ -239,7 +239,7 @@ mod tests {
         // NaNs are excluded from both the sum and the count.
         let array =
             PrimitiveArray::new(buffer![1.0f64, f64::NAN, 3.0], Validity::NonNullable).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mean(&array, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(2.0));
         Ok(())
@@ -249,7 +249,7 @@ mod tests {
     fn mean_with_nan_not_skipping() -> VortexResult<()> {
         let array =
             PrimitiveArray::new(buffer![1.0f64, f64::NAN, 3.0], Validity::NonNullable).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let keep_nans = NumericalAggregateOpts::include_nans();
         let mut acc = Accumulator::try_new(
             Mean::combined(),
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn mean_all_null_returns_nan() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<f64, _>([None, None, None]).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mean(&array, &mut ctx)?;
         assert!(result.as_primitive().as_::<f64>().is_some_and(f64::is_nan));
         Ok(())
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn mean_multi_batch() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(
             Mean::combined(),

@@ -29,11 +29,11 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::RecursiveCanonical;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -48,7 +48,7 @@ fn to_vec_of_scalar(array: &ArrayRef) -> Vec<Scalar> {
     (0..array.len())
         .map(|index| {
             array
-                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(index, &mut array_session().create_execution_ctx())
                 .vortex_expect("scalar_at should succeed in conformance test")
         })
         .collect_vec()
@@ -119,7 +119,7 @@ where
         let result = array
             .binary(rhs_const.clone(), op.into())
             .vortex_expect("apply shouldn't fail")
-            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())
             .map(|c| c.0.into_array());
 
         // Skip this operator if the entire operation fails
@@ -157,7 +157,7 @@ where
 
         // Test scalar operator array (e.g., 1 + array)
         let result = rhs_const.binary(array.clone(), op.into()).and_then(|a| {
-            a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            a.execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())
                 .map(|c| c.0.into_array())
         });
 
@@ -363,7 +363,7 @@ where
         let result = array
             .binary(rhs_const, op.into())
             .vortex_expect("apply failed")
-            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())
             .map(|x| x.0.into_array());
 
         // Skip if the entire operation fails

@@ -11,7 +11,7 @@
 //! ```
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 //! use vortex_array::dtype::{DType, Nullability};
-//! use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
+//! use vortex_array::{VortexSessionExecute, array_session};
 //!
 //! // Create a new builder for string data.
 //! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
@@ -22,7 +22,7 @@
 //! builder.append_scalar(&"d".into()).unwrap();
 //!
 //! let strings = builder.finish();
-//! let mut ctx = LEGACY_SESSION.create_execution_ctx();
+//! let mut ctx = array_session().create_execution_ctx();
 //!
 //! assert_eq!(strings.execute_scalar(0, &mut ctx).unwrap(), "a".into());
 //! assert_eq!(strings.execute_scalar(1, &mut ctx).unwrap(), "b".into());
@@ -225,7 +225,7 @@ pub trait ArrayBuilder: Send {
 /// ```
 /// use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 /// use vortex_array::dtype::{DType, Nullability};
-/// use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
+/// use vortex_array::{VortexSessionExecute, array_session};
 ///
 /// // Create a new builder for string data.
 /// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
@@ -236,7 +236,7 @@ pub trait ArrayBuilder: Send {
 /// builder.append_scalar(&"d".into()).unwrap();
 ///
 /// let strings = builder.finish();
-/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let mut ctx = array_session().create_execution_ctx();
 ///
 /// assert_eq!(strings.execute_scalar(0, &mut ctx).unwrap(), "a".into());
 /// assert_eq!(strings.execute_scalar(1, &mut ctx).unwrap(), "b".into());

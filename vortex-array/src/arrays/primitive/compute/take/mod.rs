@@ -152,7 +152,6 @@ mod test {
     use vortex_error::VortexExpect;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
@@ -181,21 +180,21 @@ mod test {
         let actual = values.take(indices.into_array()).unwrap();
         assert_eq!(
             actual
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .vortex_expect("no fail"),
             Scalar::from(Some(1))
         );
         // position 3 is null
         assert_eq!(
             actual
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut array_session().create_execution_ctx())
                 .vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );
         // the third index is null
         assert_eq!(
             actual
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut array_session().create_execution_ctx())
                 .vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );

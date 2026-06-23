@@ -112,12 +112,12 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
+    use crate::array_session;
     use crate::arrays::DecimalArray;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -139,7 +139,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -161,7 +161,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -183,7 +183,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -206,7 +206,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected_sum = near_max as i64 + 500 + 400;
@@ -230,7 +230,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected_sum = (large_val as i128) * 4 + 1;
@@ -253,7 +253,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -272,7 +272,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -294,7 +294,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -317,7 +317,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected_sum =
@@ -343,7 +343,7 @@ mod tests {
         assert_eq!(
             sum(
                 &decimal.into_array(),
-                &mut LEGACY_SESSION.create_execution_ctx()
+                &mut array_session().create_execution_ctx()
             )
             .vortex_expect("operation should succeed in test"),
             Scalar::null(DType::Decimal(decimal_dtype, Nullable))
@@ -460,7 +460,7 @@ mod tests {
 
         // Drive accumulate through the vtable directly.
         let columnar = crate::Columnar::Canonical(crate::Canonical::Decimal(decimal));
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         Sum.accumulate(&mut state, &columnar, &mut ctx)?;
 
         let result = Sum.to_scalar(&state)?;

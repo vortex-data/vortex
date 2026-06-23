@@ -197,8 +197,8 @@ mod test {
 
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::FieldNames;
@@ -348,7 +348,7 @@ mod test {
 
         assert_eq!(recovered_array.len(), array.len());
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let recovered_primitive = recovered_array.execute::<PrimitiveArray>(&mut ctx)?;
         assert!(recovered_primitive.validity()?.mask_eq(

@@ -405,7 +405,6 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::ListArray;
@@ -462,12 +461,12 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
@@ -481,12 +480,12 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
@@ -500,12 +499,12 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
@@ -525,12 +524,12 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
@@ -550,13 +549,13 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            item.execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert!(
             !item
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(1, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
     }
@@ -648,7 +647,7 @@ mod tests {
         let result = arr.clone().apply(&expr).unwrap();
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(true, Nullability::NonNullable)
         );
@@ -658,7 +657,7 @@ mod tests {
         let result = arr.apply(&expr).unwrap();
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::bool(false, Nullability::NonNullable)
         );

@@ -450,7 +450,6 @@ mod tests {
     use super::*;
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
@@ -1237,19 +1236,19 @@ mod tests {
 
         let result = evaluate_expr(&expr, &test_array);
         assert_eq!(
-            result.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            result.execute_scalar(0, &mut SESSION.create_execution_ctx())?,
             Scalar::utf8("low", Nullability::NonNullable)
         );
         assert_eq!(
-            result.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            result.execute_scalar(1, &mut SESSION.create_execution_ctx())?,
             Scalar::utf8("low", Nullability::NonNullable)
         );
         assert_eq!(
-            result.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
+            result.execute_scalar(2, &mut SESSION.create_execution_ctx())?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
         assert_eq!(
-            result.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?,
+            result.execute_scalar(3, &mut SESSION.create_execution_ctx())?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
         Ok(())

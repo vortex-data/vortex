@@ -645,8 +645,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
     use crate::validity::BoolArray;
@@ -715,7 +715,7 @@ mod tests {
         let indices =
             PrimitiveArray::new(Buffer::copy_from(positions), Validity::NonNullable).into_array();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         assert!(
             validity
@@ -729,7 +729,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn out_of_bounds_patch() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         Validity::NonNullable
             .patch(
                 2,
@@ -781,7 +781,7 @@ mod tests {
         #[case] indices: ArrayRef,
         #[case] expected: Validity,
     ) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert!(
             validity
                 .take(&indices)
@@ -828,7 +828,7 @@ mod tests {
         #[case] rhs: Validity,
         #[case] expected: bool,
     ) -> vortex_error::VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
         Ok(())
     }

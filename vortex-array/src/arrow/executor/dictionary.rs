@@ -149,7 +149,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrow::ArrowArrayExecutor;
@@ -165,7 +165,7 @@ mod tests {
     }
 
     fn execute(array: crate::ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
-        array.execute_arrow(Some(dt), &mut LEGACY_SESSION.create_execution_ctx())
+        array.execute_arrow(Some(dt), &mut array_session().create_execution_ctx())
     }
 
     fn dict_basic_input() -> crate::ArrayRef {

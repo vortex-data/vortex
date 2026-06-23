@@ -4,8 +4,8 @@
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
@@ -15,7 +15,7 @@ impl BoolArray {
             .vortex_expect("failed to get validity")
             .execute_mask(
                 self.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut array_session().create_execution_ctx(),
             )
             .vortex_expect("Failed to compute validity mask")
             .to_bit_buffer()
@@ -30,7 +30,7 @@ impl BoolArray {
             .vortex_expect("failed to get validity")
             .execute_mask(
                 self.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut array_session().create_execution_ctx(),
             )
             .vortex_expect("Failed to compute validity mask")
             .to_bit_buffer()

@@ -159,7 +159,6 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::GroupedAccumulator;
@@ -185,7 +184,7 @@ mod tests {
             NumericalAggregateOpts::default(),
             elem_dtype.clone(),
         )?;
-        acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
+        acc.accumulate_list(groups, &mut array_session().create_execution_ctx())?;
         acc.finish()
     }
 
@@ -199,7 +198,7 @@ mod tests {
     ) -> VortexResult<ArrayRef> {
         use crate::aggregate_fn::AggregateFnVTable;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let sum_dtype = Sum
             .partial_dtype(&NumericalAggregateOpts::default(), elem_dtype)
             .expect("sum partial dtype");
@@ -335,7 +334,7 @@ mod tests {
 
         // Group 0: NaN skipped -> 3.0. Group 1: INF + -INF = NaN. (Avoid array equality here since
         // NaN != NaN; compare element scalars against the reference path instead.)
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let expected = grouped_sum_reference(&elements, &ranges, &valid, &elem_dtype)?;
         let g0 = actual.execute_scalar(0, &mut ctx)?;
         assert_eq!(g0.as_primitive().typed_value::<f64>(), Some(3.0));
@@ -371,10 +370,10 @@ mod tests {
 
         let mut acc =
             GroupedAccumulator::try_new(Sum, NumericalAggregateOpts::include_nans(), elem_dtype)?;
-        acc.accumulate_list(&groups, &mut LEGACY_SESSION.create_execution_ctx())?;
+        acc.accumulate_list(&groups, &mut array_session().create_execution_ctx())?;
         let actual = acc.finish()?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Group 0 contains a NaN -> NaN sum; group 1 sums normally.
         let g0 = actual.execute_scalar(0, &mut ctx)?;
         assert!(g0.as_primitive().typed_value::<f64>().unwrap().is_nan());

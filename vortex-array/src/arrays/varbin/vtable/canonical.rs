@@ -47,7 +47,6 @@ pub(crate) fn varbin_to_canonical(
 mod tests {
     use rstest::rstest;
 
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::VarBinArray;
@@ -80,7 +79,7 @@ mod tests {
 
         assert!(
             !canonical
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
 

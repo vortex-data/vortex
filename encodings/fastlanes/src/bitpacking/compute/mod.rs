@@ -46,8 +46,8 @@ fn chunked_indices<F: FnMut(usize, &[usize])>(
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -61,7 +61,7 @@ mod tests {
             array,
             bit_width,
             None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )
         .unwrap()
     }

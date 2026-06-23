@@ -8,8 +8,8 @@ use goldenfile::differs::binary_diff;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
@@ -30,7 +30,7 @@ pub fn to_int_indices(indices_bits: BoolArray) -> VortexResult<Vec<u64>> {
     let buffer = indices_bits.to_bit_buffer();
     let mask = indices_bits.as_ref().validity()?.execute_mask(
         indices_bits.as_ref().len(),
-        &mut LEGACY_SESSION.create_execution_ctx(),
+        &mut array_session().create_execution_ctx(),
     )?;
     Ok(buffer
         .iter()

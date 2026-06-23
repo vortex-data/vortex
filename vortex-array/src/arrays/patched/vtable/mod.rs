@@ -354,8 +354,8 @@ mod tests {
     use crate::ArraySlots;
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Patched;
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
@@ -382,7 +382,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = crate::array_session();
+        let session = array_session();
         let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -415,7 +415,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = crate::array_session();
+        let session = array_session();
         let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -448,7 +448,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = crate::array_session();
+        let session = array_session();
         let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -481,7 +481,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = crate::array_session();
+        let session = array_session();
         let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -518,7 +518,7 @@ mod tests {
         )
         .unwrap();
 
-        let session = crate::array_session();
+        let session = array_session();
         let mut ctx = session.create_execution_ctx();
 
         let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
@@ -562,7 +562,7 @@ mod tests {
 
         let patches = Patches::new(len, 0, indices, patch_vals, None)?;
 
-        let session = crate::array_session();
+        let session = array_session();
         let mut ctx = session.create_execution_ctx();
 
         Patched::from_array_and_patches(array, &patches, &mut ctx)
@@ -583,11 +583,12 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        LEGACY_SESSION.arrays().register(Patched);
+        let session = array_session();
+        session.arrays().register(Patched);
 
-        let ctx = ArrayContext::empty().with_registry(LEGACY_SESSION.arrays().registry().clone());
+        let ctx = ArrayContext::empty().with_registry(session.arrays().registry().clone());
         let serialized = array
-            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .serialize(&ctx, &session, &SerializeOptions::default())
             .unwrap();
 
         // Concat into a single buffer.
@@ -599,12 +600,7 @@ mod tests {
 
         let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
-            .decode(
-                &dtype,
-                len,
-                &ReadContext::new(ctx.to_ids()),
-                &LEGACY_SESSION,
-            )
+            .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
             .unwrap();
 
         assert!(decoded.is::<Patched>());
@@ -639,7 +635,7 @@ mod tests {
         assert_eq!(array_ref.dtype(), new_array.dtype());
 
         // Execute both and compare results
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let original_executed = array_ref.execute::<Canonical>(&mut ctx)?.into_primitive();
         let new_executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
 
@@ -665,7 +661,7 @@ mod tests {
         let new_array = array_ref.with_slots(slots.into_slots())?;
 
         // Execute and verify the inner values changed (except at patch positions)
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
 
         // Expected: all 5s except indices 1, 2, 3 which are patched to 10, 20, 30

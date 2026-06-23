@@ -307,7 +307,6 @@ mod test {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
@@ -341,7 +340,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut array_session().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -367,7 +366,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut array_session().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -397,7 +396,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut array_session().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -423,7 +422,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut array_session().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -472,7 +471,10 @@ mod test {
             &DType::Primitive(PType::U64, NonNullable),
             len * chunk_count,
         );
-        array.append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
+        array.append_to_builder(
+            builder.as_mut(),
+            &mut array_session().create_execution_ctx(),
+        )?;
 
         #[expect(deprecated)]
         let into_prim = array.to_primitive();

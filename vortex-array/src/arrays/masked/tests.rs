@@ -8,7 +8,6 @@ use vortex_error::VortexResult;
 use super::*;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
@@ -52,7 +51,7 @@ fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
     let canonical = array
         .clone()
         .into_array()
-        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        .execute::<Canonical>(&mut array_session().create_execution_ctx())?;
     assert_eq!(canonical.dtype(), array.dtype());
     Ok(())
 }
@@ -68,28 +67,28 @@ fn test_masked_child_with_validity() {
     let prim = array.as_array().to_primitive();
 
     // Positions where validity is false should be null in masked_child.
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     assert_eq!(prim.valid_count(&mut ctx).unwrap(), 3);
     assert!(
-        prim.is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+        prim.is_valid(0, &mut array_session().create_execution_ctx())
             .unwrap()
     );
     assert!(
         !prim
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut array_session().create_execution_ctx())
             .unwrap()
     );
     assert!(
-        prim.is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+        prim.is_valid(2, &mut array_session().create_execution_ctx())
             .unwrap()
     );
     assert!(
         !prim
-            .is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(3, &mut array_session().create_execution_ctx())
             .unwrap()
     );
     assert!(
-        prim.is_valid(4, &mut LEGACY_SESSION.create_execution_ctx())
+        prim.is_valid(4, &mut array_session().create_execution_ctx())
             .unwrap()
     );
 }
@@ -104,7 +103,7 @@ fn test_masked_child_all_valid() {
     assert_eq!(array.len(), 3);
     assert_eq!(
         array
-            .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+            .valid_count(&mut array_session().create_execution_ctx())
             .unwrap(),
         3
     );
@@ -132,7 +131,7 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
 
     assert_eq!(array.len(), len);
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     assert!(
         array
             .validity()

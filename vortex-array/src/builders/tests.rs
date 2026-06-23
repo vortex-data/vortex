@@ -8,8 +8,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
@@ -95,10 +95,10 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     // Compare each element.
     for i in 0..num_elements {
         let scalar_zeros = array_zeros
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut array_session().create_execution_ctx())
             .unwrap();
         let scalar_manual = array_manual
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut array_session().create_execution_ctx())
             .unwrap();
 
         assert_eq!(
@@ -197,7 +197,7 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
 
     for i in 0..3 {
         let scalar = array
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut array_session().create_execution_ctx())
             .unwrap();
         if should_be_null {
             assert!(scalar.is_null(), "Element at index {} should be null", i);
@@ -255,10 +255,10 @@ where
     // Compare each element.
     for i in 0..array_direct.len() {
         let scalar_direct = array_direct
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut array_session().create_execution_ctx())
             .unwrap();
         let scalar_indirect = array_indirect
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut array_session().create_execution_ctx())
             .unwrap();
 
         assert_eq!(
@@ -549,7 +549,7 @@ fn test_append_scalar_comprehensive(#[case] dtype: DType) {
     // Verify each scalar matches.
     for (i, expected_scalar) in scalars.iter().enumerate() {
         let actual_scalar = array
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut array_session().create_execution_ctx())
             .unwrap();
         assert_scalars_equal(&actual_scalar, expected_scalar, &dtype, i);
     }
@@ -557,7 +557,7 @@ fn test_append_scalar_comprehensive(#[case] dtype: DType) {
     // If nullable, verify the last element is null.
     if dtype.is_nullable() {
         let null_scalar = array
-            .execute_scalar(num_elements, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(num_elements, &mut array_session().create_execution_ctx())
             .unwrap();
         assert!(
             null_scalar.is_null(),
@@ -707,31 +707,31 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     // Check the pattern.
     assert!(
         !array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert!(
         array
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut array_session().create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert!(
         !array
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut array_session().create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert!(
         array
-            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(3, &mut array_session().create_execution_ctx())
             .unwrap()
             .is_null()
     );
     assert!(
         !array
-            .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(4, &mut array_session().create_execution_ctx())
             .unwrap()
             .is_null()
     );
@@ -739,7 +739,7 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     // Verify non-null values match.
     assert_scalars_equal(
         &array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap(),
         &test_scalars[0],
         &dtype,
@@ -747,7 +747,7 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     );
     assert_scalars_equal(
         &array
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut array_session().create_execution_ctx())
             .unwrap(),
         &test_scalars[1],
         &dtype,
@@ -755,7 +755,7 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     );
     assert_scalars_equal(
         &array
-            .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(4, &mut array_session().create_execution_ctx())
             .unwrap(),
         &test_scalars[2],
         &dtype,
@@ -812,7 +812,7 @@ fn test_append_scalar_repeated_same_instance() {
     // All values should be 42.
     for i in 0..5 {
         let actual = array
-            .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(i, &mut array_session().create_execution_ctx())
             .unwrap();
         assert_eq!(
             actual.as_primitive().typed_value::<i32>(),
@@ -855,7 +855,7 @@ fn test_set_validity_overrides_validity(
     builder.set_validity(mask);
 
     let validity = builder.finish().validity()?;
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     for (i, &valid) in expected.iter().enumerate() {
         assert_eq!(
             validity.execute_is_valid(i, &mut ctx)?,
@@ -877,7 +877,7 @@ fn test_set_validity_noop_when_non_nullable() -> VortexResult<()> {
     builder.set_validity(Mask::new_false(4));
 
     let validity = builder.finish().validity()?;
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     for i in 0..4 {
         assert!(
             validity.execute_is_valid(i, &mut ctx)?,

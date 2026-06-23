@@ -22,8 +22,8 @@ impl FillNullReduce for Constant {
 #[cfg(test)]
 mod test {
     use crate::IntoArray as _;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrow::ArrowSessionExt;
     use crate::builtins::ArrayBuiltins;
@@ -34,7 +34,7 @@ mod test {
 
     #[test]
     fn test_null() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let actual = ConstantArray::new(Scalar::null_native::<i32>(), 3)
             .into_array()
             .fill_null(Scalar::from(1))
@@ -43,11 +43,11 @@ mod test {
 
         assert!(!actual.dtype().is_nullable());
 
-        let actual_arrow = LEGACY_SESSION
+        let actual_arrow = array_session()
             .arrow()
             .execute_arrow(actual.clone(), None, &mut ctx)
             .unwrap();
-        let expected_arrow = LEGACY_SESSION
+        let expected_arrow = array_session()
             .arrow()
             .execute_arrow(expected.clone(), None, &mut ctx)
             .unwrap();
@@ -62,7 +62,7 @@ mod test {
 
     #[test]
     fn test_non_null() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let actual = ConstantArray::new(Scalar::from(Some(1)), 3)
             .into_array()
             .fill_null(Scalar::from(1))
@@ -71,11 +71,11 @@ mod test {
 
         assert!(!actual.dtype().is_nullable());
 
-        let actual_arrow = LEGACY_SESSION
+        let actual_arrow = array_session()
             .arrow()
             .execute_arrow(actual.clone(), None, &mut ctx)
             .unwrap();
-        let expected_arrow = LEGACY_SESSION
+        let expected_arrow = array_session()
             .arrow()
             .execute_arrow(expected.clone(), None, &mut ctx)
             .unwrap();
@@ -90,7 +90,7 @@ mod test {
 
     #[test]
     fn test_non_nullable_with_nullable() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let actual = ConstantArray::new(Scalar::from(1), 3)
             .into_array()
             .fill_null(Scalar::new(
@@ -104,11 +104,11 @@ mod test {
 
         assert!(actual.dtype().is_nullable());
 
-        let actual_arrow = LEGACY_SESSION
+        let actual_arrow = array_session()
             .arrow()
             .execute_arrow(actual.clone(), None, &mut ctx)
             .unwrap();
-        let expected_arrow = LEGACY_SESSION
+        let expected_arrow = array_session()
             .arrow()
             .execute_arrow(expected.clone(), None, &mut ctx)
             .unwrap();

@@ -206,8 +206,8 @@ mod tests {
     use crate::ArrayContext;
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Masked;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
@@ -243,7 +243,7 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .serialize(&ctx, &array_session(), &SerializeOptions::default())
             .unwrap();
 
         // Concat into a single buffer.
@@ -259,7 +259,7 @@ mod tests {
                 &dtype,
                 len,
                 &ReadContext::new(ctx.to_ids()),
-                &LEGACY_SESSION,
+                &array_session(),
             )
             .unwrap();
 
@@ -287,7 +287,7 @@ mod tests {
         assert_eq!(array.dtype().nullability(), Nullability::Nullable);
 
         // Execute the array. This should produce a Canonical with Nullable dtype.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result: Canonical = array.into_array().execute(&mut ctx)?;
 
         assert_eq!(
