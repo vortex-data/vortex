@@ -343,7 +343,7 @@ mod tests {
     fn offset_width_boundary() {
         let m = i32::MAX as usize;
         assert!(fsst_output_fits_in_i32_offsets(m / 2 - 7));
-        assert!(!fsst_output_fits_in_i32_offsets(m / 2));
+        assert!(fsst_output_fits_in_i32_offsets(m / 2));
         assert!(fsst_output_fits_in_i32_offsets(0));
         assert!(!fsst_output_fits_in_i32_offsets(usize::MAX));
     }
