@@ -14,6 +14,7 @@ use vortex::array::validity::Validity;
 use vortex::encodings::pco::Pco;
 use vortex::error::VortexResult;
 use vortex_array::ExecutionCtx;
+
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
 

@@ -32,7 +32,7 @@ impl FlatLayoutFixture for ByteBoolFixture {
         vec![ByteBool.id()]
     }
 
-    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let alternating: Vec<bool> = (0..N).map(|i| i % 2 == 0).collect();
         let mostly_true: Vec<bool> = (0..N).map(|i| i % 100 != 0).collect();
         let mixed: Vec<bool> = (0..N).map(|i| (i * 7 + 3) % 5 > 1).collect();

@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
@@ -14,7 +12,6 @@ use vortex::array::validity::Validity;
 use vortex::encodings::fastlanes::RLE;
 use vortex::error::VortexResult;
 use vortex_array::ExecutionCtx;
-use vortex_session::VortexSession;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
