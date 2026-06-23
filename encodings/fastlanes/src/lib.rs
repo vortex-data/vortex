@@ -20,6 +20,11 @@
 //! let session = vortex_array::array_session();
 //! vortex_fastlanes::initialize(&session);
 //! ```
+//!
+//! ## Paper
+//!
+//! The original encodings are described in the paper [The FastLanes Compression Layout](https://15721.courses.cs.cmu.edu/spring2024/papers/03-data2/p2132-afroozeh.pdf),
+//! but are not fully binary compatible. See the underlying [fastlanes](https://github.com/spiraldb/fastlanes) crate for more details.
 
 pub use bitpacking::*;
 pub use delta::*;

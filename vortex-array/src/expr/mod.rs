@@ -1,9 +1,38 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Vortex's expression language.
+//! Vortex's expression language: scalar operations over [arrays](crate::ArrayRef).
 //!
-//! All expressions are serializable, and own their own wire format.
+//! An [`Expression`] is a tree of scalar operations rooted at a scope (see [`root`]). Expressions
+//! are the common currency of scans: a scan takes a *filter* expression that resolves to a boolean
+//! and a *projection* expression that shapes the output. All expressions are serializable and own
+//! their own wire format, so they can be pushed down to remote sources and reconstructed on workers.
+//!
+//! # Scalar functions
+//!
+//! Each node references a scalar function defined by a
+//! [`ScalarFnVTable`](crate::scalar_fn::ScalarFnVTable). The vtable declares the function signature,
+//! properties such as null-sensitivity, and the logic that executes it over input arrays. Built-in
+//! functions live in [`crate::scalar_fn`]; integration and plugin crates supply additional,
+//! use-case-specific functions.
+//!
+//! # Deferred execution
+//!
+//! Applying an expression to an array does not compute the result eagerly. Instead it builds a
+//! [`ScalarFnArray`](crate::arrays::ScalarFnArray) representing the deferred application, letting
+//! downstream encodings push the computation into compressed data, or fuse several expressions
+//! together, before any data is materialized. The deferred tree is executed toward canonical form
+//! only when a result is actually required.
+//!
+//! # Typing and coercion
+//!
+//! Expressions are strictly typed: an input array's dtype must match the function signature exactly,
+//! so callers perform any required type coercion themselves before building the expression (see the
+//! [`transform`] passes). The one relaxation is null-coercion — for example, equality may compare a
+//! `u32` against a `u32?`, but never a `u32` against an `i32`.
+//!
+//! Filter expressions are decomposed into independent conjuncts with [`split_conjunction`] so that
+//! scans can evaluate and reorder the most selective predicates first.
 //!
 //! The implementation takes inspiration from [Postgres] and [Apache Datafusion].
 //!
