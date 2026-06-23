@@ -153,6 +153,7 @@ mod test {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
