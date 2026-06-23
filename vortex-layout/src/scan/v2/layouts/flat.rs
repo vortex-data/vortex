@@ -21,6 +21,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::SliceArray;
 use vortex_array::expr::Expression;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializedArray;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -228,5 +229,7 @@ pub(crate) fn slice_to_range(array: ArrayRef, range: &Range<u64>) -> VortexResul
     if start == 0 && end == array.len() {
         return Ok(array);
     }
-    Ok(SliceArray::try_new(array, start..end)?.into_array())
+    SliceArray::try_new(array, start..end)?
+        .into_array()
+        .optimize()
 }
