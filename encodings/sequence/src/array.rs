@@ -60,8 +60,6 @@ pub struct SequenceMetadata {
     base: Option<vortex_proto::scalar::ScalarValue>,
     #[prost(message, tag = "2")]
     multiplier: Option<vortex_proto::scalar::ScalarValue>,
-    #[prost(enumeration = "PType", optional, tag = "3")]
-    calculation_ptype: Option<i32>,
 }
 
 pub(super) const SLOT_NAMES: [&str; 0] = [];
@@ -71,16 +69,11 @@ pub(super) const SLOT_NAMES: [&str; 0] = [];
 pub struct SequenceData {
     base: PValue,
     multiplier: PValue,
-    calculation_ptype: PType,
 }
 
 impl Display for SequenceData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "base: {}, multiplier: {}, calculation_ptype: {}",
-            self.base, self.multiplier, self.calculation_ptype
-        )
+        write!(f, "base: {}, multiplier: {}", self.base, self.multiplier)
     }
 }
 
@@ -97,47 +90,54 @@ impl SequenceData {
         nullability: Nullability,
         length: usize,
     ) -> VortexResult<Self> {
-        let dtype = DType::Primitive(T::PTYPE, nullability);
-        Self::try_new(base.into(), multiplier.into(), T::PTYPE, &dtype, length)
+        Self::try_new(
+            base.into(),
+            multiplier.into(),
+            T::PTYPE,
+            nullability,
+            length,
+        )
     }
 
-    /// Constructs a sequence array using `calculation_ptype` for arithmetic.
+    /// Constructs a sequence array using two integer values.
+    ///
+    /// Arithmetic uses an inferred i64/u64 ptype based on base and multiplier.
     pub(crate) fn try_new(
         base: PValue,
         multiplier: PValue,
-        calculation_ptype: PType,
-        dtype: &DType,
+        ptype: PType,
+        nullability: Nullability,
         length: usize,
     ) -> VortexResult<Self> {
-        Self::validate(base, multiplier, calculation_ptype, dtype, length)?;
-        let (base, multiplier) = Self::normalize(base, multiplier, calculation_ptype)?;
+        let dtype = DType::Primitive(ptype, nullability);
+        Self::validate(base, multiplier, &dtype, length)?;
+        let (base, multiplier) = Self::normalize(base, multiplier)?;
 
-        Ok(unsafe { Self::new_unchecked(base, multiplier, calculation_ptype) })
+        Ok(unsafe { Self::new_unchecked(base, multiplier) })
     }
 
     pub fn validate(
         base: PValue,
         multiplier: PValue,
-        calculation_ptype: PType,
-        output_dtype: &DType,
+        dtype: &DType,
         length: usize,
     ) -> VortexResult<()> {
-        let DType::Primitive(output_ptype, _) = output_dtype else {
+        let DType::Primitive(ptype, _) = dtype else {
             vortex_bail!("only primitive dtypes are supported in SequenceArray currently");
         };
 
-        if !calculation_ptype.is_int() || !output_ptype.is_int() {
+        if !ptype.is_int() {
             vortex_bail!("only integer ptypes are supported in SequenceArray currently")
         }
 
         vortex_ensure!(length > 0, "SequenceArray length must be greater than zero");
-        let last  =  Self::try_last(base, multiplier, calculation_ptype, length).map_err(|e| {
+        let last  =  Self::try_last(base, multiplier,  length).map_err(|e| {
             e.with_context(format!(
                 "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length} ",
             ))
         })?;
 
-        match_each_integer_ptype!(*output_ptype, |P| {
+        match_each_integer_ptype!(*ptype, |P| {
             base.cast::<P>()?;
             last.cast::<P>()?;
             VortexResult::Ok(())
@@ -146,7 +146,41 @@ impl SequenceData {
         Ok(())
     }
 
-    fn normalize(base: PValue, multiplier: PValue, ptype: PType) -> VortexResult<(PValue, PValue)> {
+    fn infer_calculation_ptype(base: PValue, multiplier: PValue) -> VortexResult<PType> {
+        if !base.ptype().is_int() || !multiplier.ptype().is_int() {
+            vortex_bail!("only integer ptypes are supported in SequenceArray currently")
+        }
+
+        if base.ptype().is_signed_int() || multiplier.ptype().is_signed_int() {
+            Ok(PType::I64)
+        } else {
+            Ok(PType::U64)
+        }
+    }
+
+    fn infer_calculation_ptype_from_proto(
+        base: &vortex_proto::scalar::ScalarValue,
+        multiplier: &vortex_proto::scalar::ScalarValue,
+    ) -> VortexResult<PType> {
+        use vortex_proto::scalar::scalar_value::Kind;
+        let base_kind = base
+            .kind
+            .as_ref()
+            .ok_or_else(|| vortex_err!("base value missing kind"))?;
+        let multiplier_kind = multiplier
+            .kind
+            .as_ref()
+            .ok_or_else(|| vortex_err!("multiplier value missing kind"))?;
+
+        match (base_kind, multiplier_kind) {
+            (Kind::Int64Value(_), _) | (_, Kind::Int64Value(_)) => Ok(PType::I64),
+            (Kind::Uint64Value(_), Kind::Uint64Value(_)) => Ok(PType::U64),
+            _ => vortex_bail!("only integer ptypes are supported in SequenceArray currently"),
+        }
+    }
+
+    fn normalize(base: PValue, multiplier: PValue) -> VortexResult<(PValue, PValue)> {
+        let ptype = Self::infer_calculation_ptype(base, multiplier)?;
         match_each_integer_ptype!(ptype, |P| {
             Ok((
                 PValue::from(base.cast::<P>()?),
@@ -160,23 +194,14 @@ impl SequenceData {
     /// # Safety
     ///
     /// The caller must ensure that:
-    /// - `base` and `multiplier` are both normalized to `calculation_ptype`.
-    /// - `calculation_ptype` is an integer type.
+    /// - `base` and `multiplier` are both normalized to the same integer `ptype`.
     /// - they are logically compatible with the outer dtype and len.
-    pub(crate) unsafe fn new_unchecked(
-        base: PValue,
-        multiplier: PValue,
-        calculation_ptype: PType,
-    ) -> Self {
-        Self {
-            base,
-            multiplier,
-            calculation_ptype,
-        }
+    pub(crate) unsafe fn new_unchecked(base: PValue, multiplier: PValue) -> Self {
+        Self { base, multiplier }
     }
 
-    pub fn calculation_ptype(&self) -> PType {
-        self.calculation_ptype
+    pub fn ptype(&self) -> PType {
+        self.base.ptype()
     }
 
     pub fn base(&self) -> PValue {
@@ -187,8 +212,8 @@ impl SequenceData {
         self.multiplier
     }
 
-    pub(crate) fn cast_value(value: PValue, output_ptype: PType) -> VortexResult<PValue> {
-        match_each_integer_ptype!(output_ptype, |O| { Ok(PValue::from(value.cast::<O>()?)) })
+    pub(crate) fn cast_value(value: PValue, ptype: PType) -> VortexResult<PValue> {
+        match_each_integer_ptype!(ptype, |O| { Ok(PValue::from(value.cast::<O>()?)) })
     }
 
     pub fn into_parts(self) -> SequenceDataParts {
@@ -202,9 +227,9 @@ impl SequenceData {
     pub(crate) fn try_last(
         base: PValue,
         multiplier: PValue,
-        ptype: PType,
         length: usize,
     ) -> VortexResult<PValue> {
+        let ptype = Self::infer_calculation_ptype(base, multiplier)?;
         match_each_integer_ptype!(ptype, |P| {
             let len_t = <P>::from_usize(length - 1)
                 .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
@@ -220,7 +245,7 @@ impl SequenceData {
     }
 
     pub(crate) fn index_value(&self, idx: usize) -> PValue {
-        match_each_integer_ptype!(self.calculation_ptype(), |P| {
+        match_each_integer_ptype!(self.ptype(), |P| {
             let base = self.base.cast::<P>().vortex_expect("must be able to cast");
             let multiplier = self
                 .multiplier
@@ -237,15 +262,12 @@ impl ArrayHash for SequenceData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _accuracy: EqMode) {
         self.base.hash(state);
         self.multiplier.hash(state);
-        self.calculation_ptype.hash(state);
     }
 }
 
 impl ArrayEq for SequenceData {
     fn array_eq(&self, other: &Self, _accuracy: EqMode) -> bool {
-        self.base == other.base
-            && self.multiplier == other.multiplier
-            && self.calculation_ptype == other.calculation_ptype
+        self.base == other.base && self.multiplier == other.multiplier
     }
 }
 
@@ -267,13 +289,7 @@ impl VTable for Sequence {
         len: usize,
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        SequenceData::validate(
-            data.base,
-            data.multiplier,
-            data.calculation_ptype,
-            dtype,
-            len,
-        )
+        SequenceData::validate(data.base, data.multiplier, dtype, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -295,7 +311,6 @@ impl VTable for Sequence {
         let metadata = SequenceMetadata {
             base: Some((&array.base()).into()),
             multiplier: Some((&array.multiplier()).into()),
-            calculation_ptype: Some(array.calculation_ptype() as i32),
         };
 
         Ok(Some(metadata.encode_to_vec()))
@@ -322,19 +337,23 @@ impl VTable for Sequence {
         );
         let metadata = SequenceMetadata::decode(metadata)?;
 
-        let calculation_ptype = metadata
-            .calculation_ptype
-            .map(|p| PType::try_from(p).map_err(|e| vortex_err!("invalid PType {p}: {e}")))
-            .transpose()?
-            .unwrap_or_else(|| dtype.as_ptype());
+        let base_metadata = metadata
+            .base
+            .as_ref()
+            .ok_or_else(|| vortex_err!("base required"))?;
+
+        let multiplier_metadata = metadata
+            .multiplier
+            .as_ref()
+            .ok_or_else(|| vortex_err!("multiplier required"))?;
+
+        let ptype =
+            SequenceData::infer_calculation_ptype_from_proto(base_metadata, multiplier_metadata)?;
 
         // We go via Scalar to validate that the value is valid for the ptype.
         let base = Scalar::from_proto_value(
-            metadata
-                .base
-                .as_ref()
-                .ok_or_else(|| vortex_err!("base required"))?,
-            &DType::Primitive(calculation_ptype, NonNullable),
+            base_metadata,
+            &DType::Primitive(ptype, NonNullable),
             session,
         )?
         .as_primitive()
@@ -342,18 +361,15 @@ impl VTable for Sequence {
         .vortex_expect("sequence array base should be a non-nullable primitive");
 
         let multiplier = Scalar::from_proto_value(
-            metadata
-                .multiplier
-                .as_ref()
-                .ok_or_else(|| vortex_err!("multiplier required"))?,
-            &DType::Primitive(calculation_ptype, NonNullable),
+            multiplier_metadata,
+            &DType::Primitive(ptype, NonNullable),
             session,
         )?
         .as_primitive()
         .pvalue()
         .vortex_expect("sequence array multiplier should be a non-nullable primitive");
 
-        let data = SequenceData::try_new(base, multiplier, calculation_ptype, dtype, len)?;
+        let data = SequenceData::try_new(base, multiplier, ptype, dtype.nullability(), len)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data))
     }
 
@@ -434,16 +450,16 @@ impl Sequence {
     pub(crate) unsafe fn new_unchecked(
         base: PValue,
         multiplier: PValue,
-        calculation_ptype: PType,
-        output_ptype: PType,
+        ptype: PType,
         nullability: Nullability,
         length: usize,
     ) -> SequenceArray {
-        let dtype = DType::Primitive(output_ptype, nullability);
-        let (base, multiplier) = SequenceData::normalize(base, multiplier, calculation_ptype)
-            .vortex_expect("SequenceArray parts must be normalized to the target ptype");
+        let dtype = DType::Primitive(ptype, nullability);
+        let (base, multiplier) = SequenceData::normalize(base, multiplier).vortex_expect(
+            "SequenceArray parts must be normalized to the inferred arithmetic ptype",
+        );
         let stats = Self::stats(multiplier);
-        let data = unsafe { SequenceData::new_unchecked(base, multiplier, calculation_ptype) };
+        let data = unsafe { SequenceData::new_unchecked(base, multiplier) };
         unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
             .with_stats_set(stats)
     }
@@ -452,13 +468,12 @@ impl Sequence {
     pub fn try_new(
         base: PValue,
         multiplier: PValue,
-        calculation_ptype: PType,
-        output_ptype: PType,
+        ptype: PType,
         nullability: Nullability,
         length: usize,
     ) -> VortexResult<SequenceArray> {
-        let dtype = DType::Primitive(output_ptype, nullability);
-        let data = SequenceData::try_new(base, multiplier, calculation_ptype, &dtype, length)?;
+        let dtype = DType::Primitive(ptype, nullability);
+        let data = SequenceData::try_new(base, multiplier, ptype, nullability, length)?;
         let stats = Self::stats(data.multiplier());
         Ok(
             unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }

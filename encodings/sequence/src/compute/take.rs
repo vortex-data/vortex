@@ -71,43 +71,26 @@ fn take_inner<T: IntegerPType, C: IntegerPType, O: IntegerPType>(
     }
 }
 
-fn take_with_output_ptype<T: IntegerPType, C: IntegerPType, O: IntegerPType>(
+fn take_with_typed_indices<T: IntegerPType>(
     array: ArrayView<'_, Sequence>,
     indices: &[T],
     indices_mask: Mask,
     result_nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    let mul = array.multiplier().cast::<C>()?;
-    let base = array.base().cast::<C>()?;
-    Ok(take_inner::<T, C, O>(
-        mul,
-        base,
-        indices,
-        indices_mask,
-        result_nullability,
-        array.len(),
-    ))
-}
+    match_each_integer_ptype!(array.ptype(), |C| {
+        let mul = array.multiplier().cast::<C>()?;
+        let base = array.base().cast::<C>()?;
 
-fn take_with_calculation_ptype<T: IntegerPType, C: IntegerPType>(
-    array: ArrayView<'_, Sequence>,
-    indices: &[T],
-    indices_mask: Mask,
-    result_nullability: Nullability,
-) -> VortexResult<ArrayRef> {
-    match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
-        take_with_output_ptype::<T, C, O>(array, indices, indices_mask, result_nullability)
-    })
-}
-
-fn take_with_indices_ptype<T: IntegerPType>(
-    array: ArrayView<'_, Sequence>,
-    indices: &[T],
-    indices_mask: Mask,
-    result_nullability: Nullability,
-) -> VortexResult<ArrayRef> {
-    match_each_integer_ptype!(array.calculation_ptype(), |C| {
-        take_with_calculation_ptype::<T, C>(array, indices, indices_mask, result_nullability)
+        match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
+            Ok(take_inner::<T, C, O>(
+                mul,
+                base,
+                indices,
+                indices_mask,
+                result_nullability,
+                array.len(),
+            ))
+        })
     })
 }
 
@@ -118,7 +101,7 @@ fn take_sequence(
     result_nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
     match_each_integer_ptype!(indices.ptype(), |T| {
-        take_with_indices_ptype::<T>(
+        take_with_typed_indices::<T>(
             array,
             indices.as_slice::<T>(),
             indices_mask,

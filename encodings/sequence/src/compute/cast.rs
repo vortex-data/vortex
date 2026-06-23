@@ -26,12 +26,11 @@ impl CastReduce for Sequence {
             return Ok(None);
         }
 
-        // try_new -> validate proves the produced values fit the target type.
+        // try_new also validates that the produced values fit the target ptype.
         Ok(Some(
             Sequence::try_new(
                 array.base(),
                 array.multiplier(),
-                array.calculation_ptype(),
                 *target_ptype,
                 *target_nullability,
                 array.len(),
@@ -149,7 +148,8 @@ mod tests {
     }
 
     #[test]
-    fn test_cast_sequence_preserves_encoding_and_scalar_at_uses_output_dtype() -> VortexResult<()> {
+    fn test_cast_sequence_keeps_arithmetic_ptype_but_scalar_uses_output_dtype() -> VortexResult<()>
+    {
         // Cast the public dtype to u8
         let casted = Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5)?
             .into_array()
@@ -158,7 +158,7 @@ mod tests {
         let sequence = casted
             .as_typed::<Sequence>()
             .expect("integer sequence cast should preserve SequenceArray");
-        assert_eq!(sequence.calculation_ptype(), PType::I32);
+        assert_eq!(sequence.ptype(), PType::I64);
         assert_eq!(
             sequence.dtype(),
             &DType::Primitive(PType::U8, Nullability::NonNullable)

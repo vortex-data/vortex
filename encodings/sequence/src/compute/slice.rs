@@ -19,7 +19,6 @@ impl SliceReduce for Sequence {
                 Sequence::new_unchecked(
                     array.index_value(range.start),
                     array.multiplier(),
-                    array.calculation_ptype(),
                     array.dtype().as_ptype(),
                     array.dtype().nullability(),
                     range.len(),

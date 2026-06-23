@@ -48,9 +48,7 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
         }
 
         let base = seq.base();
-        let output_ptype = seq.dtype().as_ptype();
-        let last =
-            SequenceData::try_last(base, seq.multiplier(), seq.calculation_ptype(), seq.len())?;
+        let last = SequenceData::try_last(base, seq.multiplier(), seq.len())?;
 
         // Determine min and max based on multiplier direction.
         // For unsigned types, multiplier is always >= 0.
@@ -67,6 +65,7 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
             float: |_v| { unreachable!("float multiplier not supported for SequenceArray") }
         );
 
+        let output_ptype = seq.dtype().as_ptype();
         let min_pvalue = SequenceData::cast_value(min_pvalue, output_ptype)?;
         let max_pvalue = SequenceData::cast_value(max_pvalue, output_ptype)?;
 

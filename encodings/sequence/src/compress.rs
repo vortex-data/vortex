@@ -81,7 +81,7 @@ pub fn sequence_decompress(array: &SequenceArray) -> VortexResult<ArrayRef> {
         PrimitiveArray::new(values, Validity::from(nullability))
     }
 
-    let prim = match_each_integer_ptype!(array.calculation_ptype(), |C| {
+    let prim = match_each_integer_ptype!(array.ptype(), |C| {
         let base = array.base().cast::<C>()?;
         let multiplier = array.multiplier().cast::<C>()?;
         match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
@@ -141,7 +141,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
         return Ok(None);
     }
 
-    if SequenceData::try_last(base.into(), multiplier.into(), P::PTYPE, slice.len()).is_err() {
+    if SequenceData::try_last(base.into(), multiplier.into(), slice.len()).is_err() {
         // If the last value is out of range, we cannot encode
         return Ok(None);
     }

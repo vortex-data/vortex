@@ -275,7 +275,6 @@ fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
         PValue::U64(row_offset + row_range.start),
         PValue::U64(1),
         PType::U64,
-        PType::U64,
         NonNullable,
         usize::try_from(row_range.end - row_range.start)
             .vortex_expect("Row range length must fit in usize"),
