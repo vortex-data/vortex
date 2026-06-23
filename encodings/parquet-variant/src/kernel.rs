@@ -24,7 +24,6 @@ use vortex_array::arrays::Dict;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::Slice;
-use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::extension::ExtensionArrayExt;
@@ -72,7 +71,6 @@ pub(crate) fn initialize(session: &VortexSession) {
         TakeExecuteAdaptor(ParquetVariant),
     );
     kernels.register_execute_parent_kernel(VariantGet.id(), ParquetVariant, VariantGetKernel);
-    kernels.register_execute_parent_kernel(JsonToVariant.id(), VarBinView, JsonToVariantKernel);
     kernels.register_execute_parent_kernel(
         JsonToVariant.id(),
         Extension,
@@ -120,13 +118,13 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
     }
 }
 
-/// Performs the [`JsonToVariant`] conversion (and optional shredding) over a JSON string array.
+/// Performs the [`JsonToVariant`] conversion (and optional shredding) over JSON string storage.
 ///
 /// `JsonToVariant`'s definition lives in `vortex-json`; the registered `execute_parent` kernels
 /// delegate here to do the actual JSON parsing and optional shredding using
-/// `parquet_variant_compute`, producing a [`ParquetVariant`] array. `strings` is the input JSON
-/// string array (any string encoding); it is executed to Arrow and parsed. Nullability of the
-/// result follows `parent.dtype()`, which equals the input's nullability.
+/// `parquet_variant_compute`, producing a [`ParquetVariant`] array. `strings` is the JSON
+/// extension's storage array; it is executed to Arrow and parsed. Nullability of the result follows
+/// `parent.dtype()`, which equals the input's nullability.
 fn json_strings_to_variant(
     strings: ArrayRef,
     parent: ScalarFnArrayView<'_, JsonToVariant>,
@@ -156,32 +154,10 @@ fn json_strings_to_variant(
     }
 }
 
-/// Builds Parquet Variant arrays for [`JsonToVariant`] over canonical `VarBinView` string input.
-#[derive(Default, Debug)]
-struct JsonToVariantKernel;
-
-impl ExecuteParentKernel<VarBinView> for JsonToVariantKernel {
-    type Parent = ExactScalarFn<JsonToVariant>;
-
-    fn execute_parent(
-        &self,
-        array: ArrayView<'_, VarBinView>,
-        parent: ScalarFnArrayView<'_, JsonToVariant>,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        if child_idx != 0 {
-            return Ok(None);
-        }
-        json_strings_to_variant(array.as_ref().clone(), parent, ctx).map(Some)
-    }
-}
-
 /// Builds Parquet Variant arrays for [`JsonToVariant`] over a [`Json`] extension input.
 ///
-/// `JsonToVariant` also accepts `Json` extension values directly. This kernel unwraps the
-/// extension's string storage and runs the same conversion as [`JsonToVariantKernel`]. It is keyed
-/// on the shared extension encoding, so it declines any non-`Json` extension.
+/// This kernel unwraps the extension's string storage and runs the JSON conversion. It is keyed on
+/// the shared extension encoding, so it declines any non-`Json` extension.
 #[derive(Default, Debug)]
 struct JsonExtensionToVariantKernel;
 

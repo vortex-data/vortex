@@ -13,8 +13,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::VarBinView;
-use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
@@ -38,9 +36,9 @@ use crate::Json;
 
 /// Parses JSON strings into Variant values, optionally shredding fields.
 ///
-/// Accepts `Utf8` inputs or [`Json`] extension inputs and returns `Variant` values with the
-/// input's nullability. Null rows stay null, the JSON literal `null` becomes a variant-null
-/// value, and any row that fails to parse as JSON fails the whole expression.
+/// Accepts [`Json`] extension inputs and returns `Variant` values with the input's nullability.
+/// Null rows stay null, the JSON literal `null` becomes a variant-null value, and any row that
+/// fails to parse as JSON fails the whole expression.
 ///
 /// A non-empty [`ShreddingSpec`] additionally shreds the selected paths into a typed shredded
 /// child, following the [Parquet Variant shredding] rules: rows whose value does not match the
@@ -50,10 +48,10 @@ use crate::Json;
 ///
 /// Building a Variant requires a concrete Variant encoding, so this function does not perform the
 /// conversion itself. The Variant encoding registered with the session supplies it as an
-/// `execute_parent` kernel keyed on the canonical string encodings (`VarBinView` for `Utf8`, and
-/// the extension encoding for a [`Json`] input). The fallback [`execute`](ScalarFnVTable::execute)
-/// here only canonicalizes its input to one of those encodings and re-dispatches so that kernel
-/// runs; it errors if no Variant encoding is registered with the session.
+/// `execute_parent` kernel keyed on the extension encoding for a [`Json`] input. The fallback
+/// [`execute`](ScalarFnVTable::execute) here only canonicalizes the input to that encoding and
+/// re-dispatches so that kernel runs; it errors if no Variant encoding is registered with the
+/// session.
 ///
 /// # Normalization
 ///
@@ -135,11 +133,10 @@ impl ScalarFnVTable for JsonToVariant {
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let input_dtype = &arg_dtypes[0];
         vortex_ensure!(
-            input_dtype.is_utf8()
-                || input_dtype
-                    .as_extension_opt()
-                    .is_some_and(|ext_dtype| ext_dtype.is::<Json>()),
-            "JsonToVariant input must be Utf8 or a Json extension, found {input_dtype}"
+            input_dtype
+                .as_extension_opt()
+                .is_some_and(|ext_dtype| ext_dtype.is::<Json>()),
+            "JsonToVariant input must be a Json extension, found {input_dtype}"
         );
 
         Ok(DType::Variant(input_dtype.nullability()))
@@ -154,11 +151,11 @@ impl ScalarFnVTable for JsonToVariant {
         let input = args.get(0)?;
 
         // This function does not build Variants itself: the Variant encoding registered with the
-        // session supplies the conversion as an `execute_parent` kernel keyed on the canonical
-        // string encodings (`VarBinView` for `Utf8`, the extension encoding for a `Json` input).
-        // Reaching this fallback means no such kernel fired, so canonicalize the input to one of
-        // those encodings and re-dispatch. If the input is already canonical here, no kernel is
-        // registered for it; bail with a clear error rather than looping.
+        // session supplies the conversion as an `execute_parent` kernel keyed on the extension
+        // encoding for a `Json` input. Reaching this fallback means no such kernel fired, so
+        // canonicalize the input to that encoding and re-dispatch. If the input is already
+        // canonical here, no kernel is registered for it; bail with a clear error rather than
+        // looping.
         let no_kernel = || {
             vortex_err!(
                 "json_to_variant requires a registered Variant encoding to build Variant values \
@@ -166,12 +163,7 @@ impl ScalarFnVTable for JsonToVariant {
             )
         };
 
-        let canonical = if input.dtype().is_utf8() {
-            if input.is::<VarBinView>() {
-                return Err(no_kernel());
-            }
-            input.execute::<VarBinViewArray>(ctx)?.into_array()
-        } else if input
+        let canonical = if input
             .dtype()
             .as_extension_opt()
             .is_some_and(|ext_dtype| ext_dtype.is::<Json>())
@@ -182,7 +174,7 @@ impl ScalarFnVTable for JsonToVariant {
             input.execute::<ExtensionArray>(ctx)?.into_array()
         } else {
             vortex_bail!(
-                "JsonToVariant input must be Utf8 or a Json extension, found {}",
+                "JsonToVariant input must be a Json extension, found {}",
                 input.dtype()
             );
         };
@@ -195,7 +187,7 @@ impl ScalarFnVTable for JsonToVariant {
         // `json_to_variant` maps null rows to null rows and the JSON literal `null` to a
         // variant-null value independently of which other rows are null, so it commutes with
         // validity masking. Marking it not null-sensitive also lets it push through dictionaries
-        // into their (canonical-string) values, where the kernel fires directly.
+        // into their JSON extension values, where the kernel fires directly.
         false
     }
 }
@@ -203,8 +195,8 @@ impl ScalarFnVTable for JsonToVariant {
 /// Creates a [`JsonToVariant`] expression that parses `child`'s JSON strings into Variant
 /// values, shredding the paths selected by `shredding`.
 ///
-/// `child` must produce `Utf8` or [`Json`] extension values; the result is `Variant` with the
-/// input's nullability. Rows containing invalid JSON fail the expression.
+/// `child` must produce [`Json`] extension values; the result is `Variant` with the input's
+/// nullability. Rows containing invalid JSON fail the expression.
 ///
 /// Note that this is a lossy, normalizing conversion. See [`JsonToVariant`] for the full list of
 /// caveats.
@@ -361,35 +353,44 @@ mod tests {
     }
 
     #[test]
+    fn utf8_input_is_rejected() {
+        let input = VarBinViewArray::from_iter_str(["1", "2"]).into_array();
+        let err = JsonToVariant
+            .try_new_array(input.len(), JsonToVariantOptions::unshredded(), [input])
+            .unwrap_err();
+
+        assert!(
+            err.to_string().contains("Json extension"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn execute_without_variant_kernel_errors() -> VortexResult<()> {
         // With no Variant encoding registered, executing over an already-canonical input must
-        // surface a clear error rather than looping. Both canonical input forms are covered: a
-        // bare `Utf8`/`VarBinView`, and a `Json` extension.
-        let utf8 = VarBinViewArray::from_iter_str(["1", "2"]).into_array();
-        let json_extension = ExtensionArray::try_new_from_vtable(
+        // surface a clear error rather than looping.
+        let input = ExtensionArray::try_new_from_vtable(
             Json,
             EmptyMetadata,
             VarBinViewArray::from_iter_str(["1", "2"]).into_array(),
         )?
         .into_array();
 
-        for input in [utf8, json_extension] {
-            let dtype = input.dtype().clone();
-            let array = JsonToVariant.try_new_array(
-                input.len(),
-                JsonToVariantOptions::unshredded(),
-                [input],
-            )?;
+        let dtype = input.dtype().clone();
+        let array = JsonToVariant.try_new_array(
+            input.len(),
+            JsonToVariantOptions::unshredded(),
+            [input],
+        )?;
 
-            let err = array
-                .execute::<ArrayRef>(&mut session().create_execution_ctx())
-                .unwrap_err();
+        let err = array
+            .execute::<ArrayRef>(&mut session().create_execution_ctx())
+            .unwrap_err();
 
-            assert!(
-                err.to_string().contains("Variant encoding"),
-                "unexpected error for {dtype}: {err}"
-            );
-        }
+        assert!(
+            err.to_string().contains("Variant encoding"),
+            "unexpected error for {dtype}: {err}"
+        );
         Ok(())
     }
 }

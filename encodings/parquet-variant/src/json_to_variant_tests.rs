@@ -4,8 +4,8 @@
 //! Execution tests for the `vortex.json_to_variant` scalar function.
 //!
 //! The function definition lives in `vortex-json`; the JSON->Variant construction is performed
-//! by the [`JsonToVariantKernel`](crate::kernel) registered here, so these end-to-end tests live
-//! in `vortex-parquet-variant` where that kernel is registered.
+//! by the execute-parent kernel registered here, so these end-to-end tests live in
+//! `vortex-parquet-variant` where that kernel is registered.
 
 use std::sync::LazyLock;
 
@@ -54,6 +54,10 @@ fn shred_field_as_i64(field: &str) -> VortexResult<ShreddingSpec> {
     ShreddingSpec::try_new([(VariantPath::field(field), i64_dtype())])
 }
 
+fn json_input(storage: ArrayRef) -> VortexResult<ArrayRef> {
+    Ok(ExtensionArray::try_new_from_vtable(Json, EmptyMetadata, storage)?.into_array())
+}
+
 fn execute_json_to_variant(input: ArrayRef, shredding: ShreddingSpec) -> VortexResult<ArrayRef> {
     let expr = json_to_variant(root(), shredding);
     input
@@ -82,8 +86,21 @@ fn assert_variant_i64_rows(array: &ArrayRef, expected: &[Option<i64>]) -> Vortex
 }
 
 #[test]
-fn converts_utf8_json_rows() -> VortexResult<()> {
-    let input = VarBinViewArray::from_iter_str([r#"{"a": 1}"#, "2", r#"{"a": 3}"#]).into_array();
+fn rejects_bare_utf8_input() {
+    let input = VarBinViewArray::from_iter_str(["1", "2"]).into_array();
+
+    let err = execute_json_to_variant(input, ShreddingSpec::empty()).unwrap_err();
+    assert!(
+        err.to_string().contains("Json extension"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn converts_json_extension_rows() -> VortexResult<()> {
+    let input = json_input(
+        VarBinViewArray::from_iter_str([r#"{"a": 1}"#, "2", r#"{"a": 3}"#]).into_array(),
+    )?;
 
     let result = execute_json_to_variant(input, ShreddingSpec::empty())?;
 
@@ -117,7 +134,7 @@ fn converts_utf8_json_rows() -> VortexResult<()> {
 #[test]
 fn converts_json_extension_input() -> VortexResult<()> {
     let storage = VarBinViewArray::from_iter_str(["1", "2"]).into_array();
-    let input = ExtensionArray::try_new_from_vtable(Json, EmptyMetadata, storage)?.into_array();
+    let input = json_input(storage)?;
 
     let result = execute_json_to_variant(input, ShreddingSpec::empty())?;
 
@@ -127,10 +144,10 @@ fn converts_json_extension_input() -> VortexResult<()> {
 
 #[test]
 fn dict_encoded_input_converts_each_row() -> VortexResult<()> {
-    // A dictionary-encoded string column exercises the dict-pushdown / canonicalization path:
+    // A dictionary-encoded JSON column exercises the dict-pushdown / canonicalization path:
     // `json_to_variant` is not null-sensitive, so it pushes into the dict values (canonical
-    // strings) where the kernel fires; either way every row must convert correctly.
-    let values = VarBinViewArray::from_iter_str(["1", "2"]).into_array();
+    // JSON extension values) where the kernel fires; either way every row must convert correctly.
+    let values = json_input(VarBinViewArray::from_iter_str(["1", "2"]).into_array())?;
     let codes = PrimitiveArray::from_iter([0u8, 1, 0, 1, 0]).into_array();
     let input = DictArray::try_new(codes, values)?.into_array();
 
@@ -142,8 +159,9 @@ fn dict_encoded_input_converts_each_row() -> VortexResult<()> {
 
 #[test]
 fn null_rows_stay_null_and_json_null_becomes_variant_null() -> VortexResult<()> {
-    let input =
-        VarBinViewArray::from_iter_nullable_str([Some("1"), None, Some("null")]).into_array();
+    let input = json_input(
+        VarBinViewArray::from_iter_nullable_str([Some("1"), None, Some("null")]).into_array(),
+    )?;
 
     let result = execute_json_to_variant(input, ShreddingSpec::empty())?;
 
@@ -158,22 +176,26 @@ fn null_rows_stay_null_and_json_null_becomes_variant_null() -> VortexResult<()> 
 }
 
 #[test]
-fn invalid_json_errors() {
-    let input = VarBinViewArray::from_iter_str([r#"{"a": 1}"#, r#"{"a":"#]).into_array();
+fn invalid_json_errors() -> VortexResult<()> {
+    let input =
+        json_input(VarBinViewArray::from_iter_str([r#"{"a": 1}"#, r#"{"a":"#]).into_array())?;
 
     let err = execute_json_to_variant(input, ShreddingSpec::empty()).unwrap_err();
     assert!(!err.to_string().is_empty());
+    Ok(())
 }
 
 #[test]
 fn shredding_produces_typed_value_child() -> VortexResult<()> {
-    let input = VarBinViewArray::from_iter_str([
-        r#"{"a": 1, "b": "x"}"#,
-        r#"{"a": 2, "b": "y"}"#,
-        r#"{"a": "not-a-number", "b": "z"}"#,
-        r#"{"b": "missing-a"}"#,
-    ])
-    .into_array();
+    let input = json_input(
+        VarBinViewArray::from_iter_str([
+            r#"{"a": 1, "b": "x"}"#,
+            r#"{"a": 2, "b": "y"}"#,
+            r#"{"a": "not-a-number", "b": "z"}"#,
+            r#"{"b": "missing-a"}"#,
+        ])
+        .into_array(),
+    )?;
 
     let result = execute_json_to_variant(input, shred_field_as_i64("a")?)?;
 
@@ -227,9 +249,10 @@ fn shredding_produces_typed_value_child() -> VortexResult<()> {
 
 #[test]
 fn shredding_preserves_null_rows() -> VortexResult<()> {
-    let input =
+    let input = json_input(
         VarBinViewArray::from_iter_nullable_str([Some(r#"{"a": 1}"#), None, Some(r#"{"a": 3}"#)])
-            .into_array();
+            .into_array(),
+    )?;
 
     let result = execute_json_to_variant(input, shred_field_as_i64("a")?)?;
 
@@ -253,7 +276,8 @@ fn shredding_preserves_null_rows() -> VortexResult<()> {
 
 #[test]
 fn shredding_root_path_shreds_top_level_values() -> VortexResult<()> {
-    let input = VarBinViewArray::from_iter_str(["1", "2", r#""not-a-number""#]).into_array();
+    let input =
+        json_input(VarBinViewArray::from_iter_str(["1", "2", r#""not-a-number""#]).into_array())?;
     let spec = ShreddingSpec::try_new([(VariantPath::root(), i64_dtype())])?;
 
     let result = execute_json_to_variant(input, spec)?;
