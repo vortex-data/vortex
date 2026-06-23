@@ -282,6 +282,7 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 }
 
 #[derive(Clone, Debug)]
+/// Pco array encoding marker.
 pub struct Pco;
 
 impl Pco {
@@ -317,6 +318,7 @@ pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 #[derive(Clone, Debug)]
+/// Encoding-specific data for a [`PcoArray`].
 pub struct PcoData {
     pub(crate) chunk_metas: Vec<ByteBuffer>,
     pub(crate) pages: Vec<ByteBuffer>,
@@ -338,6 +340,7 @@ impl Display for PcoData {
 }
 
 impl PcoData {
+    /// Validate dtype, validity, slice, and Pco component invariants.
     pub fn validate(&self, dtype: &DType, len: usize, validity: &Validity) -> VortexResult<()> {
         let _ = number_type_from_ptype(self.ptype);
         vortex_ensure!(
@@ -391,6 +394,7 @@ impl PcoData {
         Ok(())
     }
 
+    /// Construct unsliced Pco data from chunk metadata, pages, and serialized metadata.
     pub fn new(
         chunk_metas: Vec<ByteBuffer>,
         pages: Vec<ByteBuffer>,
@@ -409,6 +413,7 @@ impl PcoData {
         }
     }
 
+    /// Compress a primitive array into Pco data.
     pub fn from_primitive(
         parray: ArrayView<'_, Primitive>,
         level: usize,
@@ -497,6 +502,11 @@ impl PcoData {
         ))
     }
 
+    /// Downcast and compress an array into Pco data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input is not a primitive array or compression fails.
     pub fn from_array(
         array: ArrayRef,
         level: usize,
@@ -512,6 +522,7 @@ impl PcoData {
         Self::from_primitive(parray.as_view(), level, nums_per_page, ctx)
     }
 
+    /// Decompress this Pco data into a primitive array.
     pub fn decompress(
         &self,
         unsliced_validity: &Validity,

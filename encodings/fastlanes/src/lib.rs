@@ -3,6 +3,24 @@
 
 #![expect(clippy::cast_possible_truncation)]
 
+//! FastLanes integer encodings for Vortex arrays.
+//!
+//! This crate provides SIMD-friendly integer encodings:
+//!
+//! - [`BitPacked`] stores fixed-width integer values using the minimum bit width plus optional
+//!   patches.
+//! - [`FoR`] stores frame-of-reference deltas from a base value.
+//! - [`Delta`] stores adjacent deltas in chunked form.
+//! - [`RLE`] stores repeated runs.
+//!
+//! Call [`initialize`] to register the encodings and encoding-specific aggregate kernels in a
+//! session before deserializing or executing arrays that may contain these encodings.
+//!
+//! ```rust
+//! let session = vortex_array::array_session();
+//! vortex_fastlanes::initialize(&session);
+//! ```
+
 pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;

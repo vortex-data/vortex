@@ -77,10 +77,10 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
-/// By default, all schemes in [`ALL_SCHEMES`] are enabled. Feature-gated schemes (Pco, Zstd)
-/// are not in `ALL_SCHEMES` and must be added explicitly via
-/// [`with_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or
-/// [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
+/// By default, all schemes in [`ALL_SCHEMES`] are enabled in a deterministic order. Feature-gated
+/// schemes (Pco, Zstd) are not in `ALL_SCHEMES` and must be added explicitly via
+/// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or `with_compact` when the
+/// `zstd` feature is enabled.
 ///
 /// # Examples
 ///
@@ -166,6 +166,9 @@ impl BtrBlocksCompressorBuilder {
     /// With the `unstable_encodings` feature, buffer-level Zstd compression is used which
     /// preserves the array buffer layout for zero-conversion GPU decompression. Without it,
     /// interleaved Zstd compression is used.
+    ///
+    /// This preset is intended for files that will be decoded by CUDA kernels. It may choose a
+    /// larger encoded representation than the default compressor.
     pub fn only_cuda_compatible(self) -> Self {
         // String fragmentation schemes (OnPair, FSST) require host-side
         // dictionary expansion at decode time, which is incompatible with

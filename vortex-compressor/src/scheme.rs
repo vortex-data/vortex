@@ -139,6 +139,10 @@ pub struct AncestorExclusion {
 /// to declare what they require. The compressor merges all eligible schemes' options before
 /// generating stats, so each stat is always computed at most once for a given array.
 ///
+/// A scheme implementation should be deterministic for a fixed input array and context. The
+/// compressor uses scheme order for deterministic tie-breaking, so non-deterministic estimates make
+/// compressed output harder to reproduce and compare.
+///
 /// [`scheme_name`]: Scheme::scheme_name
 /// [`matches`]: Scheme::matches
 /// [`compress`]: Scheme::compress

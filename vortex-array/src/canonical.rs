@@ -69,7 +69,7 @@ use crate::validity::Validity;
 ///
 /// Each `Canonical` variant has a corresponding [`DType`] variant, with the notable exception of
 /// [`Canonical::VarBinView`], which is the canonical encoding for both [`DType::Utf8`] and
-/// [`DType::Binary`].
+/// [`DType::Binary`]. [`DType::Union`] does not yet have a public canonical array.
 ///
 /// # Laziness
 ///
@@ -128,7 +128,9 @@ pub enum Canonical {
     List(ListViewArray),
     FixedSizeList(FixedSizeListArray),
     Struct(StructArray),
+    /// Canonical storage for extension dtypes, wrapping the canonical form of the storage dtype.
     Extension(ExtensionArray),
+    /// Canonical storage for dynamic variant values, optionally with typed shredded paths.
     Variant(VariantArray),
 }
 

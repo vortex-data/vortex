@@ -45,7 +45,17 @@ use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
 
-/// A struct for building a scan operation.
+/// Builder for scanning a [`LayoutReader`] into arrays, streams, iterators, or mapped outputs.
+///
+/// A scan has three independent row restriction mechanisms:
+///
+/// - [`with_row_range`](Self::with_row_range) selects a contiguous range before scanning.
+/// - [`with_selection`](Self::with_selection) applies a [`Selection`] inside that range.
+/// - [`with_filter`](Self::with_filter) evaluates an expression predicate during execution.
+///
+/// Projection and filter expressions are optimized against the reader dtype during
+/// [`prepare`](Self::prepare). Work is divided by the configured [`SplitBy`] strategy or by
+/// explicit selection ranges.
 pub struct ScanBuilder<A> {
     session: VortexSession,
     layout_reader: LayoutReaderRef,
@@ -75,6 +85,7 @@ pub struct ScanBuilder<A> {
 }
 
 impl ScanBuilder<ArrayRef> {
+    /// Create a scan builder over `layout_reader` using `session` for runtime and execution state.
     pub fn new(session: VortexSession, layout_reader: Arc<dyn LayoutReader>) -> Self {
         Self {
             session,
@@ -120,55 +131,66 @@ impl ScanBuilder<ArrayRef> {
 }
 
 impl<A: 'static + Send> ScanBuilder<A> {
+    /// Add a filter expression evaluated against the projected row ranges.
     pub fn with_filter(mut self, filter: Expression) -> Self {
         self.filter = Some(filter);
         self
     }
 
+    /// Add or clear the filter expression.
     pub fn with_some_filter(mut self, filter: Option<Expression>) -> Self {
         self.filter = filter;
         self
     }
 
+    /// Set the projection expression for returned rows.
     pub fn with_projection(mut self, projection: Expression) -> Self {
         self.projection = projection;
         self
     }
 
+    /// Returns whether output chunks are yielded in file order.
     pub fn ordered(&self) -> bool {
         self.ordered
     }
 
+    /// Configure whether output chunks must be yielded in file order.
     pub fn with_ordered(mut self, ordered: bool) -> Self {
         self.ordered = ordered;
         self
     }
 
+    /// Restrict scanning to a contiguous row range.
     pub fn with_row_range(mut self, row_range: Range<u64>) -> Self {
         self.row_range = Some(row_range);
         self
     }
 
+    /// Apply a row selection to the selected row range.
     pub fn with_selection(mut self, selection: Selection) -> Self {
         self.selection = selection;
         self
     }
 
+    /// Select rows by absolute indices relative to the scan input.
     pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
         self.selection = Selection::IncludeByIndex(row_indices);
         self
     }
 
+    /// Set the root row offset used by row-index expressions.
     pub fn with_row_offset(mut self, row_offset: u64) -> Self {
         self.row_offset = row_offset;
         self
     }
 
+    /// Configure how natural scan work is split for concurrency.
     pub fn with_split_by(mut self, split_by: SplitBy) -> Self {
         self.split_by = split_by;
         self
     }
 
+    /// Returns the per-worker row-split concurrency.
     pub fn concurrency(&self) -> usize {
         self.concurrency
     }
@@ -181,21 +203,25 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    /// Add or clear the metrics registry used by scan execution.
     pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
         self.metrics_registry = metrics;
         self
     }
 
+    /// Set the metrics registry used by scan execution.
     pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
         self.metrics_registry = Some(metrics);
         self
     }
 
+    /// Add or clear the maximum number of rows returned after filtering.
     pub fn with_some_limit(mut self, limit: Option<u64>) -> Self {
         self.limit = limit;
         self
     }
 
+    /// Set the maximum number of rows returned after filtering.
     pub fn with_limit(mut self, limit: u64) -> Self {
         self.limit = Some(limit);
         self
@@ -235,6 +261,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         }
     }
 
+    /// Optimize expressions, compute split ranges, and return an executable repeated scan.
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
         let dtype = self.dtype()?;
 

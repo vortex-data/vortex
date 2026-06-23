@@ -36,9 +36,13 @@ use crate::read::ReadRequest;
 use crate::read::RequestId;
 
 #[derive(Debug)]
+/// Events sent from segment futures to the coalescing read driver.
 pub enum ReadEvent {
+    /// A segment read has been registered.
     Request(ReadRequest),
+    /// A registered read future has been polled.
     Polled(RequestId),
+    /// A registered read future was dropped before completion.
     Dropped(RequestId),
 }
 
@@ -72,6 +76,10 @@ pub struct FileSegmentSource {
 }
 
 impl FileSegmentSource {
+    /// Open a file-backed segment source over `reader`.
+    ///
+    /// The returned source spawns a background driver on `handle` that coalesces and executes
+    /// random-access read requests.
     pub fn open<R: VortexReadAt + Clone>(
         segments: Arc<[SegmentSpec]>,
         reader: R,
@@ -244,13 +252,18 @@ impl Drop for ReadFuture {
     }
 }
 
+/// Metrics emitted by the file segment request driver.
 pub struct RequestMetrics {
+    /// Number of individual segment requests observed by the driver.
     pub individual_requests: Counter,
+    /// Number of physical reads after coalescing.
     pub coalesced_requests: Counter,
+    /// Distribution of how many segment requests were merged into each physical read.
     pub num_requests_coalesced: Histogram,
 }
 
 impl RequestMetrics {
+    /// Create request metrics in `metrics_registry` with shared labels.
     pub fn new(metrics_registry: &dyn MetricsRegistry, labels: Vec<Label>) -> Self {
         Self {
             individual_requests: MetricBuilder::new(metrics_registry)

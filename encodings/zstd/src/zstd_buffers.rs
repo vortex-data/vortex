@@ -43,9 +43,11 @@ use crate::ZstdBuffersMetadata;
 pub type ZstdBuffersArray = Array<ZstdBuffers>;
 
 #[derive(Clone, Debug)]
+/// Encoding marker for buffer-level zstd compression.
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
+    /// Construct a [`ZstdBuffersArray`] from compressed buffer data.
     pub fn try_new(
         dtype: DType,
         len: usize,
@@ -54,6 +56,10 @@ impl ZstdBuffers {
         Array::try_from_parts(ArrayParts::new(ZstdBuffers, dtype, len, data))
     }
 
+    /// Compress every top-level buffer of `array` independently with zstd.
+    ///
+    /// Children are preserved as slots and the wrapped array's serialized metadata is stored so the
+    /// original array can be rebuilt after decompression.
     pub fn compress(
         array: &ArrayRef,
         level: i32,
@@ -96,6 +102,7 @@ impl ZstdBuffers {
         Ok(compressed)
     }
 
+    /// Rebuild the wrapped array from decompressed buffer handles.
     pub fn build_inner(
         array: &ZstdBuffersArray,
         buffer_handles: &[BufferHandle],
@@ -149,6 +156,7 @@ impl Display for ZstdBuffersData {
 }
 
 #[derive(Clone, Debug)]
+/// Decode plan for buffer-level zstd decompression.
 pub struct ZstdBuffersDecodePlan {
     compressed_buffers: Vec<BufferHandle>,
     frame_sizes: Arc<[usize]>,
@@ -160,30 +168,37 @@ pub struct ZstdBuffersDecodePlan {
 }
 
 impl ZstdBuffersDecodePlan {
+    /// Compressed buffers to decode.
     pub fn compressed_buffers(&self) -> &[BufferHandle] {
         &self.compressed_buffers
     }
 
+    /// Compressed frame sizes in bytes.
     pub fn frame_sizes(&self) -> Arc<[usize]> {
         Arc::clone(&self.frame_sizes)
     }
 
+    /// Decompressed output size for each buffer.
     pub fn output_sizes(&self) -> Arc<[usize]> {
         Arc::clone(&self.output_sizes)
     }
 
+    /// Byte offsets of each decompressed buffer in one contiguous output allocation.
     pub fn output_offsets(&self) -> &[usize] {
         &self.output_offsets
     }
 
+    /// Total byte size of the planned contiguous output allocation.
     pub fn output_size_total(&self) -> usize {
         self.output_size_total
     }
 
+    /// Largest single decompressed buffer size.
     pub fn output_size_max(&self) -> usize {
         self.output_size_max
     }
 
+    /// Number of compressed frames/buffers in the plan.
     pub fn num_frames(&self) -> usize {
         self.compressed_buffers.len()
     }
@@ -273,6 +288,7 @@ impl ZstdBuffersData {
         Ok(result)
     }
 
+    /// Build a decode plan for external or device decompression.
     pub fn decode_plan(&self) -> VortexResult<ZstdBuffersDecodePlan> {
         // If invariants are somehow broken, device decompression could have UB, so ensure
         // they still hold.
