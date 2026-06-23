@@ -45,7 +45,6 @@ vortex-error = { workspace = true, features = ["object_store"] }
 vortex-nvcomp = { path = "nvcomp" }
 
 [dev-dependencies]
-criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
