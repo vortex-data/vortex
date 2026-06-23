@@ -284,6 +284,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::FloatStats;
+    use crate::stats::GenerateStatsOptions;
 
     #[test]
     fn test_float_stats() -> VortexResult<()> {
@@ -293,7 +294,7 @@ mod tests {
 
         let stats = FloatStats::generate_opts(
             &floats,
-            crate::stats::GenerateStatsOptions {
+            GenerateStatsOptions {
                 count_distinct_values: true,
             },
             &mut ctx,
@@ -316,7 +317,7 @@ mod tests {
 
         let stats = FloatStats::generate_opts(
             &floats,
-            crate::stats::GenerateStatsOptions {
+            GenerateStatsOptions {
                 count_distinct_values: true,
             },
             &mut ctx,

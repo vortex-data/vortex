@@ -150,8 +150,6 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
 mod tests {
     use std::sync::LazyLock;
 
-    #[expect(unused_imports)]
-    use itertools::Itertools;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;

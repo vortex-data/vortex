@@ -208,10 +208,11 @@ fn bench_for_decompress_i32(bencher: Bencher) {
 #[divan::bench(name = "dict_compress_u32")]
 fn bench_dict_compress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
+    let array = uint_array.into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| (&uint_array, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| dict_encode(&a.clone().into_array(), ctx).unwrap());
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| dict_encode(a, ctx).unwrap());
 }
 
 #[divan::bench(name = "dict_decompress_u32")]
@@ -383,10 +384,11 @@ fn bench_dict_compress_string(bencher: Bencher) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let nbytes = varbinview_arr.nbytes() as u64;
+    let array = varbinview_arr.into_array();
 
     with_byte_counter(bencher, nbytes)
-        .with_inputs(|| (&varbinview_arr, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| dict_encode(&a.clone().into_array(), ctx).unwrap());
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(a, ctx)| dict_encode(a, ctx).unwrap());
 }
 
 #[divan::bench(name = "dict_decompress_string")]
