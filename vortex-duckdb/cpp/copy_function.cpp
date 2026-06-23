@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#include "duckdb_vx/data.hpp"
-#include "duckdb_vx/error.hpp"
-#include "duckdb_vx/table_function.h"
+#include "data.hpp"
+#include "error.hpp"
+#include "vortex_duckdb.h"
+#include "table_function.h"
 #include "vortex.h"
 #include "duckdb/function/copy_function.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
@@ -11,8 +12,6 @@
 #include "duckdb/parser/parsed_data/create_copy_function_info.hpp"
 
 using namespace duckdb;
-using vortex::CData;
-using vortex::IntoErrString;
 
 struct CopyBindData final : TableFunctionData {
     CopyBindData(unique_ptr<CData> ffi_data) : ffi_data(std::move(ffi_data)) {

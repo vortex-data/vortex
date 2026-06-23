@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod bind_input;
-mod client_context;
-mod config;
 mod connection;
 mod data;
 mod data_chunk;
@@ -27,8 +25,6 @@ use std::ffi::c_void;
 use std::ptr;
 
 pub use bind_input::*;
-pub use client_context::*;
-pub use config::*;
 pub use connection::*;
 pub use data::*;
 pub use data_chunk::*;

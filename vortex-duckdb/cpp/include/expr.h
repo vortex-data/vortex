@@ -3,15 +3,19 @@
 
 #pragma once
 
-#include "scalar_function.h"
+#include "duckdb.h"
 
 #ifdef __cplusplus /* If compiled as C++, use C ABI */
 extern "C" {
 #endif
 
+typedef struct duckdb_vx_sfunc_ *duckdb_vx_sfunc;
+
+const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func);
+
 typedef struct duckdb_vx_expr_ *duckdb_vx_expr;
 
-/// Return the string representation of the expression. Must be freed with `duckdb_vx_free`.
+/// Return the string representation of the expression. Must be freed with `duckdb_free`.
 const char *duckdb_vx_expr_to_string(duckdb_vx_expr expr);
 
 void duckdb_vx_destroy_expr(duckdb_vx_expr *expr);

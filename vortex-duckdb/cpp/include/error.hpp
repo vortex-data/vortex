@@ -3,14 +3,9 @@
 
 #pragma once
 
-#include <exception>
 #include <string>
 
-#include "duckdb.h"
+#include "vortex_duckdb.h"
 
-#include "duckdb_vx/error.h"
-
-namespace vortex {
 std::string IntoErrString(duckdb_vx_error error);
 duckdb_state SetError(duckdb_vx_error *error_out, std::string_view message);
-} // namespace vortex
