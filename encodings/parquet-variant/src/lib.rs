@@ -26,9 +26,9 @@
 
 mod array;
 mod arrow;
+mod compute;
 #[cfg(test)]
 mod json_to_variant_tests;
-mod compute;
 mod kernel;
 mod operations;
 mod validity;

@@ -53,7 +53,7 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
 
         let typed_identical = match (lhs.typed_value_array(), rhs.typed_value_array()) {
             (Some(lhs_typed), Some(rhs_typed)) => {
-                if lhs_typed.dtype().eq_ignore_nullability(rhs.dtype()) {
+                if lhs_typed.dtype().eq_ignore_nullability(rhs_typed.dtype()) {
                     all_non_distinct(lhs_typed, rhs_typed, ctx)?
                 } else {
                     return Ok(None);
@@ -68,9 +68,128 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
                 // Mixed shredding layouts: let the generic canonical path handle it.
                 _ => return Ok(None),
             };
-            Ok(Some(Scalar::bool(values_identical, Nullability::NonNullable)))
+            Ok(Some(Scalar::bool(
+                values_identical,
+                Nullability::NonNullable,
+            )))
         } else {
             Ok(Some(Scalar::bool(false, Nullability::NonNullable)))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::aggregate_fn::AggregateFn;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
+    use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
+    use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+    use vortex_array::arrays::StructArray as VortexStructArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::AllNonDistinctParquetVariant;
+    use crate::ParquetVariant;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
+    /// Non-nullable, minimally-valid metadata column of `len` rows.
+    fn metadata(len: usize) -> ArrayRef {
+        VarBinViewArray::from_iter_bin(vec![b"\x01\x00"; len]).into_array()
+    }
+
+    /// Non-nullable binary `value` column.
+    fn binary<T: AsRef<[u8]>>(values: impl IntoIterator<Item = T>) -> ArrayRef {
+        VarBinViewArray::from_iter_bin(values).into_array()
+    }
+
+    /// Builds a non-nullable `ParquetVariant` storage array directly from its `value`/`typed_value`
+    /// slots. The raw bytes need not be valid variants: the kernel compares the child arrays
+    /// without decoding them.
+    fn parquet_variant(
+        len: usize,
+        value: Option<ArrayRef>,
+        typed_value: Option<ArrayRef>,
+    ) -> VortexResult<ArrayRef> {
+        Ok(
+            ParquetVariant::try_new(Validity::NonNullable, metadata(len), value, typed_value)?
+                .into_array(),
+        )
+    }
+
+    /// Wraps two child arrays in the `Struct{lhs, rhs}` batch the kernel accumulates over.
+    fn lhs_rhs_batch(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<ArrayRef> {
+        let len = lhs.len();
+        Ok(VortexStructArray::try_new(
+            FieldNames::from(["lhs", "rhs"]),
+            vec![lhs, rhs],
+            len,
+            Validity::NonNullable,
+        )?
+        .into_array())
+    }
+
+    /// Runs the kernel against `batch` with the `AllNonDistinct` aggregate function.
+    fn run_kernel(batch: &ArrayRef) -> VortexResult<Option<Scalar>> {
+        let aggregate_fn = AggregateFn::new(AllNonDistinct, EmptyOptions).erased();
+        let mut ctx = SESSION.create_execution_ctx();
+        AllNonDistinctParquetVariant.aggregate(&aggregate_fn, batch, &mut ctx)
+    }
+
+    fn bool_scalar(value: bool) -> Scalar {
+        Scalar::bool(value, Nullability::NonNullable)
+    }
+
+    #[test]
+    fn all_non_distinct_matches_equal_unshredded() -> VortexResult<()> {
+        let lhs = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), None)?;
+        let rhs = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), None)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
+        Ok(())
+    }
+
+    #[test]
+    fn all_non_distinct_detects_distinct_unshredded() -> VortexResult<()> {
+        let lhs = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), None)?;
+        let rhs = parquet_variant(2, Some(binary([b"\x10", b"\x12"])), None)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(!all_non_distinct(&lhs, &rhs, &mut ctx)?);
+        Ok(())
+    }
+
+    #[test]
+    fn all_non_distinct_matches_equal_value_and_typed() -> VortexResult<()> {
+        let typed = || buffer![1i32, 2].into_array();
+        let lhs = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), Some(typed()))?;
+        let rhs = parquet_variant(2, Some(binary([b"\x10", b"\x11"])), Some(typed()))?;
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
+        Ok(())
+    }
+
+    #[test]
+    fn all_non_distinct_empty_is_true() -> VortexResult<()> {
+        let lhs = parquet_variant(0, Some(binary(Vec::<&[u8]>::new())), None)?;
+        let rhs = parquet_variant(0, Some(binary(Vec::<&[u8]>::new())), None)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        assert!(all_non_distinct(&lhs, &rhs, &mut ctx)?);
+        Ok(())
     }
 }
