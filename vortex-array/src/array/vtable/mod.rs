@@ -7,7 +7,7 @@
 //! `TypedArrayData` value stored in each array instance. The vtable owns behavior such as
 //! validation, serialization, execution, child traversal, scalar access, and validity access.
 //!
-//! The public [`ArrayRef`](crate::ArrayRef) API performs common precondition checks before calling
+//! The public [`ArrayRef`] API performs common precondition checks before calling
 //! into these traits. Implementations should focus on encoding-specific work and uphold the
 //! documented postconditions.
 

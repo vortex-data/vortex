@@ -12,7 +12,7 @@ use crate::vtable::NotSupported;
 
 /// Element-level operations for an array encoding.
 ///
-/// This trait is separated from [`VTable`](crate::array::VTable) so encodings can organize scalar
+/// This trait is separated from [`VTable`] so encodings can organize scalar
 /// access independently from traversal, serialization, and execution. The erased
 /// [`ArrayRef`](crate::ArrayRef)
 /// methods perform common checks before dispatching here.

@@ -11,7 +11,7 @@
 //! statistics, or other writer-chosen structures without changing the logical dtype seen by
 //! readers.
 //!
-//! This crate owns the file reader/writer APIs. The byte-level format lives in the Sphinx docs:
+//! This crate owns the file reader/writer APIs. The byte-level format lives in the spec's docs:
 //! <https://docs.vortex.dev/specs/file-format.html>.
 //!
 //! # Reading

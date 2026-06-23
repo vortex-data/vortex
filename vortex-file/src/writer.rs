@@ -410,8 +410,8 @@ pub struct BlockingWrite<'rt, B: BlockingRuntime> {
 impl<'rt, B: BlockingRuntime> BlockingWrite<'rt, B> {
     /// Write a Vortex file into the given `Write` sink.
     ///
-    /// The iterator is converted to an [`ArrayStream`](vortex_array::stream::ArrayStream) and
-    /// driven to completion on the configured blocking runtime.
+    /// The iterator is converted to an [`ArrayStream`] and driven to completion on
+    /// the configured blocking runtime.
     pub fn write<W: Write + Unpin>(
         self,
         write: W,

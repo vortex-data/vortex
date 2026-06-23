@@ -14,7 +14,7 @@
 //! # Core Handles
 //!
 //! [`ArrayRef`] is the erased, shared handle used by most public APIs. It carries the logical
-//! [`DType`](crate::dtype::DType), row count, encoding id, children, buffers, and statistics for an
+//! [`DType`], row count, encoding id, children, buffers, and statistics for an
 //! array tree. Use it when an API should accept any encoding.
 //!
 //! [`Array<V>`] is the typed owned handle for a known encoding `V: VTable`. It wraps an
@@ -28,9 +28,9 @@
 //!
 //! # Logical Types and Physical Encodings
 //!
-//! A [`DType`](crate::dtype::DType) describes the logical values an array may hold. It does not
+//! A [`DType`] describes the logical values an array may hold. It does not
 //! describe the memory layout. For example, a `DType::Primitive(I32, Nullable)` can be stored as a
-//! canonical [`PrimitiveArray`](crate::arrays::PrimitiveArray), a dictionary, a slice, or a
+//! canonical [`PrimitiveArray`], a dictionary, a slice, or a
 //! compressed external encoding.
 //!
 //! The [`Canonical`] enum names the default uncompressed encoding for each logical family. Execution
@@ -40,11 +40,10 @@
 //! # Built-in, Lazy, and Experimental Arrays
 //!
 //! Built-in arrays live in [`arrays`]. Some are canonical (`PrimitiveArray`, `StructArray`,
-//! `VarBinViewArray`); others are utility or lazy arrays such as
-//! [`ChunkedArray`](crate::arrays::ChunkedArray), [`ConstantArray`](crate::arrays::ConstantArray),
-//! [`FilterArray`](crate::arrays::FilterArray), [`SliceArray`](crate::arrays::SliceArray), and
-//! [`ScalarFnArray`](crate::arrays::ScalarFnArray). Lazy arrays defer work so compute kernels can
-//! operate on encoded data or prune children before materialization.
+//! `VarBinViewArray`); others are utility or lazy arrays such as [`ChunkedArray`],
+//! [`ConstantArray`], [`FilterArray`], [`SliceArray`], and [`ScalarFnArray`].
+//! Lazy arrays defer work so compute kernels can operate on encoded data or prune children
+//! before materialization.
 //!
 //! Experimental arrays are public because they are used inside Vortex, but their storage contracts
 //! may still move. Prefer the higher-level constructors and accessors documented on each array
@@ -55,7 +54,7 @@
 //! [`Validity`](crate::validity::Validity) separates nullness from values. It can be a cheap
 //! constant state (`NonNullable`, `AllValid`, `AllInvalid`) or a boolean array that may itself be
 //! encoded. [`Scalar`](crate::scalar::Scalar) is the single-value counterpart: it pairs a
-//! [`DType`](crate::dtype::DType) with an optional [`ScalarValue`](crate::scalar::ScalarValue).
+//! [`DType`] with an optional [`ScalarValue`](crate::scalar::ScalarValue).
 //!
 //! # Extending Vortex
 //!
@@ -69,6 +68,14 @@
 //!
 //! New logical extension dtypes implement [`ExtVTable`](crate::dtype::extension::ExtVTable) and
 //! store values in an ordinary Vortex storage dtype.
+//!
+//! [`PrimitiveArray`]: crate::arrays::PrimitiveArray
+//! [`DType`]: crate::dtype::DType
+//! [`ChunkedArray`]: crate::arrays::ChunkedArray
+//! [`ConstantArray`]: crate::arrays::ConstantArray
+//! [`FilterArray`]: crate::arrays::FilterArray
+//! [`SliceArray`]: crate::arrays::SliceArray
+//! [`ScalarFnArray`]: crate::arrays::ScalarFnArray
 
 extern crate self as vortex_array;
 
