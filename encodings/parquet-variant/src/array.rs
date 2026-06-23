@@ -832,7 +832,7 @@ mod tests {
         );
 
         // Canonicalize: the forward transform lifts `typed_value` into a logical shredded child.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let Canonical::Variant(canonical) = original.clone().execute::<Canonical>(&mut ctx)? else {
             return Err(vortex_err!("expected canonical variant"));
         };

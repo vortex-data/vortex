@@ -48,7 +48,11 @@ pub use vtable::ParquetVariantArray;
 
 /// Register Parquet Variant array, Arrow extension, and scalar function support with a
 /// session.
+///
+/// This also initializes [`vortex_json`], registering the `Json` extension dtype and the
+/// `json_to_variant` scalar function whose execution this crate provides.
 pub fn initialize(session: &VortexSession) {
+    vortex_json::initialize(session);
     session.arrays().register(ParquetVariant);
     kernel::initialize(session);
     session.arrow().register_exporter(Arc::new(ParquetVariant));

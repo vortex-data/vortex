@@ -21,18 +21,14 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::variant::VariantArrayExt;
-use vortex_array::arrow::ArrowSession;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar_is_null;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::session::DTypeSession;
 use vortex_array::expr::root;
 use vortex_array::expr::variant_get;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
-use vortex_array::scalar_fn::session::ScalarFnSession;
-use vortex_array::session::ArraySession;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -45,11 +41,7 @@ use crate::ShreddingSpec;
 use crate::json_to_variant;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty()
-        .with::<ArraySession>()
-        .with::<ArrowSession>()
-        .with::<DTypeSession>()
-        .with::<ScalarFnSession>();
+    let session = vortex_array::array_session();
     crate::initialize(&session);
     session
 });
@@ -158,7 +150,7 @@ fn null_rows_stay_null_and_json_null_becomes_variant_null() -> VortexResult<()> 
     assert_eq!(result.dtype(), &DType::Variant(Nullability::Nullable));
     let mut ctx = SESSION.create_execution_ctx();
     assert!(!result.execute_scalar(0, &mut ctx)?.is_null());
-    assert_nth_scalar_is_null!(result, 1);
+    assert_nth_scalar_is_null!(result, 1, &mut ctx);
     let row2 = result.execute_scalar(2, &mut ctx)?;
     assert!(!row2.is_null(), "JSON null must not be a row null");
     assert_eq!(row2.as_variant().is_variant_null(), Some(true));
@@ -213,7 +205,8 @@ fn shredding_produces_typed_value_child() -> VortexResult<()> {
         .execute::<ArrayRef>(&mut ctx)?;
     assert_arrays_eq!(
         typed,
-        PrimitiveArray::from_option_iter([Some(1i64), Some(2), None, None])
+        PrimitiveArray::from_option_iter([Some(1i64), Some(2), None, None]),
+        &mut ctx
     );
 
     // Mismatched rows keep their original value through the variant fallback.
@@ -241,8 +234,8 @@ fn shredding_preserves_null_rows() -> VortexResult<()> {
     let result = execute_json_to_variant(input, shred_field_as_i64("a")?)?;
 
     assert_eq!(result.dtype(), &DType::Variant(Nullability::Nullable));
-    assert_nth_scalar_is_null!(result, 1);
     let mut ctx = SESSION.create_execution_ctx();
+    assert_nth_scalar_is_null!(result, 1, &mut ctx);
     let typed = result
         .apply(&variant_get(
             root(),
@@ -252,7 +245,8 @@ fn shredding_preserves_null_rows() -> VortexResult<()> {
         .execute::<ArrayRef>(&mut ctx)?;
     assert_arrays_eq!(
         typed,
-        PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)])
+        PrimitiveArray::from_option_iter([Some(1i64), None, Some(3)]),
+        &mut ctx
     );
     Ok(())
 }
