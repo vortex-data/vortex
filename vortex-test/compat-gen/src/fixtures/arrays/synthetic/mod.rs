@@ -29,7 +29,7 @@ mod tests {
     fn roundtrip_fixtures_to_bytes() {
         for fixture in fixtures() {
             let mut ctx = array_session().create_execution_ctx();
-            let array = fixture.build().unwrap();
+            let array = fixture.build(&mut ctx).unwrap();
             check_expected_encodings(&array, fixture.as_ref()).unwrap();
             let bytes = adapter::write_file_to_bytes(array.clone()).unwrap();
             let roundtripped = adapter::read_file(bytes).unwrap();

@@ -4,6 +4,7 @@
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Bool;
 use vortex_array::arrays::BoolArray;
@@ -29,7 +30,7 @@ impl FlatLayoutFixture for BooleansFixture {
         vec![Bool.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let bools = BoolArray::from_iter([true, false, true, true, false]);
         let nullable_bools =
             BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)]);
