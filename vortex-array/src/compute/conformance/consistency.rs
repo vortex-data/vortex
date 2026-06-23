@@ -30,7 +30,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
+use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -723,14 +723,10 @@ fn test_comparison_inverse_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx)
     };
 
     // Test Eq vs NotEq
-    let const_array = crate::arrays::ConstantArray::new(test_scalar, len);
+    let const_array = ConstantArray::new(test_scalar, len).into_array();
     if let (Ok(eq_result), Ok(neq_result)) = (
-        array
-            .clone()
-            .binary(const_array.clone().into_array(), Operator::Eq),
-        array
-            .clone()
-            .binary(const_array.clone().into_array(), Operator::NotEq),
+        array.binary(const_array.clone(), Operator::Eq),
+        array.binary(const_array.clone(), Operator::NotEq),
     ) {
         let inverted_eq = eq_result
             .not()
@@ -759,12 +755,8 @@ fn test_comparison_inverse_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx)
 
     // Test Gt vs Lte
     if let (Ok(gt_result), Ok(lte_result)) = (
-        array
-            .clone()
-            .binary(const_array.clone().into_array(), Operator::Gt),
-        array
-            .clone()
-            .binary(const_array.clone().into_array(), Operator::Lte),
+        array.binary(const_array.clone(), Operator::Gt),
+        array.binary(const_array.clone(), Operator::Lte),
     ) {
         let inverted_gt = gt_result
             .not()
@@ -787,12 +779,8 @@ fn test_comparison_inverse_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx)
 
     // Test Lt vs Gte
     if let (Ok(lt_result), Ok(gte_result)) = (
-        array
-            .clone()
-            .binary(const_array.clone().into_array(), Operator::Lt),
-        array
-            .clone()
-            .binary(const_array.into_array(), Operator::Gte),
+        array.binary(const_array.clone(), Operator::Lt),
+        array.binary(const_array, Operator::Gte),
     ) {
         let inverted_lt = lt_result
             .not()
@@ -855,17 +843,12 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx
     };
 
     // Create a constant array with the test scalar for reverse comparison
-    let const_array = crate::arrays::ConstantArray::new(test_scalar, len);
+    let const_array = ConstantArray::new(test_scalar, len).into_array();
 
     // Test Gt vs Lt symmetry
     if let (Ok(arr_gt_scalar), Ok(scalar_lt_arr)) = (
-        array
-            .clone()
-            .binary(const_array.clone().into_array(), Operator::Gt),
-        const_array
-            .clone()
-            .into_array()
-            .binary(array.clone(), Operator::Lt),
+        array.binary(const_array.clone(), Operator::Gt),
+        const_array.binary(array.clone(), Operator::Lt),
     ) {
         assert_eq!(
             arr_gt_scalar.len(),
@@ -890,10 +873,8 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx
 
     // Test Eq symmetry
     if let (Ok(arr_eq_scalar), Ok(scalar_eq_arr)) = (
-        array
-            .clone()
-            .binary(const_array.clone().into_array(), Operator::Eq),
-        const_array.into_array().binary(array.clone(), Operator::Eq),
+        array.binary(const_array.clone(), Operator::Eq),
+        const_array.binary(array.clone(), Operator::Eq),
     ) {
         for i in 0..arr_eq_scalar.len() {
             let arr_eq = arr_eq_scalar
@@ -940,7 +921,7 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
     if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (
-        array.clone().binary(bool_mask.clone(), Operator::And),
+        array.binary(bool_mask.clone(), Operator::And),
         array.not(),
         bool_mask.not(),
     ) {
@@ -974,7 +955,7 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
     // Test second De Morgan's law: NOT(A OR B) = (NOT A) AND (NOT B)
     if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (
-        array.clone().binary(bool_mask.clone(), Operator::Or),
+        array.binary(bool_mask.clone(), Operator::Or),
         array.not(),
         bool_mask.not(),
     ) {
@@ -1139,7 +1120,8 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let canonical = array
         .clone()
         .execute::<Canonical>(ctx)
-        .vortex_expect("to_canonical failed");
+        .vortex_expect("to_canonical failed")
+        .into_array();
 
     // Choose appropriate target dtype based on the array's type
     let target_dtypes = match array.dtype() {
@@ -1289,8 +1271,6 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
             // Get the corresponding value from the canonical array (adjusted for slice offset)
             let canonical_val = canonical
-                .clone()
-                .into_array()
                 .execute_scalar(start + i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test");
 
@@ -1317,7 +1297,6 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
 
         // Also test the other way: cast then slice
         let casted = match array
-            .clone()
             .cast(target_dtype.clone())
             .and_then(|a| a.execute::<Canonical>(ctx).map(|c| c.into_array()))
         {
