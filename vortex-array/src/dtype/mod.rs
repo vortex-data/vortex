@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A type system for Vortex
+//! A type system for Vortex.
 //!
 //! This crate contains the core logical type system for Vortex, including the definition of data types,
 //! and (optionally) logic for their serialization and deserialization.
+//!
+//! Vortex dtypes are logical domains, not physical layouts. Encodings are tracked separately on
+//! arrays, so the same dtype may be backed by canonical buffers, dictionary codes, compressed
+//! children, or a lazy expression array.
+//!
+//! Every non-null logical dtype carries [`Nullability`] directly. This differs from Apache Arrow,
+//! where nullability is usually field metadata.
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
@@ -101,11 +108,19 @@ pub enum DType {
     /// `DType`. See [`StructFields`] for more information.
     Struct(StructFields, Nullability),
 
-    // TODO(connor)[Union]: Add more info here!
     /// A logical union (sum) type.
+    ///
+    /// `Union` is reserved for values that are drawn from one of several possible child domains.
+    /// The exact child-type metadata and canonical storage are not yet part of the stable public
+    /// Rust API, so most callers should prefer [`DType::Variant`] for dynamically typed values or
+    /// [`DType::Struct`] for fixed schemas.
     Union(Nullability),
 
-    /// Variant type.
+    /// Dynamically typed values stored as Vortex scalars.
+    ///
+    /// A variant value preserves its full logical value in variant storage and may also carry a
+    /// typed, row-aligned shredded representation for selected paths when materialized as a
+    /// [`VariantArray`](crate::arrays::VariantArray).
     Variant(Nullability),
 
     /// A user-defined extension type.

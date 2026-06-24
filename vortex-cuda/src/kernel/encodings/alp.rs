@@ -141,7 +141,7 @@ mod tests {
     use std::f64;
 
     use vortex::array::IntoArray;
-    use vortex::array::LEGACY_SESSION;
+    use vortex::array::array_session;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::patches::Patches;
@@ -169,7 +169,7 @@ mod tests {
     /// Patches must carry `chunk_offsets` — the fused kernel requires them.
     #[crate::test]
     async fn test_cuda_alp_decompression_f32() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -215,7 +215,7 @@ mod tests {
     /// preserved through the standalone ALP GPU executor.
     #[crate::test]
     async fn test_cuda_alp_nullable_with_patches() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -236,7 +236,7 @@ mod tests {
         let alp_array = alp_encode(
             prim.as_view(),
             None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let gpu_result = alp_array
@@ -256,7 +256,7 @@ mod tests {
     /// elements are actually null.
     #[crate::test]
     async fn test_cuda_alp_all_valid_nullable() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -267,7 +267,7 @@ mod tests {
         let alp_array = alp_encode(
             values.as_view(),
             None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let gpu_result = alp_array
@@ -289,7 +289,7 @@ mod tests {
     /// (zero patches) via the offset math rather than the NULL sentinel.
     #[crate::test]
     async fn test_cuda_alp_multi_chunk_sparse_patches() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -309,7 +309,7 @@ mod tests {
         let alp_array = alp_encode(
             prim.as_view(),
             None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
         assert!(
             alp_array.patches().is_some(),
@@ -334,7 +334,7 @@ mod tests {
     /// so this guards the fast-path for the (i64, f64) kernel variant.
     #[crate::test]
     async fn test_cuda_alp_f64_multi_chunk_with_patches() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -352,7 +352,7 @@ mod tests {
         let alp_array = alp_encode(
             prim.as_view(),
             None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
         assert!(
             alp_array.patches().is_some(),
@@ -378,7 +378,7 @@ mod tests {
     /// (existing tests have ≤ 6 patches per chunk).
     #[crate::test]
     async fn test_cuda_alp_dense_patches_single_chunk() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -425,7 +425,7 @@ mod tests {
     /// loop. Includes a patch in the tail.
     #[crate::test]
     async fn test_cuda_alp_partial_tail_chunk() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
@@ -436,7 +436,7 @@ mod tests {
         let alp_array = alp_encode(
             prim.as_view(),
             None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
         assert!(
             alp_array.patches().is_some(),

@@ -278,7 +278,6 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::ChunkedArray;
@@ -374,11 +373,11 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?);
+        assert!(chunked.all_valid(&mut array_session().create_execution_ctx())?);
         assert!(
             !chunked
                 .into_array()
-                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())?
+                .all_invalid(&mut array_session().create_execution_ctx())?
         );
 
         Ok(())
@@ -398,11 +397,11 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?);
+        assert!(!chunked.all_valid(&mut array_session().create_execution_ctx())?);
         assert!(
             chunked
                 .into_array()
-                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())?
+                .all_invalid(&mut array_session().create_execution_ctx())?
         );
 
         Ok(())
@@ -422,11 +421,11 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?);
+        assert!(!chunked.all_valid(&mut array_session().create_execution_ctx())?);
         assert!(
             !chunked
                 .into_array()
-                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())?
+                .all_invalid(&mut array_session().create_execution_ctx())?
         );
 
         Ok(())

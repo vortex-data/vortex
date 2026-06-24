@@ -3,8 +3,8 @@
 
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
@@ -28,9 +28,7 @@ impl FlatLayoutFixture for PatchedFixture {
         "A set of patches to apply on top of an inner array"
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
-
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let array = PrimitiveArray::from_option_iter((0u64..2048).map(Some)).into_array();
         let patches = Patches::new(
             2048,
@@ -40,7 +38,7 @@ impl FlatLayoutFixture for PatchedFixture {
             None,
         )?;
 
-        Ok(Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array())
+        Ok(Patched::from_array_and_patches(array, &patches, ctx)?.into_array())
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {

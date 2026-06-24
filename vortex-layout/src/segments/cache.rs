@@ -59,13 +59,20 @@ impl SegmentCacheKey {
     }
 }
 
-/// A cache for storing and retrieving individual segment data.
+/// Cache for individual segment byte buffers.
+///
+/// Caches are optional and operate above a [`SegmentSource`]. They should only store host buffers:
+/// device buffers and other non-host handles should be passed through uncached. Keys are scoped by
+/// source namespace so independent files can reuse logical segment ids without cache collisions.
 #[async_trait]
 pub trait SegmentCache: Send + Sync {
+    /// Return a cached segment, or `None` on cache miss.
     async fn get(&self, key: SegmentCacheKey) -> VortexResult<Option<ByteBuffer>>;
+    /// Store a segment in the cache.
     async fn put(&self, key: SegmentCacheKey, buffer: ByteBuffer) -> VortexResult<()>;
 }
 
+/// Segment cache implementation that never stores anything.
 pub struct NoOpSegmentCache;
 
 #[async_trait]
@@ -83,6 +90,7 @@ impl SegmentCache for NoOpSegmentCache {
 pub struct MokaSegmentCache(Cache<SegmentCacheKey, ByteBuffer, FxBuildHasher>);
 
 impl MokaSegmentCache {
+    /// Construct a Moka-backed cache capped by total buffer bytes.
     pub fn new(max_capacity_bytes: u64) -> Self {
         Self(
             CacheBuilder::new(max_capacity_bytes)
@@ -122,6 +130,7 @@ pub struct InstrumentedSegmentCache<C> {
 }
 
 impl<C: SegmentCache> InstrumentedSegmentCache<C> {
+    /// Wrap a segment cache and record hit/miss/store metrics with the supplied labels.
     pub fn new(
         segment_cache: C,
         metrics_registry: &dyn MetricsRegistry,
@@ -161,6 +170,7 @@ impl<C: SegmentCache> SegmentCache for InstrumentedSegmentCache<C> {
     }
 }
 
+/// [`SegmentSource`] wrapper that consults a [`SegmentCache`] before the underlying source.
 pub struct SegmentCacheSourceAdapter {
     source_id: SegmentCacheSourceId,
     cache: Arc<dyn SegmentCache>,

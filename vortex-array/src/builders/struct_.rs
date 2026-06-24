@@ -211,7 +211,6 @@ impl ArrayBuilder for StructBuilder {
 #[cfg(test)]
 mod tests {
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
@@ -259,7 +258,7 @@ mod tests {
         assert_eq!(struct_.dtype(), &dtype);
         assert_eq!(
             struct_
-                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .valid_count(&mut array_session().create_execution_ctx())
                 .unwrap(),
             1
         );

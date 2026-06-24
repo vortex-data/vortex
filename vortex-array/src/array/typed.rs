@@ -3,6 +3,11 @@
 
 //! Typed array wrappers: [`ArrayData<V>`] (heap-allocated), [`Array<V>`] (typed handle),
 //! and [`ArrayView<V>`] (lightweight borrow).
+//!
+//! Encoding implementors normally construct arrays through [`ArrayParts`] and
+//! [`Array::try_from_parts`]. Compute and serialization code should accept [`ArrayRef`] when it can
+//! operate over any encoding, and downcast to [`Array<V>`] or [`ArrayView<V>`] only when it needs
+//! encoding-specific state.
 
 use std::any::Any;
 use std::fmt::Debug;
@@ -48,14 +53,22 @@ pub(crate) struct ArrayInner<D: ?Sized> {
 
 /// Construction parameters for typed arrays.
 pub struct ArrayParts<V: VTable> {
+    /// The vtable value identifying the array encoding.
     pub vtable: V,
+    /// Logical dtype of every row in the array.
     pub dtype: DType,
+    /// Number of rows in the array.
     pub len: usize,
+    /// Encoding-specific, non-child data.
     pub data: V::TypedArrayData,
+    /// Optional child arrays owned by this encoding.
     pub slots: ArraySlots,
 }
 
 impl<V: VTable> ArrayParts<V> {
+    /// Construct array parts with no child slots.
+    ///
+    /// The parts are not validated until they are passed to [`Array::try_from_parts`].
     pub fn new(vtable: V, dtype: DType, len: usize, data: V::TypedArrayData) -> Self {
         Self {
             vtable,
@@ -66,6 +79,9 @@ impl<V: VTable> ArrayParts<V> {
         }
     }
 
+    /// Attach child slots to the construction parts.
+    ///
+    /// Slot count, names, and meaning are encoding-specific and validated by [`VTable::validate`].
     pub fn with_slots(mut self, slots: ArraySlots) -> Self {
         self.slots = slots;
         self
@@ -189,6 +205,9 @@ pub struct Array<V: VTable> {
 
 impl<V: VTable> Array<V> {
     /// Create a typed array from explicit construction parameters.
+    ///
+    /// This is the safe construction path for encoding implementors. It calls
+    /// [`VTable::validate`] before publishing the array as an [`ArrayRef`].
     pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
         let store = ArrayInner::<ArrayData<V>>::try_new(new)?;
         let inner = ArrayRef::from_inner(Arc::new(store));
@@ -232,7 +251,9 @@ impl<V: VTable> Array<V> {
         }
     }
 
-    /// Try to create from an `ArrayRef`, returning `Err` if the type doesn't match.
+    /// Try to create a typed handle from an [`ArrayRef`].
+    ///
+    /// Returns the original [`ArrayRef`] in `Err` when the encoding id does not match `V`.
     pub fn try_from_array_ref(array: ArrayRef) -> Result<Self, ArrayRef> {
         if array.is::<V>() {
             Ok(Self {
@@ -244,7 +265,7 @@ impl<V: VTable> Array<V> {
         }
     }
 
-    /// Returns the dtype.
+    /// Returns the logical dtype.
     pub fn dtype(&self) -> &DType {
         self.inner.dtype()
     }
@@ -259,12 +280,12 @@ impl<V: VTable> Array<V> {
         self.inner.len() == 0
     }
 
-    /// Returns the encoding ID.
+    /// Returns the encoding ID for `V`.
     pub fn encoding_id(&self) -> ArrayId {
         self.inner.encoding_id()
     }
 
-    /// Returns the statistics.
+    /// Returns this array's statistics set.
     pub fn statistics(&self) -> StatsSetRef<'_> {
         self.inner.statistics()
     }
@@ -274,7 +295,9 @@ impl<V: VTable> Array<V> {
         &self.downcast_inner().data
     }
 
-    /// Try to fetch a mut ref to the inner ArrayData.
+    /// Try to fetch mutable access to the encoding-specific data.
+    ///
+    /// Returns `None` when this handle is not the unique owner of the backing allocation.
     pub fn data_mut(&mut self) -> Option<&mut V::TypedArrayData> {
         let store = self.inner.inner_mut()?;
         let array_inner = store.data.as_any_mut().downcast_mut::<ArrayData<V>>();
@@ -302,6 +325,7 @@ impl<V: VTable> Array<V> {
         }
     }
 
+    /// Replace the array's statistics set and return the same typed handle.
     pub fn with_stats_set(self, stats: StatsSet) -> Self {
         self.statistics().replace(stats);
         self
@@ -343,6 +367,7 @@ impl<V: VTable> Array<V> {
 
 /// Public API methods that shadow `DynArrayData` / `ArrayRef` methods.
 impl<V: VTable> Array<V> {
+    /// Lazily or eagerly slice the array to `range`, depending on available kernels.
     pub fn slice(&self, range: std::ops::Range<usize>) -> VortexResult<ArrayRef> {
         self.inner.slice(range)
     }
@@ -365,30 +390,37 @@ impl<V: VTable> Array<V> {
         self.inner.execute_scalar(index, ctx)
     }
 
+    /// Filter the array with a selection mask.
     pub fn filter(&self, mask: vortex_mask::Mask) -> VortexResult<ArrayRef> {
         self.inner.filter(mask)
     }
 
+    /// Gather rows from this array by index.
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
         self.inner.take(indices)
     }
 
+    /// Returns the array's validity representation.
     pub fn validity(&self) -> VortexResult<Validity> {
         self.inner.validity()
     }
 
+    /// Returns whether `index` is valid using the provided execution context.
     pub fn is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         self.inner.is_valid(index, ctx)
     }
 
+    /// Returns whether `index` is null using the provided execution context.
     pub fn is_invalid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         self.inner.is_invalid(index, ctx)
     }
 
+    /// Returns whether every row is valid.
     pub fn all_valid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         self.inner.all_valid(ctx)
     }
 
+    /// Returns whether every row is null.
     pub fn all_invalid(&self, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         self.inner.all_invalid(ctx)
     }
@@ -400,26 +432,32 @@ impl<V: VTable> Array<V> {
         result
     }
 
+    /// Returns the estimated physical bytes owned or referenced by this array tree.
     pub fn nbytes(&self) -> u64 {
         self.inner.nbytes()
     }
 
+    /// Returns the number of top-level buffers exposed by this encoding.
     pub fn nbuffers(&self) -> usize {
         self.inner.nbuffers()
     }
 
+    /// Returns the scalar value when this array is known to be constant.
     pub fn as_constant(&self) -> Option<crate::scalar::Scalar> {
         self.inner.as_constant()
     }
 
+    /// Counts valid rows, executing validity arrays when necessary.
     pub fn valid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         self.inner.valid_count(ctx)
     }
 
+    /// Counts null rows, executing validity arrays when necessary.
     pub fn invalid_count(&self, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         self.inner.invalid_count(ctx)
     }
 
+    /// Append this array's logical values to a canonical builder.
     pub fn append_to_builder(
         &self,
         builder: &mut dyn crate::builders::ArrayBuilder,

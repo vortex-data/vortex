@@ -12,7 +12,10 @@ use crate::segments::SegmentInfo;
 /// Static future resolving to a segment byte buffer.
 pub type SegmentFuture = BoxFuture<'static, VortexResult<BufferHandle>>;
 
-/// A trait for providing logical segment data to a scan plan.
+/// Provides segment data to a [`crate::LayoutReader`].
+///
+/// Implementations may issue asynchronous file reads, object-store requests, cache lookups, or
+/// in-memory buffer slices. Returned futures must be independent and safe to poll concurrently.
 pub trait SegmentSource: 'static + Send + Sync {
     /// Return scheduler-visible metadata for a segment.
     fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo>;

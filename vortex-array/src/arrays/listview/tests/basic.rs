@@ -8,7 +8,6 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::BoolArray;
@@ -58,7 +57,7 @@ fn test_basic_listview_comprehensive() {
 
     // Test scalar_at which returns entire lists as Scalar values.
     let first_scalar = listview
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(0, &mut array_session().create_execution_ctx())
         .unwrap();
     assert_eq!(
         first_scalar,
@@ -136,7 +135,7 @@ fn test_from_list_array() -> VortexResult<()> {
     let validity = Validity::from_iter([true, false, true]);
 
     let list_array = ListArray::try_new(elements, offsets, validity)?;
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let list_view = list_view_from_list(list_array, &mut ctx)?;
 
     assert_eq!(list_view.len(), 3);
@@ -149,9 +148,9 @@ fn test_from_list_array() -> VortexResult<()> {
     );
 
     // Check validity is preserved.
-    assert!(list_view.is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())?);
-    assert!(list_view.is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())?);
-    assert!(list_view.is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())?);
+    assert!(list_view.is_valid(0, &mut array_session().create_execution_ctx())?);
+    assert!(list_view.is_invalid(1, &mut array_session().create_execution_ctx())?);
+    assert!(list_view.is_valid(2, &mut array_session().create_execution_ctx())?);
 
     // Check third list.
     assert_arrays_eq!(
@@ -214,7 +213,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(0)
                 .unwrap()
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             1i32.into()
         );
@@ -222,7 +221,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(1)
                 .unwrap()
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             1i32.into()
         );
@@ -230,7 +229,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(2)
                 .unwrap()
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             1i32.into()
         );

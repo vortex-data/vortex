@@ -67,7 +67,7 @@ pub fn check(dir: &Path, mode: Mode, exclude: &[String]) -> VortexResult<()> {
 
     eprintln!("generating fresh fixtures for comparison...");
     for fixture in &fixtures {
-        fixture.write(tmp_dir.path())?;
+        fixture.write(tmp_dir.path(), &mut ctx)?;
     }
 
     // Collect .vortex files in the check directory.

@@ -130,7 +130,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
@@ -138,6 +137,7 @@ mod tests {
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::first::First;
     use crate::aggregate_fn::fns::first::first;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn first_non_null() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![10i32, 20, 30], Validity::NonNullable).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(first(&array, &mut ctx)?, Scalar::primitive(10i32, Nullable));
         Ok(())
     }
@@ -161,7 +161,7 @@ mod tests {
     fn first_skips_leading_nulls() -> VortexResult<()> {
         let array =
             PrimitiveArray::from_option_iter([None, None, Some(7i32), Some(8)]).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(first(&array, &mut ctx)?, Scalar::primitive(7i32, Nullable));
         Ok(())
     }
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn first_all_null() -> VortexResult<()> {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullable);
         assert_eq!(first(&array, &mut ctx)?, Scalar::null(dtype));
         Ok(())
@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn first_constant() -> VortexResult<()> {
         let array = ConstantArray::new(42i32, 10).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(first(&array, &mut ctx)?, Scalar::primitive(42i32, Nullable));
         Ok(())
     }
@@ -196,7 +196,7 @@ mod tests {
     fn first_constant_null() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullable);
         let array = ConstantArray::new(Scalar::null(dtype.clone()), 10).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(first(&array, &mut ctx)?, Scalar::null(dtype));
         Ok(())
     }
@@ -208,14 +208,14 @@ mod tests {
             DType::Utf8(Nullable),
         )
         .into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(first(&array, &mut ctx)?, Scalar::utf8("hello", Nullable));
         Ok(())
     }
 
     #[test]
     fn first_multi_batch_picks_earliest_non_null() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullable);
         let mut acc = Accumulator::try_new(First, EmptyOptions, dtype)?;
 
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn first_finish_resets_state() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(First, EmptyOptions, dtype)?;
 
@@ -278,7 +278,7 @@ mod tests {
         let chunk2 = PrimitiveArray::from_option_iter([None, Some(42i32), Some(100)]);
         let dtype = chunk1.dtype().clone();
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(
             first(&chunked.into_array(), &mut ctx)?,
             Scalar::primitive(42i32, Nullable)

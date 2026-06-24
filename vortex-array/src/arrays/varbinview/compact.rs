@@ -201,7 +201,6 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::VarBinArray;
@@ -229,7 +228,7 @@ mod tests {
         let indices = buffer![0u32, 4u32].into_array();
         let taken = original.take(indices).unwrap();
         let taken = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut array_session().create_execution_ctx())
             .unwrap();
         // The taken array should still have the same number of buffers
         assert_eq!(taken.data_buffers().len(), original_buffers);
@@ -270,7 +269,7 @@ mod tests {
         let indices = buffer![0u32, 2u32].into_array();
         let taken = original.take(indices).unwrap();
         let taken_array = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut array_session().create_execution_ctx())
             .unwrap();
 
         let optimized_array = taken_array.compact_with_threshold(1.0).unwrap();
@@ -339,7 +338,7 @@ mod tests {
         let indices = buffer![0u32].into_array();
         let taken = original.take(indices).unwrap();
         let taken = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut array_session().create_execution_ctx())
             .unwrap();
         // Compact with threshold=0 (should not compact)
         let compacted = taken.compact_with_threshold(0.0).unwrap();
@@ -365,7 +364,7 @@ mod tests {
         let indices = buffer![0u32, 2u32].into_array();
         let taken = original.take(indices).unwrap();
         let taken = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut array_session().create_execution_ctx())
             .unwrap();
 
         let original_buffers = taken.data_buffers().len();
@@ -422,7 +421,7 @@ mod tests {
         let indices_array = buffer![0u32, 2u32, 4u32, 6u32, 8u32].into_array();
         let taken = original.take(indices_array).unwrap();
         let taken = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut array_session().create_execution_ctx())
             .unwrap();
 
         // Compact with moderate threshold
@@ -449,7 +448,7 @@ mod tests {
         let indices_array = buffer![0u32, 1u32, 2u32, 3u32, 4u32].into_array();
         let taken = original.take(indices_array).unwrap();
         let taken = taken
-            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<VarBinViewArray>(&mut array_session().create_execution_ctx())
             .unwrap();
         // Get buffer stats before compaction
         let utils_before = taken.buffer_utilizations().unwrap();

@@ -43,9 +43,11 @@ use crate::ZstdBuffersMetadata;
 pub type ZstdBuffersArray = Array<ZstdBuffers>;
 
 #[derive(Clone, Debug)]
+/// Encoding marker for buffer-level zstd compression.
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
+    /// Construct a [`ZstdBuffersArray`] from compressed buffer data.
     pub fn try_new(
         dtype: DType,
         len: usize,
@@ -54,6 +56,10 @@ impl ZstdBuffers {
         Array::try_from_parts(ArrayParts::new(ZstdBuffers, dtype, len, data))
     }
 
+    /// Compress every top-level buffer of `array` independently with zstd.
+    ///
+    /// Children are preserved as slots and the wrapped array's serialized metadata is stored so the
+    /// original array can be rebuilt after decompression.
     pub fn compress(
         array: &ArrayRef,
         level: i32,
@@ -96,6 +102,7 @@ impl ZstdBuffers {
         Ok(compressed)
     }
 
+    /// Rebuild the wrapped array from decompressed buffer handles.
     pub fn build_inner(
         array: &ZstdBuffersArray,
         buffer_handles: &[BufferHandle],
@@ -149,6 +156,7 @@ impl Display for ZstdBuffersData {
 }
 
 #[derive(Clone, Debug)]
+/// Decode plan for buffer-level zstd decompression.
 pub struct ZstdBuffersDecodePlan {
     compressed_buffers: Vec<BufferHandle>,
     frame_sizes: Arc<[usize]>,
@@ -160,30 +168,37 @@ pub struct ZstdBuffersDecodePlan {
 }
 
 impl ZstdBuffersDecodePlan {
+    /// Compressed buffers to decode.
     pub fn compressed_buffers(&self) -> &[BufferHandle] {
         &self.compressed_buffers
     }
 
+    /// Compressed frame sizes in bytes.
     pub fn frame_sizes(&self) -> Arc<[usize]> {
         Arc::clone(&self.frame_sizes)
     }
 
+    /// Decompressed output size for each buffer.
     pub fn output_sizes(&self) -> Arc<[usize]> {
         Arc::clone(&self.output_sizes)
     }
 
+    /// Byte offsets of each decompressed buffer in one contiguous output allocation.
     pub fn output_offsets(&self) -> &[usize] {
         &self.output_offsets
     }
 
+    /// Total byte size of the planned contiguous output allocation.
     pub fn output_size_total(&self) -> usize {
         self.output_size_total
     }
 
+    /// Largest single decompressed buffer size.
     pub fn output_size_max(&self) -> usize {
         self.output_size_max
     }
 
+    /// Number of compressed frames/buffers in the plan.
     pub fn num_frames(&self) -> usize {
         self.compressed_buffers.len()
     }
@@ -273,6 +288,7 @@ impl ZstdBuffersData {
         Ok(result)
     }
 
+    /// Build a decode plan for external or device decompression.
     pub fn decode_plan(&self) -> VortexResult<ZstdBuffersDecodePlan> {
         // If invariants are somehow broken, device decompression could have UB, so ensure
         // they still hold.
@@ -492,8 +508,8 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
@@ -544,12 +560,12 @@ mod tests {
     #[case::empty_primitive(make_empty_primitive_array())]
     #[case::inlined_varbinview(make_inlined_varbinview_array())]
     fn test_roundtrip(#[case] input: ArrayRef) -> VortexResult<()> {
-        let compressed = ZstdBuffers::compress(&input, 3, &LEGACY_SESSION)?;
+        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?;
 
         assert_eq!(compressed.len(), input.len());
         assert_eq!(compressed.dtype(), input.dtype());
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let decompressed = compressed.into_array().execute::<ArrayRef>(&mut ctx)?;
 
         assert_arrays_eq!(input, decompressed, &mut ctx);
@@ -561,7 +577,7 @@ mod tests {
         let input = make_primitive_array();
         input.statistics().set(Stat::Min, Precision::exact(0i32));
 
-        let compressed = ZstdBuffers::compress(&input, 3, &LEGACY_SESSION)?;
+        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?;
 
         assert!(!compressed.statistics().get(Stat::Min).is_absent());
         Ok(())
@@ -570,9 +586,9 @@ mod tests {
     #[test]
     fn test_validity_delegates_for_nullable_input() -> VortexResult<()> {
         let input = make_nullable_primitive_array();
-        let compressed = ZstdBuffers::compress(&input, 3, &LEGACY_SESSION)?.into_array();
+        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?.into_array();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(compressed.all_valid(&mut ctx)?, input.all_valid(&mut ctx)?);
         assert_eq!(
             compressed.all_invalid(&mut ctx)?,

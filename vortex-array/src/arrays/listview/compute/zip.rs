@@ -170,8 +170,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
@@ -216,7 +216,7 @@ mod tests {
         );
         let mask = Mask::from_iter([true, false, true]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -256,7 +256,7 @@ mod tests {
         // true -> if_true, false -> if_false
         let mask = Mask::from_iter([false, true, true]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -293,7 +293,7 @@ mod tests {
         );
         let mask = Mask::from_iter([true, true, false]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -336,7 +336,7 @@ mod tests {
         );
         let mask = Mask::from_iter([true, false]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?

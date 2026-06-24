@@ -36,6 +36,7 @@ use vortex_session::registry::Id;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
+use crate::array::parquet_typed_value_from_logical_shredded;
 
 /// Arrow canonical extension name for Parquet Variant storage.
 const PARQUET_VARIANT_ARROW_EXTENSION_NAME: &str = "arrow.parquet.variant";
@@ -58,7 +59,7 @@ fn parquet_variant_storage_request(fields: &Fields) -> Option<(bool, bool)> {
     (has_metadata && (has_value || has_typed_value)).then_some((has_value, has_typed_value))
 }
 
-fn export_storage_to_target<T: ParquetVariantArrayExt>(
+pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
     parquet_array: &T,
     target_fields: &Fields,
     ctx: &mut ExecutionCtx,
@@ -99,7 +100,7 @@ fn export_storage_to_target<T: ParquetVariantArrayExt>(
     )?))
 }
 
-fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
+pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     parquet_array: &T,
     target_fields: &Fields,
     ctx: &mut ExecutionCtx,
@@ -115,7 +116,10 @@ fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     export_storage_to_target(&unshredded_parquet, target_fields, ctx)
 }
 
-fn parquet_variant_for_export(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+pub(crate) fn parquet_variant_for_export(
+    array: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let executed = array.execute_until::<ParquetVariant>(ctx)?;
     if executed.is::<ParquetVariant>() {
         return Ok(executed);
@@ -135,11 +139,16 @@ fn parquet_variant_for_export(array: ArrayRef, ctx: &mut ExecutionCtx) -> Vortex
         return Ok(core_storage);
     };
 
+    // The canonical shredded child has had its Parquet `value`/`typed_value` wrapper shells
+    // stripped; rebuild them so the reattached `typed_value` is valid Parquet storage that
+    // `to_arrow` and `unshred_variant` can consume.
+    let typed_value = parquet_typed_value_from_logical_shredded(shredded.clone(), ctx)?;
+
     ParquetVariant::try_new(
         ParquetVariantArrayExt::validity(&parquet_core),
         parquet_core.metadata_array().clone(),
         parquet_core.value_array().cloned(),
-        Some(shredded.clone()),
+        Some(typed_value),
     )
     .map(IntoArray::into_array)
 }
@@ -250,7 +259,7 @@ impl ArrowImportVTable for ParquetVariant {
         field: &Field,
         dtype: &DType,
     ) -> VortexResult<ArrowImport> {
-        if !matches!(dtype, DType::Variant(_))
+        if !dtype.is_variant()
             || field
                 .metadata()
                 .get(EXTENSION_TYPE_NAME_KEY)

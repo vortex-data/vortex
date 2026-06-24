@@ -228,7 +228,7 @@ mod tests {
             assert_error(error);
             assert!(ds.is_null());
 
-            opts.paths = c"*.vortex".as_ptr();
+            opts.paths = c"definitely-missing-dir/*.vortex".as_ptr();
             let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
             assert_error(error);
             assert!(ds.is_null());

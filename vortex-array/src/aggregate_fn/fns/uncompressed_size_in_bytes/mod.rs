@@ -316,7 +316,6 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
@@ -324,6 +323,7 @@ mod tests {
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -360,7 +360,7 @@ mod tests {
     }
 
     fn aggregate(array: &ArrayRef) -> VortexResult<u64> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut acc =
             Accumulator::try_new(UncompressedSizeInBytes, EmptyOptions, array.dtype().clone())?;
         acc.accumulate(array, &mut ctx)?;
@@ -545,7 +545,7 @@ mod tests {
     fn variant_stat_is_unsupported() -> VortexResult<()> {
         let child = ConstantArray::new(Scalar::variant(Scalar::from(42i32)), 3).into_array();
         let array = VariantArray::try_new(child, None)?.into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         assert_eq!(
             array
@@ -598,7 +598,7 @@ mod tests {
     #[test]
     fn helper_caches_result() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let size = uncompressed_size_in_bytes(&array, &mut ctx)?;
 

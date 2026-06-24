@@ -31,6 +31,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
@@ -44,7 +45,7 @@ mod tests {
     use crate::DeltaArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = array_session();
         crate::initialize(&session);
         session
     });
@@ -256,7 +257,10 @@ mod tests {
     #[case::delta_large_i32((-1024i32..1024).collect())]
     #[case::delta_single_negative(PrimitiveArray::new(buffer![-42i32], Validity::NonNullable))]
     fn test_delta_consistency(#[case] array: PrimitiveArray) {
-        test_array_consistency(&da(&array).into_array());
+        test_array_consistency(
+            &da(&array).into_array(),
+            &mut SESSION.create_execution_ctx(),
+        );
     }
 
     #[rstest]
@@ -268,6 +272,9 @@ mod tests {
     #[case::delta_i8_basic(PrimitiveArray::new(buffer![-1i8, -1, -1, -1, -1], Validity::NonNullable))]
     #[case::delta_i32_basic(PrimitiveArray::new(buffer![-1i32, -1, -1, -1, -1], Validity::NonNullable))]
     fn test_delta_binary_numeric(#[case] array: PrimitiveArray) {
-        test_binary_numeric_array(da(&array).into_array());
+        test_binary_numeric_array(
+            &da(&array).into_array(),
+            &mut SESSION.create_execution_ctx(),
+        );
     }
 }

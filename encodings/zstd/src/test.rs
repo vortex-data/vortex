@@ -3,8 +3,8 @@
 #![expect(clippy::cast_possible_truncation)]
 
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -21,7 +21,7 @@ use crate::Zstd;
 
 #[test]
 fn test_zstd_compress_decompress() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::from_iter(data.clone());
 
@@ -55,7 +55,7 @@ fn test_zstd_compress_decompress() {
 
 #[test]
 fn test_zstd_empty() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::new(
         data.iter().cloned().collect::<Buffer<_>>(),
@@ -69,7 +69,7 @@ fn test_zstd_empty() {
 
 #[test]
 fn test_zstd_with_validity_and_multi_frame() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let data: Vec<i32> = (0..200).collect();
     let mut validity: Vec<bool> = vec![false; 200];
     validity[3] = true;
@@ -123,7 +123,7 @@ fn test_zstd_with_validity_and_multi_frame() {
 
 #[test]
 fn test_zstd_with_dict() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::new(
         data.iter().cloned().collect::<Buffer<_>>(),
@@ -153,7 +153,7 @@ fn test_zstd_with_dict() {
 
 #[test]
 fn test_validity_vtable() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
         (0..5).collect::<Buffer<_>>(),
@@ -164,7 +164,7 @@ fn test_validity_vtable() {
     assert_eq!(
         arr.validity()
             .unwrap()
-            .execute_mask(arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_mask(arr.len(), &mut array_session().create_execution_ctx())
             .unwrap(),
         Mask::from_iter(mask_bools)
     );
@@ -173,7 +173,7 @@ fn test_validity_vtable() {
         sliced
             .validity()
             .unwrap()
-            .execute_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_mask(sliced.len(), &mut array_session().create_execution_ctx())
             .unwrap(),
         Mask::from_iter(vec![true, true, false])
     );
@@ -181,7 +181,7 @@ fn test_validity_vtable() {
 
 #[test]
 fn test_zstd_var_bin_view() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let data: [Option<&'static [u8]>; 5] = [
         Some(b"foo"),
         Some(b"bar"),
@@ -207,7 +207,7 @@ fn test_zstd_var_bin_view() {
 
 #[test]
 fn test_zstd_decompress_var_bin_view() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let data: [Option<&'static [u8]>; 5] = [
         Some(b"foo"),
         Some(b"bar"),
@@ -238,7 +238,7 @@ fn test_zstd_decompress_var_bin_view() {
 
 #[test]
 fn test_sliced_array_children() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let data: Vec<Option<i32>> = (0..10).map(|v| (v != 5).then_some(v)).collect();
     let compressed =
         Zstd::from_primitive(&PrimitiveArray::from_option_iter(data), 0, 100, &mut ctx).unwrap();
@@ -250,7 +250,7 @@ fn test_sliced_array_children() {
 /// the buffer alignment when compressing primitive arrays.
 #[test]
 fn test_zstd_frame_start_buffer_alignment() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let data = vec![0u8; 2];
     let aligned_buffer = Buffer::copy_from_aligned(&data, Alignment::new(8));
     // u8 array now has a 8-byte alignment.

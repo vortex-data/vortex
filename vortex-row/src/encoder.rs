@@ -24,6 +24,29 @@ use crate::size::RowSize;
 /// Construct with [`RowEncoder::new`] or [`RowEncoder::with_options`] to pin the per-column
 /// sort options, or use [`RowEncoder::default`] to apply ascending, nulls-first ordering to
 /// every column. The same encoder can be reused across calls.
+///
+/// # Example
+///
+/// ```rust
+/// use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+/// use vortex_array::arrays::PrimitiveArray;
+/// use vortex_row::{RowEncoder, RowSortField};
+///
+/// # fn example() -> vortex_error::VortexResult<()> {
+/// let mut ctx = array_session().create_execution_ctx();
+/// let ids = PrimitiveArray::from_iter([3i32, 1, 2]).into_array();
+/// let scores = PrimitiveArray::from_iter([10i32, 20, 10]).into_array();
+///
+/// let rows = RowEncoder::new([
+///     RowSortField::ascending(),
+///     RowSortField::descending().nulls_last(),
+/// ])
+/// .encode(&[ids, scores], &mut ctx)?;
+///
+/// assert_eq!(rows.len(), 3);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct RowEncoder {
     options: Option<RowEncodingOptions>,

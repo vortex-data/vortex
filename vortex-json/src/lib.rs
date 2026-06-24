@@ -11,12 +11,18 @@
 
 mod arrow;
 mod dtype;
+mod json_to_variant;
 
 use std::sync::Arc;
 
 pub use dtype::Json;
+pub use json_to_variant::JsonToVariant;
+pub use json_to_variant::JsonToVariantOptions;
+pub use json_to_variant::ShreddingSpec;
+pub use json_to_variant::json_to_variant;
 use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
+use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_session::VortexSession;
 
 /// Register JSON extension support with a session.
@@ -24,4 +30,5 @@ pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Json);
     session.arrow().register_exporter(Arc::new(Json));
     session.arrow().register_importer(Arc::new(Json));
+    session.scalar_fns().register(JsonToVariant);
 }

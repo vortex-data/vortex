@@ -71,7 +71,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::PrimitiveArray;
-/// use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
+/// use vortex_array::{VortexSessionExecute, array_session};
 ///
 /// // Create from iterator using FromIterator impl
 /// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
@@ -80,7 +80,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// let sliced = array.slice(1..3)?;
 ///
 /// // Access individual values
-/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let mut ctx = array_session().create_execution_ctx();
 /// let value = sliced.execute_scalar(0, &mut ctx).unwrap();
 /// assert_eq!(value, 2i32.into());
 ///
@@ -488,18 +488,18 @@ impl Array<Primitive> {
 
         let buffer = match &validity {
             Validity::NonNullable | Validity::AllValid => {
-                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(true)).map(f))
+                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(iter::repeat(true)).map(f))
             }
             Validity::AllInvalid => {
-                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
+                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
                 #[expect(deprecated)]
                 let val = val.to_bool().into_bit_buffer();
-                BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
+                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(val.iter()).map(f))
             }
         };
-        Ok(PrimitiveArray::new(buffer.freeze(), validity))
+        Ok(PrimitiveArray::new(buffer, validity))
     }
 }
 

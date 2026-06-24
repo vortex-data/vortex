@@ -11,6 +11,7 @@ use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::fastlanes::FoR;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -30,7 +31,7 @@ impl FlatLayoutFixture for FoRFixture {
         vec![FoR.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let clustered_i32: PrimitiveArray = (0..N as i32).map(|i| 1_000_000 + (i % 100)).collect();
         let clustered_u64: PrimitiveArray =
             (0..N as u64).map(|i| 10_000_000_000 + (i % 256)).collect();

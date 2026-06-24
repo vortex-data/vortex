@@ -11,7 +11,9 @@ use arrow_schema::FieldRef;
 use parquet_variant::VariantPath as PqVariantPath;
 use parquet_variant::VariantPathElement as PqVariantPathElement;
 use parquet_variant_compute::GetOptions;
+use parquet_variant_compute::ShreddedSchemaBuilder;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
+use parquet_variant_compute::shred_variant;
 use parquet_variant_compute::variant_get as arrow_variant_get;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
@@ -19,16 +21,19 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::Extension;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::Slice;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
+use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
@@ -40,6 +45,8 @@ use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_json::Json;
+use vortex_json::JsonToVariant;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -64,6 +71,11 @@ pub(crate) fn initialize(session: &VortexSession) {
         TakeExecuteAdaptor(ParquetVariant),
     );
     kernels.register_execute_parent_kernel(VariantGet.id(), ParquetVariant, VariantGetKernel);
+    kernels.register_execute_parent_kernel(
+        JsonToVariant.id(),
+        Extension,
+        JsonExtensionToVariantKernel,
+    );
 }
 
 #[derive(Default, Debug)]
@@ -106,7 +118,67 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
     }
 }
 
-fn to_parquet_variant_path(path: &VariantPath) -> VortexResult<PqVariantPath<'static>> {
+/// Performs the [`JsonToVariant`] conversion (and optional shredding) over JSON string storage.
+///
+/// `JsonToVariant`'s definition lives in `vortex-json`; the registered `execute_parent` kernels
+/// delegate here to do the actual JSON parsing and optional shredding using
+/// `parquet_variant_compute`, producing a [`ParquetVariant`] array. `strings` is the JSON
+/// extension's storage array; it is executed to Arrow and parsed. Nullability of the result follows
+/// `parent.dtype()`, which equals the input's nullability.
+fn json_strings_to_variant(
+    strings: ArrayRef,
+    parent: ScalarFnArrayView<'_, JsonToVariant>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let nullable = parent.dtype().is_nullable();
+    let session = ctx.session().clone();
+    let arrow_strings = session.arrow().execute_arrow(strings, None, ctx)?;
+    // Any row that fails to parse as JSON fails the whole conversion.
+    let arrow_variant = parquet_variant_compute::json_to_variant(&arrow_strings)?;
+
+    let arrow_variant = if parent.options.shredding().is_empty() {
+        arrow_variant
+    } else {
+        let mut builder = ShreddedSchemaBuilder::new();
+        for (path, dtype) in parent.options.shredding().fields() {
+            let field: FieldRef = Arc::new(session.arrow().to_arrow_field("shredded", dtype)?);
+            builder = builder.with_path(to_parquet_variant_path(path)?, field)?;
+        }
+        shred_variant(&arrow_variant, &builder.build())?
+    };
+
+    if nullable {
+        ParquetVariant::from_arrow_variant_nullable(&arrow_variant)
+    } else {
+        ParquetVariant::from_arrow_variant(&arrow_variant)
+    }
+}
+
+/// Builds Parquet Variant arrays for [`JsonToVariant`] over a [`Json`] extension input.
+///
+/// This kernel unwraps the extension's string storage and runs the JSON conversion. It is keyed on
+/// the shared extension encoding, so it declines any non-`Json` extension.
+#[derive(Default, Debug)]
+struct JsonExtensionToVariantKernel;
+
+impl ExecuteParentKernel<Extension> for JsonExtensionToVariantKernel {
+    type Parent = ExactScalarFn<JsonToVariant>;
+
+    fn execute_parent(
+        &self,
+        array: ArrayView<'_, Extension>,
+        parent: ScalarFnArrayView<'_, JsonToVariant>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != 0 || !array.ext_dtype().is::<Json>() {
+            return Ok(None);
+        }
+        json_strings_to_variant(array.storage_array().clone(), parent, ctx).map(Some)
+    }
+}
+
+pub(crate) fn to_parquet_variant_path(path: &VariantPath) -> VortexResult<PqVariantPath<'static>> {
     path.elements()
         .iter()
         .map(|element| match element {

@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! This module defines the footer of a Vortex file, which contains metadata about the file's contents.
+//! Vortex file footer metadata.
 //!
-//! The footer includes:
-//! - The file's layout, which describes how the data is organized
-//! - Statistics about the data, which can be used for query optimization
-//! - Segment map, which describe the physical location of data in the file
+//! A footer contains the root layout, file-level statistics, the segment map, and the read contexts
+//! needed to resolve array/layout encoding ids during deserialization.
 //!
-//! The footer is located at the end of the file and is used to interpret the file's contents.
+//! The byte-level footer and postscript layout is part of the file-format spec; this module exposes
+//! the structured Rust representation and serializer/deserializer state machine.
 mod file_layout;
 mod file_statistics;
 mod postscript;

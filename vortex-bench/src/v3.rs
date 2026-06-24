@@ -288,6 +288,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `TpcH { scale_factor }`     | `tpch`         | `None`              | TPC SF as string (`"1"`, `"10"`, `"100"`, `"1000"`) | Run through `canonical_tpc_scale_factor` so `"1.0"` and `"1"` collapse. |
 /// | `TpcDS { scale_factor }`    | `tpcds`        | `None`              | TPC SF as string                                    | Same canonicalization as TPC-H. |
 /// | `ClickBench { flavor: _ }`  | `clickbench`   | `None`              | `None`                                              | Migrate path drops flavor; live emitter matches so historical and live merge. |
+/// | `ClickBenchSorted`          | `clickbench-sorted` | `None`          | `None`                                              | New live-only suite; keep separate from unsorted ClickBench history. |
 /// | `StatPopGen { n_rows: _ }`  | `statpopgen`   | `None`              | `None`                                              | Migrate path carries no SF for this suite; live drops it for the same reason. |
 /// | `PolarSignals { n_rows: _ }`| `polarsignals` | `None`              | `None`                                              | Same as StatPopGen. |
 /// | `Fineweb`                   | `fineweb`      | `None`              | `None`                                              | |
@@ -311,6 +312,7 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         // same to keep historical and live records in one `clickbench` group.
         // Flavor is fixed per CI matrix entry and recoverable from there.
         BenchmarkDataset::ClickBench { .. } => ("clickbench".to_string(), None, None),
+        BenchmarkDataset::ClickBenchSorted => ("clickbench-sorted".to_string(), None, None),
         BenchmarkDataset::PublicBi { name } => ("public-bi".to_string(), Some(name.clone()), None),
         // StatPopGen / PolarSignals: the migrate path (v2 → v3 backfill) does
         // not carry a per-record scale factor for these suites, so writing one
@@ -724,6 +726,16 @@ mod tests {
             assert_eq!(variant, None, "dataset_variant for {case:?}");
             assert_eq!(sf, None, "scale_factor for {case:?}");
         }
+    }
+
+    #[test]
+    fn clickbench_sorted_dims_are_distinct_from_clickbench() {
+        let (dataset, variant, scale_factor) =
+            benchmark_dataset_dims(&BenchmarkDataset::ClickBenchSorted);
+
+        assert_eq!(dataset, "clickbench-sorted");
+        assert_eq!(variant, None);
+        assert_eq!(scale_factor, None);
     }
 
     #[test]

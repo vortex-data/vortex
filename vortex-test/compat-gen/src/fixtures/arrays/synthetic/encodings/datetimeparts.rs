@@ -5,8 +5,6 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
@@ -16,15 +14,16 @@ use vortex::array::validity::Validity;
 use vortex::encodings::datetime_parts::DateTimeParts;
 use vortex::encodings::datetime_parts::split_temporal;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
 
 pub struct DateTimePartsFixture;
 
-fn encode_temporal(temporal: TemporalArray) -> VortexResult<ArrayRef> {
+fn encode_temporal(temporal: TemporalArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     let dtype = temporal.dtype().clone();
-    let parts = split_temporal(temporal, &mut LEGACY_SESSION.create_execution_ctx())?;
+    let parts = split_temporal(temporal, ctx)?;
     Ok(DateTimeParts::try_new(dtype, parts.days, parts.seconds, parts.subseconds)?.into_array())
 }
 
@@ -41,7 +40,7 @@ impl FlatLayoutFixture for DateTimePartsFixture {
         vec![DateTimeParts.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let base_us: i64 = 1_704_067_200_000_000;
         let ts_us: PrimitiveArray = (0..N as i64).map(|i| base_us + i * 3_600_000_000).collect();
         let ts_us_arr =
@@ -116,16 +115,16 @@ impl FlatLayoutFixture for DateTimePartsFixture {
                 "ts_head_tail_null",
             ]),
             vec![
-                encode_temporal(ts_us_arr)?,
-                encode_temporal(ts_ns_arr)?,
-                encode_temporal(ts_ms_arr)?,
-                encode_temporal(ts_us_nullable_arr)?,
-                encode_temporal(ts_s_arr)?,
-                encode_temporal(ts_ms_tz_arr)?,
-                encode_temporal(ts_pre_1970_arr)?,
-                encode_temporal(ts_day_boundary_arr)?,
-                encode_temporal(ts_ns_subsecond_arr)?,
-                encode_temporal(ts_head_tail_null_arr)?,
+                encode_temporal(ts_us_arr, ctx)?,
+                encode_temporal(ts_ns_arr, ctx)?,
+                encode_temporal(ts_ms_arr, ctx)?,
+                encode_temporal(ts_us_nullable_arr, ctx)?,
+                encode_temporal(ts_s_arr, ctx)?,
+                encode_temporal(ts_ms_tz_arr, ctx)?,
+                encode_temporal(ts_pre_1970_arr, ctx)?,
+                encode_temporal(ts_day_boundary_arr, ctx)?,
+                encode_temporal(ts_ns_subsecond_arr, ctx)?,
+                encode_temporal(ts_head_tail_null_arr, ctx)?,
             ],
             N,
             Validity::NonNullable,

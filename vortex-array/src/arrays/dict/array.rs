@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use num_traits::AsPrimitive;
 use smallvec::smallvec;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
@@ -159,13 +160,9 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         match codes_validity.bit_buffer() {
             AllOr::All => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
-                    )]
-                    for &idx in codes_primitive.as_slice::<P>() {
-                        values_vec[idx as usize] = referenced_value;
+                    for idx in codes_primitive.as_slice::<P>() {
+                        let idxu: usize = idx.as_();
+                        values_vec[idxu] = referenced_value;
                     }
                 });
             }
@@ -173,14 +170,9 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
             AllOr::Some(mask) => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
                     let codes = codes_primitive.as_slice::<P>();
-
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
-                    )]
                     mask.set_indices().for_each(|idx| {
-                        values_vec[codes[idx] as usize] = referenced_value;
+                        let idxu: usize = codes[idx].as_();
+                        values_vec[idxu] = referenced_value;
                     });
                 });
             }
@@ -307,7 +299,6 @@ mod test {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
@@ -341,7 +332,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut array_session().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -367,7 +358,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut array_session().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -397,7 +388,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut array_session().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -423,7 +414,7 @@ mod test {
             .unwrap()
             .execute_mask(
                 dict.as_ref().len(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut array_session().create_execution_ctx(),
             )
             .unwrap();
         let AllOr::Some(indices) = mask.indices() else {
@@ -472,7 +463,10 @@ mod test {
             &DType::Primitive(PType::U64, NonNullable),
             len * chunk_count,
         );
-        array.append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
+        array.append_to_builder(
+            builder.as_mut(),
+            &mut array_session().create_execution_ctx(),
+        )?;
 
         #[expect(deprecated)]
         let into_prim = array.to_primitive();

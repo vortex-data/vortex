@@ -36,10 +36,8 @@ use vortex_mask::Mask;
 use crate::FSST;
 use crate::FSSTArray;
 
-/// FSST worst case: every input byte expands to an escape + literal (2x) plus a small
-/// per-string header.
+/// FSST worst case: every input byte expands to an escape + literal (2x).
 const FSST_PER_BYTE_OVERHEAD: usize = 2;
-const FSST_PER_ROW_OVERHEAD: usize = 7;
 
 /// Starting capacity for the per-row `compress_into` scratch buffer; grown monotonically.
 const DEFAULT_BUFFER_LEN: usize = 1024 * 1024;
@@ -87,7 +85,6 @@ fn compress_varbinview(
 ) -> VortexResult<FSSTArray> {
     let mask = strings.validity()?.execute_mask(strings.len(), ctx)?;
     let views = strings.views();
-    let non_null = mask.true_count();
 
     let total_input_bytes = match mask.bit_buffer() {
         AllOr::All => views.iter().map(|v| v.len() as usize).sum(),
@@ -100,7 +97,7 @@ fn compress_varbinview(
             .sum(),
     };
 
-    if fsst_output_fits_in_i32_offsets(total_input_bytes, non_null) {
+    if fsst_output_fits_in_i32_offsets(total_input_bytes) {
         compress_views::<i32>(strings, &mask, compressor, ctx)
     } else {
         compress_views::<i64>(strings, &mask, compressor, ctx)
@@ -120,9 +117,8 @@ fn compress_varbin_array(
         let last: usize = off[off.len() - 1].as_();
         last - first
     });
-    let non_null = mask.true_count();
 
-    if fsst_output_fits_in_i32_offsets(total_input_bytes, non_null) {
+    if fsst_output_fits_in_i32_offsets(total_input_bytes) {
         compress_varbin::<i32>(strings, &offsets, &mask, compressor, ctx)
     } else {
         compress_varbin::<i64>(strings, &offsets, &mask, compressor, ctx)
@@ -179,10 +175,8 @@ fn train_varbin_array(
 }
 
 #[inline]
-fn fsst_output_fits_in_i32_offsets(total_input_bytes: usize, non_null: usize) -> bool {
-    let worst = total_input_bytes
-        .saturating_mul(FSST_PER_BYTE_OVERHEAD)
-        .saturating_add(non_null.saturating_mul(FSST_PER_ROW_OVERHEAD));
+fn fsst_output_fits_in_i32_offsets(total_input_bytes: usize) -> bool {
+    let worst = total_input_bytes.saturating_mul(FSST_PER_BYTE_OVERHEAD);
     worst <= i32::MAX as usize
 }
 
@@ -305,7 +299,7 @@ impl<'c, O: IntegerPType + 'static> FsstSink<'c, O> {
             i32::try_from(s.len()).vortex_expect("per-row uncompressed length must fit in i32"),
         );
 
-        let target = FSST_PER_BYTE_OVERHEAD * s.len() + FSST_PER_ROW_OVERHEAD;
+        let target = FSST_PER_BYTE_OVERHEAD * s.len();
         if target > self.buffer.len() {
             self.buffer.reserve(target - self.buffer.len());
         }
@@ -332,6 +326,7 @@ impl<'c, O: IntegerPType + 'static> FsstSink<'c, O> {
 #[cfg(test)]
 mod tests {
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::varbin::VarBinArrayExt;
     use vortex_array::dtype::PType;
@@ -347,10 +342,10 @@ mod tests {
     #[test]
     fn offset_width_boundary() {
         let m = i32::MAX as usize;
-        assert!(fsst_output_fits_in_i32_offsets(m / 2 - 7, 1));
-        assert!(!fsst_output_fits_in_i32_offsets(m / 2, 1));
-        assert!(fsst_output_fits_in_i32_offsets(0, 0));
-        assert!(!fsst_output_fits_in_i32_offsets(usize::MAX, 1));
+        assert!(fsst_output_fits_in_i32_offsets(m / 2 - 7));
+        assert!(fsst_output_fits_in_i32_offsets(m / 2));
+        assert!(fsst_output_fits_in_i32_offsets(0));
+        assert!(!fsst_output_fits_in_i32_offsets(usize::MAX));
     }
 
     /// Small inputs fit the i32 bound, so `fsst_compress` must pick i32 offsets.
@@ -358,7 +353,7 @@ mod tests {
     #[test]
     fn codes_offsets_dtype_small_input_is_i32() -> VortexResult<()> {
         let array = VarBinViewArray::from_iter_str(["hello", "world", "fsst encoded"]);
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let compressor = fsst_train_compressor(array.as_array(), &mut ctx)?;
         let fsst = fsst_compress(array.as_array(), &compressor, &mut ctx)?;
         assert_eq!(fsst.codes().offsets().dtype().as_ptype(), PType::I32);

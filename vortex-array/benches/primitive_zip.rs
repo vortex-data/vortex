@@ -7,19 +7,23 @@
     reason = "benchmark fixtures use indices that fit in the chosen widths"
 )]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 // Sized so the bench stays well under a few hundred microseconds under CodSpeed's instruction-count
 // simulation, which runs ~10x the local walltime; the branchless value blend is still exercised.
@@ -53,7 +57,7 @@ fn run(bencher: Bencher, if_true: vortex_array::ArrayRef, if_false: vortex_array
                 if_true.clone(),
                 if_false.clone(),
                 mask.clone().into_array(),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(t, f, m, ctx)| {

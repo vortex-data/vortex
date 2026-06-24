@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Segment access abstractions for layouts.
+//!
+//! Layouts refer to byte ranges by [`SegmentId`]. A [`SegmentSource`] resolves those ids to buffer
+//! handles for readers, while a [`SegmentSink`] assigns ids when writers emit buffers.
+//! [`SegmentCache`] implementations can sit in front of sources to reuse segment bytes across
+//! scans.
+
 mod cache;
 mod scheduled;
 mod shared;
@@ -26,7 +33,10 @@ pub use vortex_scan::read::ScanIoPhase;
 pub use vortex_scan::read::ScanPriority;
 pub use vortex_scan::read::ScanRead;
 
-/// The identifier for a single segment.
+/// Identifier for a single physical segment referenced by a layout.
+///
+/// Segment ids are local to a file or segment source. The file footer maps ids to physical offsets;
+/// custom storage systems may map them to object-store keys or other random-access locations.
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SegmentId(u32);

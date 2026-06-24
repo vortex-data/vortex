@@ -926,7 +926,6 @@ mod test {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::RecursiveCanonical;
     use crate::VortexSessionExecute;
     use crate::array_session;
@@ -945,7 +944,7 @@ mod test {
                 Operator::Sub,
             )
             .and_then(|a| {
-                a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())
             })
             .map(|a| a.0.into_array())
     }
@@ -1006,7 +1005,7 @@ mod test {
                 ConstantArray::new(0.0f64, values.len()).into_array(),
                 Operator::Div,
             )
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()))
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()))
             .unwrap();
 
         assert_arrays_eq!(
@@ -1024,7 +1023,7 @@ mod test {
                 ConstantArray::new(1u8, values.len()).into_array(),
                 Operator::Add,
             )
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()));
 
         assert!(result.is_err());
     }
@@ -1037,7 +1036,7 @@ mod test {
                 ConstantArray::new(0i32, values.len()).into_array(),
                 Operator::Div,
             )
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()));
 
         assert!(result.is_err());
     }
@@ -1050,7 +1049,7 @@ mod test {
                 ConstantArray::new(-1i64, values.len()).into_array(),
                 Operator::Div,
             )
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()));
 
         assert!(result.is_err());
     }
@@ -1064,7 +1063,7 @@ mod test {
         let result = lhs
             .binary(rhs, Operator::Div)
             .and_then(|a| {
-                a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())
             })
             .map(|a| a.0.into_array())
             .unwrap();
@@ -1087,7 +1086,7 @@ mod test {
                 Operator::Add,
             )
             .and_then(|a| {
-                a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())
             })
             .map(|a| a.0.into_array())
             .unwrap();
@@ -1109,7 +1108,7 @@ mod test {
         let rhs = buffer![1u8, 1, 1].into_array();
         let result = lhs
             .binary(rhs, Operator::Add)
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()));
 
         assert!(result.is_err());
     }
@@ -1123,7 +1122,7 @@ mod test {
                 ConstantArray::new(Some(1u8), values.len()).into_array(),
                 Operator::Add,
             )
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()))
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()))
             .unwrap();
 
         assert_arrays_eq!(

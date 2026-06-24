@@ -190,6 +190,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
 pub trait IntoArray {
+    /// Convert this value into the erased array handle used by generic APIs.
     fn into_array(self) -> ArrayRef;
 }
 

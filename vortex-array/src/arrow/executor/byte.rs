@@ -84,8 +84,8 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::executor::byte::VarBinViewArray;
     use crate::dtype::DType;
@@ -121,7 +121,7 @@ mod tests {
         #[case] vortex_array: VarBinViewArray,
         #[case] target_dtype: DataType,
     ) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arrow = vortex_array
             .into_array()
             .execute_arrow(Some(&target_dtype), &mut ctx)
@@ -168,7 +168,7 @@ mod tests {
             vortex_dtype,
         );
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arrow = vortex_array
             .into_array()
             .execute_arrow(Some(&target_dtype), &mut ctx)

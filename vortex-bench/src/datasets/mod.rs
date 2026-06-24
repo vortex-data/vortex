@@ -67,6 +67,8 @@ pub enum BenchmarkDataset {
     TpcDS { scale_factor: String },
     #[serde(rename = "clickbench")]
     ClickBench { flavor: Flavor },
+    #[serde(rename = "clickbench-sorted")]
+    ClickBenchSorted,
     #[serde(rename = "public-bi")]
     PublicBi { name: String },
     #[serde(rename = "statpopgen")]
@@ -86,6 +88,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::TpcH { .. } => "tpch",
             BenchmarkDataset::TpcDS { .. } => "tpcds",
             BenchmarkDataset::ClickBench { .. } => "clickbench",
+            BenchmarkDataset::ClickBenchSorted => "clickbench-sorted",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
             BenchmarkDataset::StatPopGen { .. } => "statpopgen",
             BenchmarkDataset::PolarSignals { .. } => "polarsignals",
@@ -105,6 +108,7 @@ impl Display for BenchmarkDataset {
                 Flavor::Partitioned => write!(f, "clickbench-partitioned"),
                 Flavor::Single => write!(f, "clickbench-single"),
             },
+            BenchmarkDataset::ClickBenchSorted => write!(f, "clickbench-sorted"),
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
             BenchmarkDataset::StatPopGen { n_rows } => write!(f, "statpopgen(n_rows={n_rows})"),
             BenchmarkDataset::PolarSignals { n_rows } => {
@@ -162,7 +166,8 @@ impl BenchmarkDataset {
                 "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
                 "supplier",
             ],
-            BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::ClickBenchSorted => &["hits"],
+            BenchmarkDataset::PublicBi { .. } => todo!(),
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
             BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],
             BenchmarkDataset::Fineweb => &["fineweb"],

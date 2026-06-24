@@ -394,7 +394,6 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
@@ -429,7 +428,7 @@ mod tests {
 
     /// Sum an array with an initial value (test-only helper).
     fn sum_with_accumulator(array: &ArrayRef, accumulator: &Scalar) -> VortexResult<Scalar> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         if accumulator.is_null() {
             return Ok(accumulator.clone());
         }
@@ -485,7 +484,7 @@ mod tests {
 
     #[test]
     fn sum_multi_batch() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
 
@@ -502,7 +501,7 @@ mod tests {
 
     #[test]
     fn sum_finish_resets_state() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
 
@@ -553,7 +552,7 @@ mod tests {
         // compute sum with accumulator to populate stats
         sum_with_accumulator(&array, &Scalar::primitive(2i64, Nullable))?;
 
-        let sum_without_acc = sum(&array, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let sum_without_acc = sum(&array, &mut array_session().create_execution_ctx())?;
         assert_eq!(sum_without_acc, Scalar::primitive(9i64, Nullable));
         Ok(())
     }
@@ -581,7 +580,7 @@ mod tests {
             NumericalAggregateOpts::default(),
             elem_dtype.clone(),
         )?;
-        acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
+        acc.accumulate_list(groups, &mut array_session().create_execution_ctx())?;
         acc.finish()
     }
 
@@ -666,7 +665,7 @@ mod tests {
 
     #[test]
     fn grouped_sum_finish_resets() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut acc =
             GroupedAccumulator::try_new(Sum, NumericalAggregateOpts::default(), elem_dtype)?;
@@ -730,7 +729,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(20.8));
         Ok(())
@@ -744,7 +743,7 @@ mod tests {
         let chunked = ChunkedArray::try_new(vec![chunk1.into_array(), chunk2.into_array()], dtype)?;
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
         assert_eq!(result, Scalar::primitive(0f64, Nullable));
         Ok(())
@@ -767,7 +766,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(36.0));
         Ok(())
@@ -782,7 +781,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
         assert_eq!(result.as_primitive().as_::<u64>(), Some(1));
         Ok(())
@@ -814,7 +813,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
         let decimal_result = result.as_decimal();
         assert_eq!(
@@ -850,7 +849,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
         let decimal_result = result.as_decimal();
         assert_eq!(
@@ -884,7 +883,7 @@ mod tests {
 
         let result = sum(
             &chunked.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
         let decimal_result = result.as_decimal();
         assert_eq!(

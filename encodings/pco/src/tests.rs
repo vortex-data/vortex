@@ -6,7 +6,6 @@ use std::sync::LazyLock;
 
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -40,7 +39,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 use crate::Pco;
 #[test]
 fn test_compress_decompress() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = Pco::from_primitive(array.as_view(), 3, 0, &mut ctx).unwrap();
@@ -76,7 +75,7 @@ fn test_compress_decompress() {
 
 #[test]
 fn test_compress_decompress_small() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let array = PrimitiveArray::from_option_iter([None, Some(1)]);
     let compressed = Pco::from_primitive(array.as_view(), 3, 0, &mut ctx).unwrap();
 
@@ -93,7 +92,7 @@ fn test_compress_decompress_small() {
 
 #[test]
 fn test_empty() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = Pco::from_primitive(array.as_view(), 3, 100, &mut ctx).unwrap();
@@ -107,7 +106,7 @@ fn test_empty() {
 
 #[test]
 fn test_validity_and_multiple_chunks_and_pages() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let data: Vec<i32> = (0..200).collect();
     let mut validity: Vec<bool> = vec![true; 200];
     validity[7..15].fill(false);
@@ -165,7 +164,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
 
 #[test]
 fn test_validity_vtable() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let data: Vec<i32> = (0..5).collect();
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
@@ -221,14 +220,13 @@ fn test_serde() -> VortexResult<()> {
         &ReadContext::new(context.to_ids()),
         &SESSION,
     )?;
-    let data_type = LEGACY_SESSION.arrow().to_arrow_field("", data.dtype())?;
-    let pco_arrow = LEGACY_SESSION
+    let data_type = SESSION.arrow().to_arrow_field("", data.dtype())?;
+    let pco_arrow = SESSION
         .arrow()
         .execute_arrow(pco, Some(&data_type), &mut ctx)?;
-    let decoded_arrow =
-        LEGACY_SESSION
-            .arrow()
-            .execute_arrow(decoded, Some(&data_type), &mut ctx)?;
+    let decoded_arrow = SESSION
+        .arrow()
+        .execute_arrow(decoded, Some(&data_type), &mut ctx)?;
     assert!(pco_arrow == decoded_arrow);
     Ok(())
 }
