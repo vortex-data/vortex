@@ -30,7 +30,48 @@ mod tests {
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
 
+    use crate::alp::ALPFloat;
+    use crate::alp::Exponents;
     use crate::alp::array::ALPMetadata;
+
+    // The allocation-free estimate must match a full encode + estimate for every candidate
+    // exponent pair, so `find_best_exponents` picks the same exponents and compression is unchanged.
+    fn check_estimate_matches<T: ALPFloat>(values: &[T]) {
+        for e in 0..T::MAX_EXPONENT {
+            for f in 0..e {
+                let exp = Exponents { e, f };
+                let lightweight = T::estimate_encoded_size_for_exponents(values, exp);
+                let (_, encoded, _, patches, _) = T::encode(values, Some(exp));
+                let full = T::estimate_encoded_size(&encoded, &patches);
+                assert_eq!(
+                    lightweight,
+                    full,
+                    "mismatch at e={e}, f={f}, len={}",
+                    values.len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn estimate_for_exponents_matches_full_encode() {
+        // Clean 2-decimal values (mostly kept), repeating decimals (many patches), large
+        // magnitudes, constants, and a single element.
+        let mut f64s: Vec<f64> = (0..200).map(|i| i as f64 / 100.0).collect();
+        f64s.extend((0..60).map(|i| i as f64 / 7.0));
+        f64s.extend([1e17, -1e17, 0.0, 123.0]);
+        check_estimate_matches(&f64s);
+        check_estimate_matches::<f64>(&[123.456; 5]);
+        check_estimate_matches::<f64>(&[42.0]);
+        // Every value patches at every exponent -> exercises the all-patched branch.
+        check_estimate_matches::<f64>(&[1.0 / 3.0; 8]);
+
+        let mut f32s: Vec<f32> = (0..200).map(|i| i as f32 / 100.0).collect();
+        f32s.extend((0..60).map(|i| i as f32 / 7.0));
+        f32s.extend([1e9, -1e9, 0.0, 123.0]);
+        check_estimate_matches(&f32s);
+        check_estimate_matches::<f32>(&[1.0 / 3.0; 8]);
+    }
 
     #[cfg_attr(miri, ignore)]
     #[test]
@@ -120,25 +161,70 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
                 .cloned()
                 .collect_vec()
         });
+        let sample = sample.as_deref().unwrap_or(values);
 
         for e in (0..Self::MAX_EXPONENT).rev() {
             for f in 0..e {
-                let (_, encoded, _, exc_patches, _) = Self::encode(
-                    sample.as_deref().unwrap_or(values),
-                    Some(Exponents { e, f }),
-                );
-
-                let size = Self::estimate_encoded_size(&encoded, &exc_patches);
+                let exp = Exponents { e, f };
+                let size = Self::estimate_encoded_size_for_exponents(sample, exp);
                 if size < best_nbytes {
                     best_nbytes = size;
-                    best_exp = Exponents { e, f };
+                    best_exp = exp;
                 } else if size == best_nbytes && e - f < best_exp.e - best_exp.f {
-                    best_exp = Exponents { e, f };
+                    best_exp = exp;
                 }
             }
         }
 
         best_exp
+    }
+
+    /// Size estimate for `values` under `exponents` matching a full [`Self::encode`] plus
+    /// [`Self::estimate_encoded_size`], but without the per-candidate allocations.
+    fn estimate_encoded_size_for_exponents(values: &[Self], exponents: Exponents) -> usize {
+        // `encode` overwrites patched slots with an in-range fill value, so the kept-value range
+        // matches its output; only when every value is patched (no fill value) is the full range used.
+        let mut kept_min: Option<Self::ALPInt> = None;
+        let mut kept_max: Option<Self::ALPInt> = None;
+        let mut all_min: Option<Self::ALPInt> = None;
+        let mut all_max: Option<Self::ALPInt> = None;
+        let mut patch_count = 0usize;
+
+        for &value in values {
+            let encoded = Self::encode_single_unchecked(value, exponents);
+            all_min = Some(all_min.map_or(encoded, |m| m.min(encoded)));
+            all_max = Some(all_max.map_or(encoded, |m| m.max(encoded)));
+            if Self::decode_single(encoded, exponents).is_eq(value) {
+                kept_min = Some(kept_min.map_or(encoded, |m| m.min(encoded)));
+                kept_max = Some(kept_max.map_or(encoded, |m| m.max(encoded)));
+            } else {
+                patch_count += 1;
+            }
+        }
+
+        let range = if patch_count == values.len() {
+            all_max.zip(all_min)
+        } else {
+            kept_max.zip(kept_min)
+        };
+
+        let bits_per_encoded = range
+            .and_then(|(max, min)| max.checked_sub(&min))
+            .and_then(|range_size| range_size.to_u64())
+            .and_then(|range_size| {
+                range_size
+                    .checked_ilog2()
+                    .map(|bits| (bits + 1) as usize)
+                    .or(Some(0))
+            })
+            .unwrap_or(size_of::<Self::ALPInt>() * 8);
+
+        let encoded_bytes = (values.len() * bits_per_encoded).div_ceil(8);
+        // each patch is a value + a position
+        // in practice, patch positions are in [0, u16::MAX] because of how we chunk
+        let patch_bytes = patch_count * (size_of::<Self>() + size_of::<u16>());
+
+        encoded_bytes + patch_bytes
     }
 
     #[inline]
