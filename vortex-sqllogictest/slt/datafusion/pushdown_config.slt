@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Projection and predicate pushdown are enabled by default for Vortex scans and
+# can be toggled per session via `SET vortex.<flag> = ...`, then reset. Results
+# must be identical regardless of the setting.
+
+include ../setup.slt.no
+
+query I
+COPY (SELECT * FROM (VALUES (1, 10), (2, 20), (3, 30)) AS t(a, b)) TO '${WORK_DIR}/pushdown.vortex';
+----
+3
+
+# Disable projection pushdown; a projection expression still computes correctly.
+statement ok
+SET vortex.projection_pushdown = false;
+
+query I
+SELECT a + b AS s FROM '${WORK_DIR}/pushdown.vortex' ORDER BY s;
+----
+11
+22
+33
+
+# Reset projection pushdown.
+statement ok
+SET vortex.projection_pushdown = true;
+
+# Disable predicate pushdown; a filter still computes correctly.
+statement ok
+SET vortex.predicate_pushdown = false;
+
+query I
+SELECT b FROM '${WORK_DIR}/pushdown.vortex' WHERE a > 1 ORDER BY b;
+----
+20
+30
+
+# Reset predicate pushdown.
+statement ok
+SET vortex.predicate_pushdown = true;
+
+query I
+SELECT b FROM '${WORK_DIR}/pushdown.vortex' WHERE a > 1 ORDER BY b;
+----
+20
+30

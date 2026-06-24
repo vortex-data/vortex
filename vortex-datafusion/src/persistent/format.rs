@@ -15,7 +15,11 @@ use datafusion_common::GetExt;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue as DFScalarValue;
 use datafusion_common::Statistics;
+use datafusion_common::config::ConfigEntry;
+use datafusion_common::config::ConfigExtension;
 use datafusion_common::config::ConfigField;
+use datafusion_common::config::ExtensionOptions;
+use datafusion_common::config::Visit;
 use datafusion_common::config_namespace;
 use datafusion_common::internal_datafusion_err;
 use datafusion_common::not_impl_err;
@@ -165,12 +169,18 @@ config_namespace! {
         /// When enabled, projection expressions may be partially evaluated during
         /// the scan. When disabled, Vortex reads only the referenced columns and
         /// all expressions are evaluated after the scan.
-        pub projection_pushdown: bool, default = false
+        ///
+        /// Enabled by default. Override per session with
+        /// `SET vortex.projection_pushdown = false`.
+        pub projection_pushdown: bool, default = true
         /// Whether to enable predicate pushdown into the underlying Vortex scan.
         ///
         /// When enabled, supported filters are evaluated during the scan. When
         /// disabled, DataFusion evaluates filters after the scan, while
         /// `VortexSource` can still use the full predicate for file pruning.
+        ///
+        /// Enabled by default. Override per session with
+        /// `SET vortex.predicate_pushdown = false`.
         pub predicate_pushdown: bool, default = true
         /// The intra-partition scan concurrency, controlling the number of row splits to process
         /// concurrently per-thread within each file.
@@ -182,6 +192,66 @@ config_namespace! {
 }
 
 impl Eq for VortexTableOptions {}
+
+/// Exposes [`VortexTableOptions`] as a DataFusion session config extension under
+/// the `vortex` prefix, so options can be set with e.g.
+/// `SET vortex.projection_pushdown = false` and reset with
+/// `SET vortex.projection_pushdown = true`.
+///
+/// [`VortexFormat`] reads these from the session unless the table provides its
+/// own `OPTIONS(...)` or the [`VortexFormatFactory`] was given explicit options.
+impl ExtensionOptions for VortexTableOptions {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn cloned(&self) -> Box<dyn ExtensionOptions> {
+        Box::new(self.clone())
+    }
+
+    fn set(&mut self, key: &str, value: &str) -> DFResult<()> {
+        ConfigField::set(self, key, value)
+    }
+
+    fn entries(&self) -> Vec<ConfigEntry> {
+        struct Visitor(Vec<ConfigEntry>);
+
+        impl Visit for Visitor {
+            fn some<V: std::fmt::Display>(
+                &mut self,
+                key: &str,
+                value: V,
+                description: &'static str,
+            ) {
+                self.0.push(ConfigEntry {
+                    key: key.to_string(),
+                    value: Some(value.to_string()),
+                    description,
+                });
+            }
+
+            fn none(&mut self, key: &str, description: &'static str) {
+                self.0.push(ConfigEntry {
+                    key: key.to_string(),
+                    value: None,
+                    description,
+                });
+            }
+        }
+
+        let mut v = Visitor(vec![]);
+        ConfigField::visit(self, &mut v, "", "");
+        v.0
+    }
+}
+
+impl ConfigExtension for VortexTableOptions {
+    const PREFIX: &'static str = "vortex";
+}
 
 /// Registration entry point for the file-backed Vortex integration.
 ///
@@ -286,13 +356,26 @@ impl FileFormatFactory for VortexFormatFactory {
     #[expect(clippy::disallowed_types, reason = "required by trait signature")]
     fn create(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         format_options: &std::collections::HashMap<String, String>,
     ) -> DFResult<Arc<dyn FileFormat>> {
-        let mut opts = self.options.clone().unwrap_or_default();
+        // Precedence: explicit factory options, else the session's `vortex` config
+        // extension (allowing `SET vortex.* = ...`), else the built-in defaults.
+        // Table-level `OPTIONS(...)` are then layered on top.
+        let mut opts = self
+            .options
+            .clone()
+            .or_else(|| {
+                state
+                    .config_options()
+                    .extensions
+                    .get::<VortexTableOptions>()
+                    .cloned()
+            })
+            .unwrap_or_default();
         for (key, value) in format_options {
             if let Some(key) = key.strip_prefix("format.") {
-                opts.set(key, value)?;
+                ConfigField::set(&mut opts, key, value)?;
             } else {
                 tracing::trace!("Ignoring option '{key}'");
             }
@@ -698,7 +781,7 @@ mod tests {
     #[test]
     fn format_plumbs_footer_initial_read_size() {
         let mut opts = VortexTableOptions::default();
-        opts.set("footer_initial_read_size_bytes", "12345").unwrap();
+        ConfigField::set(&mut opts, "footer_initial_read_size_bytes", "12345").unwrap();
 
         let format = VortexFormat::new_with_options(VortexSession::default(), opts);
         assert_eq!(format.options().footer_initial_read_size_bytes, 12345);

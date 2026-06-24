@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 use datafusion::common::GetExt;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
+use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_sqllogictest::DataFusion;
 use datafusion_sqllogictest::df_value_validator;
