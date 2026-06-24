@@ -298,8 +298,7 @@ unique_ptr<NodeStatistics> c_cardinality(ClientContext &, const FunctionData *bi
     auto out = make_uniq<NodeStatistics>();
     out->has_estimated_cardinality = stats.has_estimated_cardinality;
     out->estimated_cardinality = stats.estimated_cardinality;
-    out->has_max_cardinality = stats.has_max_cardinality;
-    out->max_cardinality = stats.max_cardinality;
+    out->has_max_cardinality = false;
 
     return out;
 }
