@@ -27,30 +27,19 @@ const DEFAULT_DUCKDB_VERSION: &str = "1.5.3";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 
-const SOURCE_FILES: [&str; 18] = [
-    "cpp/client_context.cpp",
-    "cpp/config.cpp",
+const SOURCE_FILES: [&str; 7] = [
+    "cpp/vortex_duckdb.cpp",
     "cpp/copy_function.cpp",
-    "cpp/data.cpp",
-    "cpp/data_chunk.cpp",
-    "cpp/error.cpp",
     "cpp/expr.cpp",
-    "cpp/file_system.cpp",
-    "cpp/logical_type.cpp",
     "cpp/optimizer.cpp",
-    "cpp/replacement_scan.cpp",
-    "cpp/reusable_dict.cpp",
-    "cpp/scalar_function.cpp",
     "cpp/table_filter.cpp",
     "cpp/table_function.cpp",
-    "cpp/value.cpp",
     "cpp/vector.cpp",
-    "cpp/vector_buffer.cpp",
 ];
 
 // Duckdb C API function we use.
 // This lowers codegen'd src/cpp.rs by four times.
-const DUCKDB_C_API_FUNCTIONS: [&str; 134] = [
+const DUCKDB_C_API_FUNCTIONS: [&str; 133] = [
     "duckdb_array_type_array_size",
     "duckdb_array_type_child_type",
     "duckdb_array_vector_get_child",
@@ -184,7 +173,16 @@ const DUCKDB_C_API_FUNCTIONS: [&str; 134] = [
     "duckdb_vector_reference_value",
     "duckdb_vector_reference_vector",
     "duckdb_vector_size",
-    "duckdb_vector_to_string",
+];
+
+const DUCKDB_C_API_HEADERS: [&str; 7] = [
+    "cpp/include/vortex_duckdb.h",
+    "cpp/include/expr.h",
+    "cpp/include/table_filter.h",
+    "cpp/include/vector.h",
+    "cpp/include/copy_function.h",
+    "cpp/include/table_function.h",
+    "cpp/include/optimizer.h",
 ];
 
 const DOWNLOAD_MAX_RETRIES: i32 = 3;
@@ -462,7 +460,7 @@ fn try_build_duckdb(
 /// Generate rust functions with bindgen from C sources.
 fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     let mut builder = bindgen::Builder::default()
-        .header("cpp/include/duckdb_vx.h")
+        .headers(DUCKDB_C_API_HEADERS)
         .override_abi(Abi::CUnwind, ".*")
         .raw_line("#![allow(dead_code)]")
         .raw_line("#![allow(non_camel_case_types)]")

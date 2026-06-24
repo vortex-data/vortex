@@ -2,33 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #pragma once
-#include "duckdb_vx/data.h"
-#include "duckdb_vx/error.h"
-#include "duckdb_vx/expr.h"
+#include "duckdb.h"
 #include "table_filter.h"
 #include <stdint.h>
-
-#ifdef __cplusplus
-static_assert(sizeof(idx_t) == 8);
-
-#include "duckdb/main/capi/capi_internal.hpp"
-
-duckdb::unique_ptr<duckdb::FunctionData>
-duckdb_vx_table_function_bind(duckdb::ClientContext &context,
-                              duckdb::TableFunctionBindInput &input,
-                              duckdb::vector<duckdb::LogicalType> &return_types,
-                              duckdb::vector<duckdb::string> &names);
-
-struct TableFunctionProjectionExpressionInput {
-    const duckdb::LogicalGet &get;
-    const duckdb::Expression &expression;
-    idx_t projection_idx;
-};
-
-// true if we can push down the expression, false otherwise
-bool projection_expression_pushdown(duckdb::ClientContext &context,
-                                    const TableFunctionProjectionExpressionInput &input);
-#endif
 
 #ifdef __cplusplus
 extern "C" {

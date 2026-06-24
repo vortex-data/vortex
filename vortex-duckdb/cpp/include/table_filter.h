@@ -4,8 +4,7 @@
 #pragma once
 
 #include "duckdb.h"
-
-#include "duckdb_vx/expr.h"
+#include "expr.h"
 
 #ifdef __cplusplus /* If compiled as C++, use C ABI */
 extern "C" {

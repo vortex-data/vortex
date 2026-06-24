@@ -1,19 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #pragma once
-#include "duckdb.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-duckdb_state duckdb_vx_optimizer_extension_register(duckdb_database ffi_db);
-
-#ifdef __cplusplus
-}
-#endif
-
-#ifdef __cplusplus
 #include "duckdb/optimizer/optimizer_extension.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
@@ -137,5 +126,3 @@ struct GetBinding {
  * GET nor part of PROJECTION wrapping a GET.
  */
 std::optional<GetBinding> Resolve(ColumnBinding binding, Analyses &analyses, const Projections &projections);
-
-#endif
