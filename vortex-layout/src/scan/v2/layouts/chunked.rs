@@ -552,6 +552,14 @@ impl PreparedAggregate for ChunkedPreparedAggregate {
 }
 
 impl ScanPlan for ChunkedScanPlan {
+    fn dtype(&self) -> &DType {
+        self.layout.dtype()
+    }
+
+    fn row_count(&self) -> u64 {
+        self.layout.row_count()
+    }
+
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(ChunkedScanState::default()))
     }
@@ -750,6 +758,14 @@ impl PreparedRead for ChunkedPreparedRead {
 }
 
 impl ScanPlan for ChunkedExprScanPlan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.chunked.layout.row_count()
+    }
+
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         let _ = cx;
         Ok(Arc::new(ChunkedExprScanState {

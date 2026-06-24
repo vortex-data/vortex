@@ -11,6 +11,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::StructFields;
@@ -83,6 +84,14 @@ pub struct StructScanPlan {
 }
 
 impl ScanPlan for StructScanPlan {
+    fn dtype(&self) -> &DType {
+        self.layout.dtype()
+    }
+
+    fn row_count(&self) -> u64 {
+        self.layout.row_count()
+    }
+
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(()))
     }
@@ -123,7 +132,7 @@ impl ScanPlan for StructScanPlan {
             return Ok(self.apply_validity(child.try_push_expr(&scoped, cx)?));
         }
         let input = self.push_struct(fields.clone().into(), cx)?;
-        Ok(Some(Arc::new(ApplyScanPlan::new(input, expr.clone()))))
+        Ok(Some(Arc::new(ApplyScanPlan::try_new(input, expr.clone())?)))
     }
 
     fn prepare_read(
@@ -206,11 +215,12 @@ impl StructScanPlan {
                     .ok_or_else(|| vortex_error::vortex_err!("field {name} did not push root"))
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        Ok(Arc::new(StructValueScanPlan::new(
+        Ok(Arc::new(StructValueScanPlan::try_new(
             names,
             fields,
             self.validity.clone(),
-        )))
+            self.layout.row_count(),
+        )?))
     }
 }
 

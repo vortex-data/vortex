@@ -43,7 +43,8 @@ use vortex_sequence::SequenceArray;
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::row_idx;
 
-pub fn with_row_idx(root: ScanPlanRef, dtype: DType, row_offset: u64) -> ScanPlanRef {
+pub fn with_row_idx(root: ScanPlanRef, row_offset: u64) -> ScanPlanRef {
+    let dtype = root.dtype().clone();
     Arc::new(RowIdxScanPlan {
         child: root,
         dtype,
@@ -126,6 +127,14 @@ impl RowIdxScanPlan {
 }
 
 impl ScanPlan for RowIdxScanPlan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.child.row_count()
+    }
+
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         cx.init_plan(&self.child)
     }
@@ -138,6 +147,7 @@ impl ScanPlan for RowIdxScanPlan {
         match self.partition_expr(expr)? {
             Partitioning::RowIdx(expr) => Ok(Some(Arc::new(RowIdxExprScanPlan::try_new(
                 self.row_offset,
+                self.child.row_count(),
                 expr,
             )?))),
             Partitioning::Child(expr) => Arc::clone(&self.child).try_push_expr(&expr, cx),
@@ -149,10 +159,11 @@ impl ScanPlan for RowIdxScanPlan {
                     .zip(partitioned.partition_annotations.iter())
                 {
                     let field = match annotation {
-                        Partition::RowIdx => {
-                            Arc::new(RowIdxExprScanPlan::try_new(self.row_offset, expr.clone())?)
-                                as ScanPlanRef
-                        }
+                        Partition::RowIdx => Arc::new(RowIdxExprScanPlan::try_new(
+                            self.row_offset,
+                            self.child.row_count(),
+                            expr.clone(),
+                        )?) as ScanPlanRef,
                         Partition::Child => Arc::clone(&self.child)
                             .try_push_expr(expr, cx)?
                             .ok_or_else(|| {
@@ -163,15 +174,16 @@ impl ScanPlan for RowIdxScanPlan {
                     };
                     fields.push(field);
                 }
-                let input = Arc::new(StructValueScanPlan::new(
+                let input: ScanPlanRef = Arc::new(StructValueScanPlan::try_new(
                     partitioned.partition_names.clone(),
                     fields,
                     None,
-                ));
-                Ok(Some(Arc::new(ApplyScanPlan::new(
+                    self.child.row_count(),
+                )?);
+                Ok(Some(Arc::new(ApplyScanPlan::try_new(
                     input,
                     partitioned.root.clone(),
-                ))))
+                )?)))
             }
         }
     }
@@ -196,15 +208,17 @@ impl ScanPlan for RowIdxScanPlan {
 
 struct RowIdxExprScanPlan {
     row_offset: u64,
+    row_count: u64,
     expr: Expression,
     dtype: DType,
 }
 
 impl RowIdxExprScanPlan {
-    fn try_new(row_offset: u64, expr: Expression) -> VortexResult<Self> {
+    fn try_new(row_offset: u64, row_count: u64, expr: Expression) -> VortexResult<Self> {
         let dtype = expr.return_dtype(&row_idx_dtype())?;
         Ok(Self {
             row_offset,
+            row_count,
             expr,
             dtype,
         })
@@ -222,6 +236,14 @@ struct RowIdxReadTask {
 }
 
 impl ScanPlan for RowIdxExprScanPlan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(()))
     }

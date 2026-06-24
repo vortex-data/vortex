@@ -14,6 +14,7 @@
 //!   controls output cardinality, and demand controls which selected rows
 //!   must contain meaningful values.
 
+pub mod data_source;
 pub mod evidence;
 pub mod request;
 
@@ -23,6 +24,13 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+pub use data_source::ScanPlanDataSource;
+pub use data_source::ScanPlanFactory;
+pub use data_source::scan_plan_projected_splits;
+pub use data_source::scan_plan_split_ranges;
+pub use data_source::scan_plan_statistics;
+pub use data_source::scan_plan_statistics_many;
+pub use data_source::scan_plan_stream;
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
@@ -34,10 +42,12 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
 use vortex_array::expr::get_item;
 use vortex_array::expr::is_root;
@@ -339,6 +349,12 @@ pub struct AggregateAnswer {
 /// objects created while preparing reads, evidence, statistics, and aggregates for
 /// a file scan.
 pub trait ScanPlan: 'static + Send + Sync {
+    /// Logical dtype produced by this plan's root value.
+    fn dtype(&self) -> &DType;
+
+    /// Number of rows in this plan's row domain.
+    fn row_count(&self) -> u64;
+
     /// Create this plan's per-file/query state.
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef>;
 
@@ -446,7 +462,7 @@ pub fn default_try_push_expr(
     if is_root(expr) {
         Ok(Some(plan))
     } else {
-        Ok(Some(Arc::new(ApplyScanPlan::new(plan, expr.clone()))))
+        Ok(Some(Arc::new(ApplyScanPlan::try_new(plan, expr.clone())?)))
     }
 }
 
@@ -499,6 +515,14 @@ struct LiteralReadTask {
 }
 
 impl ScanPlan for LiteralScanPlan {
+    fn dtype(&self) -> &DType {
+        self.scalar.dtype()
+    }
+
+    fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(()))
     }
@@ -1100,18 +1124,62 @@ pub struct StructValueScanPlan {
     names: FieldNames,
     fields: Vec<ScanPlanRef>,
     validity: Option<ScanPlanRef>,
+    dtype: DType,
+    row_count: u64,
     split_hints: OnceLock<Option<Vec<u64>>>,
 }
 
 impl StructValueScanPlan {
     /// Create a virtual plan that assembles a struct from child field plans.
-    pub fn new(names: FieldNames, fields: Vec<ScanPlanRef>, validity: Option<ScanPlanRef>) -> Self {
-        Self {
+    pub fn try_new(
+        names: FieldNames,
+        fields: Vec<ScanPlanRef>,
+        validity: Option<ScanPlanRef>,
+        row_count: u64,
+    ) -> VortexResult<Self> {
+        if names.len() != fields.len() {
+            vortex_bail!(
+                "struct scan plan has {} names for {} fields",
+                names.len(),
+                fields.len()
+            );
+        }
+        for field in &fields {
+            if field.row_count() != row_count {
+                vortex_bail!(
+                    "struct field row count {} does not match row domain {}",
+                    field.row_count(),
+                    row_count
+                );
+            }
+        }
+        if let Some(validity) = &validity
+            && validity.row_count() != row_count
+        {
+            vortex_bail!(
+                "struct validity row count {} does not match row domain {}",
+                validity.row_count(),
+                row_count
+            );
+        }
+        let nullability = if validity.is_some() {
+            Nullability::Nullable
+        } else {
+            Nullability::NonNullable
+        };
+        let dtypes = fields
+            .iter()
+            .map(|field| field.dtype().clone())
+            .collect::<Vec<_>>();
+        let dtype = DType::Struct(StructFields::new(names.clone(), dtypes), nullability);
+        Ok(Self {
             names,
             fields,
             validity,
+            dtype,
+            row_count,
             split_hints: OnceLock::new(),
-        }
+        })
     }
 
     fn compute_split_hints(&self) -> Option<Vec<u64>> {
@@ -1146,6 +1214,14 @@ struct StructValuePreparedRead {
 }
 
 impl ScanPlan for StructValueScanPlan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         let fields = self
             .fields
@@ -1268,12 +1344,14 @@ impl PreparedRead for StructValuePreparedRead {
 pub struct ApplyScanPlan {
     input: ScanPlanRef,
     expr: Expression,
+    dtype: DType,
 }
 
 impl ApplyScanPlan {
     /// Create a virtual plan that applies `expr` to `input`.
-    pub fn new(input: ScanPlanRef, expr: Expression) -> Self {
-        Self { input, expr }
+    pub fn try_new(input: ScanPlanRef, expr: Expression) -> VortexResult<Self> {
+        let dtype = expr.return_dtype(input.dtype())?;
+        Ok(Self { input, expr, dtype })
     }
 }
 
@@ -1283,6 +1361,14 @@ struct ApplyPreparedRead {
 }
 
 impl ScanPlan for ApplyScanPlan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.input.row_count()
+    }
+
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         cx.init_plan(&self.input)
     }
@@ -1349,6 +1435,7 @@ impl PreparedRead for ApplyPreparedRead {
 pub struct MaskScanPlan {
     input: ScanPlanRef,
     validity: ScanPlanRef,
+    dtype: DType,
 }
 
 impl MaskScanPlan {
@@ -1357,7 +1444,12 @@ impl MaskScanPlan {
     /// `validity` must read a non-nullable boolean array in the same row domain
     /// as `input` (the struct layout's validity child).
     pub fn new(input: ScanPlanRef, validity: ScanPlanRef) -> Self {
-        Self { input, validity }
+        let dtype = input.dtype().as_nullable();
+        Self {
+            input,
+            validity,
+            dtype,
+        }
     }
 }
 
@@ -1374,6 +1466,14 @@ struct MaskPreparedRead {
 }
 
 impl ScanPlan for MaskScanPlan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.input.row_count()
+    }
+
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(MaskState {
             input: cx.init_plan(&self.input)?,
@@ -1602,14 +1702,26 @@ mod tests {
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::arrays::Constant;
     use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::lit;
 
     use super::*;
     use crate::read::ReadStore;
 
-    struct TestStatsNode;
+    struct TestStatsNode {
+        dtype: DType,
+        row_count: u64,
+    }
 
     impl ScanPlan for TestStatsNode {
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            self.row_count
+        }
+
         fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
             Ok(Arc::new(()))
         }
@@ -1619,7 +1731,7 @@ mod tests {
             expr: &Expression,
             _cx: &mut PushCtx,
         ) -> VortexResult<Option<ScanPlanRef>> {
-            if let Some(literal) = literal_scan_plan(expr, 20) {
+            if let Some(literal) = literal_scan_plan(expr, self.row_count) {
                 return Ok(Some(literal));
             }
             default_try_push_expr(self, expr)
@@ -1681,7 +1793,10 @@ mod tests {
     #[test]
     fn stats_plan_erasure_preserves_positional_results() -> VortexResult<()> {
         let session = VortexSession::empty();
-        let plan_root: ScanPlanRef = Arc::new(TestStatsNode);
+        let plan_root: ScanPlanRef = Arc::new(TestStatsNode {
+            dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+            row_count: 20,
+        });
         let funcs = vec![
             Min.bind(NumericalAggregateOpts::default()),
             Max.bind(NumericalAggregateOpts::default()),
@@ -1708,7 +1823,10 @@ mod tests {
     #[test]
     fn literal_pushdown_prepares_without_input_read() -> VortexResult<()> {
         let session = VortexSession::empty();
-        let plan_root: ScanPlanRef = Arc::new(TestStatsNode);
+        let plan_root: ScanPlanRef = Arc::new(TestStatsNode {
+            dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+            row_count: 20,
+        });
         let literal = lit(42i32);
 
         let plan = plan_root

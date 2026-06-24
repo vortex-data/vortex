@@ -17,6 +17,7 @@ use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::SliceArray;
+use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializedArray;
@@ -113,6 +114,14 @@ impl FlatScanPlan {
 }
 
 impl ScanPlan for FlatScanPlan {
+    fn dtype(&self) -> &DType {
+        self.layout.dtype()
+    }
+
+    fn row_count(&self) -> u64 {
+        self.layout.row_count()
+    }
+
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(FlatScanState::default()))
     }

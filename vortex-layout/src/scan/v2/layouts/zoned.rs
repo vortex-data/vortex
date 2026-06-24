@@ -184,6 +184,7 @@ struct ZonedExprScanPlan {
     zones: ScanPlanRef,
     nzones: u64,
     column_dtype: DType,
+    dtype: DType,
     zone_len: u64,
     row_count: u64,
     zone_map_schema: ZoneMapSchema,
@@ -791,6 +792,14 @@ impl EvidenceTask for ZonedEvidenceTask {
 }
 
 impl ScanPlan for ZonedScanPlan {
+    fn dtype(&self) -> &DType {
+        &self.column_dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(Self::empty_state_with_data(
             cx.init_plan(&self.data)?,
@@ -815,7 +824,8 @@ impl ScanPlan for ZonedScanPlan {
         let Some(data) = Arc::clone(&self.data).try_push_expr(expr, cx)? else {
             return Ok(None);
         };
-        let is_predicate = matches!(expr.return_dtype(&self.column_dtype)?, DType::Bool(_));
+        let dtype = expr.return_dtype(&self.column_dtype)?;
+        let is_predicate = matches!(&dtype, DType::Bool(_));
         let (falsifier, satisfier) = if self.zone_len > 0 && is_predicate {
             (
                 expr.falsify(&self.column_dtype, cx.session())?,
@@ -829,6 +839,7 @@ impl ScanPlan for ZonedScanPlan {
             zones: Arc::clone(&self.zones),
             nzones: self.nzones,
             column_dtype: self.column_dtype.clone(),
+            dtype,
             zone_len: self.zone_len,
             row_count: self.row_count,
             zone_map_schema: self.zone_map_schema.clone(),
@@ -958,6 +969,14 @@ impl PreparedAggregate for ZonedPreparedAggregate {
 }
 
 impl ScanPlan for ZonedExprScanPlan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
     fn init_state(&self, cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(ZonedScanPlan::empty_state_with_data(
             cx.init_plan(&self.data)?,

@@ -75,6 +75,8 @@ pub(crate) fn new_scan_plan(
     let codes = layout.child(1)?;
     Ok(Arc::new(DictScanPlan {
         values_len: values.row_count(),
+        dtype: layout.dtype().clone(),
+        row_count: layout.row_count(),
         // Values and codes live in other row domains.
         values: values.new_scan_plan(&mut ScanRequest::empty(), ctx)?,
         codes: codes.new_scan_plan(&mut ScanRequest::empty(), ctx)?,
@@ -87,6 +89,8 @@ pub struct DictScanPlan {
     values: ScanPlanRef,
     values_len: u64,
     codes: ScanPlanRef,
+    dtype: DType,
+    row_count: u64,
 }
 
 /// Per-query dictionary caches for value-domain expression results.
@@ -120,6 +124,7 @@ impl Default for DictSharedState {
 struct DictExprScanPlan {
     dict: Arc<DictScanPlan>,
     expr: Expression,
+    dtype: DType,
 }
 
 struct DictPreparedRead {
@@ -191,6 +196,14 @@ impl DictScanPlan {
 }
 
 impl ScanPlan for DictScanPlan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(DictScanState::new()))
     }
@@ -203,9 +216,11 @@ impl ScanPlan for DictScanPlan {
         if is_root(expr) {
             Ok(Some(self))
         } else {
+            let dtype = expr.return_dtype(&self.dtype)?;
             Ok(Some(Arc::new(DictExprScanPlan {
                 dict: self,
                 expr: expr.clone(),
+                dtype,
             })))
         }
     }
@@ -242,6 +257,14 @@ impl ScanPlan for DictScanPlan {
 }
 
 impl ScanPlan for DictExprScanPlan {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.dict.row_count
+    }
+
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(DictScanState::new()))
     }
