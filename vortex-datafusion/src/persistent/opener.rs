@@ -1472,9 +1472,9 @@ mod tests {
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
         file.extensions
             .insert(
-                VortexAccessPlan::default().with_selection(Selection::include_by_index(
+                VortexAccessPlan::default().with_selection(Selection::IncludeByIndex(
                     Buffer::from_iter(vec![1, 3, 5, 7]),
-                )?),
+                )),
             );
 
         let opener = make_test_opener(
@@ -1516,9 +1516,9 @@ mod tests {
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
         file.extensions
             .insert(
-                VortexAccessPlan::default().with_selection(Selection::exclude_by_index(
+                VortexAccessPlan::default().with_selection(Selection::ExcludeByIndex(
                     Buffer::from_iter(vec![0, 2, 4, 6, 8]),
-                )?),
+                )),
             );
 
         let opener = make_test_opener(
@@ -1592,9 +1592,9 @@ mod tests {
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
         file.extensions
             .insert(
-                VortexAccessPlan::default().with_selection(Selection::include_by_index(
+                VortexAccessPlan::default().with_selection(Selection::IncludeByIndex(
                     Buffer::from_iter(vec![1, 3, 5, 7, 9]),
-                )?),
+                )),
             );
 
         let mut opener_v1 = make_test_opener(

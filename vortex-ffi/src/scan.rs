@@ -177,13 +177,13 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
             vortex_ensure!(!selection.idx.is_null());
             let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
             let buf = Buffer::copy_from(buf);
-            Selection::include_by_index(buf)?
+            Selection::IncludeByIndex(buf)
         }
         vx_scan_selection_include::VX_SELECTION_EXCLUDE_RANGE => {
             vortex_ensure!(!selection.idx.is_null());
             let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
             let buf = Buffer::copy_from(buf);
-            Selection::exclude_by_index(buf)?
+            Selection::ExcludeByIndex(buf)
         }
     };
 

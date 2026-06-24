@@ -7,98 +7,10 @@ use std::ops::Not;
 use std::ops::Range;
 
 use vortex_buffer::Buffer;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::row_mask::RowMask;
-
-/// A validated selection of rows to include by absolute row index.
-#[derive(Clone, Debug)]
-pub struct IncludeByIndex {
-    indices: Buffer<u64>,
-}
-
-impl IncludeByIndex {
-    /// Create a new include-by-index selection.
-    pub fn try_new(indices: Buffer<u64>) -> VortexResult<Self> {
-        validate_indices(&indices)?;
-        Ok(Self { indices })
-    }
-
-    /// Return the selected row indices.
-    pub fn as_slice(&self) -> &[u64] {
-        self.indices.as_slice()
-    }
-
-    /// Return true if the selection contains no row indices.
-    pub fn is_empty(&self) -> bool {
-        self.indices.is_empty()
-    }
-
-    /// Return the number of selected row indices.
-    pub fn len(&self) -> usize {
-        self.indices.len()
-    }
-}
-
-impl std::ops::Deref for IncludeByIndex {
-    type Target = [u64];
-
-    fn deref(&self) -> &Self::Target {
-        self.as_slice()
-    }
-}
-
-impl AsRef<[u64]> for IncludeByIndex {
-    fn as_ref(&self) -> &[u64] {
-        self.as_slice()
-    }
-}
-
-/// A validated selection of rows to exclude by absolute row index.
-#[derive(Clone, Debug)]
-pub struct ExcludeByIndex {
-    indices: Buffer<u64>,
-}
-
-impl ExcludeByIndex {
-    /// Create a new exclude-by-index selection.
-    pub fn try_new(indices: Buffer<u64>) -> VortexResult<Self> {
-        validate_indices(&indices)?;
-        Ok(Self { indices })
-    }
-
-    /// Return the excluded row indices.
-    pub fn as_slice(&self) -> &[u64] {
-        self.indices.as_slice()
-    }
-
-    /// Return true if the selection contains no row indices.
-    pub fn is_empty(&self) -> bool {
-        self.indices.is_empty()
-    }
-
-    /// Return the number of excluded row indices.
-    pub fn len(&self) -> usize {
-        self.indices.len()
-    }
-}
-
-impl std::ops::Deref for ExcludeByIndex {
-    type Target = [u64];
-
-    fn deref(&self) -> &Self::Target {
-        self.as_slice()
-    }
-}
-
-impl AsRef<[u64]> for ExcludeByIndex {
-    fn as_ref(&self) -> &[u64] {
-        self.as_slice()
-    }
-}
 
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).
@@ -107,10 +19,10 @@ pub enum Selection {
     /// No selection, all rows are included.
     #[default]
     All,
-    /// A selection of sorted, unique rows to include by index.
-    IncludeByIndex(IncludeByIndex),
-    /// A selection of sorted, unique rows to exclude by index.
-    ExcludeByIndex(ExcludeByIndex),
+    /// A selection of sorted rows to include by index.
+    IncludeByIndex(Buffer<u64>),
+    /// A selection of sorted rows to exclude by index.
+    ExcludeByIndex(Buffer<u64>),
     /// A selection of rows to include using a [`roaring::RoaringTreemap`].
     IncludeRoaring(roaring::RoaringTreemap),
     /// A selection of rows to exclude using a [`roaring::RoaringTreemap`].
@@ -118,16 +30,6 @@ pub enum Selection {
 }
 
 impl Selection {
-    /// Create a selection of rows to include by absolute row index.
-    pub fn include_by_index(indices: Buffer<u64>) -> VortexResult<Self> {
-        Ok(Self::IncludeByIndex(IncludeByIndex::try_new(indices)?))
-    }
-
-    /// Create a selection of rows to exclude by absolute row index.
-    pub fn exclude_by_index(indices: Buffer<u64>) -> VortexResult<Self> {
-        Ok(Self::ExcludeByIndex(ExcludeByIndex::try_new(indices)?))
-    }
-
     /// Return the row count for this selection.
     pub fn row_count(&self, total_rows: u64) -> u64 {
         match self {
@@ -160,12 +62,12 @@ impl Selection {
         match self {
             Selection::All => RowMask::new(range.start, Mask::new_true(range_len)),
             Selection::IncludeByIndex(include) => {
-                let indices = include.as_slice();
-                let mask = indices_range(range, indices)
+                let mask = indices_range(range, include)
                     .map(|idx_range| {
                         Mask::from_indices(
                             range_len,
-                            indices[idx_range]
+                            include
+                                .slice(idx_range)
                                 .iter()
                                 .map(|idx| {
                                     idx.checked_sub(range.start).unwrap_or_else(|| {
@@ -187,26 +89,10 @@ impl Selection {
                 RowMask::new(range.start, mask)
             }
             Selection::ExcludeByIndex(exclude) => {
-                let indices = exclude.as_slice();
-                let mask = indices_range(range, indices)
-                    .map(|idx_range| {
-                        Mask::from_indices(
-                            range_len,
-                            indices[idx_range]
-                                .iter()
-                                .map(|idx| {
-                                    idx.checked_sub(range.start).unwrap_or_else(|| {
-                                        vortex_panic!(
-                                            "index underflow, range: {:?}, idx: {:?}",
-                                            range,
-                                            idx
-                                        )
-                                    })
-                                })
-                                .filter_map(|idx| usize::try_from(idx).ok()),
-                        )
-                    })
-                    .unwrap_or_else(|| Mask::new_false(range_len));
+                let mask = Selection::IncludeByIndex(exclude.clone())
+                    .row_mask(range)
+                    .mask()
+                    .clone();
                 RowMask::new(range.start, mask.not())
             }
             Selection::IncludeRoaring(roaring) => {
@@ -270,24 +156,6 @@ impl Selection {
     }
 }
 
-fn validate_indices(indices: &[u64]) -> VortexResult<()> {
-    // Row-mask extraction uses binary search over these indices, and row_count treats
-    // them as set membership. Unsorted or duplicate input can otherwise silently
-    // mis-select rows or over-report the selected row count.
-    for (idx, window) in indices.windows(2).enumerate() {
-        if window[0] >= window[1] {
-            vortex_bail!(
-                "row index selection must be strictly increasing at positions {} and {}: {} >= {}",
-                idx,
-                idx + 1,
-                window[0],
-                window[1]
-            );
-        }
-    }
-    Ok(())
-}
-
 /// Find the positional range within row_indices that covers all rows in the given range.
 fn indices_range(range: &Range<u64>, row_indices: &[u64]) -> Option<Range<usize>> {
     if row_indices.first().is_some_and(|&first| first >= range.end)
@@ -309,39 +177,9 @@ fn indices_range(range: &Range<u64>, row_indices: &[u64]) -> Option<Range<usize>
 mod tests {
     use vortex_buffer::Buffer;
 
-    use super::Selection;
-
-    fn include(indices: impl IntoIterator<Item = u64>) -> Selection {
-        Selection::include_by_index(Buffer::from_iter(indices))
-            .expect("test indices should be strictly increasing")
-    }
-
-    fn exclude(indices: impl IntoIterator<Item = u64>) -> Selection {
-        Selection::exclude_by_index(Buffer::from_iter(indices))
-            .expect("test indices should be strictly increasing")
-    }
-
-    #[test]
-    fn include_by_index_rejects_unsorted_indices() {
-        let err = Selection::include_by_index(Buffer::from_iter([3, 1])).unwrap_err();
-        assert!(err.to_string().contains("strictly increasing"));
-    }
-
-    #[test]
-    fn include_by_index_rejects_duplicate_indices() {
-        let err = Selection::include_by_index(Buffer::from_iter([1, 1])).unwrap_err();
-        assert!(err.to_string().contains("strictly increasing"));
-    }
-
-    #[test]
-    fn exclude_by_index_rejects_unsorted_indices() {
-        let err = Selection::exclude_by_index(Buffer::from_iter([3, 1])).unwrap_err();
-        assert!(err.to_string().contains("strictly increasing"));
-    }
-
     #[test]
     fn test_row_mask_all() {
-        let selection = include([1, 3, 5, 7]);
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 1..8;
         let row_mask = selection.row_mask(&range);
 
@@ -350,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_row_mask_slice() {
-        let selection = include([1, 3, 5, 7]);
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 3..6;
         let row_mask = selection.row_mask(&range);
 
@@ -359,7 +197,7 @@ mod tests {
 
     #[test]
     fn test_row_mask_exclusive() {
-        let selection = include([1, 3, 5, 7]);
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 3..5;
         let row_mask = selection.row_mask(&range);
 
@@ -368,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_row_mask_all_false() {
-        let selection = include([1, 3, 5, 7]);
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 8..10;
         let row_mask = selection.row_mask(&range);
 
@@ -377,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_row_mask_all_true() {
-        let selection = include([1, 3, 4, 5, 6]);
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 4, 5, 6]));
         let range = 3..7;
         let row_mask = selection.row_mask(&range);
 
@@ -386,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_row_mask_zero() {
-        let selection = include([0]);
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![0]));
         let range = 0..5;
         let row_mask = selection.row_mask(&range);
 
@@ -406,7 +244,7 @@ mod tests {
             roaring.insert(5);
             roaring.insert(7);
 
-            let selection = Selection::IncludeRoaring(roaring);
+            let selection = super::super::Selection::IncludeRoaring(roaring);
             let range = 1..8;
             let row_mask = selection.row_mask(&range);
 
@@ -421,7 +259,7 @@ mod tests {
             roaring.insert(5);
             roaring.insert(7);
 
-            let selection = Selection::IncludeRoaring(roaring);
+            let selection = super::super::Selection::IncludeRoaring(roaring);
             let range = 3..6;
             let row_mask = selection.row_mask(&range);
 
@@ -436,7 +274,7 @@ mod tests {
             roaring.insert(5);
             roaring.insert(7);
 
-            let selection = Selection::IncludeRoaring(roaring);
+            let selection = super::super::Selection::IncludeRoaring(roaring);
             let range = 8..10;
             let row_mask = selection.row_mask(&range);
 
@@ -451,7 +289,7 @@ mod tests {
                 roaring.insert(i);
             }
 
-            let selection = Selection::IncludeRoaring(roaring);
+            let selection = super::super::Selection::IncludeRoaring(roaring);
             let range = 1000..2000;
             let row_mask = selection.row_mask(&range);
 
@@ -466,7 +304,7 @@ mod tests {
             roaring.insert(3);
             roaring.insert(5);
 
-            let selection = Selection::ExcludeRoaring(roaring);
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
             let range = 0..7;
             let row_mask = selection.row_mask(&range);
 
@@ -482,7 +320,7 @@ mod tests {
                 roaring.insert(i);
             }
 
-            let selection = Selection::ExcludeRoaring(roaring);
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
             let range = 10..20;
             let row_mask = selection.row_mask(&range);
 
@@ -495,7 +333,7 @@ mod tests {
             roaring.insert(100);
             roaring.insert(101);
 
-            let selection = Selection::ExcludeRoaring(roaring);
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
             let range = 0..10;
             let row_mask = selection.row_mask(&range);
 
@@ -511,7 +349,7 @@ mod tests {
             roaring.insert(7);
             roaring.insert(15); // Outside range
 
-            let selection = Selection::ExcludeRoaring(roaring);
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
             let range = 5..10;
             let row_mask = selection.row_mask(&range);
 
@@ -522,7 +360,7 @@ mod tests {
         #[test]
         fn test_roaring_include_empty() {
             let roaring = RoaringTreemap::new();
-            let selection = Selection::IncludeRoaring(roaring);
+            let selection = super::super::Selection::IncludeRoaring(roaring);
             let range = 0..100;
             let row_mask = selection.row_mask(&range);
 
@@ -532,7 +370,7 @@ mod tests {
         #[test]
         fn test_roaring_exclude_empty() {
             let roaring = RoaringTreemap::new();
-            let selection = Selection::ExcludeRoaring(roaring);
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
             let range = 0..100;
             let row_mask = selection.row_mask(&range);
 
@@ -545,7 +383,7 @@ mod tests {
             roaring.insert(0);
             roaring.insert(99);
 
-            let selection = Selection::IncludeRoaring(roaring);
+            let selection = super::super::Selection::IncludeRoaring(roaring);
             let range = 0..100;
             let row_mask = selection.row_mask(&range);
 
@@ -559,7 +397,7 @@ mod tests {
             roaring.insert_range(10..20);
             roaring.insert_range(30..40);
 
-            let selection = Selection::IncludeRoaring(roaring);
+            let selection = super::super::Selection::IncludeRoaring(roaring);
             let range = 15..35;
             let row_mask = selection.row_mask(&range);
 
@@ -575,7 +413,7 @@ mod tests {
             roaring.insert(u64::MAX - 1);
             roaring.insert(u64::MAX);
 
-            let selection = Selection::IncludeRoaring(roaring);
+            let selection = super::super::Selection::IncludeRoaring(roaring);
             let range = u64::MAX - 10..u64::MAX;
             let row_mask = selection.row_mask(&range);
 
@@ -588,7 +426,7 @@ mod tests {
             let mut roaring = RoaringTreemap::new();
             roaring.insert(u64::MAX - 1);
 
-            let selection = Selection::ExcludeRoaring(roaring);
+            let selection = super::super::Selection::ExcludeRoaring(roaring);
             let range = u64::MAX - 10..u64::MAX;
             let row_mask = selection.row_mask(&range);
 
@@ -601,13 +439,14 @@ mod tests {
             // Test that RoaringTreemap and Buffer produce same results
             let indices = vec![1, 3, 5, 7, 9];
 
-            let buffer_selection = include(indices.clone());
+            let buffer_selection =
+                super::super::Selection::IncludeByIndex(Buffer::from_iter(indices.clone()));
 
             let mut roaring = RoaringTreemap::new();
             for idx in &indices {
                 roaring.insert(*idx);
             }
-            let roaring_selection = Selection::IncludeRoaring(roaring);
+            let roaring_selection = super::super::Selection::IncludeRoaring(roaring);
 
             let range = 0..12;
             let buffer_mask = buffer_selection.row_mask(&range);
@@ -624,13 +463,14 @@ mod tests {
             // Test that ExcludeRoaring and ExcludeByIndex produce same results
             let indices = vec![2, 4, 6, 8];
 
-            let buffer_selection = exclude(indices.clone());
+            let buffer_selection =
+                super::super::Selection::ExcludeByIndex(Buffer::from_iter(indices.clone()));
 
             let mut roaring = RoaringTreemap::new();
             for idx in &indices {
                 roaring.insert(*idx);
             }
-            let roaring_selection = Selection::ExcludeRoaring(roaring);
+            let roaring_selection = super::super::Selection::ExcludeRoaring(roaring);
 
             let range = 0..10;
             let buffer_mask = buffer_selection.row_mask(&range);

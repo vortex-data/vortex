@@ -383,7 +383,7 @@ async fn differential_row_range() -> VortexResult<()> {
 async fn differential_include_selection() -> VortexResult<()> {
     let file = write_file(chunked(), false).await?;
     let scan_request = ScanRequest {
-        selection: Selection::include_by_index(Buffer::from_iter([0, 2, 5, 9]))?,
+        selection: Selection::IncludeByIndex(Buffer::from_iter([0, 2, 5, 9])),
         ..request(root(), None)
     };
     assert_v1_eq_v2(&file, scan_request).await
@@ -393,7 +393,7 @@ async fn differential_include_selection() -> VortexResult<()> {
 async fn differential_exclude_selection() -> VortexResult<()> {
     let file = write_file(chunked(), false).await?;
     let scan_request = ScanRequest {
-        selection: Selection::exclude_by_index(Buffer::from_iter([1, 4, 7]))?,
+        selection: Selection::ExcludeByIndex(Buffer::from_iter([1, 4, 7])),
         ..request(root(), None)
     };
     assert_v1_eq_v2(&file, scan_request).await
@@ -414,8 +414,8 @@ async fn differential_unordered_multi_file_partition_selection() -> VortexResult
     let request = ScanRequest {
         projection: get_item("numbers", root()),
         row_range: Some(1..4),
-        selection: Selection::exclude_by_index(Buffer::from_iter([2]))?,
-        partition_selection: Selection::include_by_index(Buffer::from_iter([0, 2]))?,
+        selection: Selection::ExcludeByIndex(Buffer::from_iter([2])),
+        partition_selection: Selection::IncludeByIndex(Buffer::from_iter([0, 2])),
         ordered: false,
         ..Default::default()
     };

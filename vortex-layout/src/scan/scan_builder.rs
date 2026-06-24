@@ -173,9 +173,9 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     /// Select rows by absolute indices relative to the scan input.
-    pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> VortexResult<Self> {
-        self.selection = Selection::include_by_index(row_indices)?;
-        Ok(self)
+    pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
+        self.selection = Selection::IncludeByIndex(row_indices);
+        self
     }
 
     /// Set the root row offset used by row-index expressions.

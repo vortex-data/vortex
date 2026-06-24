@@ -66,7 +66,7 @@ pub fn read_array_from_reader(
     if let Some(indices) = indices {
         let primitive = indices.execute::<PrimitiveArray>(ctx)?;
         let indices = primitive.into_buffer();
-        scan = scan.with_row_indices(indices)?;
+        scan = scan.with_row_indices(indices);
     }
 
     if let Some((l, r)) = row_range {
