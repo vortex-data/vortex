@@ -166,12 +166,6 @@ fn intersect_sorted(left: &[u64], right: &[u64]) -> Vec<u64> {
     result
 }
 
-fn normalize_indices(mut indices: Vec<u64>) -> Vec<u64> {
-    indices.sort_unstable();
-    indices.dedup();
-    indices
-}
-
 /// For constant comparison on IN filters over file_index or file_row_number
 /// virtual column, create a selection and a range covering the same range as
 /// expressions do.
@@ -185,7 +179,7 @@ pub fn try_from_virtual_column_filter(
                 .map(nonnegative_number_from_value)
                 .collect::<VortexResult<Vec<u64>>>()?;
             Ok((
-                Selection::include_by_index(Buffer::from_iter(normalize_indices(indices)))?,
+                Selection::include_by_index(Buffer::from_iter(indices))?,
                 None,
             ))
         }
