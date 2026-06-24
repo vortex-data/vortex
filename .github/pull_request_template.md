@@ -1,7 +1,7 @@
-## Rational for this change
+## Rationale for this change
 
 <!--
-Why are you proposing this change, and what is its impact. 
+Why are you proposing this change, and what is its impact? 
 Is it part of a long term effort, or a bigger change?
 
 If this PR is related to a tracked effort or an open issue, please link to the relevant issue.
