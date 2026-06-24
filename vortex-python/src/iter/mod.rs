@@ -20,7 +20,6 @@ use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::iter::ArrayIterator;
@@ -132,7 +131,7 @@ impl PyArrayIterator {
                     session().arrow().execute_arrow(
                         chunk?,
                         Some(&target),
-                        &mut LEGACY_SESSION.create_execution_ctx(),
+                        &mut session().create_execution_ctx(),
                     )
                 })
                 .map(|chunk| chunk.map_err(|e| ArrowError::ExternalError(Box::new(e))))

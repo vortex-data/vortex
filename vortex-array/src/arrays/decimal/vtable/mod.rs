@@ -19,6 +19,8 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::decimal::DecimalData;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::DecimalBuilder;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
@@ -186,6 +188,17 @@ impl VTable for Decimal {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<DecimalBuilder>() else {
+            vortex_bail!("append_to_builder for Decimal requires a DecimalBuilder");
+        };
+        builder.append_decimal_array(&array.into_owned(), ctx)
     }
 
     fn reduce_parent(

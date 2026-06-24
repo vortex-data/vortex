@@ -170,6 +170,7 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -328,7 +329,6 @@ mod test {
     #[case(bp(buffer![42u32].into_array(), 6))]
     #[case(bp(PrimitiveArray::from_iter((0..1024).map(|i| i as u32)).into_array(), 8))]
     fn test_take_bitpacked_conformance(#[case] bitpacked: BitPackedArray) {
-        use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(&bitpacked.into_array());
+        test_take_conformance(&bitpacked.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

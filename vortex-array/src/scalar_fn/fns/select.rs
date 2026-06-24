@@ -309,8 +309,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::struct_::StructArrayExt;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
@@ -336,20 +336,30 @@ mod tests {
 
     #[test]
     pub fn include_columns() {
+        let mut ctx = array_session().create_execution_ctx();
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
-        #[expect(deprecated)]
-        let selected = st.into_array().apply(&select).unwrap().to_struct();
+        let selected = st
+            .into_array()
+            .apply(&select)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a"]);
     }
 
     #[test]
     pub fn exclude_columns() {
+        let mut ctx = array_session().create_execution_ctx();
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
-        #[expect(deprecated)]
-        let selected = st.into_array().apply(&select).unwrap().to_struct();
+        let selected = st
+            .into_array()
+            .apply(&select)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b"]);
     }

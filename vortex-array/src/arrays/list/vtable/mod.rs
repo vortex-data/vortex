@@ -34,6 +34,8 @@ use crate::arrays::list::array::SLOT_NAMES;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::ListBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -189,6 +191,17 @@ impl VTable for List {
         Ok(ExecutionResult::done(
             list_view_from_list(array, ctx)?.into_array(),
         ))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<ListBuilder<u64>>() else {
+            vortex_bail!("append_to_builder for List requires a ListBuilder<u64, u64>");
+        };
+        builder.append_list_array(&array.into_owned().into_array(), ctx)
     }
 }
 

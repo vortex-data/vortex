@@ -267,6 +267,7 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
@@ -298,7 +299,7 @@ mod tests {
 
         assert!(ArrayRef::ptr_eq(dict.values(), &values));
         assert_eq!(codes.nchunks(), 2);
-        let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             PrimitiveArray::from_iter([10u32, 20, 30, 10, 20]),
@@ -321,7 +322,7 @@ mod tests {
         let optimized = array.optimize()?;
 
         assert!(optimized.is::<Chunked>());
-        let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             PrimitiveArray::from_iter([10u32, 20, 30, 10, 20]),

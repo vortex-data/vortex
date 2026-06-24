@@ -751,7 +751,7 @@ mod tests {
         .unwrap()
     })]
     fn test_take_runend_conformance(#[case] array: RunEndArray) {
-        test_take_conformance(&array.into_array());
+        test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[rstest]
@@ -765,6 +765,6 @@ mod tests {
         array.slice(2..8).unwrap()
     })]
     fn test_take_sliced_runend_conformance(#[case] sliced: ArrayRef) {
-        test_take_conformance(&sliced);
+        test_take_conformance(&sliced, &mut SESSION.create_execution_ctx());
     }
 }

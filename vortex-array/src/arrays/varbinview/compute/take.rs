@@ -173,6 +173,9 @@ mod tests {
     ))]
     #[case(VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)))]
     fn test_take_varbinview_conformance(#[case] array: VarBinViewArray) {
-        test_take_conformance(&array.into_array());
+        test_take_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

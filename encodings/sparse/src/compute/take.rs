@@ -64,6 +64,7 @@ mod test {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
@@ -227,7 +228,6 @@ mod test {
         Scalar::from(-1i32),
     ).unwrap())]
     fn test_take_sparse_conformance(#[case] sparse: SparseArray) {
-        use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(&sparse.into_array());
+        test_take_conformance(&sparse.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

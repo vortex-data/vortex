@@ -33,6 +33,8 @@ use crate::arrays::listview::array::SIZES_SLOT;
 use crate::arrays::listview::array::SLOT_NAMES;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::ListViewBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -213,6 +215,21 @@ impl VTable for ListView {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        // `builder_with_capacity` always produces a `ListViewBuilder<u64, u64>` for `DType::List`.
+        let Some(builder) = builder
+            .as_any_mut()
+            .downcast_mut::<ListViewBuilder<u64, u64>>()
+        else {
+            vortex_bail!("append_to_builder for ListView requires a ListViewBuilder<u64, u64>");
+        };
+        builder.append_listview_array(&array.into_owned(), ctx)
     }
 
     fn reduce_parent(

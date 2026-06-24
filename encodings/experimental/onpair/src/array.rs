@@ -475,14 +475,12 @@ impl VTable for OnPair {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            builder.extend_from_array(
-                &array
-                    .array()
-                    .clone()
-                    .execute::<Canonical>(ctx)?
-                    .into_array(),
-            );
-            return Ok(());
+            return array
+                .array()
+                .clone()
+                .execute::<Canonical>(ctx)?
+                .into_array()
+                .append_to_builder(builder, ctx);
         };
 
         let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());

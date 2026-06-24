@@ -6,8 +6,6 @@ use std::sync::Arc;
 use vortex_buffer::buffer;
 
 use crate::IntoArray;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::FixedSizeListArray;
@@ -85,9 +83,10 @@ fn test_fsl_of_fsl_basic() {
     let first_outer_list = outer_fsl.fixed_size_list_elements_at(0).unwrap();
 
     // Check first inner list [1,2].
-    #[expect(deprecated)]
     let inner_list_0 = first_outer_list
-        .to_fixed_size_list()
+        .clone()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(0)
         .unwrap();
     assert_eq!(
@@ -104,9 +103,10 @@ fn test_fsl_of_fsl_basic() {
     );
 
     // Check second inner list [3,4].
-    #[expect(deprecated)]
     let inner_list_1 = first_outer_list
-        .to_fixed_size_list()
+        .clone()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(1)
         .unwrap();
     assert_eq!(
@@ -123,9 +123,9 @@ fn test_fsl_of_fsl_basic() {
     );
 
     // Check third inner list [5,6].
-    #[expect(deprecated)]
     let inner_list_2 = first_outer_list
-        .to_fixed_size_list()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(2)
         .unwrap();
     assert_eq!(
@@ -145,9 +145,10 @@ fn test_fsl_of_fsl_basic() {
     let second_outer_list = outer_fsl.fixed_size_list_elements_at(1).unwrap();
 
     // Check first inner list [7,8].
-    #[expect(deprecated)]
     let inner_list_0 = second_outer_list
-        .to_fixed_size_list()
+        .clone()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(0)
         .unwrap();
     assert_eq!(
@@ -164,9 +165,10 @@ fn test_fsl_of_fsl_basic() {
     );
 
     // Check second inner list [9,10].
-    #[expect(deprecated)]
     let inner_list_1 = second_outer_list
-        .to_fixed_size_list()
+        .clone()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(1)
         .unwrap();
     assert_eq!(
@@ -183,9 +185,9 @@ fn test_fsl_of_fsl_basic() {
     );
 
     // Check third inner list [11,12].
-    #[expect(deprecated)]
     let inner_list_2 = second_outer_list
-        .to_fixed_size_list()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(2)
         .unwrap();
     assert_eq!(
@@ -307,21 +309,23 @@ fn test_deeply_nested_fsl() {
     // Check the actual deeply nested values.
     // Structure: [[[1,2],[3,4]],[[5,6],[7,8]]].
     let top_level = level3.fixed_size_list_elements_at(0).unwrap();
-    #[expect(deprecated)]
     let level2_0 = top_level
-        .to_fixed_size_list()
+        .clone()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(0)
         .unwrap();
-    #[expect(deprecated)]
     let level2_1 = top_level
-        .to_fixed_size_list()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(1)
         .unwrap();
 
     // First level-2 list: [[1,2],[3,4]].
-    #[expect(deprecated)]
     let level1_0_0 = level2_0
-        .to_fixed_size_list()
+        .clone()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(0)
         .unwrap();
     assert_eq!(
@@ -337,9 +341,9 @@ fn test_deeply_nested_fsl() {
         2i32.into()
     );
 
-    #[expect(deprecated)]
     let level1_0_1 = level2_0
-        .to_fixed_size_list()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(1)
         .unwrap();
     assert_eq!(
@@ -356,9 +360,10 @@ fn test_deeply_nested_fsl() {
     );
 
     // Second level-2 list: [[5,6],[7,8]].
-    #[expect(deprecated)]
     let level1_1_0 = level2_1
-        .to_fixed_size_list()
+        .clone()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(0)
         .unwrap();
     assert_eq!(
@@ -374,9 +379,9 @@ fn test_deeply_nested_fsl() {
         6i32.into()
     );
 
-    #[expect(deprecated)]
     let level1_1_1 = level2_1
-        .to_fixed_size_list()
+        .execute::<FixedSizeListArray>(&mut array_session().create_execution_ctx())
+        .unwrap()
         .fixed_size_list_elements_at(1)
         .unwrap();
     assert_eq!(

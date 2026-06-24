@@ -34,6 +34,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
@@ -59,6 +61,9 @@ mod tests {
         ).unwrap()
     )]
     fn test_mask_masked_conformance(#[case] array: MaskedArray) {
-        test_mask_conformance(&array.into_array());
+        test_mask_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

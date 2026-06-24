@@ -212,12 +212,11 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
+    use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
@@ -228,6 +227,7 @@ mod test {
 
     #[test]
     fn nullable_take() {
+        let mut ctx = array_session().create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 5, 3, 4].into_array(),
             buffer![0, 2, 3, 4, 4].into_array(),
@@ -249,8 +249,7 @@ mod test {
             )
         );
 
-        #[expect(deprecated)]
-        let result = result.to_listview();
+        let result = result.execute::<ListViewArray>(&mut ctx).unwrap();
 
         assert_eq!(result.len(), 4);
 
@@ -332,6 +331,7 @@ mod test {
 
     #[test]
     fn non_nullable_take() {
+        let mut ctx = array_session().create_execution_ctx();
         let list = ListArray::try_new(
             buffer![0i32, 5, 3, 4].into_array(),
             buffer![0, 2, 3, 3, 4].into_array(),
@@ -352,8 +352,7 @@ mod test {
             )
         );
 
-        #[expect(deprecated)]
-        let result = result.to_listview();
+        let result = result.execute::<ListViewArray>(&mut ctx).unwrap();
 
         assert_eq!(result.len(), 3);
 
@@ -466,11 +465,15 @@ mod test {
         Validity::NonNullable,
     ).unwrap())]
     fn test_take_list_conformance(#[case] list: ListArray) {
-        test_take_conformance(&list.into_array());
+        test_take_conformance(
+            &list.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[test]
     fn test_u64_offset_accumulation_non_nullable() {
+        let mut ctx = array_session().create_execution_ctx();
         let elements = buffer![0i32; 200].into_array();
         let offsets = buffer![0u8, 200].into_array();
         let list = ListArray::try_new(elements, offsets, Validity::NonNullable)
@@ -483,8 +486,7 @@ mod test {
 
         assert_eq!(result.len(), 2);
 
-        #[expect(deprecated)]
-        let result_view = result.to_listview();
+        let result_view = result.execute::<ListViewArray>(&mut ctx).unwrap();
         assert_eq!(result_view.len(), 2);
         assert!(
             result_view
@@ -500,6 +502,7 @@ mod test {
 
     #[test]
     fn test_u64_offset_accumulation_nullable() {
+        let mut ctx = array_session().create_execution_ctx();
         let elements = buffer![0i32; 150].into_array();
         let offsets = buffer![0u8, 150, 150].into_array();
         let validity = BoolArray::from_iter(vec![true, false]).into_array();
@@ -513,8 +516,7 @@ mod test {
 
         assert_eq!(result.len(), 3);
 
-        #[expect(deprecated)]
-        let result_view = result.to_listview();
+        let result_view = result.execute::<ListViewArray>(&mut ctx).unwrap();
         assert_eq!(result_view.len(), 3);
         assert!(
             result_view

@@ -34,10 +34,10 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::match_each_decimal_value_type;
@@ -153,30 +153,6 @@ pub trait ArrayBuilder: Send {
     /// A generic function to append a scalar to the builder.
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()>;
 
-    /// The inner part of `extend_from_array`.
-    ///
-    /// # Safety
-    ///
-    /// The array that must have an equal [`DType`] to the array builder's `DType` (with nullability
-    /// superset semantics).
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef);
-
-    /// Extends the array with the provided array, canonicalizing if necessary.
-    ///
-    /// Implementors must validate that the passed in [`ArrayRef`] has the correct [`DType`].
-    fn extend_from_array(&mut self, array: &ArrayRef) {
-        if !self.dtype().eq_with_nullability_superset(array.dtype()) {
-            vortex_panic!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype(),
-                array.dtype()
-            );
-        }
-
-        // SAFETY: We checked that the array had a valid `DType` above.
-        unsafe { self.extend_from_array_unchecked(array) }
-    }
-
     /// Allocate space for extra `additional` items
     fn reserve_exact(&mut self, additional: usize);
 
@@ -214,7 +190,7 @@ pub trait ArrayBuilder: Send {
     /// This method provides a default implementation that creates an [`ArrayRef`] via `finish` and
     /// then converts it to canonical form. Specific builders can override this with optimized
     /// implementations that avoid the intermediate [`ArrayRef`] creation.
-    fn finish_into_canonical(&mut self) -> Canonical;
+    fn finish_into_canonical(&mut self, ctx: &mut ExecutionCtx) -> Canonical;
 }
 
 /// Construct a new canonical builder for the given [`DType`].

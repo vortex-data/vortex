@@ -15,15 +15,13 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
-use crate::VortexSessionExecute;
+use crate::ExecutionCtx;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array_slots;
 use crate::arrays::Dict;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
@@ -129,13 +127,13 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         self.all_values_referenced
     }
 
-    fn validate_all_values_referenced(&self) -> VortexResult<()> {
+    fn validate_all_values_referenced(&self, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         if self.has_all_values_referenced() {
             if !self.codes().is_host() {
                 return Ok(());
             }
 
-            let referenced_mask = self.compute_referenced_values_mask(true)?;
+            let referenced_mask = self.compute_referenced_values_mask(true, ctx)?;
             let all_referenced = referenced_mask.true_count() == referenced_mask.len();
 
             vortex_ensure!(all_referenced, "value in dict not referenced");
@@ -144,13 +142,14 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         Ok(())
     }
 
-    fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
+    fn compute_referenced_values_mask(
+        &self,
+        referenced: bool,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<BitBuffer> {
         let codes = self.codes();
-        let codes_validity = codes
-            .validity()?
-            .execute_mask(codes.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
-        #[expect(deprecated)]
-        let codes_primitive = self.codes().to_primitive();
+        let codes_validity = codes.validity()?.execute_mask(codes.len(), ctx)?;
+        let codes_primitive = codes.clone().execute::<PrimitiveArray>(ctx)?;
         let values_len = self.values().len();
 
         let init_value = !referenced;
@@ -268,18 +267,9 @@ impl Array<Dict> {
             self.into_data()
                 .set_all_values_referenced(all_values_referenced)
         };
-        let array = unsafe {
+        unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data).with_slots(slots))
-        };
-
-        #[cfg(debug_assertions)]
-        if all_values_referenced {
-            array
-                .validate_all_values_referenced()
-                .vortex_expect("validation should succeed when all values are referenced");
         }
-
-        array
     }
 }
 
@@ -299,8 +289,6 @@ mod test {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::ChunkedArray;
@@ -468,9 +456,8 @@ mod test {
             &mut array_session().create_execution_ctx(),
         )?;
 
-        #[expect(deprecated)]
-        let into_prim = array.to_primitive();
-        let prim_into = builder.finish_into_canonical().into_primitive();
+        let into_prim = array.execute::<PrimitiveArray>(&mut ctx)?;
+        let prim_into = builder.finish_into_canonical(&mut ctx).into_primitive();
 
         assert_arrays_eq!(into_prim, prim_into, &mut ctx);
         Ok(())

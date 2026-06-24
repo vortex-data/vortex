@@ -12,9 +12,11 @@ use vortex_session::VortexSession;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ListArray;
+use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
@@ -23,8 +25,6 @@ use crate::arrays::dict_test::gen_dict_primitive_chunks;
 use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
 use crate::builders::builder_with_capacity;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -32,7 +32,7 @@ use crate::dtype::PType::I32;
 use crate::executor::execute_into_builder;
 use crate::validity::Validity;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 fn chunked_array() -> ChunkedArray {
     ChunkedArray::try_new(
@@ -369,33 +369,14 @@ pub fn pack_nested_structs() -> VortexResult<()> {
         dtype,
     )?
     .into_array();
-    #[expect(deprecated)]
-    let canonical_struct = chunked.to_struct();
-    #[expect(deprecated)]
-    let canonical_varbin = canonical_struct.unmasked_fields()[0].to_varbinview();
-    #[expect(deprecated)]
-    let original_varbin = struct_array.unmasked_fields()[0].to_varbinview();
-    let orig_mask = original_varbin
-        .validity()?
-        .execute_mask(original_varbin.len(), &mut ctx)?;
-    let orig_values = (0..original_varbin.len())
-        .map(|i| {
-            orig_mask
-                .value(i)
-                .then(|| original_varbin.bytes_at(i).to_vec())
-        })
-        .collect::<Vec<_>>();
-    let canon_mask = canonical_varbin
-        .validity()?
-        .execute_mask(canonical_varbin.len(), &mut ctx)?;
-    let canon_values = (0..canonical_varbin.len())
-        .map(|i| {
-            canon_mask
-                .value(i)
-                .then(|| canonical_varbin.bytes_at(i).to_vec())
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(orig_values, canon_values);
+    let canonical_struct = chunked.execute::<StructArray>(&mut ctx)?;
+    let canonical_varbin = canonical_struct.unmasked_fields()[0]
+        .clone()
+        .execute::<VarBinViewArray>(&mut ctx)?;
+    let original_varbin = struct_array.unmasked_fields()[0]
+        .clone()
+        .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(original_varbin, canonical_varbin, &mut ctx);
     Ok(())
 }
 
@@ -424,8 +405,12 @@ pub fn pack_nested_lists() {
         ),
     );
 
-    #[expect(deprecated)]
-    let canon_values = chunked_list.unwrap().as_array().to_listview();
+    let canon_values = chunked_list
+        .unwrap()
+        .as_array()
+        .clone()
+        .execute::<ListViewArray>(&mut ctx)
+        .unwrap();
 
     assert_eq!(
         l1.execute_scalar(0, &mut ctx).unwrap(),

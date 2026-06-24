@@ -118,6 +118,9 @@ mod tests {
         DecimalDType::new(10, 2),
     ).unwrap())]
     fn test_cast_decimal_byte_parts_conformance(#[case] array: DecimalBytePartsArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

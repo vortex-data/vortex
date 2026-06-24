@@ -95,6 +95,7 @@ mod test {
                     &mut ctx,
                 )
                 .into_array(),
+            &mut ctx,
         );
     }
 
@@ -111,6 +112,7 @@ mod test {
                     &mut ctx,
                 )
                 .into_array(),
+            &mut ctx,
         );
     }
 }

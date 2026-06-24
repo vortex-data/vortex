@@ -179,8 +179,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
             .clone()
             .execute::<Canonical>(ctx)?
             .into_array();
-        builder.extend_from_array(&canonical);
-        Ok(())
+        canonical.append_to_builder(builder, ctx)
     }
 
     /// Returns the name of the slot at the given index.

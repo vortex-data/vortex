@@ -273,17 +273,17 @@ mod test {
         // Test with u8 values
         let unpacked = buffer![1u8, 2, 3, 4, 5].into_array();
         let bitpacked = BitPackedData::encode(&unpacked, 3, &mut ctx).unwrap();
-        test_filter_conformance(&bitpacked.into_array());
+        test_filter_conformance(&bitpacked.into_array(), &mut ctx);
 
         // Test with u32 values
         let unpacked = buffer![100u32, 200, 300, 400, 500].into_array();
         let bitpacked = BitPackedData::encode(&unpacked, 9, &mut ctx).unwrap();
-        test_filter_conformance(&bitpacked.into_array());
+        test_filter_conformance(&bitpacked.into_array(), &mut ctx);
 
         // Test with nullable values
         let unpacked = PrimitiveArray::from_option_iter([Some(1u16), None, Some(3), Some(4), None]);
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 3, &mut ctx).unwrap();
-        test_filter_conformance(&bitpacked.into_array());
+        test_filter_conformance(&bitpacked.into_array(), &mut ctx);
     }
 
     /// Regression test for signed integers with patches.

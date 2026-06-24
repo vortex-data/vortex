@@ -181,7 +181,7 @@ mod tests {
     #[case(create_nested_list())]
     #[case(create_empty_lists())]
     fn test_cast_list_conformance(#[case] array: ListArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     fn create_simple_list() -> ListArray {

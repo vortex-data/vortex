@@ -45,7 +45,7 @@ impl DynAggregateKernel for DictMinMaxKernel {
             min_max(dict.values(), ctx, *options)?
         } else {
             // Filter to only referenced values, then compute min/max.
-            let referenced_mask = dict.compute_referenced_values_mask(true)?;
+            let referenced_mask = dict.compute_referenced_values_mask(true, ctx)?;
             let mask = Mask::from(referenced_mask);
             let filtered_values = dict.values().filter(mask)?;
             min_max(&filtered_values, ctx, *options)?

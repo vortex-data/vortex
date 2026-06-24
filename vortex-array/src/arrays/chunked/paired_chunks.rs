@@ -121,9 +121,10 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::paired_chunks::PairedChunksExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -138,13 +139,20 @@ mod tests {
         left: &ChunkedArray,
         right: &ChunkedArray,
     ) -> VortexResult<Vec<(Vec<i32>, Vec<i32>, std::ops::Range<usize>)>> {
+        let mut ctx = array_session().create_execution_ctx();
         let mut result = Vec::new();
         for pair in left.paired_chunks(right) {
             let pair = pair?;
-            #[expect(deprecated)]
-            let l: Vec<i32> = pair.left.to_primitive().as_slice::<i32>().to_vec();
-            #[expect(deprecated)]
-            let r: Vec<i32> = pair.right.to_primitive().as_slice::<i32>().to_vec();
+            let l: Vec<i32> = pair
+                .left
+                .execute::<PrimitiveArray>(&mut ctx)?
+                .as_slice::<i32>()
+                .to_vec();
+            let r: Vec<i32> = pair
+                .right
+                .execute::<PrimitiveArray>(&mut ctx)?
+                .as_slice::<i32>()
+                .to_vec();
             result.push((l, r, pair.pos));
         }
         Ok(result)

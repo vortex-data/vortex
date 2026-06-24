@@ -28,8 +28,6 @@ mod tests {
     use std::iter;
 
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
@@ -38,9 +36,14 @@ mod tests {
 
     #[test]
     fn test_slice_hundred_elements() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from_iter(iter::repeat_n(Some(true), 100));
-        #[expect(deprecated)]
-        let sliced_arr = arr.into_array().slice(8..16).unwrap().to_bool();
+        let sliced_arr = arr
+            .into_array()
+            .slice(8..16)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
         assert_eq!(sliced_arr.len(), 8);
         assert_eq!(sliced_arr.to_bit_buffer().len(), 8);
         assert_eq!(sliced_arr.to_bit_buffer().offset(), 0);
@@ -50,8 +53,12 @@ mod tests {
     fn test_slice() {
         let mut ctx = array_session().create_execution_ctx();
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
-        #[expect(deprecated)]
-        let sliced_arr = arr.into_array().slice(1..4).unwrap().to_bool();
+        let sliced_arr = arr
+            .into_array()
+            .slice(1..4)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
 
         assert_arrays_eq!(
             sliced_arr,

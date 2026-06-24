@@ -322,7 +322,7 @@ impl VortexFileHandle {
                 .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
             for chunk in chunks {
-                let batch = array_to_record_batch(chunk, &dtype, &arrow_schema)
+                let batch = array_to_record_batch(chunk, &dtype, &arrow_schema, &self.session)
                     .map_err(|e| JsValue::from_str(&e.to_string()))?;
                 writer
                     .write(&batch)

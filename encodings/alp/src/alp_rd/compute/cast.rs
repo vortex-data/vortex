@@ -149,6 +149,9 @@ mod tests {
         encoder.encode(arr.as_view(), &mut array_session().create_execution_ctx())
     })]
     fn test_cast_alprd_conformance(#[case] alprd: crate::alp_rd::ALPRDArray) {
-        test_cast_conformance(&alprd.into_array());
+        test_cast_conformance(
+            &alprd.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

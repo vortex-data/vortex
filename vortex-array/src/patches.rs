@@ -1210,8 +1210,6 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::assert_arrays_eq;
@@ -1269,10 +1267,16 @@ mod test {
             )
             .unwrap()
             .unwrap();
-        #[expect(deprecated)]
-        let primitive_values = taken.values().to_primitive();
-        #[expect(deprecated)]
-        let primitive_indices = taken.indices().to_primitive();
+        let primitive_values = taken
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
+        let primitive_indices = taken
+            .indices()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(taken.array_len(), 2);
         assert_arrays_eq!(
             primitive_values,
@@ -1316,8 +1320,11 @@ mod test {
             .unwrap()
             .unwrap();
 
-        #[expect(deprecated)]
-        let primitive_values = taken.values().to_primitive();
+        let primitive_values = taken
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(taken.array_len(), 2);
         assert_arrays_eq!(
             primitive_values,
@@ -1629,8 +1636,11 @@ mod test {
         );
 
         // Values should be the null and 300
-        #[expect(deprecated)]
-        let masked_values = masked.values().to_primitive();
+        let masked_values = masked
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(masked_values.len(), 2);
         assert!(!masked_values.is_valid(0, &mut ctx).unwrap()); // the null value at index 5
         assert!(masked_values.is_valid(1, &mut ctx).unwrap()); // the 300 value at index 8
@@ -1825,8 +1835,11 @@ mod test {
         )
         .unwrap();
 
-        #[expect(deprecated)]
-        let values = patches.values().to_primitive();
+        let values = patches
+            .values()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
             i32::try_from(&values.execute_scalar(0, &mut ctx).unwrap()).unwrap(),
             100i32

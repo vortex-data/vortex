@@ -213,6 +213,6 @@ mod tests {
         5,
     ).unwrap())]
     fn test_cast_sequence_conformance(#[case] sequence: SequenceArray) {
-        test_cast_conformance(&sequence.into_array());
+        test_cast_conformance(&sequence.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

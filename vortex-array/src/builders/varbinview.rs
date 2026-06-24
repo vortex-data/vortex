@@ -22,8 +22,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::arrays::varbinview::build_views::BinaryView;
@@ -31,8 +29,6 @@ use crate::arrays::varbinview::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -280,6 +276,7 @@ impl VarBinViewBuilder {
                 .extend_from_compaction(BuffersWithOffsets::from_array(
                     array,
                     self.compaction_threshold,
+                    ctx,
                 ));
 
         match view_adjustment {
@@ -372,13 +369,6 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let array = array.to_varbinview();
-        self.append_varbinview_array(&array, &mut LEGACY_SESSION.create_execution_ctx())
-            .vortex_expect("Failed to append varbinview array");
-    }
-
     fn reserve_exact(&mut self, additional: usize) {
         self.views_builder.reserve(additional);
         self.nulls.reserve_exact(additional);
@@ -392,7 +382,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         self.finish_into_varbinview().into_array()
     }
 
-    fn finish_into_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
         Canonical::VarBinView(self.finish_into_varbinview())
     }
 }
@@ -636,7 +626,11 @@ enum BuffersWithOffsets {
 }
 
 impl BuffersWithOffsets {
-    pub fn from_array(array: &VarBinViewArray, compaction_threshold: f64) -> Self {
+    pub fn from_array(
+        array: &VarBinViewArray,
+        compaction_threshold: f64,
+        ctx: &mut ExecutionCtx,
+    ) -> Self {
         if compaction_threshold == 0.0 {
             return Self::AllKept {
                 buffers: Arc::from(
@@ -652,7 +646,7 @@ impl BuffersWithOffsets {
         }
 
         let buffer_utilizations = array
-            .buffer_utilizations()
+            .buffer_utilizations(ctx)
             .vortex_expect("buffer_utilizations in BuffersWithOffsets::from_array");
         let mut has_rewrite = false;
         let mut has_nonzero_offset = false;
@@ -923,11 +917,11 @@ mod tests {
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_value("Hello1");
-        builder.extend_from_array(&array);
+        array.append_to_builder(&mut builder, &mut ctx).unwrap();
         builder.append_nulls(2);
         builder.append_value("Hello3");
 
-        let actual = builder.finish_into_canonical();
+        let actual = builder.finish_into_canonical(&mut ctx);
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("Hello1"),
             None,

@@ -47,7 +47,7 @@ pub fn execute_varbinview_to_arrow<T: ByteViewType>(
     array: &VarBinViewArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let compacted = array.compact_buffers()?;
+    let compacted = array.compact_buffers(ctx)?;
     canonical_varbinview_to_arrow::<T>(&compacted, ctx)
 }
 

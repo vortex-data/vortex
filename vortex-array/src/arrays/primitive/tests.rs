@@ -5,6 +5,8 @@ use vortex_buffer::buffer;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::compute::conformance::filter::test_filter_conformance;
@@ -36,12 +38,15 @@ fn test_search_sorted_primitive(
 fn test_mask_primitive_array() {
     test_mask_conformance(
         &PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).into_array(),
+        &mut array_session().create_execution_ctx(),
     );
     test_mask_conformance(
         &PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).into_array(),
+        &mut array_session().create_execution_ctx(),
     );
     test_mask_conformance(
         &PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).into_array(),
+        &mut array_session().create_execution_ctx(),
     );
     test_mask_conformance(
         &PrimitiveArray::new(
@@ -49,6 +54,7 @@ fn test_mask_primitive_array() {
             Validity::Array(BoolArray::from_iter([true, false, true, false, true]).into_array()),
         )
         .into_array(),
+        &mut array_session().create_execution_ctx(),
     );
 }
 
@@ -57,20 +63,25 @@ fn test_filter_primitive_array() {
     // Test various sizes
     test_filter_conformance(
         &PrimitiveArray::new(buffer![42i32], Validity::NonNullable).into_array(),
+        &mut array_session().create_execution_ctx(),
     );
     test_filter_conformance(
         &PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).into_array(),
+        &mut array_session().create_execution_ctx(),
     );
     test_filter_conformance(
         &PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).into_array(),
+        &mut array_session().create_execution_ctx(),
     );
     test_filter_conformance(
         &PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).into_array(),
+        &mut array_session().create_execution_ctx(),
     );
 
     // Test with validity
     test_filter_conformance(
         &PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).into_array(),
+        &mut array_session().create_execution_ctx(),
     );
     test_filter_conformance(
         &PrimitiveArray::new(
@@ -80,5 +91,6 @@ fn test_filter_primitive_array() {
             ),
         )
         .into_array(),
+        &mut array_session().create_execution_ctx(),
     );
 }

@@ -4,9 +4,8 @@
 use arbitrary::Arbitrary;
 use arbitrary::Result;
 use arbitrary::Unstructured;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
@@ -31,7 +30,7 @@ impl<'a> Arbitrary<'a> for ArbitraryRunEndArray {
         let ptype: PType = u.arbitrary()?;
         let nullability: Nullability = u.arbitrary()?;
         let dtype = DType::Primitive(ptype, nullability);
-        Self::with_dtype(u, &dtype, None)
+        Self::with_dtype(u, &dtype)
     }
 }
 
@@ -39,15 +38,16 @@ impl ArbitraryRunEndArray {
     /// Generate an arbitrary RunEndArray with the given dtype for values.
     ///
     /// The dtype must be a primitive or boolean type.
-    pub fn with_dtype(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<Self> {
+    pub fn with_dtype(u: &mut Unstructured, dtype: &DType) -> Result<Self> {
         // Number of runs (values/ends pairs)
         let num_runs = u.int_in_range(0..=20)?;
 
-        // TODO(ctx): trait fixes - Arbitrary::arbitrary has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         if num_runs == 0 {
             // Empty RunEndArray
-            let ends = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
+            let ends = unsafe {
+                PrimitiveArray::new_unchecked(Buffer::<u32>::empty(), Validity::NonNullable)
+                    .into_array()
+            };
             let values = ArbitraryArray::arbitrary_with_config(
                 u,
                 &ArbitraryArrayConfig {
@@ -56,8 +56,7 @@ impl ArbitraryRunEndArray {
                 },
             )?
             .0;
-            let runend_array = RunEnd::try_new(ends, values, &mut ctx)
-                .vortex_expect("Empty RunEndArray creation should succeed");
+            let runend_array = unsafe { RunEnd::new_unchecked(ends, values, 0, 0) };
             return Ok(ArbitraryRunEndArray(runend_array));
         }
 
@@ -71,12 +70,12 @@ impl ArbitraryRunEndArray {
         )?
         .0;
 
+        let len = u.int_in_range(0..=2048)?;
         // Generate strictly increasing ends
         // Each end must be > previous end, and first end must be >= 1
         let ends = random_strictly_sorted_ends(u, num_runs, len)?;
 
-        let runend_array = RunEnd::try_new(ends, values, &mut ctx)
-            .vortex_expect("RunEndArray creation should succeed in arbitrary impl");
+        let runend_array = unsafe { RunEnd::new_unchecked(ends, values, 0, len) };
 
         Ok(ArbitraryRunEndArray(runend_array))
     }
@@ -89,8 +88,8 @@ impl ArbitraryRunEndArray {
 fn random_strictly_sorted_ends(
     u: &mut Unstructured,
     num_runs: usize,
-    target_len: Option<usize>,
-) -> Result<vortex_array::ArrayRef> {
+    target_len: usize,
+) -> Result<ArrayRef> {
     // Choose a random unsigned PType for ends
     let ends_ptype = *u.choose(&[PType::U8, PType::U16, PType::U32, PType::U64])?;
 
@@ -101,17 +100,17 @@ fn random_strictly_sorted_ends(
 
     for i in 0..num_runs {
         // Each run must have at least length 1, so increment by at least 1
-        let increment = match (i == num_runs - 1, target_len) {
-            (true, Some(target)) => {
+        let increment = match i == num_runs - 1 {
+            true => {
                 // Last element should reach target_len
-                let target = target as u64;
+                let target = target_len as u64;
                 if target > current {
                     target - current
                 } else {
                     1
                 }
             }
-            _ => {
+            false => {
                 // Random increment between 1 and 10
                 u.int_in_range(1..=10)?
             }

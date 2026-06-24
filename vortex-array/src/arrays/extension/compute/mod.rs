@@ -15,6 +15,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
@@ -31,14 +33,20 @@ mod test {
         // Create storage array
         let storage = buffer![1i32, 2, 3, 4, 5].into_array();
         let array = ExtensionArray::new(ext_dtype.clone(), storage);
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
 
         // Test with nullable extension type
         let ext_dtype_nullable = ext_dtype.with_nullability(Nullability::Nullable);
         let storage = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None])
             .into_array();
         let array = ExtensionArray::new(ext_dtype_nullable, storage);
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[rstest]
@@ -77,7 +85,10 @@ mod test {
         ExtensionArray::new(ext_dtype_large, storage)
     })]
     fn test_take_extension_array_conformance(#[case] array: ExtensionArray) {
-        test_take_conformance(&array.into_array());
+        test_take_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }
 

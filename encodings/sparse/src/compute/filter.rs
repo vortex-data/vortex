@@ -147,6 +147,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
+            &mut SESSION.create_execution_ctx(),
         );
 
         let ten_fill_value = Scalar::from(10i32);
@@ -159,6 +160,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
+            &mut SESSION.create_execution_ctx(),
         )
     }
 }

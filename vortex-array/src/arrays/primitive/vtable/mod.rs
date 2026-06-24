@@ -201,8 +201,7 @@ impl VTable for Primitive {
             }
         });
 
-        builder.extend_from_array(array.as_ref());
-        Ok(())
+        vortex_bail!("append_to_builder for Primitive requires a matching PrimitiveBuilder");
     }
 
     fn reduce_parent(
