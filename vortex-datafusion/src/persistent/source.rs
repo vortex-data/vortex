@@ -367,8 +367,7 @@ impl VortexSource {
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
             layout_readers: Arc::clone(&self.layout_readers),
             natural_split_ranges: Arc::clone(&self.natural_split_ranges),
-            has_output_ordering: !base_config.output_ordering.is_empty()
-                || self.sort_order.is_some(),
+            has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::clone(&self.expression_convertor),
             file_metadata_cache: self.file_metadata_cache.clone(),
             projection_pushdown: self.options.projection_pushdown,
@@ -423,6 +422,10 @@ impl FileSource for VortexSource {
         let Some(sort_order) = LexOrdering::new(order.iter().cloned()) else {
             return Ok(SortOrderPushdownResult::Unsupported);
         };
+
+        if sort_reorder_key(&sort_order, &self.table_schema).is_none() {
+            return Ok(SortOrderPushdownResult::Unsupported);
+        }
 
         let mut this = self.clone();
         this.sort_order = Some(sort_order);
@@ -581,7 +584,7 @@ impl FileSource for VortexSource {
 fn sort_reorder_key(sort_order: &LexOrdering, table_schema: &TableSchema) -> Option<(usize, bool)> {
     let first = sort_order.first();
     let col = first.expr.downcast_ref::<Column>()?;
-    let col_idx = table_schema.table_schema().index_of(col.name()).ok()?;
+    let col_idx = table_schema.file_schema().index_of(col.name()).ok()?;
     Some((col_idx, first.options.descending))
 }
 
@@ -675,6 +678,10 @@ mod tests {
             TableSchema::from_file_schema(schema),
             VortexSession::default(),
         )
+    }
+
+    fn sort_test_source_with_table_schema(table_schema: TableSchema) -> VortexSource {
+        VortexSource::new(table_schema, VortexSession::default())
     }
 
     fn octet_length_filter(schema: &Schema) -> PhysicalExprRef {
@@ -774,6 +781,67 @@ mod tests {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("expected sort order for file reordering"))?;
         assert_eq!(sort_order.first().expr.to_string(), "a@0");
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_sort_returns_unsupported_without_file_reorder_key() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let source = sort_test_source(Arc::clone(&schema));
+        let expr: PhysicalExprRef = Arc::new(df_expr::BinaryExpr::new(
+            Arc::new(Column::new("a", 0)),
+            Operator::Plus,
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(1)))),
+        ));
+        let order = vec![PhysicalSortExpr::new_default(expr)];
+        let eq_properties = EquivalenceProperties::new(schema);
+
+        assert!(matches!(
+            source.try_pushdown_sort(&order, &eq_properties)?,
+            SortOrderPushdownResult::Unsupported
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn try_pushdown_sort_returns_unsupported_for_partition_column() -> anyhow::Result<()> {
+        let file_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+        let partition_col = Arc::new(Field::new("part", DataType::Int32, false));
+        let table_schema = TableSchema::new(Arc::clone(&file_schema), vec![partition_col]);
+        let source = sort_test_source_with_table_schema(table_schema);
+        let order = vec![sort_column("part", 1)];
+        let eq_properties = EquivalenceProperties::new(file_schema);
+
+        assert!(matches!(
+            source.try_pushdown_sort(&order, &eq_properties)?,
+            SortOrderPushdownResult::Unsupported
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn sort_reorder_hint_does_not_force_ordered_vortex_scan() -> anyhow::Result<()> {
+        let schema = sort_test_schema();
+        let source = sort_test_source(Arc::clone(&schema));
+        let order = vec![sort_column("a", 0)];
+        let eq_properties = EquivalenceProperties::new(schema);
+        let mut updated_source =
+            assert_inexact_source(source.try_pushdown_sort(&order, &eq_properties)?)?;
+        updated_source.batch_size = Some(100);
+
+        let config = FileScanConfigBuilder::new(
+            ObjectStoreUrl::local_filesystem(),
+            Arc::new(updated_source.clone()),
+        )
+        .build();
+
+        let opener = updated_source.create_vortex_opener(
+            Arc::new(InMemory::new()) as Arc<dyn ObjectStore>,
+            &config,
+            0,
+        )?;
+
+        assert!(!opener.has_output_ordering);
         Ok(())
     }
 
