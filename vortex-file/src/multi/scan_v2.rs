@@ -98,7 +98,6 @@ use vortex_scan::ScanMeta;
 use vortex_scan::ScanRequest as DataSourceScanRequest;
 use vortex_scan::ScanScheduler;
 use vortex_scan::ScanSchedulerSessionExt;
-use vortex_scan::ScanTicket;
 use vortex_scan::read::ReadResults;
 use vortex_scan::read::ReadStore;
 use vortex_scan::read::ReadStoreRef;
@@ -431,7 +430,7 @@ fn scalar_precision_to_value(precision: Precision<Scalar>) -> Precision<ScalarVa
 }
 
 /// Build a scan2 [`DataSource`] from a multi-file builder.
-pub(super) async fn build_scan_plan_data_source(
+pub(crate) async fn build_scan_plan_data_source(
     builder: MultiFileDataSource,
 ) -> VortexResult<ScanPlanDataSource> {
     if builder.glob_sources.is_empty() {
@@ -669,7 +668,6 @@ impl DataSource for ScanPlanDataSource {
             .clone()
             .unwrap_or_else(|| self.session.scan_scheduler_provider());
         let scheduler = provider.scheduler_for_scan(&meta);
-        let ticket = scheduler.register_scan(meta);
 
         let mut planned_files = Vec::new();
         let mut total_morsels = 0usize;
@@ -683,7 +681,7 @@ impl DataSource for ScanPlanDataSource {
                 .clone()
                 .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?;
             let prepared = Arc::new(PreparedScanPlan::try_new(&file, &request)?);
-            let execution = Arc::new(ScanExecution::try_new(file, prepared, &ticket, None)?);
+            let execution = Arc::new(ScanExecution::try_new(file, prepared, None)?);
             let ranges = execution.splits(&row_range)?;
             if ranges.is_empty() {
                 continue;
@@ -709,17 +707,13 @@ impl DataSource for ScanPlanDataSource {
             }
         }
 
-        let morsel_plan_window = morsel_plan_window(&scheduler, false);
-        let morsel_byte_budget = morsel_byte_budget(&scheduler);
+        let read_byte_budget = read_byte_budget(&scheduler);
 
         Ok(Some(Arc::new(PlannedScanPlanScan {
             dtype,
             partitions,
-            scheduler,
-            ticket,
             handle: self.session.handle(),
-            morsel_plan_window,
-            morsel_byte_budget,
+            read_byte_budget,
         })))
     }
 
@@ -732,7 +726,6 @@ impl DataSource for ScanPlanDataSource {
             .clone()
             .unwrap_or_else(|| self.session.scan_scheduler_provider());
         let scheduler = provider.scheduler_for_scan(&meta);
-        let ticket = scheduler.register_scan(meta);
 
         let mut ready = VecDeque::new();
         let mut deferred = VecDeque::new();
@@ -757,7 +750,6 @@ impl DataSource for ScanPlanDataSource {
             handle: self.session.handle(),
             concurrency: self.concurrency,
             scheduler,
-            ticket,
             limit_remaining,
         }))
     }
@@ -816,7 +808,6 @@ struct ScanPlanDataSourceScan {
     handle: Handle,
     concurrency: usize,
     scheduler: Arc<ScanScheduler>,
-    ticket: ScanTicket,
     limit_remaining: Option<Arc<AtomicU64>>,
 }
 
@@ -843,7 +834,6 @@ impl DataSourceScan for ScanPlanDataSourceScan {
             handle,
             concurrency,
             scheduler,
-            ticket,
             limit_remaining,
         } = *self;
 
@@ -888,12 +878,11 @@ impl DataSourceScan for ScanPlanDataSourceScan {
             .filter_map(move |file_result| {
                 let request = request.clone();
                 let scheduler = Arc::clone(&scheduler);
-                let ticket = ticket.clone();
                 let limit_remaining = limit_remaining.clone();
                 async move {
                     match file_result {
                         Ok((index, file)) => {
-                            file_partition(index, file, request, scheduler, ticket, limit_remaining)
+                            file_partition(index, file, request, scheduler, limit_remaining)
                                 .transpose()
                         }
                         Err(error) => Some(Err(error)),
@@ -909,7 +898,6 @@ fn file_partition(
     file: VortexFile,
     request: DataSourceScanRequest,
     scheduler: Arc<ScanScheduler>,
-    ticket: ScanTicket,
     limit_remaining: Option<Arc<AtomicU64>>,
 ) -> VortexResult<Option<PartitionRef>> {
     let Some(request) = file_scan_request(partition_idx, &file, request)? else {
@@ -927,7 +915,6 @@ fn file_partition(
         row_range,
         index: partition_idx,
         scheduler,
-        ticket,
         limit_remaining,
     })))
 }
@@ -945,11 +932,9 @@ pub(crate) fn scan_plan_file_stream(
         .clone()
         .unwrap_or_else(|| file.session().scan_scheduler_provider());
     let scheduler = provider.scheduler_for_scan(&meta);
-    let ticket = scheduler.register_scan(meta);
 
     let limit_remaining = request.limit.map(AtomicU64::new).map(Arc::new);
-    let Some(partition) = file_partition(0, file, request, scheduler, ticket, limit_remaining)?
-    else {
+    let Some(partition) = file_partition(0, file, request, scheduler, limit_remaining)? else {
         return Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype,
             stream::empty(),
@@ -1510,29 +1495,20 @@ struct PartitionWorkSchedulerState {
     plan_window: usize,
 }
 
-fn morsel_plan_window(scheduler: &ScanScheduler, limited: bool) -> usize {
-    if limited {
-        return 1;
-    }
-
-    scheduler
-        .config()
-        .morsel_plan_window()
-        .unwrap_or(usize::MAX)
+fn plan_window_for_limit(limited: bool) -> usize {
+    if limited { 1 } else { usize::MAX }
 }
 
-fn morsel_byte_budget(scheduler: &ScanScheduler) -> u64 {
-    scheduler.config().morsel_byte_budget().unwrap_or(u64::MAX)
+fn read_byte_budget(scheduler: &ScanScheduler) -> u64 {
+    scheduler.config().read_byte_budget().unwrap_or(u64::MAX)
 }
 
 fn partition_work_stream(
     morsels: Vec<PlannedScanPlanMorsel>,
-    _scheduler: Arc<ScanScheduler>,
-    _ticket: ScanTicket,
     handle: Handle,
     ordered: bool,
     plan_window: usize,
-    morsel_byte_budget: u64,
+    read_byte_budget: u64,
 ) -> impl futures::Stream<Item = VortexResult<ArrayRef>> + Send + 'static {
     let has_dynamic_predicates = morsels
         .iter()
@@ -1542,7 +1518,7 @@ fn partition_work_stream(
         morsel_count = morsels.len(),
         ordered,
         plan_window,
-        morsel_byte_budget,
+        read_byte_budget,
         has_dynamic_predicates,
         "created scan2 task stream"
     );
@@ -1554,7 +1530,7 @@ fn partition_work_stream(
         in_flight_projection_tasks: 0,
         next_morsel_id: 0,
         next_emit_morsel_id: 0,
-        task_queue: ScanTaskQueue::new(morsel_byte_budget),
+        task_queue: ScanTaskQueue::new(read_byte_budget),
         in_flight: FuturesUnordered::new(),
         read_store: Arc::new(ReadStore::new()),
         completed_morsels: BTreeMap::new(),
@@ -2267,7 +2243,6 @@ struct ScanPlanPartition {
     row_range: Range<u64>,
     index: usize,
     scheduler: Arc<ScanScheduler>,
-    ticket: ScanTicket,
     limit_remaining: Option<Arc<AtomicU64>>,
 }
 
@@ -2306,22 +2281,16 @@ impl Partition for ScanPlanPartition {
             row_range,
             index: _,
             scheduler,
-            ticket,
             limit_remaining,
         } = *self;
 
-        let execution = Arc::new(ScanExecution::try_new(
-            file,
-            prepared,
-            &ticket,
-            limit_remaining,
-        )?);
+        let execution = Arc::new(ScanExecution::try_new(file, prepared, limit_remaining)?);
         let handle = execution.session.handle();
         let dtype = execution.plan.dtype().clone();
         let ranges = execution.splits(&row_range)?;
         let ordered = execution.plan.ordered();
-        let plan_window = morsel_plan_window(&scheduler, execution.limit_remaining.is_some());
-        let morsel_byte_budget = morsel_byte_budget(&scheduler);
+        let plan_window = plan_window_for_limit(execution.limit_remaining.is_some());
+        let read_byte_budget = read_byte_budget(&scheduler);
         let morsels = ranges
             .into_iter()
             .map(|range| PlannedScanPlanMorsel {
@@ -2330,15 +2299,7 @@ impl Partition for ScanPlanPartition {
             })
             .collect::<Vec<_>>();
 
-        let stream = partition_work_stream(
-            morsels,
-            scheduler,
-            ticket,
-            handle,
-            ordered,
-            plan_window,
-            morsel_byte_budget,
-        );
+        let stream = partition_work_stream(morsels, handle, ordered, plan_window, read_byte_budget);
 
         Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype, stream,
@@ -2349,11 +2310,8 @@ impl Partition for ScanPlanPartition {
 struct PlannedScanPlanScan {
     dtype: DType,
     partitions: Vec<Vec<PlannedScanPlanMorsel>>,
-    scheduler: Arc<ScanScheduler>,
-    ticket: ScanTicket,
     handle: Handle,
-    morsel_plan_window: usize,
-    morsel_byte_budget: u64,
+    read_byte_budget: u64,
 }
 
 #[derive(Clone)]
@@ -2426,18 +2384,9 @@ impl Partition for PlannedScanPlanPartition {
         let PlannedScanPlanPartition { planned, index } = *self;
         let morsels = planned.partitions[index].clone();
         let dtype = planned.dtype.clone();
-        let scheduler = Arc::clone(&planned.scheduler);
-        let ticket = planned.ticket.clone();
         let handle = planned.handle.clone();
-        let stream = partition_work_stream(
-            morsels,
-            scheduler,
-            ticket,
-            handle,
-            false,
-            planned.morsel_plan_window,
-            planned.morsel_byte_budget,
-        );
+        let stream =
+            partition_work_stream(morsels, handle, false, usize::MAX, planned.read_byte_budget);
 
         Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
             dtype, stream,
@@ -2602,7 +2551,6 @@ impl ScanExecution {
     fn try_new(
         file: VortexFile,
         plan: Arc<PreparedScanPlan>,
-        _ticket: &ScanTicket,
         limit_remaining: Option<Arc<AtomicU64>>,
     ) -> VortexResult<Self> {
         let session = file.session().clone();

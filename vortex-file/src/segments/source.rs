@@ -167,7 +167,7 @@ impl SegmentSource for FileSegmentSource {
     fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
         self.segments
             .get(*id as usize)
-            .map(|spec| SegmentInfo::cacheable(u64::from(spec.length)))
+            .map(|spec| SegmentInfo::new(u64::from(spec.length)))
             .ok_or_else(|| vortex_err!("Missing segment: {}", id))
     }
 
@@ -315,7 +315,7 @@ impl SegmentSource for BufferSegmentSource {
     fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
         self.segments
             .get(*id as usize)
-            .map(|spec| SegmentInfo::cacheable(u64::from(spec.length)))
+            .map(|spec| SegmentInfo::new(u64::from(spec.length)))
             .ok_or_else(|| vortex_err!("Missing segment: {}", id))
     }
 

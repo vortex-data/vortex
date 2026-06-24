@@ -31,7 +31,7 @@ impl SegmentSource for TestSegments {
         self.segments
             .lock()
             .get(*id as usize)
-            .map(|segment| SegmentInfo::non_cacheable(segment.len() as u64))
+            .map(|segment| SegmentInfo::new(segment.len() as u64))
             .ok_or_else(|| vortex_err!("Segment not found"))
     }
 

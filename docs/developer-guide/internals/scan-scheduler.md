@@ -6,7 +6,7 @@ an implementation guide, not a design sketch.
 The scheduler is split across three layers:
 
 - `vortex-scan::scheduler` owns the process/query-level scheduler object,
-  scheduler provider, scan tickets, and coarse configuration.
+  scheduler provider, and read-byte budget configuration.
 - `vortex-file::multi::scan_v2` owns the per-partition ScanPlan runtime. It
   plans morsels, queues evidence/predicate/projection work, and decides which
   queued task is useful next.
@@ -36,9 +36,6 @@ DataSourceRef::plan_morsel_partitions or DataSourceRef::scan
 ScanSchedulerProvider::scheduler_for_scan
         |
         v
-ScanScheduler::register_scan -> ScanTicket
-        |
-        v
 partition_work_stream
         |
         +-- plan morsels into task queues
@@ -64,15 +61,9 @@ the output frontier.
 
 ## Scheduler Objects
 
-`ScanSchedulerConfig` currently has these fields:
+`ScanSchedulerConfig` currently has one enforced field:
 
-- `global_slots`: optional process/query-wide slot limit.
-- `per_scan_slots`: optional slot limit for each registered scan.
-- `morsel_plan_window`: optional number of morsels a partition stream may plan
-  ahead. `None` means all pending morsels may be planned.
-- `morsel_launch_window`: optional number of morsels intended to run
-  concurrently. This is configured but not currently consumed by `scan_v2`.
-- `morsel_byte_budget`: optional per-partition active logical segment-byte budget.
+- `read_byte_budget`: optional per-partition active logical segment-byte budget.
 
 `ScanSchedulerProvider` chooses scheduler ownership:
 
@@ -84,11 +75,11 @@ The default `VortexSession` provider is `Unbounded`. DuckDB installs a shared
 default scheduler in the extension session. The DataFusion benchmark only
 installs a scheduler when `VORTEX_SCAN_SCHEDULER` is set.
 
-The `ScanScheduler::acquire` permit API exists and is tested, but V2 scan tasks
-do not currently acquire permits before launching. In the current V2 runtime the
-effective controls are the morsel planning window and the task queue morsel-byte
-budget. Slot fields are still useful because `morsel_slots(n)` derives default
-read-budgeted config, but the slots themselves are not yet an execution gate.
+There is no scheduler permit API in the V2 runtime. Task launch is admitted by
+the per-partition `ScanTaskQueue` using active logical read bytes. Limited scans
+still plan one active morsel at a time internally because limit accounting must
+not consume rows far ahead of the output frontier, but that is not a public
+tuning knob.
 
 ## Planning Morsels
 
@@ -99,7 +90,8 @@ read-budgeted config, but the slots themselves are not yet an execution gate.
 - `task_queue`: queued evidence, predicate, projection, and aggregate tasks.
 - `in_flight`: launched task futures.
 - `completed_morsels`: ordered-output buffer.
-- `plan_window`: maximum active planned morsels for this partition stream.
+- `plan_window`: internal active planned-morsel cap. This is unbounded for
+  normal scans and one for limited scans.
 
 On each stream poll, the runtime:
 
@@ -133,7 +125,7 @@ Admission is not FIFO across all work. The queue tries groups in this order:
 5. Projection ignoring group target.
 6. Evidence ignoring group target.
 
-All groups still obey the total morsel-byte budget unless the task contributes no
+All groups still obey the total read-byte budget unless the task contributes no
 new bytes or the runtime has no launched work at all. The empty-in-flight escape
 hatch prevents deadlock when one task is larger than the configured budget.
 
@@ -154,9 +146,9 @@ launched tasks and one projection is needed to keep an ordered stream moving.
 Evidence and predicate tasks are still admissible while projection is gated. This
 favors avoiding wasted projection I/O over maximizing object-store request depth.
 
-## Morsel-Byte Budget
+## Read-Byte Budget
 
-`morsel_byte_budget` is per partition stream. It counts active logical segment
+`read_byte_budget` is per partition stream. It counts active logical segment
 bytes for admitted tasks, deduped by `SegmentRequestKey`. If two launched tasks
 await the same segment, only the first contributes bytes; the active entry keeps
 a reference count until both tasks complete.
@@ -176,7 +168,7 @@ unless it is the only way to make progress.
 The default bounded config uses:
 
 ```text
-DEFAULT_MORSEL_BYTE_BUDGET = 256 MiB
+DEFAULT_READ_BYTE_BUDGET = 256 MiB
 ```
 
 `ScanSchedulerConfig::unbounded()` leaves this unset, which becomes `u64::MAX`
@@ -200,9 +192,10 @@ The cache key is currently the logical `SegmentId`. That is sufficient inside on
 `ScanExecution` because each execution has one bound file segment source. It is
 not a cross-file or cross-scan cache key.
 
-`SegmentInfo` includes `bytes` and `cacheable`. The task scheduler currently uses
-`bytes` for read-budget admission. The `cacheable` flag is not part of task
-admission policy.
+`SegmentInfo` contains only logical payload `bytes`, which the task scheduler
+uses for read-budget admission. Segment-cache policy is owned by the
+`SegmentCacheSourceAdapter`; it is not expressed through scheduler-visible
+segment metadata.
 
 ## Physical I/O
 
@@ -246,8 +239,7 @@ scheduler preset:
 - DataFusion remote benchmarks create the `VortexSession` before registering the
   object store URL, so the Vortex scheduler provider cannot infer S3/GCS from
   the source URL.
-- DuckDB uses a shared bounded scheduler by default, but `morsel_launch_window`
-  is not yet enforced by V2.
+- DuckDB uses a shared scheduler with the default active read-byte budget.
 - DataFusion uses an unbounded scheduler unless benchmark environment variables
   opt into a scheduler.
 
@@ -256,18 +248,11 @@ is failing to expose enough useful segment futures early enough, or exposing far
 too many tiny/sparse reads without a workload-specific budget. The important
 knobs are:
 
-- `morsel_plan_window`: how far ahead segment futures are registered;
-- `morsel_byte_budget`: how many active logical segment bytes may be polled;
+- `read_byte_budget`: how many active logical segment bytes may be polled;
 - physical coalescing distance/max size on the object-store reader;
 - physical object-store request concurrency;
 - DataFusion output partition count, which controls how many partition streams
   run at once.
-
-The hardcoded frontier slack of four morsels can also matter for remote storage.
-Even with an unbounded plan window, queued task admission does not run arbitrarily
-far ahead of the lowest queued morsel. If each morsel produces only a few small
-range reads, this can under-fill a high-latency object store after the initial
-registration burst.
 
 ## Benchmark Knobs
 
@@ -275,18 +260,13 @@ The DataFusion benchmark supports:
 
 ```text
 VORTEX_SCAN_SCHEDULER=unbounded|shared|per-query
-VORTEX_SCAN_MAX_MORSEL_SLOTS=...
-VORTEX_SCAN_MORSEL_PLAN_WINDOW=...
-VORTEX_SCAN_MAX_MORSEL_BYTES=...
+VORTEX_SCAN_MAX_READ_BYTES=...
 ```
 
-`VORTEX_SCAN_MAX_MORSEL_SLOTS` currently feeds `ScanSchedulerConfig::morsel_slots`.
-Because V2 does not enforce launch permits yet, this mainly selects a bounded
-config with the default morsel-byte budget unless paired with explicit
-morsel-byte budget configuration.
-
-`VORTEX_SCAN_MAX_READ_BYTES` is accepted as a compatibility fallback for older
-benchmark scripts.
+`VORTEX_SCAN_MAX_MORSEL_BYTES` is accepted as a compatibility fallback for older
+benchmark scripts. `VORTEX_SCAN_MAX_MORSEL_SLOTS` and
+`VORTEX_SCAN_MORSEL_PLAN_WINDOW` are rejected because V2 no longer exposes
+morsel-count scheduler knobs.
 
 Useful S3 sweeps should compare:
 
@@ -296,16 +276,12 @@ VORTEX_SCAN_SCHEDULER=unbounded
 
 # Bounded read pressure, one scheduler per query.
 VORTEX_SCAN_SCHEDULER=per-query
-VORTEX_SCAN_MAX_MORSEL_BYTES=268435456
+VORTEX_SCAN_MAX_READ_BYTES=268435456
 
 # Larger remote-storage byte window.
 VORTEX_SCAN_SCHEDULER=per-query
-VORTEX_SCAN_MAX_MORSEL_BYTES=1073741824
+VORTEX_SCAN_MAX_READ_BYTES=1073741824
 ```
-
-The most useful remote sweep is fixed read budget with plan windows such as 16,
-64, 256, and unset/unbounded. Small plan windows are expected to reduce
-coalescing and hurt S3 unless they also avoid substantial over-read.
 
 An active-logical-read target was tested as an I/O-depth proxy and rejected: it
 improved some FineWeb cases, but regressed local PolarSignals enough that it was
@@ -317,8 +293,8 @@ For local NVMe, keep the read budget moderate and rely on local filesystem
 coalescing. Excessive read-ahead can increase memory pressure without hiding much
 latency.
 
-For S3/GCS, prefer a larger byte budget and a large or unbounded plan window so
-the file segment source can see adjacent registered requests and coalesce them.
+For S3/GCS, prefer a larger byte budget so the file segment source can keep more
+useful logical reads active and coalesce adjacent registered requests.
 If a query is highly selective and projection reads are sparse, validate the
 coalesced-byte metrics before increasing the object-store coalescing max size.
 If dynamic predicates are active, also compare projection-gated behavior against
@@ -333,18 +309,14 @@ Use scan metrics to separate three failure modes:
   segment bytes.
 
 The scheduler today cannot distinguish those automatically. The next practical
-tuning step is to expose plan-window control in the benchmark and, separately,
-enforce `morsel_launch_window` with scheduler permits so slot configuration
-matches runtime behavior.
+tuning step is to expose byte-based controls for physical object-store
+coalescing/request pressure if logical read-byte budgeting is not enough.
 
 ## Known Gaps
 
-- `morsel_launch_window`, `global_slots`, and `per_scan_slots` are not enforced
-  by `scan_v2` task launch.
-- The benchmark can configure scheduler mode, plan window, and byte budget, but
-  not physical object-store coalescing or request concurrency.
+- The benchmark can configure scheduler mode and read-byte budget, but not
+  physical object-store coalescing or request concurrency.
 - There is no automatic object-store scheduler preset.
 - The scan runtime accounts logical segment bytes, not physical coalesced bytes.
-- `SegmentInfo::cacheable` is not used by task admission.
 - Output Arrow conversion is outside the scan task queue and has separate
   buffering in the DataFusion adapter.

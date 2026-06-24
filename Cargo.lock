@@ -9902,6 +9902,7 @@ dependencies = [
  "reqwest 0.13.4",
  "rstest",
  "static_assertions",
+ "temp-env",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -10382,7 +10383,6 @@ dependencies = [
 name = "vortex-scan"
 version = "0.1.0"
 dependencies = [
- "async-lock",
  "async-trait",
  "futures",
  "parking_lot",

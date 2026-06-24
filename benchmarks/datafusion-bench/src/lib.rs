@@ -145,44 +145,30 @@ fn vortex_session_from_env() -> anyhow::Result<VortexSession> {
 }
 
 fn scan_scheduler_config_from_env() -> anyhow::Result<ScanSchedulerConfig> {
-    let config = std::env::var("VORTEX_SCAN_MAX_MORSEL_SLOTS")
-        .ok()
-        .map(|value| {
-            value
-                .parse::<usize>()
-                .map(ScanSchedulerConfig::morsel_slots)
-                .map_err(|e| anyhow::anyhow!("invalid scan scheduler slot count {value}: {e}"))
-        })
-        .transpose()?
-        .unwrap_or_else(ScanSchedulerConfig::default_morsel_slots);
+    if std::env::var_os("VORTEX_SCAN_MAX_MORSEL_SLOTS").is_some() {
+        anyhow::bail!(
+            "VORTEX_SCAN_MAX_MORSEL_SLOTS is no longer supported; use VORTEX_SCAN_MAX_READ_BYTES"
+        );
+    }
+    if std::env::var_os("VORTEX_SCAN_MORSEL_PLAN_WINDOW").is_some() {
+        anyhow::bail!(
+            "VORTEX_SCAN_MORSEL_PLAN_WINDOW is no longer supported; V2 only exposes read-byte budgeting"
+        );
+    }
 
-    let plan_window = std::env::var("VORTEX_SCAN_MORSEL_PLAN_WINDOW")
-        .ok()
-        .map(|value| {
-            value
-                .parse::<usize>()
-                .map_err(|e| anyhow::anyhow!("invalid scan scheduler plan window {value}: {e}"))
-        })
-        .transpose()?;
-
-    let morsel_byte_budget = std::env::var("VORTEX_SCAN_MAX_MORSEL_BYTES")
-        .or_else(|_| std::env::var("VORTEX_SCAN_MAX_READ_BYTES"))
+    let read_byte_budget = std::env::var("VORTEX_SCAN_MAX_READ_BYTES")
+        .or_else(|_| std::env::var("VORTEX_SCAN_MAX_MORSEL_BYTES"))
         .ok()
         .map(|value| {
             value.parse::<u64>().map_err(|e| {
-                anyhow::anyhow!("invalid scan scheduler morsel byte budget {value}: {e}")
+                anyhow::anyhow!("invalid scan scheduler read byte budget {value}: {e}")
             })
         })
         .transpose()?;
 
-    let config = match plan_window {
-        Some(window) => config.with_morsel_plan_window(Some(window)),
-        None => config,
-    };
-
-    Ok(match morsel_byte_budget {
-        Some(bytes) => config.with_morsel_byte_budget(Some(bytes)),
-        None => config,
+    Ok(match read_byte_budget {
+        Some(bytes) => ScanSchedulerConfig::default().with_read_byte_budget(Some(bytes)),
+        None => ScanSchedulerConfig::default(),
     })
 }
 

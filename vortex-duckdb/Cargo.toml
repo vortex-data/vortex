@@ -48,6 +48,7 @@ anyhow = { workspace = true }
 geo-types = { workspace = true }
 jiff = { workspace = true }
 rstest = { workspace = true }
+temp-env = { workspace = true }
 tempfile = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-runend = { workspace = true }

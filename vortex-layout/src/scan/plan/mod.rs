@@ -1844,7 +1844,7 @@ mod tests {
             &self,
             _id: crate::segments::SegmentId,
         ) -> VortexResult<crate::segments::SegmentInfo> {
-            Ok(crate::segments::SegmentInfo::non_cacheable(0))
+            Ok(crate::segments::SegmentInfo::new(0))
         }
 
         fn request(&self, _id: crate::segments::SegmentId) -> crate::segments::SegmentFuture {

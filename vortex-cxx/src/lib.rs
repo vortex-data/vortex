@@ -95,7 +95,10 @@ mod ffi {
         fn with_projection(self: &mut VortexScanBuilder, projection: Box<Expr>);
         fn with_projection_ref(self: &mut VortexScanBuilder, projection: &Expr);
         fn with_row_range(self: &mut VortexScanBuilder, row_range_start: u64, row_range_end: u64);
-        fn with_include_by_index(self: &mut VortexScanBuilder, include_by_index: &[u64]);
+        fn with_include_by_index(
+            self: &mut VortexScanBuilder,
+            include_by_index: &[u64],
+        ) -> Result<()>;
         fn with_limit(self: &mut VortexScanBuilder, limit: usize);
         unsafe fn with_output_schema(
             self: &mut VortexScanBuilder,

@@ -391,20 +391,20 @@ pub struct ScanTaskQueue<T> {
     evidence_queues: BTreeMap<(u32, u32), VecDeque<ScanTaskBox<T>>>,
     predicate_queues: BTreeMap<u32, VecDeque<ScanTaskBox<T>>>,
     projection_queue: VecDeque<ScanTaskBox<T>>,
-    morsel_byte_budget: u64,
+    read_byte_budget: u64,
     active_read_bytes: u64,
     active_group_read_bytes: [u64; 3],
     active_reads: HashMap<ReadRequestKey, ActiveRead>,
 }
 
 impl<T> ScanTaskQueue<T> {
-    /// Create an empty task queue with an in-flight morsel byte budget.
-    pub fn new(morsel_byte_budget: u64) -> Self {
+    /// Create an empty task queue with an in-flight logical read-byte budget.
+    pub fn new(read_byte_budget: u64) -> Self {
         Self {
             evidence_queues: BTreeMap::new(),
             predicate_queues: BTreeMap::new(),
             projection_queue: VecDeque::new(),
-            morsel_byte_budget,
+            read_byte_budget,
             active_read_bytes: 0,
             active_group_read_bytes: [0; 3],
             active_reads: HashMap::new(),
@@ -565,7 +565,7 @@ impl<T> ScanTaskQueue<T> {
 
         let active_reads = &self.active_reads;
         let active_read_bytes = self.active_read_bytes;
-        let morsel_byte_budget = self.morsel_byte_budget;
+        let read_byte_budget = self.read_byte_budget;
 
         match group {
             ScanTaskGroup::Predicate => {
@@ -583,7 +583,7 @@ impl<T> ScanTaskQueue<T> {
                     );
                     if !can_admit_task(
                         active_read_bytes,
-                        morsel_byte_budget,
+                        read_byte_budget,
                         in_flight_empty,
                         score.incremental_read_bytes,
                     ) || (enforce_target
@@ -610,7 +610,7 @@ impl<T> ScanTaskQueue<T> {
                 );
                 if !can_admit_task(
                     active_read_bytes,
-                    morsel_byte_budget,
+                    read_byte_budget,
                     in_flight_empty,
                     score.incremental_read_bytes,
                 ) || (enforce_target
@@ -636,7 +636,7 @@ impl<T> ScanTaskQueue<T> {
                     );
                     if !can_admit_task(
                         active_read_bytes,
-                        morsel_byte_budget,
+                        read_byte_budget,
                         in_flight_empty,
                         score.incremental_read_bytes,
                     ) || (enforce_target
@@ -673,15 +673,15 @@ impl<T> ScanTaskQueue<T> {
     }
 
     fn group_target_bytes(&self, group: ScanTaskGroup) -> u64 {
-        if self.morsel_byte_budget == u64::MAX {
+        if self.read_byte_budget == u64::MAX {
             return u64::MAX;
         }
 
-        let projection = (self.morsel_byte_budget / 8).max(1);
-        let evidence = (self.morsel_byte_budget / 8).max(1);
+        let projection = (self.read_byte_budget / 8).max(1);
+        let evidence = (self.read_byte_budget / 8).max(1);
         match group {
             ScanTaskGroup::Predicate => self
-                .morsel_byte_budget
+                .read_byte_budget
                 .saturating_sub(projection)
                 .saturating_sub(evidence)
                 .max(1),
@@ -797,12 +797,12 @@ fn drop_dead_heads_from_map<K: Copy + Ord, T>(
 
 fn can_admit_task(
     active_read_bytes: u64,
-    morsel_byte_budget: u64,
+    read_byte_budget: u64,
     in_flight_empty: bool,
     incremental_read_bytes: u64,
 ) -> bool {
     incremental_read_bytes == 0
-        || active_read_bytes.saturating_add(incremental_read_bytes) <= morsel_byte_budget
+        || active_read_bytes.saturating_add(incremental_read_bytes) <= read_byte_budget
         || in_flight_empty
 }
 

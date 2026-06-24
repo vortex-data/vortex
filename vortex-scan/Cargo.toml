@@ -24,7 +24,6 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
-async-lock = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true }

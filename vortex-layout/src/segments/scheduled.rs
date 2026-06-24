@@ -35,25 +35,12 @@ use crate::segments::SegmentSource;
 pub struct SegmentInfo {
     /// Number of bytes in the logical segment payload.
     pub bytes: u64,
-    /// Whether this segment is eligible for segment-cache lookup and admission.
-    pub cacheable: bool,
 }
 
 impl SegmentInfo {
-    /// Create cacheable metadata for a segment with `bytes` payload bytes.
-    pub fn cacheable(bytes: u64) -> Self {
-        Self {
-            bytes,
-            cacheable: true,
-        }
-    }
-
-    /// Create non-cacheable metadata for a segment with `bytes` payload bytes.
-    pub fn non_cacheable(bytes: u64) -> Self {
-        Self {
-            bytes,
-            cacheable: false,
-        }
+    /// Create metadata for a segment with `bytes` payload bytes.
+    pub fn new(bytes: u64) -> Self {
+        Self { bytes }
     }
 }
 
@@ -529,7 +516,7 @@ mod tests {
 
     #[test]
     fn register_segment_reads_dedupes_exact_segments() -> VortexResult<()> {
-        let source = Arc::new(CountingSegmentSource::new(SegmentInfo::cacheable(8)));
+        let source = Arc::new(CountingSegmentSource::new(SegmentInfo::new(8)));
         let segment_source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
         let ctx = SegmentPlanCtx::new(segment_source, VortexSession::empty());
         let request = ctx.request_for_segment(SegmentId::from(0))?;
@@ -547,7 +534,7 @@ mod tests {
 
     #[test]
     fn register_segment_reads_registers_each_miss() -> VortexResult<()> {
-        let source = Arc::new(CountingMissSegmentSource::new(SegmentInfo::cacheable(8)));
+        let source = Arc::new(CountingMissSegmentSource::new(SegmentInfo::new(8)));
         let segment_source: Arc<dyn SegmentSource> =
             Arc::<CountingMissSegmentSource>::clone(&source);
         let ctx = SegmentPlanCtx::new(segment_source, VortexSession::empty());
@@ -566,7 +553,7 @@ mod tests {
 
     #[test]
     fn segment_future_cache_reuses_prefetched_segment() -> VortexResult<()> {
-        let source = Arc::new(CountingSegmentSource::new(SegmentInfo::cacheable(8)));
+        let source = Arc::new(CountingSegmentSource::new(SegmentInfo::new(8)));
         let segment_source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
         let ctx = SegmentPlanCtx::new(Arc::clone(&segment_source), VortexSession::empty());
         let request = ctx.request_for_segment(SegmentId::from(0))?;

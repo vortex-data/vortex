@@ -1472,9 +1472,9 @@ mod tests {
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
         file.extensions
             .insert(
-                VortexAccessPlan::default().with_selection(Selection::IncludeByIndex(
+                VortexAccessPlan::default().with_selection(Selection::include_by_index(
                     Buffer::from_iter(vec![1, 3, 5, 7]),
-                )),
+                )?),
             );
 
         let opener = make_test_opener(
@@ -1516,9 +1516,9 @@ mod tests {
         let mut file = PartitionedFile::new(file_path.to_string(), data_size);
         file.extensions
             .insert(
-                VortexAccessPlan::default().with_selection(Selection::ExcludeByIndex(
+                VortexAccessPlan::default().with_selection(Selection::exclude_by_index(
                     Buffer::from_iter(vec![0, 2, 4, 6, 8]),
-                )),
+                )?),
             );
 
         let opener = make_test_opener(
@@ -1575,6 +1575,64 @@ mod tests {
 
         let total_rows: usize = data.iter().map(|rb| rb.num_rows()).sum();
         assert_eq!(total_rows, 10);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_scan_impl_flip_flop_v1_v2() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/file.vortex";
+
+        let batch = make_test_batch_with_10_rows();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let schema = batch.schema();
+        let mut file = PartitionedFile::new(file_path.to_string(), data_size);
+        file.extensions
+            .insert(
+                VortexAccessPlan::default().with_selection(Selection::include_by_index(
+                    Buffer::from_iter(vec![1, 3, 5, 7, 9]),
+                )?),
+            );
+
+        let mut opener_v1 = make_test_opener(
+            Arc::clone(&object_store),
+            Arc::clone(&schema),
+            ProjectionExprs::from_indices(&[0, 1], &schema),
+        );
+        opener_v1.scan_v2 = false;
+        opener_v1.limit = Some(3);
+        opener_v1.has_output_ordering = true;
+
+        let mut opener_v2 = opener_v1.clone();
+        opener_v2.scan_v2 = true;
+
+        let v1 = opener_v1
+            .open(file.clone())?
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        let v2 = opener_v2.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+        let format_opts = FormatOptions::new().with_types_info(true);
+        let v1_pretty = pretty_format_batches_with_options(&v1, &format_opts)?.to_string();
+        let v2_pretty = pretty_format_batches_with_options(&v2, &format_opts)?.to_string();
+
+        assert_eq!(v1_pretty, v2_pretty);
+        assert_eq!(
+            v1_pretty,
+            r"+-------+------+
+| a     | b    |
+| Int32 | Utf8 |
++-------+------+
+| 1     | r1   |
+| 3     | r3   |
+| 5     | r5   |
++-------+------+"
+                .trim()
+        );
 
         Ok(())
     }

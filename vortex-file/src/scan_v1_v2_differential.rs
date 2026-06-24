@@ -15,12 +15,20 @@
 // regression tests; single-char names are clearest here.
 #![allow(clippy::many_single_char_names)]
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
+use async_trait::async_trait;
+use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::stream;
+use futures::stream::BoxStream;
 use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -39,18 +47,29 @@ use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
 use vortex_array::stats::PRUNING_STATS;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_io::VortexReadAt;
+use vortex_io::filesystem::FileListing;
+use vortex_io::filesystem::FileSystem;
+use vortex_io::filesystem::FileSystemRef;
 use vortex_layout::layouts::row_idx::row_idx;
+use vortex_scan::DataSourceRef;
 use vortex_scan::ScanRequest;
+use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
+use crate::multi::MultiFileDataSource;
+use crate::multi::scan_v2::build_scan_plan_data_source;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::tests::new_test_session);
 
@@ -79,9 +98,14 @@ async fn scan_v1(file: &VortexFile, request: &ScanRequest) -> VortexResult<Array
     let mut builder = file
         .scan()?
         .with_projection(request.projection.clone())
-        .with_ordered(true);
+        .with_selection(request.selection.clone())
+        .with_some_limit(request.limit)
+        .with_ordered(request.ordered);
     if let Some(filter) = &request.filter {
         builder = builder.with_filter(filter.clone());
+    }
+    if let Some(row_range) = request.row_range.clone() {
+        builder = builder.with_row_range(row_range);
     }
     builder.into_array_stream()?.read_all().await
 }
@@ -115,6 +139,79 @@ fn request(projection: Expression, filter: Option<Expression>) -> ScanRequest {
         ordered: true,
         ..Default::default()
     }
+}
+
+async fn write_part(array: ArrayRef) -> VortexResult<ByteBuffer> {
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    Ok(buf.freeze())
+}
+
+#[derive(Debug)]
+struct MemoryFileSystem {
+    files: BTreeMap<String, ByteBuffer>,
+}
+
+#[async_trait]
+impl FileSystem for MemoryFileSystem {
+    fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
+        let listings = self
+            .files
+            .iter()
+            .filter_map(move |(path, bytes)| {
+                path.starts_with(prefix).then_some(Ok(FileListing {
+                    path: path.clone(),
+                    size: Some(bytes.len() as u64),
+                }))
+            })
+            .collect::<Vec<_>>();
+        stream::iter(listings).boxed()
+    }
+
+    async fn head(&self, path: &str) -> VortexResult<Option<FileListing>> {
+        Ok(self.files.get(path).map(|bytes| FileListing {
+            path: path.to_string(),
+            size: Some(bytes.len() as u64),
+        }))
+    }
+
+    async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+        self.files
+            .get(path)
+            .cloned()
+            .map(|bytes| Arc::new(bytes) as Arc<dyn VortexReadAt>)
+            .ok_or_else(|| vortex_error::vortex_err!("missing test file {path}"))
+    }
+
+    async fn delete(&self, _path: &str) -> VortexResult<()> {
+        Ok(())
+    }
+}
+
+async fn scan_data_source(source: DataSourceRef, request: ScanRequest) -> VortexResult<ArrayRef> {
+    let scan = source.scan(request).await?;
+    let dtype = scan.dtype().clone();
+    let stream = scan
+        .partitions()
+        .then(|partition| async move { partition?.execute() })
+        .try_flatten()
+        .boxed();
+    ArrayStreamAdapter::new(dtype, stream).read_all().await
+}
+
+fn sorted_i32_values(array: ArrayRef) -> VortexResult<Vec<i32>> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
+    let mut values = primitive
+        .with_iterator(|iter| iter.map(|value| value.copied()).collect::<Option<Vec<_>>>())
+        .ok_or_else(|| {
+            vortex_error::vortex_err!("unordered differential values must be non-null")
+        })?;
+    values.sort_unstable();
+    Ok(values)
 }
 
 // ---- Fixtures ----
@@ -270,6 +367,92 @@ async fn differential_filter_numbers(#[case] array: ArrayRef) -> VortexResult<()
     let file = write_file(array, false).await?;
     let filter = gt(get_item("numbers", root()), lit(3i32));
     assert_v1_eq_v2(&file, request(root(), Some(filter))).await
+}
+
+#[tokio::test]
+async fn differential_row_range() -> VortexResult<()> {
+    let file = write_file(chunked(), false).await?;
+    let scan_request = ScanRequest {
+        row_range: Some(2..8),
+        ..request(root(), None)
+    };
+    assert_v1_eq_v2(&file, scan_request).await
+}
+
+#[tokio::test]
+async fn differential_include_selection() -> VortexResult<()> {
+    let file = write_file(chunked(), false).await?;
+    let scan_request = ScanRequest {
+        selection: Selection::include_by_index(Buffer::from_iter([0, 2, 5, 9]))?,
+        ..request(root(), None)
+    };
+    assert_v1_eq_v2(&file, scan_request).await
+}
+
+#[tokio::test]
+async fn differential_exclude_selection() -> VortexResult<()> {
+    let file = write_file(chunked(), false).await?;
+    let scan_request = ScanRequest {
+        selection: Selection::exclude_by_index(Buffer::from_iter([1, 4, 7]))?,
+        ..request(root(), None)
+    };
+    assert_v1_eq_v2(&file, scan_request).await
+}
+
+#[tokio::test]
+async fn differential_limit() -> VortexResult<()> {
+    let file = write_file(chunked(), false).await?;
+    let scan_request = ScanRequest {
+        limit: Some(5),
+        ..request(root(), None)
+    };
+    assert_v1_eq_v2(&file, scan_request).await
+}
+
+#[tokio::test]
+async fn differential_unordered_multi_file_partition_selection() -> VortexResult<()> {
+    let request = ScanRequest {
+        projection: get_item("numbers", root()),
+        row_range: Some(1..4),
+        selection: Selection::exclude_by_index(Buffer::from_iter([2]))?,
+        partition_selection: Selection::include_by_index(Buffer::from_iter([0, 2]))?,
+        ordered: false,
+        ..Default::default()
+    };
+
+    let parts = [
+        ("part-0.vortex", buffer![0i32, 1, 2, 3, 4].into_array()),
+        ("part-1.vortex", buffer![10i32, 11, 12, 13, 14].into_array()),
+        ("part-2.vortex", buffer![20i32, 21, 22, 23, 24].into_array()),
+    ];
+    let files = BTreeMap::from_iter(
+        futures::future::try_join_all(parts.into_iter().map(|(path, numbers)| async move {
+            let array = StructArray::from_fields(&[("numbers", numbers)])?.into_array();
+            Ok::<_, vortex_error::VortexError>((path.to_string(), write_part(array).await?))
+        }))
+        .await?,
+    );
+    let fs: FileSystemRef = Arc::new(MemoryFileSystem { files });
+
+    let v1_source: DataSourceRef = Arc::new(
+        MultiFileDataSource::new(SESSION.clone())
+            .with_glob("part-*.vortex", Some(Arc::clone(&fs)))
+            .build()
+            .await?,
+    );
+    let v1 = scan_data_source(v1_source, request.clone()).await?;
+
+    let v2_source: DataSourceRef = Arc::new(
+        build_scan_plan_data_source(
+            MultiFileDataSource::new(SESSION.clone()).with_glob("part-*.vortex", Some(fs)),
+        )
+        .await?,
+    );
+    let v2 = scan_data_source(v2_source, request).await?;
+
+    assert_eq!(sorted_i32_values(v1)?, vec![1, 3, 21, 23]);
+    assert_eq!(sorted_i32_values(v2)?, vec![1, 3, 21, 23]);
+    Ok(())
 }
 
 #[tokio::test]
