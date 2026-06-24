@@ -29,7 +29,7 @@ use vortex_session::VortexSession;
 
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
-use crate::layout_v2::Struct;
+use crate::layouts_v2::struct_::Struct;
 use crate::scan::plan::ApplyScanPlan;
 use crate::scan::plan::MaskScanPlan;
 use crate::scan::plan::PrepareCtx;

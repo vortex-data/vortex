@@ -17,6 +17,12 @@ use crate::layouts::flat::FlatLayoutEncoding;
 use crate::layouts::struct_::StructLayoutEncoding;
 use crate::layouts::zoned::LegacyStatsLayoutEncoding;
 use crate::layouts::zoned::ZonedLayoutEncoding;
+use crate::layouts_v2::chunked::Chunked as ChunkedV2;
+use crate::layouts_v2::dict::Dict as DictV2;
+use crate::layouts_v2::flat::Flat as FlatV2;
+use crate::layouts_v2::struct_::Struct as StructV2;
+use crate::layouts_v2::zoned::LegacyStats as LegacyStatsV2;
+use crate::layouts_v2::zoned::Zoned as ZonedV2;
 
 pub type LayoutRegistry = Registry<LayoutEncodingRef>;
 
@@ -75,29 +81,23 @@ impl Default for LayoutSession {
 
         // Register the built-in v2 layout vtables.
         v2_layouts.register(
-            layout_v2::Chunked.id(),
-            Arc::new(layout_v2::Chunked) as layout_v2::LayoutVTableRef,
+            ChunkedV2.id(),
+            Arc::new(ChunkedV2) as layout_v2::LayoutVTableRef,
+        );
+        v2_layouts.register(FlatV2.id(), Arc::new(FlatV2) as layout_v2::LayoutVTableRef);
+        v2_layouts.register(
+            StructV2.id(),
+            Arc::new(StructV2) as layout_v2::LayoutVTableRef,
         );
         v2_layouts.register(
-            layout_v2::Flat.id(),
-            Arc::new(layout_v2::Flat) as layout_v2::LayoutVTableRef,
+            ZonedV2.id(),
+            Arc::new(ZonedV2) as layout_v2::LayoutVTableRef,
         );
         v2_layouts.register(
-            layout_v2::Struct.id(),
-            Arc::new(layout_v2::Struct) as layout_v2::LayoutVTableRef,
+            LegacyStatsV2.id(),
+            Arc::new(LegacyStatsV2) as layout_v2::LayoutVTableRef,
         );
-        v2_layouts.register(
-            layout_v2::Zoned.id(),
-            Arc::new(layout_v2::Zoned) as layout_v2::LayoutVTableRef,
-        );
-        v2_layouts.register(
-            layout_v2::LegacyStats.id(),
-            Arc::new(layout_v2::LegacyStats) as layout_v2::LayoutVTableRef,
-        );
-        v2_layouts.register(
-            layout_v2::Dict.id(),
-            Arc::new(layout_v2::Dict) as layout_v2::LayoutVTableRef,
-        );
+        v2_layouts.register(DictV2.id(), Arc::new(DictV2) as layout_v2::LayoutVTableRef);
 
         Self {
             registry: layouts,

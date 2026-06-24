@@ -17,6 +17,7 @@
 
 pub mod layout_v2;
 pub mod layouts;
+pub mod layouts_v2;
 
 pub use children::*;
 pub use encoding::*;

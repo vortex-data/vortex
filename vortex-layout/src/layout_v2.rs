@@ -13,16 +13,9 @@ use flatbuffers::Follow;
 use flatbuffers::VerifierOptions;
 use flatbuffers::root_with_opts;
 use once_cell::sync::OnceCell;
-use vortex_array::DeserializeMetadata;
-use vortex_array::EmptyMetadata;
-use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout;
@@ -32,19 +25,8 @@ use vortex_session::registry::Registry;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
-use crate::layouts::zoned::LegacyStatsMetadata;
-use crate::layouts::zoned::ZoneMapSchema;
-use crate::layouts::zoned::ZonedMetadata;
-use crate::layouts::zoned::aggregate_fns_from_specs;
-use crate::layouts::zoned::aggregate_stats_table_dtype;
-use crate::layouts::zoned::legacy_stats_table_dtype;
 use crate::scan::plan::ScanPlanRef;
 use crate::scan::plan::request::ScanRequest;
-use crate::scan::v2::layouts::chunked as scan_chunked;
-use crate::scan::v2::layouts::dict as scan_dict;
-use crate::scan::v2::layouts::flat as scan_flat;
-use crate::scan::v2::layouts::struct_ as scan_struct;
-use crate::scan::v2::layouts::zoned as scan_zoned;
 use crate::segments::SegmentId;
 
 /// A reference-counted, type-erased v2 layout.
@@ -646,11 +628,17 @@ fn layout_from_fb_layout(
     })
 }
 
-fn metadata_bool_field(metadata: &[u8], field_number: u64) -> VortexResult<Option<bool>> {
+pub(crate) fn metadata_bool_field(
+    metadata: &[u8],
+    field_number: u64,
+) -> VortexResult<Option<bool>> {
     Ok(metadata_varint_field(metadata, field_number)?.map(|value| value != 0))
 }
 
-fn metadata_varint_field(metadata: &[u8], field_number: u64) -> VortexResult<Option<u64>> {
+pub(crate) fn metadata_varint_field(
+    metadata: &[u8],
+    field_number: u64,
+) -> VortexResult<Option<u64>> {
     let mut offset = 0;
     while offset < metadata.len() {
         let key = read_varint(metadata, &mut offset)?;
@@ -667,7 +655,10 @@ fn metadata_varint_field(metadata: &[u8], field_number: u64) -> VortexResult<Opt
     Ok(None)
 }
 
-fn metadata_bytes_field(metadata: &[u8], field_number: u64) -> VortexResult<Option<Vec<u8>>> {
+pub(crate) fn metadata_bytes_field(
+    metadata: &[u8],
+    field_number: u64,
+) -> VortexResult<Option<Vec<u8>>> {
     let mut offset = 0;
     while offset < metadata.len() {
         let key = read_varint(metadata, &mut offset)?;
@@ -735,301 +726,9 @@ fn read_varint(metadata: &[u8], offset: &mut usize) -> VortexResult<u64> {
     vortex_bail!("protobuf varint exceeds 64 bits")
 }
 
-/// V2 flat layout vtable.
-#[derive(Clone, Debug)]
-pub struct Flat;
-
-/// V2 flat layout data.
-#[derive(Clone, Debug)]
-pub struct FlatData {
-    pub(crate) segment_id: SegmentId,
-    pub(crate) array_ctx: ReadContext,
-    pub(crate) array_tree: Option<ByteBuffer>,
-}
-
-impl FlatData {
-    /// Returns the serialized array segment ID.
-    pub fn segment_id(&self) -> SegmentId {
-        self.segment_id
-    }
-
-    /// Returns the array read context.
-    pub fn array_ctx(&self) -> &ReadContext {
-        &self.array_ctx
-    }
-
-    /// Returns the optional inline array encoding tree.
-    pub fn array_tree(&self) -> Option<&ByteBuffer> {
-        self.array_tree.as_ref()
-    }
-}
-
-impl VTable for Flat {
-    type LayoutData = FlatData;
-
-    fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.flat")
-    }
-
-    fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
-        vortex_ensure!(
-            args.segment_ids.len() == 1,
-            "Flat layout must have exactly one segment ID"
-        );
-        Ok(FlatData {
-            segment_id: args.segment_ids[0],
-            array_ctx: args.array_ctx.clone(),
-            array_tree: metadata_bytes_field(args.metadata, 1)?.map(ByteBuffer::from),
-        })
-    }
-
-    fn child_dtype(_layout: Layout<Self>, idx: usize) -> VortexResult<DType> {
-        vortex_bail!("Flat layout has no child {idx}")
-    }
-
-    fn child_type(_layout: Layout<Self>, idx: usize) -> VortexResult<LayoutChildType> {
-        vortex_bail!("Flat layout has no child {idx}")
-    }
-
-    fn new_scan_plan(
-        layout: Layout<Self>,
-        req: &mut ScanRequest,
-        session: &VortexSession,
-    ) -> VortexResult<ScanPlanRef> {
-        scan_flat::new_scan_plan(layout, req, session)
-    }
-}
-
-/// V2 chunked layout vtable.
-#[derive(Clone, Debug)]
-pub struct Chunked;
-
-/// V2 chunked layout data.
-#[derive(Clone, Debug)]
-pub struct ChunkedData {
-    pub(crate) chunk_offsets: Vec<u64>,
-}
-
-impl ChunkedData {
-    /// Returns the cumulative chunk offsets.
-    pub fn chunk_offsets(&self) -> &[u64] {
-        &self.chunk_offsets
-    }
-}
-
-impl VTable for Chunked {
-    type LayoutData = ChunkedData;
-
-    fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.chunked")
-    }
-
-    fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
-        EmptyMetadata::deserialize(args.metadata)?;
-        let mut chunk_offsets: Vec<u64> = Vec::with_capacity(args.children.nchildren() + 1);
-        chunk_offsets.push(0);
-        for idx in 0..args.children.nchildren() {
-            let next = chunk_offsets[idx]
-                .checked_add(args.children.child_row_count(idx)?)
-                .ok_or_else(|| vortex_err!("Chunked child row counts overflow"))?;
-            chunk_offsets.push(next);
-        }
-        vortex_ensure!(
-            chunk_offsets.last().copied() == Some(args.row_count),
-            "Chunked child row counts do not add up to parent row count"
-        );
-        Ok(ChunkedData { chunk_offsets })
-    }
-
-    fn child_dtype(layout: Layout<Self>, _idx: usize) -> VortexResult<DType> {
-        Ok(layout.dtype().clone())
-    }
-
-    fn child_type(layout: Layout<Self>, idx: usize) -> VortexResult<LayoutChildType> {
-        if idx >= layout.nchildren() {
-            vortex_bail!("Chunked child index out of bounds: {idx}");
-        }
-        let offset = *layout
-            .data()
-            .chunk_offsets
-            .get(idx)
-            .ok_or_else(|| vortex_err!("Chunked child index out of bounds: {idx}"))?;
-        Ok(LayoutChildType::Chunk((idx, offset)))
-    }
-
-    fn new_scan_plan(
-        layout: Layout<Self>,
-        req: &mut ScanRequest,
-        session: &VortexSession,
-    ) -> VortexResult<ScanPlanRef> {
-        scan_chunked::new_scan_plan(layout, req, session)
-    }
-}
-
-/// V2 struct layout vtable.
-#[derive(Clone, Debug)]
-pub struct Struct;
-
-impl VTable for Struct {
-    type LayoutData = ();
-
-    fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.struct")
-    }
-
-    fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
-        EmptyMetadata::deserialize(args.metadata)?;
-        Ok(())
-    }
-
-    fn child_dtype(layout: Layout<Self>, idx: usize) -> VortexResult<DType> {
-        let schema_index = if layout.dtype().is_nullable() {
-            idx.saturating_sub(1)
-        } else {
-            idx
-        };
-        if idx == 0 && layout.dtype().is_nullable() {
-            Ok(DType::Bool(Nullability::NonNullable))
-        } else {
-            layout
-                .dtype()
-                .as_struct_fields_opt()
-                .and_then(|fields| fields.field_by_index(schema_index))
-                .ok_or_else(|| vortex_err!("Missing struct field {schema_index}"))
-        }
-    }
-
-    fn child_type(layout: Layout<Self>, idx: usize) -> VortexResult<LayoutChildType> {
-        let schema_index = if layout.dtype().is_nullable() {
-            idx.saturating_sub(1)
-        } else {
-            idx
-        };
-        if idx == 0 && layout.dtype().is_nullable() {
-            Ok(LayoutChildType::Auxiliary("validity".into()))
-        } else {
-            let name = layout
-                .dtype()
-                .as_struct_fields_opt()
-                .and_then(|fields| fields.field_name(schema_index))
-                .ok_or_else(|| vortex_err!("Missing struct field {schema_index}"))?;
-            Ok(LayoutChildType::Field(name.clone()))
-        }
-    }
-
-    fn new_scan_plan(
-        layout: Layout<Self>,
-        req: &mut ScanRequest,
-        session: &VortexSession,
-    ) -> VortexResult<ScanPlanRef> {
-        scan_struct::new_scan_plan(layout, req, session)
-    }
-}
-
-/// V2 dictionary layout vtable.
-#[derive(Clone, Debug)]
-pub struct Dict;
-
-/// V2 dictionary layout data.
-#[derive(Clone, Debug)]
-pub struct DictData {
-    pub(crate) codes_dtype: DType,
-    pub(crate) all_values_referenced: bool,
-}
-
-impl DictData {
-    /// Returns whether all dictionary values are definitely referenced.
-    pub fn has_all_values_referenced(&self) -> bool {
-        self.all_values_referenced
-    }
-}
-
-impl VTable for Dict {
-    type LayoutData = DictData;
-
-    fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.dict")
-    }
-
-    fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
-        let codes_ptype = metadata_varint_field(args.metadata, 1)?
-            .ok_or_else(|| vortex_err!("Dict metadata missing codes ptype"))?;
-        let codes_ptype = PType::try_from(i32::try_from(codes_ptype)?)?;
-        let codes_nullable = metadata_bool_field(args.metadata, 2)?
-            .map(Nullability::from)
-            .unwrap_or_else(|| args.dtype.nullability());
-        Ok(DictData {
-            codes_dtype: DType::Primitive(codes_ptype, codes_nullable),
-            all_values_referenced: metadata_bool_field(args.metadata, 3)?.unwrap_or(false),
-        })
-    }
-
-    fn child_dtype(layout: Layout<Self>, idx: usize) -> VortexResult<DType> {
-        match idx {
-            0 => Ok(layout.dtype().clone()),
-            1 => Ok(layout.data().codes_dtype.clone()),
-            _ => vortex_bail!("Dict child index out of bounds: {idx}"),
-        }
-    }
-
-    fn child_type(_layout: Layout<Self>, idx: usize) -> VortexResult<LayoutChildType> {
-        match idx {
-            0 => Ok(LayoutChildType::Auxiliary("values".into())),
-            1 => Ok(LayoutChildType::Transparent("codes".into())),
-            _ => vortex_bail!("Dict child index out of bounds: {idx}"),
-        }
-    }
-
-    fn new_scan_plan(
-        layout: Layout<Self>,
-        req: &mut ScanRequest,
-        session: &VortexSession,
-    ) -> VortexResult<ScanPlanRef> {
-        scan_dict::new_scan_plan(layout, req, session)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
-    use vortex_session::VortexSession;
-    use vortex_session::registry::ReadContext;
-
     use super::*;
-
-    #[derive(Debug)]
-    struct TestChildren {
-        row_counts: Vec<u64>,
-    }
-
-    impl LayoutChildren for TestChildren {
-        fn child(&self, idx: usize, _dtype: &DType) -> VortexResult<LayoutRef> {
-            vortex_bail!("test child {idx} is not materialized")
-        }
-
-        fn child_row_count(&self, idx: usize) -> VortexResult<u64> {
-            self.row_counts
-                .get(idx)
-                .copied()
-                .ok_or_else(|| vortex_err!("test child index out of bounds: {idx}"))
-        }
-
-        fn nchildren(&self) -> usize {
-            self.row_counts.len()
-        }
-    }
-
-    fn primitive_dtype() -> DType {
-        DType::Primitive(PType::I32, Nullability::NonNullable)
-    }
-
-    fn read_context() -> ReadContext {
-        ReadContext::new([])
-    }
 
     #[test]
     fn metadata_bytes_field_rejects_length_overflow() {
@@ -1050,178 +749,5 @@ mod tests {
         metadata.push(0x01);
 
         assert!(metadata_varint_field(&metadata, 1).is_err());
-    }
-
-    #[test]
-    fn chunked_deserialize_rejects_row_count_overflow() {
-        let dtype = primitive_dtype();
-        let read_context = read_context();
-        let session = VortexSession::empty();
-        let args = LayoutDeserializeArgs {
-            dtype: &dtype,
-            row_count: 0,
-            metadata: &[],
-            segment_ids: Vec::new(),
-            children: Arc::new(TestChildren {
-                row_counts: vec![u64::MAX, 1],
-            }),
-            array_ctx: &read_context,
-            session: &session,
-        };
-
-        assert!(VTable::deserialize(&Chunked, &args).is_err());
-    }
-
-    #[test]
-    fn chunked_child_type_rejects_terminal_offset_index() {
-        let dtype = primitive_dtype();
-        let layout = LayoutParts::new(
-            Chunked,
-            dtype,
-            1,
-            Vec::new(),
-            Arc::new(TestChildren {
-                row_counts: vec![1],
-            }),
-            ChunkedData {
-                chunk_offsets: vec![0, 1],
-            },
-        )
-        .into_typed();
-
-        assert!(layout.child_type(1).is_err());
-    }
-}
-
-/// V2 zoned layout vtable.
-#[derive(Clone, Debug)]
-pub struct Zoned;
-
-/// V2 legacy stats layout vtable.
-#[derive(Clone, Debug)]
-pub struct LegacyStats;
-
-/// V2 zoned layout data.
-#[derive(Clone, Debug)]
-pub struct ZonedData {
-    pub(crate) zone_len: usize,
-    pub(crate) zone_map_schema: ZoneMapSchema,
-    pub(crate) aggregate_fns: Arc<[AggregateFnRef]>,
-}
-
-impl ZonedData {
-    /// Returns the configured zone length.
-    pub fn zone_len(&self) -> usize {
-        self.zone_len
-    }
-
-    /// Returns the aggregate functions stored in the zone table.
-    pub fn aggregate_fns(&self) -> &Arc<[AggregateFnRef]> {
-        &self.aggregate_fns
-    }
-
-    /// Returns the zone-map schema used by the zone table.
-    pub(crate) fn zone_map_schema(&self) -> &ZoneMapSchema {
-        &self.zone_map_schema
-    }
-
-    fn stats_table_dtype(&self, dtype: &DType) -> DType {
-        match &self.zone_map_schema {
-            ZoneMapSchema::LegacyStats(stats) => legacy_stats_table_dtype(dtype, stats),
-            ZoneMapSchema::AggregateFns(aggregate_fns) => {
-                aggregate_stats_table_dtype(dtype, aggregate_fns)
-            }
-        }
-    }
-}
-
-impl VTable for Zoned {
-    type LayoutData = ZonedData;
-
-    fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.zoned")
-    }
-
-    fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
-        let metadata = ZonedMetadata::deserialize(args.metadata)?;
-        let aggregate_fns = aggregate_fns_from_specs(&metadata.aggregate_specs, args.session)?;
-        Ok(ZonedData {
-            zone_len: metadata.zone_len as usize,
-            zone_map_schema: ZoneMapSchema::AggregateFns(Arc::clone(&aggregate_fns)),
-            aggregate_fns,
-        })
-    }
-
-    fn child_dtype(layout: Layout<Self>, idx: usize) -> VortexResult<DType> {
-        match idx {
-            0 => Ok(layout.dtype().clone()),
-            1 => Ok(layout.data().stats_table_dtype(layout.dtype())),
-            _ => vortex_bail!("Zoned child index out of bounds: {idx}"),
-        }
-    }
-
-    fn child_type(_layout: Layout<Self>, idx: usize) -> VortexResult<LayoutChildType> {
-        match idx {
-            0 => Ok(LayoutChildType::Transparent("data".into())),
-            1 => Ok(LayoutChildType::Auxiliary("zones".into())),
-            _ => vortex_bail!("Zoned child index out of bounds: {idx}"),
-        }
-    }
-
-    fn new_scan_plan(
-        layout: Layout<Self>,
-        req: &mut ScanRequest,
-        session: &VortexSession,
-    ) -> VortexResult<ScanPlanRef> {
-        scan_zoned::new_scan_plan(layout, req, session)
-    }
-}
-
-impl VTable for LegacyStats {
-    type LayoutData = ZonedData;
-
-    fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.stats")
-    }
-
-    fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
-        let metadata = LegacyStatsMetadata::deserialize(args.metadata)?;
-        let aggregate_fns = match &metadata.zone_map_schema {
-            ZoneMapSchema::LegacyStats(stats) => stats
-                .iter()
-                .filter_map(|stat| stat.aggregate_fn())
-                .collect::<Vec<_>>()
-                .into(),
-            ZoneMapSchema::AggregateFns(aggregate_fns) => Arc::clone(aggregate_fns),
-        };
-        Ok(ZonedData {
-            zone_len: metadata.zone_len as usize,
-            zone_map_schema: metadata.zone_map_schema,
-            aggregate_fns,
-        })
-    }
-
-    fn child_dtype(layout: Layout<Self>, idx: usize) -> VortexResult<DType> {
-        match idx {
-            0 => Ok(layout.dtype().clone()),
-            1 => Ok(layout.data().stats_table_dtype(layout.dtype())),
-            _ => vortex_bail!("Legacy stats child index out of bounds: {idx}"),
-        }
-    }
-
-    fn child_type(_layout: Layout<Self>, idx: usize) -> VortexResult<LayoutChildType> {
-        match idx {
-            0 => Ok(LayoutChildType::Transparent("data".into())),
-            1 => Ok(LayoutChildType::Auxiliary("zones".into())),
-            _ => vortex_bail!("Legacy stats child index out of bounds: {idx}"),
-        }
-    }
-
-    fn new_scan_plan(
-        layout: Layout<Self>,
-        req: &mut ScanRequest,
-        session: &VortexSession,
-    ) -> VortexResult<ScanPlanRef> {
-        scan_zoned::new_scan_plan(layout, req, session)
     }
 }

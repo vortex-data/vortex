@@ -42,9 +42,9 @@ use vortex_error::vortex_err;
 use vortex_scan::read::ScanRead;
 use vortex_session::VortexSession;
 
-use crate::layout_v2::Chunked;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
+use crate::layouts_v2::chunked::Chunked;
 use crate::scan::plan::AggregateAnswer;
 use crate::scan::plan::DeferredReadTask;
 use crate::scan::plan::OwnedRowScope;

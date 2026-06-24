@@ -26,9 +26,9 @@ use vortex_error::vortex_err;
 use vortex_scan::read::ScanRead;
 use vortex_session::VortexSession;
 
-use crate::layout_v2::Flat;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
+use crate::layouts_v2::flat::Flat;
 use crate::scan::plan::OwnedRowScope;
 use crate::scan::plan::PrepareCtx;
 use crate::scan::plan::PreparedRead;

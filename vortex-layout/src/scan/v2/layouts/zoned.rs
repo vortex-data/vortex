@@ -50,11 +50,11 @@ use vortex_session::VortexSession;
 
 use crate::layout_v2::Layout;
 use crate::layout_v2::VTable;
-use crate::layout_v2::ZonedData;
 use crate::layouts::zoned::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::MIN_IS_TRUNCATED;
 use crate::layouts::zoned::ZoneMapSchema;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts_v2::zoned::ZonedData;
 use crate::scan::plan::AggregateAnswer;
 use crate::scan::plan::EvidenceCost;
 use crate::scan::plan::EvidenceScope;

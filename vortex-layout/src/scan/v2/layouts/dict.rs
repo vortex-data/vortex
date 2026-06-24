@@ -41,8 +41,8 @@ use vortex_mask::Mask;
 use vortex_scan::read::ScanRead;
 use vortex_session::VortexSession;
 
-use crate::layout_v2::Dict;
 use crate::layout_v2::Layout;
+use crate::layouts_v2::dict::Dict;
 use crate::scan::plan::DeferredReadTask;
 use crate::scan::plan::OwnedRowScope;
 use crate::scan::plan::PrepareCtx;
