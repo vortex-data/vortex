@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Scratch-directory handling and output normalization.
+//! Output normalization of scratch paths.
 //!
 //! Tests reference a per-test working directory through the `${WORK_DIR}`
-//! substitution variable. The runner sets `WORK_DIR` (via `Runner::set_var`) to a
-//! unique directory beneath [`scratch_root`] for each test, and [`PathNormalizing`]
-//! rewrites that path back to the `${WORK_DIR}` token in query output. Normalizing
-//! at the source keeps comparisons stable and makes `--complete` write the portable
-//! token rather than a machine-specific path.
+//! substitution variable; the runner sets `WORK_DIR` (via `Runner::set_var`) to
+//! that directory (see [`crate::scratch`]). [`PathNormalizing`] rewrites the
+//! directory back to the `${WORK_DIR}` token in query output. Normalizing at the
+//! source keeps comparisons stable and makes `--complete` write the portable token
+//! rather than a machine-specific path.
 
-use std::path::PathBuf;
 use std::process::Command;
-use std::sync::LazyLock;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -25,17 +23,6 @@ pub const WORK_DIR_VAR: &str = "WORK_DIR";
 /// The token that scratch paths are normalized to in query output. Matches the
 /// `${WORK_DIR}` substitution variable so expected output reads naturally.
 pub const WORK_DIR_TOKEN: &str = "${WORK_DIR}";
-
-/// Root of the scratch directory used for test artifacts, inside this crate.
-///
-/// Each runner process uses a unique subdirectory beneath this root, and each test
-/// a unique directory beneath that.
-pub fn scratch_root() -> PathBuf {
-    static SCRATCH_DIR: LazyLock<PathBuf> =
-        LazyLock::new(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scratch"));
-
-    SCRATCH_DIR.clone()
-}
 
 /// Replaces every occurrence of `work_dir` in `cell` with [`WORK_DIR_TOKEN`].
 pub fn normalize_work_dir(cell: &str, work_dir: &str) -> String {

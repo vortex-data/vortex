@@ -10,4 +10,5 @@
 
 pub mod duckdb;
 pub mod normalize;
+pub mod scratch;
 pub mod utils;

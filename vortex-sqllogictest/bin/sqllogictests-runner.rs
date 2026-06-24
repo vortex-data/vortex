@@ -25,7 +25,9 @@ use vortex_sqllogictest::duckdb::DuckDB;
 use vortex_sqllogictest::duckdb::duckdb_validator;
 use vortex_sqllogictest::normalize::PathNormalizing;
 use vortex_sqllogictest::normalize::WORK_DIR_VAR;
-use vortex_sqllogictest::normalize::scratch_root;
+use vortex_sqllogictest::scratch::WorkDirGuard;
+use vortex_sqllogictest::scratch::reset_dir;
+use vortex_sqllogictest::scratch::work_dir_for;
 use vortex_sqllogictest::utils::list_files;
 
 static SLT_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
@@ -51,47 +53,10 @@ fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
         .build()?)
 }
 
-/// The scratch directory `${WORK_DIR}` resolves to for a single test.
-///
-/// It is a deterministic (not random) path under the constant [`scratch_root`],
-/// derived from the test's unique name, so concurrent tests never collide.
-fn work_dir_for(test_name: &str) -> PathBuf {
-    scratch_root().join(test_name.replace([':', '/', '\\'], "_"))
-}
-
-/// Recreates `dir` empty, clearing anything left behind by a previous run.
-fn reset_dir(dir: &Path) -> anyhow::Result<()> {
-    if dir.exists() {
-        std::fs::remove_dir_all(dir)?;
-    }
-    std::fs::create_dir_all(dir)?;
-    Ok(())
-}
-
-/// Removes a test's scratch directory on drop — whether the test passed, failed,
-/// or panicked. Cleanup errors are logged, not propagated.
-struct WorkDirGuard(PathBuf);
-
-impl Drop for WorkDirGuard {
-    fn drop(&mut self) {
-        if let Err(e) = std::fs::remove_dir_all(&self.0)
-            && e.kind() != std::io::ErrorKind::NotFound
-        {
-            eprintln!(
-                "warning: failed to clean scratch dir {}: {e}",
-                self.0.display()
-            );
-        }
-        // Best-effort removal of the scratch root once the last test empties it;
-        // fails harmlessly while other tests still have directories there.
-        std::fs::remove_dir(scratch_root()).ok();
-    }
-}
-
 /// Runs or completes a single `.slt` file against DataFusion reading Vortex files.
 fn drive_datafusion(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<()> {
     reset_dir(work_dir)?;
-    let _guard = WorkDirGuard(work_dir.to_path_buf());
+    let _guard = WorkDirGuard::new(work_dir.to_path_buf());
     let work_dir = work_dir.to_string_lossy().into_owned();
 
     let rt = build_runtime()?;
@@ -126,7 +91,7 @@ fn drive_datafusion(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<
 /// Runs or completes a single `.slt` file against DuckDB reading Vortex files.
 fn drive_duckdb(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<()> {
     reset_dir(work_dir)?;
-    let _guard = WorkDirGuard(work_dir.to_path_buf());
+    let _guard = WorkDirGuard::new(work_dir.to_path_buf());
     let work_dir = work_dir.to_string_lossy().into_owned();
 
     let rt = build_runtime()?;
