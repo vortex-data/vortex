@@ -220,7 +220,7 @@ fn scan_builder(
     if let Some(indices) = indices {
         let casted = indices.cast(DType::Primitive(PType::U64, NonNullable))?;
         let indices = casted.execute::<PrimitiveArray>(ctx)?.into_buffer::<u64>();
-        builder = builder.with_row_indices(indices);
+        builder = builder.with_row_indices(indices)?;
     }
 
     if let Some(batch_size) = batch_size {

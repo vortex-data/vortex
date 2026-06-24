@@ -90,7 +90,7 @@ use vortex_scan::Selection;
 
 // Select specific rows by index
 let scan = ScanBuilder::new(layout_reader)
-.with_selection(Selection::IncludeByIndex(indices.into()))
+.with_selection(Selection::include_by_index(indices.into())?)
 .build() ?;
 
 // Or use row ranges
