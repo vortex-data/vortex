@@ -6,8 +6,6 @@
 //! This module contains the layout-tree expansion vtables and executable
 //! [`ScanPlan`](crate::scan::plan::ScanPlan) plans used by the alternate scan implementation.
 
-pub mod session;
-
 pub(crate) mod layouts;
 mod row_idx;
 pub use row_idx::with_row_idx;
