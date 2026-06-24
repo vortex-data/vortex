@@ -25,6 +25,7 @@ use vortex::array::stream::ArrayStreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
+use vortex::scan::selection::StrictSortedBuffer;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
@@ -76,7 +77,7 @@ impl RandomAccessor for VortexRandomAccessor {
         let array = self
             .file
             .scan()?
-            .with_row_indices(indices_buf)?
+            .with_row_indices(StrictSortedBuffer::try_new(indices_buf)?)
             .into_array_stream()?
             .read_all()
             .await?;
