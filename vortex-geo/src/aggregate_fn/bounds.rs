@@ -23,6 +23,7 @@ use vortex_array::dtype::StructFields;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::extension::coordinates;
 use crate::extension::is_native_geometry;
@@ -110,6 +111,15 @@ impl AggregateFnVTable for GeometryBounds {
 
     fn id(&self) -> AggregateFnId {
         AggregateFnId::new("vortex.geo.bounds")
+    }
+
+    // Serializable so the zoned writer can persist this as a per-chunk stat. No options to encode.
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(&self, _metadata: &[u8], _session: &VortexSession) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -217,6 +227,7 @@ impl AggregateFnVTable for GeometryBounds {
 mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::Accumulator;
+    use vortex_array::aggregate_fn::AggregateFnVTable;
     use vortex_array::aggregate_fn::DynAccumulator;
     use vortex_array::aggregate_fn::EmptyOptions;
     use vortex_array::scalar::Scalar;
@@ -226,6 +237,17 @@ mod tests {
     use super::GeometryBounds;
     use crate::test_harness::point_column;
     use crate::test_harness::polygon_column;
+
+    /// The aggregate must be serializable so the zoned writer can persist its zone-stat descriptor.
+    #[test]
+    fn serializes_for_zone_storage() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let metadata = GeometryBounds
+            .serialize(&EmptyOptions)?
+            .expect("GeometryBounds must be serializable to be stored as a zone statistic");
+        GeometryBounds.deserialize(&metadata, &session)?;
+        Ok(())
+    }
 
     /// The MBR result's corners as `(xmin, ymin, xmax, ymax)`.
     fn mbr(result: &Scalar) -> VortexResult<(f64, f64, f64, f64)> {
