@@ -37,6 +37,7 @@ members = [
     "fuzz",
     "vortex-jni",
     "vortex-python",
+    "vortex-python-cuda",
     "vortex-tui",
     "vortex-web/crate",
     "vortex-sqllogictest",

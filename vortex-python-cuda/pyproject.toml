@@ -1,0 +1,34 @@
+[project]
+name = "vortex-data-cuda"
+# Maturin copies these, at build time, from Cargo.toml.
+dynamic = ["version", "description", "authors"]
+requires-python = ">= 3.11"
+# The CUDA extension package must exactly match the base package version because the two extensions
+# exchange Vortex IPC buffers. Keep this in sync with the workspace package version; release
+# automation may rewrite it when publishing a non-workspace version.
+dependencies = ["vortex-data==0.1.0"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering",
+    "Environment :: GPU :: NVIDIA CUDA",
+]
+
+[build-system]
+requires = ["maturin>=1.10.2,<2.0"]
+build-backend = "maturin"
+
+[tool.uv]
+managed = true
+
+[tool.maturin]
+profile = "release"
+editable-profile = "dev"
+python-source = "python"
+module-name = "vortex_cuda._lib"
+features = ["pyo3/extension-module"]
+compatibility = "manylinux2014"

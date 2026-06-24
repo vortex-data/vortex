@@ -97,6 +97,7 @@ export function getBenchmarkDescription(categoryName) {
     'Compression': 'Measures encoding and decoding throughput (MB/s) for Vortex and Parquet files',
     'Compression Size': 'Compares compressed file sizes across different encoding strategies',
     'Clickbench': "ClickHouse's analytical benchmark suite on web analytics data",
+    'Clickbench Sorted': 'ClickBench queries over data globally sorted by event date and event time',
     'Statistical and Population Genetics': 'Statistical and population genetics queries on gnomAD dataset',
   };
   return descriptions[categoryName] || '';

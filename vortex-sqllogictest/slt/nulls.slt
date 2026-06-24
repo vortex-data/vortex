@@ -13,36 +13,36 @@ COPY (SELECT * FROM (VALUES
     (NULL, 3),
     ('four', NULL),
     (NULL, NULL)
-) AS t(name, val)) TO '$__TEST_DIR__/nulls.vortex';
+) AS t(name, val)) TO '${WORK_DIR}/nulls.vortex';
 ----
 5
 
 # Test IS NULL filter
 query I
-SELECT COUNT(*) FROM '$__TEST_DIR__/nulls.vortex' WHERE name IS NULL;
+SELECT COUNT(*) FROM '${WORK_DIR}/nulls.vortex' WHERE name IS NULL;
 ----
 2
 
 # Test IS NOT NULL filter
 query I
-SELECT COUNT(*) FROM '$__TEST_DIR__/nulls.vortex' WHERE name IS NOT NULL;
+SELECT COUNT(*) FROM '${WORK_DIR}/nulls.vortex' WHERE name IS NOT NULL;
 ----
 3
 
 # Test SUM with NULL values (should ignore NULLs)
 query I
-SELECT SUM(val) FROM '$__TEST_DIR__/nulls.vortex';
+SELECT SUM(val) FROM '${WORK_DIR}/nulls.vortex';
 ----
 6
 
 # Test COUNT on nullable column (should count non-NULLs)
 query I
-SELECT COUNT(val) FROM '$__TEST_DIR__/nulls.vortex';
+SELECT COUNT(val) FROM '${WORK_DIR}/nulls.vortex';
 ----
 3
 
 # Test COUNT(*) vs COUNT(column) with NULLs
 query II
-SELECT COUNT(*), COUNT(name) FROM '$__TEST_DIR__/nulls.vortex';
+SELECT COUNT(*), COUNT(name) FROM '${WORK_DIR}/nulls.vortex';
 ----
 5 3

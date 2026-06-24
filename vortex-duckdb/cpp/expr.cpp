@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#include "duckdb_vx/expr.h"
+#include "expr.h"
+#include "duckdb/function/scalar_function.hpp"
 #include "duckdb/planner/expression/bound_between_expression.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/planner/expression/bound_comparison_expression.hpp"
@@ -11,6 +12,14 @@
 #include "duckdb/planner/expression/bound_conjunction_expression.hpp"
 
 using namespace duckdb;
+
+extern "C" const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func) {
+    if (!ffi_func) {
+        return nullptr;
+    }
+    auto func = reinterpret_cast<ScalarFunction *>(ffi_func);
+    return func->name.c_str();
+}
 
 extern "C" const char *duckdb_vx_expr_to_string(duckdb_vx_expr ffi_expr) {
     if (!ffi_expr) {

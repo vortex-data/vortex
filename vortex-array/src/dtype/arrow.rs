@@ -130,36 +130,63 @@ impl FromArrowType<SchemaRef> for DType {
     }
 }
 
+impl TryFromArrowType<SchemaRef> for DType {
+    fn try_from_arrow(value: SchemaRef) -> VortexResult<Self> {
+        Self::try_from_arrow(value.as_ref())
+    }
+}
+
 impl FromArrowType<&Schema> for DType {
     fn from_arrow(value: &Schema) -> Self {
-        Self::Struct(
-            StructFields::from_arrow(value.fields()),
+        Self::try_from_arrow(value).vortex_expect("arrow schema to dtype")
+    }
+}
+
+impl TryFromArrowType<&Schema> for DType {
+    fn try_from_arrow(value: &Schema) -> VortexResult<Self> {
+        Ok(Self::Struct(
+            StructFields::try_from_arrow(value.fields())?,
             Nullability::NonNullable, // Must match From<RecordBatch> for Array
-        )
+        ))
     }
 }
 
 impl FromArrowType<&Fields> for StructFields {
     fn from_arrow(value: &Fields) -> Self {
-        StructFields::from_iter(value.into_iter().map(|f| {
-            (
-                FieldName::from(f.name().as_str()),
-                DType::from_arrow(f.as_ref()),
-            )
-        }))
+        Self::try_from_arrow(value).vortex_expect("arrow fields to struct fields")
+    }
+}
+
+impl TryFromArrowType<&Fields> for StructFields {
+    fn try_from_arrow(value: &Fields) -> VortexResult<Self> {
+        value
+            .into_iter()
+            .map(|f| {
+                Ok((
+                    FieldName::from(f.name().as_str()),
+                    DType::try_from_arrow(f.as_ref())?,
+                ))
+            })
+            .collect::<VortexResult<StructFields>>()
     }
 }
 
 impl FromArrowType<(&DataType, Nullability)> for DType {
-    fn from_arrow((data_type, nullability): (&DataType, Nullability)) -> Self {
+    fn from_arrow(value: (&DataType, Nullability)) -> Self {
+        Self::try_from_arrow(value).vortex_expect("arrow data type to dtype")
+    }
+}
+
+impl TryFromArrowType<(&DataType, Nullability)> for DType {
+    fn try_from_arrow((data_type, nullability): (&DataType, Nullability)) -> VortexResult<Self> {
         if data_type.is_integer() || data_type.is_floating() {
-            return DType::Primitive(
-                PType::try_from_arrow(data_type).vortex_expect("arrow float/integer to ptype"),
+            return Ok(DType::Primitive(
+                PType::try_from_arrow(data_type)?,
                 nullability,
-            );
+            ));
         }
 
-        match data_type {
+        Ok(match data_type {
             DataType::Null => DType::Null,
             DataType::Decimal32(precision, scale)
             | DataType::Decimal64(precision, scale)
@@ -189,36 +216,42 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
             | DataType::LargeList(e)
             | DataType::ListView(e)
             | DataType::LargeListView(e) => {
-                DType::List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
+                DType::List(Arc::new(Self::try_from_arrow(e.as_ref())?), nullability)
             }
             DataType::FixedSizeList(e, size) => DType::FixedSizeList(
-                Arc::new(Self::from_arrow(e.as_ref())),
+                Arc::new(Self::try_from_arrow(e.as_ref())?),
                 *size as u32,
                 nullability,
             ),
-            DataType::Struct(f) => DType::Struct(StructFields::from_arrow(f), nullability),
+            DataType::Struct(f) => DType::Struct(StructFields::try_from_arrow(f)?, nullability),
             DataType::Dictionary(_, value_type) => {
-                Self::from_arrow((value_type.as_ref(), nullability))
+                Self::try_from_arrow((value_type.as_ref(), nullability))?
             }
             DataType::RunEndEncoded(_, value_type) => {
-                Self::from_arrow((value_type.data_type(), nullability))
+                Self::try_from_arrow((value_type.data_type(), nullability))?
             }
-            _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
-        }
+            _ => vortex_bail!("Arrow data type not supported: {data_type:?}"),
+        })
     }
 }
 
 impl FromArrowType<&Field> for DType {
     fn from_arrow(field: &Field) -> Self {
+        Self::try_from_arrow(field).vortex_expect("arrow field to dtype")
+    }
+}
+
+impl TryFromArrowType<&Field> for DType {
+    fn try_from_arrow(field: &Field) -> VortexResult<Self> {
         if field
             .metadata()
             .get("ARROW:extension:name")
             .map(|s| s.as_str())
             == Some("arrow.parquet.variant")
         {
-            return DType::Variant(field.is_nullable().into());
+            return Ok(DType::Variant(field.is_nullable().into()));
         }
-        Self::from_arrow((field.data_type(), field.is_nullable().into()))
+        Self::try_from_arrow((field.data_type(), field.is_nullable().into()))
     }
 }
 
@@ -593,5 +626,31 @@ mod test {
         let roundtripped_dtype = DType::from_arrow((&arrow_dtype, Nullability::NonNullable));
 
         assert_eq!(original_dtype, roundtripped_dtype);
+    }
+
+    // Regression test for https://github.com/vortex-data/vortex/issues/8346: unsupported Arrow
+    // types must return an error instead of panicking with `unimplemented!`.
+    #[rstest]
+    #[case::duration(DataType::Duration(ArrowTimeUnit::Microsecond))]
+    #[case::interval(DataType::Interval(arrow_schema::IntervalUnit::DayTime))]
+    #[case::fixed_size_binary(DataType::FixedSizeBinary(3))]
+    fn test_try_from_arrow_unsupported_type_errors(#[case] data_type: DataType) {
+        let err = DType::try_from_arrow((&data_type, Nullability::NonNullable))
+            .expect_err("unsupported Arrow type should not convert")
+            .to_string();
+        assert!(err.contains("not supported"), "unexpected error: {err}");
+
+        // The same unsupported type nested in a field or schema must also error cleanly.
+        let field = Field::new("c0", data_type, true);
+        assert!(DType::try_from_arrow(&field).is_err());
+        let schema = Schema::new(vec![field]);
+        assert!(DType::try_from_arrow(&schema).is_err());
+    }
+
+    #[test]
+    fn test_try_from_arrow_supported_type_succeeds() -> VortexResult<()> {
+        let dtype = DType::try_from_arrow((&DataType::Int32, Nullability::Nullable))?;
+        assert_eq!(dtype, DType::Primitive(PType::I32, Nullability::Nullable));
+        Ok(())
     }
 }
