@@ -62,6 +62,8 @@ typedef struct {
 typedef struct {
     idx_t estimated_cardinality;
     bool has_estimated_cardinality;
+    idx_t max_cardinality;
+    bool has_max_cardinality;
 } duckdb_vx_node_statistics;
 
 typedef struct {
