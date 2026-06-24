@@ -574,6 +574,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native"
         run: |
+          # vx-bench prepare-data shells out to target/release_debug/data-gen.
           packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
           if [ "${{ inputs.mode }}" != "pr" ]; then
             packages+=(--bin lance-bench)

@@ -245,6 +245,66 @@ impl CompactionStrategy {
     }
 }
 
+/// Verify that local data has already been prepared for the requested benchmark formats.
+///
+/// Engine-specific benchmark binaries call this before running queries. Data generation itself
+/// belongs to the `data-gen` binary.
+pub fn require_prepared_data<B>(benchmark: &B, formats: &[Format]) -> anyhow::Result<()>
+where
+    B: Benchmark + ?Sized,
+{
+    if benchmark.data_url().scheme() != "file" {
+        return Ok(());
+    }
+
+    let base_path = benchmark
+        .data_url()
+        .to_file_path()
+        .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
+
+    let mut missing = Vec::new();
+    for format in formats.iter().copied().unique() {
+        let required_path = match format {
+            Format::Arrow | Format::Parquet => base_path.join(Format::Parquet.name()),
+            Format::OnDiskVortex => base_path.join(Format::OnDiskVortex.name()),
+            Format::VortexCompact => base_path.join(Format::VortexCompact.name()),
+            Format::OnDiskDuckDB => base_path
+                .join(Format::OnDiskDuckDB.name())
+                .join("duckdb.db"),
+            format => base_path.join(format.name()),
+        };
+
+        if !required_path.exists() {
+            missing.push((format, required_path));
+        }
+    }
+
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let missing_data = missing
+        .iter()
+        .map(|(format, path)| format!("{format} ({})", path.display()))
+        .join(", ");
+    let requested_formats = formats
+        .iter()
+        .copied()
+        .unique()
+        .map(|format| format!("\"{format}\""))
+        .join(",");
+
+    anyhow::bail!(
+        "prepared data is missing for {}: {missing_data}. Generate it first with \
+         `vx-bench prepare-data {} --formats-json '[{requested_formats}]'` or \
+         `cargo run --bin data-gen -- {} --formats {}` using the same --opt values.",
+        benchmark.dataset_display(),
+        benchmark.dataset_name(),
+        benchmark.dataset_name(),
+        formats.iter().copied().unique().join(","),
+    );
+}
+
 /// CLI argument for selecting which benchmark to run.
 #[derive(clap::ValueEnum, Clone, Copy)]
 pub enum BenchmarkArg {

@@ -51,13 +51,38 @@ impl DuckClient {
             format!("{name}/{format}/", name = benchmark.dataset_name()).to_data_path()
         };
         let dir = base_path.join(format.name());
-        std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
+
+        if format == Format::OnDiskDuckDB && data_url.scheme() != "file" {
+            anyhow::bail!("DuckDB format requires local data prepared by data-gen");
+        }
+
+        if format == Format::OnDiskDuckDB {
+            if !db_path.exists() {
+                anyhow::bail!(
+                    "prepared DuckDB database is missing at {}. Generate it with \
+                     `vx-bench prepare-data {} --formats-json '[\"duckdb\"]'` or \
+                     `cargo run --bin data-gen -- {} --formats duckdb` using the same --opt values.",
+                    db_path.display(),
+                    benchmark.dataset_name(),
+                    benchmark.dataset_name(),
+                );
+            }
+        } else {
+            std::fs::create_dir_all(&dir)?;
+        }
 
         tracing::info!(db_path = %db_path.display(), "Opening DuckDB");
 
         if delete_database && db_path.exists() {
-            std::fs::remove_file(&db_path)?;
+            if format == Format::OnDiskDuckDB {
+                tracing::info!(
+                    db_path = %db_path.display(),
+                    "Keeping prepared DuckDB format database"
+                );
+            } else {
+                std::fs::remove_file(&db_path)?;
+            }
         }
 
         let (db, connection) = Self::open_and_setup_database(Some(db_path.clone()), threads)?;
@@ -147,9 +172,14 @@ impl DuckClient {
         benchmark: &B,
         file_format: Format,
     ) -> Result<()> {
+        if file_format == Format::OnDiskDuckDB {
+            // Native DuckDB data is materialized by data-gen. The opened database already
+            // contains benchmark tables, so there is nothing to register here.
+            return Ok(());
+        }
+
         let object_type = match file_format {
             Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => "VIEW",
-            Format::OnDiskDuckDB => "TABLE",
             Format::Lance => {
                 anyhow::bail!(
                     "Lance format is not supported for DuckDB engine. \
@@ -159,11 +189,7 @@ impl DuckClient {
             format => anyhow::bail!("Format {format} isn't supported for DuckDB"),
         };
 
-        // DuckDB loads from parquet for OnDiskDuckDB format
-        let load_format = match file_format {
-            Format::Parquet | Format::OnDiskDuckDB => Format::Parquet,
-            f => f,
-        };
+        let load_format = file_format;
 
         // Get the base URL for the format's data directory
         let format_url = benchmark.format_path(load_format, benchmark.data_url())?;
