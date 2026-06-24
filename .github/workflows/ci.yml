@@ -464,6 +464,7 @@ jobs:
       - uses: ./.github/actions/check-rebuild
         with:
           command: "cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run"
+          message-format-flag: "--cargo-message-format"
 
   wasm-integration:
     name: "WASM integration smoke test"
