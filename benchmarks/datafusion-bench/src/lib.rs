@@ -122,9 +122,10 @@ pub fn format_to_df_format(format: Format) -> Arc<dyn FileFormat> {
 }
 
 fn vortex_table_options() -> VortexTableOptions {
-    VortexTableOptions {
-        projection_pushdown: true,
-        predicate_pushdown: true,
-        ..Default::default()
-    }
+    let mut opts = VortexTableOptions::default();
+
+    opts.predicate_pushdown = true;
+    opts.predicate_pushdown = true;
+
+    opts
 }

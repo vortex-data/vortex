@@ -796,7 +796,12 @@ mod tests {
             .downcast_ref::<VortexSource>()
             .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
 
-        // assert_eq!(source.options(), &opts);
+        assert_eq!(
+            source.options().projection_pushdown,
+            opts.projection_pushdown
+        );
+        assert_eq!(source.options().predicate_pushdown, opts.predicate_pushdown);
+        assert_eq!(source.options().scan_concurrency, opts.scan_concurrency);
         Ok(())
     }
 }
