@@ -69,6 +69,11 @@ pub enum BenchmarkDataset {
     ClickBench { flavor: Flavor },
     #[serde(rename = "public-bi")]
     PublicBi { name: String },
+    #[serde(rename = "spatialbench")]
+    SpatialBench {
+        scale_factor: String,
+        native_points: bool,
+    },
     #[serde(rename = "statpopgen")]
     StatPopGen { n_rows: u64 },
     #[serde(rename = "polarsignals")]
@@ -87,6 +92,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::TpcDS { .. } => "tpcds",
             BenchmarkDataset::ClickBench { .. } => "clickbench",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
+            BenchmarkDataset::SpatialBench { .. } => "spatialbench",
             BenchmarkDataset::StatPopGen { .. } => "statpopgen",
             BenchmarkDataset::PolarSignals { .. } => "polarsignals",
             BenchmarkDataset::Fineweb => "fineweb",
@@ -106,6 +112,17 @@ impl Display for BenchmarkDataset {
                 Flavor::Single => write!(f, "clickbench-single"),
             },
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
+            BenchmarkDataset::SpatialBench {
+                scale_factor,
+                native_points,
+            } => {
+                let points = if *native_points {
+                    ", points=native"
+                } else {
+                    ""
+                };
+                write!(f, "spatialbench(sf={scale_factor}{points})")
+            }
             BenchmarkDataset::StatPopGen { n_rows } => write!(f, "statpopgen(n_rows={n_rows})"),
             BenchmarkDataset::PolarSignals { n_rows } => {
                 write!(f, "polarsignals(n_rows={n_rows})")
@@ -163,6 +180,7 @@ impl BenchmarkDataset {
                 "supplier",
             ],
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::SpatialBench { .. } => &["trip", "building", "zone"],
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
             BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],
             BenchmarkDataset::Fineweb => &["fineweb"],

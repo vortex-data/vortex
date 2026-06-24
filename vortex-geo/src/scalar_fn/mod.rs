@@ -4,3 +4,4 @@
 //! Geometry scalar functions over the [`Point`](crate::extension::Point) type.
 
 pub mod distance;
+pub mod intersects;

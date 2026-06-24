@@ -27,6 +27,7 @@ use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::root;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::Between;
 use vortex::scalar_fn::fns::between::BetweenOptions;
@@ -36,6 +37,10 @@ use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex_geo::extension::WellKnownBinary;
+use vortex_geo::extension::point_2d_scalar;
+use vortex_geo::scalar_fn::distance::GeoDistance;
+use vortex_geo::scalar_fn::intersects::GeoIntersects;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb;
@@ -57,11 +62,86 @@ fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
     }
 }
 
+/// Read an `f64` from a constant expression (e.g. an `ST_Point` coordinate literal).
+fn from_bound_f64(value: &duckdb::ExpressionRef) -> VortexResult<f64> {
+    match value.as_class().vortex_expect("unknown class") {
+        BoundConstant(constant) => f64::try_from(&Scalar::try_from(constant.value)?),
+        _ => vortex_bail!("Expected f64 constant, got {:?}", value.as_class_id()),
+    }
+}
+
+/// Convert an `ST_Distance` operand to a native geometry expression. A folded `ST_Point(..)`
+/// constant arrives as WKB `GEOMETRY`; decode it once at plan time to a native `Point`, no per-row WKB.
+fn geo_operand(
+    value: &duckdb::ExpressionRef,
+    col_sub: Option<&Expression>,
+) -> VortexResult<Option<Expression>> {
+    if let Some(BoundConstant(constant)) = value.as_class() {
+        let scalar = Scalar::try_from(constant.value)?;
+        if let Some(point) = point_scalar_from_geometry_const(&scalar)? {
+            return Ok(Some(lit(point)));
+        }
+    }
+    try_from_expression_inner(value, col_sub)
+}
+
+/// Decode a constant WKB `Point` into a native `Point` scalar. `None` if it isn't a WKB constant or
+/// isn't a Point — those fall through to the general geo path rather than being misread.
+fn point_scalar_from_geometry_const(scalar: &Scalar) -> VortexResult<Option<Scalar>> {
+    let DType::Extension(ext_dtype) = scalar.dtype() else {
+        return Ok(None);
+    };
+    if !ext_dtype.is::<WellKnownBinary>() {
+        return Ok(None);
+    }
+    let storage = scalar.as_extension().to_storage_scalar();
+    let Some(buf) = storage.as_binary_opt().and_then(|b| b.value()) else {
+        return Ok(None);
+    };
+    let Some((x, y)) = wkb_2d_point_xy(buf.as_slice()) else {
+        return Ok(None);
+    };
+    Ok(Some(point_2d_scalar(x, y)?))
+}
+
+/// Read `(x, y)` from a bare 2D WKB Point: 1-byte endianness, geometry-type `u32 == 1`, two f64s.
+/// `None` for anything else (SRID/Z/M flags or non-Point types shift these fixed offsets).
+fn wkb_2d_point_xy(bytes: &[u8]) -> Option<(f64, f64)> {
+    if bytes.len() < 21 {
+        return None;
+    }
+    let le = bytes[0] == 1;
+    let read_u32 = |offset: usize| -> u32 {
+        let mut chunk = [0u8; 4];
+        chunk.copy_from_slice(&bytes[offset..offset + 4]);
+        if le {
+            u32::from_le_bytes(chunk)
+        } else {
+            u32::from_be_bytes(chunk)
+        }
+    };
+    let read_f64 = |offset: usize| -> f64 {
+        let mut chunk = [0u8; 8];
+        chunk.copy_from_slice(&bytes[offset..offset + 8]);
+        if le {
+            f64::from_le_bytes(chunk)
+        } else {
+            f64::from_be_bytes(chunk)
+        }
+    };
+    // Geometry-type code 1 == bare 2D Point; anything else shifts the coordinate offsets, so bail.
+    if read_u32(1) != 1 {
+        return None;
+    }
+    Some((read_f64(5), read_f64(13)))
+}
+
 fn try_from_bound_function(
     func: &BoundFunction,
     col_sub: Option<&Expression>,
 ) -> VortexResult<Option<Expression>> {
-    let expr = match func.scalar_function.name() {
+    let name = func.scalar_function.name();
+    let expr = match name {
         "strlen" => {
             let children: Vec<_> = func.children().collect();
             vortex_ensure!(children.len() == 1);
@@ -115,13 +195,71 @@ fn try_from_bound_function(
             };
             Like.new_expr(LikeOptions::default(), [value, lit(pattern)])
         }
-        _ => {
-            debug!("bound function {}", func.scalar_function.name());
-            return Ok(None);
-        }
+        // Geo UDFs (and any unsupported function) are handled here.
+        _ => return try_from_geo_function(name, func, col_sub),
     };
 
     Ok(Some(expr))
+}
+
+/// Lower the geospatial UDFs to native Vortex geo ops over `Point` storage, so the work runs in the
+/// scan instead of materializing geometry for DuckDB. `None` for any other function.
+fn try_from_geo_function(
+    name: &str,
+    func: &BoundFunction,
+    col_sub: Option<&Expression>,
+) -> VortexResult<Option<Expression>> {
+    let children: Vec<_> = func.children().collect();
+    let expr = match name.to_ascii_lowercase().as_str() {
+        "st_distance" => {
+            vortex_ensure!(children.len() == 2);
+            let Some(a) = geo_operand(children[0], col_sub)? else {
+                return Ok(None);
+            };
+            let Some(b) = geo_operand(children[1], col_sub)? else {
+                return Ok(None);
+            };
+            GeoDistance.new_expr(EmptyOptions, [a, b])
+        }
+        "st_intersects" => {
+            vortex_ensure!(children.len() == 2);
+            let Some(a) = geo_operand(children[0], col_sub)? else {
+                return Ok(None);
+            };
+            let Some(b) = geo_operand(children[1], col_sub)? else {
+                return Ok(None);
+            };
+            GeoIntersects.new_expr(EmptyOptions, [a, b])
+        }
+        "st_point" => {
+            vortex_ensure!(children.len() == 2);
+            lit(point_2d_scalar(
+                from_bound_f64(children[0])?,
+                from_bound_f64(children[1])?,
+            )?)
+        }
+        coord @ ("st_x" | "st_y") => {
+            vortex_ensure!(children.len() == 1);
+            let Some(child) = try_from_expression_inner(children[0], col_sub)? else {
+                return Ok(None);
+            };
+            // "st_x" -> "x", "st_y" -> "y"
+            get_item(&coord[3..], child)
+        }
+        _ => return Ok(None),
+    };
+
+    Ok(Some(expr))
+}
+
+/// Whether `name` is a geo UDF that `try_from_geo_function` lowers — shared with
+/// `can_push_expression` so the pushable and lowered sets can't drift. Case-insensitive since
+/// DuckDB keeps the registered case (e.g. `ST_Distance`).
+fn is_geo_function(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "st_distance" | "st_intersects" | "st_point" | "st_x" | "st_y"
+    )
 }
 
 pub fn try_from_bound_expression(
@@ -166,13 +304,17 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
         BoundConjunction(conj) => conj.children().all(can_push_expression),
         ExpressionClass::BoundFunction(func) => {
             let name = func.scalar_function.name();
-            name == "struct_extract"
-                || name == "contains"
-                || name == "prefix"
-                || name == "suffix"
-                || name == "~~"
-                || name == "!~~"
-                || name == "strlen"
+            // A geo UDF is pushable when all its operands are; `try_from_geo_function` lowers it.
+            // Built-in names are always lowercase; geo UDFs keep their registered case.
+            match name {
+                "struct_extract" | "contains" | "prefix" | "suffix" | "~~" | "!~~" | "strlen" => {
+                    true
+                }
+                _ if is_geo_function(name) => {
+                    matches!(try_from_geo_function(name, &func, None), Ok(Some(_)))
+                }
+                _ => false,
+            }
         }
         ExpressionClass::BoundOperator(op) => {
             if !matches!(

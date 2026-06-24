@@ -34,6 +34,8 @@ use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
 
+use crate::spatialbench::SpatialBenchBenchmark;
+
 pub mod appian;
 pub mod benchmark;
 pub mod clickbench;
@@ -51,6 +53,7 @@ pub mod public_bi;
 pub mod random_access;
 pub mod realnest;
 pub mod runner;
+pub mod spatialbench;
 pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
@@ -72,8 +75,11 @@ use vortex::session::VortexSession;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-pub static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio());
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::default().with_tokio();
+    vortex_geo::initialize(&session);
+    session
+});
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
@@ -265,6 +271,8 @@ pub enum BenchmarkArg {
     PolarSignals,
     #[clap(name = "public-bi")]
     PublicBi,
+    #[clap(name = "spatialbench")]
+    SpatialBench,
 }
 
 /// Default scale factor for TPC-related benchmarks
@@ -324,6 +332,21 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
                 anyhow::anyhow!("public-bi benchmark requires --opt dataset=<name>")
             })?;
             let benchmark = PublicBiBenchmark::new(dataset)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::SpatialBench => {
+            let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let native_points = match opts.get("points") {
+                None | Some("wkb") => false,
+                Some("native") => true,
+                Some(other) => bail!("unknown points option {other:?}, expected wkb or native"),
+            };
+            let benchmark = SpatialBenchBenchmark::new(
+                scale_factor.to_string(),
+                remote_data_dir,
+                native_points,
+            )?;
             Ok(Box::new(benchmark) as _)
         }
     }

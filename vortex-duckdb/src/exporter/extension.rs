@@ -8,6 +8,10 @@ use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::extension::datetime::AnyTemporal;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex_geo::extension::Point;
+use vortex_geo::extension::PointData;
+use vortex_geo::extension::Polygon;
+use vortex_geo::extension::PolygonData;
 use vortex_geo::extension::WellKnownBinary;
 use vortex_geo::extension::WellKnownBinaryData;
 
@@ -25,6 +29,14 @@ pub(crate) fn new_exporter(
 
     if ext.ext_dtype().is::<WellKnownBinary>() {
         return geo::new_wkb_exporter(WellKnownBinaryData::try_from(ext)?, ctx);
+    }
+
+    if ext.ext_dtype().is::<Point>() {
+        return geo::new_point_exporter(PointData::try_from(ext)?, ctx);
+    }
+
+    if ext.ext_dtype().is::<Polygon>() {
+        return geo::new_polygon_exporter(PolygonData::try_from(ext)?, ctx);
     }
 
     vortex_bail!("no non-temporal extension exporter")

@@ -58,6 +58,8 @@ use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
 use vortex_geo::extension::GeoMetadata;
+use vortex_geo::extension::Point;
+use vortex_geo::extension::Polygon;
 use vortex_geo::extension::WellKnownBinary;
 
 use crate::cpp::DUCKDB_TYPE;
@@ -245,9 +247,14 @@ impl TryFrom<&DType> for LogicalType {
                     return temporal_to_duckdb(temporal);
                 }
 
-                if let Some(wkb) = ext_dtype.metadata_opt::<WellKnownBinary>() {
-                    let crs = wkb.crs.as_ref();
-                    return LogicalType::geometry_type(crs.map(|crs| crs.as_str()));
+                // Native Point/Polygon and WKB all surface to DuckDB as GEOMETRY so `ST_*` bind; for
+                // native geometry the filter work then pushes down into the Vortex scan.
+                if let Some(geo) = ext_dtype
+                    .metadata_opt::<Point>()
+                    .or_else(|| ext_dtype.metadata_opt::<Polygon>())
+                    .or_else(|| ext_dtype.metadata_opt::<WellKnownBinary>())
+                {
+                    return LogicalType::geometry_type(geo.crs.as_deref());
                 }
 
                 vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());

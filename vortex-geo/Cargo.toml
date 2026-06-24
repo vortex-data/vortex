@@ -20,6 +20,7 @@ geo = { workspace = true }
 geo-traits = { workspace = true }
 geo-types = { workspace = true }
 geoarrow = { workspace = true }
+geoarrow-cast = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-error = { workspace = true }
@@ -28,6 +29,7 @@ wkb = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+vortex-layout = { workspace = true }
 
 [lints]
 workspace = true

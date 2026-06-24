@@ -10,6 +10,7 @@ use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::dtype::DType;
 
 /// Reference-counted pointer to an aggregate function plugin.
 pub type AggregateFnPluginRef = Arc<dyn AggregateFnPlugin>;
@@ -28,6 +29,9 @@ pub trait AggregateFnPlugin: 'static + Send + Sync {
     /// Deserialize an aggregate function from serialized metadata.
     fn deserialize(&self, metadata: &[u8], session: &VortexSession)
     -> VortexResult<AggregateFnRef>;
+
+    /// The default per-chunk zone statistic to store for a column of `input_dtype`, or `None` if this aggregate isn't one.
+    fn zone_stat_default(&self, input_dtype: &DType) -> Option<AggregateFnRef>;
 }
 
 impl std::fmt::Debug for dyn AggregateFnPlugin {
@@ -50,5 +54,9 @@ impl<V: AggregateFnVTable> AggregateFnPlugin for V {
     ) -> VortexResult<AggregateFnRef> {
         let options = AggregateFnVTable::deserialize(self, metadata, session)?;
         Ok(AggregateFn::new(self.clone(), options).erased())
+    }
+
+    fn zone_stat_default(&self, input_dtype: &DType) -> Option<AggregateFnRef> {
+        AggregateFnVTable::zone_stat_default(self, input_dtype)
     }
 }

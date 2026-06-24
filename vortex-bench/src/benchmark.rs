@@ -8,6 +8,7 @@ use glob::Pattern;
 use url::Url;
 
 use crate::BenchmarkDataset;
+use crate::Engine;
 use crate::Format;
 
 /// Specification for a table in a benchmark dataset.
@@ -31,6 +32,24 @@ impl TableSpec {
 pub trait Benchmark: Send + Sync {
     /// Get all available queries for this benchmark
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>>;
+
+    /// Adapt a query to a specific storage `format` before execution. Default: unchanged.
+    ///
+    /// Used when the same logical query must be phrased differently depending on how a format
+    /// surfaces its columns to the engine — e.g. SpatialBench geometry reads back as native
+    /// `GEOMETRY` from Vortex but as a WKB `BLOB` from Parquet, so the `ST_GeomFromWKB(..)` wrappers
+    /// are stripped for one and kept for the other.
+    fn query_for_format(&self, query: &str, format: Format) -> String {
+        let _ = format;
+        query.to_string()
+    }
+
+    /// SQL an `engine` must run before this benchmark's queries (e.g. loading engine
+    /// extensions). Runners replay these after every (re)open. Default: none.
+    fn engine_init_sql(&self, engine: Engine) -> Vec<String> {
+        let _ = engine;
+        Vec::new()
+    }
 
     /// Generate or prepare base data for the benchmark (typically Parquet format).
     /// This is the canonical source data that can be converted to other formats.

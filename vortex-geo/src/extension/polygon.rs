@@ -13,17 +13,24 @@ use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::Geometry;
+use geoarrow::array::GeoArrowArray;
 use geoarrow::array::GeoArrowArrayAccessor;
 use geoarrow::array::IntoArrow;
 use geoarrow::array::PolygonArray;
 use geoarrow::datatypes::CoordType;
+use geoarrow::datatypes::GeoArrowType;
 use geoarrow::datatypes::PolygonType;
+use geoarrow::datatypes::WkbType;
+use geoarrow_cast::cast::cast;
 use prost::Message;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrow::ArrowExport;
 use vortex_array::arrow::ArrowExportVTable;
 use vortex_array::arrow::ArrowImport;
@@ -38,6 +45,7 @@ use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -111,18 +119,42 @@ fn polygon_type(geo_metadata: &GeoMetadata, dimension: Dimension) -> PolygonType
     PolygonType::new(dimension.into(), geoarrow_metadata(geo_metadata))
 }
 
-/// Decode `Polygon` storage (`List<List<coordinate>>`) to `geo_types` polygons, for the geo scalar
-/// functions. CRS does not affect planar geometry ops, so default metadata is used.
+/// The coordinate `Struct<x, y, ...>` of `Polygon` storage, flattening both `List` levels of
+/// `List<List<Struct>>` to every vertex of every ring.
+pub(crate) fn polygon_coordinates(
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<StructArray> {
+    // Peel the outer ring list, then each ring's coordinate list, leaving the coordinate struct.
+    let rings = storage
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_listview()
+        .elements()
+        .clone();
+    let coords = rings
+        .execute::<Canonical>(ctx)?
+        .into_listview()
+        .elements()
+        .clone();
+    coords.execute::<StructArray>(ctx)
+}
+
+/// Build the GeoArrow [`PolygonArray`] from `Polygon` storage — shared by geometry decode and WKB export.
+fn polygon_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PolygonArray> {
+    let polygon_type = polygon_type(&GeoMetadata::default(), polygon_dimension(storage.dtype())?);
+    let session = ctx.session().clone();
+    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
+    PolygonArray::try_from((arrow.as_ref(), polygon_type))
+        .map_err(|e| vortex_err!("failed to construct PolygonArray: {e}"))
+}
+
+/// Decode `Polygon` storage to `geo_types` polygons, for the geo scalar functions.
 pub(crate) fn polygon_geometries(
     storage: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Vec<Geometry<f64>>> {
-    let polygon_type = polygon_type(&GeoMetadata::default(), polygon_dimension(storage.dtype())?);
-    let session = ctx.session().clone();
-    let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
-    let polygons = PolygonArray::try_from((arrow.as_ref(), polygon_type))
-        .map_err(|e| vortex_err!("failed to construct PolygonArray: {e}"))?;
-    polygons
+    polygon_array(storage, ctx)?
         .iter()
         .map(|geometry| -> VortexResult<Geometry<f64>> {
             Ok(geometry
@@ -131,6 +163,33 @@ pub(crate) fn polygon_geometries(
                 .to_geometry())
         })
         .collect()
+}
+
+/// A validated `Polygon` array (`try_from` checks the extension type) — the entry point for WKB export.
+pub struct PolygonData(ExtensionArray);
+
+impl TryFrom<ExtensionArray> for PolygonData {
+    type Error = VortexError;
+
+    fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
+        vortex_ensure!(
+            ext.ext_dtype().is::<Polygon>(),
+            "expected a Polygon extension array"
+        );
+        Ok(PolygonData(ext))
+    }
+}
+
+impl PolygonData {
+    /// Serialize polygons to WKB (a view array) via geoarrow's cast — the form DuckDB `GEOMETRY` takes.
+    pub fn to_wkb(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        let polygons = polygon_array(&self.0.storage_array().clone(), ctx)?;
+        let wkb_type =
+            GeoArrowType::WkbView(WkbType::new(geoarrow_metadata(&GeoMetadata::default())));
+        let wkb = cast(&polygons, &wkb_type)
+            .map_err(|e| vortex_err!("failed to cast polygons to WKB: {e}"))?;
+        ArrayRef::from_arrow(wkb.to_array_ref().as_ref(), false)
+    }
 }
 
 impl ArrowExportVTable for Polygon {

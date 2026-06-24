@@ -27,6 +27,9 @@ pub struct DuckClient {
     connection: Option<Connection>,
     pub db_path: PathBuf,
     pub threads: Option<usize>,
+    /// Replayed on every (re)open, since extensions load per instance. Currently
+    /// `INSTALL spatial; LOAD spatial;` for SpatialBench.
+    init_sql: Vec<String>,
 }
 
 impl DuckClient {
@@ -68,7 +71,17 @@ impl DuckClient {
             connection: Some(connection),
             db_path,
             threads,
+            init_sql: Vec::new(),
         })
+    }
+
+    /// Run `statements` now and after every subsequent [`DuckClient::reopen`].
+    pub fn set_init_sql(&mut self, statements: Vec<String>) -> Result<()> {
+        for stmt in &statements {
+            self.connection().query(stmt)?;
+        }
+        self.init_sql = statements;
+        Ok(())
     }
 
     pub fn open_and_setup_database(
@@ -118,6 +131,14 @@ impl DuckClient {
         self.db = Some(db);
         self.connection = Some(connection);
 
+        // Replay init SQL (e.g. LOAD spatial) — extensions are per-instance.
+        for stmt in &self.init_sql {
+            self.connection
+                .as_ref()
+                .vortex_expect("connection just opened")
+                .query(stmt)?;
+        }
+
         Ok(())
     }
 
@@ -133,6 +154,7 @@ impl DuckClient {
             connection: Some(connection),
             db_path,
             threads: None,
+            init_sql: Vec::new(),
         })
     }
 
