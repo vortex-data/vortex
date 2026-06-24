@@ -49,10 +49,11 @@ pub fn get_session_context() -> SessionContext {
         .build_arc()
         .expect("could not build runtime environment");
 
-    let factory = VortexFormatFactory::new_with_options(
-        vortex_session_from_env().expect("invalid Vortex benchmark scan scheduler env"),
-        vortex_table_options(),
-    );
+    let factory = VortexFormatFactory::new()
+        .with_session(
+            vortex_session_from_env().expect("invalid Vortex benchmark scan scheduler env"),
+        )
+        .with_options(vortex_table_options());
 
     let mut session_state_builder = SessionStateBuilder::new()
         .with_config(SessionConfig::from_env().expect("shouldn't fail"))
@@ -145,19 +146,7 @@ fn vortex_session_from_env() -> anyhow::Result<VortexSession> {
 }
 
 fn scan_scheduler_config_from_env() -> anyhow::Result<ScanSchedulerConfig> {
-    if std::env::var_os("VORTEX_SCAN_MAX_MORSEL_SLOTS").is_some() {
-        anyhow::bail!(
-            "VORTEX_SCAN_MAX_MORSEL_SLOTS is no longer supported; use VORTEX_SCAN_MAX_READ_BYTES"
-        );
-    }
-    if std::env::var_os("VORTEX_SCAN_MORSEL_PLAN_WINDOW").is_some() {
-        anyhow::bail!(
-            "VORTEX_SCAN_MORSEL_PLAN_WINDOW is no longer supported; V2 only exposes read-byte budgeting"
-        );
-    }
-
     let read_byte_budget = std::env::var("VORTEX_SCAN_MAX_READ_BYTES")
-        .or_else(|_| std::env::var("VORTEX_SCAN_MAX_MORSEL_BYTES"))
         .ok()
         .map(|value| {
             value.parse::<u64>().map_err(|e| {

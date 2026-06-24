@@ -251,16 +251,10 @@ impl VortexFormatFactory {
         }
     }
 
-    /// Creates a factory with an explicit session and default options.
-    ///
-    /// The supplied options become the baseline for every [`VortexFormat`]
-    /// created by this factory. DataFusion may still override them with
-    /// table-level options passed into [`FileFormatFactory::create`].
-    pub fn new_with_options(session: VortexSession, options: VortexTableOptions) -> Self {
-        Self {
-            session,
-            options: Some(options),
-        }
+    /// Overrides the [`VortexSession`] used by formats created from this factory.
+    pub fn with_session(mut self, session: VortexSession) -> Self {
+        self.session = session;
+        self
     }
 
     /// Overrides the default options for this factory.

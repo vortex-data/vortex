@@ -263,11 +263,6 @@ VORTEX_SCAN_SCHEDULER=unbounded|shared|per-query
 VORTEX_SCAN_MAX_READ_BYTES=...
 ```
 
-`VORTEX_SCAN_MAX_MORSEL_BYTES` is accepted as a compatibility fallback for older
-benchmark scripts. `VORTEX_SCAN_MAX_MORSEL_SLOTS` and
-`VORTEX_SCAN_MORSEL_PLAN_WINDOW` are rejected because V2 no longer exposes
-morsel-count scheduler knobs.
-
 Useful S3 sweeps should compare:
 
 ```text
