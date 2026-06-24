@@ -2,12 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::array::ValidityVTable;
+use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::vtable::ArrayExpr;
 use crate::arrays::scalar_fn::vtable::FakeEq;
@@ -24,31 +27,32 @@ use crate::validity::Validity;
 /// Execute an expression tree recursively.
 ///
 /// This assumes all leaf expressions are either ArrayExpr (wrapping actual arrays) or Literals.
-#[allow(clippy::disallowed_methods)]
-fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
-    let mut ctx = legacy_session().create_execution_ctx();
-
+fn execute_expr(
+    expr: &Expression,
+    row_count: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     // Handle Root expression - this should not happen in validity expressions
     if expr.is::<Root>() {
-        vortex_error::vortex_bail!("Root expression cannot be executed in validity context");
+        vortex_bail!("Root expression cannot be executed in validity context");
     }
 
     // Handle Literal expression - create a constant array
     if expr.is::<Literal>() {
         let scalar = expr.as_::<Literal>();
-        return Ok(crate::arrays::ConstantArray::new(scalar.clone(), row_count).into_array());
+        return Ok(ConstantArray::new(scalar.clone(), row_count).into_array());
     }
 
     // Recursively execute child expressions to get input arrays
     let inputs: Vec<ArrayRef> = expr
         .children()
         .iter()
-        .map(|child| execute_expr(child, row_count))
+        .map(|child| execute_expr(child, row_count, ctx))
         .collect::<VortexResult<_>>()?;
 
     let args = VecExecutionArgs::new(inputs, row_count);
 
-    Ok(expr.scalar_fn().execute(&args, &mut ctx)?.into_array())
+    Ok(expr.scalar_fn().execute(&args, ctx)?.into_array())
 }
 
 impl ValidityVTable<ScalarFn> for ScalarFn {
@@ -69,7 +73,13 @@ impl ValidityVTable<ScalarFn> for ScalarFn {
         let expr = Expression::try_new(array.scalar_fn().clone(), inputs)?;
         let validity_expr = array.scalar_fn().validity(&expr)?;
 
+        #[allow(clippy::disallowed_methods)]
+        let ctx = &mut legacy_session().create_execution_ctx();
         // Execute the validity expression. All leaves are ArrayExpr nodes.
-        Ok(Validity::Array(execute_expr(&validity_expr, array.len())?))
+        Ok(Validity::Array(execute_expr(
+            &validity_expr,
+            array.len(),
+            ctx,
+        )?))
     }
 }

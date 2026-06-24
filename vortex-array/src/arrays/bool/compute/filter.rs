@@ -366,7 +366,10 @@ mod tests {
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
     fn test_filter_bool_conformance(#[case] array: BoolArray) {
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[cfg(target_arch = "x86_64")]

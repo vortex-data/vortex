@@ -6,6 +6,8 @@
 //! This module generates arbitrary instances of compressed encodings (DictArray, etc.),
 //! then verifies that `to_canonical()` works and produces correct `len` and `dtype`.
 
+use std::backtrace::Backtrace;
+
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 use vortex_array::ArrayRef;
@@ -17,6 +19,8 @@ use vortex_array::arrays::dict::ArbitraryDictArray;
 use vortex_runend::ArbitraryRunEndArray;
 
 use crate::SESSION;
+use crate::error::VortexFuzzError;
+use crate::error::VortexFuzzResult;
 
 /// Which compressed encoding to generate.
 #[derive(Debug, Clone, Copy)]
@@ -64,10 +68,7 @@ impl<'a> Arbitrary<'a> for FuzzCompressRoundtrip {
 /// - `Ok(false)` - reject from corpus
 /// - `Err(_)` - a bug was found
 #[expect(clippy::result_large_err)]
-pub fn run_compress_roundtrip(fuzz: FuzzCompressRoundtrip) -> crate::error::VortexFuzzResult<bool> {
-    use crate::error::Backtrace;
-    use crate::error::VortexFuzzError;
-
+pub fn run_compress_roundtrip(fuzz: FuzzCompressRoundtrip) -> VortexFuzzResult<bool> {
     let FuzzCompressRoundtrip { array } = fuzz;
 
     // Store original properties

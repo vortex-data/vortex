@@ -244,6 +244,9 @@ mod tests {
         let delta_array =
             Delta::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
                 .unwrap();
-        test_cast_conformance(&delta_array.into_array());
+        test_cast_conformance(
+            &delta_array.into_array(),
+            &mut SESSION.create_execution_ctx(),
+        );
     }
 }

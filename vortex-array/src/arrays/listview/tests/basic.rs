@@ -401,9 +401,15 @@ fn test_verify_is_zero_copy_to_list() {
 
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
 
-    // Should return true since offsets are sorted and no overlaps exist.
-    assert!(listview.verify_is_zero_copy_to_list());
+    // Marking as zero-copy-to-list validates the components and should succeed since offsets
+    // are sorted and no overlaps exist.
+    let zctl = unsafe { listview.with_zero_copy_to_list(true) };
+    assert!(zctl.is_zero_copy_to_list());
+}
 
+#[test]
+#[should_panic(expected = "Zero-copy-to-list requires views to be non-overlapping and ordered")]
+fn test_verify_is_zero_copy_to_list_overlapping() {
     // Create a ListView that is NOT zero-copyable to List due to overlapping views.
     // Logical lists: [[1,2], [2,3,4], [3,4]]
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
@@ -412,8 +418,10 @@ fn test_verify_is_zero_copy_to_list() {
 
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
 
-    // Should return false due to overlapping list views.
-    assert!(!listview.verify_is_zero_copy_to_list());
+    // Validation should reject overlapping list views.
+    unsafe {
+        let _zctl = listview.with_zero_copy_to_list(true);
+    }
 }
 
 #[test]
@@ -460,9 +468,6 @@ fn test_validate_monotonic_ends_correct_nulls() {
     let listview = ListViewArray::new(elements, offsets, sizes, validity);
 
     // Should be valid as zero-copy-to-list - this should NOT panic
-    let zctl_listview = unsafe { listview.clone().with_zero_copy_to_list(true) };
+    let zctl_listview = unsafe { listview.with_zero_copy_to_list(true) };
     assert!(zctl_listview.is_zero_copy_to_list());
-
-    // verify_is_zero_copy_to_list should also return true
-    assert!(listview.verify_is_zero_copy_to_list());
 }

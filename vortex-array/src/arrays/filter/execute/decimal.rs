@@ -34,6 +34,8 @@ pub fn filter_decimal(array: &DecimalArray, mask: &Arc<MaskValues>) -> DecimalAr
 #[cfg(test)]
 mod test {
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::filter::execute::decimal::DecimalArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::dtype::DecimalDType;
@@ -49,7 +51,10 @@ mod test {
             Some(99999),
         ];
         let array = DecimalArray::from_option_iter(values, decimal_dtype);
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[test]
@@ -57,6 +62,9 @@ mod test {
         let decimal_dtype = DecimalDType::new(38, 4);
         let values = vec![Some(12345i128), None, Some(-12345), Some(0), None];
         let array = DecimalArray::from_option_iter(values, decimal_dtype);
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

@@ -168,7 +168,7 @@ impl VTable for Filter {
         // TODO(joe): fix the ownership of AnyCanonical
         let child = Canonical::from(array.child().as_::<AnyCanonical>());
         Ok(ExecutionResult::done(
-            execute_filter(child, &mask_values).into_array(),
+            execute_filter(child, &mask_values, ctx).into_array(),
         ))
     }
 

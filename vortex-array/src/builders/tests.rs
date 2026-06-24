@@ -8,7 +8,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::VortexSessionExecute;
+use crate::array::IntoArray;
 use crate::array_session;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
@@ -223,12 +226,10 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
 
 /// Helper function that fills two builders with the same values and compares the results
 /// of `to_canonical()` vs `finish().to_canonical()`.
-fn compare_to_canonical_methods<F>(dtype: &DType, mut fill_builder: F)
+fn compare_to_canonical_methods<F>(dtype: &DType, ctx: &mut ExecutionCtx, mut fill_builder: F)
 where
     F: FnMut(&mut dyn ArrayBuilder),
 {
-    use crate::IntoArray;
-
     // Create two identical builders.
     let mut builder1 = builder_with_capacity(dtype, 10);
     let mut builder2 = builder_with_capacity(dtype, 10);
@@ -238,11 +239,10 @@ where
     fill_builder(builder2.as_mut());
 
     // Get canonical arrays using both methods.
-    let canonical_direct = builder1.finish_into_canonical();
-    #[expect(deprecated)]
+    let canonical_direct = builder1.finish_into_canonical(ctx);
     let canonical_indirect = builder2
         .finish()
-        .to_canonical()
+        .execute::<Canonical>(ctx)
         .vortex_expect("to_canonical failed");
 
     // Convert both to arrays for comparison.
@@ -254,12 +254,8 @@ where
 
     // Compare each element.
     for i in 0..array_direct.len() {
-        let scalar_direct = array_direct
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
-            .unwrap();
-        let scalar_indirect = array_indirect
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
-            .unwrap();
+        let scalar_direct = array_direct.execute_scalar(i, ctx).unwrap();
+        let scalar_indirect = array_indirect.execute_scalar(i, ctx).unwrap();
 
         assert_eq!(
             scalar_direct, scalar_indirect,
@@ -271,8 +267,9 @@ where
 
 #[test]
 fn test_to_canonical_bool() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Bool(Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::bool(i % 2 == 0, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -282,8 +279,9 @@ fn test_to_canonical_bool() {
 
 #[test]
 fn test_to_canonical_bool_nullable() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Bool(Nullability::Nullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::bool(i % 2 == 0, Nullability::Nullable);
             builder.append_scalar(&value).unwrap();
@@ -294,8 +292,9 @@ fn test_to_canonical_bool_nullable() {
 
 #[test]
 fn test_to_canonical_i32() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::primitive(i, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -305,8 +304,9 @@ fn test_to_canonical_i32() {
 
 #[test]
 fn test_to_canonical_i32_nullable() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::primitive(i, Nullability::Nullable);
             builder.append_scalar(&value).unwrap();
@@ -317,8 +317,9 @@ fn test_to_canonical_i32_nullable() {
 
 #[test]
 fn test_to_canonical_f64() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::primitive(i as f64, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -328,8 +329,9 @@ fn test_to_canonical_f64() {
 
 #[test]
 fn test_to_canonical_utf8() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Utf8(Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         let values = ["hello", "world", "test", "data", "vortex"];
         for value in &values {
             let scalar = Scalar::utf8(*value, Nullability::NonNullable);
@@ -340,8 +342,9 @@ fn test_to_canonical_utf8() {
 
 #[test]
 fn test_to_canonical_utf8_nullable() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Utf8(Nullability::Nullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         let values = ["hello", "world", "test"];
         for value in &values {
             let scalar = Scalar::utf8(*value, Nullability::Nullable);
@@ -353,8 +356,9 @@ fn test_to_canonical_utf8_nullable() {
 
 #[test]
 fn test_to_canonical_binary() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Binary(Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         let values = [b"hello", b"world", b"vortx", b"bytes", b"tests"];
         for value in &values {
             let scalar = Scalar::binary(value.to_vec(), Nullability::NonNullable);
@@ -365,6 +369,7 @@ fn test_to_canonical_binary() {
 
 #[test]
 fn test_to_canonical_struct() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Struct(
         StructFields::from_iter([
             ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
@@ -372,7 +377,7 @@ fn test_to_canonical_struct() {
         ]),
         Nullability::NonNullable,
     );
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         for _ in 0..3 {
             let value = Scalar::default_value(&dtype);
             builder.append_scalar(&value).unwrap();
@@ -382,9 +387,10 @@ fn test_to_canonical_struct() {
 
 #[test]
 fn test_to_canonical_extension() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype =
         DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         let ext_dtype = match &dtype {
             DType::Extension(ext) => ext.clone(),
             _ => unreachable!(),
@@ -399,16 +405,18 @@ fn test_to_canonical_extension() {
 
 #[test]
 fn test_to_canonical_null() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Null;
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         builder.append_nulls(5);
     });
 }
 
 #[test]
 fn test_to_canonical_decimal() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         for _ in 0..5 {
             let value = Scalar::default_value(&dtype);
             builder.append_scalar(&value).unwrap();
@@ -418,8 +426,9 @@ fn test_to_canonical_decimal() {
 
 #[test]
 fn test_to_canonical_i8() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Primitive(PType::I8, Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         for i in 0..5i8 {
             let value = Scalar::primitive(i, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -429,8 +438,9 @@ fn test_to_canonical_i8() {
 
 #[test]
 fn test_to_canonical_u64() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::primitive(i as u64, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();
@@ -440,8 +450,9 @@ fn test_to_canonical_u64() {
 
 #[test]
 fn test_to_canonical_f32() {
+    let mut ctx = array_session().create_execution_ctx();
     let dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-    compare_to_canonical_methods(&dtype, |builder| {
+    compare_to_canonical_methods(&dtype, &mut ctx, |builder| {
         for i in 0..5 {
             let value = Scalar::primitive(i as f32, Nullability::NonNullable);
             builder.append_scalar(&value).unwrap();

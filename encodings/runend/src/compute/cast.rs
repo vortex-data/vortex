@@ -184,6 +184,6 @@ mod tests {
     fn test_cast_runend_conformance(#[case] build: RunEndBuilder) {
         let mut ctx = SESSION.create_execution_ctx();
         let array = build(&mut ctx);
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut ctx);
     }
 }

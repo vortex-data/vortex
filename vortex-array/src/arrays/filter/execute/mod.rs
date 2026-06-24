@@ -83,13 +83,19 @@ pub(super) fn execute_filter_fast_paths(
 }
 
 /// Filter a canonical array by a mask, returning a new canonical array.
-pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Canonical {
+pub(super) fn execute_filter(
+    canonical: Canonical,
+    mask: &Arc<MaskValues>,
+    ctx: &mut ExecutionCtx,
+) -> Canonical {
     match canonical {
         Canonical::Null(_) => Canonical::Null(NullArray::new(mask.true_count())),
         Canonical::Bool(a) => Canonical::Bool(bool::filter_bool(&a, mask)),
         Canonical::Primitive(a) => Canonical::Primitive(primitive::filter_primitive(&a, mask)),
         Canonical::Decimal(a) => Canonical::Decimal(decimal::filter_decimal(&a, mask)),
-        Canonical::VarBinView(a) => Canonical::VarBinView(varbinview::filter_varbinview(&a, mask)),
+        Canonical::VarBinView(a) => {
+            Canonical::VarBinView(varbinview::filter_varbinview(&a, mask, ctx))
+        }
         Canonical::List(a) => Canonical::List(listview::filter_listview(&a, mask)),
         Canonical::FixedSizeList(a) => {
             Canonical::FixedSizeList(fixed_size_list::filter_fixed_size_list(&a, mask))

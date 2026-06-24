@@ -45,6 +45,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
@@ -80,6 +82,9 @@ mod test {
         DType::Primitive(PType::F32, Nullability::NonNullable),
     ).unwrap())]
     fn test_mask_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_mask_conformance(&chunked.into_array());
+        test_mask_conformance(
+            &chunked.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

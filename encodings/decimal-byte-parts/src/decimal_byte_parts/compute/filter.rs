@@ -27,6 +27,8 @@ impl FilterReduce for DecimalByteParts {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::DecimalDType;
@@ -41,7 +43,10 @@ mod test {
 
         let decimal_dtype = DecimalDType::new(8, 2);
         let array = DecimalByteParts::try_new(msp, decimal_dtype).unwrap();
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
 
         // Test with nullable values
         let msp = PrimitiveArray::from_option_iter([Some(10i64), None, Some(30), Some(40), None])
@@ -49,6 +54,9 @@ mod test {
 
         let decimal_dtype = DecimalDType::new(18, 4);
         let array = DecimalByteParts::try_new(msp, decimal_dtype).unwrap();
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

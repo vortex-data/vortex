@@ -117,7 +117,7 @@ mod tests {
         let varbin = varbin.into_array();
         let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
         let array = fsst_compress(&varbin, &compressor, &mut ctx)?;
-        test_take_conformance(&array.into_array());
+        test_take_conformance(&array.into_array(), &mut ctx);
         Ok(())
     }
 

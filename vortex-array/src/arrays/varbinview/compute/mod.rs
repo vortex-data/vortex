@@ -15,8 +15,6 @@ mod tests {
 
     use crate::IntoArray;
     use crate::arrays::VarBinViewArray;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     #[test]
     fn take_nullable() -> VortexResult<()> {
         let arr = VarBinViewArray::from_iter_nullable_str([
@@ -32,8 +30,7 @@ mod tests {
 
         assert!(taken.dtype().is_nullable());
         let mut ctx = array_session().create_execution_ctx();
-        #[expect(deprecated)]
-        let taken = taken.to_varbinview();
+        let taken = taken.execute::<VarBinViewArray>(&mut ctx)?;
         let mask = taken.validity()?.execute_mask(taken.len(), &mut ctx)?;
         let result = (0..taken.len())
             .map(|i| {

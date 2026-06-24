@@ -65,6 +65,6 @@ mod test {
         let mut ctx = array_session().create_execution_ctx();
         let array_primitive = array.execute::<PrimitiveArray>(&mut ctx).unwrap();
         let alp = alp_encode(array_primitive.as_view(), None, &mut ctx).unwrap();
-        test_filter_conformance(&alp.into_array());
+        test_filter_conformance(&alp.into_array(), &mut ctx);
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -21,6 +22,8 @@ use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::NullBuilder;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -117,6 +120,18 @@ impl VTable for Null {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<NullBuilder>() else {
+            vortex_bail!("append_to_builder for Null requires a NullBuilder");
+        };
+        builder.append_nulls(array.len());
+        Ok(())
     }
 }
 

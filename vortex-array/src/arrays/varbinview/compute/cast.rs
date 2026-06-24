@@ -135,6 +135,6 @@ mod tests {
     #[case(VarBinViewArray::from_iter(vec![Some("single")], DType::Utf8(Nullability::NonNullable)))]
     #[case(VarBinViewArray::from_iter(vec![Some("very long string that exceeds the inline size to test view functionality with multiple buffers")], DType::Utf8(Nullability::NonNullable)))]
     fn test_cast_varbinview_conformance(#[case] array: VarBinViewArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

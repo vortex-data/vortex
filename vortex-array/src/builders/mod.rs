@@ -34,10 +34,10 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::match_each_decimal_value_type;
@@ -153,30 +153,6 @@ pub trait ArrayBuilder: Send {
     /// A generic function to append a scalar to the builder.
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()>;
 
-    /// The inner part of `extend_from_array`.
-    ///
-    /// # Safety
-    ///
-    /// The array that must have an equal [`DType`] to the array builder's `DType` (with nullability
-    /// superset semantics).
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef);
-
-    /// Extends the array with the provided array, canonicalizing if necessary.
-    ///
-    /// Implementors must validate that the passed in [`ArrayRef`] has the correct [`DType`].
-    fn extend_from_array(&mut self, array: &ArrayRef) {
-        if !self.dtype().eq_with_nullability_superset(array.dtype()) {
-            vortex_panic!(
-                "tried to extend a builder with `DType` {} with an array with `DType {}",
-                self.dtype(),
-                array.dtype()
-            );
-        }
-
-        // SAFETY: We checked that the array had a valid `DType` above.
-        unsafe { self.extend_from_array_unchecked(array) }
-    }
-
     /// Allocate space for extra `additional` items
     fn reserve_exact(&mut self, additional: usize);
 
@@ -214,7 +190,7 @@ pub trait ArrayBuilder: Send {
     /// This method provides a default implementation that creates an [`ArrayRef`] via `finish` and
     /// then converts it to canonical form. Specific builders can override this with optimized
     /// implementations that avoid the intermediate [`ArrayRef`] creation.
-    fn finish_into_canonical(&mut self) -> Canonical;
+    fn finish_into_canonical(&mut self, ctx: &mut ExecutionCtx) -> Canonical;
 }
 
 /// Construct a new canonical builder for the given [`DType`].
@@ -308,3 +284,60 @@ pub fn builder_with_capacity_in(
     let _allocator = allocator;
     builder_with_capacity(dtype, capacity)
 }
+
+/// Append a list-typed `$array` into `$builder` if it is a [`ListBuilder`], enumerating the possible
+/// offset integer types and trying each downcast. On a match it `return`s the append result from the
+/// enclosing function; otherwise it falls through.
+///
+/// [`ListBuilder`] is never produced by [`builder_with_capacity`] (the canonical list builder is
+/// [`ListViewBuilder`]), so its offset type cannot be assumed — hence the enumeration. List offsets
+/// are always unsigned integers.
+macro_rules! match_each_list_builder {
+    ($array:expr, $builder:expr, $ctx:expr) => {{
+        $crate::builders::match_each_list_builder!(@types $array, $builder, $ctx, [u8, u16, u32, u64]);
+    }};
+    (@types $array:expr, $builder:expr, $ctx:expr, [$($O:ty),*]) => {{
+        $(
+            if let Some(builder) = $builder
+                .as_any_mut()
+                .downcast_mut::<$crate::builders::ListBuilder<$O>>()
+            {
+                return builder.append_list_array($array, $ctx);
+            }
+        )*
+    }};
+}
+pub(crate) use match_each_list_builder;
+
+/// Append a list-typed `$array` into `$builder` if it is a [`ListViewBuilder`], enumerating the
+/// possible offset and size integer types and trying each downcast. On a match it `return`s the
+/// append result from the enclosing function; otherwise it falls through.
+///
+/// [`builder_with_capacity`] produces a `ListViewBuilder<u64, u64>` for [`DType::List`], but a
+/// caller may supply different offset/size types, so the concrete type cannot be assumed — hence the
+/// enumeration. List offsets and sizes are always unsigned integers.
+macro_rules! match_each_listview_builder {
+    ($array:expr, $builder:expr, $ctx:expr) => {{
+        $crate::builders::match_each_listview_builder!(
+            @offsets $array, $builder, $ctx, [u8, u16, u32, u64], [u8, u16, u32, u64]
+        );
+    }};
+    // For each offset type `O`, expand over every size type `S` (cartesian product).
+    (@offsets $array:expr, $builder:expr, $ctx:expr, [$($O:ty),*], $sizes:tt) => {{
+        $(
+            $crate::builders::match_each_listview_builder!(@sizes $array, $builder, $ctx, $O, $sizes);
+        )*
+    }};
+    (@sizes $array:expr, $builder:expr, $ctx:expr, $O:ty, [$($S:ty),*]) => {{
+        $(
+            if let Some(builder) = $builder
+                .as_any_mut()
+                .downcast_mut::<$crate::builders::ListViewBuilder<$O, $S>>()
+            {
+                let listview = $array.clone().execute::<$crate::arrays::ListViewArray>($ctx)?;
+                return builder.append_listview_array(&listview, $ctx);
+            }
+        )*
+    }};
+}
+pub(crate) use match_each_listview_builder;

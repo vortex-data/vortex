@@ -45,7 +45,10 @@ impl Scheme for ZstdScheme {
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let compacted = data.array_as_varbinview().into_owned().compact_buffers()?;
+        let compacted = data
+            .array_as_varbinview()
+            .into_owned()
+            .compact_buffers(exec_ctx)?;
         Ok(
             vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192, exec_ctx)?
                 .into_array(),

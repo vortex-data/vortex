@@ -26,13 +26,13 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
-    use crate::legacy_session;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
@@ -44,7 +44,7 @@ mod tests {
     #[case(ConstantArray::new(Scalar::null_native::<i32>(), 4).into_array())]
     #[case(ConstantArray::new(Scalar::from(255u8), 1).into_array())]
     fn test_cast_constant_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(&array);
+        test_cast_conformance(&array, &mut array_session().create_execution_ctx());
     }
 
     #[test]
@@ -58,7 +58,7 @@ mod tests {
 
         assert_eq!(casted.dtype(), &target_dtype);
         let scalar = casted
-            .execute_scalar(0, &mut legacy_session().create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap();
         assert_eq!(
             scalar.as_decimal().decimal_value(),

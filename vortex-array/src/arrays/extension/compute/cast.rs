@@ -146,7 +146,7 @@ mod tests {
     #[case(create_timestamp_array(TimeUnit::Nanoseconds, false))]
     #[case(create_timestamp_array(TimeUnit::Seconds, true))]
     fn test_cast_extension_conformance(#[case] array: ExtensionArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     fn create_timestamp_array(time_unit: TimeUnit, nullable: bool) -> ExtensionArray {

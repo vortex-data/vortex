@@ -217,8 +217,6 @@ mod tests {
     use crate::array_session;
     use crate::arrays::VarBinViewArray;
     use crate::builtins::ArrayBuiltins;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
@@ -250,12 +248,12 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
-        #[expect(deprecated)]
+        let mut ctx = array_session().create_execution_ctx();
         let zipped = mask
             .clone()
             .into_array()
             .zip(a.into_array(), b.into_array())?
-            .to_varbinview();
+            .execute::<VarBinViewArray>(&mut ctx)?;
 
         let mut ctx = array_session().create_execution_ctx();
         let validity_mask = zipped.validity()?.execute_mask(zipped.len(), &mut ctx)?;

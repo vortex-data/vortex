@@ -87,8 +87,7 @@ mod tests {
 
     use crate::EmptyMetadata;
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;
@@ -179,8 +178,11 @@ mod tests {
         assert_eq!(ext_result.ext_dtype(), &ext_dtype);
 
         // Check the storage values
-        #[expect(deprecated)]
-        let storage_prim = ext_result.storage_array().to_primitive();
+        let storage_prim = ext_result
+            .storage_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         let storage_result: &[i64] = &storage_prim.to_buffer::<i64>();
         assert_eq!(storage_result, &[1, 3, 5]);
     }
@@ -207,8 +209,11 @@ mod tests {
         assert_eq!(ext_result.len(), 3);
 
         // Check values: should be [Some(1), None, None]
-        #[expect(deprecated)]
-        let canonical = ext_result.storage_array().to_primitive();
+        let canonical = ext_result
+            .storage_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(canonical.len(), 3);
     }
 

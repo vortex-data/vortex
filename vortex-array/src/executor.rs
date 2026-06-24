@@ -495,9 +495,9 @@ impl Executable for ArrayRef {
 /// Execute `array` into the given `builder`.
 ///
 /// This uses the encoding's [`crate::array::VTable::append_to_builder`] implementation. Most
-/// encodings use the default path of `execute::<Canonical>` followed by `builder.extend_from_array`,
-/// while encodings like `Chunked` can override that to append child-by-child without materializing
-/// the entire parent.
+/// encodings use the default path of `execute::<Canonical>` followed by re-dispatching
+/// `append_to_builder` on the canonical array, while encodings like `Chunked` can override that to
+/// append child-by-child without materializing the entire parent.
 ///
 /// The builder must have a [`DType`] that is a nullability-superset of `array.dtype()`.
 pub fn execute_into_builder(

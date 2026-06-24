@@ -237,12 +237,14 @@ async fn test_read_simple_with_spawn() {
             vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
             Arc::new(I32.into()),
         )
-        .unwrap(),
+        .unwrap()
+        .into_array(),
         ListArray::from_iter_slow::<i8, _>(
             vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
             Arc::new(I32.into()),
         )
-        .unwrap(),
+        .unwrap()
+        .into_array(),
     ])
     .into_array();
 
