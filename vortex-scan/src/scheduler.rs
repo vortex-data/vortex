@@ -25,7 +25,7 @@ use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 const DEFAULT_MORSEL_CONCURRENCY_FACTOR: usize = 4;
-const DEFAULT_READ_BYTE_BUDGET: u64 = 256 * 1024 * 1024;
+const DEFAULT_MORSEL_BYTE_BUDGET: u64 = 256 * 1024 * 1024;
 
 /// Configuration for a [`ScanScheduler`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,7 +34,7 @@ pub struct ScanSchedulerConfig {
     per_scan_slots: Option<usize>,
     morsel_plan_window: Option<usize>,
     morsel_launch_window: Option<usize>,
-    read_byte_budget: Option<u64>,
+    morsel_byte_budget: Option<u64>,
 }
 
 impl ScanSchedulerConfig {
@@ -45,7 +45,7 @@ impl ScanSchedulerConfig {
             per_scan_slots: None,
             morsel_plan_window: None,
             morsel_launch_window: None,
-            read_byte_budget: None,
+            morsel_byte_budget: None,
         }
     }
 
@@ -60,7 +60,7 @@ impl ScanSchedulerConfig {
             per_scan_slots: Some(slots),
             morsel_plan_window: None,
             morsel_launch_window: Some(slots),
-            read_byte_budget: Some(DEFAULT_READ_BYTE_BUDGET),
+            morsel_byte_budget: Some(DEFAULT_MORSEL_BYTE_BUDGET),
         }
     }
 
@@ -78,11 +78,11 @@ impl ScanSchedulerConfig {
         self
     }
 
-    /// Return a copy with the maximum number of unfetched read bytes allowed in flight per scan.
+    /// Return a copy with the maximum number of logical segment bytes allowed in flight per scan.
     ///
     /// `None` means scan task launch is not capped by bytes.
-    pub fn with_read_byte_budget(mut self, bytes: Option<u64>) -> Self {
-        self.read_byte_budget = bytes.map(|bytes| bytes.max(1));
+    pub fn with_morsel_byte_budget(mut self, bytes: Option<u64>) -> Self {
+        self.morsel_byte_budget = bytes.map(|bytes| bytes.max(1));
         self
     }
 
@@ -118,9 +118,9 @@ impl ScanSchedulerConfig {
         self.morsel_launch_window
     }
 
-    /// Returns the configured per-scan unfetched-read byte budget.
-    pub fn read_byte_budget(&self) -> Option<u64> {
-        self.read_byte_budget
+    /// Returns the configured per-scan logical segment byte budget.
+    pub fn morsel_byte_budget(&self) -> Option<u64> {
+        self.morsel_byte_budget
     }
 }
 

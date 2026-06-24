@@ -13,41 +13,41 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::FutureExt;
-use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::SliceArray;
 use vortex_array::expr::Expression;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::serde::SerializedArray;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scan::plan::PrepareCtx;
-use vortex_scan::plan::PreparedRead;
-use vortex_scan::plan::PreparedReadRef;
-use vortex_scan::plan::PreparedStateKey;
-use vortex_scan::plan::PushCtx;
-use vortex_scan::plan::ReadContext;
-use vortex_scan::plan::RowScope;
-use vortex_scan::plan::ScanPlan;
-use vortex_scan::plan::ScanPlanRef;
-use vortex_scan::plan::ScanState;
-use vortex_scan::plan::ScanStateRef;
-use vortex_scan::plan::StateCtx;
-use vortex_scan::plan::default_try_push_expr;
-use vortex_scan::plan::downcast_state;
-use vortex_scan::plan::request::ScanRequest;
+use vortex_scan::read::ScanRead;
 use vortex_session::VortexSession;
 
 use crate::layout_v2::Flat;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
-use crate::layouts::SharedArrayFuture;
+use crate::scan::plan::OwnedRowScope;
+use crate::scan::plan::PrepareCtx;
+use crate::scan::plan::PreparedRead;
+use crate::scan::plan::PreparedReadRef;
+use crate::scan::plan::PreparedStateKey;
+use crate::scan::plan::PushCtx;
+use crate::scan::plan::ReadContext;
+use crate::scan::plan::ReadStep;
+use crate::scan::plan::ReadTask;
+use crate::scan::plan::ReadTaskOutput;
+use crate::scan::plan::RowScope;
+use crate::scan::plan::ScanPlan;
+use crate::scan::plan::ScanPlanRef;
+use crate::scan::plan::ScanState;
+use crate::scan::plan::ScanStateRef;
+use crate::scan::plan::StateCtx;
+use crate::scan::plan::default_try_push_expr;
+use crate::scan::plan::downcast_state;
+use crate::scan::plan::request::ScanRequest;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
@@ -70,7 +70,7 @@ pub struct FlatScanPlan {
 /// Per-query cache of the parsed (still lazy) array.
 #[derive(Default)]
 pub struct FlatScanState {
-    array: Mutex<Option<SharedArrayFuture>>,
+    array: Mutex<Option<ArrayRef>>,
 }
 
 struct FlatPreparedRead {
@@ -78,24 +78,28 @@ struct FlatPreparedRead {
     state: Arc<FlatScanState>,
 }
 
+struct FlatReadTask {
+    read: Arc<FlatPreparedRead>,
+    range: Range<u64>,
+    rows: OwnedRowScope,
+    reads: Vec<ScanRead>,
+    prefetch_reads: Vec<ScanRead>,
+}
+
 impl FlatScanPlan {
-    fn array(&self, io: &ReadContext, state: &FlatScanState) -> SharedArrayFuture {
+    fn array(&self, io: &ReadContext, state: &FlatScanState) -> VortexResult<ArrayRef> {
         if let Some(hit) = state.array.lock().clone() {
-            return hit;
+            return Ok(hit);
         }
 
         let mut guard = state.array.lock();
         if let Some(hit) = guard.clone() {
-            return hit;
+            return Ok(hit);
         }
 
-        let layout = self.layout.clone();
-        let io = io.clone();
-        let future = async move { decode_flat(&layout, &io).await.map_err(Arc::new) }
-            .boxed()
-            .shared();
-        *guard = Some(future.clone());
-        future
+        let array = decode_flat(&self.layout, io)?;
+        *guard = Some(array.clone());
+        Ok(array)
     }
 }
 
@@ -138,19 +142,61 @@ impl ScanPlan for FlatScanPlan {
 }
 
 impl PreparedRead for FlatPreparedRead {
-    fn read_scoped<'a>(
-        &'a self,
+    fn segment_requests(
+        &self,
+        _range: Range<u64>,
+        _rows: RowScope<'_>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let Some(flat) = self.node.layout.as_opt::<Flat>() else {
+            vortex_bail!(
+                "expected flat layout, got {}",
+                self.node.layout.encoding_id()
+            );
+        };
+        Ok(SegmentRequests::exact(vec![
+            cx.request_for_segment(flat.data().segment_id())?,
+        ]))
+    }
+
+    fn create_task(
+        self: Arc<Self>,
         range: Range<u64>,
-        rows: RowScope<'a>,
-        io: &'a ReadContext,
-        _local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        Box::pin(async move {
-            let array = self
-                .node
-                .array(io, &self.state)
-                .await
-                .map_err(VortexError::from)?;
+        rows: OwnedRowScope,
+        reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        _cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        Ok(Box::new(FlatReadTask {
+            read: self,
+            range,
+            rows,
+            reads,
+            prefetch_reads,
+        }))
+    }
+
+    fn release(&self, frontier: u64) -> VortexResult<()> {
+        self.node.release(frontier, &self.state)
+    }
+
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.node.fmt_chain(f)
+    }
+}
+
+impl ReadTask for FlatReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        let Self {
+            read,
+            range,
+            rows,
+            reads,
+            prefetch_reads,
+        } = *self;
+        Ok(ReadStep::new(reads, prefetch_reads, move |io, _, _| {
+            let array = read.node.array(io, &read.state)?;
+            let rows = rows.as_scope();
             let dense = slice_to_range(array, &range)?;
             if rows.selection.len() != dense.len() {
                 vortex_bail!(
@@ -167,49 +213,20 @@ impl PreparedRead for FlatPreparedRead {
                 );
             }
             if rows.selection.all_true() {
-                return Ok(dense);
+                return Ok(ReadTaskOutput::Ready(dense));
             }
-            dense.filter(rows.selection.clone())
-        })
-    }
-
-    fn segment_requests(
-        &self,
-        _range: Range<u64>,
-        _rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        if self.state.array.lock().is_some() {
-            return Ok(SegmentRequests::none());
-        }
-
-        let Some(flat) = self.node.layout.as_opt::<Flat>() else {
-            vortex_bail!(
-                "expected flat layout, got {}",
-                self.node.layout.encoding_id()
-            );
-        };
-        Ok(SegmentRequests::exact(vec![
-            cx.request_for_segment(flat.data().segment_id())?,
-        ]))
-    }
-
-    fn release(&self, frontier: u64) -> VortexResult<()> {
-        self.node.release(frontier, &self.state)
-    }
-
-    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.node.fmt_chain(f)
+            Ok(ReadTaskOutput::Ready(dense.filter(rows.selection.clone())?))
+        }))
     }
 }
 
-pub(crate) async fn decode_flat(layout: &LayoutRef, io: &ReadContext) -> VortexResult<ArrayRef> {
+pub(crate) fn decode_flat(layout: &LayoutRef, io: &ReadContext) -> VortexResult<ArrayRef> {
     let Some(flat) = layout.as_opt::<Flat>() else {
         vortex_bail!("expected flat layout, got {}", layout.encoding_id());
     };
     let row_count = usize::try_from(layout.row_count())
         .map_err(|_| vortex_err!("layout row count exceeds usize"))?;
-    let segment = io.segments().request(flat.data().segment_id()).await?;
+    let segment = io.segment(flat.data().segment_id())?;
     let parts = if let Some(tree) = flat.data().array_tree() {
         SerializedArray::from_flatbuffer_and_segment(tree.clone(), segment)?
     } else {

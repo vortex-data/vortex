@@ -14,6 +14,13 @@ use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_scan::read::CancelGroup;
+use vortex_scan::read::ReadRequestKey;
+use vortex_scan::read::ReadResults;
+use vortex_scan::read::ScanIoPhase;
+use vortex_scan::read::ScanPriority;
+use vortex_scan::read::ScanRead;
+use vortex_scan::read::ScanReadRequest;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
@@ -50,65 +57,7 @@ impl SegmentInfo {
     }
 }
 
-/// High-level scan phase associated with a segment request.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum ScanIoPhase {
-    /// Shared evidence setup, such as loading a stats table.
-    EvidenceSetup,
-    /// Per-morsel evidence probe.
-    EvidenceProbe,
-    /// Residual predicate value read.
-    PredicateRead,
-    /// Projected output value read.
-    #[default]
-    ProjectionRead,
-    /// Aggregate input or metadata read.
-    AggregateRead,
-}
-
-/// Scheduler priority for a segment request.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ScanPriority(i32);
-
-impl ScanPriority {
-    /// Normal request priority.
-    pub const NORMAL: Self = Self(0);
-
-    /// Create a priority from a signed integer value.
-    pub fn new(value: i32) -> Self {
-        Self(value)
-    }
-
-    /// Return the signed integer priority value.
-    pub fn get(self) -> i32 {
-        self.0
-    }
-}
-
-/// Cancellation scope for a group of related segment requests.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct CancelGroup(u64);
-
-impl CancelGroup {
-    /// A request that is not associated with a finer cancellation group.
-    pub const NONE: Self = Self(0);
-
-    /// Create a cancellation group from an integer id.
-    pub fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    /// Return the integer cancellation group id.
-    pub fn get(self) -> u64 {
-        self.0
-    }
-}
-
 /// A scheduler-visible request for one logical segment payload.
-///
-/// The first scheduler API intentionally only models segment payloads. If a future custom
-/// `ScanPlan` needs opaque or non-segment I/O, add that request shape next to this type rather
-/// than smuggling physical locations into `SegmentRequest`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SegmentRequest {
     /// Logical segment id within the source.
@@ -140,6 +89,24 @@ impl SegmentRequestKey {
 impl From<&SegmentRequest> for SegmentRequestKey {
     fn from(request: &SegmentRequest) -> Self {
         Self::new(request.segment)
+    }
+}
+
+impl From<SegmentRequestKey> for ReadRequestKey {
+    fn from(key: SegmentRequestKey) -> Self {
+        Self::new(u64::from(*key.segment))
+    }
+}
+
+impl From<&SegmentRequest> for ScanReadRequest {
+    fn from(request: &SegmentRequest) -> Self {
+        Self::new(
+            ReadRequestKey::from(SegmentRequestKey::from(request)),
+            request.bytes,
+            request.phase,
+        )
+        .with_priority(request.priority)
+        .with_cancel_group(request.cancel_group)
     }
 }
 
@@ -290,21 +257,6 @@ impl SegmentPlanCtx {
     }
 }
 
-/// One logical segment read registered for a scan task.
-pub struct ScanRead {
-    /// The logical request this handle resolves.
-    pub request: SegmentRequest,
-    /// Future resolving to the requested segment payload.
-    pub future: SegmentFuture,
-}
-
-impl ScanRead {
-    /// Create a handle for one logical segment request.
-    pub fn new(request: SegmentRequest, future: SegmentFuture) -> Self {
-        Self { request, future }
-    }
-}
-
 type SharedSegmentFuture = BoxFuture<'static, SharedVortexResult<BufferHandle>>;
 
 /// Scan-local cache of in-flight segment futures keyed by logical segment request.
@@ -338,8 +290,11 @@ impl SegmentFutureCache {
                     entry.remove();
                 }
                 Entry::Vacant(entry) => {
-                    let handle = ScanRead::new(request, source.request(request.segment));
-                    let shared = handle.future.map_err(Arc::new).boxed().shared();
+                    let shared = source
+                        .request(request.segment)
+                        .map_err(Arc::new)
+                        .boxed()
+                        .shared();
                     entry.insert(
                         shared
                             .downgrade()
@@ -386,20 +341,20 @@ impl SegmentFutureCache {
         source: &dyn SegmentSource,
         misses: Vec<SegmentRequest>,
     ) -> Vec<ScanRead> {
-        self.insert_submitted(
-            misses
-                .into_iter()
-                .map(|request| ScanRead::new(request, source.request(request.segment)))
-                .collect(),
-        )
+        self.insert_submitted(misses.into_iter().map(|request| {
+            let future = source.request(request.segment);
+            (request, future)
+        }))
     }
 
-    fn insert_submitted(&self, handles: Vec<ScanRead>) -> Vec<ScanRead> {
+    fn insert_submitted(
+        &self,
+        handles: impl IntoIterator<Item = (SegmentRequest, SegmentFuture)>,
+    ) -> Vec<ScanRead> {
         handles
             .into_iter()
-            .map(|handle| {
-                let request = handle.request;
-                let shared = handle.future.map_err(Arc::new).boxed().shared();
+            .map(|(request, future)| {
+                let shared = future.map_err(Arc::new).boxed().shared();
                 self.in_flight.insert(
                     SegmentRequestKey::from(&request),
                     shared
@@ -422,6 +377,10 @@ pub fn register_segment_reads_cached(
 }
 
 fn shared_segment_handle(request: SegmentRequest, future: Shared<SharedSegmentFuture>) -> ScanRead {
+    shared_read_handle(ScanReadRequest::from(&request), future)
+}
+
+fn shared_read_handle(request: ScanReadRequest, future: Shared<SharedSegmentFuture>) -> ScanRead {
     ScanRead::new(request, future.map_err(VortexError::from).boxed())
 }
 
@@ -430,6 +389,36 @@ pub struct CachedSegmentSource {
     source: Arc<dyn SegmentSource>,
     cache: Arc<SegmentFutureCache>,
     phase: ScanIoPhase,
+}
+
+/// Segment source backed by scheduler-resolved read results.
+pub struct ReadResultsSegmentSource {
+    source: Arc<dyn SegmentSource>,
+    results: ReadResults,
+}
+
+impl ReadResultsSegmentSource {
+    /// Create a segment source over already-resolved scan read results.
+    pub fn new(source: Arc<dyn SegmentSource>, results: ReadResults) -> Self {
+        Self { source, results }
+    }
+}
+
+impl SegmentSource for ReadResultsSegmentSource {
+    fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
+        self.source.segment_info(id)
+    }
+
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        let key = ReadRequestKey::from(SegmentRequestKey::new(id));
+        let results = self.results.clone();
+        async move { results.get(key) }.boxed()
+    }
+
+    fn resolved(&self, id: SegmentId) -> VortexResult<BufferHandle> {
+        self.results
+            .get(ReadRequestKey::from(SegmentRequestKey::new(id)))
+    }
 }
 
 impl CachedSegmentSource {

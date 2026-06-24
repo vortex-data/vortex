@@ -12,6 +12,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use futures::future;
+use tracing::Instrument;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -114,8 +115,15 @@ impl FileSegmentSource {
                 .map(move |req| {
                     let reader = reader.clone();
                     async move {
+                        let offset = req.offset();
+                        let len = req.len();
                         let result = reader
-                            .read_at(req.offset(), req.len(), req.alignment())
+                            .read_at(offset, len, req.alignment())
+                            .instrument(tracing::trace_span!(
+                                "vortex_segment_read",
+                                offset,
+                                len,
+                            ))
                             .await;
                         let result = result.and_then(|buffer| {
                             if req.len() != buffer.len() {

@@ -22,10 +22,9 @@
 //! * We should add a way for the client to negotiate capabilities with the data source, for
 //!   example which encodings it knows about.
 
-pub mod plan;
+pub mod read;
 pub mod row_mask;
 pub mod scheduler;
-pub mod segments;
 pub mod selection;
 pub mod task;
 

@@ -40,34 +40,12 @@ use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_scan::plan::AggregateAnswer;
-use vortex_scan::plan::EvidenceCost;
-use vortex_scan::plan::EvidenceScope;
-use vortex_scan::plan::PrepareCtx;
-use vortex_scan::plan::PreparedAggregate;
-use vortex_scan::plan::PreparedAggregateRef;
-use vortex_scan::plan::PreparedEvidence;
-use vortex_scan::plan::PreparedEvidenceRef;
-use vortex_scan::plan::PreparedRead;
-use vortex_scan::plan::PreparedReadRef;
-use vortex_scan::plan::PreparedStateKey;
-use vortex_scan::plan::PushCtx;
-use vortex_scan::plan::ReadContext;
-use vortex_scan::plan::RowScope;
-use vortex_scan::plan::ScanPlan;
-use vortex_scan::plan::ScanPlanRef;
-use vortex_scan::plan::ScanState;
-use vortex_scan::plan::ScanStateRef;
-use vortex_scan::plan::StateCtx;
-use vortex_scan::plan::default_try_push_expr;
-use vortex_scan::plan::downcast_state;
-use vortex_scan::plan::evidence::EvidenceFragment;
-use vortex_scan::plan::evidence::PredicateEvidenceKind;
-use vortex_scan::plan::read_dense;
-use vortex_scan::plan::request::EvidenceRequest;
-use vortex_scan::plan::request::ScanRequest;
+use vortex_scan::read::ReadResults;
+use vortex_scan::read::ReadStore;
+use vortex_scan::read::ScanRead;
 use vortex_session::VortexSession;
 
 use crate::layout_v2::Layout;
@@ -77,8 +55,38 @@ use crate::layouts::zoned::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::MIN_IS_TRUNCATED;
 use crate::layouts::zoned::ZoneMapSchema;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::scan::plan::AggregateAnswer;
+use crate::scan::plan::EvidenceCost;
+use crate::scan::plan::EvidenceScope;
+use crate::scan::plan::OwnedRowScope;
+use crate::scan::plan::PrepareCtx;
+use crate::scan::plan::PreparedAggregate;
+use crate::scan::plan::PreparedAggregateRef;
+use crate::scan::plan::PreparedEvidence;
+use crate::scan::plan::PreparedEvidenceRef;
+use crate::scan::plan::PreparedRead;
+use crate::scan::plan::PreparedReadRef;
+use crate::scan::plan::PreparedStateKey;
+use crate::scan::plan::PushCtx;
+use crate::scan::plan::ReadContext;
+use crate::scan::plan::ReadTask;
+use crate::scan::plan::ReadTaskOutput;
+use crate::scan::plan::RowScope;
+use crate::scan::plan::ScanPlan;
+use crate::scan::plan::ScanPlanRef;
+use crate::scan::plan::ScanState;
+use crate::scan::plan::ScanStateRef;
+use crate::scan::plan::StateCtx;
+use crate::scan::plan::default_try_push_expr;
+use crate::scan::plan::downcast_state;
+use crate::scan::plan::evidence::EvidenceFragment;
+use crate::scan::plan::evidence::PredicateEvidenceKind;
+use crate::scan::plan::request::EvidenceRequest;
+use crate::scan::plan::request::ScanRequest;
+use crate::segments::SegmentFutureCache;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
+use crate::segments::register_segment_reads_cached;
 
 pub(crate) fn new_scan_plan<V: VTable<LayoutData = ZonedData>>(
     layout: Layout<V>,
@@ -232,6 +240,60 @@ impl ZonedScanState {
     }
 }
 
+fn read_zones_child(
+    zones_read: &PreparedReadRef,
+    nzones: u64,
+    io: &ReadContext,
+) -> VortexResult<ArrayRef> {
+    let len = usize::try_from(nzones).map_err(|_| vortex_err!("zone count exceeds usize"))?;
+    let rows = OwnedRowScope::selected(Mask::new_true(len));
+    let mut segment_ctx = SegmentPlanCtx::new(Arc::clone(io.segments()), io.session().clone());
+    let requests = zones_read.segment_requests(0..nzones, rows.as_scope(), &mut segment_ctx)?;
+    if requests.is_unknown() {
+        vortex_bail!("zoned stats child produced unknown segment requests")
+    }
+    let cache = SegmentFutureCache::new();
+    let reads = register_segment_reads_cached(&cache, io.segments().as_ref(), requests);
+    let prefetch_requests =
+        zones_read.prefetch_segment_requests(0..nzones, rows.as_scope(), &mut segment_ctx)?;
+    let prefetch_reads = if prefetch_requests.is_unknown() {
+        Vec::new()
+    } else {
+        register_segment_reads_cached(&cache, io.segments().as_ref(), prefetch_requests)
+    };
+    let mut task = Arc::clone(zones_read).create_task(
+        0..nzones,
+        rows,
+        reads,
+        prefetch_reads,
+        &mut segment_ctx,
+    )?;
+    let read_store = Arc::new(ReadStore::new());
+    loop {
+        let step = task.into_step()?;
+        resolve_zoned_reads(Arc::clone(&read_store), step.required_reads)?;
+        resolve_zoned_reads(Arc::clone(&read_store), step.prefetch_reads)?;
+        let mut local = io.session().create_execution_ctx();
+        match step
+            .continuation
+            .run(io, &mut local, ReadResults::new(Arc::clone(&read_store)))?
+        {
+            ReadTaskOutput::Ready(array) => return Ok(array),
+            ReadTaskOutput::Continue(next) => task = next,
+        }
+    }
+}
+
+fn resolve_zoned_reads(read_store: Arc<ReadStore>, reads: Vec<ScanRead>) -> VortexResult<()> {
+    for read in reads {
+        if read_store.get(read.request.key).is_none() {
+            let buffer = futures::executor::block_on(read.future)?;
+            read_store.insert(read.request.key, buffer);
+        }
+    }
+    Ok(())
+}
+
 impl ZonedScanPlan {
     fn shared_zone_state(&self, cx: &mut PrepareCtx) -> VortexResult<Arc<ZonedScanState>> {
         let key =
@@ -255,7 +317,7 @@ impl ZonedScanPlan {
 
     /// The decoded per-zone stats table, read once per query. Concurrent
     /// decodes are benign (the segment fetch is shared; last-write-wins).
-    async fn table(
+    fn table(
         &self,
         zones_read: &PreparedReadRef,
         io: &ReadContext,
@@ -264,7 +326,7 @@ impl ZonedScanPlan {
         if let Some(hit) = state.table.lock().clone() {
             return Ok(hit);
         }
-        let zones = read_dense(zones_read, 0..self.nzones, io).await?;
+        let zones = read_zones_child(zones_read, self.nzones, io)?;
         let mut ctx = io.session().create_execution_ctx();
         let table = Arc::new(zones.execute::<StructArray>(&mut ctx)?);
         *state.table.lock() = Some(Arc::clone(&table));
@@ -274,7 +336,7 @@ impl ZonedScanPlan {
     /// One stat's per-zone column prepared for aggregation, built once
     /// per query directly over the stats table: the values, their
     /// validity, and (for min/max) the truncation flags.
-    async fn stat_column(
+    fn stat_column(
         &self,
         stat: Stat,
         zones_read: &PreparedReadRef,
@@ -284,7 +346,7 @@ impl ZonedScanPlan {
         if let Some(hit) = state.stat_columns.lock().get(&stat) {
             return Ok(hit.clone());
         }
-        let table = self.table(zones_read, io, state).await?;
+        let table = self.table(zones_read, io, state)?;
         let mut ctx = io.session().create_execution_ctx();
         let column = match table.unmasked_field_by_name_opt(stat.name()) {
             None => None,
@@ -317,7 +379,7 @@ impl ZonedScanPlan {
     /// statistics: a partial for the answerable interior zones, residual
     /// spans for edge fragments and unanswerable zones. `None`: nothing
     /// covered, the caller owns the whole range.
-    async fn aggregate_one(
+    fn aggregate_one(
         &self,
         span: &ZoneSpan,
         func: &AggregateFnRef,
@@ -346,7 +408,7 @@ impl ZonedScanPlan {
         let Some(partial_dtype) = func.state_dtype(&self.column_dtype) else {
             return Ok(None);
         };
-        let Some(col) = self.stat_column(stat, zones_read, io, state).await? else {
+        let Some(col) = self.stat_column(stat, zones_read, io, state)? else {
             return Ok(None);
         };
 
@@ -397,10 +459,7 @@ impl ZonedScanPlan {
             // to the caller.
             let null_counts = match stat {
                 Stat::NullCount => Some(Arc::clone(&col)),
-                _ => {
-                    self.stat_column(Stat::NullCount, zones_read, io, state)
-                        .await?
-                }
+                _ => self.stat_column(Stat::NullCount, zones_read, io, state)?,
             };
             let zone_nulls = |zone: usize, ctx: &mut ExecutionCtx| -> VortexResult<Option<u64>> {
                 match &null_counts {
@@ -503,10 +562,7 @@ impl ZonedScanPlan {
             let mut answers = Vec::with_capacity(funcs.len());
             let mut covered_any = false;
             for func in funcs {
-                match self
-                    .aggregate_one(&span, func, zones_read, io, state, &mut ctx)
-                    .await?
-                {
+                match self.aggregate_one(&span, func, zones_read, io, state, &mut ctx)? {
                     Some(answer) => {
                         covered_any = true;
                         answers.push(answer);
@@ -528,30 +584,22 @@ impl ZonedScanPlan {
 }
 
 impl ZonedPreparedEvidence {
-    async fn table(
-        &self,
-        io: &ReadContext,
-        state: &ZonedScanState,
-    ) -> VortexResult<Arc<StructArray>> {
+    fn table(&self, io: &ReadContext, state: &ZonedScanState) -> VortexResult<Arc<StructArray>> {
         if let Some(hit) = state.table.lock().clone() {
             return Ok(hit);
         }
-        let zones = read_dense(&self.zones_read, 0..self.nzones, io).await?;
+        let zones = read_zones_child(&self.zones_read, self.nzones, io)?;
         let mut ctx = io.session().create_execution_ctx();
         let table = Arc::new(zones.execute::<StructArray>(&mut ctx)?);
         *state.table.lock() = Some(Arc::clone(&table));
         Ok(table)
     }
 
-    async fn zone_map(
-        &self,
-        io: &ReadContext,
-        state: &ZonedScanState,
-    ) -> VortexResult<Arc<ZoneMap>> {
+    fn zone_map(&self, io: &ReadContext, state: &ZonedScanState) -> VortexResult<Arc<ZoneMap>> {
         if let Some(hit) = state.zone_map.lock().clone() {
             return Ok(hit);
         }
-        let table = self.table(io, state).await?;
+        let table = self.table(io, state)?;
         let zone_map = match &self.zone_map_schema {
             ZoneMapSchema::AggregateFns(_) => ZoneMap::try_new(
                 self.column_dtype.clone(),
@@ -579,7 +627,7 @@ impl ZonedPreparedEvidence {
         Ok(zone_map)
     }
 
-    async fn predicate_masks(
+    fn predicate_masks(
         &self,
         io: &ReadContext,
         state: &ZonedScanState,
@@ -587,7 +635,7 @@ impl ZonedPreparedEvidence {
         if let Some(hit) = state.masks.lock().get(&self.predicate) {
             return Ok(Arc::clone(hit));
         }
-        let zone_map = self.zone_map(io, state).await?;
+        let zone_map = self.zone_map(io, state)?;
         let session = io.session();
         let all_false = self
             .falsifier
@@ -631,41 +679,39 @@ impl PreparedEvidence for ZonedPreparedEvidence {
         &'a self,
         req: &'a EvidenceRequest<'a>,
         io: &'a ReadContext,
-    ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>> {
-        Box::pin(async move {
-            let mut fragments = Vec::new();
-            if self.zone_len > 0 && (self.falsifier.is_some() || self.satisfier.is_some()) {
-                let masks = self.predicate_masks(io, &self.state).await?;
-                let zones = self.zone_range(&req.range);
-                let mut run: Option<(Range<u64>, bool)> = None;
-                for zone in zones {
-                    let all_false = masks
-                        .all_false
-                        .as_ref()
-                        .is_some_and(|mask| mask.value(zone));
-                    let all_true =
-                        !all_false && masks.all_true.as_ref().is_some_and(|mask| mask.value(zone));
-                    let span = self.zone_span(zone);
-                    match (&mut run, all_false || all_true) {
-                        (Some((rows, false_run)), true) if *false_run == all_false => {
-                            rows.end = span.end;
+    ) -> VortexResult<Vec<EvidenceFragment>> {
+        let mut fragments = Vec::new();
+        if self.zone_len > 0 && (self.falsifier.is_some() || self.satisfier.is_some()) {
+            let masks = self.predicate_masks(io, &self.state)?;
+            let zones = self.zone_range(&req.range);
+            let mut run: Option<(Range<u64>, bool)> = None;
+            for zone in zones {
+                let all_false = masks
+                    .all_false
+                    .as_ref()
+                    .is_some_and(|mask| mask.value(zone));
+                let all_true =
+                    !all_false && masks.all_true.as_ref().is_some_and(|mask| mask.value(zone));
+                let span = self.zone_span(zone);
+                match (&mut run, all_false || all_true) {
+                    (Some((rows, false_run)), true) if *false_run == all_false => {
+                        rows.end = span.end;
+                    }
+                    (current, proven) => {
+                        if let Some((rows, false_run)) = current.take() {
+                            fragments.push(fragment(rows, false_run));
                         }
-                        (current, proven) => {
-                            if let Some((rows, false_run)) = current.take() {
-                                fragments.push(fragment(rows, false_run));
-                            }
-                            if proven {
-                                *current = Some((span, all_false));
-                            }
+                        if proven {
+                            *current = Some((span, all_false));
                         }
                     }
                 }
-                if let Some((rows, false_run)) = run {
-                    fragments.push(fragment(rows, false_run));
-                }
             }
-            Ok(fragments)
-        })
+            if let Some((rows, false_run)) = run {
+                fragments.push(fragment(rows, false_run));
+            }
+        }
+        Ok(fragments)
     }
 
     fn segment_requests(
@@ -830,16 +876,6 @@ impl ScanPlan for ZonedScanPlan {
 }
 
 impl PreparedRead for ZonedPreparedRead {
-    fn read_scoped<'a>(
-        &'a self,
-        range: Range<u64>,
-        rows: RowScope<'a>,
-        io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        self.data.read_scoped(range, rows, io, local)
-    }
-
     fn segment_requests(
         &self,
         range: Range<u64>,
@@ -847,6 +883,26 @@ impl PreparedRead for ZonedPreparedRead {
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
         self.data.segment_requests(range, rows, cx)
+    }
+
+    fn prefetch_segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        self.data.prefetch_segment_requests(range, rows, cx)
+    }
+
+    fn create_task(
+        self: Arc<Self>,
+        range: Range<u64>,
+        rows: OwnedRowScope,
+        reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        Arc::clone(&self.data).create_task(range, rows, reads, prefetch_reads, cx)
     }
 
     fn release(&self, frontier: u64) -> VortexResult<()> {
@@ -948,16 +1004,6 @@ impl ScanPlan for ZonedExprScanPlan {
 }
 
 impl PreparedRead for ZonedExprPreparedRead {
-    fn read_scoped<'a>(
-        &'a self,
-        range: Range<u64>,
-        rows: RowScope<'a>,
-        io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        self.data.read_scoped(range, rows, io, local)
-    }
-
     fn segment_requests(
         &self,
         range: Range<u64>,
@@ -965,6 +1011,26 @@ impl PreparedRead for ZonedExprPreparedRead {
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
         self.data.segment_requests(range, rows, cx)
+    }
+
+    fn prefetch_segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        self.data.prefetch_segment_requests(range, rows, cx)
+    }
+
+    fn create_task(
+        self: Arc<Self>,
+        range: Range<u64>,
+        rows: OwnedRowScope,
+        reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        Arc::clone(&self.data).create_task(range, rows, reads, prefetch_reads, cx)
     }
 
     fn release(&self, frontier: u64) -> VortexResult<()> {

@@ -11,15 +11,16 @@
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
-use futures::future::BoxFuture;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::segments::ScanIoPhase;
-use crate::segments::ScanRead;
-use crate::segments::SegmentRequestKey;
+use crate::read::ReadRequestKey;
+use crate::read::ReadResults;
+use crate::read::ScanIoPhase;
+use crate::read::ScanRead;
 
 /// Fine-grained scheduling lane for a scan task.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -94,7 +95,7 @@ impl ScanTaskGroup {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ScanTaskRead {
     /// Dedupe key for the logical read.
-    pub key: SegmentRequestKey,
+    pub key: ReadRequestKey,
     /// Number of bytes this read contributes if it is not already active.
     pub bytes: u64,
 }
@@ -106,13 +107,192 @@ impl ScanTaskRead {
         reads
             .iter()
             .filter_map(|read| {
-                let key = SegmentRequestKey::from(&read.request);
+                let key = read.request.key;
                 seen.insert(key).then_some(Self {
                     key,
                     bytes: read.request.bytes,
                 })
             })
             .collect()
+    }
+}
+
+/// Reads requested by one scheduler-visible scan step.
+#[derive(Default)]
+pub struct ScanStepReads {
+    required: Vec<ScanRead>,
+    prefetch: Vec<ScanRead>,
+}
+
+impl ScanStepReads {
+    /// Create an empty read set.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a read that must complete before the task can make progress.
+    pub fn require(&mut self, read: ScanRead) {
+        self.required.push(read);
+    }
+
+    /// Add a read that may be fetched speculatively but must not gate task progress.
+    pub fn prefetch(&mut self, read: ScanRead) {
+        self.prefetch.push(read);
+    }
+
+    /// Return required reads.
+    pub fn required(&self) -> &[ScanRead] {
+        &self.required
+    }
+
+    /// Return prefetch reads.
+    pub fn prefetches(&self) -> &[ScanRead] {
+        &self.prefetch
+    }
+
+    /// Consume required reads.
+    pub fn into_required(self) -> Vec<ScanRead> {
+        self.required
+    }
+
+    /// Consume prefetch reads.
+    pub fn into_prefetches(self) -> Vec<ScanRead> {
+        self.prefetch
+    }
+
+    /// Consume both read classes.
+    pub fn into_parts(self) -> (Vec<ScanRead>, Vec<ScanRead>) {
+        (self.required, self.prefetch)
+    }
+
+    /// Return true when there are no reads of either class.
+    pub fn is_empty(&self) -> bool {
+        self.required.is_empty() && self.prefetch.is_empty()
+    }
+
+    /// Return true when no progress-gating reads were requested.
+    pub fn required_is_empty(&self) -> bool {
+        self.required.is_empty()
+    }
+}
+
+/// Result of executing a scheduler-visible scan step.
+pub enum ScanStepResult<T> {
+    /// The task produced its final output.
+    Ready(T),
+    /// The task needs another scheduler-admitted step before it can finish.
+    Continue(ScanTaskBox<T>),
+}
+
+type ScanStepContinuation<T> =
+    Box<dyn FnOnce(ReadResults) -> VortexResult<ScanStepResult<T>> + Send>;
+
+/// One scheduler-visible step of a morsel-level scan task.
+pub struct ScanStep<T> {
+    morsel_id: usize,
+    phase: ScanIoPhase,
+    lane: ScanTaskLane,
+    reads: Vec<ScanTaskRead>,
+    /// Reads that must resolve before the continuation runs.
+    pub required_reads: Vec<ScanRead>,
+    /// Reads that may be fetched speculatively while this step is queued.
+    pub prefetch_reads: Vec<ScanRead>,
+    priority: u64,
+    continuation: Option<ScanStepContinuation<T>>,
+}
+
+impl<T: Send + 'static> ScanStep<T> {
+    /// Default scheduling priority for tasks without a more specific estimate.
+    pub const DEFAULT_PRIORITY: u64 = 1_000_000;
+
+    /// Create a scheduler-visible scan step.
+    pub fn new(
+        morsel_id: usize,
+        phase: ScanIoPhase,
+        lane: ScanTaskLane,
+        reads: Vec<ScanTaskRead>,
+        required_reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        continuation: impl FnOnce(ReadResults) -> VortexResult<ScanStepResult<T>> + Send + 'static,
+    ) -> Self {
+        Self {
+            morsel_id,
+            phase,
+            lane,
+            reads,
+            required_reads,
+            prefetch_reads,
+            priority: Self::DEFAULT_PRIORITY,
+            continuation: Some(Box::new(continuation)),
+        }
+    }
+
+    /// Create a ready step with no required reads.
+    pub fn ready(
+        morsel_id: usize,
+        phase: ScanIoPhase,
+        lane: ScanTaskLane,
+        reads: Vec<ScanTaskRead>,
+        output: VortexResult<T>,
+    ) -> Self
+    where
+        T: Send + 'static,
+    {
+        Self::new(
+            morsel_id,
+            phase,
+            lane,
+            reads,
+            Vec::new(),
+            Vec::new(),
+            move |_| output.map(ScanStepResult::Ready),
+        )
+    }
+
+    /// Return this step with an explicit scheduling priority.
+    pub fn with_priority(mut self, priority: u64) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    /// Box this step behind the [`ScanTask`] trait.
+    pub fn boxed(self) -> ScanTaskBox<T>
+    where
+        T: 'static,
+    {
+        Box::new(self)
+    }
+
+    /// Reads that must resolve before the continuation runs.
+    pub fn required_reads(&self) -> &[ScanRead] {
+        &self.required_reads
+    }
+
+    /// Reads that may be fetched speculatively for this step.
+    pub fn prefetch_reads(&self) -> &[ScanRead] {
+        &self.prefetch_reads
+    }
+
+    /// Consume the step into its required and prefetch reads.
+    pub fn into_reads(self) -> (Vec<ScanRead>, Vec<ScanRead>) {
+        (self.required_reads, self.prefetch_reads)
+    }
+
+    /// Take the step's required and prefetch reads, leaving empty read lists behind.
+    pub fn take_reads(&mut self) -> (Vec<ScanRead>, Vec<ScanRead>) {
+        (
+            std::mem::take(&mut self.required_reads),
+            std::mem::take(&mut self.prefetch_reads),
+        )
+    }
+
+    /// Execute this step's continuation.
+    pub fn continue_with(mut self, results: ReadResults) -> VortexResult<ScanStepResult<T>> {
+        let continuation = self
+            .continuation
+            .take()
+            .ok_or_else(|| vortex_err!("scan step was continued after completion"))?;
+        continuation(results)
     }
 }
 
@@ -133,77 +313,14 @@ pub trait ScanTask<T>: Send {
     /// Scheduling priority within this task's group. Lower values run first.
     fn priority(&self) -> u64;
 
-    /// Execute this task.
-    fn into_future(self: Box<Self>) -> BoxFuture<'static, VortexResult<T>>;
+    /// Convert this task into its next scheduler-visible step.
+    fn into_step(self: Box<Self>) -> VortexResult<ScanStep<T>>;
 }
 
 /// Boxed scan task.
 pub type ScanTaskBox<T> = Box<dyn ScanTask<T>>;
 
-/// A scan task backed by an already-constructed future.
-pub struct FutureScanTask<T> {
-    morsel_id: usize,
-    phase: ScanIoPhase,
-    lane: ScanTaskLane,
-    reads: Vec<ScanTaskRead>,
-    priority: u64,
-    future: BoxFuture<'static, VortexResult<T>>,
-}
-
-impl<T> FutureScanTask<T> {
-    /// Default scheduling priority for tasks without a more specific estimate.
-    pub const DEFAULT_PRIORITY: u64 = 1_000_000;
-
-    /// Create a future-backed scan task.
-    pub fn new(
-        morsel_id: usize,
-        phase: ScanIoPhase,
-        reads: Vec<ScanTaskRead>,
-        future: BoxFuture<'static, VortexResult<T>>,
-    ) -> Self {
-        Self::new_in_lane(
-            morsel_id,
-            phase,
-            ScanTaskLane::from_phase(phase),
-            reads,
-            future,
-        )
-    }
-
-    /// Create a future-backed scan task in a specific scheduling lane.
-    pub fn new_in_lane(
-        morsel_id: usize,
-        phase: ScanIoPhase,
-        lane: ScanTaskLane,
-        reads: Vec<ScanTaskRead>,
-        future: BoxFuture<'static, VortexResult<T>>,
-    ) -> Self {
-        Self {
-            morsel_id,
-            phase,
-            lane,
-            reads,
-            priority: Self::DEFAULT_PRIORITY,
-            future,
-        }
-    }
-
-    /// Return this task with an explicit scheduling priority.
-    pub fn with_priority(mut self, priority: u64) -> Self {
-        self.priority = priority;
-        self
-    }
-
-    /// Box this task behind the [`ScanTask`] trait.
-    pub fn boxed(self) -> ScanTaskBox<T>
-    where
-        T: 'static,
-    {
-        Box::new(self)
-    }
-}
-
-impl<T: 'static> ScanTask<T> for FutureScanTask<T> {
+impl<T: Send + 'static> ScanTask<T> for ScanStep<T> {
     fn morsel_id(&self) -> usize {
         self.morsel_id
     }
@@ -224,8 +341,8 @@ impl<T: 'static> ScanTask<T> for FutureScanTask<T> {
         self.priority
     }
 
-    fn into_future(self: Box<Self>) -> BoxFuture<'static, VortexResult<T>> {
-        self.future
+    fn into_step(self: Box<Self>) -> VortexResult<ScanStep<T>> {
+        Ok(*self)
     }
 }
 
@@ -274,22 +391,20 @@ pub struct ScanTaskQueue<T> {
     evidence_queues: BTreeMap<(u32, u32), VecDeque<ScanTaskBox<T>>>,
     predicate_queues: BTreeMap<u32, VecDeque<ScanTaskBox<T>>>,
     projection_queue: VecDeque<ScanTaskBox<T>>,
-    read_byte_budget: u64,
+    morsel_byte_budget: u64,
     active_read_bytes: u64,
     active_group_read_bytes: [u64; 3],
-    active_reads: HashMap<SegmentRequestKey, ActiveRead>,
+    active_reads: HashMap<ReadRequestKey, ActiveRead>,
 }
 
-const FRONTIER_SLACK_MORSELS: usize = 4;
-
 impl<T> ScanTaskQueue<T> {
-    /// Create an empty task queue with an in-flight read byte budget.
-    pub fn new(read_byte_budget: u64) -> Self {
+    /// Create an empty task queue with an in-flight morsel byte budget.
+    pub fn new(morsel_byte_budget: u64) -> Self {
         Self {
             evidence_queues: BTreeMap::new(),
             predicate_queues: BTreeMap::new(),
             projection_queue: VecDeque::new(),
-            read_byte_budget,
+            morsel_byte_budget,
             active_read_bytes: 0,
             active_group_read_bytes: [0; 3],
             active_reads: HashMap::new(),
@@ -377,7 +492,27 @@ impl<T> ScanTaskQueue<T> {
         self.active_read_bytes
     }
 
-    /// Pop the next task admitted by the frontier policy and read byte budget.
+    /// Number of active logical read dependencies.
+    pub fn active_read_count(&self) -> usize {
+        self.active_reads.len()
+    }
+
+    /// Number of currently active predicate logical read bytes.
+    pub fn active_predicate_read_bytes(&self) -> u64 {
+        self.active_group_read_bytes[ScanTaskGroup::Predicate.idx()]
+    }
+
+    /// Number of currently active projection logical read bytes.
+    pub fn active_projection_read_bytes(&self) -> u64 {
+        self.active_group_read_bytes[ScanTaskGroup::Projection.idx()]
+    }
+
+    /// Number of currently active evidence logical read bytes.
+    pub fn active_evidence_read_bytes(&self) -> u64 {
+        self.active_group_read_bytes[ScanTaskGroup::Evidence.idx()]
+    }
+
+    /// Pop the next task admitted by the active read byte strategy.
     pub fn pop_next_admissible(
         &mut self,
         in_flight_empty: bool,
@@ -386,8 +521,8 @@ impl<T> ScanTaskQueue<T> {
         self.pop_next_admissible_with_projection_gate(in_flight_empty, true, &mut is_live_morsel)
     }
 
-    /// Pop the next task admitted by the frontier policy and read byte budget, optionally
-    /// suppressing projection/aggregate work.
+    /// Pop the next task admitted by the active read byte strategy, optionally suppressing
+    /// projection/aggregate work.
     ///
     /// This is useful when a caller wants predicate/evidence run-ahead but must avoid producing
     /// more output batches until downstream has consumed earlier projection results.
@@ -398,7 +533,6 @@ impl<T> ScanTaskQueue<T> {
         mut is_live_morsel: impl FnMut(usize) -> bool,
     ) -> Option<AdmittedScanTask<T>> {
         self.drop_dead_heads(&mut is_live_morsel);
-        let frontier = self.frontier_morsel()?;
 
         for (group, enforce_target) in [
             (ScanTaskGroup::Evidence, true),
@@ -411,9 +545,7 @@ impl<T> ScanTaskQueue<T> {
             if group == ScanTaskGroup::Projection && !projection_admissible {
                 continue;
             }
-            if let Some(task) =
-                self.pop_group_admissible(group, enforce_target, in_flight_empty, frontier)
-            {
+            if let Some(task) = self.pop_group_admissible(group, enforce_target, in_flight_empty) {
                 return Some(task);
             }
         }
@@ -426,7 +558,6 @@ impl<T> ScanTaskQueue<T> {
         group: ScanTaskGroup,
         enforce_target: bool,
         in_flight_empty: bool,
-        frontier: usize,
     ) -> Option<AdmittedScanTask<T>> {
         if enforce_target && !self.group_has_budget(group, 0, in_flight_empty) {
             return None;
@@ -434,7 +565,7 @@ impl<T> ScanTaskQueue<T> {
 
         let active_reads = &self.active_reads;
         let active_read_bytes = self.active_read_bytes;
-        let read_byte_budget = self.read_byte_budget;
+        let morsel_byte_budget = self.morsel_byte_budget;
 
         match group {
             ScanTaskGroup::Predicate => {
@@ -450,12 +581,9 @@ impl<T> ScanTaskQueue<T> {
                         task.morsel_id(),
                         *idx,
                     );
-                    if !score.within_frontier(frontier) {
-                        continue;
-                    }
                     if !can_admit_task(
                         active_read_bytes,
-                        read_byte_budget,
+                        morsel_byte_budget,
                         in_flight_empty,
                         score.incremental_read_bytes,
                     ) || (enforce_target
@@ -480,12 +608,9 @@ impl<T> ScanTaskQueue<T> {
                     task.morsel_id(),
                     0,
                 );
-                if !score.within_frontier(frontier) {
-                    return None;
-                }
                 if !can_admit_task(
                     active_read_bytes,
-                    read_byte_budget,
+                    morsel_byte_budget,
                     in_flight_empty,
                     score.incremental_read_bytes,
                 ) || (enforce_target
@@ -509,12 +634,9 @@ impl<T> ScanTaskQueue<T> {
                         task.morsel_id(),
                         idx.0,
                     );
-                    if !score.within_frontier(frontier) {
-                        continue;
-                    }
                     if !can_admit_task(
                         active_read_bytes,
-                        read_byte_budget,
+                        morsel_byte_budget,
                         in_flight_empty,
                         score.incremental_read_bytes,
                     ) || (enforce_target
@@ -550,29 +672,16 @@ impl<T> ScanTaskQueue<T> {
         }
     }
 
-    fn frontier_morsel(&self) -> Option<usize> {
-        self.evidence_queues
-            .values()
-            .filter_map(|queue| queue.front().map(|task| task.morsel_id()))
-            .chain(
-                self.predicate_queues
-                    .values()
-                    .filter_map(|queue| queue.front().map(|task| task.morsel_id())),
-            )
-            .chain(self.projection_queue.front().map(|task| task.morsel_id()))
-            .min()
-    }
-
     fn group_target_bytes(&self, group: ScanTaskGroup) -> u64 {
-        if self.read_byte_budget == u64::MAX {
+        if self.morsel_byte_budget == u64::MAX {
             return u64::MAX;
         }
 
-        let projection = (self.read_byte_budget / 8).max(1);
-        let evidence = (self.read_byte_budget / 8).max(1);
+        let projection = (self.morsel_byte_budget / 8).max(1);
+        let evidence = (self.morsel_byte_budget / 8).max(1);
         match group {
             ScanTaskGroup::Predicate => self
-                .read_byte_budget
+                .morsel_byte_budget
                 .saturating_sub(projection)
                 .saturating_sub(evidence)
                 .max(1),
@@ -688,12 +797,12 @@ fn drop_dead_heads_from_map<K: Copy + Ord, T>(
 
 fn can_admit_task(
     active_read_bytes: u64,
-    read_byte_budget: u64,
+    morsel_byte_budget: u64,
     in_flight_empty: bool,
     incremental_read_bytes: u64,
 ) -> bool {
     incremental_read_bytes == 0
-        || active_read_bytes.saturating_add(incremental_read_bytes) <= read_byte_budget
+        || active_read_bytes.saturating_add(incremental_read_bytes) <= morsel_byte_budget
         || in_flight_empty
 }
 
@@ -708,7 +817,7 @@ struct TaskScore {
 
 impl TaskScore {
     fn new(
-        active_reads: &HashMap<SegmentRequestKey, ActiveRead>,
+        active_reads: &HashMap<ReadRequestKey, ActiveRead>,
         reads: &[ScanTaskRead],
         priority: u64,
         morsel_id: usize,
@@ -722,14 +831,10 @@ impl TaskScore {
             lane_idx,
         }
     }
-
-    fn within_frontier(&self, frontier: usize) -> bool {
-        self.morsel_id <= frontier.saturating_add(FRONTIER_SLACK_MORSELS)
-    }
 }
 
 fn incremental_read_bytes(
-    active_reads: &HashMap<SegmentRequestKey, ActiveRead>,
+    active_reads: &HashMap<ReadRequestKey, ActiveRead>,
     reads: &[ScanTaskRead],
 ) -> u64 {
     let mut seen = HashSet::new();
@@ -752,20 +857,23 @@ pub fn scan_task_read_bytes(reads: &[ScanTaskRead]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use futures::FutureExt;
-
     use super::*;
-    use crate::segments::SegmentId;
-
-    fn read(segment: u32, bytes: u64) -> ScanTaskRead {
+    fn read(key: u32, bytes: u64) -> ScanTaskRead {
         ScanTaskRead {
-            key: SegmentRequestKey::new(SegmentId::from(segment)),
+            key: ReadRequestKey::new(u64::from(key)),
             bytes,
         }
     }
 
     fn task(morsel_id: usize, phase: ScanIoPhase, reads: Vec<ScanTaskRead>) -> ScanTaskBox<()> {
-        FutureScanTask::new(morsel_id, phase, reads, async { Ok(()) }.boxed()).boxed()
+        ScanStep::ready(
+            morsel_id,
+            phase,
+            ScanTaskLane::from_phase(phase),
+            reads,
+            Ok(()),
+        )
+        .boxed()
     }
 
     fn task_in_lane(
@@ -774,7 +882,7 @@ mod tests {
         lane: ScanTaskLane,
         reads: Vec<ScanTaskRead>,
     ) -> ScanTaskBox<()> {
-        FutureScanTask::new_in_lane(morsel_id, phase, lane, reads, async { Ok(()) }.boxed()).boxed()
+        ScanStep::ready(morsel_id, phase, lane, reads, Ok(())).boxed()
     }
 
     fn prioritized_task_in_lane(
@@ -784,7 +892,7 @@ mod tests {
         reads: Vec<ScanTaskRead>,
         priority: u64,
     ) -> ScanTaskBox<()> {
-        FutureScanTask::new_in_lane(morsel_id, phase, lane, reads, async { Ok(()) }.boxed())
+        ScanStep::ready(morsel_id, phase, lane, reads, Ok(()))
             .with_priority(priority)
             .boxed()
     }
@@ -828,17 +936,33 @@ mod tests {
     }
 
     #[test]
-    fn queue_preserves_frontier_within_lane() {
+    fn queue_prefers_smaller_incremental_bytes_without_morsel_frontier() {
         let mut queue = ScanTaskQueue::new(100);
-        queue.push(task(0, ScanIoPhase::EvidenceProbe, vec![read(1, 90)]));
-        queue.push(task(1, ScanIoPhase::EvidenceProbe, vec![read(2, 10)]));
+        queue.push(task_in_lane(
+            0,
+            ScanIoPhase::EvidenceProbe,
+            ScanTaskLane::Evidence {
+                predicate_idx: 0,
+                evidence_idx: 0,
+            },
+            vec![read(1, 90)],
+        ));
+        queue.push(task_in_lane(
+            1,
+            ScanIoPhase::EvidenceProbe,
+            ScanTaskLane::Evidence {
+                predicate_idx: 0,
+                evidence_idx: 1,
+            },
+            vec![read(2, 10)],
+        ));
 
         let next = queue
             .pop_next_admissible(true, |_| true)
             .expect("one task should be admitted");
         let (task, _lane, reads) = next.into_parts();
-        assert_eq!(task.morsel_id(), 0);
-        assert_eq!(reads, vec![read(1, 90)]);
+        assert_eq!(task.morsel_id(), 1);
+        assert_eq!(reads, vec![read(2, 10)]);
     }
 
     #[test]

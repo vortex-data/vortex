@@ -156,17 +156,32 @@ fn scan_scheduler_config_from_env() -> anyhow::Result<ScanSchedulerConfig> {
         .transpose()?
         .unwrap_or_else(ScanSchedulerConfig::default_morsel_slots);
 
-    let read_byte_budget = std::env::var("VORTEX_SCAN_MAX_READ_BYTES")
+    let plan_window = std::env::var("VORTEX_SCAN_MORSEL_PLAN_WINDOW")
         .ok()
         .map(|value| {
             value
-                .parse::<u64>()
-                .map_err(|e| anyhow::anyhow!("invalid scan scheduler byte budget {value}: {e}"))
+                .parse::<usize>()
+                .map_err(|e| anyhow::anyhow!("invalid scan scheduler plan window {value}: {e}"))
         })
         .transpose()?;
 
-    Ok(match read_byte_budget {
-        Some(bytes) => config.with_read_byte_budget(Some(bytes)),
+    let morsel_byte_budget = std::env::var("VORTEX_SCAN_MAX_MORSEL_BYTES")
+        .or_else(|_| std::env::var("VORTEX_SCAN_MAX_READ_BYTES"))
+        .ok()
+        .map(|value| {
+            value.parse::<u64>().map_err(|e| {
+                anyhow::anyhow!("invalid scan scheduler morsel byte budget {value}: {e}")
+            })
+        })
+        .transpose()?;
+
+    let config = match plan_window {
+        Some(window) => config.with_morsel_plan_window(Some(window)),
+        None => config,
+    };
+
+    Ok(match morsel_byte_budget {
+        Some(bytes) => config.with_morsel_byte_budget(Some(bytes)),
         None => config,
     })
 }

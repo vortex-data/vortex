@@ -24,7 +24,6 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use futures::future::BoxFuture;
-use futures::future::try_join_all;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::ArrayRef;
@@ -34,6 +33,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldNames;
@@ -52,17 +52,21 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_scan::read::ReadRequestKey;
+use vortex_scan::read::ReadResults;
+use vortex_scan::read::ScanRead;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use self::evidence::EvidenceFragment;
 use self::request::EvidenceRequest;
 use self::request::OwnedEvidenceRequest;
-use crate::segments::ScanRead;
 use crate::segments::SegmentPlanCtx;
+use crate::segments::SegmentRequestKey;
 use crate::segments::SegmentRequests;
 use crate::segments::SegmentSource;
 
-/// Execution context for legacy prepared read calls.
+/// Execution context for prepared scan tasks.
 #[derive(Clone)]
 pub struct ReadContext {
     segments: Arc<dyn SegmentSource>,
@@ -78,6 +82,11 @@ impl ReadContext {
     /// Segment source for layout data.
     pub fn segments(&self) -> &Arc<dyn SegmentSource> {
         &self.segments
+    }
+
+    /// Return a segment that was resolved by the scan scheduler before execution.
+    pub fn segment(&self, id: crate::segments::SegmentId) -> VortexResult<BufferHandle> {
+        self.segments.resolved(id)
     }
 
     /// Session used to decode arrays and execute expressions.
@@ -499,6 +508,13 @@ struct LiteralPreparedStats {
     funcs: Vec<AggregateFnRef>,
 }
 
+struct LiteralReadTask {
+    scalar: Scalar,
+    row_count: u64,
+    range: Range<u64>,
+    len: usize,
+}
+
 impl ScanPlan for LiteralScanPlan {
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(()))
@@ -547,19 +563,6 @@ impl ScanPlan for LiteralScanPlan {
 }
 
 impl PreparedRead for LiteralPreparedRead {
-    fn read_scoped<'a>(
-        &'a self,
-        range: Range<u64>,
-        rows: RowScope<'a>,
-        _io: &'a ReadContext,
-        _local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        Box::pin(async move {
-            check_scan_range(&range, self.row_count)?;
-            Ok(ConstantArray::new(self.scalar.clone(), rows.selection.true_count()).into_array())
-        })
-    }
-
     fn segment_requests(
         &self,
         _range: Range<u64>,
@@ -569,8 +572,36 @@ impl PreparedRead for LiteralPreparedRead {
         Ok(SegmentRequests::none())
     }
 
+    fn create_task(
+        self: Arc<Self>,
+        range: Range<u64>,
+        rows: OwnedRowScope,
+        _reads: Vec<ScanRead>,
+        _prefetch_reads: Vec<ScanRead>,
+        _cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        check_scan_range(&range, self.row_count)?;
+        Ok(Box::new(LiteralReadTask {
+            scalar: self.scalar.clone(),
+            row_count: self.row_count,
+            range,
+            len: rows.selection.true_count(),
+        }))
+    }
+
     fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "literal")
+    }
+}
+
+impl ReadTask for LiteralReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        Ok(ReadStep::new(Vec::new(), Vec::new(), move |_, _, _| {
+            check_scan_range(&self.range, self.row_count)?;
+            Ok(ReadTaskOutput::Ready(
+                ConstantArray::new(self.scalar.clone(), self.len).into_array(),
+            ))
+        }))
     }
 }
 
@@ -634,21 +665,6 @@ impl LiteralPreparedStats {
     }
 }
 
-/// Read every row in `range` through a prepared read.
-pub fn read_dense<'a>(
-    read: &'a PreparedReadRef,
-    range: Range<u64>,
-    io: &'a ReadContext,
-) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-    Box::pin(async move {
-        let len = range_len(&range)?;
-        let rows = OwnedRowScope::selected(Mask::new_true(len));
-        let mut local = io.session().create_execution_ctx();
-        read.read_scoped(range, rows.as_scope(), io, &mut local)
-            .await
-    })
-}
-
 fn range_len(range: &Range<u64>) -> VortexResult<usize> {
     let len = range
         .end
@@ -672,19 +688,8 @@ fn check_scan_range(range: &Range<u64>, row_count: u64) -> VortexResult<()> {
 ///
 /// A `PreparedRead` is the scan-level runtime handle for a fixed read route. It
 /// may hold child prepared reads and initializes route-scoped state once per
-/// prepared file scan; each `read_scoped` call executes that route for one
-/// morsel row scope.
+/// prepared file scan; each morsel execution is represented as a [`ReadTask`].
 pub trait PreparedRead: 'static + Send + Sync {
-    /// Read the live rows of `range`, with [`RowScope`] defining output
-    /// cardinality (`selection`) and meaningful-value demand (`demand`).
-    fn read_scoped<'a>(
-        &'a self,
-        range: Range<u64>,
-        rows: RowScope<'a>,
-        io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>>;
-
     /// Return scheduler-visible segment requests needed for this read, when known exactly.
     fn segment_requests(
         &self,
@@ -694,6 +699,26 @@ pub trait PreparedRead: 'static + Send + Sync {
     ) -> VortexResult<SegmentRequests> {
         Ok(SegmentRequests::unknown())
     }
+
+    /// Return scheduler-visible segment requests that may be fetched speculatively.
+    fn prefetch_segment_requests(
+        &self,
+        _range: Range<u64>,
+        _rows: RowScope<'_>,
+        _cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        Ok(SegmentRequests::none())
+    }
+
+    /// Create a morsel-level read task for this prepared read.
+    fn create_task(
+        self: Arc<Self>,
+        range: Range<u64>,
+        rows: OwnedRowScope,
+        reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>>;
 
     /// Release state behind the completed-row frontier.
     fn release(&self, _frontier: u64) -> VortexResult<()> {
@@ -706,63 +731,325 @@ pub trait PreparedRead: 'static + Send + Sync {
     }
 }
 
-impl dyn PreparedRead {
-    /// Create a morsel-level read task for this prepared read.
-    pub fn create_task(
-        self: Arc<Self>,
-        range: Range<u64>,
-        rows: OwnedRowScope,
-        reads: Vec<ScanRead>,
-    ) -> VortexResult<Box<dyn ReadTask>> {
-        Ok(Box::new(DefaultReadTask {
-            read: self,
-            range,
-            rows,
-            reads,
-        }))
+/// Result of executing a morsel-level read task continuation.
+pub enum ReadTaskOutput {
+    /// The task produced its final array.
+    Ready(ArrayRef),
+    /// The task needs another scheduler-admitted read step.
+    Continue(Box<dyn ReadTask>),
+}
+
+/// Continuation called after a read step's required reads have resolved.
+pub trait ReadContinuation: Send {
+    /// Execute the continuation.
+    fn run(
+        self: Box<Self>,
+        io: &ReadContext,
+        local: &mut ExecutionCtx,
+        results: ReadResults,
+    ) -> VortexResult<ReadTaskOutput>;
+}
+
+impl<F> ReadContinuation for F
+where
+    F: FnOnce(&ReadContext, &mut ExecutionCtx, ReadResults) -> VortexResult<ReadTaskOutput> + Send,
+{
+    fn run(
+        self: Box<Self>,
+        io: &ReadContext,
+        local: &mut ExecutionCtx,
+        results: ReadResults,
+    ) -> VortexResult<ReadTaskOutput> {
+        self(io, local, results)
+    }
+}
+
+/// One scheduler-visible step of a layout read task.
+pub struct ReadStep {
+    /// Reads that must resolve before the continuation runs.
+    pub required_reads: Vec<ScanRead>,
+    /// Reads that may be fetched speculatively while this step is queued.
+    pub prefetch_reads: Vec<ScanRead>,
+    /// Continuation to execute after required reads resolve.
+    pub continuation: Box<dyn ReadContinuation>,
+}
+
+impl ReadStep {
+    /// Create a read step.
+    pub fn new(
+        required_reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        continuation: impl FnOnce(
+            &ReadContext,
+            &mut ExecutionCtx,
+            ReadResults,
+        ) -> VortexResult<ReadTaskOutput>
+        + Send
+        + 'static,
+    ) -> Self {
+        Self {
+            required_reads,
+            prefetch_reads,
+            continuation: Box::new(continuation),
+        }
     }
 }
 
 /// A morsel-level read task.
 pub trait ReadTask: Send {
-    /// Registered reads needed by this task.
-    fn reads(&self) -> &[ScanRead];
-
-    /// Execute the read task.
-    fn read<'a>(
-        self: Box<Self>,
-        io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>>;
+    /// Convert this task into its next scheduler-visible step.
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep>;
 }
 
-struct DefaultReadTask {
-    read: PreparedReadRef,
-    range: Range<u64>,
-    rows: OwnedRowScope,
-    reads: Vec<ScanRead>,
+pub(crate) fn take_reads_for_requests(
+    registered: &mut [Option<ScanRead>],
+    requests: SegmentRequests,
+) -> VortexResult<Vec<ScanRead>> {
+    let Some(requests) = requests.into_exact() else {
+        vortex_bail!("scan2 child task produced unknown segment requests")
+    };
+    let keys = requests
+        .iter()
+        .map(|request| ReadRequestKey::from(SegmentRequestKey::from(request)))
+        .collect::<HashSet<_>>();
+    Ok(registered
+        .iter_mut()
+        .filter_map(|read| {
+            if read
+                .as_ref()
+                .is_some_and(|read| keys.contains(&read.request.key))
+            {
+                read.take()
+            } else {
+                None
+            }
+        })
+        .collect())
 }
 
-impl ReadTask for DefaultReadTask {
-    fn reads(&self) -> &[ScanRead] {
-        &self.reads
+enum StructReadPart {
+    Ready(ArrayRef),
+    Pending(Box<dyn ReadTask>),
+}
+
+struct StructReadTask {
+    names: FieldNames,
+    len: usize,
+    fields: Vec<StructReadPart>,
+    validity: Option<StructReadPart>,
+}
+
+impl ReadTask for StructReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        let Self {
+            names,
+            len,
+            fields,
+            validity,
+        } = *self;
+        let mut field_steps = Vec::with_capacity(fields.len());
+        let mut step_fields = Vec::with_capacity(fields.len());
+        let mut required_reads = Vec::new();
+        let mut prefetch_reads = Vec::new();
+        for field in fields {
+            match field {
+                StructReadPart::Ready(array) => step_fields.push(StructReadPart::Ready(array)),
+                StructReadPart::Pending(task) => {
+                    let step = task.into_step()?;
+                    required_reads.extend(step.required_reads);
+                    prefetch_reads.extend(step.prefetch_reads);
+                    field_steps.push((step_fields.len(), step.continuation));
+                    step_fields.push(StructReadPart::Pending(Box::new(DeferredReadTask)));
+                }
+            }
+        }
+        let (validity_step, step_validity) = match validity {
+            Some(StructReadPart::Ready(array)) => (None, Some(StructReadPart::Ready(array))),
+            Some(StructReadPart::Pending(task)) => {
+                let step = task.into_step()?;
+                required_reads.extend(step.required_reads);
+                prefetch_reads.extend(step.prefetch_reads);
+                (
+                    Some(step.continuation),
+                    Some(StructReadPart::Pending(Box::new(DeferredReadTask))),
+                )
+            }
+            None => (None, None),
+        };
+        Ok(ReadStep::new(
+            required_reads,
+            prefetch_reads,
+            move |io, local, results| {
+                let session = local.session().clone();
+                let mut fields = step_fields;
+                let mut pending = false;
+                for (idx, continuation) in field_steps {
+                    let mut child_ctx = session.create_execution_ctx();
+                    match continuation.run(io, &mut child_ctx, results.clone())? {
+                        ReadTaskOutput::Ready(array) => fields[idx] = StructReadPart::Ready(array),
+                        ReadTaskOutput::Continue(task) => {
+                            fields[idx] = StructReadPart::Pending(task);
+                            pending = true;
+                        }
+                    }
+                }
+                let mut next_validity = step_validity;
+                let validity = match (next_validity, validity_step) {
+                    (Some(StructReadPart::Ready(array)), _) => {
+                        next_validity = Some(StructReadPart::Ready(array.clone()));
+                        Validity::Array(array)
+                    }
+                    (Some(StructReadPart::Pending(_)), Some(continuation)) => {
+                        match continuation.run(io, local, results)? {
+                            ReadTaskOutput::Ready(array) => {
+                                next_validity = Some(StructReadPart::Ready(array.clone()));
+                                Validity::Array(array)
+                            }
+                            ReadTaskOutput::Continue(task) => {
+                                next_validity = Some(StructReadPart::Pending(task));
+                                pending = true;
+                                Validity::NonNullable
+                            }
+                        }
+                    }
+                    (None, _) => {
+                        next_validity = None;
+                        Validity::NonNullable
+                    }
+                    (Some(StructReadPart::Pending(_)), None) => {
+                        vortex_bail!("struct validity continuation missing")
+                    }
+                };
+                if pending {
+                    return Ok(ReadTaskOutput::Continue(Box::new(StructReadTask {
+                        names,
+                        len,
+                        fields,
+                        validity: next_validity,
+                    })));
+                }
+                let arrays = fields
+                    .into_iter()
+                    .map(|field| match field {
+                        StructReadPart::Ready(array) => Ok(array),
+                        StructReadPart::Pending(_) => {
+                            vortex_bail!("struct field continuation missing")
+                        }
+                    })
+                    .collect::<VortexResult<Vec<_>>>()?;
+                Ok(ReadTaskOutput::Ready(
+                    StructArray::try_new(names, arrays, len, validity)?.into_array(),
+                ))
+            },
+        ))
     }
+}
 
-    fn read<'a>(
-        self: Box<Self>,
-        io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        Box::pin(async move {
-            let Self {
-                read,
-                range,
-                rows,
-                reads,
-            } = *self;
-            let result = read.read_scoped(range, rows.as_scope(), io, local).await;
-            drop(reads);
-            result
+pub(crate) struct DeferredReadTask;
+
+impl ReadTask for DeferredReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        vortex_bail!("deferred read task should be replaced before stepping")
+    }
+}
+
+struct ApplyReadTask {
+    expr: Expression,
+    input: Box<dyn ReadTask>,
+}
+
+impl ReadTask for ApplyReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        let Self { expr, input } = *self;
+        let step = input.into_step()?;
+        Ok(ReadStep::new(
+            step.required_reads,
+            step.prefetch_reads,
+            move |io, local, results| match step.continuation.run(io, local, results)? {
+                ReadTaskOutput::Ready(input) => Ok(ReadTaskOutput::Ready(
+                    input.apply(&expr)?.execute::<ArrayRef>(local)?,
+                )),
+                ReadTaskOutput::Continue(input) => {
+                    Ok(ReadTaskOutput::Continue(Box::new(ApplyReadTask {
+                        expr,
+                        input,
+                    })))
+                }
+            },
+        ))
+    }
+}
+
+struct MaskReadTask {
+    input: Box<dyn ReadTask>,
+    validity: Box<dyn ReadTask>,
+}
+
+impl ReadTask for MaskReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        let Self { input, validity } = *self;
+        let input_step = input.into_step()?;
+        let validity_step = validity.into_step()?;
+        let mut required_reads = input_step.required_reads;
+        required_reads.extend(validity_step.required_reads);
+        let mut prefetch_reads = input_step.prefetch_reads;
+        prefetch_reads.extend(validity_step.prefetch_reads);
+        Ok(ReadStep::new(
+            required_reads,
+            prefetch_reads,
+            move |io, local, results| {
+                let input = match input_step.continuation.run(io, local, results.clone())? {
+                    ReadTaskOutput::Ready(input) => input,
+                    ReadTaskOutput::Continue(input) => {
+                        return Ok(ReadTaskOutput::Continue(Box::new(MaskReadTask {
+                            input,
+                            validity: Box::new(StepReadTask::new(validity_step.continuation)),
+                        })));
+                    }
+                };
+                let validity = match validity_step.continuation.run(io, local, results)? {
+                    ReadTaskOutput::Ready(validity) => validity,
+                    ReadTaskOutput::Continue(validity) => {
+                        return Ok(ReadTaskOutput::Continue(Box::new(MaskReadTask {
+                            input: Box::new(ReadyReadTask(input)),
+                            validity,
+                        })));
+                    }
+                };
+                Ok(ReadTaskOutput::Ready(
+                    input.mask(validity)?.execute::<ArrayRef>(local)?,
+                ))
+            },
+        ))
+    }
+}
+
+struct ReadyReadTask(ArrayRef);
+
+impl ReadTask for ReadyReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        Ok(ReadStep::new(Vec::new(), Vec::new(), move |_, _, _| {
+            Ok(ReadTaskOutput::Ready(self.0))
+        }))
+    }
+}
+
+struct StepReadTask {
+    continuation: Box<dyn ReadContinuation>,
+}
+
+impl StepReadTask {
+    fn new(continuation: Box<dyn ReadContinuation>) -> Self {
+        Self { continuation }
+    }
+}
+
+impl ReadTask for StepReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        Ok(ReadStep {
+            required_reads: Vec::new(),
+            prefetch_reads: Vec::new(),
+            continuation: self.continuation,
         })
     }
 }
@@ -1002,38 +1289,6 @@ impl ScanPlan for StructValueScanPlan {
 }
 
 impl PreparedRead for StructValuePreparedRead {
-    fn read_scoped<'a>(
-        &'a self,
-        range: Range<u64>,
-        rows: RowScope<'a>,
-        io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        Box::pin(async move {
-            let session = local.session().clone();
-            let arrays = try_join_all(self.fields.iter().map(|field| {
-                let range = range.clone();
-                let mut child_ctx = session.create_execution_ctx();
-                async move { field.read_scoped(range, rows, io, &mut child_ctx).await }
-            }))
-            .await?;
-            let validity = match &self.validity {
-                Some(validity) => {
-                    let array = validity.read_scoped(range, rows, io, local).await?;
-                    Validity::Array(array)
-                }
-                None => Validity::NonNullable,
-            };
-            Ok(StructArray::try_new(
-                self.plan.names.clone(),
-                arrays,
-                rows.selection.true_count(),
-                validity,
-            )?
-            .into_array())
-        })
-    }
-
     fn segment_requests(
         &self,
         range: Range<u64>,
@@ -1051,6 +1306,84 @@ impl PreparedRead for StructValuePreparedRead {
             requests.extend(validity.segment_requests(range, rows, cx)?);
         }
         Ok(requests)
+    }
+
+    fn prefetch_segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let mut requests = SegmentRequests::none();
+        for field in &self.fields {
+            requests.extend(field.prefetch_segment_requests(range.clone(), rows, cx)?);
+            if requests.is_unknown() {
+                return Ok(requests);
+            }
+        }
+        if let Some(validity) = &self.validity {
+            requests.extend(validity.prefetch_segment_requests(range, rows, cx)?);
+        }
+        Ok(requests)
+    }
+
+    fn create_task(
+        self: Arc<Self>,
+        range: Range<u64>,
+        rows: OwnedRowScope,
+        reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        let mut reads = reads.into_iter().map(Some).collect::<Vec<_>>();
+        let mut prefetch_reads = prefetch_reads.into_iter().map(Some).collect::<Vec<_>>();
+        let mut fields = Vec::with_capacity(self.fields.len());
+        for field in &self.fields {
+            let field_reads = take_reads_for_requests(
+                &mut reads,
+                field.segment_requests(range.clone(), rows.as_scope(), cx)?,
+            )?;
+            let field_prefetch_reads = take_reads_for_requests(
+                &mut prefetch_reads,
+                field.prefetch_segment_requests(range.clone(), rows.as_scope(), cx)?,
+            )?;
+            fields.push(StructReadPart::Pending(Arc::clone(field).create_task(
+                range.clone(),
+                rows.clone(),
+                field_reads,
+                field_prefetch_reads,
+                cx,
+            )?));
+        }
+        let validity = self
+            .validity
+            .as_ref()
+            .map(|validity| {
+                let validity_reads = take_reads_for_requests(
+                    &mut reads,
+                    validity.segment_requests(range.clone(), rows.as_scope(), cx)?,
+                )?;
+                let validity_prefetch_reads = take_reads_for_requests(
+                    &mut prefetch_reads,
+                    validity.prefetch_segment_requests(range.clone(), rows.as_scope(), cx)?,
+                )?;
+                Arc::clone(validity)
+                    .create_task(
+                        range.clone(),
+                        rows.clone(),
+                        validity_reads,
+                        validity_prefetch_reads,
+                        cx,
+                    )
+                    .map(StructReadPart::Pending)
+            })
+            .transpose()?;
+        Ok(Box::new(StructReadTask {
+            names: self.plan.names.clone(),
+            len: rows.selection.true_count(),
+            fields,
+            validity,
+        }))
     }
 
     fn release(&self, frontier: u64) -> VortexResult<()> {
@@ -1122,19 +1455,6 @@ impl ScanPlan for ApplyScanPlan {
 }
 
 impl PreparedRead for ApplyPreparedRead {
-    fn read_scoped<'a>(
-        &'a self,
-        range: Range<u64>,
-        rows: RowScope<'a>,
-        io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        Box::pin(async move {
-            let input = self.input.read_scoped(range, rows, io, local).await?;
-            input.apply(&self.plan.expr)?.execute::<ArrayRef>(local)
-        })
-    }
-
     fn segment_requests(
         &self,
         range: Range<u64>,
@@ -1142,6 +1462,30 @@ impl PreparedRead for ApplyPreparedRead {
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
         self.input.segment_requests(range, rows, cx)
+    }
+
+    fn prefetch_segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        self.input.prefetch_segment_requests(range, rows, cx)
+    }
+
+    fn create_task(
+        self: Arc<Self>,
+        range: Range<u64>,
+        rows: OwnedRowScope,
+        reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        let input = Arc::clone(&self.input).create_task(range, rows, reads, prefetch_reads, cx)?;
+        Ok(Box::new(ApplyReadTask {
+            expr: self.plan.expr.clone(),
+            input,
+        }))
     }
 
     fn release(&self, frontier: u64) -> VortexResult<()> {
@@ -1234,23 +1578,6 @@ impl ScanPlan for MaskScanPlan {
 }
 
 impl PreparedRead for MaskPreparedRead {
-    fn read_scoped<'a>(
-        &'a self,
-        range: Range<u64>,
-        rows: RowScope<'a>,
-        io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        Box::pin(async move {
-            let input = self
-                .input
-                .read_scoped(range.clone(), rows, io, local)
-                .await?;
-            let validity = self.validity.read_scoped(range, rows, io, local).await?;
-            input.mask(validity)?.execute::<ArrayRef>(local)
-        })
-    }
-
     fn segment_requests(
         &self,
         range: Range<u64>,
@@ -1263,6 +1590,69 @@ impl PreparedRead for MaskPreparedRead {
         }
         requests.extend(self.validity.segment_requests(range, rows, cx)?);
         Ok(requests)
+    }
+
+    fn prefetch_segment_requests(
+        &self,
+        range: Range<u64>,
+        rows: RowScope<'_>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        let mut requests = self
+            .input
+            .prefetch_segment_requests(range.clone(), rows, cx)?;
+        if requests.is_unknown() {
+            return Ok(requests);
+        }
+        requests.extend(self.validity.prefetch_segment_requests(range, rows, cx)?);
+        Ok(requests)
+    }
+
+    fn create_task(
+        self: Arc<Self>,
+        range: Range<u64>,
+        rows: OwnedRowScope,
+        reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        let mut reads = reads.into_iter().map(Some).collect::<Vec<_>>();
+        let mut prefetch_reads = prefetch_reads.into_iter().map(Some).collect::<Vec<_>>();
+        let input_reads = take_reads_for_requests(
+            &mut reads,
+            self.input
+                .segment_requests(range.clone(), rows.as_scope(), cx)?,
+        )?;
+        let input_prefetch_reads = take_reads_for_requests(
+            &mut prefetch_reads,
+            self.input
+                .prefetch_segment_requests(range.clone(), rows.as_scope(), cx)?,
+        )?;
+        let validity_reads = take_reads_for_requests(
+            &mut reads,
+            self.validity
+                .segment_requests(range.clone(), rows.as_scope(), cx)?,
+        )?;
+        let validity_prefetch_reads = take_reads_for_requests(
+            &mut prefetch_reads,
+            self.validity
+                .prefetch_segment_requests(range.clone(), rows.as_scope(), cx)?,
+        )?;
+        let input = Arc::clone(&self.input).create_task(
+            range.clone(),
+            rows.clone(),
+            input_reads,
+            input_prefetch_reads,
+            cx,
+        )?;
+        let validity = Arc::clone(&self.validity).create_task(
+            range,
+            rows,
+            validity_reads,
+            validity_prefetch_reads,
+            cx,
+        )?;
+        Ok(Box::new(MaskReadTask { input, validity }))
     }
 
     fn release(&self, frontier: u64) -> VortexResult<()> {
@@ -1327,7 +1717,7 @@ pub trait PreparedEvidence: 'static + Send + Sync {
         &'a self,
         req: &'a EvidenceRequest<'a>,
         io: &'a ReadContext,
-    ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>>;
+    ) -> VortexResult<Vec<EvidenceFragment>>;
 
     /// Return scheduler-visible segment requests needed for this evidence, when known exactly.
     fn segment_requests(
@@ -1336,6 +1726,18 @@ pub trait PreparedEvidence: 'static + Send + Sync {
         _cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
         Ok(SegmentRequests::unknown())
+    }
+
+    /// Return scheduler-visible segment requests that may be fetched speculatively.
+    ///
+    /// Prefetch requests must not be required for the immediate [`PreparedEvidence::evidence`]
+    /// execution path, because the scan scheduler may launch them without waiting for completion.
+    fn prefetch_segment_requests(
+        &self,
+        _req: &EvidenceRequest<'_>,
+        _cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        Ok(SegmentRequests::none())
     }
 
     /// Whether this handle is cheap enough to re-run immediately before a
@@ -1382,10 +1784,7 @@ pub trait EvidenceTask: Send {
     fn reads(&self) -> &[ScanRead];
 
     /// Execute the evidence task.
-    fn evidence<'a>(
-        self: Box<Self>,
-        io: &'a ReadContext,
-    ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>>;
+    fn evidence(self: Box<Self>, io: &ReadContext) -> VortexResult<Vec<EvidenceFragment>>;
 }
 
 struct DefaultEvidenceTask {
@@ -1399,20 +1798,15 @@ impl EvidenceTask for DefaultEvidenceTask {
         &self.reads
     }
 
-    fn evidence<'a>(
-        self: Box<Self>,
-        io: &'a ReadContext,
-    ) -> BoxFuture<'a, VortexResult<Vec<EvidenceFragment>>> {
-        Box::pin(async move {
-            let Self {
-                evidence,
-                req,
-                reads,
-            } = *self;
-            let result = evidence.evidence(&req.as_request(), io).await;
-            drop(reads);
-            result
-        })
+    fn evidence(self: Box<Self>, io: &ReadContext) -> VortexResult<Vec<EvidenceFragment>> {
+        let Self {
+            evidence,
+            req,
+            reads,
+        } = *self;
+        let result = evidence.evidence(&req.as_request(), io);
+        drop(reads);
+        result
     }
 }
 
@@ -1439,6 +1833,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::lit;
     use vortex_buffer::ByteBuffer;
+    use vortex_scan::read::ReadStore;
 
     use super::*;
 
@@ -1568,7 +1963,19 @@ mod tests {
             .prepare_read(&mut PrepareCtx::new(session.clone()))?
             .ok_or_else(|| vortex_err!("literal scan plan did not return a prepared read"))?;
         let io = ReadContext::new(Arc::new(TestSegments), session);
-        let array = futures::executor::block_on(read_dense(&read, 10..15, &io))?;
+        let rows = OwnedRowScope::selected(Mask::new_true(5));
+        let mut segment_ctx = SegmentPlanCtx::new(Arc::clone(io.segments()), io.session().clone());
+        let task = read.create_task(10..15, rows, Vec::new(), Vec::new(), &mut segment_ctx)?;
+        let results = ReadResults::new(Arc::new(ReadStore::new()));
+        let step = task.into_step()?;
+        if !step.required_reads.is_empty() || !step.prefetch_reads.is_empty() {
+            vortex_bail!("literal read unexpectedly requested reads");
+        }
+        let mut local = io.session().create_execution_ctx();
+        let array = match step.continuation.run(&io, &mut local, results)? {
+            ReadTaskOutput::Ready(array) => array,
+            ReadTaskOutput::Continue(_) => vortex_bail!("literal read unexpectedly continued"),
+        };
         let constant = array
             .as_opt::<Constant>()
             .ok_or_else(|| vortex_err!("literal read did not produce a constant array"))?;

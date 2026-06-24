@@ -17,19 +17,14 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::FutureExt;
-use futures::future::BoxFuture;
-use futures::try_join;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::SharedArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::expr::Expression;
@@ -38,31 +33,34 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_scan::plan::PrepareCtx;
-use vortex_scan::plan::PreparedRead;
-use vortex_scan::plan::PreparedReadRef;
-use vortex_scan::plan::PreparedStateKey;
-use vortex_scan::plan::PushCtx;
-use vortex_scan::plan::ReadContext;
-use vortex_scan::plan::RowScope;
-use vortex_scan::plan::ScanPlan;
-use vortex_scan::plan::ScanPlanRef;
-use vortex_scan::plan::ScanState;
-use vortex_scan::plan::ScanStateRef;
-use vortex_scan::plan::StateCtx;
-use vortex_scan::plan::default_try_push_expr;
-use vortex_scan::plan::request::ScanRequest;
+use vortex_scan::read::ScanRead;
 use vortex_session::VortexSession;
 
 use crate::layout_v2::Dict;
 use crate::layout_v2::Layout;
-use crate::layouts::SharedArrayFuture;
+use crate::scan::plan::OwnedRowScope;
+use crate::scan::plan::PrepareCtx;
+use crate::scan::plan::PreparedRead;
+use crate::scan::plan::PreparedReadRef;
+use crate::scan::plan::PreparedStateKey;
+use crate::scan::plan::PushCtx;
+use crate::scan::plan::ReadStep;
+use crate::scan::plan::ReadTask;
+use crate::scan::plan::ReadTaskOutput;
+use crate::scan::plan::RowScope;
+use crate::scan::plan::ScanPlan;
+use crate::scan::plan::ScanPlanRef;
+use crate::scan::plan::ScanState;
+use crate::scan::plan::ScanStateRef;
+use crate::scan::plan::StateCtx;
+use crate::scan::plan::default_try_push_expr;
+use crate::scan::plan::request::ScanRequest;
+use crate::scan::plan::take_reads_for_requests;
 use crate::segments::SegmentPlanCtx;
 use crate::segments::SegmentRequests;
 
@@ -93,8 +91,7 @@ pub struct DictScanPlan {
     codes: ScanPlanRef,
 }
 
-/// Per-query dictionary caches: the shared values relation and cached
-/// value-domain expression results.
+/// Per-query dictionary caches for value-domain expression results.
 #[derive(Clone)]
 pub struct DictScanState {
     shared: DictSharedState,
@@ -102,7 +99,6 @@ pub struct DictScanState {
 
 #[derive(Clone)]
 struct DictSharedState {
-    values: Arc<Mutex<Option<SharedArrayFuture>>>,
     value_exprs: Arc<Mutex<FxHashMap<Expression, Option<ArrayRef>>>>,
 }
 
@@ -117,7 +113,6 @@ impl DictScanState {
 impl Default for DictSharedState {
     fn default() -> Self {
         Self {
-            values: Arc::new(Mutex::new(None)),
             value_exprs: Arc::new(Mutex::new(FxHashMap::default())),
         }
     }
@@ -131,7 +126,6 @@ struct DictExprScanPlan {
 
 struct DictPreparedRead {
     node: Arc<DictScanPlan>,
-    state: Arc<DictScanState>,
     values_read: PreparedReadRef,
     codes_read: PreparedReadRef,
 }
@@ -192,50 +186,6 @@ fn value_expr_candidate(expr: &Expression, values_len: u64, rows: RowScope<'_>) 
 }
 
 impl DictScanPlan {
-    /// The values relation wrapped in a `SharedArray`, read once per query.
-    fn values(
-        &self,
-        values_read: PreparedReadRef,
-        io: &ReadContext,
-        state: &DictScanState,
-    ) -> SharedArrayFuture {
-        if let Some(hit) = state.shared.values.lock().clone() {
-            return hit;
-        }
-
-        let mut guard = state.shared.values.lock();
-        if let Some(hit) = guard.clone() {
-            return hit;
-        }
-
-        let values_len = self.values_len;
-        let io = io.clone();
-        let future = async move {
-            let selection =
-                Mask::new_true(usize::try_from(values_len).map_err(|_| {
-                    Arc::new(vortex_err!("dictionary values length exceeds usize"))
-                })?);
-            let mut local = io.session().create_execution_ctx();
-            let values = values_read
-                .read_scoped(
-                    0..values_len,
-                    RowScope::selected(&selection),
-                    &io,
-                    &mut local,
-                )
-                .await
-                .map_err(Arc::new)?;
-            // The shared future single-flights IO. `SharedArray` separately memoizes execution of
-            // the full dictionary values across batches; sparse selected reads bypass this path.
-            Ok(SharedArray::new(values).into_array())
-        }
-        .boxed()
-        .shared();
-
-        *guard = Some(future.clone());
-        future
-    }
-
     fn build_dict(&self, codes: ArrayRef, values: ArrayRef) -> VortexResult<ArrayRef> {
         // SAFETY: the codes and values children come from a validated dictionary layout.
         Ok(unsafe { DictArray::new_unchecked(codes, values) }.into_array())
@@ -267,8 +217,6 @@ impl ScanPlan for DictScanPlan {
     }
 
     fn prepare_read(self: Arc<Self>, cx: &mut PrepareCtx) -> VortexResult<Option<PreparedReadRef>> {
-        let key = PreparedStateKey::new::<DictScanState>(Arc::as_ptr(&self) as *const () as usize);
-        let state = cx.shared_state(key, || Ok(DictScanState::new()))?;
         let values_read = Arc::clone(&self.values)
             .prepare_read(cx)?
             .ok_or_else(|| vortex_err!("dictionary values did not produce a prepared read"))?;
@@ -277,16 +225,12 @@ impl ScanPlan for DictScanPlan {
             .ok_or_else(|| vortex_err!("dictionary codes did not produce a prepared read"))?;
         Ok(Some(Arc::new(DictPreparedRead {
             node: self,
-            state,
             values_read,
             codes_read,
         })))
     }
 
-    /// Codes live in this node's row domain and release with it. The
-    /// cached values relation and value-domain expression results stay:
-    /// they are read once per query by design and consulted by every
-    /// remaining morsel.
+    /// Codes live in this node's row domain and release with it.
     fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
         let _ = (frontier, state);
         Ok(())
@@ -339,81 +283,236 @@ impl ScanPlan for DictExprScanPlan {
     }
 }
 
-impl PreparedRead for DictPreparedRead {
-    fn read_scoped<'a>(
-        &'a self,
-        range: Range<u64>,
-        rows: RowScope<'a>,
-        io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        Box::pin(async move {
-            if sparse_dict_candidate(self.node.values_len, rows) {
-                let codes = self
-                    .codes_read
-                    .read_scoped(range.clone(), rows, io, local)
-                    .await?;
-                let values_len = usize::try_from(self.node.values_len)
-                    .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?;
-                if let Some((compact_codes, value_selection)) =
-                    compact_codes_and_value_selection(codes.clone(), values_len, local)?
-                {
-                    let values = self
-                        .values_read
-                        .read_scoped(
-                            0..self.node.values_len,
-                            RowScope::selected(&value_selection),
-                            io,
-                            local,
-                        )
-                        .await?;
-                    return self.node.build_dict(compact_codes, values)?.optimize();
-                }
+enum DictReadState {
+    Start,
+    SparseValues {
+        compact_codes: ArrayRef,
+        values: Option<Box<dyn ReadTask>>,
+    },
+    FullValues {
+        codes: ArrayRef,
+        values: Option<Box<dyn ReadTask>>,
+    },
+}
 
-                let values = self
-                    .node
-                    .values(Arc::clone(&self.values_read), io, &self.state)
-                    .await
-                    .map_err(VortexError::from)?;
-                return self.node.build_dict(codes, values)?.optimize();
+struct DictReadTask {
+    read: Arc<DictPreparedRead>,
+    codes: Box<dyn ReadTask>,
+    value_reads: Vec<Option<ScanRead>>,
+    cx: SegmentPlanCtx,
+    state: DictReadState,
+}
+
+impl ReadTask for DictReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        let task = *self;
+        match task.state {
+            DictReadState::Start => {
+                let DictReadTask {
+                    read,
+                    codes,
+                    value_reads,
+                    cx,
+                    state: _,
+                } = task;
+                let codes_step = codes.into_step()?;
+                Ok(ReadStep::new(
+                    codes_step.required_reads,
+                    codes_step.prefetch_reads,
+                    move |io, local, results| match codes_step
+                        .continuation
+                        .run(io, local, results)?
+                    {
+                        ReadTaskOutput::Continue(codes) => {
+                            Ok(ReadTaskOutput::Continue(Box::new(DictReadTask {
+                                read,
+                                codes,
+                                value_reads,
+                                cx,
+                                state: DictReadState::Start,
+                            })))
+                        }
+                        ReadTaskOutput::Ready(codes) => {
+                            let mut task = DictReadTask {
+                                read,
+                                codes: Box::new(crate::scan::plan::DeferredReadTask),
+                                value_reads,
+                                cx,
+                                state: DictReadState::Start,
+                            };
+                            let rows = OwnedRowScope::selected(Mask::new_true(codes.len()));
+                            if sparse_dict_candidate(task.read.node.values_len, rows.as_scope()) {
+                                let values_len = usize::try_from(task.read.node.values_len)
+                                    .map_err(|_| {
+                                        vortex_err!("dictionary values length exceeds usize")
+                                    })?;
+                                if let Some((compact_codes, value_selection)) =
+                                    compact_codes_and_value_selection(
+                                        codes.clone(),
+                                        values_len,
+                                        local,
+                                    )?
+                                {
+                                    let values = task
+                                        .create_values_task(RowScope::selected(&value_selection))?;
+                                    task.state = DictReadState::SparseValues {
+                                        compact_codes,
+                                        values: Some(values),
+                                    };
+                                    return Ok(ReadTaskOutput::Continue(Box::new(task)));
+                                }
+                            }
+                            let values = task.create_full_values_task()?;
+                            task.state = DictReadState::FullValues {
+                                codes,
+                                values: Some(values),
+                            };
+                            Ok(ReadTaskOutput::Continue(Box::new(task)))
+                        }
+                    },
+                ))
             }
-
-            let values = async {
-                self.node
-                    .values(Arc::clone(&self.values_read), io, &self.state)
-                    .await
-                    .map_err(VortexError::from)
-            };
-            let codes = self.codes_read.read_scoped(range, rows, io, local);
-            let (values, codes) = try_join!(values, codes)?;
-            self.node.build_dict(codes, values)?.optimize()
-        })
+            DictReadState::SparseValues {
+                compact_codes,
+                mut values,
+            } => {
+                let values_task = values.take().ok_or_else(|| {
+                    vortex_err!("dictionary sparse values task was not initialized")
+                })?;
+                let values_step = values_task.into_step()?;
+                let read = task.read;
+                let value_reads = task.value_reads;
+                let cx = task.cx;
+                Ok(ReadStep::new(
+                    values_step.required_reads,
+                    values_step.prefetch_reads,
+                    move |io, local, results| match values_step
+                        .continuation
+                        .run(io, local, results)?
+                    {
+                        ReadTaskOutput::Continue(values) => {
+                            Ok(ReadTaskOutput::Continue(Box::new(DictReadTask {
+                                read,
+                                codes: Box::new(crate::scan::plan::DeferredReadTask),
+                                value_reads,
+                                cx,
+                                state: DictReadState::SparseValues {
+                                    compact_codes,
+                                    values: Some(values),
+                                },
+                            })))
+                        }
+                        ReadTaskOutput::Ready(values) => Ok(ReadTaskOutput::Ready(
+                            read.node.build_dict(compact_codes, values)?.optimize()?,
+                        )),
+                    },
+                ))
+            }
+            DictReadState::FullValues { codes, mut values } => {
+                let values_task = values.take().ok_or_else(|| {
+                    vortex_err!("dictionary full values task was not initialized")
+                })?;
+                let values_step = values_task.into_step()?;
+                let read = task.read;
+                let value_reads = task.value_reads;
+                let cx = task.cx;
+                Ok(ReadStep::new(
+                    values_step.required_reads,
+                    values_step.prefetch_reads,
+                    move |io, local, results| match values_step
+                        .continuation
+                        .run(io, local, results)?
+                    {
+                        ReadTaskOutput::Continue(values) => {
+                            Ok(ReadTaskOutput::Continue(Box::new(DictReadTask {
+                                read,
+                                codes: Box::new(crate::scan::plan::DeferredReadTask),
+                                value_reads,
+                                cx,
+                                state: DictReadState::FullValues {
+                                    codes,
+                                    values: Some(values),
+                                },
+                            })))
+                        }
+                        ReadTaskOutput::Ready(values) => Ok(ReadTaskOutput::Ready(
+                            read.node.build_dict(codes, values)?.optimize()?,
+                        )),
+                    },
+                ))
+            }
+        }
+    }
+}
+impl DictReadTask {
+    fn create_values_task(&mut self, rows: RowScope<'_>) -> VortexResult<Box<dyn ReadTask>> {
+        let range = 0..self.read.node.values_len;
+        let requests = self
+            .read
+            .values_read
+            .segment_requests(range.clone(), rows, &mut self.cx)?;
+        let reads = take_reads_for_requests(&mut self.value_reads, requests)?;
+        let owned_rows = OwnedRowScope::try_new(rows.selection.clone(), rows.demand.clone())?;
+        Arc::clone(&self.read.values_read).create_task(
+            range,
+            owned_rows,
+            reads,
+            Vec::new(),
+            &mut self.cx,
+        )
     }
 
+    fn create_full_values_task(&mut self) -> VortexResult<Box<dyn ReadTask>> {
+        let values_selection = Mask::new_true(
+            usize::try_from(self.read.node.values_len)
+                .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
+        );
+        self.create_values_task(RowScope::selected(&values_selection))
+    }
+}
+
+impl PreparedRead for DictPreparedRead {
     fn segment_requests(
         &self,
         range: Range<u64>,
         rows: RowScope<'_>,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
-        if sparse_dict_candidate(self.node.values_len, rows) {
-            return self.codes_read.segment_requests(range, rows, cx);
-        }
+        self.codes_read.segment_requests(range, rows, cx)
+    }
 
+    fn prefetch_segment_requests(
+        &self,
+        _range: Range<u64>,
+        _rows: RowScope<'_>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
         let values_selection = Mask::new_true(
             usize::try_from(self.node.values_len)
                 .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
         );
-        let mut requests = self.values_read.segment_requests(
+        self.values_read.segment_requests(
             0..self.node.values_len,
             RowScope::selected(&values_selection),
             cx,
-        )?;
-        if requests.is_unknown() {
-            return Ok(requests);
-        }
-        requests.extend(self.codes_read.segment_requests(range, rows, cx)?);
-        Ok(requests)
+        )
+    }
+
+    fn create_task(
+        self: Arc<Self>,
+        range: Range<u64>,
+        rows: OwnedRowScope,
+        reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        Ok(Box::new(DictReadTask {
+            codes: Arc::clone(&self.codes_read).create_task(range, rows, reads, Vec::new(), cx)?,
+            read: self,
+            value_reads: prefetch_reads.into_iter().map(Some).collect(),
+            cx: cx.clone(),
+            state: DictReadState::Start,
+        }))
     }
 
     fn release(&self, frontier: u64) -> VortexResult<()> {
@@ -422,106 +521,6 @@ impl PreparedRead for DictPreparedRead {
 
     fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.node.fmt_chain(f)
-    }
-}
-
-impl DictExprPreparedRead {
-    async fn value_expr(
-        &self,
-        io: &ReadContext,
-        state: &DictScanState,
-        local: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        if let Some(hit) = state
-            .shared
-            .value_exprs
-            .lock()
-            .get(&self.node.expr)
-            .cloned()
-        {
-            return Ok(hit);
-        }
-        let values = self
-            .node
-            .dict
-            .values(Arc::clone(&self.values_read), io, state)
-            .await
-            .map_err(VortexError::from)?;
-        let computed = values.apply(&self.node.expr).and_then(|array| {
-            match array.clone().execute::<Mask>(local) {
-                Ok(mask) => {
-                    let DType::Bool(nullability) = array.dtype() else {
-                        return array.execute::<ArrayRef>(local);
-                    };
-                    Ok(
-                        BoolArray::new(mask.to_bit_buffer(), Validity::from(nullability))
-                            .into_array(),
-                    )
-                }
-                Err(_) => array.execute::<ArrayRef>(local),
-            }
-        });
-        let value_expr = match computed {
-            Ok(array) => Some(array),
-            Err(error) => {
-                tracing::debug!(
-                    predicate = %self.node.expr,
-                    %error,
-                    "dict value-domain expression read unavailable"
-                );
-                None
-            }
-        };
-        state
-            .shared
-            .value_exprs
-            .lock()
-            .insert(self.node.expr.clone(), value_expr.clone());
-        Ok(value_expr)
-    }
-
-    async fn sparse_expr(
-        &self,
-        codes: ArrayRef,
-        io: &ReadContext,
-        local: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let values_len = usize::try_from(self.node.dict.values_len)
-            .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?;
-        let Some((compact_codes, value_selection)) =
-            compact_codes_and_value_selection(codes, values_len, local)?
-        else {
-            return Ok(None);
-        };
-
-        let values = self
-            .values_read
-            .read_scoped(
-                0..self.node.dict.values_len,
-                RowScope::selected(&value_selection),
-                io,
-                local,
-            )
-            .await?;
-        let input = self
-            .node
-            .dict
-            .build_dict(compact_codes, values)?
-            .optimize()?;
-        let computed = input
-            .apply(&self.node.expr)
-            .and_then(|array| array.execute::<ArrayRef>(local));
-        match computed {
-            Ok(array) => Ok(Some(array)),
-            Err(error) => {
-                tracing::debug!(
-                    predicate = %self.node.expr,
-                    %error,
-                    "sparse dict expression read unavailable"
-                );
-                Ok(None)
-            }
-        }
     }
 }
 
@@ -788,78 +787,372 @@ where
     })
 }
 
-impl PreparedRead for DictExprPreparedRead {
-    fn read_scoped<'a>(
-        &'a self,
-        range: Range<u64>,
-        rows: RowScope<'a>,
-        io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        Box::pin(async move {
-            let sparse_candidate =
-                sparse_value_expr_candidate(&self.node.expr, self.node.dict.values_len, rows);
-            let value_candidate =
-                value_expr_candidate(&self.node.expr, self.node.dict.values_len, rows);
-            let value_expr = if value_candidate {
-                self.value_expr(io, &self.state, local).await?
-            } else {
-                None
-            };
-            let codes = self
-                .codes_read
-                .read_scoped(range.clone(), rows, io, local)
-                .await?;
-            if let Some(value_expr) = value_expr {
-                let all_valid = !codes.dtype().is_nullable()
-                    || codes
-                        .validity()?
-                        .execute_mask(codes.len(), local)?
-                        .all_true();
-                if all_valid {
-                    return self.node.dict.build_dict(codes, value_expr);
+enum DictExprReadState {
+    Start,
+    Values {
+        codes: ArrayRef,
+        values: Option<Box<dyn ReadTask>>,
+        mode: DictExprValueMode,
+    },
+}
+
+enum DictExprValueMode {
+    Full { try_value_expr: bool },
+    Sparse { compact_codes: ArrayRef },
+}
+
+struct DictExprReadTask {
+    read: Arc<DictExprPreparedRead>,
+    codes: Box<dyn ReadTask>,
+    value_reads: Vec<Option<ScanRead>>,
+    cx: SegmentPlanCtx,
+    state: DictExprReadState,
+}
+
+impl ReadTask for DictExprReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        let task = *self;
+        match task.state {
+            DictExprReadState::Start => {
+                let DictExprReadTask {
+                    read,
+                    codes,
+                    value_reads,
+                    cx,
+                    state: _,
+                } = task;
+                let codes_step = codes.into_step()?;
+                Ok(ReadStep::new(
+                    codes_step.required_reads,
+                    codes_step.prefetch_reads,
+                    move |io, local, results| match codes_step
+                        .continuation
+                        .run(io, local, results)?
+                    {
+                        ReadTaskOutput::Continue(codes) => {
+                            Ok(ReadTaskOutput::Continue(Box::new(DictExprReadTask {
+                                read,
+                                codes,
+                                value_reads,
+                                cx,
+                                state: DictExprReadState::Start,
+                            })))
+                        }
+                        ReadTaskOutput::Ready(codes) => {
+                            let mut task = DictExprReadTask {
+                                read,
+                                codes: Box::new(crate::scan::plan::DeferredReadTask),
+                                value_reads,
+                                cx,
+                                state: DictExprReadState::Start,
+                            };
+                            let selection = Mask::new_true(codes.len());
+                            let rows = RowScope::selected(&selection);
+                            let sparse_candidate = sparse_value_expr_candidate(
+                                &task.read.node.expr,
+                                task.read.node.dict.values_len,
+                                rows,
+                            );
+                            let value_candidate = value_expr_candidate(
+                                &task.read.node.expr,
+                                task.read.node.dict.values_len,
+                                rows,
+                            );
+                            let all_valid = !codes.dtype().is_nullable()
+                                || codes
+                                    .validity()
+                                    .and_then(|validity| validity.execute_mask(codes.len(), local))?
+                                    .all_true();
+                            let mut try_value_expr = value_candidate && all_valid;
+                            if try_value_expr {
+                                let cached = task
+                                    .read
+                                    .state
+                                    .shared
+                                    .value_exprs
+                                    .lock()
+                                    .get(&task.read.node.expr)
+                                    .cloned();
+                                match cached {
+                                    Some(Some(value_expr)) => {
+                                        return Ok(ReadTaskOutput::Ready(
+                                            task.read.node.dict.build_dict(codes, value_expr)?,
+                                        ));
+                                    }
+                                    Some(None) => try_value_expr = false,
+                                    None => {}
+                                }
+                            }
+                            if try_value_expr {
+                                let values = task.create_full_values_task()?;
+                                task.state = DictExprReadState::Values {
+                                    codes,
+                                    values: Some(values),
+                                    mode: DictExprValueMode::Full {
+                                        try_value_expr: true,
+                                    },
+                                };
+                                return Ok(ReadTaskOutput::Continue(Box::new(task)));
+                            }
+                            if sparse_candidate {
+                                let values_len = usize::try_from(task.read.node.dict.values_len)
+                                    .map_err(|_| {
+                                        vortex_err!("dictionary values length exceeds usize")
+                                    })?;
+                                if let Some((compact_codes, value_selection)) =
+                                    compact_codes_and_value_selection(
+                                        codes.clone(),
+                                        values_len,
+                                        local,
+                                    )?
+                                {
+                                    let values = task
+                                        .create_values_task(RowScope::selected(&value_selection))?;
+                                    task.state = DictExprReadState::Values {
+                                        codes,
+                                        values: Some(values),
+                                        mode: DictExprValueMode::Sparse { compact_codes },
+                                    };
+                                    return Ok(ReadTaskOutput::Continue(Box::new(task)));
+                                }
+                            }
+                            let values = task.create_full_values_task()?;
+                            task.state = DictExprReadState::Values {
+                                codes,
+                                values: Some(values),
+                                mode: DictExprValueMode::Full {
+                                    try_value_expr: false,
+                                },
+                            };
+                            Ok(ReadTaskOutput::Continue(Box::new(task)))
+                        }
+                    },
+                ))
+            }
+            DictExprReadState::Values {
+                codes,
+                mut values,
+                mode,
+            } => {
+                let values_task = values.take().ok_or_else(|| {
+                    vortex_err!("dictionary expression values task was not initialized")
+                })?;
+                let values_step = values_task.into_step()?;
+                let read = task.read;
+                let value_reads = task.value_reads;
+                let cx = task.cx;
+                Ok(ReadStep::new(
+                    values_step.required_reads,
+                    values_step.prefetch_reads,
+                    move |io, local, results| match values_step
+                        .continuation
+                        .run(io, local, results)?
+                    {
+                        ReadTaskOutput::Continue(values) => {
+                            Ok(ReadTaskOutput::Continue(Box::new(DictExprReadTask {
+                                read,
+                                codes: Box::new(crate::scan::plan::DeferredReadTask),
+                                value_reads,
+                                cx,
+                                state: DictExprReadState::Values {
+                                    codes,
+                                    values: Some(values),
+                                    mode,
+                                },
+                            })))
+                        }
+                        ReadTaskOutput::Ready(values_array) => finish_dict_expr_values(
+                            read,
+                            value_reads,
+                            cx,
+                            codes,
+                            mode,
+                            values_array,
+                            local,
+                        ),
+                    },
+                ))
+            }
+        }
+    }
+}
+
+fn finish_dict_expr_values(
+    read: Arc<DictExprPreparedRead>,
+    mut value_reads: Vec<Option<ScanRead>>,
+    mut cx: SegmentPlanCtx,
+    codes: ArrayRef,
+    mode: DictExprValueMode,
+    values_array: ArrayRef,
+    local: &mut ExecutionCtx,
+) -> VortexResult<ReadTaskOutput> {
+    match mode {
+        DictExprValueMode::Full { try_value_expr } => {
+            if try_value_expr {
+                let value_expr = {
+                    let mut value_exprs = read.state.shared.value_exprs.lock();
+                    if let Some(cached) = value_exprs.get(&read.node.expr).cloned() {
+                        cached
+                    } else {
+                        let computed = values_array.clone().apply(&read.node.expr).and_then(
+                            |array| match array.clone().execute::<Mask>(local) {
+                                Ok(mask) => {
+                                    let DType::Bool(nullability) = array.dtype() else {
+                                        return array.execute::<ArrayRef>(local);
+                                    };
+                                    Ok(BoolArray::new(
+                                        mask.to_bit_buffer(),
+                                        Validity::from(nullability),
+                                    )
+                                    .into_array())
+                                }
+                                Err(_) => array.execute::<ArrayRef>(local),
+                            },
+                        );
+                        let value_expr = match computed {
+                            Ok(array) => Some(array),
+                            Err(error) => {
+                                tracing::debug!(
+                                    predicate = %read.node.expr,
+                                    %error,
+                                    "dict value-domain expression read unavailable"
+                                );
+                                None
+                            }
+                        };
+                        value_exprs.insert(read.node.expr.clone(), value_expr.clone());
+                        value_expr
+                    }
+                };
+                if let Some(value_expr) = value_expr {
+                    return Ok(ReadTaskOutput::Ready(
+                        read.node.dict.build_dict(codes, value_expr)?,
+                    ));
                 }
             }
-            if sparse_candidate
-                && let Some(result) = self.sparse_expr(codes.clone(), io, local).await?
-            {
-                return Ok(result);
-            }
-            let values = self
+            let input = read.node.dict.build_dict(codes, values_array)?.optimize()?;
+            Ok(ReadTaskOutput::Ready(
+                input.apply(&read.node.expr)?.execute::<ArrayRef>(local)?,
+            ))
+        }
+        DictExprValueMode::Sparse { compact_codes } => {
+            let input = read
                 .node
                 .dict
-                .values(Arc::clone(&self.values_read), io, &self.state)
-                .await
-                .map_err(VortexError::from)?;
-            let input = self.node.dict.build_dict(codes, values)?.optimize()?;
-            input.apply(&self.node.expr)?.execute::<ArrayRef>(local)
-        })
+                .build_dict(compact_codes.clone(), values_array)?
+                .optimize()?;
+            let computed = input
+                .apply(&read.node.expr)
+                .and_then(|array| array.execute::<ArrayRef>(local));
+            match computed {
+                Ok(array) => Ok(ReadTaskOutput::Ready(array)),
+                Err(error) => {
+                    tracing::debug!(
+                        predicate = %read.node.expr,
+                        %error,
+                        "sparse dict expression read unavailable"
+                    );
+                    let full_values = DictExprReadTask::create_full_values_task_for(
+                        &read,
+                        &mut value_reads,
+                        &mut cx,
+                    )?;
+                    Ok(ReadTaskOutput::Continue(Box::new(DictExprReadTask {
+                        read,
+                        codes: Box::new(crate::scan::plan::DeferredReadTask),
+                        value_reads,
+                        cx,
+                        state: DictExprReadState::Values {
+                            codes,
+                            values: Some(full_values),
+                            mode: DictExprValueMode::Full {
+                                try_value_expr: false,
+                            },
+                        },
+                    })))
+                }
+            }
+        }
+    }
+}
+
+impl DictExprReadTask {
+    fn create_values_task(&mut self, rows: RowScope<'_>) -> VortexResult<Box<dyn ReadTask>> {
+        Self::create_values_task_for(&self.read, &mut self.value_reads, &mut self.cx, rows)
     }
 
+    fn create_values_task_for(
+        read: &Arc<DictExprPreparedRead>,
+        value_reads: &mut [Option<ScanRead>],
+        cx: &mut SegmentPlanCtx,
+        rows: RowScope<'_>,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        let range = 0..read.node.dict.values_len;
+        let requests = read.values_read.segment_requests(range.clone(), rows, cx)?;
+        let reads = take_reads_for_requests(value_reads, requests)?;
+        let owned_rows = OwnedRowScope::try_new(rows.selection.clone(), rows.demand.clone())?;
+        Arc::clone(&read.values_read).create_task(range, owned_rows, reads, Vec::new(), cx)
+    }
+
+    fn create_full_values_task(&mut self) -> VortexResult<Box<dyn ReadTask>> {
+        Self::create_full_values_task_for(&self.read, &mut self.value_reads, &mut self.cx)
+    }
+
+    fn create_full_values_task_for(
+        read: &Arc<DictExprPreparedRead>,
+        value_reads: &mut [Option<ScanRead>],
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        let values_selection = Mask::new_true(
+            usize::try_from(read.node.dict.values_len)
+                .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
+        );
+        Self::create_values_task_for(read, value_reads, cx, RowScope::selected(&values_selection))
+    }
+}
+
+impl PreparedRead for DictExprPreparedRead {
     fn segment_requests(
         &self,
         range: Range<u64>,
         rows: RowScope<'_>,
         cx: &mut SegmentPlanCtx,
     ) -> VortexResult<SegmentRequests> {
-        if sparse_value_expr_candidate(&self.node.expr, self.node.dict.values_len, rows) {
-            return self.codes_read.segment_requests(range, rows, cx);
-        }
+        self.codes_read.segment_requests(range, rows, cx)
+    }
 
+    fn prefetch_segment_requests(
+        &self,
+        _range: Range<u64>,
+        _rows: RowScope<'_>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
         let values_selection = Mask::new_true(
             usize::try_from(self.node.dict.values_len)
                 .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
         );
-        let mut requests = self.values_read.segment_requests(
+        self.values_read.segment_requests(
             0..self.node.dict.values_len,
             RowScope::selected(&values_selection),
             cx,
-        )?;
-        if requests.is_unknown() {
-            return Ok(requests);
-        }
-        requests.extend(self.codes_read.segment_requests(range, rows, cx)?);
-        Ok(requests)
+        )
+    }
+
+    fn create_task(
+        self: Arc<Self>,
+        range: Range<u64>,
+        rows: OwnedRowScope,
+        reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        Ok(Box::new(DictExprReadTask {
+            codes: Arc::clone(&self.codes_read).create_task(range, rows, reads, Vec::new(), cx)?,
+            read: self,
+            value_reads: prefetch_reads.into_iter().map(Some).collect(),
+            cx: cx.clone(),
+            state: DictExprReadState::Start,
+        }))
     }
 
     fn release(&self, frontier: u64) -> VortexResult<()> {

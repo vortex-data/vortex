@@ -5,9 +5,7 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
@@ -23,26 +21,31 @@ use vortex_array::scalar::PValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scan::plan::ApplyScanPlan;
-use vortex_scan::plan::PrepareCtx;
-use vortex_scan::plan::PreparedRead;
-use vortex_scan::plan::PreparedReadRef;
-use vortex_scan::plan::PushCtx;
-use vortex_scan::plan::ReadContext;
-use vortex_scan::plan::RowScope;
-use vortex_scan::plan::ScanPlan;
-use vortex_scan::plan::ScanPlanRef;
-use vortex_scan::plan::ScanStateRef;
-use vortex_scan::plan::StateCtx;
-use vortex_scan::plan::StructValueScanPlan;
-use vortex_scan::plan::default_try_push_expr;
-use vortex_scan::segments::SegmentPlanCtx;
-use vortex_scan::segments::SegmentRequests;
+use vortex_scan::read::ScanRead;
 use vortex_sequence::Sequence;
 use vortex_sequence::SequenceArray;
 
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::row_idx;
+use crate::scan::plan::ApplyScanPlan;
+use crate::scan::plan::OwnedRowScope;
+use crate::scan::plan::PrepareCtx;
+use crate::scan::plan::PreparedRead;
+use crate::scan::plan::PreparedReadRef;
+use crate::scan::plan::PushCtx;
+use crate::scan::plan::ReadStep;
+use crate::scan::plan::ReadTask;
+use crate::scan::plan::ReadTaskOutput;
+use crate::scan::plan::RowScope;
+use crate::scan::plan::ScanPlan;
+use crate::scan::plan::ScanPlanRef;
+use crate::scan::plan::ScanState;
+use crate::scan::plan::ScanStateRef;
+use crate::scan::plan::StateCtx;
+use crate::scan::plan::StructValueScanPlan;
+use crate::scan::plan::default_try_push_expr;
+use crate::segments::SegmentPlanCtx;
+use crate::segments::SegmentRequests;
 
 pub fn with_row_idx(root: ScanPlanRef, dtype: DType, row_offset: u64) -> ScanPlanRef {
     Arc::new(RowIdxScanPlan {
@@ -181,7 +184,7 @@ impl ScanPlan for RowIdxScanPlan {
         Arc::clone(&self.child).prepare_read(cx)
     }
 
-    fn release(&self, frontier: u64, state: &vortex_scan::plan::ScanState) -> VortexResult<()> {
+    fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
         self.child.release(frontier, state)
     }
 
@@ -216,6 +219,12 @@ struct RowIdxPreparedRead {
     plan: Arc<RowIdxExprScanPlan>,
 }
 
+struct RowIdxReadTask {
+    read: Arc<RowIdxPreparedRead>,
+    range: Range<u64>,
+    rows: OwnedRowScope,
+}
+
 impl ScanPlan for RowIdxExprScanPlan {
     fn init_state(&self, _cx: &mut StateCtx<'_>) -> VortexResult<ScanStateRef> {
         Ok(Arc::new(()))
@@ -242,15 +251,41 @@ impl ScanPlan for RowIdxExprScanPlan {
 }
 
 impl PreparedRead for RowIdxPreparedRead {
-    fn read_scoped<'a>(
-        &'a self,
+    fn segment_requests(
+        &self,
+        _range: Range<u64>,
+        _rows: RowScope<'_>,
+        _cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<SegmentRequests> {
+        Ok(SegmentRequests::none())
+    }
+
+    fn create_task(
+        self: Arc<Self>,
         range: Range<u64>,
-        rows: RowScope<'a>,
-        _io: &'a ReadContext,
-        local: &'a mut ExecutionCtx,
-    ) -> BoxFuture<'a, VortexResult<ArrayRef>> {
-        Box::pin(async move {
-            let dense = idx_array(self.plan.row_offset, &range).into_array();
+        rows: OwnedRowScope,
+        _reads: Vec<ScanRead>,
+        _prefetch_reads: Vec<ScanRead>,
+        _cx: &mut SegmentPlanCtx,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        Ok(Box::new(RowIdxReadTask {
+            read: self,
+            range,
+            rows,
+        }))
+    }
+
+    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "row_idx({}) -> {}", self.plan.expr, self.plan.dtype)
+    }
+}
+
+impl ReadTask for RowIdxReadTask {
+    fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
+        let Self { read, range, rows } = *self;
+        Ok(ReadStep::new(Vec::new(), Vec::new(), move |_, local, _| {
+            let rows = rows.as_scope();
+            let dense = idx_array(read.plan.row_offset, &range).into_array();
             if rows.selection.len() != dense.len() {
                 vortex_bail!(
                     "selection length {} does not match row_idx range length {}",
@@ -270,21 +305,12 @@ impl PreparedRead for RowIdxPreparedRead {
             } else {
                 dense.filter(rows.selection.clone())?
             };
-            selected.apply(&self.plan.expr)?.execute::<ArrayRef>(local)
-        })
-    }
-
-    fn segment_requests(
-        &self,
-        _range: Range<u64>,
-        _rows: RowScope<'_>,
-        _cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        Ok(SegmentRequests::none())
-    }
-
-    fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "row_idx({}) -> {}", self.plan.expr, self.plan.dtype)
+            Ok(ReadTaskOutput::Ready(
+                selected
+                    .apply(&read.plan.expr)?
+                    .execute::<ArrayRef>(local)?,
+            ))
+        }))
     }
 }
 
