@@ -129,6 +129,13 @@ mod private {
     impl Sealed for f64 {}
 }
 
+/// Widen a running `(min, max)` bound to include `value`, seeding it on the first value.
+fn update_bounds<I: Ord + Copy>(bounds: &mut Option<(I, I)>, value: I) {
+    *bounds = Some(bounds.map_or((value, value), |(min, max)| {
+        (min.min(value), max.max(value))
+    }));
+}
+
 pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     type ALPInt: PrimInt + Display + ToPrimitive + Copy + NativePType + Into<PValue>;
 
@@ -182,34 +189,31 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     /// Size estimate for `values` under `exponents` matching a full [`Self::encode`] plus
     /// [`Self::estimate_encoded_size`], but without the per-candidate allocations.
     fn estimate_encoded_size_for_exponents(values: &[Self], exponents: Exponents) -> usize {
-        // `encode` overwrites patched slots with an in-range fill value, so the kept-value range
-        // matches its output; only when every value is patched (no fill value) is the full range used.
-        let mut kept_min: Option<Self::ALPInt> = None;
-        let mut kept_max: Option<Self::ALPInt> = None;
-        let mut all_min: Option<Self::ALPInt> = None;
-        let mut all_max: Option<Self::ALPInt> = None;
+        // `kept` is the (min, max) over values that round-trip exactly (kept inline by `encode`);
+        // `all` is the (min, max) over every encoded value. `encode` fills patched slots in-range,
+        // so its emitted range is `kept`, except with all values patched (no fill) where `all` wins.
+        let mut kept: Option<(Self::ALPInt, Self::ALPInt)> = None;
+        let mut all: Option<(Self::ALPInt, Self::ALPInt)> = None;
         let mut patch_count = 0usize;
 
         for &value in values {
             let encoded = Self::encode_single_unchecked(value, exponents);
-            all_min = Some(all_min.map_or(encoded, |m| m.min(encoded)));
-            all_max = Some(all_max.map_or(encoded, |m| m.max(encoded)));
+            update_bounds(&mut all, encoded);
             if Self::decode_single(encoded, exponents).is_eq(value) {
-                kept_min = Some(kept_min.map_or(encoded, |m| m.min(encoded)));
-                kept_max = Some(kept_max.map_or(encoded, |m| m.max(encoded)));
+                update_bounds(&mut kept, encoded);
             } else {
                 patch_count += 1;
             }
         }
 
         let range = if patch_count == values.len() {
-            all_max.zip(all_min)
+            all
         } else {
-            kept_max.zip(kept_min)
+            kept
         };
 
         let bits_per_encoded = range
-            .and_then(|(max, min)| max.checked_sub(&min))
+            .and_then(|(min, max)| max.checked_sub(&min))
             .and_then(|range_size| range_size.to_u64())
             .and_then(|range_size| {
                 range_size
