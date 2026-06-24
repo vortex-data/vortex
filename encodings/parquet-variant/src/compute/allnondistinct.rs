@@ -86,22 +86,13 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::aggregate_fn::AggregateFn;
-    use vortex_array::aggregate_fn::EmptyOptions;
-    use vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
     use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
-    use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
-    use vortex_array::arrays::StructArray as VortexStructArray;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::dtype::FieldNames;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use super::AllNonDistinctParquetVariant;
     use crate::ParquetVariant;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
