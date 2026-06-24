@@ -4,13 +4,15 @@
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
 
 use crate::IntoArray;
 use crate::RecursiveCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
+use crate::arrays::Dict;
 use crate::arrays::DictArray;
+use crate::arrays::Filter;
 use crate::arrays::FilterArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
@@ -18,11 +20,27 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::assert_arrays_eq;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldNames;
 use crate::executor::ExecutionCtx;
+use crate::kernel::ExecuteParentKernel;
 use crate::validity::Validity;
+
+fn execute_parent(
+    child: &crate::ArrayRef,
+    parent: &crate::ArrayRef,
+    child_idx: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<crate::ArrayRef>> {
+    TakeExecuteAdaptor(Filter).execute_parent(
+        child.as_::<Filter>(),
+        parent.as_::<Dict>(),
+        child_idx,
+        ctx,
+    )
+}
 
 #[test]
 fn test_take_execute_kernel_maps_indices_through_filter() -> VortexResult<()> {
@@ -41,15 +59,15 @@ fn test_take_execute_kernel_maps_indices_through_filter() -> VortexResult<()> {
         filter.clone(),
     )?
     .into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert_arrays_eq!(
         result.execute::<RecursiveCanonical>(&mut ctx)?.0,
-        PrimitiveArray::from_option_iter([Some(40i32), None, Some(10)]).into_array()
+        PrimitiveArray::from_option_iter([Some(40i32), None, Some(10)]).into_array(),
+        &mut ctx
     );
     Ok(())
 }
@@ -70,16 +88,16 @@ fn test_take_execute_kernel_nullable_fast_path_maps_indices_through_filter() -> 
         filter.clone(),
     )?
     .into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert!(result.as_opt::<Primitive>().is_some());
     assert_arrays_eq!(
         result.execute::<RecursiveCanonical>(&mut ctx)?.0,
-        PrimitiveArray::from_option_iter([Some(40i32), None, Some(20)]).into_array()
+        PrimitiveArray::from_option_iter([Some(40i32), None, Some(20)]).into_array(),
+        &mut ctx
     );
     Ok(())
 }
@@ -92,16 +110,16 @@ fn test_take_execute_kernel_fast_path_maps_indices_through_filter() -> VortexRes
     )
     .into_array();
     let parent = DictArray::try_new(buffer![2u64, 0, 3].into_array(), filter.clone())?.into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert!(result.as_opt::<Primitive>().is_some());
     assert_arrays_eq!(
         result.execute::<RecursiveCanonical>(&mut ctx)?.0,
-        PrimitiveArray::from_iter([50i32, 20, 60]).into_array()
+        PrimitiveArray::from_iter([50i32, 20, 60]).into_array(),
+        &mut ctx
     );
     Ok(())
 }
@@ -113,9 +131,9 @@ fn assert_take_execute_rejects_out_of_bounds_rank(
 ) -> VortexResult<()> {
     let filter = FilterArray::new(child, filter_mask).into_array();
     let parent = DictArray::try_new(codes, filter.clone())?.into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    if let Err(err) = filter.execute_parent(&parent, 1, &mut ctx) {
+    if let Err(err) = execute_parent(&filter, &parent, 1, &mut ctx) {
         assert!(
             err.to_string().contains("out of bounds"),
             "unexpected error: {err}"
@@ -191,10 +209,9 @@ fn test_take_execute_kernel_handles_empty_sequential_take() -> VortexResult<()> 
         filter.clone(),
     )?
     .into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert_arrays_eq!(
@@ -204,7 +221,8 @@ fn test_take_execute_kernel_handles_empty_sequential_take() -> VortexResult<()> 
             buffer![0u32].into_array(),
             Validity::NonNullable,
         )?
-        .into_array()
+        .into_array(),
+        &mut ctx
     );
     Ok(())
 }
@@ -216,13 +234,16 @@ fn assert_take_execute_maps_child_dtype(
     let filter =
         FilterArray::new(child, Mask::from_iter([true, false, true, true, false])).into_array();
     let parent = DictArray::try_new(buffer![2u64, 0, 1].into_array(), filter.clone())?.into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
-    assert_arrays_eq!(result.execute::<RecursiveCanonical>(&mut ctx)?.0, expected);
+    assert_arrays_eq!(
+        result.execute::<RecursiveCanonical>(&mut ctx)?.0,
+        expected,
+        &mut ctx
+    );
     Ok(())
 }
 
@@ -234,9 +255,9 @@ fn test_take_execute_kernel_skips_bool_filter_child() -> VortexResult<()> {
     )
     .into_array();
     let parent = DictArray::try_new(buffer![2u64, 0, 1].into_array(), filter.clone())?.into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    let result = filter.execute_parent(&parent, 1, &mut ctx)?;
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?;
 
     assert!(result.is_none());
     Ok(())
@@ -256,9 +277,9 @@ fn execute_primitive_take(
     .into_array();
     let indices = PrimitiveArray::from_iter((0..take_len).map(|idx| (idx % filtered_len) as u64));
     let parent = DictArray::try_new(indices.into_array(), filter.clone())?.into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    filter.execute_parent(&parent, 1, &mut ctx)
+    execute_parent(&filter, &parent, 1, &mut ctx)
 }
 
 #[test]
@@ -323,16 +344,17 @@ fn test_take_execute_kernel_handles_nullable_primitive_filter_child() -> VortexR
     )
     .into_array();
     let parent = DictArray::try_new(buffer![2u64, 0, 1].into_array(), filter.clone())?.into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    let result = filter.execute_parent(&parent, 1, &mut ctx)?;
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?;
 
     assert_arrays_eq!(
         result
             .expect("filter child should execute its take parent")
             .execute::<RecursiveCanonical>(&mut ctx)?
             .0,
-        PrimitiveArray::from_option_iter([Some(40i32), Some(10), None]).into_array()
+        PrimitiveArray::from_option_iter([Some(40i32), Some(10), None]).into_array(),
+        &mut ctx
     );
     Ok(())
 }
@@ -345,16 +367,16 @@ fn test_take_execute_kernel_preserves_nullable_all_valid_fixed_width_child() -> 
     )
     .into_array();
     let parent = DictArray::try_new(buffer![0u64, 1].into_array(), filter.clone())?.into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its take parent");
 
     assert_eq!(result.dtype(), parent.dtype());
     assert_arrays_eq!(
         result.execute::<RecursiveCanonical>(&mut ctx)?.0,
-        PrimitiveArray::new(buffer![10i32, 20], Validity::AllValid).into_array()
+        PrimitiveArray::new(buffer![10i32, 20], Validity::AllValid).into_array(),
+        &mut ctx
     );
     Ok(())
 }
@@ -372,9 +394,9 @@ fn test_take_execute_kernel_handles_nullable_decimal_filter_child() -> VortexRes
     )
     .into_array();
     let parent = DictArray::try_new(buffer![2u64, 0, 1].into_array(), filter.clone())?.into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    let result = filter.execute_parent(&parent, 1, &mut ctx)?;
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?;
 
     assert_arrays_eq!(
         result
@@ -382,7 +404,8 @@ fn test_take_execute_kernel_handles_nullable_decimal_filter_child() -> VortexRes
             .execute::<RecursiveCanonical>(&mut ctx)?
             .0,
         DecimalArray::from_option_iter([Some(400i128), Some(100), None], decimal_dtype)
-            .into_array()
+            .into_array(),
+        &mut ctx
     );
     Ok(())
 }
@@ -465,16 +488,16 @@ fn test_take_execute_kernel_preserves_nullable_indices_dtype_fast_path() -> Vort
         filter.clone(),
     )?
     .into_array();
-    let mut ctx = ExecutionCtx::new(VortexSession::empty());
+    let mut ctx = crate::array_session().create_execution_ctx();
 
-    let result = filter
-        .execute_parent(&parent, 1, &mut ctx)?
+    let result = execute_parent(&filter, &parent, 1, &mut ctx)?
         .expect("filter child should execute its nullable take parent");
 
     assert_eq!(result.dtype(), parent.dtype());
     assert_arrays_eq!(
         result.execute::<RecursiveCanonical>(&mut ctx)?.0,
-        VarBinViewArray::from_iter_nullable_str([Some("a"), Some("b")]).into_array()
+        VarBinViewArray::from_iter_nullable_str([Some("a"), Some("b")]).into_array(),
+        &mut ctx
     );
     Ok(())
 }

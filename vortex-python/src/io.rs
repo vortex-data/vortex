@@ -5,6 +5,7 @@ use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use async_fs::File;
 use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3_object_store::PyObjectStore;
@@ -17,7 +18,7 @@ use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
-use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::arrow::TryFromArrowType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
@@ -114,7 +115,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ...     secret_access_key="..."
 /// ... )
 /// >>> a = vx.io.read_url("s3://my-bucket/data.vortex", store=store)  # doctest: +SKIP
-///
 #[pyfunction]
 #[pyo3(signature = (url, *, store = None, projection = None, row_filter = None, indices = None, row_range = None))]
 pub fn read_url<'py>(
@@ -258,7 +258,7 @@ impl PyVortexWriteOptions {
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
-    /// 216004
+    /// 215940
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
     ///
@@ -268,7 +268,7 @@ impl PyVortexWriteOptions {
     ///
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
-    /// 55120
+    /// 55068
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]
@@ -408,7 +408,8 @@ fn try_arrow_stream_to_iterator(
     if ob.is_instance(pa_table)? || ob.is_instance(pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
         let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
-        let dtype = DType::from_arrow(arrow_stream.schema());
+        let dtype = DType::try_from_arrow(arrow_stream.schema())
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         // Convert Arrow RecordBatch stream to Vortex ArrayIterator
         let vortex_iter = arrow_stream

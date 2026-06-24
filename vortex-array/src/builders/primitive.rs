@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -131,6 +132,28 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.values.extend(iter);
         self.nulls.append_validity_mask(mask);
     }
+
+    pub(crate) fn append_primitive_array(
+        &mut self,
+        array: &PrimitiveArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        debug_assert_eq!(
+            array.ptype(),
+            T::PTYPE,
+            "Cannot append primitive array with different ptype"
+        );
+
+        self.values.extend_from_slice(array.as_slice::<T>());
+        self.nulls.append_validity_mask(
+            &array
+                .as_ref()
+                .validity()
+                .vortex_expect("validity_mask")
+                .execute_mask(array.as_ref().len(), ctx)?,
+        );
+        Ok(())
+    }
 }
 
 impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
@@ -181,25 +204,8 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         #[expect(deprecated)]
         let array = array.to_primitive();
 
-        // This should be checked in `extend_from_array` but we can check it again.
-        debug_assert_eq!(
-            array.ptype(),
-            T::PTYPE,
-            "Cannot extend from array with different ptype"
-        );
-
-        self.values.extend_from_slice(array.as_slice::<T>());
-        self.nulls.append_validity_mask(
-            &array
-                .as_ref()
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(
-                    array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
-                .vortex_expect("Failed to compute validity mask"),
-        );
+        self.append_primitive_array(&array, &mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("Failed to append primitive array");
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -370,6 +376,8 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::assert_arrays_eq;
 
     /// REGRESSION TEST: This test verifies that multiple sequential ranges have correct offsets.
@@ -378,6 +386,7 @@ mod tests {
     /// buffer.
     #[test]
     fn test_multiple_uninit_ranges_correct_offsets() {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
 
         // First range.
@@ -407,7 +416,11 @@ mod tests {
         assert_eq!(builder.values(), &[1, 2, 3, 4, 5]);
 
         let array = builder.finish_into_primitive();
-        assert_arrays_eq!(array, PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]));
+        assert_arrays_eq!(
+            array,
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]),
+            &mut ctx
+        );
     }
 
     /// REGRESSION TEST: This test verifies that `append_mask` was correctly moved from
@@ -441,19 +454,19 @@ mod tests {
         // Check validity using scalar_at - nulls will return is_null() = true.
         assert!(
             !array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
         assert!(
             array
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
         assert!(
             !array
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut array_session().create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
@@ -484,6 +497,7 @@ mod tests {
     /// This verifies the new simplified API without the redundant `len` parameter.
     #[test]
     fn test_copy_from_slice_with_offsets() {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);
         let mut range = builder.uninit_range(6);
 
@@ -498,7 +512,11 @@ mod tests {
         }
 
         let array = builder.finish_into_primitive();
-        assert_arrays_eq!(array, PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]));
+        assert_arrays_eq!(
+            array,
+            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]),
+            &mut ctx
+        );
     }
 
     /// Test that `set_bit` uses relative indexing within the range.
@@ -546,13 +564,13 @@ mod tests {
         // Check validity - the first two should be valid (from append_value).
         assert!(
             !array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap()
                 .is_null()
         ); // initial value 100
         assert!(
             !array
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap()
                 .is_null()
         ); // initial value 200
@@ -560,19 +578,19 @@ mod tests {
         // Check the range items with modified validity.
         assert!(
             !array
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut array_session().create_execution_ctx())
                 .unwrap()
                 .is_null()
         ); // range index 0 - set to valid
         assert!(
             array
-                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(3, &mut array_session().create_execution_ctx())
                 .unwrap()
                 .is_null()
         ); // range index 1 - left as null
         assert!(
             !array
-                .execute_scalar(4, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(4, &mut array_session().create_execution_ctx())
                 .unwrap()
                 .is_null()
         ); // range index 2 - set to valid
@@ -588,12 +606,10 @@ mod tests {
 
     /// Test that creating an uninit range exceeding capacity panics.
     #[test]
-    #[should_panic(
-        expected = "uninit_range of len 10 exceeds builder with length 0 and capacity 6"
-    )]
+    #[should_panic(expected = "uninit_range of len 261 exceeds builder with length 0 and capacity")]
     fn test_uninit_range_exceeds_capacity_panics() {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 5);
-        let _range = builder.uninit_range(10);
+        let _range = builder.uninit_range(261);
     }
 
     /// Test that `copy_from_slice` debug asserts on out-of-bounds access.
@@ -670,7 +686,7 @@ mod tests {
         // values[2] might be any value since it's null.
 
         // Check validity - first two should be valid, third should be null.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert!(
             array
                 .validity()

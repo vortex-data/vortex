@@ -9,9 +9,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
-use vortex_session::registry::ReadContext;
 
 use crate::Layout;
+use crate::LayoutBuildContext;
 use crate::LayoutChildType;
 use crate::LayoutChildren;
 use crate::LayoutEncoding;
@@ -50,7 +50,7 @@ impl LayoutEncoding for ForeignLayoutEncoding {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: &ReadContext,
+        _build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef> {
         let child_layouts = (0..children.nchildren())
             .map(|idx| children.child(idx, dtype))

@@ -115,7 +115,7 @@ fn test_decimal_cast_between_decimal_types() {
         Nullability::NonNullable,
     );
 
-    // Cast to different decimal type (currently just preserves value)
+    // Cast to different decimal type.
     let result = decimal_scalar
         .cast(&DType::Decimal(
             DecimalDType::new(20, 4),
@@ -123,9 +123,9 @@ fn test_decimal_cast_between_decimal_types() {
         ))
         .unwrap();
 
-    // Value should be preserved (TODO(connor): proper scaling logic - whatever that means???)
+    // 123.45 with scale 2 is represented as 123.4500 with scale 4.
     let decimal_value: Option<DecimalValue> = result.try_into().unwrap();
-    assert_eq!(decimal_value, Some(DecimalValue::I32(12345)));
+    assert_eq!(decimal_value, Some(DecimalValue::I128(1234500)));
 }
 
 #[test]
@@ -309,7 +309,6 @@ fn test_decimal_to_decimal_different_scale() {
     );
 
     // Cast to decimal with scale=4
-    // TODO: This should properly rescale, but for now it preserves the raw value
     let target_dtype = DType::Decimal(DecimalDType::new(10, 4), Nullability::NonNullable);
     let result = decimal.cast(&target_dtype);
     assert!(result.is_ok());
@@ -317,7 +316,85 @@ fn test_decimal_to_decimal_different_scale() {
     let casted = result.unwrap();
     assert_eq!(
         casted.as_decimal().decimal_value(),
-        Some(DecimalValue::I32(10000))
+        Some(DecimalValue::I64(1000000))
+    );
+}
+
+#[test]
+fn test_decimal_to_decimal_lower_scale_exact() {
+    let decimal = Scalar::decimal(
+        DecimalValue::I64(1234500), // 123.4500
+        DecimalDType::new(10, 4),
+        Nullability::NonNullable,
+    );
+
+    let casted = decimal
+        .cast(&DType::Decimal(
+            DecimalDType::new(10, 2),
+            Nullability::NonNullable,
+        ))
+        .unwrap();
+
+    assert_eq!(
+        casted.as_decimal().decimal_value(),
+        Some(DecimalValue::I64(12345))
+    );
+}
+
+#[test]
+fn test_decimal_to_decimal_lower_scale_lossy_fails() {
+    let decimal = Scalar::decimal(
+        DecimalValue::I64(1234567), // 123.4567
+        DecimalDType::new(10, 4),
+        Nullability::NonNullable,
+    );
+
+    let result = decimal.cast(&DType::Decimal(
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    ));
+
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("would lose precision")
+    );
+}
+
+#[test]
+fn test_primitive_i64_to_decimal_rescales() {
+    let scalar = Scalar::primitive(42i64, Nullability::NonNullable);
+
+    let casted = scalar
+        .cast(&DType::Decimal(
+            DecimalDType::new(21, 2),
+            Nullability::NonNullable,
+        ))
+        .unwrap();
+
+    assert_eq!(
+        casted.as_decimal().decimal_value(),
+        Some(DecimalValue::I128(4200))
+    );
+}
+
+#[test]
+fn test_primitive_to_decimal_precision_checked() {
+    let scalar = Scalar::primitive(1000i32, Nullability::NonNullable);
+
+    let result = scalar.cast(&DType::Decimal(
+        DecimalDType::new(2, 0),
+        Nullability::NonNullable,
+    ));
+
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("does not fit in precision")
     );
 }
 
@@ -992,7 +1069,7 @@ fn test_decimal_value_checked_add() {
     let a = DecimalValue::I64(100);
     let b = DecimalValue::I64(200);
     let result = a.checked_add(&b).unwrap();
-    assert_eq!(result, DecimalValue::I256(i256::from_i128(300)));
+    assert_eq!(result, DecimalValue::I64(300));
 }
 
 #[test]
@@ -1000,7 +1077,7 @@ fn test_decimal_value_checked_sub() {
     let a = DecimalValue::I64(500);
     let b = DecimalValue::I64(200);
     let result = a.checked_sub(&b).unwrap();
-    assert_eq!(result, DecimalValue::I256(i256::from_i128(300)));
+    assert_eq!(result, DecimalValue::I64(300));
 }
 
 #[test]
@@ -1008,7 +1085,7 @@ fn test_decimal_value_checked_mul() {
     let a = DecimalValue::I32(50);
     let b = DecimalValue::I32(10);
     let result = a.checked_mul(&b).unwrap();
-    assert_eq!(result, DecimalValue::I256(i256::from_i128(500)));
+    assert_eq!(result, DecimalValue::I32(500));
 }
 
 #[test]
@@ -1016,7 +1093,7 @@ fn test_decimal_value_checked_div() {
     let a = DecimalValue::I64(1000);
     let b = DecimalValue::I64(10);
     let result = a.checked_div(&b).unwrap();
-    assert_eq!(result, DecimalValue::I256(i256::from_i128(100)));
+    assert_eq!(result, DecimalValue::I64(100));
 }
 
 #[test]
@@ -1033,7 +1110,69 @@ fn test_decimal_value_mixed_types() {
     let a = DecimalValue::I8(10);
     let b = DecimalValue::I128(20);
     let result = a.checked_add(&b).unwrap();
-    assert_eq!(result, DecimalValue::I256(i256::from_i128(30)));
+    assert_eq!(result, DecimalValue::I128(30));
+}
+
+#[test]
+fn test_checked_ops_preserve_type() {
+    // Operations should return the wider of the two operand types, not unconditionally upcast to I256
+    let add = DecimalValue::I32(5)
+        .checked_add(&DecimalValue::I32(3))
+        .unwrap();
+    assert_eq!(add.decimal_type(), DecimalType::I32);
+
+    let sub = DecimalValue::I64(10)
+        .checked_sub(&DecimalValue::I64(3))
+        .unwrap();
+    assert_eq!(sub.decimal_type(), DecimalType::I64);
+
+    let mul = DecimalValue::I8(2)
+        .checked_mul(&DecimalValue::I8(3))
+        .unwrap();
+    assert_eq!(mul.decimal_type(), DecimalType::I8);
+
+    let div = DecimalValue::I128(10)
+        .checked_div(&DecimalValue::I128(2))
+        .unwrap();
+    assert_eq!(div.decimal_type(), DecimalType::I128);
+
+    let add_i256 = DecimalValue::I256(i256::from_i128(1))
+        .checked_add(&DecimalValue::I256(i256::from_i128(2)))
+        .unwrap();
+    assert_eq!(add_i256.decimal_type(), DecimalType::I256);
+}
+
+#[test]
+fn test_checked_ops_mixed_types_use_wider() {
+    let add = DecimalValue::I8(1)
+        .checked_add(&DecimalValue::I64(2))
+        .unwrap();
+    assert_eq!(add.decimal_type(), DecimalType::I64);
+
+    let sub = DecimalValue::I32(10)
+        .checked_sub(&DecimalValue::I128(3))
+        .unwrap();
+    assert_eq!(sub.decimal_type(), DecimalType::I128);
+}
+
+#[test]
+fn test_checked_ops_overflow_at_target_width() {
+    assert_eq!(
+        DecimalValue::I8(i8::MAX).checked_add(&DecimalValue::I8(1)),
+        None
+    );
+    assert_eq!(
+        DecimalValue::I16(i16::MIN).checked_sub(&DecimalValue::I16(1)),
+        None
+    );
+    assert_eq!(
+        DecimalValue::I32(i32::MAX).checked_mul(&DecimalValue::I32(2)),
+        None
+    );
+    assert_eq!(
+        DecimalValue::I8(i8::MIN).checked_div(&DecimalValue::I8(-1)),
+        None
+    );
 }
 
 #[test]

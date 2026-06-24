@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::ProcessResults;
-
 /// Trait for all types which have a known upper-bound.
 ///
 /// Functions that receive a `TrustedLen` iterator can assume that it's `size_hint` is exact,
@@ -146,7 +144,7 @@ unsafe impl<T> TrustedLen for crate::Iter<'_, T> {}
 unsafe impl<T: Copy> TrustedLen for crate::BufferIterator<T> {}
 
 // ProcessResults
-unsafe impl<'a, I, T: 'a, E: 'a> TrustedLen for ProcessResults<'a, I, E> where
+unsafe impl<'a, I, T: 'a, E: 'a> TrustedLen for itertools::ProcessResults<'a, I, E> where
     I: TrustedLen<Item = Result<T, E>>
 {
 }
@@ -158,7 +156,7 @@ unsafe impl<I, T> TrustedLen for std::iter::Enumerate<I> where I: TrustedLen<Ite
 unsafe impl<T, U> TrustedLen for std::iter::Zip<T, U>
 where
     T: TrustedLen,
-    U: TrustedLen,
+    U: Iterator,
 {
 }
 

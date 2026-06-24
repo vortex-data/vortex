@@ -13,9 +13,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::registry::Id;
-use vortex_session::registry::ReadContext;
 
 use crate::IntoLayout;
+use crate::LayoutBuildContext;
 use crate::LayoutChildren;
 use crate::LayoutRef;
 use crate::VTable;
@@ -23,13 +23,25 @@ use crate::segments::SegmentId;
 
 /// A unique identifier for a layout encoding.
 pub type LayoutEncodingId = Id;
+/// Shared reference to a registered layout encoding.
 pub type LayoutEncodingRef = ArcRef<dyn LayoutEncoding>;
 
+/// Object-safe layout encoding registered in a [`LayoutSession`](crate::session::LayoutSession).
+///
+/// Encoding instances deserialize serialized layout metadata into concrete [`LayoutRef`] nodes.
+/// New in-tree encodings usually implement [`VTable`] and use [`LayoutEncodingAdapter`], while
+/// foreign encodings can provide an object-safe implementation directly.
 pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
+    /// Returns this encoding as [`Any`] for downcasting.
     fn as_any(&self) -> &dyn Any;
 
+    /// Returns the globally unique encoding id.
     fn id(&self) -> LayoutEncodingId;
 
+    /// Build a layout from serialized metadata, segment ids, and children.
+    ///
+    /// Implementations must use `build_ctx` for session-scoped plugin resolution instead of global
+    /// registries.
     fn build(
         &self,
         dtype: &DType,
@@ -37,10 +49,11 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: &ReadContext,
+        build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef>;
 }
 
+/// Object-safe adapter from a typed layout [`VTable`] to [`LayoutEncoding`].
 #[repr(transparent)]
 pub struct LayoutEncodingAdapter<V: VTable>(V::Encoding);
 
@@ -60,7 +73,7 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: &ReadContext,
+        build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<LayoutRef> {
         let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
         let layout = V::build(
@@ -70,7 +83,7 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
             &metadata,
             segment_ids,
             children,
-            ctx,
+            build_ctx,
         )?;
 
         // Validate that the builder function returned the expected values.

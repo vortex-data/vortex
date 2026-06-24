@@ -36,6 +36,7 @@ pub use access_plan::VortexAccessPlan;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
 pub use format::VortexTableOptions;
+pub use sink::VortexSink;
 pub use source::VortexSource;
 
 #[cfg(test)]

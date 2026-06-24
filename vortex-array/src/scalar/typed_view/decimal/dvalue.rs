@@ -12,13 +12,34 @@ use num_traits::CheckedDiv;
 use num_traits::CheckedMul;
 use num_traits::CheckedSub;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
+use crate::dtype::BigCast;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::ToI256;
 use crate::dtype::i256;
 use crate::match_each_decimal_value;
+use crate::match_each_decimal_value_type;
+
+/// Widens both operands to the larger of their two decimal types, then applies the checked op.
+macro_rules! checked_widening_binary_op {
+    ($self:expr, $other:expr, $op:path) => {{
+        let target = $self.decimal_type().max($other.decimal_type());
+        match_each_decimal_value_type!(target, |T| {
+            let a: T = $self
+                .cast()
+                .vortex_expect("widening cast to wider decimal type must always succeed");
+            let b: T = $other
+                .cast()
+                .vortex_expect("widening cast to wider decimal type must always succeed");
+            Some(DecimalValue::from($op(&a, &b)?))
+        })
+    }};
+}
 
 /// A decimal value that can be stored in various integer widths.
 ///
@@ -99,6 +120,80 @@ impl DecimalValue {
         })
     }
 
+    /// Rescales a stored decimal value from one scale to another.
+    ///
+    /// This preserves the represented numeric value exactly. Reducing scale fails if doing so
+    /// would discard non-zero fractional digits.
+    pub(crate) fn rescale_i256(value: i256, from_scale: i8, to_scale: i8) -> VortexResult<i256> {
+        if from_scale == to_scale || value == i256::ZERO {
+            return Ok(value);
+        }
+
+        let scale_delta = to_scale as i16 - from_scale as i16;
+        if scale_delta > 0 {
+            let factor = decimal_scale_factor(scale_delta as u32)?;
+            value.checked_mul(&factor).ok_or_else(|| {
+                vortex_err!(
+                    "Rescaling decimal from scale {} to {} overflows",
+                    from_scale,
+                    to_scale
+                )
+            })
+        } else {
+            let factor = decimal_scale_factor((-scale_delta) as u32)?;
+            let remainder = value % factor;
+            if remainder != i256::ZERO {
+                vortex_bail!(
+                    "Rescaling decimal value {} from scale {} to {} would lose precision",
+                    value,
+                    from_scale,
+                    to_scale
+                );
+            }
+            Ok(value / factor)
+        }
+    }
+
+    /// Rescales this value to `to_decimal_dtype`, checks precision, and stores it in the target
+    /// decimal value width.
+    pub(crate) fn cast_decimal(
+        &self,
+        from_decimal_dtype: DecimalDType,
+        to_decimal_dtype: DecimalDType,
+    ) -> VortexResult<Self> {
+        let rescaled = Self::rescale_i256(
+            self.as_i256(),
+            from_decimal_dtype.scale(),
+            to_decimal_dtype.scale(),
+        )?;
+        Self::try_from_i256(rescaled, to_decimal_dtype)
+    }
+
+    /// Converts an untyped stored decimal integer into the physical value type selected by
+    /// `decimal_dtype`, after enforcing the dtype precision.
+    pub(crate) fn try_from_i256(value: i256, decimal_dtype: DecimalDType) -> VortexResult<Self> {
+        let decimal_value = Self::I256(value);
+        if !decimal_value.fits_in_precision(decimal_dtype) {
+            vortex_bail!(
+                "decimal value {} does not fit in precision of {}",
+                decimal_value,
+                decimal_dtype
+            );
+        }
+
+        let target_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
+        match_each_decimal_value_type!(target_type, |T| {
+            let value = <T as BigCast>::from(value).ok_or_else(|| {
+                vortex_err!(
+                    "decimal value {} cannot be represented as {}",
+                    decimal_value,
+                    target_type
+                )
+            })?;
+            Ok(Self::from(value))
+        })
+    }
+
     /// Returns the 0 value given the [`DecimalType`].
     pub fn zero(decimal_type: &DecimalDType) -> Self {
         let smallest_type = DecimalType::smallest_decimal_value_type(decimal_type);
@@ -134,37 +229,34 @@ impl DecimalValue {
         value_i256 > min_value && value_i256 < max_value
     }
 
-    /// Helper function to perform a checked binary operation on two decimal values.
-    ///
-    /// Both values are upcast to i256 before the operation, and the result is returned as I256.
-    fn checked_binary_op<F>(&self, other: &Self, op: F) -> Option<Self>
-    where
-        F: FnOnce(i256, i256) -> Option<i256>,
-    {
-        let self_upcast = self.as_i256();
-        let other_upcast = other.as_i256();
-        op(self_upcast, other_upcast).map(DecimalValue::I256)
-    }
-
     /// Checked addition. Returns `None` on overflow.
     pub fn checked_add(&self, other: &Self) -> Option<Self> {
-        self.checked_binary_op(other, |a, b| a.checked_add(&b))
+        checked_widening_binary_op!(self, other, CheckedAdd::checked_add)
     }
 
     /// Checked subtraction. Returns `None` on overflow.
     pub fn checked_sub(&self, other: &Self) -> Option<Self> {
-        self.checked_binary_op(other, |a, b| a.checked_sub(&b))
+        checked_widening_binary_op!(self, other, CheckedSub::checked_sub)
     }
 
     /// Checked multiplication. Returns `None` on overflow.
     pub fn checked_mul(&self, other: &Self) -> Option<Self> {
-        self.checked_binary_op(other, |a, b| a.checked_mul(&b))
+        checked_widening_binary_op!(self, other, CheckedMul::checked_mul)
     }
 
     /// Checked division. Returns `None` on overflow or division by zero.
     pub fn checked_div(&self, other: &Self) -> Option<Self> {
-        self.checked_binary_op(other, |a, b| a.checked_div(&b))
+        checked_widening_binary_op!(self, other, CheckedDiv::checked_div)
     }
+}
+
+fn decimal_scale_factor(exp: u32) -> VortexResult<i256> {
+    i256::from_i128(10).checked_pow(exp).ok_or_else(|| {
+        vortex_err!(
+            "decimal scale factor 10^{} cannot be represented in i256",
+            exp
+        )
+    })
 }
 
 // Additional trait implementations for decimal types to ensure consistency.

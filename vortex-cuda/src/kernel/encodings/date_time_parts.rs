@@ -72,7 +72,7 @@ impl CudaExecute for DateTimePartsExecutor {
             return Ok(Canonical::empty(array.dtype()));
         }
 
-        if matches!(validity, Validity::AllInvalid) {
+        if validity.definitely_all_null() {
             let storage_ptype = ext.storage_dtype().as_ptype();
             return Ok(Canonical::Extension(
                 TemporalArray::new_timestamp(
@@ -214,7 +214,7 @@ mod tests {
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::extension::datetime::TimeUnit;
-    use vortex::session::VortexSession;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -280,28 +280,28 @@ mod tests {
         #[case] subseconds: Vec<i64>,
         #[case] time_unit: TimeUnit,
     ) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let dtp_array = make_datetimeparts_array(days, seconds, subseconds, time_unit);
-        let cpu_result = crate::canonicalize_cpu(dtp_array.clone())?;
-
         let gpu_result = DateTimePartsExecutor
-            .execute(dtp_array.into_array(), &mut cuda_ctx)
+            .execute(dtp_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(dtp_array, gpu_result, &mut ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_datetimeparts_large_array() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let len = 2050;
@@ -310,24 +310,23 @@ mod tests {
         let subseconds: Vec<i64> = (0..len).map(|i| (i % 1000) as i64).collect();
 
         let dtp_array = make_datetimeparts_array(days, seconds, subseconds, TimeUnit::Milliseconds);
-        let cpu_result = crate::canonicalize_cpu(dtp_array.clone())?;
-
         let gpu_result = DateTimePartsExecutor
-            .execute(dtp_array.into_array(), &mut cuda_ctx)
+            .execute(dtp_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(dtp_array, gpu_result, &mut ctx);
 
         Ok(())
     }
 
     #[crate::test]
     async fn test_cuda_datetimeparts_with_nulls() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let days_arr = PrimitiveArray::new(
@@ -358,17 +357,15 @@ mod tests {
         )
         .vortex_expect("Failed to create DateTimePartsArray");
 
-        let cpu_result = crate::canonicalize_cpu(dtp_array.clone())?;
-
         let gpu_result = DateTimePartsExecutor
-            .execute(dtp_array.into_array(), &mut cuda_ctx)
+            .execute(dtp_array.clone().into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(dtp_array, gpu_result, &mut ctx);
 
         Ok(())
     }

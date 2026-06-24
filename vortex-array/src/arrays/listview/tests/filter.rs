@@ -14,7 +14,6 @@ use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use super::common::create_overlapping_listview;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
@@ -22,11 +21,9 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::assert_arrays_eq;
 use crate::compute::conformance::filter::test_filter_conformance;
-use crate::session::ArraySession;
 use crate::validity::Validity;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
 // Conformance tests for common filter scenarios.
 #[rstest]
@@ -41,6 +38,7 @@ fn test_filter_listview_conformance(#[case] listview: ListViewArray) {
 
 #[test]
 fn test_filter_preserves_unreferenced_elements() {
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Test that filter preserves the entire elements array.
     //
     // Logical list: [[5,6,7], [2,3], [8,9], [0,1], [1,2,3,4]]
@@ -63,7 +61,8 @@ fn test_filter_preserves_unreferenced_elements() {
     // Verify the entire elements array is preserved.
     assert_arrays_eq!(
         result_list.elements(),
-        PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+        PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        &mut ctx
     );
 
     // Verify offsets are unchanged.
@@ -73,6 +72,7 @@ fn test_filter_preserves_unreferenced_elements() {
 
 #[test]
 fn test_filter_with_gaps() {
+    let mut ctx = SESSION.create_execution_ctx();
     // ListView-specific: Test filtering with gaps in elements array.
     //
     // Logical list: [[1,2,3], [7,8,9], [11,12], [2,3], [8,9]]
@@ -95,7 +95,8 @@ fn test_filter_with_gaps() {
     // Verify the entire elements array is preserved including gaps.
     assert_arrays_eq!(
         result_list.elements(),
-        PrimitiveArray::from_iter([1i32, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12])
+        PrimitiveArray::from_iter([1i32, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12]),
+        &mut ctx
     );
 
     // Verify offsets are unchanged.
@@ -106,7 +107,8 @@ fn test_filter_with_gaps() {
     // Verify the lists still read correctly.
     assert_arrays_eq!(
         result_list.list_elements_at(0).unwrap(),
-        PrimitiveArray::from_iter([7i32, 8, 9])
+        PrimitiveArray::from_iter([7i32, 8, 9]),
+        &mut ctx
     );
 }
 
@@ -198,7 +200,7 @@ fn test_filter_extreme_offsets() {
     let list0 = result_list.list_elements_at(0).unwrap();
     assert_eq!(
         list0
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut SESSION.create_execution_ctx())
             .unwrap()
             .as_primitive()
             .as_::<i32>()
@@ -207,7 +209,7 @@ fn test_filter_extreme_offsets() {
     );
     assert_eq!(
         list0
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap()
             .as_primitive()
             .as_::<i32>()

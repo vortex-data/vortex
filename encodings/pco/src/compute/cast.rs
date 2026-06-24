@@ -65,15 +65,13 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
     use crate::Pco;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[test]
     fn test_cast_pco_f32_to_f64() {
@@ -92,7 +90,8 @@ mod tests {
 
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0])
+            PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0]),
+            &mut ctx
         );
     }
 
@@ -109,7 +108,8 @@ mod tests {
             .unwrap();
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::new(buffer![10u32, 20, 30, 40], Validity::AllValid,)
+            PrimitiveArray::new(buffer![10u32, 20, 30, 40], Validity::AllValid,),
+            &mut ctx
         );
     }
 
@@ -130,7 +130,11 @@ mod tests {
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
         // Verify the values are correct
-        assert_arrays_eq!(casted, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_iter([20u32, 30, 40, 50]),
+            &mut ctx
+        );
     }
 
     #[test]
@@ -153,7 +157,11 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
-        assert_arrays_eq!(casted, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_iter([20u32, 30, 40, 50]),
+            &mut ctx
+        );
     }
 
     #[rstest]

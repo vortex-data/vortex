@@ -12,6 +12,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -83,7 +84,11 @@ impl FixedSizeListBuilder {
     ///
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] is nullable, of course).
-    pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
+    pub fn append_array_as_list(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
             "Array dtype {:?} does not match list element dtype {:?}",
@@ -97,7 +102,7 @@ impl FixedSizeListBuilder {
             self.list_size()
         );
 
-        self.elements_builder.extend_from_array(array);
+        array.append_to_builder(self.elements_builder.as_mut(), ctx)?;
         self.nulls.append_non_null();
 
         Ok(())
@@ -282,10 +287,10 @@ mod tests {
 
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
     use crate::builders::ArrayBuilder;
@@ -443,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_nullable_lists_non_nullable_elements() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, NonNullable));
         let mut builder = FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, Nullable, 0);
 
@@ -562,7 +567,7 @@ mod tests {
 
     #[test]
     fn test_append_nulls() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Elements must be nullable if we're going to append null lists
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
@@ -592,7 +597,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar_nulls() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Elements must be nullable if we're going to append null lists
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, Nullable, 0);
@@ -665,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_extend_from_array() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create a source array.
@@ -736,7 +741,7 @@ mod tests {
 
     #[test]
     fn test_extend_degenerate_arrays() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
 
         // Create degenerate source arrays (size = 0).
@@ -841,7 +846,7 @@ mod tests {
 
     #[test]
     fn test_mixed_operations() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Use nullable elements since we'll be appending nulls
         let dtype: Arc<DType> = Arc::new(DType::Primitive(I32, Nullable));
         let mut builder = FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, Nullable, 0);
@@ -927,7 +932,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder = FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 2, Nullable, 10);
 
@@ -997,12 +1002,13 @@ mod tests {
     #[test]
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder =
             FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 10);
 
         // Append a primitive array as a single list entry.
         let arr1 = buffer![1i32, 2, 3].into_array();
-        builder.append_array_as_list(&arr1).unwrap();
+        builder.append_array_as_list(&arr1, &mut ctx).unwrap();
 
         // Interleave with a list scalar.
         builder
@@ -1018,7 +1024,7 @@ mod tests {
 
         // Append another primitive array as a single list entry.
         let arr2 = buffer![4i32, 5, 6].into_array();
-        builder.append_array_as_list(&arr2).unwrap();
+        builder.append_array_as_list(&arr2, &mut ctx).unwrap();
 
         // Interleave with another list scalar.
         builder
@@ -1048,11 +1054,19 @@ mod tests {
         let mut builder =
             FixedSizeListBuilder::with_capacity(Arc::clone(&dtype), 3, NonNullable, 10);
         let wrong_dtype_arr = buffer![1i64, 2, 3].into_array();
-        assert!(builder.append_array_as_list(&wrong_dtype_arr).is_err());
+        assert!(
+            builder
+                .append_array_as_list(&wrong_dtype_arr, &mut ctx)
+                .is_err()
+        );
 
         // Test length mismatch error.
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 3, NonNullable, 10);
         let wrong_len_arr = buffer![1i32, 2].into_array();
-        assert!(builder.append_array_as_list(&wrong_len_arr).is_err());
+        assert!(
+            builder
+                .append_array_as_list(&wrong_len_arr, &mut ctx)
+                .is_err()
+        );
     }
 }

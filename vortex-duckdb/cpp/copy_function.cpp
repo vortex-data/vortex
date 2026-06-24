@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#include "duckdb_vx/data.hpp"
-#include "duckdb_vx/error.hpp"
-#include "duckdb_vx/table_function.h"
+#include "data.hpp"
+#include "error.hpp"
+#include "vortex_duckdb.h"
+#include "table_function.h"
 #include "vortex.h"
 #include "duckdb/function/copy_function.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
@@ -11,8 +12,6 @@
 #include "duckdb/parser/parsed_data/create_copy_function_info.hpp"
 
 using namespace duckdb;
-using vortex::CData;
-using vortex::IntoErrString;
 
 struct CopyBindData final : TableFunctionData {
     CopyBindData(unique_ptr<CData> ffi_data) : ffi_data(std::move(ffi_data)) {
@@ -58,13 +57,12 @@ unique_ptr<FunctionData> copy_to_bind(ClientContext &,
 }
 
 unique_ptr<GlobalFunctionData>
-copy_to_initialize_global(ClientContext &context, FunctionData &bind_data, const string &file_path) {
+copy_to_initialize_global(ClientContext &, FunctionData &bind_data, const string &file_path) {
     void *const ffi_bind = bind_data.Cast<CopyBindData>().ffi_data->DataPtr();
-    const auto ffi_ctx = reinterpret_cast<duckdb_client_context>(&context);
 
     duckdb_vx_error error_out = nullptr;
     const duckdb_vx_data ffi_global =
-        duckdb_copy_function_copy_to_initialize_global(ffi_ctx, ffi_bind, file_path.c_str(), &error_out);
+        duckdb_copy_function_copy_to_initialize_global(ffi_bind, file_path.c_str(), &error_out);
     if (error_out) {
         throw ExecutorException(IntoErrString(error_out));
     }

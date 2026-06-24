@@ -9,3 +9,7 @@ pub(crate) mod compute;
 
 mod vtable;
 pub use vtable::Extension;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}

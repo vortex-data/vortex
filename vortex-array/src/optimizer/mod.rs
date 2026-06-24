@@ -10,19 +10,19 @@
 //! There are three public entry points on [`ArrayOptimizer`]:
 //!
 //! - [`ArrayOptimizer::optimize`] uses only static rules registered on encoding vtables.
-//! - [`ArrayOptimizer::optimize_ctx`] also consults session-scoped [`ArrayKernels`] before
-//!   static parent-reduce rules, so this is the entry point used by execution.
+//! - [`ArrayOptimizer::optimize_ctx`] also consults the session's active
+//!   [`kernels::ArrayKernels`] registry before static parent-reduce rules, so this is the entry
+//!   point used by execution.
 //! - [`ArrayOptimizer::optimize_recursive`] applies the session-aware optimizer to the root and
 //!   every descendant.
 
 use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::optimizer::kernels::ArrayKernels;
+use crate::optimizer::kernels::ArrayKernelsExt;
 
 pub mod kernels;
 pub mod rules;
@@ -32,14 +32,16 @@ pub trait ArrayOptimizer {
     /// Optimize the root array node by running reduce and reduce_parent rules to fixpoint.
     ///
     /// This uses only static rules registered on encoding vtables. Use [`Self::optimize_ctx`]
-    /// when session-registered [`ArrayKernels`] should participate.
+    /// when a session-scoped [`kernels::ArrayKernels`] registry should participate.
     fn optimize(&self) -> VortexResult<ArrayRef>;
 
-    /// Optimize the root array node using static rules and any [`ArrayKernels`] on `session`.
+    /// Optimize the root array node using static rules and the active
+    /// [`kernels::ArrayKernels`] registry on `session`, if any.
     ///
     /// Session kernels are checked for each `(parent_encoding_id, child_encoding_id)` pair before
-    /// the child's static `PARENT_RULES`. If `session` does not contain [`ArrayKernels`], this
-    /// behaves like [`Self::optimize`].
+    /// the child's static `PARENT_RULES`. The registry comes from the [`kernels::KernelSession`] on
+    /// `session`, if any. If `session` does not contain a [`kernels::KernelSession`], this behaves
+    /// like [`Self::optimize`].
     fn optimize_ctx(&self, session: &VortexSession) -> VortexResult<ArrayRef>;
 
     /// Optimize the entire array tree recursively (root and all descendants).
@@ -69,7 +71,7 @@ fn try_optimize(
 ) -> VortexResult<Option<ArrayRef>> {
     let mut current_array = array.clone();
     let mut any_optimizations = false;
-    let array_ref = session.and_then(|s| s.get_opt::<ArrayKernels>());
+    let array_ref = session.and_then(|s| s.kernels_opt());
 
     // Apply reduction rules to the current array until no more rules apply.
     let mut loop_counter = 0;

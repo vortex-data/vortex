@@ -23,6 +23,7 @@ use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
+use crate::exporter::cached_values_dict;
 use crate::exporter::constant;
 use crate::exporter::new_array_exporter;
 
@@ -69,7 +70,7 @@ pub(crate) fn new_exporter_with_flatten(
     let values_key = values.addr();
     let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
-    let reusable_dict = if flatten {
+    if flatten {
         let canonical = cache
             .canonical_cache
             .get(&values_key)
@@ -92,33 +93,9 @@ pub(crate) fn new_exporter_with_flatten(
             cache,
             ctx,
         );
-    } else {
-        // Check if we have a cached vector and extract it if we do.
-        let reusable_dict = cache
-            .dict_cache
-            .get(&values_key)
-            .map(|entry| entry.value().1.clone());
+    }
 
-        match reusable_dict {
-            Some(reusable_dict) => reusable_dict,
-            None => {
-                // Create a new reusable dictionary for the values.
-                let mut reusable_dict = ReusableDict::new(values.dtype().try_into()?, values.len());
-                new_array_exporter(values.clone(), cache, ctx)?.export(
-                    0,
-                    values.len(),
-                    reusable_dict.vector(),
-                    ctx,
-                )?;
-
-                cache
-                    .dict_cache
-                    .insert(values_key, (values.clone(), reusable_dict.clone()));
-
-                reusable_dict
-            }
-        }
-    };
+    let reusable_dict = cached_values_dict(values.clone(), cache, ctx)?;
 
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
@@ -157,7 +134,6 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 #[cfg(test)]
 mod tests {
     use vortex::VortexSessionDefault;
-    use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::ConstantArray;
@@ -219,7 +195,7 @@ mod tests {
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        let mut ctx = ExecutionCtx::new(VortexSession::default());
+        let mut ctx = VortexSession::default().create_execution_ctx();
         new_exporter_with_flatten(&arr, &ConversionCache::default(), &mut ctx, false)?.export(
             0,
             2,

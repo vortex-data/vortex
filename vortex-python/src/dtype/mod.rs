@@ -35,7 +35,7 @@ use pyo3::types::PyType;
 use pyo3::wrap_pyfunction;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::dtype::DType;
-use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::arrow::TryFromArrowType;
 
 use crate::arrow::FromPyArrow;
 use crate::arrow::ToPyArrow;
@@ -194,14 +194,13 @@ impl PyDType {
     #[classmethod]
     #[pyo3(signature = (arrow_dtype, *, non_nullable = false))]
     fn from_arrow<'py>(
-        cls: &'py Bound<'py, PyType>,
+        cls: &Bound<'py, PyType>,
         #[pyo3(from_py_with = import_arrow_dtype)] arrow_dtype: DataType,
         non_nullable: bool,
     ) -> PyResult<Bound<'py, PyDType>> {
-        Self::init(
-            cls.py(),
-            DType::from_arrow(&Field::new("_", arrow_dtype, !non_nullable)),
-        )
+        let dtype = DType::try_from_arrow(&Field::new("_", arrow_dtype, !non_nullable))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Self::init(cls.py(), dtype)
     }
 }
 

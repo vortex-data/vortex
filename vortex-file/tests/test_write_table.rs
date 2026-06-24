@@ -18,8 +18,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::FieldNames;
 use vortex_array::field_path;
-use vortex_array::scalar_fn::session::ScalarFnSession;
-use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::ByteBuffer;
@@ -31,12 +29,9 @@ use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
-
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::empty()
-        .with::<ArraySession>()
+    let session = vortex_array::array_session()
         .with::<LayoutSession>()
-        .with::<ScalarFnSession>()
         .with::<RuntimeSession>();
 
     vortex_file::register_default_encodings(&session);
@@ -168,6 +163,49 @@ async fn test_dict_listview_validity_roundtrip() {
         .await
         .unwrap()
         .expect("read back should succeed");
-    vortex_array::assert_arrays_eq!(data, chunk);
+    vortex_array::assert_arrays_eq!(data, chunk, &mut SESSION.create_execution_ctx());
     assert!(stream.next().await.is_none(), "expected a single chunk");
+}
+
+/// Regression test: writing a zero-row table with a nullable struct column used to
+/// panic in `CollectStrategy` ("must have visited at least one chunk").
+#[tokio::test]
+async fn test_write_empty_nullable_struct_column() {
+    let inner = StructArray::new(
+        FieldNames::from(["a"]),
+        vec![PrimitiveArray::from_iter(Vec::<i32>::new()).into_array()],
+        0,
+        Validity::AllValid,
+    )
+    .into_array();
+
+    let data = StructArray::new(
+        FieldNames::from(["c0"]),
+        vec![inner],
+        0,
+        Validity::NonNullable,
+    )
+    .into_array();
+
+    let mut bytes = Vec::new();
+    SESSION
+        .write_options()
+        .write(&mut bytes, data.to_array_stream())
+        .await
+        .expect("writing an empty nullable struct column should not panic");
+
+    let bytes = ByteBuffer::from(bytes);
+    let vxf = SESSION.open_options().open_buffer(bytes).expect("open");
+    let stream = vxf
+        .scan()
+        .expect("scan")
+        .into_stream()
+        .expect("into_stream");
+    pin_mut!(stream);
+
+    let mut rows = 0usize;
+    while let Some(next) = stream.next().await {
+        rows += next.expect("read back should succeed").len();
+    }
+    assert_eq!(rows, 0);
 }

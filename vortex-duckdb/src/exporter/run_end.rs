@@ -17,20 +17,21 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
 use crate::convert::ToDuckDBScalar;
+use crate::duckdb::ReusableDict;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::cache::ConversionCache;
+use crate::exporter::cached_values_dict;
 use crate::exporter::canonical;
-use crate::exporter::new_array_exporter;
 
-/// We export run-end arrays to a DuckDB dictionary vector, using a selection vector to
-/// repeat the values in the run-end array.
+/// We export run-end arrays to a DuckDB dictionary vector. Values are exported
+/// into a ReusableDict with SelectionVector applied in export().
 struct RunEndExporter<E: IntegerPType> {
     ends: PrimitiveArray,
     ends_type: PhantomData<E>,
     values: ArrayRef,
-    values_exporter: Box<dyn ColumnExporter>,
+    values_dict: ReusableDict,
     run_end_offset: usize,
 }
 
@@ -50,14 +51,14 @@ pub(crate) fn new_exporter_with_flatten(
     let ends = array.ends().clone();
     let values = array.values().clone();
     let ends = ends.execute::<PrimitiveArray>(ctx)?;
-    let values_exporter = new_array_exporter(values.clone(), cache, ctx)?;
+    let values_dict = cached_values_dict(values.clone(), cache, ctx)?;
 
     match_each_integer_ptype!(ends.ptype(), |E| {
         Ok(Box::new(RunEndExporter {
             ends,
             ends_type: PhantomData::<E>,
             values,
-            values_exporter,
+            values_dict,
             run_end_offset: offset,
         }))
     })
@@ -86,10 +87,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
 
         // Find the final run in case we can short-circuit and return a constant vector.
         let end_run_idx = ends_slice
-            .search_sorted(
-                &offset.add(E::from_usize(len).vortex_expect("len out of bounds")),
-                SearchSortedSide::Right,
-            )?
+            .search_sorted(&end_offset, SearchSortedSide::Right)?
             .to_ends_index(ends_slice.len());
 
         if start_run_idx == end_run_idx {
@@ -111,29 +109,85 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
                 .to_usize()
                 .vortex_expect("run_len is usize");
 
-            // Push the runs into the selection vector.
-            sel_vec_slice[..run_len].fill(u32::try_from(run_idx).vortex_expect("sel_idx is u32"));
+            let global_run_idx =
+                u32::try_from(start_run_idx + run_idx).vortex_expect("run index exceeds u32");
+            sel_vec_slice[..run_len].fill(global_run_idx);
             sel_vec_slice = &mut sel_vec_slice[run_len..];
 
             offset = next_end;
         }
-        assert!(
-            sel_vec_slice.is_empty(),
-            "Selection vector not completely filled"
+        debug_assert!(sel_vec_slice.is_empty());
+
+        vector.reuse_dictionary(&self.values_dict, &sel_vec);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::ChunkedArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::buffer::buffer;
+    use vortex::encodings::runend::RunEnd;
+    use vortex::error::VortexResult;
+
+    use crate::SESSION;
+    use crate::cpp::duckdb_type::DUCKDB_TYPE_INTEGER;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
+    use crate::exporter::ArrayExporter;
+    use crate::exporter::ConversionCache;
+    use crate::exporter::new_array_exporter;
+
+    #[test]
+    fn test_one_chunk_null() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let source = vec![Some(0u32), Some(1), None, Some(3), None];
+        let array = PrimitiveArray::from_option_iter(source);
+        let array = RunEnd::encode(array.into_array(), &mut ctx)?;
+
+        let mut chunk = DataChunk::new([LogicalType::new(DUCKDB_TYPE_INTEGER)]);
+        new_array_exporter(array.into_array(), &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            5,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        chunk.set_len(5);
+        let chunk_str = String::try_from(&*chunk)?;
+        assert_eq!(
+            chunk_str,
+            r#"Chunk - [1 Columns]
+- DICTIONARY INTEGER: 5 = [ 0, 1, NULL, 3, NULL]
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn run_end_with_chunked_values_exports_across_value_chunks() -> VortexResult<()> {
+        let values0 = PrimitiveArray::from_iter([10i32]).into_array();
+        let dtype = values0.dtype().clone();
+        let values1 = PrimitiveArray::from_iter([20i32]).into_array();
+        let values = ChunkedArray::try_new(vec![values0, values1], dtype)?.into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let field = RunEnd::try_new(buffer![1u32, 2].into_array(), values, &mut ctx)?.into_array();
+        let array = StructArray::from_fields(&[("field", field)])?;
+        let mut exporter = ArrayExporter::try_new(&array, &ConversionCache::default(), ctx)?;
+        let mut chunk = DataChunk::new([LogicalType::int32()]);
+
+        assert!(exporter.export(&mut chunk, None, None)?);
+        assert_eq!(
+            format!("{}", String::try_from(&*chunk)?),
+            r#"Chunk - [1 Columns]
+- DICTIONARY INTEGER: 2 = [ 10, 20]
+"#
         );
 
-        // The values in the selection vector are the run indices, so we can find the number of
-        // values we referenced by looking at the last index of the selection vector.
-        let values_len = *unsafe { sel_vec.as_slice_mut(len) }
-            .last()
-            .vortex_expect("non-empty")
-            + 1;
-
-        // Export the run-end values into the vector, and then turn it into a dictionary vector.
-        self.values_exporter
-            .export(start_run_idx, values_len as usize, vector, ctx)?;
-        vector.dictionary(vector, values_len as usize, &sel_vec, len as _);
-
+        assert!(!exporter.export(&mut chunk, None, None)?);
         Ok(())
     }
 }

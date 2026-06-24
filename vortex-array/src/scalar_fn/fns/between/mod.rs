@@ -25,7 +25,6 @@ use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
-use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -33,8 +32,6 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::binary::execute_boolean;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
@@ -298,22 +295,6 @@ impl ScalarFnVTable for Between {
         between_canonical(&arr, &lower, &upper, options, ctx)
     }
 
-    fn stat_falsification(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        catalog: &dyn StatsCatalog,
-    ) -> Option<Expression> {
-        let arr = expr.child(0).clone();
-        let lower = expr.child(1).clone();
-        let upper = expr.child(2).clone();
-
-        let lhs = Binary.new_expr(options.lower_strict.to_operator(), [lower, arr.clone()]);
-        let rhs = Binary.new_expr(options.upper_strict.to_operator(), [arr, upper]);
-
-        and(lhs, rhs).stat_falsification(catalog)
-    }
-
     fn validity(
         &self,
         _options: &Self::Options,
@@ -357,12 +338,10 @@ mod tests {
     use crate::expr::root;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
-    use crate::session::ArraySession;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     #[test]
     fn test_display() {
@@ -402,6 +381,7 @@ mod tests {
         let lower = buffer![0, 0, 0, 0, 2].into_array();
         let array = buffer![1, 0, 1, 0, 1].into_array();
         let upper = buffer![2, 1, 1, 0, 0].into_array();
+        let ctx = &mut SESSION.create_execution_ctx();
 
         let matches = between_canonical(
             &array,
@@ -411,13 +391,13 @@ mod tests {
                 lower_strict,
                 upper_strict,
             },
-            &mut SESSION.create_execution_ctx(),
+            ctx,
         )
         .unwrap()
-        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .execute::<BoolArray>(ctx)
         .unwrap();
 
-        let indices = to_int_indices(matches).unwrap();
+        let indices = to_int_indices(matches, ctx).unwrap();
         assert_eq!(indices, expected);
     }
 
@@ -425,6 +405,7 @@ mod tests {
     fn test_constants() {
         let lower = buffer![0, 0, 2, 0, 2].into_array();
         let array = buffer![1, 0, 1, 0, 1].into_array();
+        let ctx = &mut SESSION.create_execution_ctx();
 
         // upper is null
         let upper = ConstantArray::new(
@@ -441,13 +422,13 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut SESSION.create_execution_ctx(),
+            ctx,
         )
         .unwrap()
-        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .execute::<BoolArray>(ctx)
         .unwrap();
 
-        let indices = to_int_indices(matches).unwrap();
+        let indices = to_int_indices(matches, ctx).unwrap();
         assert!(indices.is_empty());
 
         // upper is a fixed constant
@@ -460,12 +441,12 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut SESSION.create_execution_ctx(),
+            ctx,
         )
         .unwrap()
-        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .execute::<BoolArray>(ctx)
         .unwrap();
-        let indices = to_int_indices(matches).unwrap();
+        let indices = to_int_indices(matches, ctx).unwrap();
         assert_eq!(indices, vec![0, 1, 3]);
 
         // lower is also a constant
@@ -479,17 +460,18 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut SESSION.create_execution_ctx(),
+            ctx,
         )
         .unwrap()
-        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .execute::<BoolArray>(ctx)
         .unwrap();
-        let indices = to_int_indices(matches).unwrap();
+        let indices = to_int_indices(matches, ctx).unwrap();
         assert_eq!(indices, vec![0, 1, 2, 3, 4]);
     }
 
     #[test]
     fn test_between_decimal() {
+        let ctx = &mut SESSION.create_execution_ctx();
         let values = buffer![100i128, 200i128, 300i128, 400i128];
         let decimal_type = DecimalDType::new(3, 2);
         let array = DecimalArray::new(values, decimal_type, Validity::NonNullable).into_array();
@@ -522,12 +504,13 @@ mod tests {
                 lower_strict: StrictComparison::Strict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut SESSION.create_execution_ctx(),
+            ctx,
         )
         .unwrap();
         assert_arrays_eq!(
             between_strict,
-            BoolArray::from_iter([false, true, true, true])
+            BoolArray::from_iter([false, true, true, true]),
+            ctx
         );
 
         // Non-strict lower bound, strict upper bound
@@ -539,12 +522,13 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,
             },
-            &mut SESSION.create_execution_ctx(),
+            ctx,
         )
         .unwrap();
         assert_arrays_eq!(
             between_strict,
-            BoolArray::from_iter([true, true, true, false])
+            BoolArray::from_iter([true, true, true, false]),
+            ctx
         );
     }
 
@@ -567,6 +551,7 @@ mod tests {
         #[case] upper_val: DecimalValue,
         #[case] expected_indices: Vec<u64>,
     ) {
+        let ctx = &mut SESSION.create_execution_ctx();
         // Array uses I16 storage with precision=5 (values fit in i16 even though precision=5
         // nominally maps to I32 as the smallest storage type).
         let decimal_type = DecimalDType::new(5, -67);
@@ -596,12 +581,12 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-            &mut SESSION.create_execution_ctx(),
+            ctx,
         )
         .unwrap()
-        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .execute::<BoolArray>(ctx)
         .unwrap();
 
-        assert_eq!(to_int_indices(result).unwrap(), expected_indices);
+        assert_eq!(to_int_indices(result, ctx).unwrap(), expected_indices);
     }
 }

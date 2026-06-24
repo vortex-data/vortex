@@ -41,6 +41,9 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &integer::RunEndScheme,
     &integer::SequenceScheme,
     &integer::IntRLEScheme,
+    // Prefer all other schemes above delta, for now (since its slower to decompress).
+    #[cfg(feature = "unstable_encodings")]
+    &integer::DeltaScheme::new(1.25),
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Float schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -74,10 +77,10 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
-/// By default, all schemes in [`ALL_SCHEMES`] are enabled. Feature-gated schemes (Pco, Zstd)
-/// are not in `ALL_SCHEMES` and must be added explicitly via
-/// [`with_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or
-/// [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
+/// By default, all schemes in [`ALL_SCHEMES`] are enabled in a deterministic order. Feature-gated
+/// schemes (Pco, Zstd) are not in `ALL_SCHEMES` and must be added explicitly via
+/// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or `with_compact` when the
+/// `zstd` feature is enabled.
 ///
 /// # Examples
 ///
@@ -163,6 +166,9 @@ impl BtrBlocksCompressorBuilder {
     /// With the `unstable_encodings` feature, buffer-level Zstd compression is used which
     /// preserves the array buffer layout for zero-conversion GPU decompression. Without it,
     /// interleaved Zstd compression is used.
+    ///
+    /// This preset is intended for files that will be decoded by CUDA kernels. It may choose a
+    /// larger encoded representation than the default compressor.
     pub fn only_cuda_compatible(self) -> Self {
         // String fragmentation schemes (OnPair, FSST) require host-side
         // dictionary expansion at decode time, which is incompatible with
@@ -180,6 +186,10 @@ impl BtrBlocksCompressorBuilder {
         ];
         #[cfg(feature = "unstable_encodings")]
         excluded.push(string::OnPairScheme.id());
+        // Delta has no GPU decode kernel and its prefix-sum decode is inherently sequential, so it
+        // is incompatible with pure-GPU decompression paths.
+        #[cfg(feature = "unstable_encodings")]
+        excluded.push(integer::DeltaScheme::default().id());
         let builder = self.exclude_schemes(excluded);
 
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]

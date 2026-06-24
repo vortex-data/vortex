@@ -3,19 +3,30 @@
 
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
 use vortex::encodings::sequence::SequenceArray;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
+use crate::exporter::ConversionCache;
+use crate::exporter::canonical;
 
 struct SequenceExporter {
     start: i64,
     step: i64,
 }
 
-pub(crate) fn new_exporter(array: &SequenceArray) -> VortexResult<Box<dyn ColumnExporter>> {
+pub(crate) fn new_exporter_with_flatten(
+    array: &SequenceArray,
+    cache: &ConversionCache,
+    ctx: &mut ExecutionCtx,
+    flatten: bool,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    if flatten {
+        return canonical::new_exporter(array.clone().into_array(), cache, ctx);
+    }
     Ok(Box::new(SequenceExporter {
         start: array.base().as_i64().vortex_expect("cannot have null base"),
         step: array
@@ -58,8 +69,9 @@ mod tests {
     fn test_sequence() {
         let arr = Sequence::try_new_typed(2, 5, Nullability::NonNullable, 100).unwrap();
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(&arr)
+        new_exporter_with_flatten(&arr, &ConversionCache::default(), &mut ctx, false)
             .unwrap()
             .export(
                 0,

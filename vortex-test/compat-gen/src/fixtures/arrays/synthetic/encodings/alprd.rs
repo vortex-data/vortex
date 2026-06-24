@@ -5,8 +5,6 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
@@ -14,6 +12,7 @@ use vortex::array::validity::Validity;
 use vortex::encodings::alp::ALPRD;
 use vortex::encodings::alp::RDEncoder;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -47,10 +46,7 @@ impl FlatLayoutFixture for AlprdFixture {
         vec![ALPRD.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
-        // NOTE: `FlatLayoutFixture::build` has a fixed trait signature without `ExecutionCtx`, so
-        // we construct a legacy ctx locally at this trait boundary.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let sensor: PrimitiveArray = (0..N)
             .map(|i| {
                 let noise = ((i * 7 + 13) % 100) as f64 / 1000.0;
@@ -155,31 +151,31 @@ impl FlatLayoutFixture for AlprdFixture {
                 "nullable_specials",
             ]),
             vec![
-                sensor_enc.encode(sensor.as_view(), &mut ctx).into_array(),
-                drift_enc.encode(drift.as_view(), &mut ctx).into_array(),
+                sensor_enc.encode(sensor.as_view(), ctx).into_array(),
+                drift_enc.encode(drift.as_view(), ctx).into_array(),
                 constant_enc
-                    .encode(constant_series.as_view(), &mut ctx)
+                    .encode(constant_series.as_view(), ctx)
                     .into_array(),
                 decreasing_enc
-                    .encode(decreasing.as_view(), &mut ctx)
+                    .encode(decreasing.as_view(), ctx)
                     .into_array(),
                 oscillating_enc
-                    .encode(oscillating.as_view(), &mut ctx)
+                    .encode(oscillating.as_view(), ctx)
                     .into_array(),
                 periodic_resets_enc
-                    .encode(periodic_resets.as_view(), &mut ctx)
+                    .encode(periodic_resets.as_view(), ctx)
                     .into_array(),
                 nullable_enc
-                    .encode(sensor_nullable.as_view(), &mut ctx)
+                    .encode(sensor_nullable.as_view(), ctx)
                     .into_array(),
                 special_enc
-                    .encode(special_values.as_view(), &mut ctx)
+                    .encode(special_values.as_view(), ctx)
                     .into_array(),
                 boundary_enc
-                    .encode(boundary_specials.as_view(), &mut ctx)
+                    .encode(boundary_specials.as_view(), ctx)
                     .into_array(),
                 nullable_special_enc
-                    .encode(nullable_specials.as_view(), &mut ctx)
+                    .encode(nullable_specials.as_view(), ctx)
                     .into_array(),
             ],
             N,

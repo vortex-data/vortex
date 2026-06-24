@@ -41,19 +41,28 @@ impl OperationsVTable<RLE> for RLE {
 
 #[cfg(test)]
 mod tests {
+
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::RLE;
     use crate::RLEArray;
     use crate::RLEData;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     mod fixture {
         use super::*;
@@ -122,7 +131,11 @@ mod tests {
 
         let array = fixture::rle_array();
         let expected = PrimitiveArray::from_iter([10u32, 10, 20, 20, 20, 30, 10]);
-        assert_arrays_eq!(array.slice(0..7).unwrap(), expected);
+        assert_arrays_eq!(
+            array.slice(0..7).unwrap(),
+            expected,
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -139,7 +152,11 @@ mod tests {
             Some(30),
             Some(10),
         ]);
-        assert_arrays_eq!(array.slice(0..7).unwrap(), expected);
+        assert_arrays_eq!(
+            array.slice(0..7).unwrap(),
+            expected,
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -151,7 +168,7 @@ mod tests {
 
         assert_eq!(sliced.len(), 4);
         let expected = PrimitiveArray::from_iter([20u32, 20, 20, 30]);
-        assert_arrays_eq!(sliced, expected);
+        assert_arrays_eq!(sliced, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -163,12 +180,12 @@ mod tests {
 
         assert_eq!(sliced.len(), 4);
         let expected = PrimitiveArray::from_option_iter([Some(20u32), Some(20), None, Some(30)]);
-        assert_arrays_eq!(sliced, expected);
+        assert_arrays_eq!(sliced, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn test_scalar_at_multiple_chunks() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test accessing elements around chunk boundaries
         let values: Buffer<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
         let expected: Vec<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
@@ -197,7 +214,7 @@ mod tests {
     fn test_scalar_at_out_of_bounds() {
         let array = fixture::rle_array();
         array
-            .execute_scalar(1025, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1025, &mut SESSION.create_execution_ctx())
             .unwrap();
     }
 
@@ -206,7 +223,7 @@ mod tests {
     fn test_scalar_at_slice_out_of_bounds() {
         let array = fixture::rle_array().slice(0..1).unwrap();
         array
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut SESSION.create_execution_ctx())
             .unwrap();
     }
 
@@ -224,7 +241,11 @@ mod tests {
             Some(30),
             Some(10),
         ]);
-        assert_arrays_eq!(sliced.into_array(), expected.into_array());
+        assert_arrays_eq!(
+            sliced.into_array(),
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -233,7 +254,7 @@ mod tests {
         let sliced = array.slice(4..6).unwrap(); // [20, 30]
 
         let expected = buffer![20u32, 30].into_array();
-        assert_arrays_eq!(sliced, expected);
+        assert_arrays_eq!(sliced, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -242,7 +263,7 @@ mod tests {
         let sliced = array.slice(5..6).unwrap(); // [30]
 
         let expected = buffer![30u32].into_array();
-        assert_arrays_eq!(sliced, expected);
+        assert_arrays_eq!(sliced, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -259,12 +280,16 @@ mod tests {
         let sliced = array.slice(1..4).unwrap(); // [null, 20, 20]
 
         let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
-        assert_arrays_eq!(sliced.into_array(), expected.into_array());
+        assert_arrays_eq!(
+            sliced.into_array(),
+            expected.into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
     fn test_slice_decode_with_nulls() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = fixture::rle_array_with_nulls();
         let sliced = array
             .slice(1..4)
@@ -273,7 +298,7 @@ mod tests {
             .unwrap(); // [null, 20, 20]
 
         let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
-        assert_arrays_eq!(sliced.into_array(), expected.into_array());
+        assert_arrays_eq!(sliced.into_array(), expected.into_array(), &mut ctx);
     }
 
     #[test]
@@ -286,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_slice_across_chunk_boundaries() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Buffer<u32> = (0..2100).map(|i| (i / 100) as u32).collect();
         let expected: Vec<u32> = (0..2100).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
@@ -298,14 +323,16 @@ mod tests {
         let slice = encoded.slice(500..1500).unwrap();
         assert_arrays_eq!(
             slice,
-            PrimitiveArray::from_iter(expected[500..1500].iter().copied())
+            PrimitiveArray::from_iter(expected[500..1500].iter().copied()),
+            &mut ctx
         );
 
         // Slice across second and third chunk.
         let slice = encoded.slice(1000..2000).unwrap();
         assert_arrays_eq!(
             slice,
-            PrimitiveArray::from_iter(expected[1000..2000].iter().copied())
+            PrimitiveArray::from_iter(expected[1000..2000].iter().copied()),
+            &mut ctx
         );
     }
 }

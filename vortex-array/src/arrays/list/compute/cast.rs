@@ -66,13 +66,11 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::RecursiveCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
@@ -86,8 +84,7 @@ mod tests {
     use crate::dtype::PType;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     #[test]
     fn test_cast_list_success() {
@@ -171,7 +168,7 @@ mod tests {
         );
 
         let result = list.into_array().cast(target_dtype).and_then(|a| {
-            a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            a.execute::<RecursiveCanonical>(&mut SESSION.create_execution_ctx())
                 .map(|c| c.0.into_array())
         });
         assert!(result.is_err());

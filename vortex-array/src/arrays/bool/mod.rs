@@ -15,5 +15,9 @@ pub use compute::rules::BoolMaskedValidityRule;
 pub use vtable::Bool;
 pub use vtable::BoolArray;
 
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}
+
 #[cfg(feature = "_test-harness")]
 mod test_harness;

@@ -3,7 +3,6 @@
 
 use std::any::Any;
 
-use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
@@ -13,12 +12,13 @@ use crate::layouts::chunked::ChunkedLayoutEncoding;
 use crate::layouts::dict::DictLayoutEncoding;
 use crate::layouts::flat::FlatLayoutEncoding;
 use crate::layouts::struct_::StructLayoutEncoding;
+use crate::layouts::zoned::LegacyStatsLayoutEncoding;
 use crate::layouts::zoned::ZonedLayoutEncoding;
 
 pub type LayoutRegistry = Registry<LayoutEncodingRef>;
 
 /// Session state for layout encodings.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LayoutSession {
     registry: LayoutRegistry,
 }
@@ -51,6 +51,10 @@ impl Default for LayoutSession {
         layouts.register(FlatLayoutEncoding.id(), FlatLayoutEncoding.as_ref());
         layouts.register(StructLayoutEncoding.id(), StructLayoutEncoding.as_ref());
         layouts.register(ZonedLayoutEncoding.id(), ZonedLayoutEncoding.as_ref());
+        layouts.register(
+            LegacyStatsLayoutEncoding.id(),
+            LegacyStatsLayoutEncoding.as_ref(),
+        );
         layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
 
         Self { registry: layouts }
@@ -69,7 +73,7 @@ impl SessionVar for LayoutSession {
 /// Extension trait for accessing layout session data.
 pub trait LayoutSessionExt: SessionExt {
     /// Returns the layout encoding registry.
-    fn layouts(&self) -> Ref<'_, LayoutSession> {
+    fn layouts(&self) -> &LayoutSession {
         self.get::<LayoutSession>()
     }
 }

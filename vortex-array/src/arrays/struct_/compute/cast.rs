@@ -4,6 +4,7 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ArrayView;
@@ -13,33 +14,43 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::scalar_fn::ExactScalarFn;
+use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::StructFields;
-use crate::matcher::Matcher;
+use crate::kernel::ExecuteParentKernel;
+use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 
-pub(crate) fn struct_cast_execute_parent(
-    child: &ArrayRef,
-    parent: &ArrayRef,
-    _child_idx: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
-    let Some(array) = child.as_opt::<Struct>() else {
-        return Ok(None);
-    };
-    let Some(parent) = ExactScalarFn::<Cast>::try_match(parent) else {
-        return Ok(None);
-    };
+pub(crate) fn initialize(session: &VortexSession) {
+    session
+        .kernels()
+        .register_execute_parent_kernel(Cast.id(), Struct, StructCastKernel);
+}
 
-    let dtype = parent.options;
-    if array.dtype() == parent.options {
-        return Ok(Some(array.array().clone()));
+#[derive(Debug)]
+struct StructCastKernel;
+
+impl ExecuteParentKernel<Struct> for StructCastKernel {
+    type Parent = ExactScalarFn<Cast>;
+
+    fn execute_parent(
+        &self,
+        array: ArrayView<'_, Struct>,
+        parent: ScalarFnArrayView<'_, Cast>,
+        _child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let dtype = parent.options;
+        if array.dtype() == parent.options {
+            return Ok(Some(array.array().clone()));
+        }
+
+        struct_cast(array, dtype, ctx)
     }
-
-    struct_cast(array, dtype, ctx)
 }
 
 pub(crate) fn struct_cast(
@@ -140,16 +151,14 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::optimizer::kernels::ArrayKernels;
     use crate::optimizer::kernels::ArrayKernelsExt;
     use crate::optimizer::kernels::ExecuteParentFn;
+    use crate::optimizer::kernels::KernelSession;
     use crate::scalar::Scalar;
     use crate::scalar_fn::fns::cast::Cast;
-    use crate::session::ArraySession;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 
     fn null_struct_cast_execute_parent(
         child: &ArrayRef,
@@ -184,25 +193,6 @@ mod tests {
     }
 
     #[test]
-    fn struct_cast_execute_parent_is_not_static_kernel() {
-        let source = create_simple_struct().into_array();
-        let target = DType::struct_(
-            [(
-                "value",
-                DType::Primitive(PType::I64, Nullability::NonNullable),
-            )],
-            Nullability::NonNullable,
-        );
-
-        let cast = Cast
-            .try_new_array(source.len(), target, [source.clone()])
-            .unwrap();
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
-
-        assert!(source.execute_parent(&cast, 0, &mut ctx).unwrap().is_none());
-    }
-
-    #[test]
     fn struct_cast_execute_parent_uses_session_plugin() {
         let source = StructArray::try_new(
             FieldNames::from(["a"]),
@@ -224,7 +214,7 @@ mod tests {
             .try_new_array(source.len(), target.clone(), [source])
             .unwrap();
         let parent_id = cast.encoding_id();
-        let session = VortexSession::empty().with::<ArrayKernels>();
+        let session = VortexSession::empty().with_some(KernelSession::empty());
         session.kernels().register_execute_parent(
             parent_id,
             child_id,
@@ -237,7 +227,8 @@ mod tests {
         assert_eq!(result.dtype(), &target);
         assert_arrays_eq!(
             result.unmasked_field_by_name("b").unwrap(),
-            ConstantArray::new(Scalar::null(utf8_null), 1)
+            ConstantArray::new(Scalar::null(utf8_null), 1),
+            &mut ctx
         );
     }
 

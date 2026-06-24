@@ -17,31 +17,172 @@ use std::process::exit;
 use bindgen::Abi;
 use bindgen::callbacks::ParseCallbacks;
 
-const DUCKDB_RELEASES_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
+// You can substitute this URL for https://github.com/duckdb/duckdb/releases/download
+// We use own infrastructure for testing pre-release builds
+const DUCKDB_RELEASES_URL: &str = "https://ci-builds.vortex.dev";
+
 const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archive/refs/tags";
 const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive";
 const DEFAULT_DUCKDB_VERSION: &str = "1.5.3";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 
-const SOURCE_FILES: [&str; 17] = [
-    "cpp/client_context.cpp",
-    "cpp/config.cpp",
+const SOURCE_FILES: [&str; 7] = [
+    "cpp/vortex_duckdb.cpp",
     "cpp/copy_function.cpp",
-    "cpp/data.cpp",
-    "cpp/data_chunk.cpp",
-    "cpp/error.cpp",
     "cpp/expr.cpp",
-    "cpp/file_system.cpp",
-    "cpp/logical_type.cpp",
-    "cpp/replacement_scan.cpp",
-    "cpp/reusable_dict.cpp",
-    "cpp/scalar_function.cpp",
+    "cpp/optimizer.cpp",
     "cpp/table_filter.cpp",
     "cpp/table_function.cpp",
-    "cpp/value.cpp",
     "cpp/vector.cpp",
-    "cpp/vector_buffer.cpp",
+];
+
+// Duckdb C API function we use.
+// This lowers codegen'd src/cpp.rs by four times.
+const DUCKDB_C_API_FUNCTIONS: [&str; 133] = [
+    "duckdb_array_type_array_size",
+    "duckdb_array_type_child_type",
+    "duckdb_array_vector_get_child",
+    "duckdb_client_context_try_get_current_setting",
+    "duckdb_close",
+    "duckdb_column_count",
+    "duckdb_column_logical_type",
+    "duckdb_column_name",
+    "duckdb_column_type",
+    "duckdb_config_count",
+    "duckdb_connect",
+    "duckdb_create_array_type",
+    "duckdb_create_blob",
+    "duckdb_create_bool",
+    "duckdb_create_config",
+    "duckdb_create_data_chunk",
+    "duckdb_create_date",
+    "duckdb_create_decimal",
+    "duckdb_create_decimal_type",
+    "duckdb_create_double",
+    "duckdb_create_float",
+    "duckdb_create_int16",
+    "duckdb_create_int32",
+    "duckdb_create_int64",
+    "duckdb_create_int8",
+    "duckdb_create_list_type",
+    "duckdb_create_logical_type",
+    "duckdb_create_map_type",
+    "duckdb_create_null_value",
+    "duckdb_create_selection_vector",
+    "duckdb_create_struct_type",
+    "duckdb_create_time",
+    "duckdb_create_timestamp",
+    "duckdb_create_timestamp_ms",
+    "duckdb_create_timestamp_ns",
+    "duckdb_create_timestamp_s",
+    "duckdb_create_timestamp_tz",
+    "duckdb_create_uint16",
+    "duckdb_create_uint32",
+    "duckdb_create_uint64",
+    "duckdb_create_uint8",
+    "duckdb_create_union_type",
+    "duckdb_create_varchar_length",
+    "duckdb_create_vector",
+    "duckdb_data_chunk_get_column_count",
+    "duckdb_data_chunk_get_size",
+    "duckdb_data_chunk_get_vector",
+    "duckdb_data_chunk_reset",
+    "duckdb_data_chunk_set_size",
+    "duckdb_data_chunk_to_string",
+    "duckdb_data_chunk_verify",
+    "duckdb_decimal_scale",
+    "duckdb_decimal_width",
+    "duckdb_destroy_client_context",
+    "duckdb_destroy_config",
+    "duckdb_destroy_data_chunk",
+    "duckdb_destroy_logical_type",
+    "duckdb_destroy_result",
+    "duckdb_destroy_selection_vector",
+    "duckdb_destroy_value",
+    "duckdb_destroy_vector",
+    "duckdb_disconnect",
+    "duckdb_fetch_chunk",
+    "duckdb_free",
+    "duckdb_geometry_type_get_crs",
+    "duckdb_get_blob",
+    "duckdb_get_bool",
+    "duckdb_get_config_flag",
+    "duckdb_get_date",
+    "duckdb_get_decimal",
+    "duckdb_get_double",
+    "duckdb_get_float",
+    "duckdb_get_hugeint",
+    "duckdb_get_int16",
+    "duckdb_get_int32",
+    "duckdb_get_int64",
+    "duckdb_get_int8",
+    "duckdb_get_list_child",
+    "duckdb_get_list_size",
+    "duckdb_get_struct_child",
+    "duckdb_get_time",
+    "duckdb_get_time_ns",
+    "duckdb_get_timestamp",
+    "duckdb_get_timestamp_ms",
+    "duckdb_get_timestamp_ns",
+    "duckdb_get_timestamp_s",
+    "duckdb_get_timestamp_tz",
+    "duckdb_get_type_id",
+    "duckdb_get_uhugeint",
+    "duckdb_get_uint16",
+    "duckdb_get_uint32",
+    "duckdb_get_uint64",
+    "duckdb_get_uint8",
+    "duckdb_get_value_type",
+    "duckdb_get_varchar",
+    "duckdb_is_null_value",
+    "duckdb_library_version",
+    "duckdb_list_type_child_type",
+    "duckdb_list_vector_get_child",
+    "duckdb_list_vector_get_size",
+    "duckdb_list_vector_reserve",
+    "duckdb_list_vector_set_size",
+    "duckdb_malloc",
+    "duckdb_map_type_key_type",
+    "duckdb_map_type_value_type",
+    "duckdb_open",
+    "duckdb_open_ext",
+    "duckdb_query",
+    "duckdb_result_error",
+    "duckdb_row_count",
+    "duckdb_rows_changed",
+    "duckdb_selection_vector_get_data_ptr",
+    "duckdb_set_config",
+    "duckdb_string_t_data",
+    "duckdb_string_t_length",
+    "duckdb_struct_type_child_count",
+    "duckdb_struct_type_child_name",
+    "duckdb_struct_type_child_type",
+    "duckdb_struct_vector_get_child",
+    "duckdb_union_type_member_count",
+    "duckdb_union_type_member_name",
+    "duckdb_union_type_member_type",
+    "duckdb_value_to_string",
+    "duckdb_vector_assign_string_element",
+    "duckdb_vector_assign_string_element_len",
+    "duckdb_vector_ensure_validity_writable",
+    "duckdb_vector_flatten",
+    "duckdb_vector_get_column_type",
+    "duckdb_vector_get_data",
+    "duckdb_vector_get_validity",
+    "duckdb_vector_reference_value",
+    "duckdb_vector_reference_vector",
+    "duckdb_vector_size",
+];
+
+const DUCKDB_C_API_HEADERS: [&str; 7] = [
+    "cpp/include/vortex_duckdb.h",
+    "cpp/include/expr.h",
+    "cpp/include/table_filter.h",
+    "cpp/include/vector.h",
+    "cpp/include/copy_function.h",
+    "cpp/include/table_function.h",
+    "cpp/include/optimizer.h",
 ];
 
 const DOWNLOAD_MAX_RETRIES: i32 = 3;
@@ -69,8 +210,8 @@ impl ParseCallbacks for BindgenCargoCallbacks {
 
 #[derive(Debug, Clone)]
 enum DuckDBVersion {
-    Release(String), // i.e. X.Y.Z. Download pre-compiled libraries from GitHub releases.
-    Commit(String),  // Download source and build DuckDB from scratch.
+    Release(String), // i.e. X.Y.Z. Download precompiled libraries from R2.
+    Commit(String),  // Download precompiled libraries from R2, build from source on a miss.
 }
 
 impl std::fmt::Display for DuckDBVersion {
@@ -106,9 +247,10 @@ impl From<&String> for DuckDBVersion {
     }
 }
 
-fn download_url(url: &str, path: &Path) {
+/// Returns false on a non-retryable client error (4xx) or after failing retries
+fn try_download_url(url: &str, path: &Path) -> bool {
     if path.exists() {
-        return;
+        return true;
     }
     println!("cargo:info=Downloading DuckDB from {url}");
 
@@ -128,7 +270,7 @@ fn download_url(url: &str, path: &Path) {
                 let bytes = response.bytes().unwrap().to_vec();
                 fs::write(path, bytes).unwrap();
                 println!("cargo:info=Downloaded to {url}");
-                return;
+                return true;
             }
             Ok(response) if response.status().is_server_error() => {
                 let status = response.status();
@@ -146,8 +288,8 @@ fn download_url(url: &str, path: &Path) {
             // Client errors (4xx) are not retryable
             Ok(response) => {
                 let status = response.status();
-                println!("cargo:error=Failed to download {url}: HTTP {status}");
-                exit(1);
+                println!("cargo:warning=Failed to download {url}: HTTP {status}");
+                return false;
             }
         }
 
@@ -158,8 +300,15 @@ fn download_url(url: &str, path: &Path) {
         }
     }
 
-    println!("cargo:error=Failed to download {url} after {DOWNLOAD_MAX_RETRIES} attempts");
-    exit(1);
+    println!("cargo:warning=Failed to download {url} after {DOWNLOAD_MAX_RETRIES} attempts");
+    false
+}
+
+fn download_url(url: &str, path: &Path) {
+    if !try_download_url(url, path) {
+        println!("cargo:error=Failed to download {url}");
+        exit(1);
+    }
 }
 
 fn extract(archive: &Path, dest: &Path) {
@@ -172,7 +321,9 @@ fn extract(archive: &Path, dest: &Path) {
     zip::ZipArchive::new(file).unwrap().extract(dest).unwrap();
 }
 
-fn download(version: &DuckDBVersion, library_dir: &Path) {
+/// Download DuckDB library archive from R2 and extract it.
+/// Return false if archive is not available or download failed
+fn download(version: &DuckDBVersion, library_dir: &Path) -> bool {
     let target = env::var("TARGET").unwrap();
     let (platform, arch) = match target.as_str() {
         "aarch64-apple-darwin" | "x86_64-apple-darwin" => ("osx", "universal"),
@@ -189,15 +340,18 @@ fn download(version: &DuckDBVersion, library_dir: &Path) {
     let archive_path = library_dir.join(&archive_name);
 
     fs::create_dir_all(library_dir).unwrap();
-    download_url(&url, &archive_path);
+    if !try_download_url(&url, &archive_path) {
+        return false;
+    }
 
     let duckdb_lib_dir = archive_path.parent().unwrap().to_path_buf();
     for artifact in BUILD_ARTIFACTS {
         if duckdb_lib_dir.join(artifact).exists() {
-            return;
+            return true;
         }
     }
     extract(&archive_path, &duckdb_lib_dir);
+    true
 }
 
 fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
@@ -218,13 +372,12 @@ fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
             ("1", "0")
         };
 
-    // If we're building from a commit  we need to build httpfs and benchmark
+    // If we're building from a commit we need to build benchmark
     // extensions statically, otherwise DuckDB tries to load them from an http
     // endpoint with version 0.0.1 (all non-tagged builds) which doesn't exist.
-    // httpfs static build also requires CURL dev headers
     let static_extensions = match version {
-        DuckDBVersion::Release(_) => "parquet;jemalloc",
-        DuckDBVersion::Commit(_) => "parquet;jemalloc;httpfs;tpch;tpcds",
+        DuckDBVersion::Release(_) => "parquet",
+        DuckDBVersion::Commit(_) => "parquet;tpch;tpcds",
     };
 
     let envs = [
@@ -306,10 +459,9 @@ fn try_build_duckdb(
 
 /// Generate rust functions with bindgen from C sources.
 fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
-    let bindings = bindgen::Builder::default()
-        .header("cpp/include/duckdb_vx.h")
+    let mut builder = bindgen::Builder::default()
+        .headers(DUCKDB_C_API_HEADERS)
         .override_abi(Abi::CUnwind, ".*")
-        // Allow for auto-generated cpp.rs code.
         .raw_line("#![allow(dead_code)]")
         .raw_line("#![allow(non_camel_case_types)]")
         .raw_line("#![allow(non_upper_case_globals)]")
@@ -317,20 +469,31 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
         .raw_line("#![allow(clippy::absolute_paths)]")
         .raw_line("#![allow(clippy::suspicious_doc_comments)]")
         .raw_line("#![allow(clippy::enum_variant_names)]")
+        .allowlist_function("duckdb_vx_.*")
+        .allowlist_type("duckdb_vx_.*")
+        .allowlist_type("DUCKDB_VX_.*")
+        .allowlist_var("DUCKDB_VX_.*")
+        // Two types read from raw vector data
+        .allowlist_type("duckdb_list_entry")
+        .allowlist_type("duckdb_column_statistics")
         // Add the #[must_use] attribute to FFI functions that return results.
         .must_use_type("duckdb_state")
         .rustified_enum("duckdb_state")
         .rustified_enum("DUCKDB_VX_EXPR_CLASS")
         .rustified_enum("DUCKDB_VX_EXPR_TYPE")
         .rustified_enum("DUCKDB_VX_TABLE_FILTER_TYPE")
-        .rustified_enum("DUCKDB_VX_VECTOR_TYPE")
         .rustified_non_exhaustive_enum("DUCKDB_TYPE")
         .size_t_is_usize(true)
         .clang_arg(format!("-I{}", duckdb_include_dir.display()))
         .clang_arg(format!("-I{}", crate_dir.join("cpp/include").display()))
         .generate_comments(true)
-        .parse_callbacks(Box::new(BindgenCargoCallbacks))
-        .generate();
+        .parse_callbacks(Box::new(BindgenCargoCallbacks));
+
+    for function in DUCKDB_C_API_FUNCTIONS {
+        builder = builder.allowlist_function(function);
+    }
+
+    let bindings = builder.generate();
 
     let bindings = match bindings {
         Ok(b) => b,
@@ -340,12 +503,7 @@ fn bindgen_c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
         }
     };
     let out_path = crate_dir.join("src/cpp.rs");
-    let new_contents = bindings.to_string();
-    let write = match fs::read_to_string(&out_path) {
-        Ok(existing) => existing != new_contents,
-        Err(_) => true,
-    };
-    if write && let Err(e) = fs::write(&out_path, new_contents) {
+    if let Err(e) = fs::write(&out_path, bindings.to_string()) {
         println!("cargo:error=Failed to write Rust bindings: {e}");
         exit(1);
     }
@@ -404,6 +562,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=HTTP_TIMEOUT");
     println!("cargo:rerun-if-env-changed=TARGET");
 
+    println!("cargo:rustc-check-cfg=cfg(duckdb_release)");
+
     // These two variables are set in duckdb-vortex's CI. Don't download
     // duckdb if they are present
     println!("cargo:rerun-if-env-changed=DUCKDB_SOURCE_DIR");
@@ -436,7 +596,10 @@ fn main() {
         .unwrap_or_else(|_| DEFAULT_DUCKDB_VERSION.to_owned());
     let version = DuckDBVersion::from(&version);
     match &version {
-        DuckDBVersion::Release(v) => println!("cargo:info=Using DuckDB release version: {v}"),
+        DuckDBVersion::Release(v) => {
+            println!("cargo:info=Using DuckDB release version: {v}");
+            println!("cargo:rustc-cfg=duckdb_release");
+        }
         DuckDBVersion::Commit(c) => println!("cargo:info=Using DuckDB commit: {c}"),
     }
 
@@ -501,10 +664,23 @@ fn main() {
     };
     println!("cargo:info=building DuckDB in {build_type} mode");
 
-    if has_debug_env || matches!(version, DuckDBVersion::Commit(_)) {
+    if has_debug_env {
         try_build_duckdb(&source_dir, &library_dir, &version, build_type);
     } else {
-        download(&version, &library_dir);
+        match &version {
+            DuckDBVersion::Release(_) => {
+                if !download(&version, &library_dir) {
+                    println!("cargo:error=DuckDB release {version} not available in R2");
+                    exit(1);
+                }
+            }
+            DuckDBVersion::Commit(_) => {
+                if !download(&version, &library_dir) {
+                    println!("cargo:info=DuckDB commit {version} not in R2, building from source");
+                    try_build_duckdb(&source_dir, &library_dir, &version, build_type);
+                }
+            }
+        }
     };
 
     let duckdb_include_dir = inner_dir.join("src").join("include");

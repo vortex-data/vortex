@@ -26,9 +26,25 @@ use crate::children::LayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
+/// Context available while constructing a layout from serialized metadata.
+pub struct LayoutBuildContext<'a> {
+    /// The session used to resolve plugin-owned metadata such as aggregate function options.
+    pub session: &'a VortexSession,
+    /// The array read context referenced by serialized array metadata in descendant layouts.
+    pub array_read_ctx: &'a ReadContext,
+}
+
+/// Typed implementation contract for a layout encoding.
+///
+/// A layout vtable connects a concrete layout node type, its registered encoding object, and the
+/// metadata representation used for serialization. The object-safe [`Layout`] and
+/// [`LayoutEncoding`] APIs delegate to this trait through adapters.
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
+    /// Concrete layout node type for this encoding.
     type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
+    /// Concrete encoding object registered in the session.
     type Encoding: 'static + Send + Sync + Deref<Target = dyn LayoutEncoding>;
+    /// Serialized layout metadata type.
     type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
 
     /// Returns the ID of the layout encoding.
@@ -37,7 +53,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Returns the encoding for the layout.
     fn encoding(layout: &Self::Layout) -> LayoutEncodingRef;
 
-    /// Returns the row count for the layout reader.
+    /// Returns the row count for the layout.
     fn row_count(layout: &Self::Layout) -> u64;
 
     /// Returns the dtype for the layout reader.
@@ -75,7 +91,11 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
 
-    /// Construct a new [`Layout`] from the provided parts.
+    /// Construct a new [`Layout`] from deserialized parts.
+    ///
+    /// Implementations should validate child count, child types, row counts, segment references,
+    /// and dtype consistency for their encoding. The generic adapter checks the returned layout's
+    /// top-level dtype and row count, but encoding-specific invariants belong here.
     fn build(
         encoding: &Self::Encoding,
         dtype: &DType,
@@ -83,7 +103,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: &ReadContext,
+        build_ctx: &LayoutBuildContext<'_>,
     ) -> VortexResult<Self::Layout>;
 
     /// Replaces the children of the layout with the given layout references.

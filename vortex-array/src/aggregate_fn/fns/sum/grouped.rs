@@ -32,10 +32,10 @@ impl DynGroupedAggregateKernel for PrimitiveGroupedSumEncodingKernel {
         groups: &GroupedArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !aggregate_fn.is::<Sum>() {
+        let Some(options) = aggregate_fn.as_opt::<Sum>() else {
             return Ok(None);
-        }
-        try_grouped_sum(groups, ctx)
+        };
+        try_grouped_sum(groups, ctx, options.skip_nans)
     }
 }
 
@@ -48,6 +48,7 @@ impl DynGroupedAggregateKernel for PrimitiveGroupedSumEncodingKernel {
 pub(super) fn try_grouped_sum(
     groups: &GroupedArray,
     ctx: &mut ExecutionCtx,
+    skip_nans: bool,
 ) -> VortexResult<Option<ArrayRef>> {
     if !groups.elements().is::<Primitive>() {
         return Ok(None);
@@ -61,6 +62,7 @@ pub(super) fn try_grouped_sum(
         &group_ranges,
         &group_validity,
         ctx,
+        skip_nans,
     )?))
 }
 
@@ -70,6 +72,7 @@ fn grouped_sum(
     group_ranges: &GroupRanges,
     group_validity: &Mask,
     ctx: &mut ExecutionCtx,
+    skip_nans: bool,
 ) -> VortexResult<ArrayRef> {
     let elem_mask = elements
         .as_ref()
@@ -91,7 +94,7 @@ fn grouped_sum(
         floating: |T| {
             let values = elements.as_slice::<T>();
             collect_sums::<T, f64>(values, group_ranges, group_validity, &elem_mask, all_valid,
-                |acc, slice| { sum_float_all(acc, slice); false })
+                |acc, slice| { sum_float_all(acc, slice, skip_nans); false })
         }
     );
 
@@ -156,13 +159,13 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::DynGroupedAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::GroupedAccumulator;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
+    use crate::array_session;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
@@ -176,8 +179,12 @@ mod tests {
 
     /// Run a grouped sum through the accumulator.
     fn grouped_sum_actual(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut acc = GroupedAccumulator::try_new(Sum, EmptyOptions, elem_dtype.clone())?;
-        acc.accumulate_list(groups, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let mut acc = GroupedAccumulator::try_new(
+            Sum,
+            NumericalAggregateOpts::default(),
+            elem_dtype.clone(),
+        )?;
+        acc.accumulate_list(groups, &mut array_session().create_execution_ctx())?;
         acc.finish()
     }
 
@@ -191,9 +198,9 @@ mod tests {
     ) -> VortexResult<ArrayRef> {
         use crate::aggregate_fn::AggregateFnVTable;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let sum_dtype = Sum
-            .partial_dtype(&EmptyOptions, elem_dtype)
+            .partial_dtype(&NumericalAggregateOpts::default(), elem_dtype)
             .expect("sum partial dtype");
         let mut builder = builder_with_capacity(&sum_dtype, ranges.len());
         for (i, &(offset, size)) in ranges.iter().enumerate() {
@@ -229,6 +236,7 @@ mod tests {
 
     #[test]
     fn listview_matches_reference_unsigned() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![1u32, 2, 3, 4, 5, 6], Validity::NonNullable).into_array();
         let elem_dtype = DType::Primitive(PType::U32, NonNullable);
@@ -241,13 +249,14 @@ mod tests {
 
         // Unsigned input sums to U64.
         let direct = PrimitiveArray::from_option_iter([Some(3u64), Some(3u64), Some(15u64)]);
-        assert_arrays_eq!(&actual, &direct.into_array());
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct.into_array(), &mut ctx);
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn listview_out_of_order_offsets_with_null_group() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // Offsets are not in group order and a group is null: the group validity must be indexed by
         // group index, not by element offset.
         let elements =
@@ -262,13 +271,14 @@ mod tests {
         let expected = grouped_sum_reference(&elements, &ranges, &valid, &elem_dtype)?;
 
         let direct = PrimitiveArray::from_option_iter([Some(110i64), None, Some(70i64)]);
-        assert_arrays_eq!(&actual, &direct.into_array());
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct.into_array(), &mut ctx);
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn listview_interior_and_full_nulls() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // Group 1 has an interior null, group 2 is entirely null, group 3 is empty.
         let elements =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, None, Some(9)])
@@ -283,13 +293,14 @@ mod tests {
 
         let direct =
             PrimitiveArray::from_option_iter([Some(4i64), Some(0i64), Some(0i64), Some(9i64)]);
-        assert_arrays_eq!(&actual, &direct.into_array());
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct.into_array(), &mut ctx);
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn listview_overflow_group_is_null() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let elements =
             PrimitiveArray::new(buffer![i64::MAX, 1, 2, 3], Validity::NonNullable).into_array();
         let elem_dtype = DType::Primitive(PType::I64, NonNullable);
@@ -302,8 +313,8 @@ mod tests {
 
         // First group overflows -> null sum; second group sums normally.
         let direct = PrimitiveArray::from_option_iter([None, Some(5i64)]);
-        assert_arrays_eq!(&actual, &direct.into_array());
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct.into_array(), &mut ctx);
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
         Ok(())
     }
 
@@ -323,7 +334,7 @@ mod tests {
 
         // Group 0: NaN skipped -> 3.0. Group 1: INF + -INF = NaN. (Avoid array equality here since
         // NaN != NaN; compare element scalars against the reference path instead.)
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let expected = grouped_sum_reference(&elements, &ranges, &valid, &elem_dtype)?;
         let g0 = actual.execute_scalar(0, &mut ctx)?;
         assert_eq!(g0.as_primitive().typed_value::<f64>(), Some(3.0));
@@ -348,7 +359,32 @@ mod tests {
     }
 
     #[test]
+    fn listview_float_nan_not_skipping() -> VortexResult<()> {
+        let elements = PrimitiveArray::new(
+            buffer![1.0f64, f64::NAN, 2.0, 3.0, 4.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+        let elem_dtype = DType::Primitive(PType::F64, NonNullable);
+        let groups = listview(elements, &[(0, 3), (3, 2)], &[true, true])?;
+
+        let mut acc =
+            GroupedAccumulator::try_new(Sum, NumericalAggregateOpts::include_nans(), elem_dtype)?;
+        acc.accumulate_list(&groups, &mut array_session().create_execution_ctx())?;
+        let actual = acc.finish()?;
+
+        let mut ctx = array_session().create_execution_ctx();
+        // Group 0 contains a NaN -> NaN sum; group 1 sums normally.
+        let g0 = actual.execute_scalar(0, &mut ctx)?;
+        assert!(g0.as_primitive().typed_value::<f64>().unwrap().is_nan());
+        let g1 = actual.execute_scalar(1, &mut ctx)?;
+        assert_eq!(g1.as_primitive().typed_value::<f64>(), Some(7.0));
+        Ok(())
+    }
+
+    #[test]
     fn fixed_size_overflow_and_nan() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // FixedSize path: first group overflows -> null sum, second sums normally.
         let elements =
             PrimitiveArray::new(buffer![i64::MAX, 1, 2, 3], Validity::NonNullable).into_array();
@@ -360,8 +396,8 @@ mod tests {
         let expected =
             grouped_sum_reference(&elements, &[(0, 2), (2, 2)], &[true, true], &elem_dtype)?;
         let direct = PrimitiveArray::from_option_iter([None, Some(5i64)]);
-        assert_arrays_eq!(&actual, &direct.into_array());
-        assert_arrays_eq!(&actual, &expected);
+        assert_arrays_eq!(&actual, &direct.into_array(), &mut ctx);
+        assert_arrays_eq!(&actual, &expected, &mut ctx);
         Ok(())
     }
 }

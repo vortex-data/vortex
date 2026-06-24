@@ -15,7 +15,10 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
+    use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
     use crate::compute::conformance::consistency::test_array_consistency;
 
     #[rstest]
@@ -36,7 +39,10 @@ mod tests {
     #[case::i16_negative(PrimitiveArray::from_iter([-100i16, -50, 0, 50, 100]))]
     #[case::f64_special(PrimitiveArray::from_iter([0.0f64, 1.0, -1.0, f64::INFINITY, f64::NEG_INFINITY]))]
     fn test_primitive_consistency(#[case] array: PrimitiveArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[rstest]
@@ -46,7 +52,9 @@ mod tests {
     #[case::f32(PrimitiveArray::from_iter([1.5f32, 2.5, 3.5, 4.5, 5.5]))]
     #[case::f64(PrimitiveArray::from_iter([10.1f64, 20.2, 30.3, 40.4, 50.5]))]
     fn test_primitive_binary_numeric(#[case] array: PrimitiveArray) {
-        use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

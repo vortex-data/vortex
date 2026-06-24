@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use tracing::debug;
+use vortex::dtype::DType;
 use vortex::dtype::Nullability;
+use vortex::dtype::PType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -13,6 +15,8 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::byte_length;
+use vortex::expr::cast;
 use vortex::expr::col;
 use vortex::expr::get_item;
 use vortex::expr::is_not_null;
@@ -21,6 +25,7 @@ use vortex::expr::list_contains;
 use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
+use vortex::expr::root;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::Between;
@@ -43,6 +48,7 @@ use crate::duckdb::ExpressionClass::BoundComparison;
 use crate::duckdb::ExpressionClass::BoundConjunction;
 use crate::duckdb::ExpressionClass::BoundConstant;
 use crate::duckdb::ExpressionClass::BoundRef;
+use crate::projection::DuckdbField;
 
 fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
     match value.as_class().vortex_expect("unknown class") {
@@ -56,6 +62,20 @@ fn try_from_bound_function(
     col_sub: Option<&Expression>,
 ) -> VortexResult<Option<Expression>> {
     let expr = match func.scalar_function.name() {
+        "strlen" => {
+            let children: Vec<_> = func.children().collect();
+            vortex_ensure!(children.len() == 1);
+            let Some(col) = try_from_expression_inner(children[0], col_sub)? else {
+                return Ok(None);
+            };
+            let col = byte_length(col);
+            // byte_length returns u64, strlen expects i64.
+            // At this point we don't know column's dtype so we ultimately
+            // set it to be nullable. For non-nullable column the nullability
+            // will be AllValid so it's a marginal cost.
+            let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
+            cast(col, dtype)
+        }
         "struct_extract" => {
             let children: Vec<_> = func.children().collect();
             vortex_ensure!(children.len() == 2);
@@ -117,20 +137,18 @@ pub(super) fn try_from_bound_expression_with_col_sub(
     try_from_expression_inner(value, Some(col_sub))
 }
 
-/*
- * Called before pushdown_complex_filter or a table filter expression call.
- * As we support complex filter pushdown, Duckdb pushes expressions to Vortex.
- * However, it doesn't know what type of expressions we can handle. Here we list
- * all expressions that are quaranteed to be converted to Vortex expressions.
- *
- * If we return true here, and expression is in the list for
- * pushdown_complex_filter, we must handle it, or query engine will break.
- *
- * Example: we don't support substr() expression so we tell Duckdb we can't
- * push it.
- * Example: optional filters may fail to parse on our side (we return
- * Ok(None)), so we don't allow pushing these.
- */
+// Called before pushdown_complex_filter or a table filter expression call.
+// As we support complex filter pushdown, Duckdb pushes expressions to Vortex.
+// However, it doesn't know what type of expressions we can handle. Here we list
+// all expressions that are quaranteed to be converted to Vortex expressions.
+//
+// If we return true here, and expression is in the list for
+// pushdown_complex_filter, we must handle it, or query engine will break.
+//
+// Example: we don't support substr() expression so we tell Duckdb we can't
+// push it.
+// Example: optional filters may fail to parse on our side (we return
+// Ok(None)), so we don't allow pushing these.
 pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
     let Some(value) = value.as_class() else {
         return false;
@@ -154,6 +172,7 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
                 || name == "suffix"
                 || name == "~~"
                 || name == "!~~"
+                || name == "strlen"
         }
         ExpressionClass::BoundOperator(op) => {
             if !matches!(
@@ -169,6 +188,28 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
             op.children().all(can_push_expression)
         }
     }
+}
+
+pub fn try_from_projection_expression(
+    value: &duckdb::ExpressionRef,
+    field: &DuckdbField,
+) -> VortexResult<Option<Expression>> {
+    let Some(value) = value.as_class() else {
+        return Ok(None);
+    };
+    let ExpressionClass::BoundFunction(func) = value else {
+        return Ok(None);
+    };
+    Ok(match func.scalar_function.name() {
+        "strlen" => {
+            let col = byte_length(get_item(field.name.as_str(), root()));
+            // byte_length returns u64, strlen expects i64
+            let dtype = DType::Primitive(PType::I64, field.dtype.nullability());
+            let col = cast(col, dtype);
+            Some(col)
+        }
+        _ => None,
+    })
 }
 
 // If you want to add support for other expressions, also change

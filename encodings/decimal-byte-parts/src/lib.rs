@@ -23,6 +23,7 @@ use vortex_session::VortexSession;
 /// Initialize decimal-byte-parts encoding in the given session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(DecimalByteParts);
+    compute::kernel::initialize(session);
 
     session.aggregate_fns().register_aggregate_kernel(
         DecimalByteParts.id(),

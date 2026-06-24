@@ -6,6 +6,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -180,6 +181,53 @@ async fn test_addition_pushdown() -> anyhow::Result<()> {
         | 3 | 8    | 9   |
         | 4 | 9    | 10  |
         +---+------+-----+
+        ");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_octet_length_pushdown() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(true);
+
+    ctx.session
+        .sql(
+            "CREATE EXTERNAL TABLE written_strings \
+                    (s VARCHAR NOT NULL) \
+                STORED AS vortex \
+                LOCATION '/strings/'",
+        )
+        .await?;
+
+    ctx.session
+        .sql("INSERT INTO written_strings VALUES ('a'), ('é'), ('abcd'), ('')")
+        .await?
+        .collect()
+        .await?;
+
+    let result = ctx
+        .session
+        .sql(
+            "SELECT s, octet_length(s) AS len \
+             FROM written_strings \
+             WHERE octet_length(s) > 1 \
+             ORDER BY s",
+        )
+        .await?
+        .collect()
+        .await?;
+
+    assert_eq!(
+        result[0].schema().field_with_name("len")?.data_type(),
+        &DataType::Int32
+    );
+    assert_snapshot!(pretty_format_batches(&result)?, @r"
+        +------+-----+
+        | s    | len |
+        +------+-----+
+        | abcd | 4   |
+        | é    | 2   |
+        +------+-----+
         ");
 
     Ok(())

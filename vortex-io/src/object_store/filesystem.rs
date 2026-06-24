@@ -23,7 +23,6 @@ use crate::object_store::ObjectStoreReadAt;
 use crate::runtime::Handle;
 
 /// A [`FileSystem`] backed by an [`ObjectStore`].
-///
 // TODO(ngates): we could consider spawning a driver task inside this file system such that we can
 //  apply concurrency limits to the overall object store, rather than on a per-file basis.
 pub struct ObjectStoreFileSystem {

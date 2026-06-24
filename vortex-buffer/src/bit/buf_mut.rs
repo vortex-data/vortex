@@ -267,7 +267,9 @@ impl BitBufferMut {
 
     /// Clears the bit buffer (but keeps any allocated memory).
     pub fn clear(&mut self) {
-        // Since there are no items we need to drop, we simply set the length to 0.
+        // Also clear the byte buffer (not just `len`) so the "bits beyond len are zero"
+        // invariant holds; `append_false` and `append_buffer` rely on it.
+        self.buffer.clear();
         self.len = 0;
         self.offset = 0;
     }
@@ -649,6 +651,8 @@ impl FromIterator<bool> for BitBufferMut {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use crate::BufferMut;
     use crate::bit::buf_mut::BitBufferMut;
     use crate::bitbuffer;
@@ -921,6 +925,65 @@ mod tests {
         // Verify values through frozen buffer
         assert!(frozen.value(0));
         assert!(frozen.value(7));
+    }
+
+    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
+    #[test]
+    fn append_after_clear_reads_back_false() {
+        // `clear` must not leave stale set bits behind: `append_false` and `append_buffer`
+        // rely on bits beyond `len` being zero.
+        let mut bools = BitBufferMut::new_set(16);
+        bools.clear();
+        bools.append_false();
+        bools.append_buffer(&crate::BitBuffer::new_unset(8));
+
+        let bools = bools.freeze();
+        assert_eq!(bools.len(), 9);
+        assert_eq!(bools.true_count(), 0);
+    }
+
+    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
+    #[test]
+    fn test_append_buffer_after_truncate() {
+        // Truncating leaves stale set bits in the last partial byte; an append after that
+        // must overwrite them rather than OR into them.
+        let mut buf = BitBufferMut::new_set(16);
+        buf.truncate(3);
+        buf.append_buffer(&crate::BitBuffer::new_unset(8));
+
+        let frozen = buf.freeze();
+        assert_eq!(frozen.len(), 11);
+        for i in 0..3 {
+            assert!(frozen.value(i), "bit {i} should be set");
+        }
+        for i in 3..11 {
+            assert!(!frozen.value(i), "bit {i} should be unset");
+        }
+    }
+
+    #[rstest]
+    #[case::both_aligned(0, 0)]
+    #[case::dst_unaligned(3, 0)]
+    #[case::src_unaligned(0, 5)]
+    #[case::mismatched(3, 5)]
+    #[case::equal_nonzero(5, 5)]
+    #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support
+    fn test_append_buffer_long(#[case] dst_prefix: usize, #[case] src_start: usize) {
+        // Exercise every alignment combination across many words.
+        let source = crate::BitBuffer::from_iter((0..301).map(|i| i % 3 == 0));
+        let source = source.slice(src_start..301);
+
+        let mut dest = BitBufferMut::with_capacity(512);
+        dest.append_n(true, dst_prefix);
+        dest.append_buffer(&source);
+
+        assert_eq!(dest.len(), dst_prefix + source.len());
+        for i in 0..dst_prefix {
+            assert!(dest.value(i), "prefix bit {i}");
+        }
+        for i in 0..source.len() {
+            assert_eq!(dest.value(dst_prefix + i), source.value(i), "bit {i}");
+        }
     }
 
     #[cfg_attr(miri, ignore)] // bitvec crate uses a ptr cast that Miri doesn't support

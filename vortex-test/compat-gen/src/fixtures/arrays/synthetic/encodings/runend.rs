@@ -5,8 +5,6 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
@@ -16,6 +14,7 @@ use vortex::array::validity::Validity;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::compress::runend_encode;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -35,8 +34,7 @@ impl FlatLayoutFixture for RunEndFixture {
         vec![RunEnd.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let run_lengths = [1usize, 5, 10, 50, 100];
         let mut values = Vec::with_capacity(N);
         let mut run_idx = 0i64;
@@ -50,8 +48,8 @@ impl FlatLayoutFixture for RunEndFixture {
             rl_idx += 1;
         }
         let run_prim: PrimitiveArray = values.into_iter().collect();
-        let (run_ends, run_values) = runend_encode(run_prim.as_view(), &mut ctx);
-        let run_col = RunEnd::try_new(run_ends.into_array(), run_values, &mut ctx)?;
+        let (run_ends, run_values) = runend_encode(run_prim.as_view(), ctx);
+        let run_col = RunEnd::try_new(run_ends.into_array(), run_values, ctx)?;
 
         let statuses = ["open", "closed", "pending", "cancelled"];
         let mut status_values = Vec::new();
@@ -71,17 +69,17 @@ impl FlatLayoutFixture for RunEndFixture {
         let status_col = RunEnd::try_new(
             status_ends_prim.into_array(),
             VarBinArray::from_strs(status_values).into_array(),
-            &mut ctx,
+            ctx,
         )?;
 
         let uniform_prim: PrimitiveArray = (0..N as i32).map(|i| i / 64).collect();
-        let (uniform_ends, uniform_values) = runend_encode(uniform_prim.as_view(), &mut ctx);
-        let uniform_col = RunEnd::try_new(uniform_ends.into_array(), uniform_values, &mut ctx)?;
+        let (uniform_ends, uniform_values) = runend_encode(uniform_prim.as_view(), ctx);
+        let uniform_col = RunEnd::try_new(uniform_ends.into_array(), uniform_values, ctx)?;
 
         let bool_ends: PrimitiveArray = (1..=N / 32).map(|i| (i * 32) as u16).collect();
         let bool_values =
             BoolArray::from_iter((0..bool_ends.len()).map(|i| i % 2 == 0)).into_array();
-        let bool_runs = RunEnd::try_new(bool_ends.into_array(), bool_values, &mut ctx)?;
+        let bool_runs = RunEnd::try_new(bool_ends.into_array(), bool_values, ctx)?;
         let nullable_run_values = PrimitiveArray::from_option_iter([
             Some(10i32),
             None,
@@ -93,19 +91,19 @@ impl FlatLayoutFixture for RunEndFixture {
         let nullable_runs = RunEnd::try_new(
             PrimitiveArray::from_iter([16u16, 64, 128, 256, 512, N as u16]).into_array(),
             nullable_run_values.into_array(),
-            &mut ctx,
+            ctx,
         )?;
         let single_run = RunEnd::try_new(
             PrimitiveArray::from_iter([N as u64]).into_array(),
             PrimitiveArray::from_iter([1234i64]).into_array(),
-            &mut ctx,
+            ctx,
         )?;
         let singleton_values: PrimitiveArray = (0..N as i16).map(|i| i - 512).collect();
         let singleton_ends: PrimitiveArray = (1..=N as u16).collect();
         let alternating_singletons = RunEnd::try_new(
             singleton_ends.into_array(),
             singleton_values.into_array(),
-            &mut ctx,
+            ctx,
         )?;
 
         let arr = StructArray::try_new(

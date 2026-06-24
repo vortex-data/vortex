@@ -3,6 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hash;
 
 use itertools::Itertools;
 use vortex_error::VortexExpect;
@@ -49,11 +50,22 @@ where
 {
     // Annotate each expression with the annotations that any of its descendent expressions have.
     let annotations = descendent_annotations(&expr, annotate_fn);
+    partition_annotations(expr.clone(), scope, annotations)
+}
 
+pub fn partition_annotations<A>(
+    expr: Expression,
+    scope: &DType,
+    annotations: Annotations<A>,
+) -> VortexResult<PartitionedExpr<A>>
+where
+    A: Display + Clone + Eq + Hash,
+    FieldName: From<A>,
+{
     // Now we split the original expression into sub-expressions based on the annotations, and
     // generate a root expression to re-assemble the results.
-    let mut splitter = StructFieldExpressionSplitter::<A::Annotation>::new(&annotations);
-    let root = expr.clone().rewrite(&mut splitter)?.value;
+    let mut splitter = StructFieldExpressionSplitter::<A>::new(&annotations);
+    let root = expr.rewrite(&mut splitter)?.value;
 
     let mut partitions = Vec::with_capacity(splitter.sub_expressions.len());
     let mut partition_annotations = Vec::with_capacity(splitter.sub_expressions.len());

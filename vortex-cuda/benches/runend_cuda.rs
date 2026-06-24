@@ -27,7 +27,6 @@ use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArray;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
@@ -75,7 +74,8 @@ where
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         for run_len in [10, 1000, 100000] {
-            let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+            let mut cuda_ctx =
+                CudaSession::create_execution_ctx(&vortex_cuda::cuda_session()).unwrap();
             let runend_array = make_runend_array_typed::<T>(len, run_len, cuda_ctx.execution_ctx());
 
             group.bench_with_input(
@@ -87,7 +87,7 @@ where
                         let timer = timed.timer();
 
                         let mut cuda_ctx =
-                            CudaSession::create_execution_ctx(&VortexSession::empty())
+                            CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
                                 .unwrap()
                                 .with_launch_strategy(Arc::new(timed));
 

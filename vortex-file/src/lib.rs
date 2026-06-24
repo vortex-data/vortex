@@ -5,90 +5,97 @@
 #![doc(html_logo_url = "/vortex/docs/_static/vortex_spiral_logo.svg")]
 //! Read and write Vortex layouts, a serialization of Vortex arrays.
 //!
-//! A layout is a serialized array which is stored in some linear and contiguous block of
-//! memory. Layouts are recursive, and there are currently three types:
+//! A Vortex file stores a root [`Layout`](vortex_layout::Layout), the byte segments referenced by
+//! that layout, an optional file-level [`DType`](vortex_array::dtype::DType) and statistics, and
+//! enough footer metadata to deserialize the tree. Layouts are recursive, so a file may organize
+//! data by row groups, columns, dictionaries, statistics, or other writer-chosen structures without
+//! changing the logical dtype seen by readers. The built-in layouts are:
 //!
-//! 1. The [`FlatLayout`](vortex_layout::layouts::flat::FlatLayout). A contiguously serialized array of buffers, with a specific in-memory [`Alignment`](vortex_buffer::Alignment).
+//! - [`FlatLayout`](vortex_layout::layouts::flat::FlatLayout): a single contiguously serialized
+//!   array of buffers with a specific in-memory [`Alignment`](vortex_buffer::Alignment).
+//! - [`StructLayout`](vortex_layout::layouts::struct_::StructLayout): each column laid out at known
+//!   offsets, permitting a subset of columns to be read in linear time with constant-time random
+//!   access to any column.
+//! - [`ChunkedLayout`](vortex_layout::layouts::chunked::ChunkedLayout): each chunk laid out at known
+//!   offsets; locating the chunks covering a row range is an `N log(N)` search of the offsets.
+//! - [`DictLayout`](vortex_layout::layouts::dict::DictLayout): a shared dictionary of values with a
+//!   child layout holding indices.
+//! - [`ZonedLayout`](vortex_layout::layouts::zoned::ZonedLayout): a zone-map of statistics used for
+//!   filter pruning.
 //!
-//! 2. The [`StructLayout`](vortex_layout::layouts::struct_::StructLayout). Each column of a
-//!    [`StructArray`][vortex_array::arrays::StructArray] is sequentially laid out at known offsets.
-//!    This permits reading a subset of columns in linear time, as well as constant-time random
-//!    access to any column.
-//!
-//! 3. The [`ChunkedLayout`](vortex_layout::layouts::chunked::ChunkedLayout). Each chunk of a
-//!    [`ChunkedArray`](vortex_array::arrays::ChunkedArray) is sequentially laid out at known
-//!    offsets. Finding the chunks containing row range is an `Nlog(N)` operation of searching the
-//!    offsets.
-//!
-//! 4. The [`ZonedLayout`](vortex_layout::layouts::zoned::ZonedLayout).
-//!
-//! A layout, alone, is _not_ a standalone Vortex file because layouts are not self-describing. They
-//! neither contain a description of the kind of layout (e.g. flat, column of flat, chunked of
-//! column of flat) nor a data type ([`DType`](vortex_array::dtype::DType)).
+//! A layout alone is _not_ a standalone Vortex file: it is not self-describing, so the file pairs it
+//! with the dtype and footer metadata needed to deserialize it. This crate owns the file
+//! reader/writer APIs; the byte-level format is described under [File Format](#file-format) below
+//! and specified in full in the docs: <https://docs.vortex.dev/specs/file-format.html>.
 //!
 //! # Reading
 //!
-//! Vortex files are read using [`VortexOpenOptions`], which can be provided with information about the file's
-//! structure to save on IO before the actual data read. Once the file is open and has done the initial IO work to understand its own structure,
-//! it can be turned into a stream by calling [`VortexFile::scan`].
+//! Use [`OpenOptionsSessionExt::open_options`] to create [`VortexOpenOptions`] from a session.
+//! Opening reads or accepts a footer, builds a segment source, and returns [`VortexFile`]. Scans are
+//! configured from [`VortexFile::scan`] with projection/filter expressions, row ranges,
+//! [`Selection`](vortex_scan::selection::Selection), split strategy, and concurrency settings from
+//! `vortex-layout`.
 //!
-//! The file manages IO-oriented work and CPU-oriented work on two different underlying runtimes, which are configurable and pluggable with multiple provided implementations (Tokio, Rayon etc.).
+//! Supplying known metadata can reduce open-time IO:
+//!
+//! - [`VortexOpenOptions::with_file_size`] avoids a size request.
+//! - [`VortexOpenOptions::with_dtype`] is required for files written without an embedded dtype.
+//! - [`VortexOpenOptions::with_footer`] can open a file without reading footer bytes.
+//! - [`VortexOpenOptions::with_segment_cache`] reuses segment buffers across scans.
+//!
+//! # Writing
+//!
+//! Use [`WriteOptionsSessionExt::write_options`] or [`VortexWriteOptions::new`] to write an
+//! [`ArrayStream`](vortex_array::stream::ArrayStream). The default [`WriteStrategyBuilder`]
+//! repartitions rows, builds statistics layouts, dictionary-encodes suitable columns, compresses
+//! chunks with the BtrBlocks-style compressor, and writes flat leaf layouts. Advanced users can
+//! replace the whole strategy or override individual fields.
 //!
 //! # File Format
 //!
-//! Succinctly, the file format specification is as follows:
+//! A Vortex file begins and ends with the 4-byte magic `VTXF`. Data segments are written first, in
+//! writer-chosen order, followed by the footer flatbuffers, a postscript, and an 8-byte
+//! end-of-file marker:
 //!
-//! 1. Data is written first, in a form that is describable by a Layout (typically Array IPC Messages).
-//!    1. To allow for more efficient IO & pruning, our writer implementation first writes the "data" arrays,
-//!       and then writes the "metadata" arrays (i.e., per-column statistics)
-//! 2. We write what is collectively referred to as the "Footer", which contains:
-//!    1. An optional Schema, which if present is a valid flatbuffer representing a message::Schema
-//!    2. The Layout, which is a valid footer::Layout flatbuffer, and describes the physical byte ranges & relationships amongst
-//!       the those byte ranges that we wrote in part 1.
-//!    3. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema & Layout
-//!       flatbuffers within the file.
-//!    4. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
-//!
-//! ## Illustrated File Format
 //! ```text
 //! ┌────────────────────────────┐
-//! │                            │
-//! │            Data            │
-//! │    (Array IPC Messages)    │
-//! │                            │
+//! │     Magic bytes 'VTXF'     │  4 bytes
 //! ├────────────────────────────┤
-//! │                            │
-//! │   Per-Column Statistics    │
-//! │                            │
+//! │          Segments          │  serialized array chunks and per-column
+//! │     (data & statistics)    │  statistics, in writer-chosen order
 //! ├────────────────────────────┤
-//! │                            │
-//! │     Schema Flatbuffer      │
-//! │                            │
+//! │      DType flatbuffer      │  optional; omitted via `exclude_dtype`
 //! ├────────────────────────────┤
-//! │                            │
-//! │     Layout Flatbuffer      │
-//! │                            │
+//! │      Layout flatbuffer     │  required; the root Layout tree
 //! ├────────────────────────────┤
-//! │                            │
-//! │    Postscript Flatbuffer   │
-//! │  (Schema & Layout Offsets) │
-//! │                            │
+//! │    Statistics flatbuffer   │  optional; file-level per-field statistics
 //! ├────────────────────────────┤
-//! │     8-byte End of File     │
-//! │(Version, Postscript Length,│
-//! │       Magic Bytes)         │
+//! │      Footer flatbuffer     │  required; dictionary-encoded segment map
+//! │                            │  and array/layout/compression/encryption specs
+//! ├────────────────────────────┤
+//! │         Postscript         │  offsets of the four footer segments above;
+//! │                            │  at most 65528 bytes
+//! ├────────────────────────────┤
+//! │     8-byte End of File     │  u16 version, u16 postscript length,
+//! │                            │  4 magic bytes 'VTXF'
 //! └────────────────────────────┘
 //! ```
 //!
-//! A Parquet-style file format is realized by using a chunked layout containing column layouts
-//! containing chunked layouts containing flat layouts. The outer chunked layout represents row
-//! groups. The inner chunked layout represents pages.
+//! The postscript records the offset, length, and alignment of the dtype, layout, statistics, and
+//! footer segments, so a single read of the file tail (defaulting to 64KiB) is enough to locate and
+//! parse the footer. The byte-level format is specified in full at
+//! <https://docs.vortex.dev/specs/file-format.html>.
 //!
-//! Layouts are adaptive, and the writer is free to build arbitrarily complex layouts to suit their
-//! goals of locality or parallelism. For example, one may write a column in a Struct Layout with
-//! or without chunking, or completely elide statistics to save space or if they are not needed, for
-//! example if the metadata is being stored in an external index.
+//! A Parquet-style file is realized by nesting a chunked layout of struct layouts of chunked layouts
+//! of flat layouts: the outer chunked layout models row groups and the inner one models pages.
+//! Layouts are adaptive, so the writer is free to build arbitrarily complex layouts to trade off
+//! locality and parallelism, or to elide statistics entirely when an external index supplies them.
 //!
+//! # Footer Deserialization
+//!
+//! [`FooterDeserializer`] supports incremental footer reads. It returns [`DeserializeStep`] values
+//! when it needs more bytes or a file size, and returns [`Footer`] once all required footer segments
+//! are available. [`VortexOpenOptions`] drives this state machine for ordinary file opens.
 
 mod counting;
 mod file;
@@ -97,10 +104,12 @@ pub mod multi;
 mod open;
 mod pruning;
 mod read;
+/// Segment sources, caches, and sinks used by file readers and writers.
 pub mod segments;
 mod strategy;
 #[cfg(test)]
 mod tests;
+/// Compatibility readers for newer file-statistics layout behavior.
 pub mod v2;
 mod writer;
 
@@ -109,17 +118,11 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
-use vortex_array::arrays::Dict;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
-use vortex_bytebool::ByteBool;
-use vortex_fsst::FSST;
-#[cfg(feature = "unstable_encodings")]
-use vortex_onpair::OnPair;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
-use vortex_zigzag::ZigZag;
 pub use writer::*;
 
 /// The current version of the Vortex file format
@@ -159,15 +162,15 @@ mod forever_constant {
 /// NOTE: this function will be changed in the future to encapsulate logic for using different
 /// Vortex "Editions" that may support different sets of encodings.
 pub fn register_default_encodings(session: &VortexSession) {
+    vortex_bytebool::initialize(session);
+    vortex_fsst::initialize(session);
+    #[cfg(feature = "unstable_encodings")]
+    vortex_onpair::initialize(session);
+    vortex_zigzag::initialize(session);
+
     {
         let arrays = session.arrays();
-        arrays.register(ByteBool);
-        arrays.register(Dict);
-        arrays.register(FSST);
-        #[cfg(feature = "unstable_encodings")]
-        arrays.register(OnPair);
         arrays.register(Pco);
-        arrays.register(ZigZag);
         #[cfg(feature = "zstd")]
         arrays.register(vortex_zstd::Zstd);
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
@@ -177,8 +180,6 @@ pub fn register_default_encodings(session: &VortexSession) {
         }
     }
 
-    // Eventually all encodings crates should expose an initialize function. For now it's only
-    // a few of them.
     vortex_alp::initialize(session);
     vortex_datetime_parts::initialize(session);
     vortex_decimal_byte_parts::initialize(session);
@@ -189,4 +190,29 @@ pub fn register_default_encodings(session: &VortexSession) {
 
     #[cfg(feature = "unstable_encodings")]
     vortex_tensor::initialize(session);
+}
+
+#[cfg(test)]
+mod default_encoding_tests {
+    use vortex_array::VTable as _;
+    use vortex_array::array_session;
+    use vortex_array::arrays::Filter;
+    use vortex_array::optimizer::kernels::ArrayKernelsExt as _;
+    use vortex_array::session::ArraySessionExt as _;
+    use vortex_fsst::FSST;
+
+    use crate::register_default_encodings;
+
+    #[test]
+    fn register_default_encodings_registers_external_execute_parent_kernels() {
+        let session = array_session();
+
+        assert!(session.arrays().registry().find(&FSST.id()).is_none());
+        assert!(!session.kernels().has_execute_parent(Filter.id(), FSST.id()));
+
+        register_default_encodings(&session);
+
+        assert!(session.arrays().registry().find(&FSST.id()).is_some());
+        assert!(session.kernels().has_execute_parent(Filter.id(), FSST.id()));
+    }
 }

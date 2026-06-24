@@ -16,6 +16,7 @@ use vortex::file::VortexFile;
 use vortex::layout::LayoutRef;
 use vortex::layout::VTable;
 use vortex::layout::layouts::flat::Flat;
+use vortex::layout::layouts::zoned::LegacyStats;
 use vortex::layout::layouts::zoned::Zoned;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
@@ -151,10 +152,11 @@ impl LayoutCursor {
 
     /// Returns `true` if the cursor is currently pointing at a statistics table.
     ///
-    /// A statistics table is the second child of a [`Zoned`] layout.
+    /// A statistics table is the second child of a zoned layout.
     pub fn is_stats_table(&self) -> bool {
         let parent = self.parent();
-        parent.layout().is::<Zoned>() && self.path.last().copied().unwrap_or_default() == 1
+        (parent.layout().is::<Zoned>() || parent.layout().is::<LegacyStats>())
+            && self.path.last().copied().unwrap_or_default() == 1
     }
 
     /// Get the data type of the current layout.

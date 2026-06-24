@@ -112,12 +112,12 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::AggregateFnVTable;
-    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
+    use crate::array_session;
     use crate::arrays::DecimalArray;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -139,7 +139,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -161,7 +161,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -183,7 +183,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -206,7 +206,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected_sum = near_max as i64 + 500 + 400;
@@ -230,7 +230,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected_sum = (large_val as i128) * 4 + 1;
@@ -253,7 +253,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -272,7 +272,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -294,7 +294,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected = Scalar::try_new(
@@ -317,7 +317,7 @@ mod tests {
 
         let result = sum(
             &decimal.into_array(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )?;
 
         let expected_sum =
@@ -343,7 +343,7 @@ mod tests {
         assert_eq!(
             sum(
                 &decimal.into_array(),
-                &mut LEGACY_SESSION.create_execution_ctx()
+                &mut array_session().create_execution_ctx()
             )
             .vortex_expect("operation should succeed in test"),
             Scalar::null(DType::Decimal(decimal_dtype, Nullable))
@@ -357,7 +357,7 @@ mod tests {
         // Native type for precision 14 is I64 (max precision 18), so 14 < 18.
         // Use combine_partials to push state near (but under) 10^14.
         let input_dtype = DType::Decimal(DecimalDType::new(4, 0), Nullability::NonNullable);
-        let mut state = Sum.empty_partial(&EmptyOptions, &input_dtype)?;
+        let mut state = Sum.empty_partial(&NumericalAggregateOpts::default(), &input_dtype)?;
 
         let near_limit = Scalar::decimal(
             DecimalValue::from(99_999_999_999_990i64),
@@ -387,7 +387,7 @@ mod tests {
         // i256 arithmetic does not overflow. This tests the precision-based
         // saturation path in combine_partials.
         let input_dtype = DType::Decimal(DecimalDType::new(4, 0), Nullability::NonNullable);
-        let mut state = Sum.empty_partial(&EmptyOptions, &input_dtype)?;
+        let mut state = Sum.empty_partial(&NumericalAggregateOpts::default(), &input_dtype)?;
 
         let near_limit = Scalar::decimal(
             DecimalValue::from(99_999_999_999_999i64),
@@ -414,7 +414,7 @@ mod tests {
     fn sum_decimal_precision_overflow_negative() -> VortexResult<()> {
         // Same setup but with negative values: sum reaches -10^14.
         let input_dtype = DType::Decimal(DecimalDType::new(4, 0), Nullability::NonNullable);
-        let mut state = Sum.empty_partial(&EmptyOptions, &input_dtype)?;
+        let mut state = Sum.empty_partial(&NumericalAggregateOpts::default(), &input_dtype)?;
 
         let near_limit = Scalar::decimal(
             DecimalValue::from(-99_999_999_999_999i64),
@@ -446,7 +446,7 @@ mod tests {
         // a real array that pushes it over.
         let input_dtype = DType::Decimal(DecimalDType::new(27, 0), Nullability::NonNullable);
         let return_dtype = DecimalDType::new(37, 0);
-        let mut state = Sum.empty_partial(&EmptyOptions, &input_dtype)?;
+        let mut state = Sum.empty_partial(&NumericalAggregateOpts::default(), &input_dtype)?;
 
         // Set state to 10^37 - 1 via combine_partials.
         let near_limit_val: i128 = 10i128.pow(37) - 1;
@@ -460,7 +460,7 @@ mod tests {
 
         // Drive accumulate through the vtable directly.
         let columnar = crate::Columnar::Canonical(crate::Canonical::Decimal(decimal));
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         Sum.accumulate(&mut state, &columnar, &mut ctx)?;
 
         let result = Sum.to_scalar(&state)?;

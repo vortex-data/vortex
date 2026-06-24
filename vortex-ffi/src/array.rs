@@ -91,7 +91,6 @@ pub unsafe extern "C" fn vx_array_is_nullable(array: *const vx_array) -> bool {
 /// const vx_array* array = vx_array_new_null(1);
 /// assert(vx_array_has_dtype(array, DTYPE_NULL));
 /// vx_array_free(array);
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_has_dtype(
     array: *const vx_array,
@@ -109,7 +108,6 @@ pub unsafe extern "C-unwind" fn vx_array_has_dtype(
 /// const vx_array* array = vx_array_new_null(1);
 /// assert(!vx_array_is_primitive(array, PTYPE_U32));
 /// vx_array_free(array);
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_is_primitive(
     array: *const vx_array,
@@ -318,7 +316,6 @@ unsafe fn primitive_from_raw<T: vortex::dtype::NativePType>(
 /// const vx_array* array = vx_array_new_primitive(PTYPE_U32, buffer, 3,
 ///     &validity, &error);
 /// vx_array_free(array);
-///
 #[unsafe(no_mangle)]
 pub extern "C-unwind" fn vx_array_new_primitive(
     ptype: vx_ptype,
@@ -370,7 +367,6 @@ pub extern "C-unwind" fn vx_array_new_primitive(
 /// const vx_array* vx = vx_array_from_arrow(&array, &schema, false, &error);
 /// // ... push it to a sink or write it ...
 /// vx_array_free(vx);
-///
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_from_arrow(
     array: *mut FFI_ArrowArray,
@@ -500,8 +496,8 @@ mod tests {
     use std::ptr;
 
     use vortex::array::IntoArray;
-    use vortex::array::LEGACY_SESSION;
     use vortex::array::VortexSessionExecute;
+    use vortex::array::array_session;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
@@ -831,7 +827,7 @@ mod tests {
             assert!(!res.is_null());
             {
                 let res = vx_array::as_ref(res);
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let mut ctx = array_session().create_execution_ctx();
                 let bool_array = res.clone().execute::<BoolArray>(&mut ctx).unwrap();
                 let buffer = bool_array.to_bit_buffer();
                 let expected = BoolArray::from_iter(vec![false, false, true, true]);

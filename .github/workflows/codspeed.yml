@@ -27,7 +27,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-error vortex-mask" }
+          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-error vortex-mask vortex-compute" }
           - { shard: 2, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
           - { shard: 3, name: "Main library", packages: "vortex" }
           - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
@@ -46,7 +46,7 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-prebuild
@@ -69,8 +69,48 @@ jobs:
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
 
+  # Getting a GPU box is slow, in the future we can build on a box without one and only run
+  # on GPU machines.
+  bench-codspeed-cuda-build:
+    if: github.repository == 'vortex-data/vortex'
+    name: "Build Codspeed CUDA benchmarks"
+    timeout-minutes: 30
+    runs-on: >-
+      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/tag=bench-codspeed-cuda-build
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Codspeed
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-codspeed
+      - name: Build benchmarks
+        run: |
+          cargo codspeed build -m walltime \
+            --bench bitpacked_cuda \
+            --bench dynamic_dispatch_cuda \
+            --bench alp_cuda \
+            --bench date_time_parts_cuda \
+            --bench dict_cuda \
+            --bench fsst_cuda \
+            --bench runend_cuda \
+            --profile bench
+      - name: Upload benchmark executables
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: codspeed-cuda-benchmarks
+          path: target/codspeed/
+          retention-days: 1
+          if-no-files-found: error
+
   bench-codspeed-cuda:
     if: github.repository == 'vortex-data/vortex'
+    needs: [bench-codspeed-cuda-build]
     strategy:
       matrix:
         include:
@@ -85,7 +125,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -101,8 +141,13 @@ jobs:
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
           tool: cargo-codspeed
-      - name: Build benchmarks
-        run: cargo codspeed build -m walltime $(printf -- '--bench %s ' ${{ matrix.benches }}) --profile bench
+      - name: Download benchmark executables
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: codspeed-cuda-benchmarks
+          path: target/codspeed
+      - name: Restore executable permissions
+        run: find target/codspeed -type f -exec chmod +x {} +
       - name: Run benchmarks
         uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
         env:

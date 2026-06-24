@@ -1,15 +1,32 @@
 # Runs SQL benchmarks once for a pull request.
-# Called from bench-dispatch.yml when the `action/benchmark-sql` label is added.
+# Called from bench-dispatch.yml when SQL benchmark labels are added.
 
 name: PR SQL Benchmarks
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: >-
+    ${{ github.workflow }}-${{ inputs.benchmark_profile || 'base' }}-${{
+      github.head_ref || github.run_id
+    }}
   cancel-in-progress: true
 
 on:
-  workflow_call: { }
-  workflow_dispatch: { }
+  workflow_call:
+    inputs:
+      benchmark_profile:
+        required: false
+        type: string
+        default: "base"
+  workflow_dispatch:
+    inputs:
+      benchmark_profile:
+        description: "SQL benchmark profile to run"
+        required: false
+        type: choice
+        default: "base"
+        options:
+          - "base"
+          - "full"
 
 permissions:
   contents: read
@@ -22,3 +39,4 @@ jobs:
     secrets: inherit
     with:
       mode: "pr"
+      benchmark_profile: ${{ inputs.benchmark_profile || 'base' }}

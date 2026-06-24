@@ -23,5 +23,9 @@ pub use take::*;
 pub mod vtable;
 pub use vtable::*;
 
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}
+
 #[cfg(test)]
 mod tests;

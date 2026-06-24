@@ -264,7 +264,6 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_session::SessionExt;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
@@ -275,7 +274,7 @@ mod tests {
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::DynAccumulator;
-    use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::combined::Combined;
     use crate::aggregate_fn::combined::PairOptions;
     use crate::aggregate_fn::fns::mean::Mean;
@@ -289,7 +288,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
-    use crate::session::ArraySession;
 
     /// Mean partial sentinel `{sum: 42.0, count: 1}` — distinguishable from the
     /// natural fan-out result `{sum: 7.0, count: 1}` that `Combined::try_accumulate`
@@ -337,7 +335,7 @@ mod tests {
     }
 
     fn fresh_session() -> VortexSession {
-        VortexSession::empty().with::<ArraySession>()
+        crate::array_session()
     }
 
     fn dict_of_seven() -> ArrayRef {
@@ -350,7 +348,10 @@ mod tests {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
         Accumulator::try_new(
             Mean::combined(),
-            PairOptions(EmptyOptions, EmptyOptions),
+            PairOptions(
+                NumericalAggregateOpts::default(),
+                NumericalAggregateOpts::default(),
+            ),
             dtype,
         )
     }

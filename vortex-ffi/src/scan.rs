@@ -66,6 +66,22 @@ crate::box_wrapper!(
     VxPartitionScan,
     vx_partition);
 
+/// Consume an owned partition pointer for layered FFI crates and return its Vortex array stream.
+///
+/// # Safety
+///
+/// `partition` must be a non-null owned partition handle created by `vortex-ffi`. This function
+/// consumes the handle; callers must not use or free it after calling this function.
+pub unsafe fn vx_partition_into_array_stream(
+    partition: *mut vx_partition,
+) -> VortexResult<SendableArrayStream> {
+    vortex_ensure!(!partition.is_null(), "null vx_partition");
+    match *vx_partition::into_box(partition) {
+        VxPartitionScan::Pending(partition) => partition.execute(),
+        _ => vortex_bail!("partition already being consumed"),
+    }
+}
+
 // We parse Selection from vx_scan_selection[_include], so we don't need
 // to instantiate VX_SELECTION_* items directly.
 #[repr(C)]
@@ -437,7 +453,8 @@ mod tests {
     use vortex::VortexSessionDefault;
     use vortex::array::arrays::StructArray;
     use vortex::session::VortexSession;
-    use vortex_array::ExecutionCtx;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
 
@@ -516,17 +533,19 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_no_options() {
+        let mut ctx = array_session().create_execution_ctx();
         let (array, struct_array) = scan(ptr::null());
-        assert_arrays_eq!(vx_array::as_ref(array), struct_array);
+        assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
     }
 
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_project_all() {
+        let mut ctx = array_session().create_execution_ctx();
         let opts = vx_scan_options::default();
         let (array, struct_array) = scan(&raw const opts);
-        assert_arrays_eq!(vx_array::as_ref(array), struct_array);
+        assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
     }
 
@@ -534,6 +553,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_project_single_field() {
         unsafe {
+            let mut ctx = array_session().create_execution_ctx();
             let root = vx_expression_root();
             let mut opts = vx_scan_options::default();
 
@@ -544,7 +564,8 @@ mod tests {
                 let (array, struct_array) = scan(&raw const opts);
                 assert_arrays_eq!(
                     vx_array::as_ref(array),
-                    struct_array.unmasked_field_by_name(field).unwrap()
+                    struct_array.unmasked_field_by_name(field).unwrap(),
+                    &mut ctx
                 );
                 vx_array_free(array);
                 vx_expression_free(field_expr);
@@ -557,7 +578,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_project_sum() {
         let session = VortexSession::default();
-        let mut ctx = ExecutionCtx::new(session);
+        let mut ctx = session.create_execution_ctx();
         unsafe {
             let root = vx_expression_root();
             let mut opts = vx_scan_options::default();
@@ -694,12 +715,13 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_ordered() {
+        let mut ctx = array_session().create_execution_ctx();
         let opts = vx_scan_options {
             ordered: true,
             ..Default::default()
         };
         let (array, struct_array) = scan(&raw const opts);
-        assert_arrays_eq!(vx_array::as_ref(array), struct_array);
+        assert_arrays_eq!(vx_array::as_ref(array), struct_array, &mut ctx);
         unsafe { vx_array_free(array) };
     }
 

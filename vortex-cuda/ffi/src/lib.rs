@@ -14,15 +14,19 @@ use std::ptr;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex::session::SessionExt;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
+use vortex_cuda::arrow::ArrowDeviceArrayStream;
 use vortex_cuda::arrow::DeviceArrayExt;
+use vortex_cuda::arrow::DeviceArrayStreamExt;
+use vortex_ffi::ffi_runtime;
 use vortex_ffi::try_or;
 use vortex_ffi::vx_array;
 use vortex_ffi::vx_array_ref;
 use vortex_ffi::vx_error;
+use vortex_ffi::vx_partition;
+use vortex_ffi::vx_partition_into_array_stream;
 use vortex_ffi::vx_session;
 use vortex_ffi::vx_session_new_with;
 use vortex_ffi::vx_session_ref;
@@ -30,6 +34,10 @@ use vortex_ffi::vx_session_ref;
 const VX_CUDA_OK: c_int = 0;
 const VX_CUDA_ERR: c_int = 1;
 
+/// Return a Vortex session with a [`CudaSession`] session variable.
+///
+/// If `session` already has CUDA support, this returns a clone of it. Otherwise it
+/// returns a new session cloned from `session` with a default [`CudaSession`] attached.
 fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
     if session.get_opt::<CudaSession>().is_some() {
         return Ok(session.clone());
@@ -97,6 +105,46 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_export_arrow_device(
             ptr::write(out_schema, exported.schema);
             ptr::write(out_array, exported.array);
         }
+        Ok(VX_CUDA_OK)
+    })
+}
+
+/// Consume a Vortex partition and scan it as an Arrow C Device stream.
+///
+/// This function takes ownership of `partition`. Callers must not free or reuse it after calling
+/// this function, regardless of success or failure.
+///
+/// On success returns `0` and writes an owned `ArrowDeviceArrayStream` to `out_stream`. The stream
+/// owns the resulting scan iterator. The caller must release the stream through its embedded Arrow
+/// `release` callback, and must release each produced `ArrowDeviceArray` through its embedded
+/// `ArrowArray.release` callback.
+///
+/// On error returns `1` and, when `error_out` is non-null, writes a `vx_error` (free with
+/// `vx_error_free`).
+///
+/// # Safety
+///
+/// `session` must be a valid borrowed handle created by `vortex-ffi`. `partition` must be an owned
+/// partition handle created by `vortex-ffi`. `out_stream` must be a valid writable pointer. If
+/// `error_out` is non-null, it must be valid for writing one error pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_cuda_partition_scan_arrow_device_stream(
+    session: *const vx_session,
+    partition: *mut vx_partition,
+    out_stream: *mut ArrowDeviceArrayStream,
+    error_out: *mut *mut vx_error,
+) -> c_int {
+    try_or(error_out, VX_CUDA_ERR, || {
+        vortex_ensure!(!partition.is_null(), "null vx_partition");
+
+        let array_stream = unsafe { vx_partition_into_array_stream(partition) }?;
+        vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
+
+        let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
+        // Drive the stream on the same runtime the partition's scan spawned its work onto.
+        let device_stream = array_stream.export_device_array_stream(&session, ffi_runtime())?;
+
+        unsafe { ptr::write(out_stream, device_stream) };
         Ok(VX_CUDA_OK)
     })
 }

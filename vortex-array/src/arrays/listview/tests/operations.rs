@@ -13,11 +13,11 @@ use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
+use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListView;
@@ -64,10 +64,10 @@ fn test_slice_comprehensive() {
         assert_eq!(
             full_list
                 .array()
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut array_session().create_execution_ctx())
                 .unwrap(),
             listview
-                .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(i, &mut array_session().create_execution_ctx())
                 .unwrap(),
             "Mismatch at index {}",
             i
@@ -84,6 +84,7 @@ fn test_slice_comprehensive() {
 
 #[test]
 fn test_slice_out_of_order() {
+    let mut ctx = array_session().create_execution_ctx();
     // ListView-specific: Test slicing with out-of-order offsets.
     // Logical lists: [[70,80], [10,20,30], [40,50,60], [90], [30]]
     let elements = buffer![10i32, 20, 30, 40, 50, 60, 70, 80, 90].into_array();
@@ -123,15 +124,18 @@ fn test_slice_out_of_order() {
     // Verify the actual list contents are correct.
     assert_arrays_eq!(
         sliced_list.list_elements_at(0).unwrap(),
-        PrimitiveArray::from_iter([10i32, 20, 30])
+        PrimitiveArray::from_iter([10i32, 20, 30]),
+        &mut ctx
     );
     assert_arrays_eq!(
         sliced_list.list_elements_at(1).unwrap(),
-        PrimitiveArray::from_iter([40i32, 50, 60])
+        PrimitiveArray::from_iter([40i32, 50, 60]),
+        &mut ctx
     );
     assert_arrays_eq!(
         sliced_list.list_elements_at(2).unwrap(),
-        PrimitiveArray::from_iter([90i32])
+        PrimitiveArray::from_iter([90i32]),
+        &mut ctx
     );
 }
 
@@ -159,13 +163,13 @@ fn test_slice_with_nulls() {
     assert!(
         sliced_list
             .array()
-            .is_invalid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_invalid(0, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Original index 1 was null.
     assert!(
         sliced_list
             .array()
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Original index 2 was valid.
 
@@ -295,12 +299,12 @@ fn test_cast_with_nulls() {
     let result_list = result.to_listview();
     assert!(
         result_list
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut array_session().create_execution_ctx())
             .unwrap()
     );
     assert!(
         result_list
-            .is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_invalid(1, &mut array_session().create_execution_ctx())
             .unwrap()
     );
 }
@@ -390,6 +394,7 @@ fn test_cast_large_dataset() {
 
 #[test]
 fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
     // [[1, 2], [3], [4]]
     let if_true = ListViewArray::new(
         buffer![1i32, 2, 3, 4].into_array(),
@@ -411,7 +416,7 @@ fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
     let result = mask
         .into_array()
         .zip(if_true, if_false)?
-        .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        .execute::<ArrayRef>(&mut array_session().create_execution_ctx())?;
     assert!(result.is::<ListView>());
     assert_eq!(
         result.dtype(),
@@ -429,12 +434,13 @@ fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
         Validity::NonNullable,
     )
     .into_array();
-    assert_arrays_eq!(result, expected);
+    assert_arrays_eq!(result, expected, &mut ctx);
     Ok(())
 }
 
 #[test]
 fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
     // [[1, null], [3], [4]]
     let if_true = ListViewArray::new(
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array(),
@@ -456,7 +462,7 @@ fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
     let result = mask
         .into_array()
         .zip(if_true, if_false)?
-        .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        .execute::<ArrayRef>(&mut array_session().create_execution_ctx())?;
     assert!(result.is::<ListView>());
     assert_eq!(
         result.dtype(),
@@ -474,7 +480,7 @@ fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
         Validity::NonNullable,
     )
     .into_array();
-    assert_arrays_eq!(result, expected);
+    assert_arrays_eq!(result, expected, &mut ctx);
     Ok(())
 }
 
@@ -534,7 +540,7 @@ fn test_is_constant_basic(
     )
     .into_array();
 
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     assert_eq!(is_constant(&listview, &mut ctx).unwrap(), expected);
 }
 
@@ -553,7 +559,7 @@ fn test_constant_with_constant_elements() {
     .into_array();
 
     // All lists contain [42, 42] so should be constant.
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     assert!(is_constant(&listview, &mut ctx).unwrap());
 }
 
@@ -577,7 +583,7 @@ fn test_constant_with_nulls() {
         .with_zero_copy_to_list(true)
     }
     .into_array();
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     assert!(!is_constant(&listview_mixed, &mut ctx).unwrap());
 
     // Case 2: All nulls - should be constant.
@@ -587,7 +593,7 @@ fn test_constant_with_nulls() {
             .with_zero_copy_to_list(true)
     }
     .into_array();
-    let mut ctx2 = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx2 = array_session().create_execution_ctx();
     assert!(is_constant(&listview_all_null, &mut ctx2).unwrap());
 }
 
@@ -602,7 +608,7 @@ fn test_constant_repeated_same_lists() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     // All lists are [10, 20, 30] so should be constant.
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     assert!(is_constant(&listview, &mut ctx).unwrap());
 }
 
@@ -644,22 +650,22 @@ fn test_mask_preserves_structure() {
     // Check validity: true in selection means null.
     assert!(
         !result_list
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Masked.
     assert!(
         result_list
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Not masked.
     assert!(
         !result_list
-            .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(2, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Masked.
     assert!(
         !result_list
-            .is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(3, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Masked.
 
@@ -698,17 +704,17 @@ fn test_mask_with_existing_nulls() {
     // Check combined validity:
     assert!(
         result_list
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Was valid, mask is false -> valid.
     assert!(
         !result_list
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Was invalid, mask is true -> invalid.
     assert!(
         !result_list
-            .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(2, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Was valid, mask is true -> invalid.
 }
@@ -731,17 +737,17 @@ fn test_mask_with_gaps() {
     assert_eq!(result_list.len(), 3);
     assert!(
         !result_list
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Masked
     assert!(
         result_list
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Not masked
     assert!(
         result_list
-            .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(2, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Not masked
 
@@ -776,17 +782,17 @@ fn test_mask_constant_arrays() {
     assert_eq!(result_list.len(), 3);
     assert!(
         result_list
-            .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(0, &mut array_session().create_execution_ctx())
             .unwrap()
     );
     assert!(
         !result_list
-            .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(1, &mut array_session().create_execution_ctx())
             .unwrap()
     ); // Masked
     assert!(
         result_list
-            .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .is_valid(2, &mut array_session().create_execution_ctx())
             .unwrap()
     );
 

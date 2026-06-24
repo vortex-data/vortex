@@ -11,6 +11,7 @@ use vortex::array::dtype::Nullability;
 use vortex::array::validity::Validity;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -30,7 +31,7 @@ impl FlatLayoutFixture for SequenceFixture {
         vec![Sequence.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let row_ids = Sequence::try_new_typed::<u64>(0, 1, Nullability::NonNullable, N)?;
         let stepped = Sequence::try_new_typed::<i32>(0, 5, Nullability::NonNullable, N)?;
         let offset = Sequence::try_new_typed::<i64>(1000, 1, Nullability::NonNullable, N)?;

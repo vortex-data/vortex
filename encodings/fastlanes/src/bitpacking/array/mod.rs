@@ -327,15 +327,17 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_session::VortexSession;
 
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_encode() {
@@ -357,7 +359,7 @@ mod test {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        assert_arrays_eq!(packed_primitive, expected);
+        assert_arrays_eq!(packed_primitive, expected, &mut ctx);
     }
 
     #[test]
@@ -386,7 +388,8 @@ mod test {
             .unwrap();
         assert_arrays_eq!(
             packed_primitive,
-            PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)
+            PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable),
+            &mut ctx
         );
     }
 }

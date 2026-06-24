@@ -15,6 +15,15 @@ export const QUERY_SUITES = [
     hiddenDatasets: ["datafusion:lance"],
   },
   {
+    prefix: "clickbench-sorted",
+    displayName: "Clickbench Sorted",
+    queryPrefix: "CLICKBENCH SORTED",
+    description:
+      "ClickBench queries over data globally sorted by event date and event time",
+    tags: ["Queries (NVMe)"],
+    hiddenDatasets: ["datafusion:lance"],
+  },
+  {
     prefix: "statpopgen",
     displayName: "Statistical and Population Genetics",
     queryPrefix: "STATPOPGEN",

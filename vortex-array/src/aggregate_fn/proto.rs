@@ -59,6 +59,7 @@ impl AggregateFnRef {
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
     use vortex_proto::expr as pb;
@@ -72,6 +73,8 @@ mod tests {
     use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::NumericalAggregateOpts;
+    use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::session::AggregateFnSession;
     use crate::aggregate_fn::session::AggregateFnSessionExt;
     use crate::dtype::DType;
@@ -155,7 +158,7 @@ mod tests {
 
     #[test]
     fn aggregate_fn_serde() {
-        let session = VortexSession::empty().with::<AggregateFnSession>();
+        let session = crate::array_session();
         session.aggregate_fns().register(TestAgg);
 
         let agg_fn = TestAgg.bind(EmptyOptions);
@@ -168,11 +171,32 @@ mod tests {
         assert_eq!(deserialized, agg_fn);
     }
 
+    /// The `skip_nans` option must survive a protobuf serialize/deserialize round-trip for the
+    /// numeric aggregates, including the non-default NaN-including configuration.
+    #[rstest]
+    #[case(NumericalAggregateOpts::skip_nans())]
+    #[case(NumericalAggregateOpts::include_nans())]
+    fn numeric_aggregate_options_round_trip(
+        #[case] options: NumericalAggregateOpts,
+    ) -> VortexResult<()> {
+        let session = crate::array_session();
+        let agg_fn = Sum.bind(options);
+
+        let proto = agg_fn.serialize_proto()?;
+        let buf = proto.encode_to_vec();
+        let decoded = pb::AggregateFn::decode(buf.as_slice())?;
+        let round_tripped = AggregateFnRef::from_proto(&decoded, &session)?;
+
+        assert_eq!(round_tripped, agg_fn);
+        Ok(())
+    }
+
     #[test]
     fn unknown_aggregate_fn_id_allow_unknown() {
-        let session = VortexSession::empty()
+        let session = VortexSession::builder()
             .with::<AggregateFnSession>()
-            .allow_unknown();
+            .allow_unknown()
+            .build();
 
         let proto = pb::AggregateFn {
             id: "vortex.test.foreign_aggregate".to_string(),

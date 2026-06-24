@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_session::VortexSession;
+
+use crate::ArrayVTable;
+use crate::arrays::Dict;
 use crate::arrays::Patched;
 use crate::arrays::dict::TakeExecuteAdaptor;
-use crate::kernel::ParentKernelSet;
+use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<Patched> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&CompareExecuteAdaptor(Patched)),
-    ParentKernelSet::lift(&TakeExecuteAdaptor(Patched)),
-]);
+pub(crate) fn initialize(session: &VortexSession) {
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(Binary.id(), Patched, CompareExecuteAdaptor(Patched));
+    kernels.register_execute_parent_kernel(Dict.id(), Patched, TakeExecuteAdaptor(Patched));
+}

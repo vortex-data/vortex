@@ -21,7 +21,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
-use vortex_array::session::ArraySession;
 use vortex_error::VortexResult;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
@@ -32,8 +31,7 @@ use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
 use crate::error::VortexFuzzResult;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 /// A random string from a small alphabet (`a..=h`) with bounded length.
 #[derive(Debug)]
@@ -109,18 +107,15 @@ pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
     let varbin = VarBinArray::from_iter(
         strings.iter().map(|s| Some(s.as_str())),
         DType::Utf8(Nullability::NonNullable),
-    );
+    )
+    .into_array();
 
     // Train FSST compressor and compress.
-    let compressor = fsst_train_compressor(&varbin);
     let mut ctx = SESSION.create_execution_ctx();
-    let fsst_array: FSSTArray = fsst_compress(
-        varbin.clone(),
-        varbin.len(),
-        varbin.dtype(),
-        &compressor,
-        &mut ctx,
-    );
+    let compressor = fsst_train_compressor(&varbin, &mut ctx)
+        .map_err(|err| VortexFuzzError::VortexError(err, Backtrace::capture()))?;
+    let fsst_array: FSSTArray = fsst_compress(&varbin, &compressor, &mut ctx)
+        .map_err(|err| VortexFuzzError::VortexError(err, Backtrace::capture()))?;
 
     let opts = LikeOptions {
         negated,
@@ -128,7 +123,7 @@ pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
     };
 
     // Run LIKE on the uncompressed array.
-    let expected = run_like_on_array(&varbin.into_array(), &pattern, len, opts)
+    let expected = run_like_on_array(&varbin, &pattern, len, opts)
         .map_err(|err| VortexFuzzError::VortexError(err, Backtrace::capture()))?;
 
     // Run LIKE on the FSST-compressed array.

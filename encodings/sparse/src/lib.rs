@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use kernel::PARENT_KERNELS;
 use prost::Message as _;
 use vortex_array::AnyCanonical;
 use vortex_array::Array;
@@ -79,11 +78,11 @@ use vortex_array::session::ArraySessionExt;
 
 /// Initialize Sparse encoding in the given session.
 ///
-/// Registers the Sparse array vtable and its aggregate kernels (`IsConstant`, `Sum`,
-/// `MinMax`, `NullCount`, `NanCount`). Compare/between/fill_null pushdown is wired
-/// through `PARENT_KERNELS` (see `kernel.rs`) and does not require registration here.
+/// Registers the Sparse array vtable, parent execution kernels, and aggregate kernels
+/// (`IsConstant`, `Sum`, `MinMax`, `NullCount`, `NanCount`).
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(Sparse);
+    kernel::initialize(session);
 
     let aggregate_fns = session.aggregate_fns();
     aggregate_fns.register_aggregate_kernel(
@@ -292,15 +291,6 @@ impl VTable for Sparse {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -698,9 +688,10 @@ impl ValidityVTable<Sparse> for Sparse {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use itertools::Itertools;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -716,6 +707,12 @@ mod test {
 
     use super::*;
     use crate::Sparse;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        initialize(&session);
+        session
+    });
 
     fn nullable_fill() -> Scalar {
         Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
@@ -741,19 +738,19 @@ mod test {
 
         assert_eq!(
             array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             nullable_fill()
         );
         assert_eq!(
             array
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::from(Some(100_i32))
         );
         assert_eq!(
             array
-                .execute_scalar(5, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(5, &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Scalar::from(Some(200_i32))
         );
@@ -764,7 +761,7 @@ mod test {
     fn test_scalar_at_oob() {
         let array = sparse_array(nullable_fill());
         array
-            .execute_scalar(10, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(10, &mut SESSION.create_execution_ctx())
             .unwrap();
     }
 
@@ -779,19 +776,19 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            arr.execute_scalar(10, &mut LEGACY_SESSION.create_execution_ctx())
+            arr.execute_scalar(10, &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .as_primitive()
                 .typed_value::<u32>(),
             Some(1234)
         );
         assert!(
-            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            arr.execute_scalar(0, &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
         assert!(
-            arr.execute_scalar(99, &mut LEGACY_SESSION.create_execution_ctx())
+            arr.execute_scalar(99, &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .is_null()
         );
@@ -803,7 +800,7 @@ mod test {
         assert_eq!(
             usize::try_from(
                 &sliced
-                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(0, &mut SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -818,7 +815,7 @@ mod test {
             sliced
                 .validity()
                 .unwrap()
-                .execute_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(sliced.len(), &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::from_iter(vec![true, false, false, true, false])
         );
@@ -844,7 +841,7 @@ mod test {
             sliced
                 .validity()
                 .unwrap()
-                .execute_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(sliced.len(), &mut SESSION.create_execution_ctx())
                 .unwrap(),
             Mask::from_iter(vec![false, true, true, false, true])
         );
@@ -856,7 +853,7 @@ mod test {
         assert_eq!(
             usize::try_from(
                 &sliced_once
-                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(1, &mut SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -867,7 +864,7 @@ mod test {
         assert_eq!(
             usize::try_from(
                 &sliced_twice
-                    .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(3, &mut SESSION.create_execution_ctx())
                     .unwrap()
             )
             .unwrap(),
@@ -882,7 +879,7 @@ mod test {
             array
                 .validity()
                 .unwrap()
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .to_bit_buffer()
                 .iter()
@@ -900,7 +897,7 @@ mod test {
             array
                 .validity()
                 .unwrap()
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut SESSION.create_execution_ctx())
                 .unwrap()
                 .all_true()
         );
@@ -925,7 +922,7 @@ mod test {
 
     #[test]
     fn encode_with_nulls() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let original = PrimitiveArray::new(
             buffer![0i32, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4],
             Validity::from_iter(vec![
@@ -945,7 +942,7 @@ mod test {
             ])
         );
         let sparse_primitive = sparse.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        assert_arrays_eq!(sparse_primitive, original);
+        assert_arrays_eq!(sparse_primitive, original, &mut ctx);
     }
 
     #[test]
@@ -957,7 +954,7 @@ mod test {
         let actual = array
             .validity()
             .unwrap()
-            .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_mask(array.len(), &mut SESSION.create_execution_ctx())
             .unwrap();
         let expected = Mask::from_iter([
             true, false, true, false, false, false, false, false, true, false,

@@ -27,8 +27,8 @@ impl FilterReduce for DateTimeParts {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
@@ -39,7 +39,7 @@ mod test {
 
     #[test]
     fn test_filter_datetime_parts() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Create temporal arrays and convert to DateTimePartsArray
         let timestamps = buffer![
             0i64,

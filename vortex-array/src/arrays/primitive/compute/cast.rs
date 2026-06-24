@@ -5,6 +5,9 @@ use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::IndexedSinkExt;
+use vortex_compute::lane_kernels::IndexedSourceExt;
+use vortex_compute::lane_kernels::ReinterpretSink;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -102,9 +105,7 @@ impl CastKernel for Primitive {
     }
 }
 
-/// Cast values from `F` to `T`. For infallible casts this is a pure pass; for fallible casts
-/// each valid value goes through a checked `NumCast::from` and the kernel bails if any of them
-/// overflow `T`. Invalid positions use the wrapping `as` cast since their values are masked out.
+/// Cast Primitive values from `F` to `T`.
 fn cast_values<F, T>(
     array: ArrayView<'_, Primitive>,
     new_validity: Validity,
@@ -114,51 +115,97 @@ where
     F: NativePType + AsPrimitive<T>,
     T: NativePType,
 {
-    let values = array.as_slice::<F>();
-
-    // Fast path: statically infallible, or cached min/max prove every valid value fits in `T`.
-    // The cached check never triggers a stats computation — if the bounds aren't already known
-    // we fall through to the per-lane loop below.
-    if values_always_fit(F::PTYPE, T::PTYPE) || values_fit_in(array, T::PTYPE, ctx, false) {
-        return Ok(PrimitiveArray::new(cast::<F, T>(values), new_validity).into_array());
-    }
-
-    // TODO(joe): if the values source and target have the same bit-width we can
-    // mutate in place.
-
-    // Fallible: invalid lanes are pre-multiplied to zero so the checked cast always succeeds for
-    // them; valid lanes go through `NumCast::from` and the whole cast bails on the first overflow.
-    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
     let overflow = || {
         vortex_err!(
             Compute: "Cannot cast {} to {} — value exceeds target range",
             F::PTYPE, T::PTYPE,
         )
     };
-    let buffer: Buffer<T> = match &mask {
-        Mask::AllTrue(_) => BufferMut::try_from_trusted_len_iter(
+
+    // Returns `true` if every value of `from` is representable in `to` without loss.
+    fn casts_losslessly_to(from: PType, to: PType) -> bool {
+        from.least_supertype(to) == Some(to)
+    }
+
+    // Skip the fallible kernel when type widening or (cached) min/max prove every value fits.
+    let target_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
+    let infallible = casts_losslessly_to(F::PTYPE, T::PTYPE)
+        || cached_values_fit_in(array, &target_dtype).unwrap_or(false);
+
+    let len = array.len();
+
+    // If F and T have the same byte width, try to take unique ownership of the buffer.
+    let same_bit_width = F::PTYPE.byte_width() == T::PTYPE.byte_width();
+    let owned: Option<BufferMut<F>> = same_bit_width
+        .then(|| array.into_owned().try_into_buffer_mut::<F>().ok())
+        .flatten();
+    let values: &[F] = array.as_slice::<F>();
+
+    if infallible {
+        return match owned {
+            Some(mut buf) => {
+                ReinterpretSink::<F, T>::new(buf.as_mut_slice()).map_into_in_place(|v: F| v.as_());
+                // SAFETY: same size + alignment for NativePType
+                let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
+                Ok(PrimitiveArray::new(result.freeze(), new_validity).into_array())
+            }
+            None => {
+                let mut buffer = BufferMut::<T>::with_capacity(len);
+                values.map_into(&mut buffer.spare_capacity_mut()[..len], |v| v.as_());
+                // SAFETY: map_into initializes every lane.
+                unsafe { buffer.set_len(len) };
+                Ok(PrimitiveArray::new(buffer.freeze(), new_validity).into_array())
+            }
+        };
+    }
+
+    let mask = array.validity()?.execute_mask(len, ctx)?;
+
+    let buffer: Buffer<T> = match (&mask, owned) {
+        (Mask::AllTrue(_), Some(mut buf)) => {
+            ReinterpretSink::<F, T>::new(buf.as_mut_slice())
+                .try_map_in_place(|v: F| <T as NumCast>::from(v))
+                .map_err(|_| overflow())?;
+            // SAFETY: same size + alignment for NativePType
+            let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
+            result.freeze()
+        }
+        (Mask::AllTrue(_), None) => {
+            let mut buffer = BufferMut::<T>::with_capacity(len);
             values
-                .iter()
-                .map(|&v| <T as NumCast>::from(v).ok_or_else(overflow)),
-        )?
-        .freeze(),
-        Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
-        Mask::Values(m) => BufferMut::try_from_trusted_len_iter(
-            values.iter().zip(m.bit_buffer().iter()).map(|(&v, valid)| {
-                let factor = if valid { F::one() } else { F::zero() };
-                <T as NumCast>::from(v * factor).ok_or_else(overflow)
-            }),
-        )?
-        .freeze(),
+                .try_map_into(&mut buffer.spare_capacity_mut()[..len], |v| {
+                    <T as NumCast>::from(v)
+                })
+                .map_err(|_| overflow())?;
+            // SAFETY: initialized every lane.
+            unsafe { buffer.set_len(len) };
+            buffer.freeze()
+        }
+        (Mask::AllFalse(_), _) => BufferMut::<T>::zeroed(len).freeze(),
+        (Mask::Values(m), Some(mut buf)) => {
+            ReinterpretSink::<F, T>::new(buf.as_mut_slice())
+                .try_map_masked_in_place(m.bit_buffer(), |v: F| <T as NumCast>::from(v))
+                .map_err(|_| overflow())?;
+            // SAFETY: same size + alignment for NativePType
+            let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
+            result.freeze()
+        }
+        (Mask::Values(m), None) => {
+            let mut buffer = BufferMut::<T>::with_capacity(len);
+            values
+                .try_map_masked_into(
+                    m.bit_buffer(),
+                    &mut buffer.spare_capacity_mut()[..len],
+                    |v| <T as NumCast>::from(v),
+                )
+                .map_err(|_| overflow())?;
+            // SAFETY: initialized every lane.
+            unsafe { buffer.set_len(len) };
+            buffer.freeze()
+        }
     };
 
     Ok(PrimitiveArray::new(buffer, new_validity).into_array())
-}
-
-/// Out-of-range values at invalid positions are truncated/wrapped by `as`, which is fine because
-/// they are masked out by validity.
-fn cast<F: NativePType + AsPrimitive<T>, T: NativePType>(array: &[F]) -> Buffer<T> {
-    BufferMut::from_trusted_len_iter(array.iter().map(|&src| src.as_())).freeze()
 }
 
 fn reinterpret(
@@ -176,23 +223,6 @@ fn reinterpret(
         )
     }
     .into_array()
-}
-
-/// Returns `true` if every value of `src` is guaranteed representable in `target` without
-/// overflow. Precision may be lost (e.g. large integers cast to `f32`), but the cast can never
-/// produce an out-of-range result.
-fn values_always_fit(src: PType, target: PType) -> bool {
-    if src == target {
-        return true;
-    }
-    if src.is_int() && target.is_int() {
-        return target.byte_width() > src.byte_width()
-            && (src.is_unsigned_int() || target.is_signed_int());
-    }
-    if src.is_float() && target.is_float() {
-        return target.byte_width() > src.byte_width();
-    }
-    src.is_int() && matches!(target, PType::F32 | PType::F64)
 }
 
 /// Returns `true` if all valid values in `array` are representable as `target_ptype`.
@@ -213,10 +243,14 @@ fn values_fit_in(
     if !compute {
         return false;
     }
-    aggregate_fn::fns::min_max::min_max(array.array(), ctx)
-        .ok()
-        .flatten()
-        .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
+    aggregate_fn::fns::min_max::min_max(
+        array.array(),
+        ctx,
+        aggregate_fn::NumericalAggregateOpts::default(),
+    )
+    .ok()
+    .flatten()
+    .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())
 }
 
 /// Cached-only check: returns `Some(fits)` if both `Min` and `Max` are present as `Exact` in the
@@ -236,9 +270,10 @@ mod test {
     use vortex_error::VortexError;
     use vortex_mask::Mask;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
@@ -252,12 +287,13 @@ mod test {
 
     #[test]
     fn cast_u32_u8() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = buffer![0u32, 10, 200].into_array();
 
         // cast from u32 to u8
         #[expect(deprecated)]
         let p = arr.cast(PType::U8.into()).unwrap().to_primitive();
-        assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
+        assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]), &mut ctx);
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable
@@ -269,7 +305,8 @@ mod test {
             .to_primitive();
         assert_arrays_eq!(
             p,
-            PrimitiveArray::new(buffer![0u8, 10, 200], Validity::AllValid)
+            PrimitiveArray::new(buffer![0u8, 10, 200], Validity::AllValid),
+            &mut ctx
         );
         assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
@@ -280,7 +317,7 @@ mod test {
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
             .to_primitive();
-        assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
+        assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]), &mut ctx);
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable u32
@@ -292,7 +329,8 @@ mod test {
             .to_primitive();
         assert_arrays_eq!(
             p,
-            PrimitiveArray::new(buffer![0u32, 10, 200], Validity::AllValid)
+            PrimitiveArray::new(buffer![0u32, 10, 200], Validity::AllValid),
+            &mut ctx
         );
         assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
@@ -303,16 +341,21 @@ mod test {
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
             .to_primitive();
-        assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
+        assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]), &mut ctx);
         assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
     }
 
     #[test]
     fn cast_u32_f32() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = buffer![0u32, 10, 200].into_array();
         #[expect(deprecated)]
         let u8arr = arr.cast(PType::F32.into()).unwrap().to_primitive();
-        assert_arrays_eq!(u8arr, PrimitiveArray::from_iter([0.0f32, 10., 200.]));
+        assert_arrays_eq!(
+            u8arr,
+            PrimitiveArray::from_iter([0.0f32, 10., 200.]),
+            &mut ctx
+        );
     }
 
     #[test]
@@ -346,6 +389,7 @@ mod test {
 
     #[test]
     fn cast_with_invalid_nulls() {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![-1i32, 0, 10],
             Validity::from_iter([false, true, true]),
@@ -358,13 +402,17 @@ mod test {
             .to_primitive();
         assert_arrays_eq!(
             p,
-            PrimitiveArray::from_option_iter([None, Some(0u32), Some(10)])
+            PrimitiveArray::from_option_iter([None, Some(0u32), Some(10)]),
+            &mut ctx
         );
         assert_eq!(
             p.as_ref()
                 .validity()
                 .unwrap()
-                .execute_mask(p.as_ref().len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(
+                    p.as_ref().len(),
+                    &mut array_session().create_execution_ctx()
+                )
                 .unwrap(),
             Mask::from(BitBuffer::from(vec![false, true, true]))
         );
@@ -374,6 +422,7 @@ mod test {
     /// buffer without allocation (pointer identity).
     #[test]
     fn cast_same_width_int_reinterprets_buffer() -> vortex_error::VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let src = PrimitiveArray::from_iter([0u32, 10, 100]);
         let src_ptr = src.as_slice::<u32>().as_ptr();
 
@@ -383,7 +432,7 @@ mod test {
 
         // Zero-copy: the data pointer should be identical.
         assert_eq!(src_ptr as usize, dst_ptr as usize);
-        assert_arrays_eq!(dst, PrimitiveArray::from_iter([0i32, 10, 100]));
+        assert_arrays_eq!(dst, PrimitiveArray::from_iter([0i32, 10, 100]), &mut ctx);
         Ok(())
     }
 
@@ -419,6 +468,7 @@ mod test {
     /// not prevent the cast from succeeding.
     #[test]
     fn cast_same_width_int_nullable_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // The null position holds u32::MAX which doesn't fit in i32, but it's
         // masked as invalid so the cast should still succeed via reinterpret.
         let arr = PrimitiveArray::new(
@@ -432,13 +482,15 @@ mod test {
             .to_primitive();
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::from_option_iter([None, Some(0i32), Some(42)])
+            PrimitiveArray::from_option_iter([None, Some(0i32), Some(42)]),
+            &mut ctx
         );
         Ok(())
     }
 
     #[test]
     fn cast_u32_to_u8_with_out_of_range_nulls() -> vortex_error::VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let arr = PrimitiveArray::new(
             buffer![1000u32, 10u32, 42u32],
             Validity::from_iter([false, true, true]),
@@ -450,7 +502,8 @@ mod test {
             .to_primitive();
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::from_option_iter([None, Some(10u8), Some(42)])
+            PrimitiveArray::from_option_iter([None, Some(10u8), Some(42)]),
+            &mut ctx
         );
         Ok(())
     }
@@ -471,7 +524,7 @@ mod test {
     #[case(PrimitiveArray::from_option_iter([Some(1u8), None, Some(255), Some(0), None]).into_array())]
     #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(-100), Some(0), None]).into_array())]
     #[case(buffer![42u32].into_array())]
-    fn test_cast_primitive_conformance(#[case] array: crate::ArrayRef) {
+    fn test_cast_primitive_conformance(#[case] array: ArrayRef) {
         test_cast_conformance(&array);
     }
 }

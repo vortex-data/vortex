@@ -29,6 +29,8 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::children::OwnedLayoutChildren;
+use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::flat_layout_inline_array_node;
 use crate::segments::SegmentSinkRef;
@@ -104,7 +106,13 @@ impl LayoutStrategy for FlatLayoutStrategy {
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let Some(chunk) = stream.next().await else {
-            vortex_bail!("flat layout needs a single chunk");
+            // an empty input has no segment to write.
+            return Ok(ChunkedLayout::new(
+                0,
+                stream.dtype().clone(),
+                OwnedLayoutChildren::layout_children(vec![]),
+            )
+            .into_layout());
         };
         let (sequence_id, chunk) = chunk?;
 
@@ -199,9 +207,9 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::DictArray;
@@ -342,7 +350,7 @@ mod tests {
     #[test]
     fn struct_array_round_trip() {
         block_on(|handle| async {
-            let mut ctx_exec = LEGACY_SESSION.create_execution_ctx();
+            let mut ctx_exec = array_session().create_execution_ctx();
             let session = SESSION.clone().with_handle(handle);
             let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);

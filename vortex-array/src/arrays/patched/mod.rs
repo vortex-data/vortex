@@ -43,7 +43,7 @@
 //! `indices` and `values` are aligned and accessed together.
 //!
 //! ```text
-//!
+//! 
 //!                  chunk 0      chunk 0      chunk 0     chunk 0       chunk 0     chunk 0
 //!                  lane  0      lane 1       lane  2     lane 3        lane  4     lane  5
 //!              ┌────────────┬────────────┬────────────┬────────────┬────────────┬────────────┐
@@ -77,6 +77,10 @@ use std::sync::LazyLock;
 pub use array::*;
 use vortex_buffer::ByteBuffer;
 pub use vtable::*;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}
 
 /// Patches that have been transposed into GPU format.
 struct TransposedPatches {

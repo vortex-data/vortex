@@ -24,7 +24,6 @@ use write::*;
 
 /// By default, the C++ API uses a current-thread runtime, providing control of the threading
 /// model to the C++ side.
-///
 // TODO(ngates): in the future, we could expose an API for C++ to spawn threads that can drive
 //  this runtime.
 pub(crate) static RUNTIME: LazyLock<CurrentThreadRuntime> =

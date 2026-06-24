@@ -81,7 +81,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray as _;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -95,8 +94,6 @@ mod tests {
     use vortex_array::scalar::PValue;
     use vortex_array::search_sorted::SearchSorted;
     use vortex_array::search_sorted::SearchSortedSide;
-    use vortex_array::session::ArraySession;
-    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -107,8 +104,8 @@ mod tests {
     use crate::ops::find_slice_end_index;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
-        session.arrays().register(RunEnd);
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
         session
     });
 
@@ -171,7 +168,8 @@ mod tests {
 
         assert_arrays_eq!(
             vortex_array.into_array(),
-            buffer![10i32, 10, 10, 20, 20, 30, 30, 30].into_array()
+            buffer![10i32, 10, 10, 20, 20, 30, 30, 30].into_array(),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -195,7 +193,8 @@ mod tests {
                 None,
                 Some(300i32),
                 Some(300i32)
-            ])
+            ]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -210,7 +209,11 @@ mod tests {
         // Convert to Vortex
         let vortex_array = decode_run_array(&arrow_run_array, false)?;
 
-        assert_arrays_eq!(vortex_array, buffer![1.5f64, 2.5, 2.5, 3.5].into_array());
+        assert_arrays_eq!(
+            vortex_array,
+            buffer![1.5f64, 2.5, 2.5, 3.5].into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -231,7 +234,8 @@ mod tests {
         let vortex_array = decode_run_array(&sliced_array, false)?;
         assert_arrays_eq!(
             vortex_array,
-            buffer![100, 200, 200, 200, 300, 300].into_array()
+            buffer![100, 200, 200, 200, 300, 300].into_array(),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -262,7 +266,8 @@ mod tests {
                 Some(30),
                 Some(30),
                 Some(40),
-            ])
+            ]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -346,7 +351,7 @@ mod tests {
         #[case] expected_ends: &[i32],
         #[case] expected_values: &[i32],
     ) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = RunEnd::encode(
             PrimitiveArray::from_iter(input.iter().copied()).into_array(),
             &mut ctx,

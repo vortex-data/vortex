@@ -106,7 +106,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::session::ArraySession;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
@@ -116,8 +115,11 @@ mod tests {
     use crate::delta::array::delta_decompress::delta_decompress;
     use crate::delta_compress;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case::u32((0u32..10_000).collect())]
@@ -149,7 +151,7 @@ mod tests {
         let delta = Delta::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(delta.len(), array.len());
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
-        assert_arrays_eq!(decompressed, array);
+        assert_arrays_eq!(decompressed, array, &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
@@ -175,7 +177,7 @@ mod tests {
             .as_array()
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(packed_delta_prim, array);
+        assert_arrays_eq!(packed_delta_prim, array, &mut ctx);
         Ok(())
     }
 

@@ -41,21 +41,41 @@ impl ClickBenchBenchmark {
     }
 }
 
+/// ClickBench sorted by event date and event time.
+pub struct ClickBenchSortedBenchmark {
+    pub queries_file: Option<String>,
+    pub data_url: Url,
+}
+
+impl ClickBenchSortedBenchmark {
+    /// Create the sorted ClickBench benchmark, optionally using a remote data directory.
+    pub fn new(use_remote_data_dir: Option<String>) -> Result<Self> {
+        Ok(Self {
+            queries_file: None,
+            data_url: resolve_data_url(use_remote_data_dir.as_deref(), CLICKBENCH_SORTED_NAME)?,
+        })
+    }
+}
+
+fn read_clickbench_queries(queries_file: Option<&str>) -> Result<Vec<(usize, String)>> {
+    let queries_filepath = match queries_file {
+        Some(file) => file.into(),
+        None => Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql"),
+    };
+
+    Ok(fs::read_to_string(queries_filepath)?
+        .split(';')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .enumerate()
+        .collect())
+}
+
 #[async_trait::async_trait]
 impl Benchmark for ClickBenchBenchmark {
     fn queries(&self) -> Result<Vec<(usize, String)>> {
-        let queries_filepath = match &self.queries_file {
-            Some(file) => file.into(),
-            None => Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql"),
-        };
-
-        Ok(fs::read_to_string(queries_filepath)?
-            .split(';')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .enumerate()
-            .collect())
+        read_clickbench_queries(self.queries_file.as_deref())
     }
 
     async fn generate_base_data(&self) -> Result<()> {
@@ -70,10 +90,7 @@ impl Benchmark for ClickBenchBenchmark {
     }
 
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
-        Some(vec![
-            1, 1, 1, 1, 1, 1, 1, 18, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 1, 10, 10, 10,
-            10, 10, 10, 25, 25, 1, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
-        ])
+        Some(clickbench_expected_row_counts())
     }
 
     fn dataset(&self) -> BenchmarkDataset {
@@ -88,6 +105,48 @@ impl Benchmark for ClickBenchBenchmark {
 
     fn dataset_display(&self) -> String {
         format!("clickbench_{}", self.flavor)
+    }
+
+    fn data_url(&self) -> &Url {
+        &self.data_url
+    }
+
+    fn table_specs(&self) -> Vec<TableSpec> {
+        vec![TableSpec::new("hits", Some(HITS_SCHEMA.clone()))]
+    }
+}
+
+#[async_trait::async_trait]
+impl Benchmark for ClickBenchSortedBenchmark {
+    fn queries(&self) -> Result<Vec<(usize, String)>> {
+        Ok(read_clickbench_queries(self.queries_file.as_deref())?
+            .into_iter()
+            .filter(|(idx, _)| CLICKBENCH_SORTED_QUERY_IDS.contains(idx))
+            .collect())
+    }
+
+    async fn generate_base_data(&self) -> Result<()> {
+        if self.data_url.scheme() != "file" {
+            return Ok(());
+        }
+
+        generate_sorted_clickbench(CLICKBENCH_SORTED_NAME.to_data_path()).await
+    }
+
+    fn expected_row_counts(&self) -> Option<Vec<usize>> {
+        Some(clickbench_expected_row_counts())
+    }
+
+    fn dataset(&self) -> BenchmarkDataset {
+        BenchmarkDataset::ClickBenchSorted
+    }
+
+    fn dataset_name(&self) -> &str {
+        CLICKBENCH_SORTED_NAME
+    }
+
+    fn dataset_display(&self) -> String {
+        CLICKBENCH_SORTED_NAME.to_string()
     }
 
     fn data_url(&self) -> &Url {

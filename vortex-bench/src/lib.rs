@@ -13,6 +13,7 @@ use anyhow::bail;
 use appian::AppianBenchmark;
 use clap::ValueEnum;
 use clickbench::ClickBenchBenchmark;
+use clickbench::ClickBenchSortedBenchmark;
 use clickbench::Flavor;
 use fineweb::FinewebBenchmark;
 use itertools::Itertools;
@@ -251,6 +252,8 @@ pub enum BenchmarkArg {
     Appian,
     #[clap(name = "clickbench")]
     ClickBench,
+    #[clap(name = "clickbench-sorted")]
+    ClickBenchSorted,
     #[clap(name = "tpch")]
     TpcH,
     #[clap(name = "tpcds")]
@@ -285,6 +288,11 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             let flavor = opts.get_as::<Flavor>("flavor").unwrap_or_default();
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = ClickBenchBenchmark::new(flavor, None, remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::ClickBenchSorted => {
+            let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
+            let benchmark = ClickBenchSortedBenchmark::new(remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::TpcH => {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use async_fs::OpenOptions;
 use futures::SinkExt;
 use futures::TryStreamExt;
 use futures::channel::mpsc;
@@ -28,9 +29,7 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::FromLogicalType;
 use crate::convert::data_chunk_to_vortex;
-use crate::duckdb::ClientContextRef;
 use crate::duckdb::DataChunkRef;
-use crate::duckdb::DuckDbFsWriter;
 use crate::duckdb::LogicalTypeRef;
 
 #[derive(Clone)]
@@ -111,7 +110,6 @@ pub fn copy_to_finalize(init_global: &mut CopyFunctionGlobal) -> VortexResult<()
 }
 
 pub fn copy_to_initialize_global(
-    client_context: &ClientContextRef,
     bind_data: &CopyFunctionBind,
     file_path: String,
 ) -> VortexResult<CopyFunctionGlobal> {
@@ -120,16 +118,16 @@ pub fn copy_to_initialize_global(
     let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
 
     let handle = SESSION.handle();
-    // SAFETY: The ClientContext is owned by the Connection and lives for the duration of
-    // query execution. DuckDB keeps the connection alive while this copy function runs.
-    let ctx = unsafe { client_context.erase_lifetime() };
 
-    // Use DuckDB FS exclusively to match the DuckDB client context configuration.
-    let writer = DuckDbFsWriter::new(ctx, &file_path)
-        .map_err(|e| vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}"))?;
-
-    let write_task =
-        handle.spawn(async move { SESSION.write_options().write(writer, array_stream).await });
+    let write_task = handle.spawn(async move {
+        let writer = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(file_path)
+            .await?;
+        SESSION.write_options().write(writer, array_stream).await
+    });
 
     let worker_pool = RUNTIME.new_pool();
     worker_pool.set_workers_to_available_parallelism();

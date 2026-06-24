@@ -2,15 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod bind_input;
-mod client_context;
-mod config;
 mod connection;
 mod data;
 mod data_chunk;
 mod database;
 mod ddb_string;
 mod expr;
-mod file_system;
 mod logical_type;
 mod macro_;
 mod query_result;
@@ -28,15 +25,12 @@ use std::ffi::c_void;
 use std::ptr;
 
 pub use bind_input::*;
-pub use client_context::*;
-pub use config::*;
 pub use connection::*;
 pub use data::*;
 pub use data_chunk::*;
 pub use database::*;
 pub use ddb_string::*;
 pub use expr::*;
-pub use file_system::*;
 pub use logical_type::*;
 pub use query_result::*;
 pub use reusable_dict::*;

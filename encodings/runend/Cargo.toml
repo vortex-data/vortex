@@ -52,3 +52,7 @@ harness = false
 [[bench]]
 name = "run_end_decode"
 harness = false
+
+[[bench]]
+name = "run_end_take"
+harness = false

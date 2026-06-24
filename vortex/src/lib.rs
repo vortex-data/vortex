@@ -3,17 +3,110 @@
 
 // https://github.com/rust-lang/cargo/pull/11645#issuecomment-1536905941
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
+//! # Rust API Map
+//!
+//! The `vortex` crate is the batteries-included entry point. It re-exports the core crates under
+//! stable module names so Rust users can start here and drill down into the crate that owns a
+//! concept:
+//!
+//! - [`array`](mod@array) contains [`ArrayRef`](array::ArrayRef), canonical arrays, expressions, scalar
+//!   functions, statistics, and Arrow conversion.
+//! - [`dtype`] and [`scalar`] contain the logical type system and single-value representation.
+//! - [`file`](mod@file) contains Vortex file readers and writers when the `files` feature is enabled.
+//! - [`layout`] contains serialized layout trees, layout readers, scan builders, and segment
+//!   sources/sinks.
+//! - [`compressor`] contains the default BtrBlocks-style adaptive compressor.
+//! - [`encodings`] exposes maintained encoding crates such as FastLanes, Pco, and Zstd.
+//! - [`session`] contains [`VortexSession`](session::VortexSession), the registry container used to
+//!   make array, layout, scalar-function, and runtime plugins available.
+//!
+//! Most applications should create a default session with [`VortexSessionDefault`]. Lower-level
+//! crates expose narrower session builders when you are embedding only part of Vortex.
+//!
+//! ```rust
+//! use vortex::VortexSessionDefault;
+//! use vortex::session::VortexSession;
+//!
+//! let session = VortexSession::default();
+//! ```
+//!
+//! ## Arrays and Compression
+//!
+//! Arrays are logical values plus a physical encoding. The default compressor chooses an encoding
+//! tree that preserves the array's [`DType`](dtype::DType) while often reducing bytes in memory or
+//! on disk.
+//!
+//! ```rust
+//! use vortex::VortexSessionDefault;
+//! use vortex::array::{IntoArray, VortexSessionExecute};
+//! use vortex::array::arrays::PrimitiveArray;
+//! use vortex::buffer::buffer;
+//! use vortex::compressor::BtrBlocksCompressor;
+//! use vortex::session::VortexSession;
+//! use vortex::array::validity::Validity;
+//!
+//! # fn example() -> vortex::error::VortexResult<()> {
+//! let session = VortexSession::default();
+//! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
+//! let compressed = BtrBlocksCompressor::default()
+//!     .compress(&array, &mut session.create_execution_ctx())?;
+//!
+//! assert_eq!(compressed.dtype(), array.dtype());
+//! assert_eq!(compressed.len(), array.len());
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Files and Scans
+//!
+//! Vortex files store a layout tree plus segment bytes. Read and write APIs hang off the session
+//! via extension traits, and scans use expressions for projection and filtering.
+//!
+//! ```rust,no_run
+//! use vortex::VortexSessionDefault;
+//! use vortex::array::{IntoArray, stream::ArrayStreamExt};
+//! use vortex::array::arrays::PrimitiveArray;
+//! use vortex::array::expr::{gt, lit, root};
+//! use vortex::array::validity::Validity;
+//! use vortex::buffer::{ByteBufferMut, buffer};
+//! use vortex::file::{OpenOptionsSessionExt, WriteOptionsSessionExt};
+//! use vortex::session::VortexSession;
+//!
+//! # async fn example() -> vortex::error::VortexResult<()> {
+//! let session = VortexSession::default();
+//! let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
+//!
+//! let mut bytes = ByteBufferMut::empty();
+//! session
+//!     .write_options()
+//!     .write(&mut bytes, array.into_array().to_array_stream())
+//!     .await?;
+//!
+//! let filtered = session
+//!     .open_options()
+//!     .open_buffer(bytes)?
+//!     .scan()?
+//!     .with_filter(gt(root(), lit(2u64)))
+//!     .into_array_stream()?
+//!     .read_all()
+//!     .await?;
+//!
+//! assert_eq!(filtered.len(), 2);
+//! # Ok(())
+//! # }
+//! ```
 
 // vortex::compute is deprecated and will be ported over to expressions.
 pub use vortex_array::aggregate_fn;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::arrow::ArrowSession;
 pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
 // pulled back out into a vortex_expr crate.
 pub use vortex_array::expr;
 use vortex_array::memory::MemorySession;
-use vortex_array::optimizer::kernels::ArrayKernels;
+use vortex_array::optimizer::kernels::KernelSession;
 pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
@@ -24,6 +117,8 @@ use vortex_session::VortexSession;
 
 // We re-export like so in order to allow users to search inside subcrates when using the Rust docs.
 
+/// Core array APIs, canonical arrays, expressions, scalar functions, statistics, and Arrow
+/// conversion.
 pub mod array {
     pub use vortex_array::*;
 
@@ -32,10 +127,12 @@ pub mod array {
     // twice.
 }
 
+/// Aligned buffers and byte buffers used by arrays, layouts, IPC, and file IO.
 pub mod buffer {
     pub use vortex_buffer::*;
 }
 
+/// Default adaptive compression APIs based on the maintained BtrBlocks-style compressor.
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -43,113 +140,141 @@ pub mod compressor {
     pub use vortex_btrblocks::SchemeId;
 }
 
+/// Logical Vortex data types.
 pub mod dtype {
     pub use vortex_array::dtype::*;
 }
 
+/// Error and result types shared across Vortex crates.
 pub mod error {
     pub use vortex_error::*;
 }
 
+/// Built-in extension dtypes such as UUID and temporal types.
 pub mod extension {
     pub use vortex_array::extension::*;
 }
 
 #[cfg(feature = "files")]
+/// Vortex file readers, writers, open options, write options, and file-format footer APIs.
 pub mod file {
     pub use vortex_file::*;
 }
 
+/// Generated flatbuffer bindings used by Vortex serialization.
 pub mod flatbuffers {
     pub use vortex_flatbuffers::*;
 }
 
+/// Async and blocking IO abstractions used by file readers and writers.
 pub mod io {
     pub use vortex_io::*;
 }
 
+/// IPC serialization helpers for Vortex arrays.
 pub mod ipc {
     pub use vortex_ipc::*;
 }
 
+/// Serialized layout trees, layout readers, scan builders, and segment sources/sinks.
 pub mod layout {
     pub use vortex_layout::*;
 }
 
+/// Selection masks used by array and scan operations.
 pub mod mask {
     pub use vortex_mask::*;
 }
 
+/// Metrics traits and default metrics registry implementations.
 pub mod metrics {
     pub use vortex_metrics::*;
 }
 
+/// Generated protocol buffer bindings used by Vortex metadata.
 pub mod proto {
     pub use vortex_proto::*;
 }
 
+/// Scalar values and typed scalar views.
 pub mod scalar {
     pub use vortex_array::scalar::*;
 }
 
+/// Data-source abstractions for scan integrations.
 pub mod scan {
     pub use vortex_scan::*;
 }
 
+/// Session registries and session extension traits.
 pub mod session {
     pub use vortex_session::*;
 }
 
+/// Small utility types used across Vortex crates.
 pub mod utils {
     pub use vortex_utils::*;
 }
 
+/// Maintained array encoding crates.
 pub mod encodings {
+    /// Adaptive Lossless floating-point encodings.
     pub mod alp {
         pub use vortex_alp::*;
     }
 
+    /// Byte-per-value boolean encoding.
     pub mod bytebool {
         pub use vortex_bytebool::*;
     }
 
+    /// Date/time decomposition encodings.
     pub mod datetime_parts {
         pub use vortex_datetime_parts::*;
     }
 
+    /// Decimal byte-part decomposition encodings.
     pub mod decimal_byte_parts {
         pub use vortex_decimal_byte_parts::*;
     }
 
+    /// FastLanes integer encodings: bit-packing, delta, frame-of-reference, and RLE.
     pub mod fastlanes {
         pub use vortex_fastlanes::*;
     }
 
+    /// Fast Static Symbol Table string encoding.
     pub mod fsst {
         pub use vortex_fsst::*;
     }
 
+    /// Pco numeric compression encoding.
     pub mod pco {
         pub use vortex_pco::*;
     }
 
+    /// Arrow-compatible run-end encoding.
     pub mod runend {
         pub use vortex_runend::*;
     }
 
+    /// Fixed-step sequence encoding.
     pub mod sequence {
         pub use vortex_sequence::*;
     }
 
+    /// Sparse fill-value-plus-patches encoding.
     pub mod sparse {
         pub use vortex_sparse::*;
     }
 
+    /// Zig-zag integer transform encoding.
     pub mod zigzag {
         pub use vortex_zigzag::*;
     }
 
     #[cfg(feature = "zstd")]
+    /// Zstd-backed binary/string compression encodings.
     pub mod zstd {
         pub use vortex_zstd::*;
     }
@@ -167,16 +292,21 @@ impl VortexSessionDefault for VortexSession {
         let session = VortexSession::empty()
             .with::<DTypeSession>()
             .with::<ArraySession>()
+            .with::<KernelSession>()
             .with::<LayoutSession>()
             .with::<ScalarFnSession>()
             .with::<StatsSession>()
-            .with::<ArrayKernels>()
             .with::<AggregateFnSession>()
+            .with::<ArrowSession>()
             .with::<MemorySession>()
             .with::<RuntimeSession>();
 
         #[cfg(feature = "files")]
-        file::register_default_encodings(&session);
+        let session = {
+            let session = session.with::<file::multi::MultiFileSession>();
+            file::register_default_encodings(&session);
+            session
+        };
 
         session
     }
@@ -191,8 +321,8 @@ mod test {
 
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::FieldNames;
@@ -342,7 +472,7 @@ mod test {
 
         assert_eq!(recovered_array.len(), array.len());
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let recovered_primitive = recovered_array.execute::<PrimitiveArray>(&mut ctx)?;
         assert!(recovered_primitive.validity()?.mask_eq(

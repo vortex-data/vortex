@@ -21,8 +21,37 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  changes:
+    name: "Detect CUDA changes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: read
+    outputs:
+      run-cuda-san: ${{ github.event_name != 'pull_request' || steps.filter.outputs.cuda == 'true' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d  # v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            cuda:
+              - "vortex-cuda/**"
+              - "vortex-python/python/vortex/__init__.py"
+              - "vortex-python/pyproject.toml"
+              - "vortex-python/test/test_cuda.py"
+              - "vortex-python-cuda/**"
+              - "vortex-test/**"
+              - "pyproject.toml"
+              - "uv.lock"
+              - ".github/workflows/**"
+
   cuda-build-lint:
-    if: github.repository == 'vortex-data/vortex'
+    needs: [changes]
+    if: >-
+      always() && github.repository == 'vortex-data/vortex' &&
+      needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA build & lint"
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-build
@@ -30,7 +59,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -39,7 +68,7 @@ jobs:
           command: >-
             cargo build --profile ci --locked --all-features --all-targets
             -p vortex-cuda -p vortex-cuda-ffi -p vortex-cub -p vortex-nvcomp
-            -p gpu-scan-cli -p vortex-test-e2e-cuda
+            -p gpu-scan-cli -p vortex-test-e2e-cuda -p vortex-python-cuda
       - name: Clippy CUDA crates
         run: |
           cargo clippy --profile ci --locked --all-features --all-targets \
@@ -49,10 +78,14 @@ jobs:
             -p vortex-nvcomp \
             -p gpu-scan-cli \
             -p vortex-test-e2e-cuda \
+            -p vortex-python-cuda \
             -- -D warnings
 
   cuda-test:
-    if: github.repository == 'vortex-data/vortex'
+    needs: [changes]
+    if: >-
+      always() && github.repository == 'vortex-data/vortex' &&
+      needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests"
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-tests
@@ -65,12 +98,16 @@ jobs:
           nvidia-smi
           nvidia-smi -L
           nvidia-smi -q -d Memory
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
       - name: Install nextest
-        uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154  # v2
+        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9  # v2
         with:
           tool: nextest
       - name: Rust Tests
@@ -86,13 +123,25 @@ jobs:
             -p vortex-cub \
             -p vortex-nvcomp \
             -p vortex-test-e2e-cuda \
+            -p vortex-python-cuda \
             --all-features \
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
             --verbose
+      - name: Python CUDA extension checks
+        env:
+          MATURIN_PEP517_ARGS: "--profile ci"
+        run: |
+          # --all-packages installs the shared dev tooling (basedpyright) from the
+          # root `dev` group; --extra cuda adds the vortex-data-cuda extension.
+          uv run --all-packages --extra cuda basedpyright vortex-python vortex-python-cuda
+          uv run --all-packages --extra cuda pytest --benchmark-disable vortex-python/test/test_cuda.py vortex-python-cuda/test
 
   cuda-test-sanitizer:
-    if: github.repository == 'vortex-data/vortex'
+    needs: [changes]
+    if: >-
+      always() && github.repository == 'vortex-data/vortex' &&
+      needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (${{ matrix.sanitizer }})"
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-sanitizer
@@ -118,7 +167,7 @@ jobs:
           nvidia-smi
           nvidia-smi -L
           nvidia-smi -q -d Memory
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -130,7 +179,10 @@ jobs:
         run: cargo test --profile ci --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
 
   cuda-test-cudf:
-    if: github.repository == 'vortex-data/vortex'
+    needs: [changes]
+    if: >-
+      always() && github.repository == 'vortex-data/vortex' &&
+      needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (cudf)"
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-cudf
@@ -143,7 +195,7 @@ jobs:
           nvidia-smi
           nvidia-smi -L
           nvidia-smi -q -d Memory
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}

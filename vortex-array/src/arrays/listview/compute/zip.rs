@@ -170,8 +170,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
@@ -216,7 +216,7 @@ mod tests {
         );
         let mask = Mask::from_iter([true, false, true]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -232,7 +232,7 @@ mod tests {
             buffer![2u32, 2, 3].into_array(),
             Validity::NonNullable,
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
@@ -256,7 +256,7 @@ mod tests {
         // true -> if_true, false -> if_false
         let mask = Mask::from_iter([false, true, true]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -269,7 +269,7 @@ mod tests {
             buffer![1u32, 0, 1].into_array(),
             Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
@@ -293,7 +293,7 @@ mod tests {
         );
         let mask = Mask::from_iter([true, true, false]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -307,7 +307,7 @@ mod tests {
             buffer![2u32, 1, 2].into_array(),
             Validity::AllValid,
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
@@ -336,7 +336,7 @@ mod tests {
         );
         let mask = Mask::from_iter([true, false]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -362,7 +362,7 @@ mod tests {
             buffer![2u32, 1].into_array(),
             Validity::NonNullable,
         );
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 }

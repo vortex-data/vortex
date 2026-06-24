@@ -22,12 +22,10 @@ use vortex_array::expr::lit;
 use vortex_array::expr::lt;
 use vortex_array::expr::nested_case_when;
 use vortex_array::expr::root;
-use vortex_array::session::ArraySession;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 fn main() {
     divan::main();

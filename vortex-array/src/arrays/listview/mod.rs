@@ -12,6 +12,10 @@ pub(crate) mod compute;
 mod vtable;
 pub use vtable::ListView;
 
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}
+
 mod conversion;
 pub use conversion::list_from_list_view;
 pub use conversion::list_view_from_list;

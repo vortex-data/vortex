@@ -16,6 +16,31 @@
 //! This crate contains no encoding dependencies. Batteries-included compressors are provided by
 //! downstream crates like `vortex-btrblocks`, which register different encodings to the compressor.
 //!
+//! # Example
+//!
+//! A [`CascadingCompressor`] can be created directly with a fixed scheme list. With no schemes it
+//! still canonicalizes supported inputs and recursively handles nested structure, but no leaf
+//! compression is selected.
+//!
+//! ```rust
+//! use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+//! use vortex_array::arrays::PrimitiveArray;
+//! use vortex_array::validity::Validity;
+//! use vortex_buffer::buffer;
+//! use vortex_compressor::CascadingCompressor;
+//!
+//! # fn example() -> vortex_error::VortexResult<()> {
+//! let session = array_session();
+//! let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable).into_array();
+//! let compressor = CascadingCompressor::new(Vec::new());
+//!
+//! let result = compressor.compress(&array, &mut session.create_execution_ctx())?;
+//! assert_eq!(result.dtype(), array.dtype());
+//! assert_eq!(result.len(), array.len());
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! # Observability
 //!
 //! The compressor emits a small set of `tracing` spans and events on a single target so you can
