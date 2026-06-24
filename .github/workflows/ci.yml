@@ -460,10 +460,10 @@ jobs:
       - name: Run sqllogictest tests
         run: |
           ./vortex-sqllogictest/slt/tpch/generate_data.sh
-          cargo test --profile ci -p vortex-sqllogictest --test sqllogictests
+          cargo nextest run --cargo-profile ci -p vortex-sqllogictest
       - uses: ./.github/actions/check-rebuild
         with:
-          command: "cargo test --profile ci -p vortex-sqllogictest --test sqllogictests --no-run"
+          command: "cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run"
 
   wasm-integration:
     name: "WASM integration smoke test"

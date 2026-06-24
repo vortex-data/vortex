@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::Path;
+use std::path::PathBuf;
+use std::process::ExitCode;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
-use clap::Parser;
 use datafusion::common::GetExt;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -11,170 +14,276 @@ use datafusion::prelude::SessionContext;
 use datafusion_sqllogictest::DataFusion;
 use datafusion_sqllogictest::df_value_validator;
 use datafusion_sqllogictest::value_normalizer;
-use futures::StreamExt;
-use futures::TryStreamExt;
-use indicatif::MultiProgress;
 use indicatif::ProgressBar;
-use indicatif::ProgressDrawTarget;
-use sqllogictest::Record;
 use sqllogictest::Runner;
-use sqllogictest::parse_file;
+use sqllogictest::harness::Arguments;
+use sqllogictest::harness::Failed;
+use sqllogictest::harness::Trial;
 use sqllogictest::strict_column_validator;
-use vortex::error::VortexExpect;
 use vortex_datafusion::VortexFormatFactory;
-use vortex_sqllogictest::args::Args;
 use vortex_sqllogictest::duckdb::DuckDB;
-use vortex_sqllogictest::duckdb::DuckDBTestError;
 use vortex_sqllogictest::duckdb::duckdb_validator;
+use vortex_sqllogictest::normalize::PathNormalizing;
+use vortex_sqllogictest::normalize::WORK_DIR_VAR;
+use vortex_sqllogictest::normalize::scratch_root;
 use vortex_sqllogictest::utils::list_files;
-use vortex_sqllogictest::utils::pb_style;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+static SLT_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
+    let crate_path = Path::new(env!("CARGO_MANIFEST_DIR"));
+    crate_path.join("slt")
+});
 
-    if args.list {
-        eprintln!("Ignoring `--list` which is unsupported by `sqlogictests-runner`");
+/// Whether to verify a file against its expected output or rewrite it.
+#[derive(Clone, Copy)]
+enum Mode {
+    Run,
+    Complete,
+}
 
-        return Ok(());
+/// Builds a single-threaded Tokio runtime for one test file.
+///
+/// `libtest-mimic` runs each trial on its own thread, so a current-thread
+/// runtime keeps blocking DuckDB calls and async DataFusion work isolated per
+/// file instead of contending for shared multi-threaded runtime workers.
+fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+    Ok(tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?)
+}
+
+/// The scratch directory `${WORK_DIR}` resolves to for a single test.
+///
+/// It is a deterministic (not random) path under the constant [`scratch_root`],
+/// derived from the test's unique name, so concurrent tests never collide.
+fn work_dir_for(test_name: &str) -> PathBuf {
+    scratch_root().join(test_name.replace([':', '/', '\\'], "_"))
+}
+
+/// Recreates `dir` empty, clearing anything left behind by a previous run.
+fn reset_dir(dir: &Path) -> anyhow::Result<()> {
+    if dir.exists() {
+        std::fs::remove_dir_all(dir)?;
     }
-
-    let mpb = MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(10));
-
-    let crate_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let path = crate_path.join("slt/");
-    let has_tpch_data = crate_path.join("slt/tpch/data/lineitem.vortex").exists();
-
-    let all_errors = futures::stream::iter(
-        list_files(path)?
-            .into_iter()
-            .filter(|path| {
-                has_tpch_data || !path.components().any(|comp| comp.as_os_str() == "tpch")
-            })
-            .collect::<Vec<_>>(),
-    )
-    .map(|path| {
-        let mpb = mpb.clone();
-        let filter = args.filter.clone();
-
-        async move {
-            let path = path.canonicalize()?;
-
-            let mut errors = vec![];
-            let factory = Arc::new(VortexFormatFactory::new());
-            let session_state_builder = SessionStateBuilder::new()
-                .with_default_features()
-                .with_table_factory(
-                    factory.get_ext().to_uppercase(),
-                    Arc::new(DefaultTableFactory::new()),
-                )
-                .with_file_formats(vec![factory]);
-
-            let session =
-                SessionContext::new_with_state(session_state_builder.build()).enable_url_table();
-
-            let filename = path
-                .file_name()
-                .vortex_expect("must be file")
-                .to_string_lossy();
-
-            if filter.is_some_and(|f| !filename.contains(f.as_str())) {
-                return anyhow::Ok(vec![]);
-            }
-
-            let records = parse_file(path.as_path())?;
-
-            let exec_statements = records
-                .iter()
-                .filter(|r| {
-                    matches!(
-                        r,
-                        Record::Query { .. } | Record::Statement { .. } | Record::Let { .. }
-                    )
-                })
-                .count() as u64;
-
-            if !path.components().any(|comp| comp.as_os_str() == "duckdb") {
-                let df_pb = mpb.add(ProgressBar::new(exec_statements));
-                df_pb.set_message(format!("DataFusion {filename}"));
-                df_pb.set_style(pb_style());
-
-                let mut df_runner = Runner::new(|| async {
-                    Ok(DataFusion::new(
-                        session.clone(),
-                        path.clone(),
-                        df_pb.clone(),
-                    ))
-                });
-
-                df_runner.add_label("datafusion");
-                df_runner.with_column_validator(strict_column_validator);
-                df_runner.with_normalizer(value_normalizer);
-                df_runner.with_validator(df_value_validator);
-
-                for record in records.iter() {
-                    if let Record::Halt { .. } = record {
-                        break;
-                    }
-
-                    if let Err(e) = df_runner.run_async(record.clone()).await {
-                        errors.push(format!("DF Failure: {e}"));
-                    }
-                }
-
-                df_pb.finish();
-            }
-
-            if !path
-                .components()
-                .any(|comp| comp.as_os_str() == "datafusion")
-            {
-                let duckdb_pb = mpb.add(ProgressBar::new(exec_statements));
-                duckdb_pb.set_message(format!("DuckDB {filename}"));
-                duckdb_pb.set_style(pb_style());
-
-                let mut duckdb_runner = Runner::new(|| async {
-                    DuckDB::try_new(duckdb_pb.clone())
-                        .map_err(|e| DuckDBTestError::Other(e.to_string()))
-                });
-
-                duckdb_runner.add_label("duckdb");
-                duckdb_runner.with_column_validator(strict_column_validator);
-                duckdb_runner.with_normalizer(value_normalizer);
-                duckdb_runner.with_validator(duckdb_validator);
-
-                for record in records.iter() {
-                    if let Record::Halt { .. } = record {
-                        break;
-                    }
-
-                    if let Err(e) = duckdb_runner.run_async(record.clone()).await {
-                        errors.push(format!("DuckDB Failure: {e}"));
-                    }
-                }
-
-                duckdb_pb.finish();
-            }
-
-            anyhow::Ok(errors)
-        }
-    })
-    .buffer_unordered(args.test_threads)
-    .try_collect::<Vec<_>>()
-    .await?;
-
-    let errors = all_errors.into_iter().flatten().collect::<Vec<_>>();
-    for err in &errors {
-        eprintln!("Failure: {err}");
-    }
-
-    if !has_tpch_data {
-        eprintln!("Skipping TPC-H sqllogictests because slt/tpch/data is not present.");
-    }
-
-    if !errors.is_empty() {
-        anyhow::bail!("{} sqllogictest failure(s)", errors.len());
-    }
-
+    std::fs::create_dir_all(dir)?;
     Ok(())
+}
+
+/// Removes a test's scratch directory on drop — whether the test passed, failed,
+/// or panicked. Cleanup errors are logged, not propagated.
+struct WorkDirGuard(PathBuf);
+
+impl Drop for WorkDirGuard {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_dir_all(&self.0)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            eprintln!(
+                "warning: failed to clean scratch dir {}: {e}",
+                self.0.display()
+            );
+        }
+        // Best-effort removal of the scratch root once the last test empties it;
+        // fails harmlessly while other tests still have directories there.
+        std::fs::remove_dir(scratch_root()).ok();
+    }
+}
+
+/// Runs or completes a single `.slt` file against DataFusion reading Vortex files.
+fn drive_datafusion(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<()> {
+    reset_dir(work_dir)?;
+    let _guard = WorkDirGuard(work_dir.to_path_buf());
+    let work_dir = work_dir.to_string_lossy().into_owned();
+
+    let rt = build_runtime()?;
+    rt.block_on(async {
+        let factory = Arc::new(VortexFormatFactory::new());
+        let session_state_builder = SessionStateBuilder::new()
+            .with_default_features()
+            .with_table_factory(
+                factory.get_ext().to_uppercase(),
+                Arc::new(DefaultTableFactory::new()),
+            )
+            .with_file_formats(vec![factory]);
+        let session =
+            SessionContext::new_with_state(session_state_builder.build()).enable_url_table();
+
+        let mut runner = Runner::new(|| async {
+            Ok(PathNormalizing::new(
+                DataFusion::new(session.clone(), path.to_path_buf(), ProgressBar::hidden()),
+                work_dir.clone(),
+            ))
+        });
+        runner.set_var(WORK_DIR_VAR.to_string(), work_dir.clone());
+        runner.add_label("datafusion");
+        runner.with_column_validator(strict_column_validator);
+        runner.with_normalizer(value_normalizer);
+        runner.with_validator(df_value_validator);
+
+        run_or_complete(&mut runner, path, mode, df_value_validator).await
+    })
+}
+
+/// Runs or completes a single `.slt` file against DuckDB reading Vortex files.
+fn drive_duckdb(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<()> {
+    reset_dir(work_dir)?;
+    let _guard = WorkDirGuard(work_dir.to_path_buf());
+    let work_dir = work_dir.to_string_lossy().into_owned();
+
+    let rt = build_runtime()?;
+    rt.block_on(async {
+        let mut runner = Runner::new(|| async {
+            DuckDB::try_new().map(|db| PathNormalizing::new(db, work_dir.clone()))
+        });
+        runner.set_var(WORK_DIR_VAR.to_string(), work_dir.clone());
+        runner.add_label("duckdb");
+        runner.with_column_validator(strict_column_validator);
+        runner.with_normalizer(value_normalizer);
+        runner.with_validator(duckdb_validator);
+
+        run_or_complete(&mut runner, path, mode, duckdb_validator).await
+    })
+}
+
+/// Either validates `path` or rewrites its expected output, depending on `mode`.
+async fn run_or_complete<D, M>(
+    runner: &mut Runner<D, M>,
+    path: &Path,
+    mode: Mode,
+    validator: sqllogictest::Validator,
+) -> anyhow::Result<()>
+where
+    D: sqllogictest::runner::AsyncDB,
+    M: sqllogictest::connection::MakeConnection<Conn = D>,
+{
+    match mode {
+        Mode::Run => runner
+            .run_file_async(path)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}")),
+        // Completion rewrites the file's expected output in place.
+        Mode::Complete => runner
+            .update_test_file(
+                path,
+                " ",
+                validator,
+                value_normalizer,
+                strict_column_validator,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}")),
+    }
+}
+
+/// Removes `flag` from `args` if present, returning whether it was found.
+fn take_flag(args: &mut Vec<String>, flag: &str) -> bool {
+    let present = args.iter().any(|arg| arg == flag);
+    args.retain(|arg| arg != flag);
+    present
+}
+
+/// Determines which engines a file runs on from its path: a `duckdb/` directory
+/// is DuckDB-only, a `datafusion/` directory is DataFusion-only, else both.
+fn engines_for(path: &Path) -> (bool, bool) {
+    let in_dir = |dir: &str| path.components().any(|c| c.as_os_str() == dir);
+    let datafusion = !in_dir("duckdb");
+    let duckdb = !in_dir("datafusion");
+    (datafusion, duckdb)
+}
+
+fn is_tpch(path: &Path) -> bool {
+    path.components().any(|c| c.as_os_str() == "tpch")
+}
+
+/// Rewrites the expected output of each file in place, completing from a single
+/// reference engine per file (DuckDB for `duckdb/` files, DataFusion otherwise).
+fn complete_files(
+    args: &Arguments,
+    files: &[PathBuf],
+    slt_root: &Path,
+    has_tpch_data: bool,
+) -> anyhow::Result<()> {
+    for path in files {
+        if is_tpch(path) && !has_tpch_data {
+            continue;
+        }
+        let name = path
+            .strip_prefix(slt_root)
+            .unwrap_or(path)
+            .display()
+            .to_string();
+        if let Some(filter) = &args.filter
+            && !name.contains(filter)
+        {
+            continue;
+        }
+
+        // A `duckdb/` file completes from DuckDB; DataFusion is the reference for
+        // everything else (including files that also run on DuckDB).
+        if path.components().any(|c| c.as_os_str() == "duckdb") {
+            let test_name = format!("slt::duckdb::{name}");
+            drive_duckdb(path, &work_dir_for(&test_name), Mode::Complete)?;
+        } else {
+            let test_name = format!("slt::datafusion::{name}");
+            drive_datafusion(path, &work_dir_for(&test_name), Mode::Complete)?;
+        }
+        eprintln!("completed {name}");
+    }
+    Ok(())
+}
+
+fn main() -> anyhow::Result<ExitCode> {
+    let mut raw_args: Vec<String> = std::env::args().collect();
+    let complete = take_flag(&mut raw_args, "--complete");
+    let args = Arguments::from_iter(raw_args);
+
+    let has_tpch_data = SLT_ROOT.join("tpch/data/lineitem.vortex").exists();
+
+    let mut files = list_files(SLT_ROOT.as_path())?;
+    files.sort();
+
+    if complete {
+        complete_files(&args, &files, SLT_ROOT.as_path(), has_tpch_data)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let mut trials = Vec::new();
+    for path in files {
+        let (run_datafusion, run_duckdb) = engines_for(&path);
+        // TPC-H trials are ignored (rather than removed) when the generated data
+        // is absent, so `--list` and the run summary still account for them.
+        let ignored = is_tpch(&path) && !has_tpch_data;
+        let name = path
+            .strip_prefix(SLT_ROOT.as_path())
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+
+        if run_datafusion {
+            let path = path.clone();
+            let test_name = format!("slt::datafusion::{name}");
+            let work_dir = work_dir_for(&test_name);
+            trials.push(
+                Trial::test(test_name, move || {
+                    drive_datafusion(&path, &work_dir, Mode::Run)
+                        .map_err(|e| Failed::from(e.to_string()))
+                })
+                .with_ignored_flag(ignored),
+            );
+        }
+
+        if run_duckdb {
+            let path = path.clone();
+            let test_name = format!("slt::duckdb::{name}");
+            let work_dir = work_dir_for(&test_name);
+            trials.push(
+                Trial::test(test_name, move || {
+                    drive_duckdb(&path, &work_dir, Mode::Run)
+                        .map_err(|e| Failed::from(e.to_string()))
+                })
+                .with_ignored_flag(ignored),
+            );
+        }
+    }
+
+    Ok(sqllogictest::harness::run(&args, trials).exit_code())
 }
