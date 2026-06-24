@@ -8,6 +8,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::request::ScanRequest;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
@@ -15,8 +17,6 @@ use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutDeserializeArgs;
 use crate::layout_v2::LayoutScanPlanCtx;
 use crate::layout_v2::VTable;
-use crate::scan::plan::ScanPlanRef;
-use crate::scan::plan::request::ScanRequest;
 use crate::scan::v2::layouts::chunked as scan_chunked;
 
 /// V2 chunked layout vtable.

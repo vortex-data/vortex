@@ -4,7 +4,7 @@
 //! Scan2 layout plan machinery.
 //!
 //! This module contains the layout-tree expansion vtables and executable
-//! [`ScanPlan`](crate::scan::plan::ScanPlan) plans used by the alternate scan implementation.
+//! [`ScanPlan`](vortex_scan::plan::ScanPlan) plans used by the alternate scan implementation.
 
 pub(crate) mod layouts;
 mod row_idx;
@@ -19,10 +19,6 @@ use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-
-pub use crate::scan::plan::evidence;
-pub use crate::scan::plan::request;
-
 /// Environment variable selecting the file scan implementation.
 ///
 /// Accepted values:
@@ -30,7 +26,7 @@ pub use crate::scan::plan::request;
 /// - `v1`, `scan`, `scan_builder`, `scan-builder`, `layout-reader`, or unset: use the
 ///   existing LayoutReader-based scan.
 /// - `v2` or `scan2`: use the scan2
-///   [`ScanPlan`](crate::scan::plan::ScanPlan) implementation.
+///   [`ScanPlan`](vortex_scan::plan::ScanPlan) implementation.
 pub const SCAN_IMPL_ENV: &str = "VORTEX_SCAN_IMPL";
 
 /// Returns whether the scan2 implementation should be used by scan data sources.

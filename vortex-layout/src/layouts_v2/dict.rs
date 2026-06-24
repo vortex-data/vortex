@@ -7,6 +7,8 @@ use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::request::ScanRequest;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
@@ -16,8 +18,6 @@ use crate::layout_v2::LayoutScanPlanCtx;
 use crate::layout_v2::VTable;
 use crate::layout_v2::metadata_bool_field;
 use crate::layout_v2::metadata_varint_field;
-use crate::scan::plan::ScanPlanRef;
-use crate::scan::plan::request::ScanRequest;
 use crate::scan::v2::layouts::dict as scan_dict;
 
 /// V2 dictionary layout vtable.

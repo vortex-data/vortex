@@ -6,6 +6,8 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::request::ScanRequest;
 use vortex_session::registry::ReadContext;
 
 use crate::LayoutChildType;
@@ -15,8 +17,6 @@ use crate::layout_v2::LayoutDeserializeArgs;
 use crate::layout_v2::LayoutScanPlanCtx;
 use crate::layout_v2::VTable;
 use crate::layout_v2::metadata_bytes_field;
-use crate::scan::plan::ScanPlanRef;
-use crate::scan::plan::request::ScanRequest;
 use crate::scan::v2::layouts::flat as scan_flat;
 use crate::segments::SegmentId;
 

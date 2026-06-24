@@ -19,14 +19,14 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::request::ScanRequest;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 use vortex_session::registry::Registry;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
-use crate::scan::plan::ScanPlanRef;
-use crate::scan::plan::request::ScanRequest;
 use crate::segments::SegmentFutureCache;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;

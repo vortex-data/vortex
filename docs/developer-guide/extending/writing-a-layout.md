@@ -23,8 +23,8 @@ layout-specific `LayoutData`.
 ```rust
 use vortex_layout::layout_v2;
 use vortex_layout::{LayoutChildType, LayoutId};
-use vortex_layout::scan::plan::ScanPlanRef;
-use vortex_layout::scan::plan::request::ScanRequest;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::request::ScanRequest;
 use vortex_session::VortexSession;
 
 #[derive(Clone, Debug)]

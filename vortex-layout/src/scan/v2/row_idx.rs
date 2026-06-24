@@ -21,27 +21,27 @@ use vortex_array::scalar::PValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_scan::plan::ApplyScanPlan;
+use vortex_scan::plan::OwnedRowScope;
+use vortex_scan::plan::PrepareCtx;
+use vortex_scan::plan::PreparedRead;
+use vortex_scan::plan::PreparedReadRef;
+use vortex_scan::plan::PushCtx;
+use vortex_scan::plan::ReadStep;
+use vortex_scan::plan::ReadTask;
+use vortex_scan::plan::ReadTaskOutput;
+use vortex_scan::plan::ScanPlan;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::ScanState;
+use vortex_scan::plan::ScanStateRef;
+use vortex_scan::plan::StateCtx;
+use vortex_scan::plan::StructValueScanPlan;
+use vortex_scan::plan::default_try_push_expr;
 use vortex_sequence::Sequence;
 use vortex_sequence::SequenceArray;
 
 use crate::layouts::row_idx::RowIdx;
 use crate::layouts::row_idx::row_idx;
-use crate::scan::plan::ApplyScanPlan;
-use crate::scan::plan::OwnedRowScope;
-use crate::scan::plan::PrepareCtx;
-use crate::scan::plan::PreparedRead;
-use crate::scan::plan::PreparedReadRef;
-use crate::scan::plan::PushCtx;
-use crate::scan::plan::ReadStep;
-use crate::scan::plan::ReadTask;
-use crate::scan::plan::ReadTaskOutput;
-use crate::scan::plan::ScanPlan;
-use crate::scan::plan::ScanPlanRef;
-use crate::scan::plan::ScanState;
-use crate::scan::plan::ScanStateRef;
-use crate::scan::plan::StateCtx;
-use crate::scan::plan::StructValueScanPlan;
-use crate::scan::plan::default_try_push_expr;
 
 pub fn with_row_idx(root: ScanPlanRef, dtype: DType, row_offset: u64) -> ScanPlanRef {
     Arc::new(RowIdxScanPlan {

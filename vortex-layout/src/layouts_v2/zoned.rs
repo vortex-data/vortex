@@ -8,6 +8,8 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_scan::plan::ScanPlanRef;
+use vortex_scan::plan::request::ScanRequest;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
@@ -21,8 +23,6 @@ use crate::layouts::zoned::ZonedMetadata;
 use crate::layouts::zoned::aggregate_fns_from_specs;
 use crate::layouts::zoned::aggregate_stats_table_dtype;
 use crate::layouts::zoned::legacy_stats_table_dtype;
-use crate::scan::plan::ScanPlanRef;
-use crate::scan::plan::request::ScanRequest;
 use crate::scan::v2::layouts::zoned as scan_zoned;
 
 /// V2 zoned layout vtable.

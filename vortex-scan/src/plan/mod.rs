@@ -51,14 +51,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_scan::read::ReadResults;
-use vortex_scan::read::ScanIoPhase;
-use vortex_scan::read::ScanRead;
 use vortex_session::VortexSession;
 
 use self::evidence::EvidenceFragment;
 use self::request::EvidenceRequest;
 use self::request::OwnedEvidenceRequest;
+use crate::read::ReadResults;
+use crate::read::ScanIoPhase;
+use crate::read::ScanRead;
 
 /// Execution context for prepared scan tasks.
 #[derive(Clone)]
@@ -869,7 +869,11 @@ impl ReadTask for StructReadTask {
     }
 }
 
-pub(crate) struct DeferredReadTask;
+/// Placeholder read task for recursive plan continuations that replace child tasks later.
+///
+/// This task is never valid to execute directly. It exists so composite plan implementations can
+/// build a self-referential continuation state before the next child task is available.
+pub struct DeferredReadTask;
 
 impl ReadTask for DeferredReadTask {
     fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
@@ -1599,9 +1603,9 @@ mod tests {
     use vortex_array::arrays::Constant;
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::lit;
-    use vortex_scan::read::ReadStore;
 
     use super::*;
+    use crate::read::ReadStore;
 
     struct TestStatsNode;
 
