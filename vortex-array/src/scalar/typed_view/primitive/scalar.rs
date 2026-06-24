@@ -28,7 +28,6 @@ use crate::dtype::DecimalDType;
 use crate::dtype::FromPrimitiveOrF16;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
-use crate::dtype::i256;
 use crate::match_each_native_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
@@ -280,22 +279,22 @@ impl<'a> PrimitiveScalar<'a> {
 }
 
 fn pvalue_to_decimal(pvalue: PValue, decimal_dtype: DecimalDType) -> VortexResult<DecimalValue> {
+    // Integers are scale-0 decimals; reuse the decimal-to-decimal cast to rescale and range-check.
     let value = match pvalue {
-        PValue::U8(v) => i256::from_i128(i128::from(v)),
-        PValue::U16(v) => i256::from_i128(i128::from(v)),
-        PValue::U32(v) => i256::from_i128(i128::from(v)),
-        PValue::U64(v) => i256::from_i128(i128::from(v)),
-        PValue::I8(v) => i256::from_i128(i128::from(v)),
-        PValue::I16(v) => i256::from_i128(i128::from(v)),
-        PValue::I32(v) => i256::from_i128(i128::from(v)),
-        PValue::I64(v) => i256::from_i128(i128::from(v)),
+        PValue::U8(v) => DecimalValue::from(v),
+        PValue::U16(v) => DecimalValue::from(v),
+        PValue::U32(v) => DecimalValue::from(v),
+        PValue::U64(v) => DecimalValue::from(v),
+        PValue::I8(v) => DecimalValue::from(v),
+        PValue::I16(v) => DecimalValue::from(v),
+        PValue::I32(v) => DecimalValue::from(v),
+        PValue::I64(v) => DecimalValue::from(v),
         PValue::F16(_) | PValue::F32(_) | PValue::F64(_) => {
             vortex_bail!("Cannot cast floating primitive {pvalue} to decimal {decimal_dtype}")
         }
     };
 
-    let scaled = DecimalValue::rescale_i256(value, 0, decimal_dtype.scale())?;
-    DecimalValue::try_from_i256(scaled, decimal_dtype)
+    value.cast_decimal(value.decimal_dtype(), decimal_dtype)
 }
 
 impl Sub for PrimitiveScalar<'_> {

@@ -25,8 +25,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -57,7 +57,7 @@ mod tests {
 
         assert_eq!(casted.dtype(), &target_dtype);
         let scalar = casted
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap();
         assert_eq!(
             scalar.as_decimal().decimal_value(),

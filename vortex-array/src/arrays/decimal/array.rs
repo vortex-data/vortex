@@ -396,6 +396,26 @@ impl Array<Decimal> {
             validity,
         }
     }
+
+    /// Try to extract a uniquely-owned mutable buffer of the decimal values with zero copy.
+    ///
+    /// Returns `Err` with a read-only [`Buffer`] when the values are shared and so cannot be
+    /// mutated in place.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `T` does not match the array's values type.
+    pub fn try_into_buffer_mut<T: NativeDecimalType>(self) -> Result<BufferMut<T>, Buffer<T>> {
+        let data = self.into_data();
+        if data.values_type != T::DECIMAL_TYPE {
+            vortex_panic!(
+                "Attempted to get buffer_mut of type {} from decimal array with values_type {}",
+                T::DECIMAL_TYPE,
+                data.values_type,
+            );
+        }
+        Buffer::<T>::from_byte_buffer(data.values.into_host_sync()).try_into_mut()
+    }
 }
 
 impl Array<Decimal> {

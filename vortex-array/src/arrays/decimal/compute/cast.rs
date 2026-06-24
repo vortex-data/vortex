@@ -4,7 +4,9 @@
 use num_traits::CheckedMul;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::IndexedSinkExt;
 use vortex_compute::lane_kernels::IndexedSourceExt;
+use vortex_compute::lane_kernels::ReinterpretSink;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -93,11 +95,9 @@ impl CastKernel for Decimal {
             return Ok(Some(array.array().clone()));
         }
 
-        let validity = array.validity()?;
-
         // Cast the validity to the new nullability
-        let new_validity = validity
-            .clone()
+        let new_validity = array
+            .validity()?
             .cast_nullability(*to_nullability, array.len(), ctx)?;
 
         // Reuse the values buffer untouched when no rescale is required, the target precision
@@ -125,7 +125,6 @@ impl CastKernel for Decimal {
             }
         }
 
-        let valid_values = validity.execute_mask(array.len(), ctx)?;
         let target_values_type = DecimalType::smallest_decimal_value_type(to_decimal_dtype);
 
         match_each_decimal_value_type!(array.values_type(), |F| {
@@ -135,7 +134,7 @@ impl CastKernel for Decimal {
                     *from_decimal_dtype,
                     *to_decimal_dtype,
                     new_validity,
-                    &valid_values,
+                    ctx,
                 )
                 .map(Some)
             })
@@ -147,51 +146,108 @@ fn cast_decimal_values<F, T>(
     array: ArrayView<'_, Decimal>,
     from_decimal_dtype: DecimalDType,
     to_decimal_dtype: DecimalDType,
-    validity: Validity,
-    valid_values: &Mask,
+    new_validity: Validity,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef>
 where
     F: NativeDecimalType,
     T: NativeDecimalType + CheckedMul,
     DecimalValue: From<F>,
 {
-    let values = array.buffer::<F>();
-    let values = values.as_slice();
+    let len = array.len();
     let cast_plan = DecimalCastPlan::<T>::new(from_decimal_dtype, to_decimal_dtype);
 
-    let buffer = match valid_values {
-        Mask::AllTrue(_) => {
-            let mut buffer = BufferMut::<T>::with_capacity(values.len());
+    // When the physical type is unchanged, take ownership of the values buffer so the rescale can
+    // run in place; otherwise we allocate a fresh target buffer of the wider type.
+    let same_width = F::DECIMAL_TYPE.byte_width() == T::DECIMAL_TYPE.byte_width();
+    let owned: Option<BufferMut<F>> = same_width
+        .then(|| array.into_owned().try_into_buffer_mut::<F>().ok())
+        .flatten();
+    let values = array.buffer::<F>();
+    let values = values.as_slice();
+
+    // When the scale does not decrease and the source precision plus any scale increase still fits
+    // the target precision, every value provably maps into range. We can then skip the validity
+    // mask and the per-lane range checks entirely, mirroring the lossless primitive cast.
+    if decimal_cast_is_lossless(from_decimal_dtype, to_decimal_dtype) {
+        let buffer: Buffer<T> = match owned {
+            Some(mut buf) => {
+                ReinterpretSink::<F, T>::new(buf.as_mut_slice())
+                    .map_into_in_place(|value: F| cast_plan.cast_lossless(value));
+                // SAFETY: equal-width decimal types share size and alignment.
+                let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
+                result.freeze()
+            }
+            None => {
+                let mut buffer = BufferMut::<T>::with_capacity(len);
+                values.map_into(&mut buffer.spare_capacity_mut()[..len], |value| {
+                    cast_plan.cast_lossless(value)
+                });
+                // SAFETY: map_into initializes every lane.
+                unsafe { buffer.set_len(len) };
+                buffer.freeze()
+            }
+        };
+        return Ok(DecimalArray::new(buffer, to_decimal_dtype, new_validity).into_array());
+    }
+
+    let valid_values = array.validity()?.execute_mask(len, ctx)?;
+    let on_error =
+        |idx: usize| decimal_cast_error::<F, T>(values[idx], from_decimal_dtype, to_decimal_dtype);
+
+    let buffer: Buffer<T> = match (&valid_values, owned) {
+        (Mask::AllTrue(_), Some(mut buf)) => {
+            ReinterpretSink::<F, T>::new(buf.as_mut_slice())
+                .try_map_in_place(|value: F| cast_plan.cast(value))
+                .map_err(on_error)?;
+            // SAFETY: equal-width decimal types share size and alignment.
+            let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
+            result.freeze()
+        }
+        (Mask::AllTrue(_), None) => {
+            let mut buffer = BufferMut::<T>::with_capacity(len);
             values
-                .try_map_into(&mut buffer.spare_capacity_mut()[..values.len()], |value| {
+                .try_map_into(&mut buffer.spare_capacity_mut()[..len], |value| {
                     cast_plan.cast(value)
                 })
-                .map_err(|idx| {
-                    decimal_cast_error::<F, T>(values[idx], from_decimal_dtype, to_decimal_dtype)
-                })?;
+                .map_err(on_error)?;
             // SAFETY: try_map_into initializes every lane before returning Ok.
-            unsafe { buffer.set_len(values.len()) };
+            unsafe { buffer.set_len(len) };
             buffer.freeze()
         }
-        Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
-        Mask::Values(mask) => {
-            let mut buffer = BufferMut::<T>::with_capacity(values.len());
+        (Mask::AllFalse(_), _) => BufferMut::<T>::zeroed(len).freeze(),
+        (Mask::Values(mask), Some(mut buf)) => {
+            ReinterpretSink::<F, T>::new(buf.as_mut_slice())
+                .try_map_masked_in_place(mask.bit_buffer(), |value: F| cast_plan.cast(value))
+                .map_err(on_error)?;
+            // SAFETY: equal-width decimal types share size and alignment.
+            let result: BufferMut<T> = unsafe { buf.transmute::<T>() };
+            result.freeze()
+        }
+        (Mask::Values(mask), None) => {
+            let mut buffer = BufferMut::<T>::with_capacity(len);
             values
                 .try_map_masked_into(
                     mask.bit_buffer(),
-                    &mut buffer.spare_capacity_mut()[..values.len()],
+                    &mut buffer.spare_capacity_mut()[..len],
                     |value| cast_plan.cast(value),
                 )
-                .map_err(|idx| {
-                    decimal_cast_error::<F, T>(values[idx], from_decimal_dtype, to_decimal_dtype)
-                })?;
+                .map_err(on_error)?;
             // SAFETY: try_map_masked_into initializes every lane before returning Ok.
-            unsafe { buffer.set_len(values.len()) };
+            unsafe { buffer.set_len(len) };
             buffer.freeze()
         }
     };
 
-    Ok(DecimalArray::new(buffer, to_decimal_dtype, validity).into_array())
+    Ok(DecimalArray::new(buffer, to_decimal_dtype, new_validity).into_array())
+}
+
+/// Returns `true` when every value of a decimal with `from` dtype provably casts into `to` without
+/// loss: the scale does not decrease and the source precision plus any scale increase still fits
+/// the target precision, so no value can fall outside the target range.
+fn decimal_cast_is_lossless(from: DecimalDType, to: DecimalDType) -> bool {
+    let scale_delta = to.scale() as i16 - from.scale() as i16;
+    scale_delta >= 0 && from.precision() as i16 + scale_delta <= to.precision() as i16
 }
 
 #[cold]
@@ -303,6 +359,31 @@ where
                     return None;
                 }
                 <T as BigCast>::from(value)
+            }
+        }
+    }
+
+    /// Applies a cast that is statically known to be lossless (see [`decimal_cast_is_lossless`]).
+    ///
+    /// Valid lanes always fit, so no range check is needed. Out-of-range inputs only occur on null
+    /// lanes, where any result is acceptable, so an overflow falls back to the default value rather
+    /// than panicking. Only [`DecimalCastPlan::SameScale`] and [`DecimalCastPlan::ScaleUp`] can be
+    /// lossless; the other variants are unreachable here.
+    #[inline]
+    fn cast_lossless<F>(&self, value: F) -> T
+    where
+        F: NativeDecimalType,
+    {
+        let widened = <T as BigCast>::from(value).unwrap_or_default();
+        match *self {
+            DecimalCastPlan::SameScale { .. } => widened,
+            DecimalCastPlan::ScaleUp { factor, .. } => {
+                widened.checked_mul(&factor).unwrap_or_default()
+            }
+            DecimalCastPlan::ScaleUpOverflow
+            | DecimalCastPlan::ScaleDown { .. }
+            | DecimalCastPlan::ScaleDownOverflow => {
+                vortex_panic!("cast_lossless invoked on a lossy decimal cast plan")
             }
         }
     }
@@ -578,6 +659,36 @@ mod tests {
         assert!(mask.value(0));
         assert!(!mask.value(1));
         assert_eq!(casted.buffer::<i16>().as_ref()[0], 1);
+    }
+
+    #[test]
+    fn cast_lossless_scale_up_ignores_null_lane_overflow() {
+        // A lossless scale-up (the target precision has room for every valid value) takes the fast
+        // path that skips per-lane range checks. A null lane holding an out-of-range value must
+        // not derail it: the lane is masked, so its rescaled value is irrelevant.
+        let array = DecimalArray::new(
+            buffer![100i64, i64::MAX],
+            DecimalDType::new(10, 2),
+            Validity::from_iter([true, false]),
+        );
+
+        let wider_dtype = DType::Decimal(DecimalDType::new(18, 4), Nullability::Nullable);
+        #[expect(deprecated)]
+        let casted = array.into_array().cast(wider_dtype).unwrap().to_decimal();
+
+        let mask = casted
+            .as_ref()
+            .validity()
+            .unwrap()
+            .execute_mask(
+                casted.as_ref().len(),
+                &mut array_session().create_execution_ctx(),
+            )
+            .unwrap();
+        assert!(mask.value(0));
+        assert!(!mask.value(1));
+        // 1.00 -> 1.0000 keeps the valid lane exact.
+        assert_eq!(casted.buffer::<i64>().as_ref()[0], 10_000);
     }
 
     #[test]

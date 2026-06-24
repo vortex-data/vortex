@@ -124,7 +124,7 @@ impl DecimalValue {
     ///
     /// This preserves the represented numeric value exactly. Reducing scale fails if doing so
     /// would discard non-zero fractional digits.
-    pub(crate) fn rescale_i256(value: i256, from_scale: i8, to_scale: i8) -> VortexResult<i256> {
+    fn rescale_i256(value: i256, from_scale: i8, to_scale: i8) -> VortexResult<i256> {
         if from_scale == to_scale || value == i256::ZERO {
             return Ok(value);
         }
