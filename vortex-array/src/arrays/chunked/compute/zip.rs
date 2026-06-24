@@ -51,12 +51,11 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArrayExt;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -65,6 +64,7 @@ mod tests {
 
     #[test]
     fn test_chunked_zip_aligns_across_boundaries() {
+        let mut ctx = array_session().create_execution_ctx();
         let if_true = ChunkedArray::try_new(
             vec![
                 buffer![1i32, 2].into_array(),
@@ -103,8 +103,7 @@ mod tests {
         assert_eq!(zipped.nchunks(), 4);
         let mut values: Vec<i32> = Vec::new();
         for chunk in zipped.chunks() {
-            #[expect(deprecated)]
-            let primitive = chunk.to_primitive();
+            let primitive = chunk.execute::<PrimitiveArray>(&mut ctx).unwrap();
             values.extend_from_slice(primitive.as_slice::<i32>());
         }
         assert_eq!(values, vec![1, 11, 3, 13, 5]);

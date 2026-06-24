@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical as _;
+use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
@@ -27,6 +30,8 @@ const ARGS: &[(usize, usize)] = &[
     (1 << 14, 10),
     (1 << 14, 90),
 ];
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 #[divan::bench(args = ARGS)]
 fn compact(bencher: Bencher, args: (usize, usize)) {
@@ -46,31 +51,39 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
         .into_array()
         .take(indices)
         .vortex_expect("operation should succeed in benchmark");
-    #[expect(deprecated)]
-    let array = taken.to_varbinview();
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = taken
+        .execute::<VarBinViewArray>(&mut ctx)
+        .vortex_expect("operation should succeed in benchmark");
 
-    bencher.with_inputs(|| &array).bench_refs(|array| {
-        array
-            .compact_buffers()
-            .vortex_expect("operation should succeed in benchmark")
-    })
+    bencher
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| {
+            array
+                .compact_buffers(ctx)
+                .vortex_expect("operation should succeed in benchmark")
+        })
 }
 
 fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)) {
+    let mut ctx = SESSION.create_execution_ctx();
     let base_size = (output_size * 100) / utilization_pct;
     let base_array = build_varbinview_fixture(base_size);
     let sliced = base_array
         .into_array()
         .slice(0..output_size)
         .vortex_expect("slice should succeed");
-    #[expect(deprecated)]
-    let array = sliced.to_varbinview();
+    let array = sliced
+        .execute::<VarBinViewArray>(&mut ctx)
+        .vortex_expect("operation should succeed in benchmark");
 
-    bencher.with_inputs(|| &array).bench_refs(|array| {
-        array
-            .compact_buffers()
-            .vortex_expect("operation should succeed in benchmark")
-    })
+    bencher
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| {
+            array
+                .compact_buffers(ctx)
+                .vortex_expect("operation should succeed in benchmark")
+        })
 }
 
 /// Creates a base VarBinViewArray with mix of inlined and outlined strings.

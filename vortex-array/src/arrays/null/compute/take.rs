@@ -6,11 +6,12 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::arrays::Null;
 use crate::arrays::NullArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::match_each_integer_ptype;
@@ -19,8 +20,9 @@ use crate::optimizer::rules::ParentRuleSet;
 impl TakeReduce for Null {
     #[expect(clippy::cast_possible_truncation)]
     fn take(array: ArrayView<'_, Null>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        #[expect(deprecated)]
-        let indices = indices.to_primitive();
+        let indices = indices
+            .clone()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
 
         // Enforce all indices are valid
         match_each_integer_ptype!(indices.ptype(), |T| {

@@ -184,7 +184,7 @@ mod tests {
     #[case(dict_encode(&PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).into_array(), &mut SESSION.create_execution_ctx()).unwrap().into_array())]
     #[case(dict_encode(&buffer![1.5f32, 2.5, 1.5, 3.5].into_array(), &mut SESSION.create_execution_ctx()).unwrap().into_array())]
     fn test_cast_dict_conformance(#[case] array: ArrayRef) {
-        test_cast_conformance(&array);
+        test_cast_conformance(&array, &mut SESSION.create_execution_ctx());
     }
 
     #[test]

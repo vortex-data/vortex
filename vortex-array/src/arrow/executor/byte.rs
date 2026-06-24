@@ -79,15 +79,15 @@ mod tests {
     use arrow_array::Array;
     use arrow_array::cast::AsArray;
     use arrow_schema::DataType;
+    use arrow_schema::Field;
     use rstest::rstest;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
-    use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::ArrowSessionExt;
     use crate::arrow::executor::byte::VarBinViewArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -122,10 +122,12 @@ mod tests {
         #[case] vortex_array: VarBinViewArray,
         #[case] target_dtype: DataType,
     ) {
-        let mut ctx = array_session().create_execution_ctx();
-        let arrow = vortex_array
-            .into_array()
-            .execute_arrow(Some(&target_dtype), &mut ctx)
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+        let field = Field::new("test_field", target_dtype.clone(), true);
+        let arrow = session
+            .arrow()
+            .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx)
             .unwrap();
 
         assert_eq!(arrow.data_type(), &target_dtype);
@@ -169,10 +171,12 @@ mod tests {
             vortex_dtype,
         );
 
-        let mut ctx = array_session().create_execution_ctx();
-        let arrow = vortex_array
-            .into_array()
-            .execute_arrow(Some(&target_dtype), &mut ctx)
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+        let field = Field::new("test_field", target_dtype.clone(), true);
+        let arrow = session
+            .arrow()
+            .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx)
             .unwrap();
 
         assert_eq!(arrow.data_type(), &target_dtype);
@@ -192,10 +196,11 @@ mod tests {
             .into_array()
             .filter(Mask::from_iter([true, false, false]))?;
 
-        let arrow = filtered.execute_arrow(
-            Some(&DataType::Utf8View),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+        let arrow = session
+            .arrow()
+            .execute_arrow(filtered.into_array(), None, &mut ctx)?;
 
         assert_eq!(arrow.as_string_view().value(0), "selected");
         assert!(

@@ -19,8 +19,6 @@ use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::min_max;
@@ -259,10 +257,12 @@ impl ListViewData {
 
         // Skip host-only validation when offsets/sizes are not host-resident.
         if offsets.is_host() && sizes.is_host() {
-            #[expect(deprecated)]
-            let offsets_primitive = offsets.to_primitive();
-            #[expect(deprecated)]
-            let sizes_primitive = sizes.to_primitive();
+            let offsets_primitive = offsets
+                .clone()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+            let sizes_primitive = sizes
+                .clone()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
             // Offsets and sizes are non-negative; reinterpret to unsigned to dispatch over 4 widths
             // each (4x4 instead of 8x8). This is a read-only validation, so result types are moot.
             let offsets_primitive =
@@ -425,14 +425,6 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         let offset = self.offset_at(index);
         let size = self.size_at(index);
         self.elements().slice(offset..offset + size)
-    }
-
-    fn verify_is_zero_copy_to_list(&self) -> bool {
-        #[expect(deprecated)]
-        let offsets_primitive = self.offsets().to_primitive();
-        #[expect(deprecated)]
-        let sizes_primitive = self.sizes().to_primitive();
-        validate_zctl(self.elements(), offsets_primitive, sizes_primitive).is_ok()
     }
 
     /// Returns a [`Mask`] of length `elements.len()` where each bit is set iff that
@@ -648,10 +640,16 @@ impl Array<ListView> {
     /// See [`ListViewData::with_zero_copy_to_list`].
     pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
         if cfg!(debug_assertions) && is_zctl {
-            #[expect(deprecated)]
-            let offsets_primitive = self.offsets().to_primitive();
-            #[expect(deprecated)]
-            let sizes_primitive = self.sizes().to_primitive();
+            let offsets_primitive = self
+                .offsets()
+                .clone()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("offsets must canonicalize to primitive");
+            let sizes_primitive = self
+                .sizes()
+                .clone()
+                .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())
+                .vortex_expect("sizes must canonicalize to primitive");
             validate_zctl(self.elements(), offsets_primitive, sizes_primitive)
                 .vortex_expect("Failed to validate zero-copy to list flag");
         }

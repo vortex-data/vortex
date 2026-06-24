@@ -215,7 +215,7 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        test_mask_conformance(&array.into_array());
+        test_mask_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         let array = dict_encode(
             &PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)])
@@ -223,7 +223,7 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        test_mask_conformance(&array.into_array());
+        test_mask_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         let array = dict_encode(
             &VarBinArray::from_iter(
@@ -240,7 +240,7 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        test_mask_conformance(&array.into_array());
+        test_mask_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -250,7 +250,7 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         let array = dict_encode(
             &PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)])
@@ -258,7 +258,7 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         let array = dict_encode(
             &VarBinArray::from_iter(
@@ -275,7 +275,7 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -302,7 +302,7 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        test_take_conformance(&array.into_array());
+        test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         let array = dict_encode(
             &PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)])
@@ -310,7 +310,7 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        test_take_conformance(&array.into_array());
+        test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
 
         let array = dict_encode(
             &VarBinArray::from_iter(
@@ -327,7 +327,7 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        test_take_conformance(&array.into_array());
+        test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }
 

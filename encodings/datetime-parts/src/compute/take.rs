@@ -136,6 +136,9 @@ mod tests {
         Some("UTC".into())
     ), &mut array_session().create_execution_ctx()).unwrap())]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
-        test_take_conformance(&array.into_array());
+        test_take_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

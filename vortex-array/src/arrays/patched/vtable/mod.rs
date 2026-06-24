@@ -210,8 +210,7 @@ impl VTable for Patched {
                 .clone()
                 .execute::<Canonical>(ctx)?
                 .into_array();
-            builder.extend_from_array(&canonical);
-            return Ok(());
+            return canonical.append_to_builder(builder, ctx);
         }
 
         let ptype = dtype.as_ptype();

@@ -37,7 +37,10 @@ mod tests {
         let array =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        test_mask_conformance(&array.into_array());
+        test_mask_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[test]
@@ -48,7 +51,10 @@ mod tests {
         let array =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[rstest]

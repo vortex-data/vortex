@@ -9,33 +9,44 @@ use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrow::ArrowSessionExt;
 use crate::arrow::FromArrowArray;
 
-pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
+pub fn filter_varbinview(
+    array: &VarBinViewArray,
+    mask: &Arc<MaskValues>,
+    ctx: &mut ExecutionCtx,
+) -> VarBinViewArray {
     // Delegate to the Arrow implementation of filter over `VarBinView`.
-    arrow_filter_fn(&array.clone().into_array(), &Mask::Values(Arc::clone(mask)))
-        .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
-        .as_::<VarBinView>()
-        .into_owned()
+    arrow_filter_fn(
+        &array.clone().into_array(),
+        &Mask::Values(Arc::clone(mask)),
+        ctx,
+    )
+    .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
+    .as_::<VarBinView>()
+    .into_owned()
 }
 
-fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<ArrayRef> {
+fn arrow_filter_fn(
+    array: &ArrayRef,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> vortex_error::VortexResult<ArrayRef> {
     let values = match &mask {
         Mask::Values(values) => values,
         Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),
     };
 
-    let array_ref = LEGACY_SESSION.arrow().execute_arrow(
-        array.clone(),
-        None,
-        &mut LEGACY_SESSION.create_execution_ctx(),
-    )?;
+    let array_ref = ctx
+        .session()
+        .arrow()
+        .clone()
+        .execute_arrow(array.clone(), None, ctx)?;
     let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
@@ -45,6 +56,8 @@ fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<
 #[cfg(test)]
 mod test {
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::VarBinViewArray;
     use crate::compute::conformance::filter::test_filter_conformance;
 
@@ -52,6 +65,7 @@ mod test {
     fn test_filter_varbinview_conformance() {
         test_filter_conformance(
             &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
+            &mut array_session().create_execution_ctx(),
         );
 
         test_filter_conformance(
@@ -63,6 +77,7 @@ mod test {
                 Some("five"),
             ])
             .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 }

@@ -12,11 +12,11 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-#[expect(deprecated)]
-use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 fn main() {
@@ -54,8 +54,10 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
     bencher
         .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
-            #[expect(deprecated)]
-            let prim = indices.to_primitive();
+            let prim = indices
+                .clone()
+                .execute::<PrimitiveArray>(ctx)
+                .vortex_expect("operation should succeed in benchmark");
             patches.take_search(prim, false, ctx)
         });
 }
@@ -73,8 +75,10 @@ fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f6
     bencher
         .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
-            #[expect(deprecated)]
-            let prim = indices.to_primitive();
+            let prim = indices
+                .clone()
+                .execute::<PrimitiveArray>(ctx)
+                .vortex_expect("operation should succeed in benchmark");
             patches.take_search(prim, false, ctx)
         });
 }
@@ -92,8 +96,10 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     bencher
         .with_inputs(|| (&patches, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(patches, indices, ctx)| {
-            #[expect(deprecated)]
-            let prim = indices.to_primitive();
+            let prim = indices
+                .clone()
+                .execute::<PrimitiveArray>(ctx)
+                .vortex_expect("operation should succeed in benchmark");
             patches.take_map(prim, false, ctx)
         });
 }
@@ -105,15 +111,7 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
         .collect::<Buffer<u64>>();
     let sparse_len = indices.len();
     let values = Buffer::from_iter((0..sparse_len).map(|x| x as u64)).into_array();
-    Patches::new(
-        len,
-        0,
-        indices.into_array(),
-        values,
-        // TODO(0ax1): handle chunk offsets
-        None,
-    )
-    .unwrap()
+    Patches::new(len, 0, indices.into_array(), values, None).unwrap()
 }
 
 fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {

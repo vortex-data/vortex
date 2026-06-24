@@ -16,6 +16,7 @@ use vortex_session::registry::CachedId;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -35,6 +36,8 @@ use crate::arrays::list::array::SLOT_NAMES;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::match_each_list_builder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -198,6 +201,21 @@ impl VTable for List {
         Ok(ExecutionResult::done(
             list_view_from_list(array, ctx)?.into_array(),
         ))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let array = array.into_owned().into_array();
+        // A directly-supplied `ListBuilder` (not the canonical builder for `DType::List`).
+        match_each_list_builder!(&array, builder, ctx);
+        // The canonical builder is `ListViewBuilder`; canonicalize and dispatch to `ListView`.
+        array
+            .execute::<Canonical>(ctx)?
+            .into_array()
+            .append_to_builder(builder, ctx)
     }
 }
 

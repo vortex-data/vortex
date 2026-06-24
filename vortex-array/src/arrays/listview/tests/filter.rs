@@ -33,7 +33,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
 #[case::overlapping(create_overlapping_listview())]
 #[case::large(create_large_listview())]
 fn test_filter_listview_conformance(#[case] listview: ListViewArray) {
-    test_filter_conformance(&listview.into_array());
+    test_filter_conformance(&listview.into_array(), &mut SESSION.create_execution_ctx());
 }
 
 #[test]

@@ -126,8 +126,6 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
@@ -268,6 +266,7 @@ mod test {
 
     #[test]
     fn test_take_shuffled_large() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let nchunks: i32 = 100;
         let chunk_len: i32 = 1_000;
         let total = nchunks * chunk_len;
@@ -297,8 +296,7 @@ mod test {
         let result = arr.take(indices_arr.into_array())?;
 
         // Verify every element.
-        #[expect(deprecated)]
-        let result = result.to_primitive();
+        let result = result.execute::<PrimitiveArray>(&mut ctx)?;
         let result_vals = result.as_slice::<i32>();
         for (pos, &idx) in indices.iter().enumerate() {
             assert_eq!(
@@ -353,14 +351,20 @@ mod test {
                 .clone(),
         )
         .unwrap();
-        test_take_conformance(&arr.into_array());
+        test_take_conformance(
+            &arr.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
 
         // Test with nullable chunked array
         let a = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
         let b = PrimitiveArray::from_option_iter([Some(4i32), Some(5)]);
         let dtype = a.dtype().clone();
         let arr = ChunkedArray::try_new(vec![a.into_array(), b.into_array()], dtype).unwrap();
-        test_take_conformance(&arr.into_array());
+        test_take_conformance(
+            &arr.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
 
         // Test with multiple identical chunks
         let chunk = buffer![10i32, 20, 30, 40, 50].into_array();
@@ -369,6 +373,9 @@ mod test {
             chunk.dtype().clone(),
         )
         .unwrap();
-        test_take_conformance(&arr.into_array());
+        test_take_conformance(
+            &arr.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

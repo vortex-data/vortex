@@ -12,9 +12,8 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
@@ -22,8 +21,6 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
@@ -122,6 +119,25 @@ impl StructBuilder {
 
         struct_fields
     }
+
+    /// Appends the values of a canonical [`StructArray`] to the builder, recursing into each
+    /// field's builder.
+    pub(crate) fn append_struct_array(
+        &mut self,
+        array: &StructArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        for (field, builder) in array
+            .iter_unmasked_fields()
+            .zip_eq(self.builders.iter_mut())
+        {
+            field.append_to_builder(builder.as_mut(), ctx)?;
+        }
+
+        self.nulls
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+        Ok(())
+    }
 }
 
 impl ArrayBuilder for StructBuilder {
@@ -168,26 +184,6 @@ impl ArrayBuilder for StructBuilder {
         self.append_value(scalar.as_struct())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let array = array.to_struct();
-
-        for (a, builder) in array
-            .iter_unmasked_fields()
-            .zip_eq(self.builders.iter_mut())
-        {
-            builder.extend_from_array(a);
-        }
-
-        self.nulls.append_validity_mask(
-            &array
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
-                .vortex_expect("Failed to compute validity mask"),
-        );
-    }
-
     fn reserve_exact(&mut self, capacity: usize) {
         self.builders.iter_mut().for_each(|builder| {
             builder.reserve_exact(capacity);
@@ -203,7 +199,7 @@ impl ArrayBuilder for StructBuilder {
         self.finish_into_struct().into_array()
     }
 
-    fn finish_into_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
         Canonical::Struct(self.finish_into_struct())
     }
 }

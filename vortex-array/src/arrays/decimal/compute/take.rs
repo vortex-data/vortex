@@ -131,6 +131,9 @@ mod tests {
         )
     })]
     fn test_take_decimal_conformance(#[case] array: DecimalArray) {
-        test_take_conformance(&array.into_array());
+        test_take_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

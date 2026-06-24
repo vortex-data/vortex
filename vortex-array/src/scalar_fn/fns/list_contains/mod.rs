@@ -400,6 +400,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -410,8 +411,6 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
@@ -666,15 +665,14 @@ mod tests {
     // -- Tests migrated from compute/list_contains.rs --
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
-        #[expect(deprecated)]
-        let result = ListArray::from_iter_slow::<u64, _>(
-            values,
-            Arc::new(DType::Utf8(Nullability::NonNullable)),
-        )
-        .unwrap()
-        .to_listview()
-        .into_array();
-        result
+        let mut ctx = array_session().create_execution_ctx();
+
+        ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
+            .unwrap()
+            .into_array()
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("failed to convert to listview")
+            .into_array()
     }
 
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {
@@ -693,13 +691,15 @@ mod tests {
         let elements =
             VarBinArray::from_iter(elements, DType::Utf8(Nullability::Nullable)).into_array();
 
-        #[expect(deprecated)]
-        let result = ListArray::try_new(elements, offsets, Validity::NonNullable)
+        let mut ctx = array_session().create_execution_ctx();
+
+        ListArray::try_new(elements, offsets, Validity::NonNullable)
             .unwrap()
             .as_array()
-            .to_listview()
-            .into_array();
-        result
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)
+            .vortex_expect("failed to convert to listview")
+            .into_array()
     }
 
     fn bool_array(values: Vec<bool>, validity: Validity) -> BoolArray {

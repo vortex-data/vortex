@@ -138,7 +138,7 @@ impl ScalarFnVTable for VariantGet {
                 builder.append_scalar(&output)?;
             }
 
-            return Ok(builder.finish_into_canonical().into_array());
+            return Ok(builder.finish());
         }
 
         // TODO(variant): replace this with a Variant builder once one exists.

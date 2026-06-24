@@ -123,7 +123,7 @@ mod tests {
     #[case(BoolArray::from_iter(vec![true]))]
     #[case(BoolArray::from_iter(vec![false, false]))]
     fn test_cast_bool_conformance(#[case] array: BoolArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[rstest]

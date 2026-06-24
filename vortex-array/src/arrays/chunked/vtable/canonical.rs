@@ -73,7 +73,7 @@ pub(super) fn _canonicalize(
         _ => {
             let mut builder = builder_with_capacity_in(ctx.allocator(), array.dtype(), array.len());
             array.array().append_to_builder(builder.as_mut(), ctx)?;
-            builder.finish_into_canonical()
+            builder.finish_into_canonical(ctx)
         }
     })
 }

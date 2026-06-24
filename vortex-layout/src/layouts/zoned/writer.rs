@@ -164,7 +164,10 @@ impl LayoutStrategy for ZonedStrategy {
             )
             .await?;
 
-        let Some((stats_array, aggregate_fns)) = stats_accumulator.lock().as_array()? else {
+        let mut exec_ctx = session.create_execution_ctx();
+        let Some((stats_array, aggregate_fns)) =
+            stats_accumulator.lock().as_array(&mut exec_ctx)?
+        else {
             // If we have no stats (e.g. the DType doesn't support them), then we just return the
             // child layout.
             return Ok(data_layout);

@@ -147,7 +147,7 @@ mod tests {
         let zigzag = zigzag_encode(
             PrimitiveArray::new(buffer![-189i32, -160, 1, 42, -73], Validity::AllValid).as_view(),
         )?;
-        test_filter_conformance(&zigzag.into_array());
+        test_filter_conformance(&zigzag.into_array(), &mut SESSION.create_execution_ctx());
 
         // Test with i64 values
         let zigzag = zigzag_encode(
@@ -157,13 +157,13 @@ mod tests {
             )
             .as_view(),
         )?;
-        test_filter_conformance(&zigzag.into_array());
+        test_filter_conformance(&zigzag.into_array(), &mut SESSION.create_execution_ctx());
 
         // Test with nullable values
         let array =
             PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]);
         let zigzag = zigzag_encode(array.as_view())?;
-        test_filter_conformance(&zigzag.into_array());
+        test_filter_conformance(&zigzag.into_array(), &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
@@ -176,13 +176,13 @@ mod tests {
             PrimitiveArray::new(buffer![-100i32, 200, -300, 400, -500], Validity::AllValid)
                 .as_view(),
         )?;
-        test_mask_conformance(&zigzag.into_array());
+        test_mask_conformance(&zigzag.into_array(), &mut SESSION.create_execution_ctx());
 
         // Test with i8 values
         let zigzag = zigzag_encode(
             PrimitiveArray::new(buffer![-127i8, 0, 127, -1, 1], Validity::AllValid).as_view(),
         )?;
-        test_mask_conformance(&zigzag.into_array());
+        test_mask_conformance(&zigzag.into_array(), &mut SESSION.create_execution_ctx());
         Ok(())
     }
 
@@ -198,7 +198,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let array_primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
         let zigzag = zigzag_encode(array_primitive.as_view())?;
-        test_take_conformance(&zigzag.into_array());
+        test_take_conformance(&zigzag.into_array(), &mut ctx);
         Ok(())
     }
 

@@ -313,6 +313,7 @@ pub(crate) fn packed_bit_buffer_size_in_bytes(len: usize) -> VortexResult<u64> {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
 
@@ -355,9 +356,12 @@ mod tests {
 
     fn materialized_uncompressed_size_in_bytes(array: &ArrayRef) -> u64 {
         let mut builder = builder_with_capacity(array.dtype(), array.len());
-        unsafe {
-            builder.extend_from_array_unchecked(array);
-        }
+        array
+            .append_to_builder(
+                builder.as_mut(),
+                &mut array_session().create_execution_ctx(),
+            )
+            .vortex_expect("appended");
         builder.finish().nbytes()
     }
 

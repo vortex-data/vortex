@@ -266,6 +266,6 @@ mod tests {
     #[case(bp(&buffer![0u32, 1000, 2000, 3000, 4000].into_array(), 12))]
     #[case(bp(&PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).into_array(), 4))]
     fn test_cast_bitpacked_conformance(#[case] array: BitPackedArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

@@ -27,6 +27,8 @@ use crate::arrays::extension::array::STORAGE_SLOT;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::arrays::extension::compute::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::ExtensionBuilder;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 
@@ -186,6 +188,17 @@ impl VTable for Extension {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<ExtensionBuilder>() else {
+            vortex_bail!("append_to_builder for Extension requires an ExtensionBuilder");
+        };
+        builder.append_extension_array(&array.into_owned(), ctx)
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {

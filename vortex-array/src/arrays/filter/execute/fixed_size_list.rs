@@ -137,7 +137,10 @@ mod test {
     fn test_filter_fixed_size_list_conformance() {
         let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9]);
         let array = FixedSizeListArray::new(elements.into_array(), 3, Validity::NonNullable, 3);
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[test]
@@ -146,7 +149,10 @@ mod test {
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), Some(5), None]);
         let validity = Validity::from_iter([true, false, true]);
         let array = FixedSizeListArray::new(elements.into_array(), 2, validity, 3);
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[test]
