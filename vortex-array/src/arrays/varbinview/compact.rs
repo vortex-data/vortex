@@ -18,9 +18,6 @@ use crate::arrays::varbinview::Ref;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 
-const DEFAULT_COMPACTION_THRESHOLD: f64 = 0.5;
-const MIN_RETAINED_BYTES_PER_ROW_TO_CHECK_COMPACTION: u64 = 128;
-
 impl VarBinViewArray {
     /// Returns a compacted copy of the input array, where all wasted space has been cleaned up. This
     /// operation can be very expensive, in the worst case copying all existing string data into
@@ -36,7 +33,8 @@ impl VarBinViewArray {
             return Ok(self.clone());
         }
 
-        self.compact_with_threshold(DEFAULT_COMPACTION_THRESHOLD)
+        // Use selective compaction with threshold of 1.0 (compact any buffer with any waste)
+        self.compact_with_threshold(1.0)
     }
 
     fn should_compact(&self) -> VortexResult<bool> {
@@ -52,18 +50,12 @@ impl VarBinViewArray {
             return Ok(true);
         }
 
-        let buffer_total_bytes: u64 = self.buffers.iter().map(|buf| buf.len() as u64).sum();
-        if buffer_total_bytes == 0 {
-            return Ok(true);
-        }
-
-        let len = u64::try_from(self.len()).unwrap_or(u64::MAX);
-        if len > 0 && buffer_total_bytes / len <= MIN_RETAINED_BYTES_PER_ROW_TO_CHECK_COMPACTION {
-            return Ok(false);
-        }
-
         let bytes_referenced: u64 = self.count_referenced_bytes()?;
-        Ok((bytes_referenced as f64 / buffer_total_bytes as f64) < DEFAULT_COMPACTION_THRESHOLD)
+        let buffer_total_bytes: u64 = self.buffers.iter().map(|buf| buf.len() as u64).sum();
+
+        // If there is any wasted space, we want to repack.
+        // This is very aggressive.
+        Ok(bytes_referenced < buffer_total_bytes || buffer_total_bytes == 0)
     }
 
     /// Iterates over all valid, non-inlined views, calling the provided
@@ -272,7 +264,8 @@ mod tests {
             .execute::<VarBinViewArray>(&mut array_session().create_execution_ctx())
             .unwrap();
 
-        let optimized_array = taken_array.compact_with_threshold(1.0).unwrap();
+        // Optimize the taken array
+        let optimized_array = taken_array.compact_buffers().unwrap();
 
         // The optimized array should have exactly 1 buffer (consolidated)
         assert_eq!(optimized_array.data_buffers().len(), 1);
