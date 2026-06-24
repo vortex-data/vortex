@@ -1824,6 +1824,7 @@ const MAX_SPLIT_ROWS: u64 = 100_000;
 async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
     // A single flat (unchunked) 250k-row layout spans the 100k sub-split threshold, so the scan
     // must decode it as multiple row-range splits.
+    let mut ctx = SESSION.create_execution_ctx();
     const N_ROWS: u64 = 250_000;
     let values =
         Buffer::from_iter((0..N_ROWS as i32).map(|i| if i % 2 == 0 { i } else { -i })).into_array();
@@ -1847,7 +1848,7 @@ async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
 
     // A full scan across the sub-splits returns the original rows.
     let result = file.scan()?.into_array_stream()?.read_all().await?;
-    assert_arrays_eq!(result, values);
+    assert_arrays_eq!(result, values, &mut ctx);
 
     // A filtered scan crossing sub-split boundaries selects exactly the matching rows.
     let result = file
@@ -1858,7 +1859,7 @@ async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
         .await?;
     let expected =
         Buffer::from_iter((0..N_ROWS as i32).filter(|i| i % 2 == 0 && *i > 0)).into_array();
-    assert_arrays_eq!(result, expected);
+    assert_arrays_eq!(result, expected, &mut ctx);
 
     Ok(())
 }
@@ -1874,6 +1875,7 @@ async fn test_flat_chunk_scan_with_row_count_splits(
     // Fixed-size splits ignore chunk boundaries entirely, so scans must produce identical
     // results whether the split size straddles the chunk arbitrarily or exceeds the file's
     // row count (a single split).
+    let mut ctx = SESSION.create_execution_ctx();
     const N_ROWS: u64 = 250_000;
     let values =
         Buffer::from_iter((0..N_ROWS as i32).map(|i| if i % 2 == 0 { i } else { -i })).into_array();
@@ -1893,7 +1895,7 @@ async fn test_flat_chunk_scan_with_row_count_splits(
         .into_array_stream()?
         .read_all()
         .await?;
-    assert_arrays_eq!(result, values);
+    assert_arrays_eq!(result, values, &mut ctx);
 
     let result = file
         .scan()?
@@ -1904,7 +1906,7 @@ async fn test_flat_chunk_scan_with_row_count_splits(
         .await?;
     let expected =
         Buffer::from_iter((0..N_ROWS as i32).filter(|i| i % 2 == 0 && *i > 0)).into_array();
-    assert_arrays_eq!(result, expected);
+    assert_arrays_eq!(result, expected, &mut ctx);
 
     Ok(())
 }
@@ -1915,6 +1917,7 @@ async fn test_string_chunks_stay_fine_grained_under_split_cap() -> VortexResult<
     // Default writing targets ~1MiB uncompressed blocks, so ~120-byte strings chunk at a few
     // thousand rows (~8k with today's defaults). These natural boundaries sit far below the
     // sub-split cap, and SplitBy::Layout must pass them through untouched.
+    let mut ctx = SESSION.create_execution_ctx();
     const N_ROWS: usize = 40_000;
     let strings = VarBinArray::from_iter(
         (0..N_ROWS).map(|i| Some(format!("{i:0>120}"))),
@@ -1945,7 +1948,7 @@ async fn test_string_chunks_stay_fine_grained_under_split_cap() -> VortexResult<
     assert!(splits.windows(2).all(|w| w[0].end == w[1].start));
 
     let result = file.scan()?.into_array_stream()?.read_all().await?;
-    assert_arrays_eq!(result, st);
+    assert_arrays_eq!(result, st, &mut ctx);
 
     Ok(())
 }
