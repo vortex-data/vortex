@@ -192,6 +192,11 @@ impl ReadResults {
     pub fn contains(&self, key: ReadRequestKey) -> bool {
         self.store.get(key).is_some()
     }
+
+    /// Return the backing read store.
+    pub fn store(&self) -> ReadStoreRef {
+        Arc::clone(&self.store)
+    }
 }
 
 impl ScanRead {

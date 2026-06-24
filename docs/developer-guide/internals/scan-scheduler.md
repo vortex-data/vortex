@@ -1,15 +1,18 @@
 # Scan Scheduler
 
-This document describes the current ScanPlan V2 scheduler and I/O pipeline. It is
-an implementation guide, not a design sketch.
+This document describes the current ScanPlan-backed scheduler and I/O pipeline.
+It is an implementation guide, not a design sketch.
 
 The scheduler is split across three layers:
 
 - `vortex-scan::scheduler` owns the process/query-level scheduler object,
   scheduler provider, and read-byte budget configuration.
-- `vortex-file::multi::scan_v2` owns the per-partition ScanPlan runtime. It
-  plans morsels, queues evidence/predicate/projection work, and decides which
-  queued task is useful next.
+- `vortex-layout::scan::plan` owns the ScanPlan runtime interfaces and
+  layout-backed implementations. Deserialized layouts construct concrete plans
+  with the file-provided segment source.
+- `vortex-file::multi::scan_v2` wires files into that runtime. It builds the
+  root plan for a file, plans morsels, queues evidence/predicate/projection
+  work, and decides which queued task is useful next.
 - `vortex-file::segments` and `vortex-file::read` own segment future
   registration, logical read deduplication, physical range coalescing, and
   backend request concurrency.
@@ -21,7 +24,7 @@ control how much work is launched.
 
 ## Execution Shape
 
-The normal DataFusion V2 path is:
+The normal DataFusion ScanPlan path is:
 
 ```text
 DataFusion DataSource::open(partition)
@@ -39,7 +42,7 @@ ScanSchedulerProvider::scheduler_for_scan
 partition_work_stream
         |
         +-- plan morsels into task queues
-        +-- register segment futures synchronously
+        +-- create task steps and register segment reads synchronously
         +-- admit tasks by lane/frontier/read bytes
         +-- poll task futures on the Vortex runtime
         +-- emit arrays in ordered or unordered mode
@@ -75,7 +78,7 @@ The default `VortexSession` provider is `Unbounded`. DuckDB installs a shared
 default scheduler in the extension session. The DataFusion benchmark only
 installs a scheduler when `VORTEX_SCAN_SCHEDULER` is set.
 
-There is no scheduler permit API in the V2 runtime. Task launch is admitted by
+There is no scheduler permit API in the ScanPlan runtime. Task launch is admitted by
 the per-partition `ScanTaskQueue` using active logical read bytes. Limited scans
 still plan one active morsel at a time internally because limit accounting must
 not consume rows far ahead of the output frontier, but that is not a public
@@ -174,23 +177,25 @@ DEFAULT_READ_BYTE_BUDGET = 256 MiB
 `ScanSchedulerConfig::unbounded()` leaves this unset, which becomes `u64::MAX`
 inside `partition_work_stream`.
 
-## Segment Requests
+## Segment Reads
 
-Prepared reads and evidence providers expose segment requests before task launch.
-The runtime turns those requests into `ScanRead` values with:
+Prepared reads and evidence providers create tasks. When a task is converted
+into a scheduler-visible step, the concrete `ScanPlan` implementation turns any
+needed layout segments into `ScanRead` values through its scan-local
+`SegmentFutureCache`:
 
 ```rust
-register_segment_reads_cached(cache, source, requests)
+cache.register(source, requests)
 ```
 
 This call is synchronous. For cache misses, it calls the underlying
 `SegmentSource::request(segment)` immediately and stores a shared future in the
-scan-local `SegmentFutureCache`. That means simply planning work registers the
-logical reads with the file segment source before the task future is polled.
+scan-local cache. That means creating a read step registers the logical reads
+with the file segment source before the task continuation is run.
 
-The cache key is currently the logical `SegmentId`. That is sufficient inside one
-`ScanExecution` because each execution has one bound file segment source. It is
-not a cross-file or cross-scan cache key.
+The cache key is currently the logical `SegmentId`. That is sufficient inside a
+file-bound `SegmentFutureCache` because the concrete plans using that cache are
+bound to the same file segment source. It is not a cross-file cache key.
 
 `SegmentInfo` contains only logical payload `bytes`, which the task scheduler
 uses for read-budget admission. Segment-cache policy is owned by the
@@ -266,7 +271,7 @@ VORTEX_SCAN_MAX_READ_BYTES=...
 Useful S3 sweeps should compare:
 
 ```text
-# Current compatibility behavior.
+# Default unbounded behavior.
 VORTEX_SCAN_SCHEDULER=unbounded
 
 # Bounded read pressure, one scheduler per query.

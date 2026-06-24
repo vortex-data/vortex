@@ -8,12 +8,12 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::VortexSession;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutDeserializeArgs;
+use crate::layout_v2::LayoutScanPlanCtx;
 use crate::layout_v2::VTable;
 use crate::layouts::zoned::LegacyStatsMetadata;
 use crate::layouts::zoned::ZoneMapSchema;
@@ -103,9 +103,9 @@ impl VTable for Zoned {
     fn new_scan_plan(
         layout: Layout<Self>,
         req: &mut ScanRequest,
-        session: &VortexSession,
+        ctx: &LayoutScanPlanCtx,
     ) -> VortexResult<ScanPlanRef> {
-        scan_zoned::new_scan_plan(layout, req, session)
+        scan_zoned::new_scan_plan(layout, req, ctx)
     }
 }
 
@@ -152,8 +152,8 @@ impl VTable for LegacyStats {
     fn new_scan_plan(
         layout: Layout<Self>,
         req: &mut ScanRequest,
-        session: &VortexSession,
+        ctx: &LayoutScanPlanCtx,
     ) -> VortexResult<ScanPlanRef> {
-        scan_zoned::new_scan_plan(layout, req, session)
+        scan_zoned::new_scan_plan(layout, req, ctx)
     }
 }

@@ -6,13 +6,13 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutDeserializeArgs;
+use crate::layout_v2::LayoutScanPlanCtx;
 use crate::layout_v2::VTable;
 use crate::layout_v2::metadata_bytes_field;
 use crate::scan::plan::ScanPlanRef;
@@ -79,8 +79,8 @@ impl VTable for Flat {
     fn new_scan_plan(
         layout: Layout<Self>,
         req: &mut ScanRequest,
-        session: &VortexSession,
+        ctx: &LayoutScanPlanCtx,
     ) -> VortexResult<ScanPlanRef> {
-        scan_flat::new_scan_plan(layout, req, session)
+        scan_flat::new_scan_plan(layout, req, ctx)
     }
 }

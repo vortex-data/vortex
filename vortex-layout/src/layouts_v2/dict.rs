@@ -7,12 +7,12 @@ use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_session::VortexSession;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutDeserializeArgs;
+use crate::layout_v2::LayoutScanPlanCtx;
 use crate::layout_v2::VTable;
 use crate::layout_v2::metadata_bool_field;
 use crate::layout_v2::metadata_varint_field;
@@ -77,8 +77,8 @@ impl VTable for Dict {
     fn new_scan_plan(
         layout: Layout<Self>,
         req: &mut ScanRequest,
-        session: &VortexSession,
+        ctx: &LayoutScanPlanCtx,
     ) -> VortexResult<ScanPlanRef> {
-        scan_dict::new_scan_plan(layout, req, session)
+        scan_dict::new_scan_plan(layout, req, ctx)
     }
 }

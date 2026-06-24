@@ -27,7 +27,9 @@ use crate::LayoutChildType;
 use crate::LayoutId;
 use crate::scan::plan::ScanPlanRef;
 use crate::scan::plan::request::ScanRequest;
+use crate::segments::SegmentFutureCache;
 use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
 
 /// A reference-counted, type-erased v2 layout.
 #[derive(Clone)]
@@ -85,8 +87,49 @@ pub trait VTable: 'static + Clone + Send + Sync + Debug {
     fn new_scan_plan(
         layout: Layout<Self>,
         req: &mut ScanRequest,
-        session: &VortexSession,
+        ctx: &LayoutScanPlanCtx,
     ) -> VortexResult<ScanPlanRef>;
+}
+
+/// Context captured while expanding a serialized layout into a physical scan plan.
+///
+/// Layouts are serialization metadata; concrete scan plans are bound to the segment source
+/// they will read from when the layout is expanded.
+#[derive(Clone)]
+pub struct LayoutScanPlanCtx {
+    session: VortexSession,
+    segment_source: Arc<dyn SegmentSource>,
+    segment_future_cache: Arc<SegmentFutureCache>,
+}
+
+impl LayoutScanPlanCtx {
+    /// Create a layout scan-plan expansion context.
+    pub fn new(
+        session: VortexSession,
+        segment_source: Arc<dyn SegmentSource>,
+        segment_future_cache: Arc<SegmentFutureCache>,
+    ) -> Self {
+        Self {
+            session,
+            segment_source,
+            segment_future_cache,
+        }
+    }
+
+    /// Return the session used while constructing scan plans.
+    pub fn session(&self) -> &VortexSession {
+        &self.session
+    }
+
+    /// Return the segment source concrete scan plans should capture.
+    pub fn segment_source(&self) -> &Arc<dyn SegmentSource> {
+        &self.segment_source
+    }
+
+    /// Return the file-level cache used for scheduled segment futures.
+    pub fn segment_future_cache(&self) -> &Arc<SegmentFutureCache> {
+        &self.segment_future_cache
+    }
 }
 
 /// Object-safe plugin for deserializing v2 layouts by ID.
@@ -329,7 +372,7 @@ trait DynLayout: 'static + Send + Sync + Debug {
     fn dyn_new_scan_plan(
         &self,
         req: &mut ScanRequest,
-        session: &VortexSession,
+        ctx: &LayoutScanPlanCtx,
     ) -> VortexResult<ScanPlanRef>;
 }
 
@@ -388,9 +431,9 @@ impl LayoutRef {
     pub fn new_scan_plan(
         &self,
         req: &mut ScanRequest,
-        session: &VortexSession,
+        ctx: &LayoutScanPlanCtx,
     ) -> VortexResult<ScanPlanRef> {
-        self.0.dyn_new_scan_plan(req, session)
+        self.0.dyn_new_scan_plan(req, ctx)
     }
 
     /// Returns an iterator over child row offsets.
@@ -445,9 +488,9 @@ impl<V: VTable> DynLayout for Layout<V> {
     fn dyn_new_scan_plan(
         &self,
         req: &mut ScanRequest,
-        session: &VortexSession,
+        ctx: &LayoutScanPlanCtx,
     ) -> VortexResult<ScanPlanRef> {
-        V::new_scan_plan(self.clone(), req, session)
+        V::new_scan_plan(self.clone(), req, ctx)
     }
 }
 

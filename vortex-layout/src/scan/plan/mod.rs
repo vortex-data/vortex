@@ -33,7 +33,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
-use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldNames;
@@ -52,41 +51,25 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_scan::read::ReadRequestKey;
 use vortex_scan::read::ReadResults;
+use vortex_scan::read::ScanIoPhase;
 use vortex_scan::read::ScanRead;
 use vortex_session::VortexSession;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use self::evidence::EvidenceFragment;
 use self::request::EvidenceRequest;
 use self::request::OwnedEvidenceRequest;
-use crate::segments::SegmentPlanCtx;
-use crate::segments::SegmentRequestKey;
-use crate::segments::SegmentRequests;
-use crate::segments::SegmentSource;
 
 /// Execution context for prepared scan tasks.
 #[derive(Clone)]
 pub struct ReadContext {
-    segments: Arc<dyn SegmentSource>,
     session: VortexSession,
 }
 
 impl ReadContext {
-    /// Create a read context from a segment source and session.
-    pub fn new(segments: Arc<dyn SegmentSource>, session: VortexSession) -> Self {
-        Self { segments, session }
-    }
-
-    /// Segment source for layout data.
-    pub fn segments(&self) -> &Arc<dyn SegmentSource> {
-        &self.segments
-    }
-
-    /// Return a segment that was resolved by the scan scheduler before execution.
-    pub fn segment(&self, id: crate::segments::SegmentId) -> VortexResult<BufferHandle> {
-        self.segments.resolved(id)
+    /// Create a read context from a session.
+    pub fn new(session: VortexSession) -> Self {
+        Self { session }
     }
 
     /// Session used to decode arrays and execute expressions.
@@ -563,22 +546,11 @@ impl ScanPlan for LiteralScanPlan {
 }
 
 impl PreparedRead for LiteralPreparedRead {
-    fn segment_requests(
-        &self,
-        _range: Range<u64>,
-        _rows: RowScope<'_>,
-        _cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        Ok(SegmentRequests::none())
-    }
-
     fn create_task(
         self: Arc<Self>,
         range: Range<u64>,
         rows: OwnedRowScope,
-        _reads: Vec<ScanRead>,
-        _prefetch_reads: Vec<ScanRead>,
-        _cx: &mut SegmentPlanCtx,
+        _phase: ScanIoPhase,
     ) -> VortexResult<Box<dyn ReadTask>> {
         check_scan_range(&range, self.row_count)?;
         Ok(Box::new(LiteralReadTask {
@@ -690,34 +662,12 @@ fn check_scan_range(range: &Range<u64>, row_count: u64) -> VortexResult<()> {
 /// may hold child prepared reads and initializes route-scoped state once per
 /// prepared file scan; each morsel execution is represented as a [`ReadTask`].
 pub trait PreparedRead: 'static + Send + Sync {
-    /// Return scheduler-visible segment requests needed for this read, when known exactly.
-    fn segment_requests(
-        &self,
-        _range: Range<u64>,
-        _rows: RowScope<'_>,
-        _cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        Ok(SegmentRequests::unknown())
-    }
-
-    /// Return scheduler-visible segment requests that may be fetched speculatively.
-    fn prefetch_segment_requests(
-        &self,
-        _range: Range<u64>,
-        _rows: RowScope<'_>,
-        _cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        Ok(SegmentRequests::none())
-    }
-
     /// Create a morsel-level read task for this prepared read.
     fn create_task(
         self: Arc<Self>,
         range: Range<u64>,
         rows: OwnedRowScope,
-        reads: Vec<ScanRead>,
-        prefetch_reads: Vec<ScanRead>,
-        cx: &mut SegmentPlanCtx,
+        phase: ScanIoPhase,
     ) -> VortexResult<Box<dyn ReadTask>>;
 
     /// Release state behind the completed-row frontier.
@@ -799,32 +749,6 @@ impl ReadStep {
 pub trait ReadTask: Send {
     /// Convert this task into its next scheduler-visible step.
     fn into_step(self: Box<Self>) -> VortexResult<ReadStep>;
-}
-
-pub(crate) fn take_reads_for_requests(
-    registered: &mut [Option<ScanRead>],
-    requests: SegmentRequests,
-) -> VortexResult<Vec<ScanRead>> {
-    let Some(requests) = requests.into_exact() else {
-        vortex_bail!("scan2 child task produced unknown segment requests")
-    };
-    let keys = requests
-        .iter()
-        .map(|request| ReadRequestKey::from(SegmentRequestKey::from(request)))
-        .collect::<HashSet<_>>();
-    Ok(registered
-        .iter_mut()
-        .filter_map(|read| {
-            if read
-                .as_ref()
-                .is_some_and(|read| keys.contains(&read.request.key))
-            {
-                read.take()
-            } else {
-                None
-            }
-        })
-        .collect())
 }
 
 enum StructReadPart {
@@ -1289,92 +1213,26 @@ impl ScanPlan for StructValueScanPlan {
 }
 
 impl PreparedRead for StructValuePreparedRead {
-    fn segment_requests(
-        &self,
-        range: Range<u64>,
-        rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        let mut requests = SegmentRequests::none();
-        for field in &self.fields {
-            requests.extend(field.segment_requests(range.clone(), rows, cx)?);
-            if requests.is_unknown() {
-                return Ok(requests);
-            }
-        }
-        if let Some(validity) = &self.validity {
-            requests.extend(validity.segment_requests(range, rows, cx)?);
-        }
-        Ok(requests)
-    }
-
-    fn prefetch_segment_requests(
-        &self,
-        range: Range<u64>,
-        rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        let mut requests = SegmentRequests::none();
-        for field in &self.fields {
-            requests.extend(field.prefetch_segment_requests(range.clone(), rows, cx)?);
-            if requests.is_unknown() {
-                return Ok(requests);
-            }
-        }
-        if let Some(validity) = &self.validity {
-            requests.extend(validity.prefetch_segment_requests(range, rows, cx)?);
-        }
-        Ok(requests)
-    }
-
     fn create_task(
         self: Arc<Self>,
         range: Range<u64>,
         rows: OwnedRowScope,
-        reads: Vec<ScanRead>,
-        prefetch_reads: Vec<ScanRead>,
-        cx: &mut SegmentPlanCtx,
+        phase: ScanIoPhase,
     ) -> VortexResult<Box<dyn ReadTask>> {
-        let mut reads = reads.into_iter().map(Some).collect::<Vec<_>>();
-        let mut prefetch_reads = prefetch_reads.into_iter().map(Some).collect::<Vec<_>>();
         let mut fields = Vec::with_capacity(self.fields.len());
         for field in &self.fields {
-            let field_reads = take_reads_for_requests(
-                &mut reads,
-                field.segment_requests(range.clone(), rows.as_scope(), cx)?,
-            )?;
-            let field_prefetch_reads = take_reads_for_requests(
-                &mut prefetch_reads,
-                field.prefetch_segment_requests(range.clone(), rows.as_scope(), cx)?,
-            )?;
             fields.push(StructReadPart::Pending(Arc::clone(field).create_task(
                 range.clone(),
                 rows.clone(),
-                field_reads,
-                field_prefetch_reads,
-                cx,
+                phase,
             )?));
         }
         let validity = self
             .validity
             .as_ref()
             .map(|validity| {
-                let validity_reads = take_reads_for_requests(
-                    &mut reads,
-                    validity.segment_requests(range.clone(), rows.as_scope(), cx)?,
-                )?;
-                let validity_prefetch_reads = take_reads_for_requests(
-                    &mut prefetch_reads,
-                    validity.prefetch_segment_requests(range.clone(), rows.as_scope(), cx)?,
-                )?;
                 Arc::clone(validity)
-                    .create_task(
-                        range.clone(),
-                        rows.clone(),
-                        validity_reads,
-                        validity_prefetch_reads,
-                        cx,
-                    )
+                    .create_task(range.clone(), rows.clone(), phase)
                     .map(StructReadPart::Pending)
             })
             .transpose()?;
@@ -1455,33 +1313,13 @@ impl ScanPlan for ApplyScanPlan {
 }
 
 impl PreparedRead for ApplyPreparedRead {
-    fn segment_requests(
-        &self,
-        range: Range<u64>,
-        rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        self.input.segment_requests(range, rows, cx)
-    }
-
-    fn prefetch_segment_requests(
-        &self,
-        range: Range<u64>,
-        rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        self.input.prefetch_segment_requests(range, rows, cx)
-    }
-
     fn create_task(
         self: Arc<Self>,
         range: Range<u64>,
         rows: OwnedRowScope,
-        reads: Vec<ScanRead>,
-        prefetch_reads: Vec<ScanRead>,
-        cx: &mut SegmentPlanCtx,
+        phase: ScanIoPhase,
     ) -> VortexResult<Box<dyn ReadTask>> {
-        let input = Arc::clone(&self.input).create_task(range, rows, reads, prefetch_reads, cx)?;
+        let input = Arc::clone(&self.input).create_task(range, rows, phase)?;
         Ok(Box::new(ApplyReadTask {
             expr: self.plan.expr.clone(),
             input,
@@ -1578,80 +1416,14 @@ impl ScanPlan for MaskScanPlan {
 }
 
 impl PreparedRead for MaskPreparedRead {
-    fn segment_requests(
-        &self,
-        range: Range<u64>,
-        rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        let mut requests = self.input.segment_requests(range.clone(), rows, cx)?;
-        if requests.is_unknown() {
-            return Ok(requests);
-        }
-        requests.extend(self.validity.segment_requests(range, rows, cx)?);
-        Ok(requests)
-    }
-
-    fn prefetch_segment_requests(
-        &self,
-        range: Range<u64>,
-        rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        let mut requests = self
-            .input
-            .prefetch_segment_requests(range.clone(), rows, cx)?;
-        if requests.is_unknown() {
-            return Ok(requests);
-        }
-        requests.extend(self.validity.prefetch_segment_requests(range, rows, cx)?);
-        Ok(requests)
-    }
-
     fn create_task(
         self: Arc<Self>,
         range: Range<u64>,
         rows: OwnedRowScope,
-        reads: Vec<ScanRead>,
-        prefetch_reads: Vec<ScanRead>,
-        cx: &mut SegmentPlanCtx,
+        phase: ScanIoPhase,
     ) -> VortexResult<Box<dyn ReadTask>> {
-        let mut reads = reads.into_iter().map(Some).collect::<Vec<_>>();
-        let mut prefetch_reads = prefetch_reads.into_iter().map(Some).collect::<Vec<_>>();
-        let input_reads = take_reads_for_requests(
-            &mut reads,
-            self.input
-                .segment_requests(range.clone(), rows.as_scope(), cx)?,
-        )?;
-        let input_prefetch_reads = take_reads_for_requests(
-            &mut prefetch_reads,
-            self.input
-                .prefetch_segment_requests(range.clone(), rows.as_scope(), cx)?,
-        )?;
-        let validity_reads = take_reads_for_requests(
-            &mut reads,
-            self.validity
-                .segment_requests(range.clone(), rows.as_scope(), cx)?,
-        )?;
-        let validity_prefetch_reads = take_reads_for_requests(
-            &mut prefetch_reads,
-            self.validity
-                .prefetch_segment_requests(range.clone(), rows.as_scope(), cx)?,
-        )?;
-        let input = Arc::clone(&self.input).create_task(
-            range.clone(),
-            rows.clone(),
-            input_reads,
-            input_prefetch_reads,
-            cx,
-        )?;
-        let validity = Arc::clone(&self.validity).create_task(
-            range,
-            rows,
-            validity_reads,
-            validity_prefetch_reads,
-            cx,
-        )?;
+        let input = Arc::clone(&self.input).create_task(range.clone(), rows.clone(), phase)?;
+        let validity = Arc::clone(&self.validity).create_task(range, rows, phase)?;
         Ok(Box::new(MaskReadTask { input, validity }))
     }
 
@@ -1717,28 +1489,8 @@ pub trait PreparedEvidence: 'static + Send + Sync {
         &'a self,
         req: &'a EvidenceRequest<'a>,
         io: &'a ReadContext,
+        results: ReadResults,
     ) -> VortexResult<Vec<EvidenceFragment>>;
-
-    /// Return scheduler-visible segment requests needed for this evidence, when known exactly.
-    fn segment_requests(
-        &self,
-        _req: &EvidenceRequest<'_>,
-        _cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        Ok(SegmentRequests::unknown())
-    }
-
-    /// Return scheduler-visible segment requests that may be fetched speculatively.
-    ///
-    /// Prefetch requests must not be required for the immediate [`PreparedEvidence::evidence`]
-    /// execution path, because the scan scheduler may launch them without waiting for completion.
-    fn prefetch_segment_requests(
-        &self,
-        _req: &EvidenceRequest<'_>,
-        _cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        Ok(SegmentRequests::none())
-    }
 
     /// Whether this handle is cheap enough to re-run immediately before a
     /// projection read when a dynamic predicate boundary changes while
@@ -1761,52 +1513,68 @@ pub trait PreparedEvidence: 'static + Send + Sync {
     fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "evidence")
     }
-}
 
-impl dyn PreparedEvidence {
     /// Create a morsel-level evidence task for this prepared evidence handle.
-    pub fn create_task(
+    fn create_task(
         self: Arc<Self>,
         req: OwnedEvidenceRequest,
-        reads: Vec<ScanRead>,
-    ) -> VortexResult<Box<dyn EvidenceTask>> {
-        Ok(Box::new(DefaultEvidenceTask {
-            evidence: self,
-            req,
-            reads,
-        }))
-    }
+        phase: ScanIoPhase,
+    ) -> VortexResult<Box<dyn EvidenceTask>>;
 }
 
 /// A morsel-level evidence task.
 pub trait EvidenceTask: Send {
-    /// Registered reads needed by this task.
-    fn reads(&self) -> &[ScanRead];
-
-    /// Execute the evidence task.
-    fn evidence(self: Box<Self>, io: &ReadContext) -> VortexResult<Vec<EvidenceFragment>>;
+    /// Convert this task into its scheduler-visible step.
+    fn into_step(self: Box<Self>) -> VortexResult<EvidenceStep>;
 }
 
-struct DefaultEvidenceTask {
-    evidence: PreparedEvidenceRef,
-    req: OwnedEvidenceRequest,
-    reads: Vec<ScanRead>,
+/// Continuation called after an evidence step's required reads have resolved.
+pub trait EvidenceContinuation: Send {
+    /// Execute the continuation.
+    fn run(
+        self: Box<Self>,
+        io: &ReadContext,
+        results: ReadResults,
+    ) -> VortexResult<Vec<EvidenceFragment>>;
 }
 
-impl EvidenceTask for DefaultEvidenceTask {
-    fn reads(&self) -> &[ScanRead] {
-        &self.reads
+impl<F> EvidenceContinuation for F
+where
+    F: FnOnce(&ReadContext, ReadResults) -> VortexResult<Vec<EvidenceFragment>> + Send,
+{
+    fn run(
+        self: Box<Self>,
+        io: &ReadContext,
+        results: ReadResults,
+    ) -> VortexResult<Vec<EvidenceFragment>> {
+        self(io, results)
     }
+}
 
-    fn evidence(self: Box<Self>, io: &ReadContext) -> VortexResult<Vec<EvidenceFragment>> {
-        let Self {
-            evidence,
-            req,
-            reads,
-        } = *self;
-        let result = evidence.evidence(&req.as_request(), io);
-        drop(reads);
-        result
+/// One scheduler-visible step of an evidence task.
+pub struct EvidenceStep {
+    /// Reads that must resolve before the continuation runs.
+    pub required_reads: Vec<ScanRead>,
+    /// Reads that may be fetched speculatively while this step is queued.
+    pub prefetch_reads: Vec<ScanRead>,
+    /// Continuation to execute after required reads resolve.
+    pub continuation: Box<dyn EvidenceContinuation>,
+}
+
+impl EvidenceStep {
+    /// Create an evidence step.
+    pub fn new(
+        required_reads: Vec<ScanRead>,
+        prefetch_reads: Vec<ScanRead>,
+        continuation: impl FnOnce(&ReadContext, ReadResults) -> VortexResult<Vec<EvidenceFragment>>
+        + Send
+        + 'static,
+    ) -> Self {
+        Self {
+            required_reads,
+            prefetch_reads,
+            continuation: Box::new(continuation),
+        }
     }
 }
 
@@ -1829,28 +1597,11 @@ mod tests {
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::arrays::Constant;
-    use vortex_array::buffer::BufferHandle;
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::lit;
-    use vortex_buffer::ByteBuffer;
     use vortex_scan::read::ReadStore;
 
     use super::*;
-
-    struct TestSegments;
-
-    impl SegmentSource for TestSegments {
-        fn segment_info(
-            &self,
-            _id: crate::segments::SegmentId,
-        ) -> VortexResult<crate::segments::SegmentInfo> {
-            Ok(crate::segments::SegmentInfo::new(0))
-        }
-
-        fn request(&self, _id: crate::segments::SegmentId) -> crate::segments::SegmentFuture {
-            Box::pin(async { Ok(BufferHandle::new_host(ByteBuffer::from(Vec::<u8>::new()))) })
-        }
-    }
 
     struct TestStatsNode;
 
@@ -1940,7 +1691,7 @@ mod tests {
             )?
             .ok_or_else(|| vortex_err!("test scan plan did not return a stats plan"))?;
         let state = plan.init_state(&session)?;
-        let io = ReadContext::new(Arc::new(TestSegments), session);
+        let io = ReadContext::new(session);
         let stats = futures::executor::block_on(plan.stats(10..20, &io, state.as_ref()))?;
 
         assert_eq!(stats.len(), funcs.len());
@@ -1962,10 +1713,9 @@ mod tests {
         let read = plan
             .prepare_read(&mut PrepareCtx::new(session.clone()))?
             .ok_or_else(|| vortex_err!("literal scan plan did not return a prepared read"))?;
-        let io = ReadContext::new(Arc::new(TestSegments), session);
+        let io = ReadContext::new(session);
         let rows = OwnedRowScope::selected(Mask::new_true(5));
-        let mut segment_ctx = SegmentPlanCtx::new(Arc::clone(io.segments()), io.session().clone());
-        let task = read.create_task(10..15, rows, Vec::new(), Vec::new(), &mut segment_ctx)?;
+        let task = read.create_task(10..15, rows, ScanIoPhase::ProjectionRead)?;
         let results = ReadResults::new(Arc::new(ReadStore::new()));
         let step = task.into_step()?;
         if !step.required_reads.is_empty() || !step.prefetch_reads.is_empty() {

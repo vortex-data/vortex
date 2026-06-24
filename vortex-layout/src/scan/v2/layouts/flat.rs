@@ -23,11 +23,15 @@ use vortex_array::serde::SerializedArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_scan::read::ReadRequestKey;
+use vortex_scan::read::ReadResults;
+use vortex_scan::read::ScanIoPhase;
 use vortex_scan::read::ScanRead;
 use vortex_session::VortexSession;
 
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
+use crate::layout_v2::LayoutScanPlanCtx;
 use crate::layouts_v2::flat::Flat;
 use crate::scan::plan::OwnedRowScope;
 use crate::scan::plan::PrepareCtx;
@@ -35,11 +39,9 @@ use crate::scan::plan::PreparedRead;
 use crate::scan::plan::PreparedReadRef;
 use crate::scan::plan::PreparedStateKey;
 use crate::scan::plan::PushCtx;
-use crate::scan::plan::ReadContext;
 use crate::scan::plan::ReadStep;
 use crate::scan::plan::ReadTask;
 use crate::scan::plan::ReadTaskOutput;
-use crate::scan::plan::RowScope;
 use crate::scan::plan::ScanPlan;
 use crate::scan::plan::ScanPlanRef;
 use crate::scan::plan::ScanState;
@@ -48,16 +50,21 @@ use crate::scan::plan::StateCtx;
 use crate::scan::plan::default_try_push_expr;
 use crate::scan::plan::downcast_state;
 use crate::scan::plan::request::ScanRequest;
-use crate::segments::SegmentPlanCtx;
-use crate::segments::SegmentRequests;
+use crate::segments::SegmentFutureCache;
+use crate::segments::SegmentRequest;
+use crate::segments::SegmentRequestKey;
+use crate::segments::SegmentSource;
 
 pub(crate) fn new_scan_plan(
     layout: Layout<Flat>,
     _req: &mut ScanRequest,
-    _session: &VortexSession,
+    ctx: &LayoutScanPlanCtx,
 ) -> VortexResult<ScanPlanRef> {
     Ok(Arc::new(FlatScanPlan {
         layout: layout.to_layout(),
+        session: ctx.session().clone(),
+        segment_source: Arc::clone(ctx.segment_source()),
+        segment_future_cache: Arc::clone(ctx.segment_future_cache()),
     }))
 }
 
@@ -65,6 +72,9 @@ pub(crate) fn new_scan_plan(
 /// into a (lazy) array, and slices per request.
 pub struct FlatScanPlan {
     layout: LayoutRef,
+    session: VortexSession,
+    segment_source: Arc<dyn SegmentSource>,
+    segment_future_cache: Arc<SegmentFutureCache>,
 }
 
 /// Per-query cache of the parsed (still lazy) array.
@@ -82,12 +92,11 @@ struct FlatReadTask {
     read: Arc<FlatPreparedRead>,
     range: Range<u64>,
     rows: OwnedRowScope,
-    reads: Vec<ScanRead>,
-    prefetch_reads: Vec<ScanRead>,
+    phase: ScanIoPhase,
 }
 
 impl FlatScanPlan {
-    fn array(&self, io: &ReadContext, state: &FlatScanState) -> VortexResult<ArrayRef> {
+    fn array(&self, results: &ReadResults, state: &FlatScanState) -> VortexResult<ArrayRef> {
         if let Some(hit) = state.array.lock().clone() {
             return Ok(hit);
         }
@@ -97,7 +106,7 @@ impl FlatScanPlan {
             return Ok(hit);
         }
 
-        let array = decode_flat(&self.layout, io)?;
+        let array = decode_flat(&self.layout, results, &self.session)?;
         *guard = Some(array.clone());
         Ok(array)
     }
@@ -142,37 +151,17 @@ impl ScanPlan for FlatScanPlan {
 }
 
 impl PreparedRead for FlatPreparedRead {
-    fn segment_requests(
-        &self,
-        _range: Range<u64>,
-        _rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        let Some(flat) = self.node.layout.as_opt::<Flat>() else {
-            vortex_bail!(
-                "expected flat layout, got {}",
-                self.node.layout.encoding_id()
-            );
-        };
-        Ok(SegmentRequests::exact(vec![
-            cx.request_for_segment(flat.data().segment_id())?,
-        ]))
-    }
-
     fn create_task(
         self: Arc<Self>,
         range: Range<u64>,
         rows: OwnedRowScope,
-        reads: Vec<ScanRead>,
-        prefetch_reads: Vec<ScanRead>,
-        _cx: &mut SegmentPlanCtx,
+        phase: ScanIoPhase,
     ) -> VortexResult<Box<dyn ReadTask>> {
         Ok(Box::new(FlatReadTask {
             read: self,
             range,
             rows,
-            reads,
-            prefetch_reads,
+            phase,
         }))
     }
 
@@ -185,59 +174,89 @@ impl PreparedRead for FlatPreparedRead {
     }
 }
 
+impl FlatPreparedRead {
+    fn segment_read(&self, phase: ScanIoPhase) -> VortexResult<ScanRead> {
+        let Some(flat) = self.node.layout.as_opt::<Flat>() else {
+            vortex_bail!(
+                "expected flat layout, got {}",
+                self.node.layout.encoding_id()
+            );
+        };
+        self.node
+            .segment_future_cache
+            .register(
+                self.node.segment_source.as_ref(),
+                vec![SegmentRequest::new(
+                    flat.data().segment_id(),
+                    self.node
+                        .segment_source
+                        .segment_info(flat.data().segment_id())?,
+                    phase,
+                )],
+            )
+            .into_iter()
+            .next()
+            .ok_or_else(|| vortex_err!("flat segment read registration returned no reads"))
+    }
+}
+
 impl ReadTask for FlatReadTask {
     fn into_step(self: Box<Self>) -> VortexResult<ReadStep> {
         let Self {
             read,
             range,
             rows,
-            reads,
-            prefetch_reads,
+            phase,
         } = *self;
-        Ok(ReadStep::new(reads, prefetch_reads, move |io, _, _| {
-            let array = read.node.array(io, &read.state)?;
-            let rows = rows.as_scope();
-            let dense = slice_to_range(array, &range)?;
-            if rows.selection.len() != dense.len() {
-                vortex_bail!(
-                    "selection length {} does not match read range length {}",
-                    rows.selection.len(),
-                    dense.len()
-                );
-            }
-            if rows.demand.len() != dense.len() {
-                vortex_bail!(
-                    "demand length {} does not match read range length {}",
-                    rows.demand.len(),
-                    dense.len()
-                );
-            }
-            if rows.selection.all_true() {
-                return Ok(ReadTaskOutput::Ready(dense));
-            }
-            Ok(ReadTaskOutput::Ready(dense.filter(rows.selection.clone())?))
-        }))
+        let segment_read = read.segment_read(phase)?;
+        Ok(ReadStep::new(
+            vec![segment_read],
+            Vec::new(),
+            move |_, _, results| {
+                let array = read.node.array(&results, &read.state)?;
+                let rows = rows.as_scope();
+                let dense = slice_to_range(array, &range)?;
+                if rows.selection.len() != dense.len() {
+                    vortex_bail!(
+                        "selection length {} does not match read range length {}",
+                        rows.selection.len(),
+                        dense.len()
+                    );
+                }
+                if rows.demand.len() != dense.len() {
+                    vortex_bail!(
+                        "demand length {} does not match read range length {}",
+                        rows.demand.len(),
+                        dense.len()
+                    );
+                }
+                if rows.selection.all_true() {
+                    return Ok(ReadTaskOutput::Ready(dense));
+                }
+                Ok(ReadTaskOutput::Ready(dense.filter(rows.selection.clone())?))
+            },
+        ))
     }
 }
 
-pub(crate) fn decode_flat(layout: &LayoutRef, io: &ReadContext) -> VortexResult<ArrayRef> {
+pub(crate) fn decode_flat(
+    layout: &LayoutRef,
+    results: &ReadResults,
+    session: &VortexSession,
+) -> VortexResult<ArrayRef> {
     let Some(flat) = layout.as_opt::<Flat>() else {
         vortex_bail!("expected flat layout, got {}", layout.encoding_id());
     };
     let row_count = usize::try_from(layout.row_count())
         .map_err(|_| vortex_err!("layout row count exceeds usize"))?;
-    let segment = io.segment(flat.data().segment_id())?;
+    let key = ReadRequestKey::from(SegmentRequestKey::new(flat.data().segment_id()));
+    let segment = results.get(key)?;
     let parts = if let Some(tree) = flat.data().array_tree() {
         SerializedArray::from_flatbuffer_and_segment(tree.clone(), segment)?
     } else {
         SerializedArray::try_from(segment)?
     };
-    parts.decode(
-        layout.dtype(),
-        row_count,
-        flat.data().array_ctx(),
-        io.session(),
-    )
+    parts.decode(layout.dtype(), row_count, flat.data().array_ctx(), session)
 }
 
 pub(crate) fn slice_to_range(array: ArrayRef, range: &Range<u64>) -> VortexResult<ArrayRef> {

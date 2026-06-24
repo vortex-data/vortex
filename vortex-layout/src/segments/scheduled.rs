@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -13,15 +12,12 @@ use vortex_array::buffer::BufferHandle;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_scan::read::CancelGroup;
 use vortex_scan::read::ReadRequestKey;
-use vortex_scan::read::ReadResults;
 use vortex_scan::read::ScanIoPhase;
 use vortex_scan::read::ScanPriority;
 use vortex_scan::read::ScanRead;
 use vortex_scan::read::ScanReadRequest;
-use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -122,128 +118,6 @@ impl SegmentRequest {
     }
 }
 
-/// Planning result for segment request introspection.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SegmentRequests {
-    exact: Option<Vec<SegmentRequest>>,
-}
-
-impl SegmentRequests {
-    /// Return an unknown segment request set.
-    pub fn unknown() -> Self {
-        Self { exact: None }
-    }
-
-    /// Return an exact segment request set.
-    pub fn exact(requests: Vec<SegmentRequest>) -> Self {
-        Self {
-            exact: Some(requests),
-        }
-    }
-
-    /// Return an exact empty segment request set.
-    pub fn none() -> Self {
-        Self::exact(Vec::new())
-    }
-
-    /// Return whether this plan could not describe its segment requests.
-    pub fn is_unknown(&self) -> bool {
-        self.exact.is_none()
-    }
-
-    /// Borrow the exact request set, if known.
-    pub fn as_exact(&self) -> Option<&[SegmentRequest]> {
-        self.exact.as_deref()
-    }
-
-    /// Consume this value and return the exact request set, if known.
-    pub fn into_exact(self) -> Option<Vec<SegmentRequest>> {
-        self.exact
-    }
-
-    /// Append another request set, preserving `unknown` if either side is unknown.
-    pub fn extend(&mut self, other: SegmentRequests) {
-        match (&mut self.exact, other.exact) {
-            (Some(requests), Some(mut other)) => requests.append(&mut other),
-            _ => self.exact = None,
-        }
-    }
-}
-
-/// Context used by plans when producing scheduler-visible segment requests.
-#[derive(Clone)]
-pub struct SegmentPlanCtx {
-    source: Arc<dyn SegmentSource>,
-    session: VortexSession,
-    phase: ScanIoPhase,
-    priority: ScanPriority,
-    cancel_group: CancelGroup,
-}
-
-impl fmt::Debug for SegmentPlanCtx {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SegmentPlanCtx")
-            .field("phase", &self.phase)
-            .field("priority", &self.priority)
-            .field("cancel_group", &self.cancel_group)
-            .finish_non_exhaustive()
-    }
-}
-
-impl SegmentPlanCtx {
-    /// Create a request-planning context for a registered segment source.
-    pub fn new(source: Arc<dyn SegmentSource>, session: VortexSession) -> Self {
-        Self {
-            source,
-            session,
-            phase: ScanIoPhase::default(),
-            priority: ScanPriority::NORMAL,
-            cancel_group: CancelGroup::NONE,
-        }
-    }
-
-    /// Return the source used to resolve segment metadata.
-    pub fn source(&self) -> &Arc<dyn SegmentSource> {
-        &self.source
-    }
-
-    /// Return the scan session used by lazy plans that must instantiate child plans.
-    pub fn session(&self) -> &VortexSession {
-        &self.session
-    }
-
-    /// Return a copy of this context using the provided scan phase.
-    pub fn with_phase(mut self, phase: ScanIoPhase) -> Self {
-        self.phase = phase;
-        self
-    }
-
-    /// Return a copy of this context using the provided priority.
-    pub fn with_priority(mut self, priority: ScanPriority) -> Self {
-        self.priority = priority;
-        self
-    }
-
-    /// Return a copy of this context using the provided cancellation group.
-    pub fn with_cancel_group(mut self, cancel_group: CancelGroup) -> Self {
-        self.cancel_group = cancel_group;
-        self
-    }
-
-    /// Create a segment request with this context's source and scheduling metadata.
-    pub fn request(&self, segment: SegmentId, info: SegmentInfo) -> SegmentRequest {
-        SegmentRequest::new(segment, info, self.phase)
-            .with_priority(self.priority)
-            .with_cancel_group(self.cancel_group)
-    }
-
-    /// Create a segment request after resolving metadata from the registered source.
-    pub fn request_for_segment(&self, segment: SegmentId) -> VortexResult<SegmentRequest> {
-        let info = self.source.segment_info(segment)?;
-        Ok(self.request(segment, info))
-    }
-}
-
 type SharedSegmentFuture = BoxFuture<'static, SharedVortexResult<BufferHandle>>;
 
 /// Scan-local cache of in-flight segment futures keyed by logical segment request.
@@ -293,12 +167,12 @@ impl SegmentFutureCache {
         }
     }
 
-    /// Register exact segment reads with a source, returning handles that keep the futures alive.
-    pub fn register(&self, source: &dyn SegmentSource, requests: SegmentRequests) -> Vec<ScanRead> {
-        let Some(requests) = requests.into_exact() else {
-            return Vec::new();
-        };
-
+    /// Register segment reads with a source, returning handles that keep the futures alive.
+    pub fn register(
+        &self,
+        source: &dyn SegmentSource,
+        requests: impl IntoIterator<Item = SegmentRequest>,
+    ) -> Vec<ScanRead> {
         let mut seen: HashSet<SegmentRequestKey> = HashSet::default();
         let mut handles = Vec::new();
         let mut misses = Vec::new();
@@ -354,94 +228,12 @@ impl SegmentFutureCache {
     }
 }
 
-/// Register exact segment reads through a shared in-flight future cache.
-pub fn register_segment_reads_cached(
-    cache: &SegmentFutureCache,
-    source: &dyn SegmentSource,
-    requests: SegmentRequests,
-) -> Vec<ScanRead> {
-    cache.register(source, requests)
-}
-
 fn shared_segment_handle(request: SegmentRequest, future: Shared<SharedSegmentFuture>) -> ScanRead {
     shared_read_handle(ScanReadRequest::from(&request), future)
 }
 
 fn shared_read_handle(request: ScanReadRequest, future: Shared<SharedSegmentFuture>) -> ScanRead {
     ScanRead::new(request, future.map_err(VortexError::from).boxed())
-}
-
-/// Segment-source view backed by another source and a [`SegmentFutureCache`].
-pub struct CachedSegmentSource {
-    source: Arc<dyn SegmentSource>,
-    cache: Arc<SegmentFutureCache>,
-    phase: ScanIoPhase,
-}
-
-/// Segment source backed by scheduler-resolved read results.
-pub struct ReadResultsSegmentSource {
-    source: Arc<dyn SegmentSource>,
-    results: ReadResults,
-}
-
-impl ReadResultsSegmentSource {
-    /// Create a segment source over already-resolved scan read results.
-    pub fn new(source: Arc<dyn SegmentSource>, results: ReadResults) -> Self {
-        Self { source, results }
-    }
-}
-
-impl SegmentSource for ReadResultsSegmentSource {
-    fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
-        self.source.segment_info(id)
-    }
-
-    fn request(&self, id: SegmentId) -> SegmentFuture {
-        let key = ReadRequestKey::from(SegmentRequestKey::new(id));
-        let results = self.results.clone();
-        async move { results.get(key) }.boxed()
-    }
-
-    fn resolved(&self, id: SegmentId) -> VortexResult<BufferHandle> {
-        self.results
-            .get(ReadRequestKey::from(SegmentRequestKey::new(id)))
-    }
-}
-
-impl CachedSegmentSource {
-    /// Create a cached source using projection reads as the default late-request phase.
-    pub fn new(source: Arc<dyn SegmentSource>, cache: Arc<SegmentFutureCache>) -> Self {
-        Self {
-            source,
-            cache,
-            phase: ScanIoPhase::ProjectionRead,
-        }
-    }
-
-    /// Return a copy of this source with a different phase for late segment requests.
-    pub fn with_phase(mut self, phase: ScanIoPhase) -> Self {
-        self.phase = phase;
-        self
-    }
-}
-
-impl SegmentSource for CachedSegmentSource {
-    fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
-        self.source.segment_info(id)
-    }
-
-    fn request(&self, id: SegmentId) -> SegmentFuture {
-        let info = match self.source.segment_info(id) {
-            Ok(info) => info,
-            Err(error) => return async move { Err(error) }.boxed(),
-        };
-        self.cache
-            .request_segment(
-                self.source.as_ref(),
-                SegmentRequest::new(id, info, self.phase),
-            )
-            .future
-    }
 }
 
 #[cfg(test)]
@@ -454,6 +246,7 @@ mod tests {
     use parking_lot::Mutex;
     use vortex_array::buffer::BufferHandle;
     use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexResult;
 
     use super::*;
     struct CountingSegmentSource {
@@ -517,14 +310,14 @@ mod tests {
     #[test]
     fn register_segment_reads_dedupes_exact_segments() -> VortexResult<()> {
         let source = Arc::new(CountingSegmentSource::new(SegmentInfo::new(8)));
-        let segment_source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
-        let ctx = SegmentPlanCtx::new(segment_source, VortexSession::empty());
-        let request = ctx.request_for_segment(SegmentId::from(0))?;
-
-        let reads = SegmentFutureCache::new().register(
-            source.as_ref(),
-            SegmentRequests::exact(vec![request, request]),
+        let segment = SegmentId::from(0);
+        let request = SegmentRequest::new(
+            segment,
+            source.segment_info(segment)?,
+            ScanIoPhase::ProjectionRead,
         );
+
+        let reads = SegmentFutureCache::new().register(source.as_ref(), vec![request, request]);
 
         assert_eq!(reads.len(), 1);
         assert_eq!(source.submit_count(), 1);
@@ -535,15 +328,18 @@ mod tests {
     #[test]
     fn register_segment_reads_registers_each_miss() -> VortexResult<()> {
         let source = Arc::new(CountingMissSegmentSource::new(SegmentInfo::new(8)));
-        let segment_source: Arc<dyn SegmentSource> =
-            Arc::<CountingMissSegmentSource>::clone(&source);
-        let ctx = SegmentPlanCtx::new(segment_source, VortexSession::empty());
         let requests = (0..5)
-            .map(|segment| ctx.request_for_segment(SegmentId::from(segment)))
+            .map(|segment| {
+                let segment = SegmentId::from(segment);
+                Ok(SegmentRequest::new(
+                    segment,
+                    source.segment_info(segment)?,
+                    ScanIoPhase::ProjectionRead,
+                ))
+            })
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let reads =
-            SegmentFutureCache::new().register(source.as_ref(), SegmentRequests::exact(requests));
+        let reads = SegmentFutureCache::new().register(source.as_ref(), requests);
 
         assert_eq!(reads.len(), 5);
         assert_eq!(source.batches(), vec![1, 1, 1, 1, 1]);
@@ -554,18 +350,20 @@ mod tests {
     #[test]
     fn segment_future_cache_reuses_prefetched_segment() -> VortexResult<()> {
         let source = Arc::new(CountingSegmentSource::new(SegmentInfo::new(8)));
-        let segment_source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&source);
-        let ctx = SegmentPlanCtx::new(Arc::clone(&segment_source), VortexSession::empty());
-        let request = ctx.request_for_segment(SegmentId::from(0))?;
+        let segment = SegmentId::from(0);
+        let request = SegmentRequest::new(
+            segment,
+            source.segment_info(segment)?,
+            ScanIoPhase::ProjectionRead,
+        );
         let cache = Arc::new(SegmentFutureCache::new());
 
-        let reads = cache.register(source.as_ref(), SegmentRequests::exact(vec![request]));
-        let reader = CachedSegmentSource::new(segment_source, Arc::clone(&cache));
-        let read = reader.request(SegmentId::from(0));
+        let reads = cache.register(source.as_ref(), vec![request]);
+        let read = cache.request_segment(source.as_ref(), request);
 
         assert_eq!(reads.len(), 1);
         assert_eq!(source.submit_count(), 1);
-        assert_eq!(block_on(read)?.as_host().len(), 1);
+        assert_eq!(block_on(read.future)?.as_host().len(), 1);
         assert_eq!(source.submit_count(), 1);
 
         Ok(())

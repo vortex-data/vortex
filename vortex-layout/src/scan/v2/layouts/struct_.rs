@@ -25,10 +25,10 @@ use vortex_array::scalar_fn::fns::root::Root;
 use vortex_array::scalar_fn::fns::select::Select;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::VortexSession;
 
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
+use crate::layout_v2::LayoutScanPlanCtx;
 use crate::layouts_v2::struct_::Struct;
 use crate::scan::plan::ApplyScanPlan;
 use crate::scan::plan::MaskScanPlan;
@@ -48,7 +48,7 @@ use crate::scan::v2::struct_fields;
 pub(crate) fn new_scan_plan(
     layout: Layout<Struct>,
     _req: &mut ScanRequest,
-    session: &VortexSession,
+    ctx: &LayoutScanPlanCtx,
 ) -> VortexResult<ScanPlanRef> {
     let validity = layout
         .dtype()
@@ -56,7 +56,7 @@ pub(crate) fn new_scan_plan(
         .then(|| {
             layout
                 .child(0)?
-                .new_scan_plan(&mut ScanRequest::empty(), session)
+                .new_scan_plan(&mut ScanRequest::empty(), ctx)
         })
         .transpose()?;
     let fields = struct_fields(layout.dtype())?;
@@ -64,7 +64,7 @@ pub(crate) fn new_scan_plan(
     let field_child_offset = usize::from(layout.dtype().is_nullable());
     Ok(Arc::new(StructScanPlan {
         layout: layout.to_layout(),
-        session: session.clone(),
+        ctx: ctx.clone(),
         fields,
         children,
         field_child_offset,
@@ -75,7 +75,7 @@ pub(crate) fn new_scan_plan(
 /// Plans struct field expressions through child scan plans.
 pub struct StructScanPlan {
     layout: LayoutRef,
-    session: VortexSession,
+    ctx: LayoutScanPlanCtx,
     fields: StructFields,
     children: Mutex<Vec<Option<ScanPlanRef>>>,
     field_child_offset: usize,
@@ -144,7 +144,7 @@ impl StructScanPlan {
     /// The single-field fast paths route straight to a child node, bypassing
     /// the parent struct's validity. When the struct is nullable we wrap the
     /// child in a [`MaskScanPlan`] so the parent's null mask is applied to the
-    /// child result, mirroring the v1 struct reader's `array.mask(validity)`.
+    /// child result.
     fn apply_validity(&self, pushed: Option<ScanPlanRef>) -> Option<ScanPlanRef> {
         match (pushed, &self.validity) {
             (Some(node), Some(validity)) => {
@@ -178,7 +178,7 @@ impl StructScanPlan {
         let child = self
             .layout
             .child(child_idx)?
-            .new_scan_plan(&mut ScanRequest::empty(), &self.session)?;
+            .new_scan_plan(&mut ScanRequest::empty(), &self.ctx)?;
         *slot = Some(Arc::clone(&child));
         Ok(child)
     }

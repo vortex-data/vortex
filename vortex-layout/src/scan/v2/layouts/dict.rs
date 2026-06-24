@@ -3,8 +3,8 @@
 
 //! Scan2 vtable support for dictionary layouts.
 //!
-//! Value reads keep the v1 shape: values read once per query and cached,
-//! codes read per range (selection-aware), the pair rebuilt as a lazy
+//! Value reads use the dictionary value domain: values read once per query and
+//! cached, codes read per range (selection-aware), the pair rebuilt as a lazy
 //! `DictArray`. Pushed dictionary expressions also try to evaluate the
 //! expression over the dictionary values once per query, then reuse the
 //! resulting value-domain array with per-range codes.
@@ -38,10 +38,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_scan::read::ScanRead;
-use vortex_session::VortexSession;
+use vortex_scan::read::ScanIoPhase;
 
 use crate::layout_v2::Layout;
+use crate::layout_v2::LayoutScanPlanCtx;
 use crate::layouts_v2::dict::Dict;
 use crate::scan::plan::DeferredReadTask;
 use crate::scan::plan::OwnedRowScope;
@@ -61,9 +61,6 @@ use crate::scan::plan::ScanStateRef;
 use crate::scan::plan::StateCtx;
 use crate::scan::plan::default_try_push_expr;
 use crate::scan::plan::request::ScanRequest;
-use crate::scan::plan::take_reads_for_requests;
-use crate::segments::SegmentPlanCtx;
-use crate::segments::SegmentRequests;
 
 const DENSE_REMAP_MAX_VALUES: usize = 1 << 20;
 const DENSE_REMAP_VALUES_PER_CODE: usize = 4;
@@ -72,15 +69,15 @@ const UNREFERENCED_VALUE: usize = usize::MAX;
 pub(crate) fn new_scan_plan(
     layout: Layout<Dict>,
     _req: &mut ScanRequest,
-    session: &VortexSession,
+    ctx: &LayoutScanPlanCtx,
 ) -> VortexResult<ScanPlanRef> {
     let values = layout.child(0)?;
     let codes = layout.child(1)?;
     Ok(Arc::new(DictScanPlan {
         values_len: values.row_count(),
         // Values and codes live in other row domains.
-        values: values.new_scan_plan(&mut ScanRequest::empty(), session)?,
-        codes: codes.new_scan_plan(&mut ScanRequest::empty(), session)?,
+        values: values.new_scan_plan(&mut ScanRequest::empty(), ctx)?,
+        codes: codes.new_scan_plan(&mut ScanRequest::empty(), ctx)?,
     }))
 }
 
@@ -299,8 +296,7 @@ enum DictReadState {
 struct DictReadTask {
     read: Arc<DictPreparedRead>,
     codes: Box<dyn ReadTask>,
-    value_reads: Vec<Option<ScanRead>>,
-    cx: SegmentPlanCtx,
+    phase: ScanIoPhase,
     state: DictReadState,
 }
 
@@ -312,14 +308,18 @@ impl ReadTask for DictReadTask {
                 let DictReadTask {
                     read,
                     codes,
-                    value_reads,
-                    cx,
+                    phase,
                     state: _,
                 } = task;
                 let codes_step = codes.into_step()?;
+                let values_prefetch_step =
+                    DictReadTask::create_full_values_task_for(&read, phase)?.into_step()?;
+                let mut prefetch_reads = codes_step.prefetch_reads;
+                prefetch_reads.extend(values_prefetch_step.required_reads);
+                prefetch_reads.extend(values_prefetch_step.prefetch_reads);
                 Ok(ReadStep::new(
                     codes_step.required_reads,
-                    codes_step.prefetch_reads,
+                    prefetch_reads,
                     move |io, local, results| match codes_step
                         .continuation
                         .run(io, local, results)?
@@ -328,8 +328,7 @@ impl ReadTask for DictReadTask {
                             Ok(ReadTaskOutput::Continue(Box::new(DictReadTask {
                                 read,
                                 codes,
-                                value_reads,
-                                cx,
+                                phase,
                                 state: DictReadState::Start,
                             })))
                         }
@@ -337,8 +336,7 @@ impl ReadTask for DictReadTask {
                             let mut task = DictReadTask {
                                 read,
                                 codes: Box::new(DeferredReadTask),
-                                value_reads,
-                                cx,
+                                phase,
                                 state: DictReadState::Start,
                             };
                             let rows = OwnedRowScope::selected(Mask::new_true(codes.len()));
@@ -382,8 +380,7 @@ impl ReadTask for DictReadTask {
                 })?;
                 let values_step = values_task.into_step()?;
                 let read = task.read;
-                let value_reads = task.value_reads;
-                let cx = task.cx;
+                let phase = task.phase;
                 Ok(ReadStep::new(
                     values_step.required_reads,
                     values_step.prefetch_reads,
@@ -395,8 +392,7 @@ impl ReadTask for DictReadTask {
                             Ok(ReadTaskOutput::Continue(Box::new(DictReadTask {
                                 read,
                                 codes: Box::new(DeferredReadTask),
-                                value_reads,
-                                cx,
+                                phase,
                                 state: DictReadState::SparseValues {
                                     compact_codes,
                                     values: Some(values),
@@ -415,8 +411,7 @@ impl ReadTask for DictReadTask {
                 })?;
                 let values_step = values_task.into_step()?;
                 let read = task.read;
-                let value_reads = task.value_reads;
-                let cx = task.cx;
+                let phase = task.phase;
                 Ok(ReadStep::new(
                     values_step.required_reads,
                     values_step.prefetch_reads,
@@ -428,8 +423,7 @@ impl ReadTask for DictReadTask {
                             Ok(ReadTaskOutput::Continue(Box::new(DictReadTask {
                                 read,
                                 codes: Box::new(DeferredReadTask),
-                                value_reads,
-                                cx,
+                                phase,
                                 state: DictReadState::FullValues {
                                     codes,
                                     values: Some(values),
@@ -447,71 +441,46 @@ impl ReadTask for DictReadTask {
 }
 impl DictReadTask {
     fn create_values_task(&mut self, rows: RowScope<'_>) -> VortexResult<Box<dyn ReadTask>> {
-        let range = 0..self.read.node.values_len;
-        let requests = self
-            .read
-            .values_read
-            .segment_requests(range.clone(), rows, &mut self.cx)?;
-        let reads = take_reads_for_requests(&mut self.value_reads, requests)?;
+        Self::create_values_task_for(&self.read, self.phase, rows)
+    }
+
+    fn create_values_task_for(
+        read: &Arc<DictPreparedRead>,
+        phase: ScanIoPhase,
+        rows: RowScope<'_>,
+    ) -> VortexResult<Box<dyn ReadTask>> {
+        let range = 0..read.node.values_len;
         let owned_rows = OwnedRowScope::try_new(rows.selection.clone(), rows.demand.clone())?;
-        Arc::clone(&self.read.values_read).create_task(
-            range,
-            owned_rows,
-            reads,
-            Vec::new(),
-            &mut self.cx,
-        )
+        Arc::clone(&read.values_read).create_task(range, owned_rows, phase)
     }
 
     fn create_full_values_task(&mut self) -> VortexResult<Box<dyn ReadTask>> {
+        Self::create_full_values_task_for(&self.read, self.phase)
+    }
+
+    fn create_full_values_task_for(
+        read: &Arc<DictPreparedRead>,
+        phase: ScanIoPhase,
+    ) -> VortexResult<Box<dyn ReadTask>> {
         let values_selection = Mask::new_true(
-            usize::try_from(self.read.node.values_len)
+            usize::try_from(read.node.values_len)
                 .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
         );
-        self.create_values_task(RowScope::selected(&values_selection))
+        Self::create_values_task_for(read, phase, RowScope::selected(&values_selection))
     }
 }
 
 impl PreparedRead for DictPreparedRead {
-    fn segment_requests(
-        &self,
-        range: Range<u64>,
-        rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        self.codes_read.segment_requests(range, rows, cx)
-    }
-
-    fn prefetch_segment_requests(
-        &self,
-        _range: Range<u64>,
-        _rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        let values_selection = Mask::new_true(
-            usize::try_from(self.node.values_len)
-                .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
-        );
-        self.values_read.segment_requests(
-            0..self.node.values_len,
-            RowScope::selected(&values_selection),
-            cx,
-        )
-    }
-
     fn create_task(
         self: Arc<Self>,
         range: Range<u64>,
         rows: OwnedRowScope,
-        reads: Vec<ScanRead>,
-        prefetch_reads: Vec<ScanRead>,
-        cx: &mut SegmentPlanCtx,
+        phase: ScanIoPhase,
     ) -> VortexResult<Box<dyn ReadTask>> {
         Ok(Box::new(DictReadTask {
-            codes: Arc::clone(&self.codes_read).create_task(range, rows, reads, Vec::new(), cx)?,
+            codes: Arc::clone(&self.codes_read).create_task(range, rows, phase)?,
             read: self,
-            value_reads: prefetch_reads.into_iter().map(Some).collect(),
-            cx: cx.clone(),
+            phase,
             state: DictReadState::Start,
         }))
     }
@@ -805,8 +774,7 @@ enum DictExprValueMode {
 struct DictExprReadTask {
     read: Arc<DictExprPreparedRead>,
     codes: Box<dyn ReadTask>,
-    value_reads: Vec<Option<ScanRead>>,
-    cx: SegmentPlanCtx,
+    phase: ScanIoPhase,
     state: DictExprReadState,
 }
 
@@ -818,14 +786,18 @@ impl ReadTask for DictExprReadTask {
                 let DictExprReadTask {
                     read,
                     codes,
-                    value_reads,
-                    cx,
+                    phase,
                     state: _,
                 } = task;
                 let codes_step = codes.into_step()?;
+                let values_prefetch_step =
+                    DictExprReadTask::create_full_values_task_for(&read, phase)?.into_step()?;
+                let mut prefetch_reads = codes_step.prefetch_reads;
+                prefetch_reads.extend(values_prefetch_step.required_reads);
+                prefetch_reads.extend(values_prefetch_step.prefetch_reads);
                 Ok(ReadStep::new(
                     codes_step.required_reads,
-                    codes_step.prefetch_reads,
+                    prefetch_reads,
                     move |io, local, results| match codes_step
                         .continuation
                         .run(io, local, results)?
@@ -834,8 +806,7 @@ impl ReadTask for DictExprReadTask {
                             Ok(ReadTaskOutput::Continue(Box::new(DictExprReadTask {
                                 read,
                                 codes,
-                                value_reads,
-                                cx,
+                                phase,
                                 state: DictExprReadState::Start,
                             })))
                         }
@@ -843,8 +814,7 @@ impl ReadTask for DictExprReadTask {
                             let mut task = DictExprReadTask {
                                 read,
                                 codes: Box::new(DeferredReadTask),
-                                value_reads,
-                                cx,
+                                phase,
                                 state: DictExprReadState::Start,
                             };
                             let selection = Mask::new_true(codes.len());
@@ -940,8 +910,7 @@ impl ReadTask for DictExprReadTask {
                 })?;
                 let values_step = values_task.into_step()?;
                 let read = task.read;
-                let value_reads = task.value_reads;
-                let cx = task.cx;
+                let phase = task.phase;
                 Ok(ReadStep::new(
                     values_step.required_reads,
                     values_step.prefetch_reads,
@@ -953,8 +922,7 @@ impl ReadTask for DictExprReadTask {
                             Ok(ReadTaskOutput::Continue(Box::new(DictExprReadTask {
                                 read,
                                 codes: Box::new(DeferredReadTask),
-                                value_reads,
-                                cx,
+                                phase,
                                 state: DictExprReadState::Values {
                                     codes,
                                     values: Some(values),
@@ -962,15 +930,9 @@ impl ReadTask for DictExprReadTask {
                                 },
                             })))
                         }
-                        ReadTaskOutput::Ready(values_array) => finish_dict_expr_values(
-                            read,
-                            value_reads,
-                            cx,
-                            codes,
-                            mode,
-                            values_array,
-                            local,
-                        ),
+                        ReadTaskOutput::Ready(values_array) => {
+                            finish_dict_expr_values(read, phase, codes, mode, values_array, local)
+                        }
                     },
                 ))
             }
@@ -980,8 +942,7 @@ impl ReadTask for DictExprReadTask {
 
 fn finish_dict_expr_values(
     read: Arc<DictExprPreparedRead>,
-    mut value_reads: Vec<Option<ScanRead>>,
-    mut cx: SegmentPlanCtx,
+    phase: ScanIoPhase,
     codes: ArrayRef,
     mode: DictExprValueMode,
     values_array: ArrayRef,
@@ -1053,16 +1014,11 @@ fn finish_dict_expr_values(
                         %error,
                         "sparse dict expression read unavailable"
                     );
-                    let full_values = DictExprReadTask::create_full_values_task_for(
-                        &read,
-                        &mut value_reads,
-                        &mut cx,
-                    )?;
+                    let full_values = DictExprReadTask::create_full_values_task_for(&read, phase)?;
                     Ok(ReadTaskOutput::Continue(Box::new(DictExprReadTask {
                         read,
                         codes: Box::new(DeferredReadTask),
-                        value_reads,
-                        cx,
+                        phase,
                         state: DictExprReadState::Values {
                             codes,
                             values: Some(full_values),
@@ -1079,79 +1035,46 @@ fn finish_dict_expr_values(
 
 impl DictExprReadTask {
     fn create_values_task(&mut self, rows: RowScope<'_>) -> VortexResult<Box<dyn ReadTask>> {
-        Self::create_values_task_for(&self.read, &mut self.value_reads, &mut self.cx, rows)
+        Self::create_values_task_for(&self.read, self.phase, rows)
     }
 
     fn create_values_task_for(
         read: &Arc<DictExprPreparedRead>,
-        value_reads: &mut [Option<ScanRead>],
-        cx: &mut SegmentPlanCtx,
+        phase: ScanIoPhase,
         rows: RowScope<'_>,
     ) -> VortexResult<Box<dyn ReadTask>> {
         let range = 0..read.node.dict.values_len;
-        let requests = read.values_read.segment_requests(range.clone(), rows, cx)?;
-        let reads = take_reads_for_requests(value_reads, requests)?;
         let owned_rows = OwnedRowScope::try_new(rows.selection.clone(), rows.demand.clone())?;
-        Arc::clone(&read.values_read).create_task(range, owned_rows, reads, Vec::new(), cx)
+        Arc::clone(&read.values_read).create_task(range, owned_rows, phase)
     }
 
     fn create_full_values_task(&mut self) -> VortexResult<Box<dyn ReadTask>> {
-        Self::create_full_values_task_for(&self.read, &mut self.value_reads, &mut self.cx)
+        Self::create_full_values_task_for(&self.read, self.phase)
     }
 
     fn create_full_values_task_for(
         read: &Arc<DictExprPreparedRead>,
-        value_reads: &mut [Option<ScanRead>],
-        cx: &mut SegmentPlanCtx,
+        phase: ScanIoPhase,
     ) -> VortexResult<Box<dyn ReadTask>> {
         let values_selection = Mask::new_true(
             usize::try_from(read.node.dict.values_len)
                 .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
         );
-        Self::create_values_task_for(read, value_reads, cx, RowScope::selected(&values_selection))
+        Self::create_values_task_for(read, phase, RowScope::selected(&values_selection))
     }
 }
 
 impl PreparedRead for DictExprPreparedRead {
-    fn segment_requests(
-        &self,
-        range: Range<u64>,
-        rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        self.codes_read.segment_requests(range, rows, cx)
-    }
-
-    fn prefetch_segment_requests(
-        &self,
-        _range: Range<u64>,
-        _rows: RowScope<'_>,
-        cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        let values_selection = Mask::new_true(
-            usize::try_from(self.node.dict.values_len)
-                .map_err(|_| vortex_err!("dictionary values length exceeds usize"))?,
-        );
-        self.values_read.segment_requests(
-            0..self.node.dict.values_len,
-            RowScope::selected(&values_selection),
-            cx,
-        )
-    }
-
     fn create_task(
         self: Arc<Self>,
         range: Range<u64>,
         rows: OwnedRowScope,
-        reads: Vec<ScanRead>,
-        prefetch_reads: Vec<ScanRead>,
-        cx: &mut SegmentPlanCtx,
+        phase: ScanIoPhase,
     ) -> VortexResult<Box<dyn ReadTask>> {
         Ok(Box::new(DictExprReadTask {
-            codes: Arc::clone(&self.codes_read).create_task(range, rows, reads, Vec::new(), cx)?,
+            codes: Arc::clone(&self.codes_read).create_task(range, rows, phase)?,
             read: self,
-            value_reads: prefetch_reads.into_iter().map(Some).collect(),
-            cx: cx.clone(),
+            phase,
             state: DictExprReadState::Start,
         }))
     }

@@ -21,7 +21,6 @@ use vortex_array::scalar::PValue;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scan::read::ScanRead;
 use vortex_sequence::Sequence;
 use vortex_sequence::SequenceArray;
 
@@ -36,7 +35,6 @@ use crate::scan::plan::PushCtx;
 use crate::scan::plan::ReadStep;
 use crate::scan::plan::ReadTask;
 use crate::scan::plan::ReadTaskOutput;
-use crate::scan::plan::RowScope;
 use crate::scan::plan::ScanPlan;
 use crate::scan::plan::ScanPlanRef;
 use crate::scan::plan::ScanState;
@@ -44,8 +42,6 @@ use crate::scan::plan::ScanStateRef;
 use crate::scan::plan::StateCtx;
 use crate::scan::plan::StructValueScanPlan;
 use crate::scan::plan::default_try_push_expr;
-use crate::segments::SegmentPlanCtx;
-use crate::segments::SegmentRequests;
 
 pub fn with_row_idx(root: ScanPlanRef, dtype: DType, row_offset: u64) -> ScanPlanRef {
     Arc::new(RowIdxScanPlan {
@@ -251,22 +247,11 @@ impl ScanPlan for RowIdxExprScanPlan {
 }
 
 impl PreparedRead for RowIdxPreparedRead {
-    fn segment_requests(
-        &self,
-        _range: Range<u64>,
-        _rows: RowScope<'_>,
-        _cx: &mut SegmentPlanCtx,
-    ) -> VortexResult<SegmentRequests> {
-        Ok(SegmentRequests::none())
-    }
-
     fn create_task(
         self: Arc<Self>,
         range: Range<u64>,
         rows: OwnedRowScope,
-        _reads: Vec<ScanRead>,
-        _prefetch_reads: Vec<ScanRead>,
-        _cx: &mut SegmentPlanCtx,
+        _phase: vortex_scan::read::ScanIoPhase,
     ) -> VortexResult<Box<dyn ReadTask>> {
         Ok(Box::new(RowIdxReadTask {
             read: self,

@@ -7,12 +7,12 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_session::VortexSession;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutDeserializeArgs;
+use crate::layout_v2::LayoutScanPlanCtx;
 use crate::layout_v2::VTable;
 use crate::scan::plan::ScanPlanRef;
 use crate::scan::plan::request::ScanRequest;
@@ -72,8 +72,8 @@ impl VTable for Struct {
     fn new_scan_plan(
         layout: Layout<Self>,
         req: &mut ScanRequest,
-        session: &VortexSession,
+        ctx: &LayoutScanPlanCtx,
     ) -> VortexResult<ScanPlanRef> {
-        scan_struct::new_scan_plan(layout, req, session)
+        scan_struct::new_scan_plan(layout, req, ctx)
     }
 }
