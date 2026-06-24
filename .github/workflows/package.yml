@@ -70,7 +70,11 @@ jobs:
           }
           for path, package in replacements.items():
               text = path.read_text()
-              text = re.sub(f"{package}==[^\"\\]]+", f"{package}=={version}", text)
+              text, count = re.subn(
+                  f"{re.escape(package)}==[^\"\\]]+", f"{package}=={version}", text
+              )
+              if count != 1:
+                  raise RuntimeError(f"Expected one {package} version pin in {path}, found {count}")
               path.write_text(text)
           PY
 
