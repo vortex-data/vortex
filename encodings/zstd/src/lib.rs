@@ -22,6 +22,7 @@
 //! ```
 
 pub use array::*;
+use vortex_array::dtype::proto::dtype as pb;
 #[cfg(feature = "unstable_encodings")]
 pub use zstd_buffers::*;
 
@@ -73,4 +74,12 @@ pub struct ZstdBuffersMetadata {
     /// Alignment of each buffer in bytes (must be a power of two).
     #[prost(uint32, repeated, tag = "4")]
     pub buffer_alignments: Vec<u32>,
+    /// DType of child arrays. Children belong to inner encodings, and their
+    /// dtypes don't persist after serialization, so we need to retrieve them
+    /// from metadata.
+    #[prost(message, repeated, tag = "5")]
+    pub child_dtypes: Vec<pb::DType>,
+    /// Length of each child array, ordered as "child_dtypes"
+    #[prost(uint64, repeated, tag = "6")]
+    pub child_lens: Vec<u64>,
 }
