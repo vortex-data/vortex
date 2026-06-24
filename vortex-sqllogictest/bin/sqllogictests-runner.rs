@@ -139,13 +139,6 @@ where
     }
 }
 
-/// Removes `flag` from `args` if present, returning whether it was found.
-fn take_flag(args: &mut Vec<String>, flag: &str) -> bool {
-    let present = args.iter().any(|arg| arg == flag);
-    args.retain(|arg| arg != flag);
-    present
-}
-
 /// Determines which engines a file runs on from its path: a `duckdb/` directory
 /// is DuckDB-only, a `datafusion/` directory is DataFusion-only, else both.
 fn engines_for(path: &Path) -> (bool, bool) {
@@ -198,7 +191,13 @@ fn complete_files(
 
 fn main() -> anyhow::Result<ExitCode> {
     let mut raw_args: Vec<String> = std::env::args().collect();
-    let complete = take_flag(&mut raw_args, "--complete");
+    // We remove the `--complete` flag that isn't standard before we pass the rest.
+    let complete = {
+        let flag = "--complete";
+        let present = raw_args.iter().any(|arg| arg == flag);
+        raw_args.retain(|arg| arg != flag);
+        present
+    };
     let args = Arguments::from_iter(raw_args);
 
     let has_tpch_data = SLT_ROOT.join("tpch/data/lineitem.vortex").exists();
