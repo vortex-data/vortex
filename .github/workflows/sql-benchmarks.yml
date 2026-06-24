@@ -675,14 +675,9 @@ jobs:
           python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz > base.json
 
-          benchmark_name="${{ matrix.name }}"
-          if [ "${{ inputs.benchmark_profile }}" != "full" ]; then
-            benchmark_name="$benchmark_name (${{ inputs.benchmark_profile }})"
-          fi
-
-          echo "# Benchmarks: $benchmark_name" > comment.md
+          echo "# Benchmarks: ${{ matrix.name }}" > comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "$benchmark_name" \
+          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
             >> comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
@@ -692,9 +687,8 @@ jobs:
         with:
           file-path: comment.md
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
-          # this action will *update* the comment instead of posting a new comment. Therefore, each
-          # unique benchmark configuration must have a unique comment-tag.
-          comment-tag: bench-pr-comment-${{ matrix.id }}${{ inputs.benchmark_profile == 'base' && '-base' || '' }}
+          # this action will *update* the comment instead of posting a new comment.
+          comment-tag: bench-pr-comment-${{ matrix.id }}
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
@@ -704,7 +698,7 @@ jobs:
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
 
             Benchmark `${{ matrix.name }}` (${{ inputs.benchmark_profile }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ matrix.id }}${{ inputs.benchmark_profile == 'base' && '-base' || '' }}
+          comment-tag: bench-pr-comment-${{ matrix.id }}
 
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'
