@@ -7,6 +7,7 @@ use std::ops::Not;
 use std::ops::Range;
 
 use vortex_buffer::Buffer;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -14,88 +15,74 @@ use vortex_mask::Mask;
 
 use crate::row_mask::RowMask;
 
-/// A validated selection of rows to include by absolute row index.
+/// A buffer whose values are known to be strictly sorted in ascending order.
 #[derive(Clone, Debug)]
-pub struct IncludeByIndex {
-    indices: Buffer<u64>,
+pub struct StrictSortedBuffer<T> {
+    buffer: Buffer<T>,
 }
 
-impl IncludeByIndex {
-    /// Create a new include-by-index selection.
-    pub fn try_new(indices: Buffer<u64>) -> VortexResult<Self> {
-        validate_indices(&indices)?;
-        Ok(Self { indices })
+impl<T> StrictSortedBuffer<T> {
+    /// Return the sorted values.
+    pub fn as_slice(&self) -> &[T] {
+        self.buffer.as_slice()
     }
 
-    /// Return the selected row indices.
-    pub fn as_slice(&self) -> &[u64] {
-        self.indices.as_slice()
+    /// Return the sorted buffer.
+    pub fn into_inner(self) -> Buffer<T> {
+        self.buffer
     }
 
-    /// Return true if the selection contains no row indices.
+    /// Return true if the buffer contains no values.
     pub fn is_empty(&self) -> bool {
-        self.indices.is_empty()
+        self.buffer.is_empty()
     }
 
-    /// Return the number of selected row indices.
+    /// Return the number of values in the buffer.
     pub fn len(&self) -> usize {
-        self.indices.len()
+        self.buffer.len()
     }
 }
 
-impl std::ops::Deref for IncludeByIndex {
-    type Target = [u64];
+impl<T: Ord> StrictSortedBuffer<T> {
+    /// Create a new buffer, failing if the values are not strictly increasing.
+    pub fn try_new(buffer: Buffer<T>) -> VortexResult<Self> {
+        validate_strictly_sorted(buffer.as_slice())?;
+        Ok(Self { buffer })
+    }
+}
+
+impl<T> Default for StrictSortedBuffer<T> {
+    fn default() -> Self {
+        Self {
+            buffer: Buffer::default(),
+        }
+    }
+}
+
+impl<T: Ord> TryFrom<Buffer<T>> for StrictSortedBuffer<T> {
+    type Error = VortexError;
+
+    fn try_from(value: Buffer<T>) -> Result<Self, Self::Error> {
+        Self::try_new(value)
+    }
+}
+
+impl<T> From<StrictSortedBuffer<T>> for Buffer<T> {
+    fn from(value: StrictSortedBuffer<T>) -> Self {
+        value.into_inner()
+    }
+}
+
+impl<T> std::ops::Deref for StrictSortedBuffer<T> {
+    type Target = [T];
 
     fn deref(&self) -> &Self::Target {
         self.as_slice()
     }
 }
 
-impl AsRef<[u64]> for IncludeByIndex {
-    fn as_ref(&self) -> &[u64] {
-        self.as_slice()
-    }
-}
-
-/// A validated selection of rows to exclude by absolute row index.
-#[derive(Clone, Debug)]
-pub struct ExcludeByIndex {
-    indices: Buffer<u64>,
-}
-
-impl ExcludeByIndex {
-    /// Create a new exclude-by-index selection.
-    pub fn try_new(indices: Buffer<u64>) -> VortexResult<Self> {
-        validate_indices(&indices)?;
-        Ok(Self { indices })
-    }
-
-    /// Return the excluded row indices.
-    pub fn as_slice(&self) -> &[u64] {
-        self.indices.as_slice()
-    }
-
-    /// Return true if the selection contains no row indices.
-    pub fn is_empty(&self) -> bool {
-        self.indices.is_empty()
-    }
-
-    /// Return the number of excluded row indices.
-    pub fn len(&self) -> usize {
-        self.indices.len()
-    }
-}
-
-impl std::ops::Deref for ExcludeByIndex {
-    type Target = [u64];
-
-    fn deref(&self) -> &Self::Target {
-        self.as_slice()
-    }
-}
-
-impl AsRef<[u64]> for ExcludeByIndex {
-    fn as_ref(&self) -> &[u64] {
+impl<T> AsRef<[T]> for StrictSortedBuffer<T> {
+    fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
 }
@@ -108,9 +95,9 @@ pub enum Selection {
     #[default]
     All,
     /// A selection of sorted, unique rows to include by index.
-    IncludeByIndex(IncludeByIndex),
+    IncludeByIndex(StrictSortedBuffer<u64>),
     /// A selection of sorted, unique rows to exclude by index.
-    ExcludeByIndex(ExcludeByIndex),
+    ExcludeByIndex(StrictSortedBuffer<u64>),
     /// A selection of rows to include using a [`roaring::RoaringTreemap`].
     IncludeRoaring(roaring::RoaringTreemap),
     /// A selection of rows to exclude using a [`roaring::RoaringTreemap`].
@@ -118,16 +105,6 @@ pub enum Selection {
 }
 
 impl Selection {
-    /// Create a selection of rows to include by absolute row index.
-    pub fn include_by_index(indices: Buffer<u64>) -> VortexResult<Self> {
-        Ok(Self::IncludeByIndex(IncludeByIndex::try_new(indices)?))
-    }
-
-    /// Create a selection of rows to exclude by absolute row index.
-    pub fn exclude_by_index(indices: Buffer<u64>) -> VortexResult<Self> {
-        Ok(Self::ExcludeByIndex(ExcludeByIndex::try_new(indices)?))
-    }
-
     /// Return the row count for this selection.
     pub fn row_count(&self, total_rows: u64) -> u64 {
         match self {
@@ -270,18 +247,13 @@ impl Selection {
     }
 }
 
-fn validate_indices(indices: &[u64]) -> VortexResult<()> {
-    // Row-mask extraction uses binary search over these indices, and row_count treats
-    // them as set membership. Unsorted or duplicate input can otherwise silently
-    // mis-select rows or over-report the selected row count.
-    for (idx, window) in indices.windows(2).enumerate() {
+fn validate_strictly_sorted<T: Ord>(values: &[T]) -> VortexResult<()> {
+    for (idx, window) in values.windows(2).enumerate() {
         if window[0] >= window[1] {
             vortex_bail!(
-                "row index selection must be strictly increasing at positions {} and {}: {} >= {}",
+                "buffer values must be strictly increasing at positions {} and {}",
                 idx,
-                idx + 1,
-                window[0],
-                window[1]
+                idx + 1
             );
         }
     }
@@ -310,32 +282,30 @@ mod tests {
     use vortex_buffer::Buffer;
 
     use super::Selection;
+    use super::StrictSortedBuffer;
+
+    fn strict_sorted(indices: impl IntoIterator<Item = u64>) -> StrictSortedBuffer<u64> {
+        StrictSortedBuffer::try_new(Buffer::from_iter(indices))
+            .expect("test indices should be strictly increasing")
+    }
 
     fn include(indices: impl IntoIterator<Item = u64>) -> Selection {
-        Selection::include_by_index(Buffer::from_iter(indices))
-            .expect("test indices should be strictly increasing")
+        Selection::IncludeByIndex(strict_sorted(indices))
     }
 
     fn exclude(indices: impl IntoIterator<Item = u64>) -> Selection {
-        Selection::exclude_by_index(Buffer::from_iter(indices))
-            .expect("test indices should be strictly increasing")
+        Selection::ExcludeByIndex(strict_sorted(indices))
     }
 
     #[test]
-    fn include_by_index_rejects_unsorted_indices() {
-        let err = Selection::include_by_index(Buffer::from_iter([3, 1])).unwrap_err();
+    fn strict_sorted_buffer_rejects_unsorted_values() {
+        let err = StrictSortedBuffer::try_new(Buffer::from_iter([3, 1])).unwrap_err();
         assert!(err.to_string().contains("strictly increasing"));
     }
 
     #[test]
-    fn include_by_index_rejects_duplicate_indices() {
-        let err = Selection::include_by_index(Buffer::from_iter([1, 1])).unwrap_err();
-        assert!(err.to_string().contains("strictly increasing"));
-    }
-
-    #[test]
-    fn exclude_by_index_rejects_unsorted_indices() {
-        let err = Selection::exclude_by_index(Buffer::from_iter([3, 1])).unwrap_err();
+    fn strict_sorted_buffer_rejects_duplicate_values() {
+        let err = StrictSortedBuffer::try_new(Buffer::from_iter([1, 1])).unwrap_err();
         assert!(err.to_string().contains("strictly increasing"));
     }
 
