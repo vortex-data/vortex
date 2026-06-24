@@ -65,6 +65,7 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
         if typed_identical {
             let values_identical = match (lhs.value_array(), rhs.value_array()) {
                 (Some(lhs_value), Some(rhs_value)) => all_non_distinct(lhs_value, rhs_value, ctx)?,
+                (None, None) => true,
                 // Mixed shredding layouts: let the generic canonical path handle it.
                 _ => return Ok(None),
             };
