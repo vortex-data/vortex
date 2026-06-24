@@ -21,6 +21,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::is_root;
 use vortex_array::expr::not;
@@ -33,6 +34,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -179,6 +181,11 @@ impl ListReader {
     /// Fire the offsets read for `row_range`. The offsets child has an extra entry, so reading
     /// `row_range` maps to offsets in `[row_range.start..row_range.end + 1)`.
     fn fetch_offsets(&self, row_range: &Range<u64>) -> VortexResult<ArrayFuture> {
+        if let Some(fixed_size) = self.layout.fixed_size() {
+            let offsets = fixed_size_offsets(row_range, fixed_size, self.layout.offsets_ptype())?;
+            return Ok(async move { Ok(offsets) }.boxed());
+        }
+
         let offsets_range = row_range.start..(row_range.end + 1);
         let offsets_count = usize::try_from(offsets_range.end - offsets_range.start)?;
         self.offsets.projection_evaluation(
@@ -218,6 +225,38 @@ fn rebase_offsets(offsets: ArrayRef, first: u64) -> VortexResult<ArrayRef> {
         .into_array()
         .cast(offsets.dtype().clone())?;
     offsets.binary(constant, Operator::Sub)
+}
+
+#[allow(clippy::unnecessary_fallible_conversions)]
+fn fixed_size_offsets(
+    row_range: &Range<u64>,
+    fixed_size: u64,
+    ptype: PType,
+) -> VortexResult<ArrayRef> {
+    vortex_array::match_each_integer_ptype!(ptype, |O| {
+        fixed_size_offsets_typed::<O>(row_range, fixed_size)
+    })
+}
+
+fn fixed_size_offsets_typed<O>(row_range: &Range<u64>, fixed_size: u64) -> VortexResult<ArrayRef>
+where
+    O: IntegerPType,
+    O: TryFrom<u64>,
+    VortexError: From<<O as TryFrom<u64>>::Error>,
+{
+    let len = usize::try_from(row_range.end - row_range.start)?;
+    let mut offsets = Vec::with_capacity(len + 1);
+    for row in row_range.start..=row_range.end {
+        let offset = row
+            .checked_mul(fixed_size)
+            .ok_or_else(|| vortex_err!("fixed-size list offset overflow"))?;
+        offsets.push(O::try_from(offset)?);
+    }
+
+    Ok(
+        Array::<Primitive>::new::<O>(Buffer::<O>::from(offsets), Validity::NonNullable)
+            .into_array(),
+    )
 }
 
 fn create_validity(validity_array: Option<ArrayRef>, nullability: Nullability) -> Validity {
@@ -870,6 +909,13 @@ mod tests {
     ) -> VortexResult<()> {
         let rebased = rebase_offsets(offsets, first)?;
         assert_eq!(materialize_u32_array(rebased), expected);
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_size_offsets_are_absolute() -> VortexResult<()> {
+        let offsets = fixed_size_offsets(&(2..5), 3, PType::U32)?;
+        assert_eq!(materialize_u32_array(offsets), vec![6, 9, 12, 15]);
         Ok(())
     }
 

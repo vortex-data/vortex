@@ -13,10 +13,13 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListView;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::list::ListDataParts;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::matcher::Matcher;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
@@ -137,6 +140,7 @@ impl LayoutStrategy for ListLayoutStrategy {
 
         // There is one extra element in `offsets`
         let row_count = offsets.len().saturating_sub(1);
+        let fixed_size = detect_fixed_size(&offsets, &mut exec_ctx)?;
         let validity_array = dtype
             .is_nullable()
             .then(|| {
@@ -183,7 +187,11 @@ impl LayoutStrategy for ListLayoutStrategy {
                 }
             },)?;
 
-        Ok(ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout).into_layout())
+        Ok(
+            ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout)
+                .with_fixed_size(fixed_size)
+                .into_layout(),
+        )
     }
 
     fn buffered_bytes(&self) -> u64 {
@@ -192,6 +200,42 @@ impl LayoutStrategy for ListLayoutStrategy {
             + self.validity.buffered_bytes();
         list_bytes.max(self.fallback.buffered_bytes())
     }
+}
+
+#[allow(clippy::unnecessary_fallible_conversions)]
+fn detect_fixed_size(offsets: &ArrayRef, exec_ctx: &mut ExecutionCtx) -> VortexResult<Option<u64>> {
+    if offsets.len() <= 1 {
+        return Ok(None);
+    }
+
+    let offsets = offsets.clone().execute::<PrimitiveArray>(exec_ctx)?;
+    let ptype = offsets.ptype();
+    vortex_array::match_each_integer_ptype!(ptype, |O| {
+        detect_fixed_size_typed::<O>(offsets.as_slice::<O>())
+    })
+}
+
+fn detect_fixed_size_typed<O>(offsets: &[O]) -> VortexResult<Option<u64>>
+where
+    O: IntegerPType,
+    u64: TryFrom<O>,
+    VortexError: From<<u64 as TryFrom<O>>::Error>,
+{
+    let first = u64::try_from(offsets[0])?;
+    if first != 0 {
+        return Ok(None);
+    }
+
+    let fixed_size = u64::try_from(offsets[1])? - first;
+    for window in offsets.windows(2) {
+        let start = u64::try_from(window[0])?;
+        let end = u64::try_from(window[1])?;
+        if end - start != fixed_size {
+            return Ok(None);
+        }
+    }
+
+    Ok(Some(fixed_size))
 }
 
 /// Canonicalize a list-dtype array into [`ListDataParts`]. Short-circuits when the input is
@@ -252,6 +296,7 @@ mod tests {
     use super::*;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::list::List;
     use crate::layouts::table::TableStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequentialArrayStreamExt;
@@ -289,6 +334,39 @@ mod tests {
         )
         .unwrap()
         .into_array()
+    }
+
+    fn create_fixed_size_list() -> ArrayRef {
+        ListArray::try_new(
+            buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+            buffer![0u32, 2, 4, 6].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array()
+    }
+
+    #[tokio::test]
+    async fn fixed_size_metadata_detected() -> VortexResult<()> {
+        let layout = write(&flat_list_strategy(), create_fixed_size_list()).await?;
+        assert_eq!(layout.as_::<List>().fixed_size(), Some(2));
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_size_detection_rejects_variable_offsets() -> VortexResult<()> {
+        let offsets = buffer![0u32, 2, 5, 5].into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(detect_fixed_size(&offsets, &mut ctx)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_size_detection_rejects_nonzero_start() -> VortexResult<()> {
+        let offsets = buffer![1u32, 3, 5].into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        assert_eq!(detect_fixed_size(&offsets, &mut ctx)?, None);
+        Ok(())
     }
 
     #[tokio::test]
