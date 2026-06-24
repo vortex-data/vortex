@@ -17,11 +17,9 @@ version = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 bigdecimal = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
 datafusion = { workspace = true }
 datafusion-sqllogictest = { workspace = true }
-futures.workspace = true
-indicatif.workspace = true
+indicatif = { workspace = true }
 regex = { workspace = true }
 rstest = { workspace = true }
 sqllogictest = "0.29.1"

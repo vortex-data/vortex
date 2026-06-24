@@ -4,12 +4,12 @@
 include ../setup.slt.no
 
 query I
-COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '$__TEST_DIR__/explain.vortex';
+COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '${WORK_DIR}/explain.vortex';
 ----
 3
 
 query TT
-EXPLAIN (FORMAT json) SELECT * FROM '$__TEST_DIR__/explain.vortex';
+EXPLAIN (FORMAT json) SELECT * FROM '${WORK_DIR}/explain.vortex';
 ----
 physical_plan [
     {

@@ -3,5 +3,7 @@
 
 # This is a common setup script to enable shared functionality
 
-# Enables default substitution, using tempdir anywhere $__TEST_DIR__ is used
+# Enables substitution so that ${WORK_DIR} is replaced with this test's scratch
+# directory. The runner sets WORK_DIR per test and normalizes the path back to
+# ${WORK_DIR} in output (see the crate README).
 control substitution on
