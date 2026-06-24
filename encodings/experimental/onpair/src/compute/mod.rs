@@ -5,5 +5,4 @@ mod byte_length;
 mod cast;
 mod compare;
 mod filter;
-mod like;
 mod slice;

@@ -211,7 +211,7 @@ impl FsstMatcher {
 }
 
 /// The subset of LIKE patterns we can handle without decompression.
-pub(crate) enum LikeKind<'a> {
+enum LikeKind<'a> {
     /// `prefix%`
     Prefix(Cow<'a, [u8]>),
     /// `%needle%`
@@ -219,7 +219,7 @@ pub(crate) enum LikeKind<'a> {
 }
 
 impl<'a> LikeKind<'a> {
-    pub(crate) fn parse(pattern: &'a [u8]) -> Option<Self> {
+    fn parse(pattern: &'a [u8]) -> Option<Self> {
         Self::parse_prefix(pattern).or_else(|| Self::parse_contains(pattern))
     }
 

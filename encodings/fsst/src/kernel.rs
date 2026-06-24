@@ -38,20 +38,14 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::FilterArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::SharedArray;
-    use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::varbin::builder::VarBinBuilder;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::byte_length;
     use vortex_array::expr::root;
-    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;
@@ -234,43 +228,6 @@ mod tests {
         let result = fsst.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 7, 18, 0]);
         assert_arrays_eq!(result, expected, &mut ctx);
-        Ok(())
-    }
-
-    #[test]
-    fn test_shared_fsst_parent_kernels() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        let mut ctx = session.create_execution_ctx();
-
-        let varbin = VarBinArray::from_iter(
-            ["hello", "", "world!!"].map(Some),
-            DType::Utf8(Nullability::NonNullable),
-        )
-        .into_array();
-        let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
-        let fsst = fsst_compress(&varbin, &compressor, &mut ctx)?.into_array();
-        let shared = SharedArray::new(fsst).into_array();
-
-        let lengths = shared.clone().apply(&byte_length(root()))?;
-        assert_arrays_eq!(
-            lengths,
-            PrimitiveArray::from_iter(vec![5u64, 0, 7]),
-            &mut ctx
-        );
-
-        let not_empty = shared
-            .binary(
-                ConstantArray::new("", shared.len()).into_array(),
-                Operator::NotEq,
-            )?
-            .execute::<BoolArray>(&mut ctx)?;
-        assert_arrays_eq!(
-            not_empty,
-            BoolArray::from_iter([true, false, true]),
-            &mut ctx
-        );
-
         Ok(())
     }
 }

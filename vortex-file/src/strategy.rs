@@ -32,8 +32,6 @@ use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
-#[cfg(feature = "unstable_encodings")]
-use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_bytebool::ByteBool;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_decimal_byte_parts::DecimalByteParts;
@@ -162,17 +160,8 @@ impl Default for WriteStrategyBuilder {
     /// Create a new empty builder. It can be further configured,
     /// and then finally built yielding the [`LayoutStrategy`].
     fn default() -> Self {
-        #[cfg_attr(not(feature = "unstable_encodings"), allow(unused_mut))]
-        let mut compressor = BtrBlocksCompressorBuilder::default();
-        #[cfg(feature = "unstable_encodings")]
-        {
-            // OnPair currently optimizes for compressed size, but its string predicate kernels are
-            // not yet competitive with FSST for the scan-heavy default file format.
-            compressor = compressor.exclude_schemes([OnPairScheme.id()]);
-        }
-
         Self {
-            compressor: CompressorConfig::BtrBlocks(compressor),
+            compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::default()),
             row_block_size: 8192,
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
