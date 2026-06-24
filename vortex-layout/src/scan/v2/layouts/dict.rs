@@ -43,6 +43,7 @@ use vortex_session::VortexSession;
 
 use crate::layout_v2::Dict;
 use crate::layout_v2::Layout;
+use crate::scan::plan::DeferredReadTask;
 use crate::scan::plan::OwnedRowScope;
 use crate::scan::plan::PrepareCtx;
 use crate::scan::plan::PreparedRead;
@@ -335,7 +336,7 @@ impl ReadTask for DictReadTask {
                         ReadTaskOutput::Ready(codes) => {
                             let mut task = DictReadTask {
                                 read,
-                                codes: Box::new(crate::scan::plan::DeferredReadTask),
+                                codes: Box::new(DeferredReadTask),
                                 value_reads,
                                 cx,
                                 state: DictReadState::Start,
@@ -393,7 +394,7 @@ impl ReadTask for DictReadTask {
                         ReadTaskOutput::Continue(values) => {
                             Ok(ReadTaskOutput::Continue(Box::new(DictReadTask {
                                 read,
-                                codes: Box::new(crate::scan::plan::DeferredReadTask),
+                                codes: Box::new(DeferredReadTask),
                                 value_reads,
                                 cx,
                                 state: DictReadState::SparseValues {
@@ -426,7 +427,7 @@ impl ReadTask for DictReadTask {
                         ReadTaskOutput::Continue(values) => {
                             Ok(ReadTaskOutput::Continue(Box::new(DictReadTask {
                                 read,
-                                codes: Box::new(crate::scan::plan::DeferredReadTask),
+                                codes: Box::new(DeferredReadTask),
                                 value_reads,
                                 cx,
                                 state: DictReadState::FullValues {
@@ -841,7 +842,7 @@ impl ReadTask for DictExprReadTask {
                         ReadTaskOutput::Ready(codes) => {
                             let mut task = DictExprReadTask {
                                 read,
-                                codes: Box::new(crate::scan::plan::DeferredReadTask),
+                                codes: Box::new(DeferredReadTask),
                                 value_reads,
                                 cx,
                                 state: DictExprReadState::Start,
@@ -951,7 +952,7 @@ impl ReadTask for DictExprReadTask {
                         ReadTaskOutput::Continue(values) => {
                             Ok(ReadTaskOutput::Continue(Box::new(DictExprReadTask {
                                 read,
-                                codes: Box::new(crate::scan::plan::DeferredReadTask),
+                                codes: Box::new(DeferredReadTask),
                                 value_reads,
                                 cx,
                                 state: DictExprReadState::Values {
@@ -1039,7 +1040,7 @@ fn finish_dict_expr_values(
             let input = read
                 .node
                 .dict
-                .build_dict(compact_codes.clone(), values_array)?
+                .build_dict(compact_codes, values_array)?
                 .optimize()?;
             let computed = input
                 .apply(&read.node.expr)
@@ -1059,7 +1060,7 @@ fn finish_dict_expr_values(
                     )?;
                     Ok(ReadTaskOutput::Continue(Box::new(DictExprReadTask {
                         read,
-                        codes: Box::new(crate::scan::plan::DeferredReadTask),
+                        codes: Box::new(DeferredReadTask),
                         value_reads,
                         cx,
                         state: DictExprReadState::Values {

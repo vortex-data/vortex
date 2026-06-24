@@ -84,6 +84,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrow::ArrowArrayExecutor;

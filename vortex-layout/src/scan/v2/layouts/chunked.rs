@@ -46,6 +46,7 @@ use crate::layout_v2::Chunked;
 use crate::layout_v2::Layout;
 use crate::layout_v2::LayoutRef;
 use crate::scan::plan::AggregateAnswer;
+use crate::scan::plan::DeferredReadTask;
 use crate::scan::plan::OwnedRowScope;
 use crate::scan::plan::PrepareCtx;
 use crate::scan::plan::PreparedAggregate;
@@ -195,7 +196,7 @@ impl ReadTask for ChunkedReadTask {
                     continuations.push((step_parts.len(), expected_len, step.continuation));
                     step_parts.push(ChunkedReadPart::Pending {
                         expected_len,
-                        task: Box::new(crate::scan::plan::DeferredReadTask),
+                        task: Box::new(DeferredReadTask),
                     });
                 }
             }

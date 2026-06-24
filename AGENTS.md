@@ -113,6 +113,19 @@ cargo +nightly fmt --all
 cargo clippy --all-targets --all-features
 ```
 
+Before pushing Rust changes, compile the relevant test targets, not only library targets. At
+minimum, run `cargo test -p <crate-name> --all-features --no-run` for every touched Rust crate that
+has tests. For cross-crate scan, layout, file, Arrow export, or execution-context changes, include
+the crates that can compile hidden or feature-gated tests, for example:
+
+```bash
+cargo test -p vortex-array --all-features --no-run
+cargo check -p vortex-layout -p vortex-file -p vortex-duckdb -p vortex-datafusion --all-features
+```
+
+Do not push after merge conflict resolution until the post-merge test-target build succeeds for the
+affected crates.
+
 Notes:
 
 - For `.github/` changes, follow `.github/AGENTS.md` and run
