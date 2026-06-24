@@ -120,9 +120,6 @@ mod tests {
         VarBinViewArray::from_iter_bin(values).into_array()
     }
 
-    /// Builds a non-nullable `ParquetVariant` storage array directly from its `value`/`typed_value`
-    /// slots. The raw bytes need not be valid variants: the kernel compares the child arrays
-    /// without decoding them.
     fn parquet_variant(
         len: usize,
         value: Option<ArrayRef>,
@@ -132,29 +129,6 @@ mod tests {
             ParquetVariant::try_new(Validity::NonNullable, metadata(len), value, typed_value)?
                 .into_array(),
         )
-    }
-
-    /// Wraps two child arrays in the `Struct{lhs, rhs}` batch the kernel accumulates over.
-    fn lhs_rhs_batch(lhs: ArrayRef, rhs: ArrayRef) -> VortexResult<ArrayRef> {
-        let len = lhs.len();
-        Ok(VortexStructArray::try_new(
-            FieldNames::from(["lhs", "rhs"]),
-            vec![lhs, rhs],
-            len,
-            Validity::NonNullable,
-        )?
-        .into_array())
-    }
-
-    /// Runs the kernel against `batch` with the `AllNonDistinct` aggregate function.
-    fn run_kernel(batch: &ArrayRef) -> VortexResult<Option<Scalar>> {
-        let aggregate_fn = AggregateFn::new(AllNonDistinct, EmptyOptions).erased();
-        let mut ctx = SESSION.create_execution_ctx();
-        AllNonDistinctParquetVariant.aggregate(&aggregate_fn, batch, &mut ctx)
-    }
-
-    fn bool_scalar(value: bool) -> Scalar {
-        Scalar::bool(value, Nullability::NonNullable)
     }
 
     #[test]
