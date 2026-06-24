@@ -89,18 +89,6 @@ pub use vortex_nvcomp as nvcomp;
 use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
 
-#[cfg(test)]
-pub(crate) fn canonicalize_cpu(
-    array: impl vortex::array::IntoArray,
-) -> vortex::error::VortexResult<vortex::array::Canonical> {
-    use vortex::array::LEGACY_SESSION;
-    use vortex::array::VortexSessionExecute;
-
-    array
-        .into_array()
-        .execute::<vortex::array::Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-}
-
 /// Checks if a CUDA driver and at least one CUDA device are available.
 ///
 /// cudarc loads `libcuda` lazily and panics if the driver library is absent, so we first probe
