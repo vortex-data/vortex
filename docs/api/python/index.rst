@@ -16,7 +16,7 @@ Optional integrations can be installed as extras:
 
 .. code-block:: bash
 
-    pip install vortex-data[polars,pandas,numpy,duckdb,ray]
+    pip install vortex-data[polars,pandas,numpy,duckdb,ray,hf]
 
 
 Compatibility
@@ -66,5 +66,6 @@ API Reference
    io
    store
    dataset
+   datasets
    runtime
    type_aliases
