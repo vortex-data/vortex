@@ -61,6 +61,9 @@ use crate::segments::writer::BufferedSegmentSink;
 ///
 /// Unless overridden, the default [write strategy][crate::WriteStrategyBuilder] will be used with no
 /// additional configuration.
+///
+/// Construct with [`WriteOptionsSessionExt::write_options`] for normal use so the writer inherits
+/// the session's runtime, array registry, and memory configuration.
 pub struct VortexWriteOptions {
     session: VortexSession,
     strategy: Arc<dyn LayoutStrategy>,
@@ -69,6 +72,7 @@ pub struct VortexWriteOptions {
     file_statistics: Vec<Stat>,
 }
 
+/// Extension trait for constructing [`VortexWriteOptions`] from a session.
 pub trait WriteOptionsSessionExt: SessionExt {
     /// Create [`VortexWriteOptions`] for writing to a Vortex file.
     fn write_options(&self) -> VortexWriteOptions {
@@ -97,6 +101,10 @@ impl VortexWriteOptions {
     }
 
     /// Replace the default layout strategy with the provided one.
+    ///
+    /// The strategy controls repartitioning, statistics layout, compression, and leaf segment
+    /// emission. Use [`WriteStrategyBuilder`] when only a small part of the default strategy needs
+    /// customization.
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
         self
@@ -110,7 +118,9 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Configure which statistics to compute at the file-level.
+    /// Configure which statistics to compute at the file level.
+    ///
+    /// Pass an empty vector to omit file-level statistics.
     pub fn with_file_statistics(mut self, file_statistics: Vec<Stat>) -> Self {
         self.file_statistics = file_statistics;
         self
@@ -119,6 +129,9 @@ impl VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Drop into the blocking writer API using the given runtime.
+    ///
+    /// The returned adapter drives async writer internals on `runtime` while accepting ordinary
+    /// [`std::io::Write`] sinks and [`ArrayIterator`] inputs.
     pub fn blocking<B: BlockingRuntime>(self, runtime: &B) -> BlockingWrite<'_, B> {
         BlockingWrite {
             options: self,
@@ -252,6 +265,9 @@ impl VortexWriteOptions {
     }
 
     /// Create a push-based [`Writer`] that can be used to incrementally write arrays to the file.
+    ///
+    /// Each pushed chunk must have dtype `dtype`. Call [`Writer::finish`] to close the input stream,
+    /// flush remaining buffers, and receive the [`WriteSummary`].
     pub fn writer<'w, W: VortexWrite + Unpin + 'w>(self, write: W, dtype: DType) -> Writer<'w> {
         // Create a channel for sending arrays to the layout task.
         let (arrays_send, arrays_recv) = kanal::bounded_async(1);
@@ -385,7 +401,7 @@ impl Writer<'_> {
     }
 }
 
-/// A blocking API for writing Vortex files.
+/// Blocking adapter for [`VortexWriteOptions`].
 pub struct BlockingWrite<'rt, B: BlockingRuntime> {
     options: VortexWriteOptions,
     runtime: &'rt B,
@@ -393,6 +409,9 @@ pub struct BlockingWrite<'rt, B: BlockingRuntime> {
 
 impl<'rt, B: BlockingRuntime> BlockingWrite<'rt, B> {
     /// Write a Vortex file into the given `Write` sink.
+    ///
+    /// The iterator is converted to an [`ArrayStream`] and driven to completion on
+    /// the configured blocking runtime.
     pub fn write<W: Write + Unpin>(
         self,
         write: W,
@@ -405,6 +424,7 @@ impl<'rt, B: BlockingRuntime> BlockingWrite<'rt, B> {
         })
     }
 
+    /// Create a blocking push-based writer for chunks with dtype `dtype`.
     pub fn writer<'w, W: Write + Unpin + 'w>(
         self,
         write: W,
@@ -424,18 +444,22 @@ pub struct BlockingWriter<'rt, 'w, B: BlockingRuntime> {
 }
 
 impl<B: BlockingRuntime> BlockingWriter<'_, '_, B> {
+    /// Push one array chunk into the file.
     pub fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
         self.runtime.block_on(self.writer.push(chunk))
     }
 
+    /// Returns the number of bytes written to the sink so far.
     pub fn bytes_written(&self) -> u64 {
         self.writer.bytes_written()
     }
 
+    /// Returns the number of bytes currently buffered by layout strategies.
     pub fn buffered_bytes(&self) -> u64 {
         self.writer.buffered_bytes()
     }
 
+    /// Finish writing and return the written file summary.
     pub fn finish(self) -> VortexResult<WriteSummary> {
         self.runtime.block_on(self.writer.finish())
     }
@@ -459,6 +483,7 @@ impl<W: Write + Unpin> VortexWrite for BlockingWriteAdapter<W> {
     }
 }
 
+/// Summary returned after a Vortex file is written.
 pub struct WriteSummary {
     footer: Footer,
     size: u64,

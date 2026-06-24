@@ -104,8 +104,8 @@ mod test {
     use rstest::rstest;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::Nullability;
 
@@ -174,7 +174,7 @@ mod test {
         let _array = array
             .take(indices.into_array())
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<Canonical>(&mut array_session().create_execution_ctx())
             .unwrap();
     }
 }

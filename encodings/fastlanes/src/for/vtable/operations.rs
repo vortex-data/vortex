@@ -40,15 +40,25 @@ impl OperationsVTable<FoR> for FoR {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_session::VortexSession;
 
     use crate::FoRData;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn for_scalar_at() {
         let for_arr = FoRData::encode(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
         let expected = PrimitiveArray::from_iter([-100, 1100, 1500, 1900]);
-        assert_arrays_eq!(for_arr, expected);
+        assert_arrays_eq!(for_arr, expected, &mut SESSION.create_execution_ctx());
     }
 }

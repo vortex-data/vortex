@@ -43,8 +43,8 @@ impl MaskReduce for ALPRD {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
 
@@ -55,7 +55,7 @@ mod tests {
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn test_mask_simple<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         test_mask_conformance(
             &RDEncoder::new(&[a, b])
                 .encode(
@@ -70,7 +70,7 @@ mod tests {
     #[case(0.1f32, 3e25f32)]
     #[case(0.5f64, 1e100f64)]
     fn test_mask_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         test_mask_conformance(
             &RDEncoder::new(&[a])
                 .encode(

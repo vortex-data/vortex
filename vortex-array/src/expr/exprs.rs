@@ -422,13 +422,13 @@ where
 /// ```
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::arrow::ArrowArrayExecutor;
-/// # use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
+/// # use vortex_array::{VortexSessionExecute, array_session};
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{checked_add, lit, root};
 /// let xs = buffer![1, 2, 3].into_array();
 /// let result = xs.apply(&checked_add(root(), lit(5))).unwrap();
 ///
-/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let mut ctx = array_session().create_execution_ctx();
 /// assert_eq!(
 ///     &result.execute_arrow(None, &mut ctx).unwrap(),
 ///     &buffer![6, 7, 8]

@@ -54,7 +54,11 @@ mod tests {
     use crate::Sparse;
     use crate::SparseArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_sparse_i32_to_i64() {
@@ -78,7 +82,7 @@ mod tests {
 
         let expected = PrimitiveArray::from_iter([0i64, 0, 100, 0, 0, 200, 0, 0, 300, 0]);
         let casted_primitive = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        assert_arrays_eq!(casted_primitive, expected);
+        assert_arrays_eq!(casted_primitive, expected, &mut ctx);
     }
 
     #[test]
@@ -156,7 +160,7 @@ mod tests {
 
         let expected = PrimitiveArray::from_iter([10u64, 20, 30, 40, 50]);
         let casted_primitive = casted.execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(casted_primitive, expected);
+        assert_arrays_eq!(casted_primitive, expected, &mut ctx);
         Ok(())
     }
 

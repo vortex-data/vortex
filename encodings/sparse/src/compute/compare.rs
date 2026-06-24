@@ -111,6 +111,6 @@ mod tests {
             .execute::<Canonical>(&mut ctx)
             .unwrap();
 
-        assert_arrays_eq!(kernel_bool, canonical_bool);
+        assert_arrays_eq!(kernel_bool, canonical_bool, &mut ctx);
     }
 }

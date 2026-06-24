@@ -1,0 +1,31 @@
+[package]
+name = "vortex-python-cuda"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Optional CUDA extension for PyVortex."
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["extension-module"]
+# Maturin enables `pyo3/extension-module` via pyproject.toml when building wheels. Keep
+# this local feature empty so plain `cargo build`/`cargo check` links libpython normally.
+extension-module = []
+
+[dependencies]
+pyo3 = { workspace = true, features = ["abi3", "abi3-py311"] }
+vortex-cuda = { workspace = true }

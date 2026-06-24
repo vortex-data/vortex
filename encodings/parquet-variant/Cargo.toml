@@ -27,8 +27,9 @@ prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-json = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-proto = { workspace = true }
+vortex-proto = { workspace = true, features = ["expr"] }
 vortex-session = { workspace = true }
 
 [dev-dependencies]

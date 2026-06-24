@@ -209,6 +209,7 @@ mod tests {
     use vortex::encodings::fsst::fsst_compress;
     use vortex::encodings::fsst::fsst_train_compressor;
     use vortex::error::VortexExpect;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -235,32 +236,31 @@ mod tests {
         #[case] strings: Vec<Option<&'static [u8]>>,
         #[case] nullability: Nullability,
     ) -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
-        let varbin = VarBinArray::from_iter(strings, DType::Binary(nullability));
-        let compressor = fsst_train_compressor(&varbin);
-        let dtype = varbin.dtype().clone();
-        let len = varbin.len();
+        let varbin = VarBinArray::from_iter(strings, DType::Binary(nullability)).into_array();
+        let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
         let fsst_array =
-            fsst_compress(&varbin, len, &dtype, &compressor, cuda_ctx.execution_ctx()).into_array();
+            fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
 
-        let cpu_result = crate::canonicalize_cpu(fsst_array.clone())?;
         let gpu_result = FSSTExecutor
-            .execute(fsst_array, &mut cuda_ctx)
+            .execute(fsst_array.clone(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(fsst_array, gpu_result, &mut ctx);
         Ok(())
     }
 
     /// Exercises the multi-block grid-stride path on a larger dataset.
     #[crate::test]
     async fn test_cuda_fsst_decompression_roundtrip_large() -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         use vortex_fsst::test_utils::make_fsst_clickbench_urls;
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
@@ -268,16 +268,15 @@ mod tests {
 
         let fsst_array = make_fsst_clickbench_urls(100_000, cuda_ctx.execution_ctx()).into_array();
 
-        let cpu_result = crate::canonicalize_cpu(fsst_array.clone())?;
         let gpu_result = FSSTExecutor
-            .execute(fsst_array, &mut cuda_ctx)
+            .execute(fsst_array.clone(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(fsst_array, gpu_result, &mut ctx);
         Ok(())
     }
 }

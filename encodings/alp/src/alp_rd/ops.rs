@@ -65,27 +65,35 @@ impl OperationsVTable<ALPRD> for ALPRD {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::scalar::Scalar;
+    use vortex_session::VortexSession;
 
     use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn test_slice<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
         let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
 
         assert!(encoded.left_parts_patches().is_some());
-        assert_arrays_eq!(encoded, array);
+        assert_arrays_eq!(encoded, array, &mut ctx);
     }
 
     #[rstest]
@@ -96,16 +104,16 @@ mod test {
         #[case] b: T,
         #[case] outlier: T,
     ) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
         let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
         assert!(encoded.left_parts_patches().is_some());
-        assert_arrays_eq!(encoded, array);
+        assert_arrays_eq!(encoded, array, &mut ctx);
     }
 
     #[test]
     fn nullable_scalar_at() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let a = 0.1f64;
         let b = 0.2f64;
         let outlier = 3e100f64;
@@ -114,7 +122,8 @@ mod test {
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(
             encoded,
-            PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)])
+            PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)]),
+            &mut ctx
         );
     }
 }

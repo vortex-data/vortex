@@ -103,8 +103,8 @@ mod tests {
 
     use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::builtins::ArrayBuiltins;
@@ -113,7 +113,7 @@ mod tests {
     use crate::scalar::Scalar;
 
     fn ctx() -> ExecutionCtx {
-        LEGACY_SESSION.create_execution_ctx()
+        array_session().create_execution_ctx()
     }
 
     #[test]

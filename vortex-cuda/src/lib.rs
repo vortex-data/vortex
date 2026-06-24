@@ -3,8 +3,8 @@
 
 //! CUDA support for Vortex arrays.
 
-use std::process::Command;
-
+use cudarc::driver::CudaContext;
+use cudarc::driver::sys;
 use tracing::info;
 
 pub mod arrow;
@@ -89,24 +89,16 @@ pub use vortex_nvcomp as nvcomp;
 use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
 
-#[cfg(test)]
-pub(crate) fn canonicalize_cpu(
-    array: impl vortex::array::IntoArray,
-) -> vortex::error::VortexResult<vortex::array::Canonical> {
-    use vortex::array::LEGACY_SESSION;
-    use vortex::array::VortexSessionExecute;
-
-    array
-        .into_array()
-        .execute::<vortex::array::Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-}
-
-/// Checks if CUDA is available on the system by looking for nvcc.
+/// Checks if a CUDA driver and at least one CUDA device are available.
+///
+/// cudarc loads `libcuda` lazily and panics if the driver library is absent, so we first probe
+/// for it with cudarc's own `is_culib_present`. Creating the context then fails gracefully with
+/// `Err`, rather than panicking, when the driver is present but no usable device is.
 pub fn cuda_available() -> bool {
-    Command::new("nvcc")
-        .arg("--version")
-        .output()
-        .is_ok_and(|o| o.status.success())
+    // SAFETY: `is_culib_present` only tries to dlopen the driver library to test for its
+    // presence; it upholds no further invariants.
+    let driver_present = unsafe { sys::is_culib_present() };
+    driver_present && CudaContext::new(0).is_ok()
 }
 
 /// Registers CUDA kernels.

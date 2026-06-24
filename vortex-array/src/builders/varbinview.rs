@@ -873,8 +873,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::VarBinViewBuilder;
@@ -884,6 +884,7 @@ mod tests {
 
     #[test]
     fn test_utf8_builder() {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_value("Hello");
@@ -906,11 +907,12 @@ mod tests {
             Some(""),
             Some("test"),
         ]);
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
     #[test]
     fn test_utf8_builder_with_extend() {
+        let mut ctx = array_session().create_execution_ctx();
         let array = {
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
@@ -934,7 +936,7 @@ mod tests {
             None,
             Some("Hello3"),
         ]);
-        assert_arrays_eq!(actual.into_array(), expected.into_array());
+        assert_arrays_eq!(actual.into_array(), expected.into_array(), &mut ctx);
     }
 
     #[test]
@@ -951,7 +953,7 @@ mod tests {
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         array.append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 1);
@@ -986,6 +988,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let mut ctx = array_session().create_execution_ctx();
         use crate::scalar::Scalar;
 
         // Test with Utf8 builder.
@@ -1007,7 +1010,7 @@ mod tests {
         let array = utf8_builder.finish();
         let expected =
             <VarBinViewArray as FromIterator<_>>::from_iter([Some("hello"), Some("world"), None]);
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test with Binary builder.
         let mut binary_builder =
@@ -1022,7 +1025,7 @@ mod tests {
         let binary_array = binary_builder.finish();
         let expected =
             <VarBinViewArray as FromIterator<_>>::from_iter([Some(vec![1u8, 2, 3]), None]);
-        assert_arrays_eq!(&binary_array, &expected);
+        assert_arrays_eq!(&binary_array, &expected, &mut ctx);
 
         // Test wrong dtype error.
         let mut builder =
@@ -1078,7 +1081,7 @@ mod tests {
 
         // Verify the value was stored correctly
         let retrieved = array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_binary()
             .value()

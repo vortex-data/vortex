@@ -61,6 +61,17 @@ message VariantPathElement {
   }
 }
 
+// Options for `vortex.json_to_variant`
+message JsonToVariantOpts {
+  repeated ShreddingSpecField shredding = 1;
+}
+
+// One (path, dtype) shredding directive for `vortex.json_to_variant`.
+message ShreddingSpecField {
+  repeated VariantPathElement path = 1;
+  vortex.dtype.DType dtype = 2;
+}
+
 // Options for `vortex.binary`
 message BinaryOpts {
   BinaryOp op = 1;

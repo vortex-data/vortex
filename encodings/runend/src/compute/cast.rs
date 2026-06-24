@@ -52,7 +52,11 @@ mod tests {
     use crate::RunEnd;
     use crate::RunEndArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_runend_i32_to_i64() {
@@ -130,7 +134,11 @@ mod tests {
         let sliced = runend.slice(3..8).unwrap();
 
         // Verify the slice is correct before casting
-        assert_arrays_eq!(sliced, PrimitiveArray::from_iter([200, 200, 300, 300, 300]));
+        assert_arrays_eq!(
+            sliced,
+            PrimitiveArray::from_iter([200, 200, 300, 300, 300]),
+            &mut ctx
+        );
 
         // Cast the sliced array
         let casted = sliced
@@ -140,7 +148,8 @@ mod tests {
         // Verify the cast preserved the offset
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::from_iter([200i64, 200, 300, 300, 300])
+            PrimitiveArray::from_iter([200i64, 200, 300, 300, 300]),
+            &mut ctx
         );
     }
 

@@ -107,7 +107,11 @@ mod tests {
         );
 
         let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 4, 5]));
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([1i64, 2, 3, 4, 5]),
+            &mut ctx
+        );
     }
 
     #[test]
@@ -144,7 +148,11 @@ mod tests {
         );
         // Verify the values are correct
         let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([20u32, 30, 40, 50]),
+            &mut ctx
+        );
     }
 
     #[test]
@@ -169,7 +177,7 @@ mod tests {
         );
         let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         let expected = PrimitiveArray::from_iter([20u32, 30, 40, 50]);
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
     }
 
     #[rstest]

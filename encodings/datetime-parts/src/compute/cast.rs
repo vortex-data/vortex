@@ -37,8 +37,8 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::builtins::ArrayBuiltins;
@@ -66,7 +66,7 @@ mod tests {
                 TimeUnit::Milliseconds,
                 Some("UTC".into()),
             ),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut array_session().create_execution_ctx(),
         )
         .unwrap()
         .into_array()
@@ -95,7 +95,7 @@ mod tests {
     #[case(Validity::AllInvalid)]
     #[case(Validity::from_iter([true, false, true]))]
     fn test_bad_cast_fails(#[case] validity: Validity) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = date_time_array(validity);
         // Cast to incompatible type - force evaluation via execute::<Canonical>
         let result = array
@@ -121,7 +121,7 @@ mod tests {
         ].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    ), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
+    ), &mut array_session().create_execution_ctx()).unwrap())]
     #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
             Some(0i64),
@@ -132,12 +132,12 @@ mod tests {
         ]).into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    ), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
+    ), &mut array_session().create_execution_ctx()).unwrap())]
     #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
         buffer![86_400_000_000_000i64].into_array(), // 1 day in ns
         TimeUnit::Nanoseconds,
         Some("UTC".into())
-    ), &mut LEGACY_SESSION.create_execution_ctx()).unwrap())]
+    ), &mut array_session().create_execution_ctx()).unwrap())]
     fn test_cast_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
         use vortex_array::compute::conformance::cast::test_cast_conformance;
         test_cast_conformance(&array.into_array());

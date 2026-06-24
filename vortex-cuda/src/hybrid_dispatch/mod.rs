@@ -171,19 +171,19 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
     use vortex::scalar::Scalar;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
 
     use crate::CanonicalCudaExt;
-    use crate::canonicalize_cpu;
     use crate::executor::CudaArrayExt;
     use crate::session::CudaSession;
 
     fn for_bp<T: NativePType + Into<Scalar>>(values: Vec<T>, reference: T) -> ArrayRef {
+        let mut ctx = array_session().create_execution_ctx();
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
             7,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut ctx,
         )
         .vortex_expect("bp");
         FoR::try_new(bp.into_array(), reference.into())
@@ -194,26 +194,27 @@ mod tests {
     /// FoR(BitPacked) u32 — entire tree compiles into a single fused plan.
     #[crate::test]
     async fn test_fused() -> VortexResult<()> {
+        let mut cpu_ctx = array_session().create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
         let values: Vec<u32> = (0..2048).map(|i| (i % 128) as u32).collect();
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
             7,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut cpu_ctx,
         )
         .vortex_expect("bp");
         let arr = FoR::try_new(bp.into_array(), 1000u32.into()).vortex_expect("for");
 
-        let cpu = canonicalize_cpu(arr.clone())?.into_array();
         let gpu = arr
+            .clone()
             .into_array()
             .execute_cuda(&mut ctx)
             .await?
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(cpu, gpu);
+        assert_arrays_eq!(arr, gpu, &mut cpu_ctx);
         Ok(())
     }
 
@@ -221,6 +222,7 @@ mod tests {
     /// Exercises the unsigned type reinterpretation in CudaDispatchPlan::execute.
     #[crate::test]
     async fn test_fused_f32() -> VortexResult<()> {
+        let mut cpu_ctx = array_session().create_execution_ctx();
         use vortex::encodings::alp::ALP;
         use vortex::encodings::alp::Exponents;
 
@@ -230,7 +232,7 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(encoded), NonNullable).into_array(),
             9,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut cpu_ctx,
         )
         .vortex_expect("bp");
         let alp = ALP::try_new(
@@ -241,21 +243,22 @@ mod tests {
             None,
         )?;
 
-        let cpu = canonicalize_cpu(alp.clone())?.into_array();
         let gpu = alp
+            .clone()
             .into_array()
             .execute_cuda(&mut ctx)
             .await?
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(cpu, gpu);
+        assert_arrays_eq!(alp, gpu, &mut cpu_ctx);
         Ok(())
     }
 
     /// ALP with patches — plan builder rejects it, falls back to ALPExecutor.
     #[crate::test]
     async fn test_fallback() -> VortexResult<()> {
+        let mut cpu_ctx = array_session().create_execution_ctx();
         use vortex::array::patches::Patches;
         use vortex::array::validity::Validity::NonNullable as NN;
         use vortex::buffer::buffer;
@@ -279,15 +282,15 @@ mod tests {
         .unwrap();
         let arr = ALP::try_new(encoded, Exponents { e: 0, f: 2 }, Some(patches))?;
 
-        let cpu = canonicalize_cpu(arr.clone())?.into_array();
         let gpu = arr
+            .clone()
             .into_array()
             .execute_cuda(&mut ctx)
             .await?
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(cpu, gpu);
+        assert_arrays_eq!(arr, gpu, &mut cpu_ctx);
         Ok(())
     }
 
@@ -297,6 +300,7 @@ mod tests {
     #[cfg(feature = "unstable_encodings")]
     #[crate::test]
     async fn test_partial_fusion() -> VortexResult<()> {
+        let mut cpu_ctx = array_session().create_execution_ctx();
         use vortex::array::arrays::DictArray;
         use vortex::array::session::ArraySessionExt;
         use vortex::encodings::fastlanes;
@@ -317,7 +321,7 @@ mod tests {
         )
         .into_array();
         let vals = FoR::try_new(
-            BitPacked::encode(&vals, 6, &mut LEGACY_SESSION.create_execution_ctx())
+            BitPacked::encode(&vals, 6, &mut cpu_ctx)
                 .vortex_expect("bp")
                 .into_array(),
             0u32.into(),
@@ -332,7 +336,7 @@ mod tests {
         )
         .into_array();
         let codes = FoR::try_new(
-            BitPacked::encode(&codes, 6, &mut LEGACY_SESSION.create_execution_ctx())
+            BitPacked::encode(&codes, 6, &mut cpu_ctx)
                 .vortex_expect("bp")
                 .into_array(),
             0u32.into(),
@@ -353,13 +357,14 @@ mod tests {
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(cpu, gpu);
+        assert_arrays_eq!(cpu, gpu, &mut cpu_ctx);
         Ok(())
     }
 
     /// Filter(FoR(BP), mask) — FoR+BP fuses via dyn dispatch, then CUB filters the result.
     #[crate::test]
     async fn test_filter_fused_child() -> VortexResult<()> {
+        let mut cpu_ctx = array_session().create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
@@ -368,7 +373,7 @@ mod tests {
         let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(data.clone()), NonNullable).into_array(),
             7,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut cpu_ctx,
         )
         .vortex_expect("bp");
         let for_arr = FoR::try_new(bp.into_array(), 100u32.into()).vortex_expect("for");
@@ -385,7 +390,7 @@ mod tests {
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(cpu, gpu);
+        assert_arrays_eq!(cpu, gpu, &mut cpu_ctx);
         Ok(())
     }
 
@@ -403,11 +408,12 @@ mod tests {
     ))]
     #[crate::test]
     async fn test_ext_storage_gpu_decode(#[case] ext: ExtensionArray) -> VortexResult<()> {
+        let mut cpu_ctx = array_session().create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
-        let expected_storage = canonicalize_cpu(ext.storage_array().clone())?.into_array();
-        let expected = ExtensionArray::new(ext.ext_dtype().clone(), expected_storage).into_array();
+        let expected =
+            ExtensionArray::new(ext.ext_dtype().clone(), ext.storage_array().clone()).into_array();
 
         let actual = ext.into_array().execute_cuda(&mut ctx).await?;
         let storage = actual.as_extension().storage_array();
@@ -419,13 +425,14 @@ mod tests {
         assert!(!storage.is_host(), "storage was not decoded on the device");
 
         let actual = actual.into_host().await?.into_array();
-        assert_arrays_eq!(expected, actual);
+        assert_arrays_eq!(expected, actual, &mut cpu_ctx);
         Ok(())
     }
 
     /// Extension over already-canonical storage executes unchanged.
     #[crate::test]
     async fn test_ext_canonical_storage() -> VortexResult<()> {
+        let mut cpu_ctx = array_session().create_execution_ctx();
         let mut ctx =
             CudaSession::create_execution_ctx(&crate::cuda_session()).vortex_expect("ctx");
 
@@ -443,7 +450,7 @@ mod tests {
             .into_host()
             .await?
             .into_array();
-        assert_arrays_eq!(ext.into_array(), actual);
+        assert_arrays_eq!(ext.into_array(), actual, &mut cpu_ctx);
         Ok(())
     }
 }

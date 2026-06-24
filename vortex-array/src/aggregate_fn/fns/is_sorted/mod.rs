@@ -558,10 +558,10 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::fns::is_sorted::is_sorted;
     use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::validity::Validity;
@@ -569,7 +569,7 @@ mod tests {
     // Tests migrated from compute/is_sorted.rs
     #[test]
     fn test_is_sorted() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let arr = PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).into_array();
         assert!(is_sorted(&arr, &mut ctx)?);
@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn test_is_strict_sorted() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let arr = PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).into_array();
         assert!(is_strict_sorted(&arr, &mut ctx)?);
@@ -640,7 +640,7 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1)]), true)]
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(
             is_sorted(&array.into_array(), &mut ctx)
                 .vortex_expect("operation should succeed in test"),
@@ -655,7 +655,7 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1), None]), false)]
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_strict_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(
             is_strict_sorted(&array.into_array(), &mut ctx)
                 .vortex_expect("operation should succeed in test"),
@@ -672,7 +672,7 @@ mod tests {
         use crate::arrays::DecimalArray;
         use crate::dtype::DecimalDType;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DecimalDType::new(19, 2);
         let i100 = parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale())?;
         let i200 = parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale())?;
@@ -697,7 +697,7 @@ mod tests {
         use crate::arrays::DecimalArray;
         use crate::dtype::DecimalDType;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let dtype = DecimalDType::new(19, 2);
         let i100 = parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale())?;
         let i200 = parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale())?;

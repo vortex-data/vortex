@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#include "duckdb_vx/data.hpp"
-#include "duckdb_vx/error.hpp"
-#include "duckdb_vx/table_function.h"
-#include "duckdb_vx/expr.h"
+#include "data.hpp"
+#include "error.hpp"
+#include "table_function.hpp"
+#include "vortex_duckdb.h"
+#include "table_function.h"
 #include "vortex.h"
 
 #include "duckdb.h"
@@ -19,8 +20,6 @@
 
 using namespace std::string_literals;
 using namespace duckdb;
-using vortex::CData;
-using vortex::IntoErrString;
 constexpr column_t COLUMN_IDENTIFIER_FILE_INDEX = MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX;
 constexpr column_t COLUMN_IDENTIFIER_FILE_ROW_NUMBER = MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER;
 

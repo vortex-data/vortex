@@ -282,6 +282,7 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 }
 
 #[derive(Clone, Debug)]
+/// Pco array encoding marker.
 pub struct Pco;
 
 impl Pco {
@@ -317,6 +318,7 @@ pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 #[derive(Clone, Debug)]
+/// Encoding-specific data for a [`PcoArray`].
 pub struct PcoData {
     pub(crate) chunk_metas: Vec<ByteBuffer>,
     pub(crate) pages: Vec<ByteBuffer>,
@@ -338,6 +340,7 @@ impl Display for PcoData {
 }
 
 impl PcoData {
+    /// Validate dtype, validity, slice, and Pco component invariants.
     pub fn validate(&self, dtype: &DType, len: usize, validity: &Validity) -> VortexResult<()> {
         let _ = number_type_from_ptype(self.ptype);
         vortex_ensure!(
@@ -391,6 +394,7 @@ impl PcoData {
         Ok(())
     }
 
+    /// Construct unsliced Pco data from chunk metadata, pages, and serialized metadata.
     pub fn new(
         chunk_metas: Vec<ByteBuffer>,
         pages: Vec<ByteBuffer>,
@@ -409,6 +413,7 @@ impl PcoData {
         }
     }
 
+    /// Compress a primitive array into Pco data.
     pub fn from_primitive(
         parray: ArrayView<'_, Primitive>,
         level: usize,
@@ -497,6 +502,11 @@ impl PcoData {
         ))
     }
 
+    /// Downcast and compress an array into Pco data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input is not a primitive array or compression fails.
     pub fn from_array(
         array: ArrayRef,
         level: usize,
@@ -512,6 +522,7 @@ impl PcoData {
         Self::from_primitive(parray.as_view(), level, nums_per_page, ctx)
     }
 
+    /// Decompress this Pco data into a primitive array.
     pub fn decompress(
         &self,
         unsliced_validity: &Validity,
@@ -669,8 +680,8 @@ impl OperationsVTable<Pco> for Pco {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -680,7 +691,7 @@ mod tests {
 
     #[test]
     fn test_slice_nullable() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Create a nullable array with some nulls
         let values = PrimitiveArray::new(
             buffer![10u32, 20, 30, 40, 50, 60],
@@ -696,7 +707,8 @@ mod tests {
                 Some(40),
                 Some(50),
                 None
-            ])
+            ]),
+            &mut ctx
         );
 
         // Slice to get only the non-null values in the middle
@@ -704,6 +716,6 @@ mod tests {
         let expected =
             PrimitiveArray::from_option_iter([Some(20u32), Some(30), Some(40), Some(50)])
                 .into_array();
-        assert_arrays_eq!(sliced, expected);
+        assert_arrays_eq!(sliced, expected, &mut ctx);
     }
 }

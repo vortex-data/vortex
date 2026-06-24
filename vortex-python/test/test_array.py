@@ -43,3 +43,19 @@ def test_empty_array():
 def test_scalar_at_out_of_bounds():
     a = vortex.array([10, 42, 999, 1992])
     _s = a.scalar_at(10)
+
+
+@pytest.mark.parametrize(
+    "arrow_type",
+    [
+        pa.duration("us"),
+        pa.month_day_nano_interval(),
+        pa.binary(3),
+    ],
+)
+def test_unsupported_arrow_type_raises_value_error(arrow_type: pa.DataType):
+    # Regression test for https://github.com/vortex-data/vortex/issues/8346:
+    # unsupported Arrow types must surface as a clean ValueError, not a PanicException.
+    table = pa.table({"c0": pa.array([], type=arrow_type)})
+    with pytest.raises(ValueError):
+        _ = vortex.array(table)

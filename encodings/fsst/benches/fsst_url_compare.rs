@@ -12,6 +12,7 @@ use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::like;
 use vortex_array::expr::lit;
@@ -40,6 +41,16 @@ const NUM_URLS: usize = NUM_STRINGS;
 
 static URL_DATA: LazyLock<VarBinArray> = LazyLock::new(generate_url_data);
 
+/// `URL_DATA` as a `VarBinViewArray`, used by the view-input bench variants.
+static URL_VIEW_DATA: LazyLock<VarBinViewArray> = LazyLock::new(|| {
+    let mut ctx = SESSION.create_execution_ctx();
+    URL_DATA
+        .clone()
+        .into_array()
+        .execute::<VarBinViewArray>(&mut ctx)
+        .unwrap()
+});
+
 // ---------------------------------------------------------------------------
 // Eq compare benchmarks (FSST pushdown vs canonicalize)
 // ---------------------------------------------------------------------------
@@ -58,14 +69,12 @@ fn pick_url_with_domain(data: &VarBinArray, domain: &str) -> String {
 #[divan::bench]
 fn eq_pushdown_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
-    let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(
-        data,
-        data.len(),
-        data.dtype(),
-        &compressor,
-        &mut SESSION.create_execution_ctx(),
-    );
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = data.clone().into_array();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array();
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -74,7 +83,6 @@ fn eq_pushdown_high_match(bencher: Bencher) {
         .bench_refs(|(fsst_array, constant, ctx)| {
             fsst_array
                 .clone()
-                .into_array()
                 .binary(constant.clone().into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -85,15 +93,59 @@ fn eq_pushdown_high_match(bencher: Bencher) {
 #[divan::bench]
 fn eq_pushdown_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
-    let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(
-        data,
-        data.len(),
-        data.dtype(),
-        &compressor,
-        &mut SESSION.create_execution_ctx(),
-    );
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = data.clone().into_array();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array();
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
+    let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
+
+    bencher
+        .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst_array, constant, ctx)| {
+            fsst_array
+                .clone()
+                .binary(constant.clone().into_array(), Operator::Eq)
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+        });
+}
+
+#[divan::bench]
+fn eq_pushdown_high_match_view(bencher: Bencher) {
+    let data = &*URL_VIEW_DATA;
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = data.clone().into_array();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array();
+    let match_url = pick_url_with_domain(&URL_DATA, HIGH_MATCH_DOMAIN);
+    let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
+
+    bencher
+        .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
+        .bench_refs(|(fsst_array, constant, ctx)| {
+            fsst_array
+                .clone()
+                .binary(constant.clone().into_array(), Operator::Eq)
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+        });
+}
+
+#[divan::bench]
+fn eq_pushdown_low_match_view(bencher: Bencher) {
+    let data = &*URL_VIEW_DATA;
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = data.clone().into_array();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx).unwrap();
+    let match_url = pick_url_with_domain(&URL_DATA, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
     bencher
@@ -112,23 +164,20 @@ fn eq_pushdown_low_match(bencher: Bencher) {
 #[divan::bench]
 fn eq_canonicalize_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
-    let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(
-        data,
-        data.len(),
-        data.dtype(),
-        &compressor,
-        &mut SESSION.create_execution_ctx(),
-    );
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = data.clone().into_array();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array();
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
         .bench_refs(|(fsst_array, constant, ctx)| {
-            (*fsst_array)
+            fsst_array
                 .clone()
-                .into_array()
                 .execute::<Canonical>(ctx)
                 .unwrap()
                 .into_array()
@@ -142,23 +191,20 @@ fn eq_canonicalize_high_match(bencher: Bencher) {
 #[divan::bench]
 fn eq_canonicalize_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
-    let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(
-        data,
-        data.len(),
-        data.dtype(),
-        &compressor,
-        &mut SESSION.create_execution_ctx(),
-    );
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = data.clone().into_array();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array();
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
     bencher
         .with_inputs(|| (&fsst_array, &constant, SESSION.create_execution_ctx()))
         .bench_refs(|(fsst_array, constant, ctx)| {
-            (*fsst_array)
+            fsst_array
                 .clone()
-                .into_array()
                 .execute::<Canonical>(ctx)
                 .unwrap()
                 .into_array()
@@ -176,14 +222,12 @@ fn eq_canonicalize_low_match(bencher: Bencher) {
 #[divan::bench]
 fn like_substr_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
-    let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(
-        data,
-        data.len(),
-        data.dtype(),
-        &compressor,
-        &mut SESSION.create_execution_ctx(),
-    );
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = data.clone().into_array();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array();
     let pattern = format!("%{HIGH_MATCH_DOMAIN}%");
     let expr = like(root(), lit(pattern.as_str()));
 
@@ -192,7 +236,6 @@ fn like_substr_high_match(bencher: Bencher) {
         .bench_refs(|(fsst_array, ctx)| {
             fsst_array
                 .clone()
-                .into_array()
                 .apply(&expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -203,14 +246,12 @@ fn like_substr_high_match(bencher: Bencher) {
 #[divan::bench]
 fn like_substr_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
-    let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(
-        data,
-        data.len(),
-        data.dtype(),
-        &compressor,
-        &mut SESSION.create_execution_ctx(),
-    );
+    let mut ctx = SESSION.create_execution_ctx();
+    let array = data.clone().into_array();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    let fsst_array = fsst_compress(&array, &compressor, &mut ctx)
+        .unwrap()
+        .into_array();
     let pattern = format!("%{LOW_MATCH_DOMAIN}%");
     let expr = like(root(), lit(pattern.as_str()));
 
@@ -219,7 +260,6 @@ fn like_substr_low_match(bencher: Bencher) {
         .bench_refs(|(fsst_array, ctx)| {
             fsst_array
                 .clone()
-                .into_array()
                 .apply(&expr)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)

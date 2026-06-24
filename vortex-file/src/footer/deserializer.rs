@@ -23,6 +23,11 @@ use crate::footer::postscript::PostscriptSegment;
 
 /// Deserialize a footer from the end of a Vortex file or created from a
 /// [`crate::footer::FooterSerializer`].
+///
+/// The deserializer is incremental because callers may initially read only the tail of a file. Call
+/// [`deserialize`](Self::deserialize) until it returns [`DeserializeStep::Done`]. If it asks for
+/// [`DeserializeStep::NeedMoreData`], prefix the requested bytes with [`prefix_data`](Self::prefix_data).
+/// If it asks for [`DeserializeStep::NeedFileSize`], call [`with_size`](Self::with_size) and retry.
 pub struct FooterDeserializer {
     // A buffer representing the end of a Vortex file.
     // During deserialization, we may need to expand this buffer by requesting more data from
@@ -52,21 +57,27 @@ impl FooterDeserializer {
         }
     }
 
+    /// Provide the file dtype externally.
+    ///
+    /// This is required for files written with [`VortexWriteOptions::exclude_dtype`](crate::VortexWriteOptions::exclude_dtype).
     pub fn with_dtype(mut self, dtype: DType) -> Self {
         self.dtype = Some(dtype);
         self
     }
 
+    /// Provide or clear the externally known file dtype.
     pub fn with_some_dtype(mut self, dtype: Option<DType>) -> Self {
         self.dtype = dtype;
         self
     }
 
+    /// Provide the total file size.
     pub fn with_size(mut self, file_size: u64) -> Self {
         self.file_size = Some(file_size);
         self
     }
 
+    /// Provide or clear the total file size.
     pub fn with_some_size(mut self, file_size: Option<u64>) -> Self {
         self.file_size = file_size;
         self
@@ -80,6 +91,9 @@ impl FooterDeserializer {
         self.buffer = buffer.freeze();
     }
 
+    /// Advance footer deserialization.
+    ///
+    /// Returns the next missing input requirement or the finished [`Footer`].
     pub fn deserialize(&mut self) -> VortexResult<DeserializeStep> {
         let postscript = if let Some(postscript) = &self.postscript {
             postscript
@@ -263,9 +277,17 @@ impl FooterDeserializer {
 }
 
 #[derive(Debug)]
+/// Result of one [`FooterDeserializer::deserialize`] step.
 pub enum DeserializeStep {
-    // The offset and length of additional data needed to continue deserialization.
-    NeedMoreData { offset: u64, len: usize },
+    /// Additional data needed to continue deserialization.
+    NeedMoreData {
+        /// Absolute file offset to read from.
+        offset: u64,
+        /// Number of bytes to read and prefix into the deserializer.
+        len: usize,
+    },
+    /// The total file size is required before offsets can be resolved.
     NeedFileSize,
+    /// Footer deserialization is complete.
     Done(Footer),
 }

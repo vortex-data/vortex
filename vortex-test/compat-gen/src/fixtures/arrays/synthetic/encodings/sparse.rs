@@ -5,8 +5,6 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -18,6 +16,7 @@ use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
 use vortex::encodings::sparse::Sparse;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -37,10 +36,9 @@ impl FlatLayoutFixture for SparseFixture {
         vec![Sparse.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // `FlatLayoutFixture::build` has a fixed trait signature that can't accept a ctx,
         // so we instantiate one here.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let sparse_i64_col = PrimitiveArray::from_option_iter(
             (0..N as i64).map(|i| (i % 50 == 0).then_some(i * 1000)),
         );
@@ -94,27 +92,27 @@ impl FlatLayoutFixture for SparseFixture {
                 "mixed_null_and_values",
             ]),
             vec![
-                Sparse::encode(&sparse_i64_col.into_array(), None, &mut ctx)?,
-                Sparse::encode(&sparse_str_col.into_array(), None, &mut ctx)?,
-                Sparse::encode(&sparse_bool_col.into_array(), None, &mut ctx)?,
-                Sparse::encode(&sparse_f64.into_array(), None, &mut ctx)?,
-                Sparse::encode(&sparse_boundary.into_array(), None, &mut ctx)?,
+                Sparse::encode(&sparse_i64_col.into_array(), None, ctx)?,
+                Sparse::encode(&sparse_str_col.into_array(), None, ctx)?,
+                Sparse::encode(&sparse_bool_col.into_array(), None, ctx)?,
+                Sparse::encode(&sparse_f64.into_array(), None, ctx)?,
+                Sparse::encode(&sparse_boundary.into_array(), None, ctx)?,
                 Sparse::encode(
                     &explicit_fill_values.into_array(),
                     Some(Scalar::primitive(10i32, Nullability::Nullable)),
-                    &mut ctx,
+                    ctx,
                 )?,
-                Sparse::encode(&all_default, Some(Scalar::from(10i32)), &mut ctx)?,
-                Sparse::encode(&clustered_edges.into_array(), None, &mut ctx)?,
+                Sparse::encode(&all_default, Some(Scalar::from(10i32)), ctx)?,
+                Sparse::encode(&clustered_edges.into_array(), None, ctx)?,
                 Sparse::encode(
                     &almost_dense.into_array(),
                     Some(Scalar::primitive(0i32, Nullability::Nullable)),
-                    &mut ctx,
+                    ctx,
                 )?,
                 Sparse::encode(
                     &mixed_null_and_values.into_array(),
                     Some(mixed_null_fill),
-                    &mut ctx,
+                    ctx,
                 )?,
             ],
             N,

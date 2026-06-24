@@ -4,13 +4,14 @@
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::DynGroupedAccumulator;
@@ -24,10 +25,13 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 const GROUP_COUNT: usize = 128;
 const GROUP_SIZE_SEED: u64 = 42;
@@ -157,7 +161,7 @@ where
         list_element_dtype(list_view),
     )
     .unwrap();
-    acc.accumulate_list(list_view, &mut LEGACY_SESSION.create_execution_ctx())
+    acc.accumulate_list(list_view, &mut SESSION.create_execution_ctx())
         .unwrap();
     divan::black_box(acc.finish().unwrap())
 }

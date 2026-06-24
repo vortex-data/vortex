@@ -6,8 +6,8 @@
 //!
 //! # Specification
 //!
-//! An [`Interleave`] array has `N + 2` children: `N` *values* followed by an `array_indices`
-//! selector and a `row_indices` selector. The output has `array_indices.len()` rows, and output
+//! An [`Interleave`] array has `N + 2` children: an `array_indices` selector and a `row_indices`
+//! selector followed by `N` *values*. The output has `array_indices.len()` rows, and output
 //! row `i` comes from `values[array_indices[i]][row_indices[i]]`.
 //!
 //! Unlike a `Merge`, which consumes each branch in order under a cursor, an [`Interleave`] is
@@ -86,8 +86,8 @@ pub struct Interleave;
 
 /// Per-array metadata for an [`InterleaveArray`].
 ///
-/// The values and selectors live in the array's slots; only the value count is stored here so the
-/// selector slots can be located (`slots[num_values]` and `slots[num_values + 1]`).
+/// The selectors and values live in the array's slots; the selectors occupy `slots[0]` and
+/// `slots[1]`, and the `num_values` values follow at `slots[2..2 + num_values]`.
 #[derive(Clone, Debug)]
 pub struct InterleaveData {
     pub(crate) num_values: usize,
@@ -120,21 +120,21 @@ pub trait InterleaveArrayExt: TypedArrayRef<Interleave> {
 
     /// The `idx`-th value array (holding the rows that `array_indices` routes to it).
     fn value(&self, idx: usize) -> &ArrayRef {
-        self.as_ref().slots()[idx]
+        self.as_ref().slots()[idx + 2]
             .as_ref()
             .vortex_expect("validated interleave value slot")
     }
 
     /// The selector routing each output row to a value array.
     fn array_indices(&self) -> &ArrayRef {
-        self.as_ref().slots()[self.num_values]
+        self.as_ref().slots()[0]
             .as_ref()
             .vortex_expect("validated interleave array_indices slot")
     }
 
     /// The selector naming each output row's position within its value array.
     fn row_indices(&self) -> &ArrayRef {
-        self.as_ref().slots()[self.num_values + 1]
+        self.as_ref().slots()[1]
             .as_ref()
             .vortex_expect("validated interleave row_indices slot")
     }
@@ -215,19 +215,68 @@ impl Array<Interleave> {
         row_indices: ArrayRef,
     ) -> VortexResult<Self> {
         let dtype = Interleave::check(&values, &array_indices, &row_indices)?;
-        let len = array_indices.len();
-        let num_values = values.len();
+        // SAFETY: `check` just validated every invariant and computed the matching `dtype`.
+        Ok(unsafe { Self::new_unchecked(values, array_indices, row_indices, dtype) })
+    }
 
-        let mut slots: ArraySlots = values.into_iter().map(Some).collect();
+    /// Constructs an [`InterleaveArray`] without re-validating the spec invariants.
+    ///
+    /// This is the assembly half of [`try_new`](Self::try_new): it lays the selectors into
+    /// `slots[0]`/`slots[1]` and the values into `slots[2..]` and stamps `dtype`, skipping the
+    /// `Interleave::check` pass. It exists for hot internal paths — notably building the
+    /// pushed-down validity interleave in [`ValidityVTable::validity`] — where the inputs are known
+    /// to satisfy the invariants by construction and re-checking them is pure overhead.
+    ///
+    /// # Safety
+    ///
+    /// The caller must uphold every [module invariant](self): at least two `values` sharing a dtype
+    /// up to nullability, both selectors non-nullable unsigned integers of equal length, and `dtype`
+    /// equal to the value returned by `Interleave::check` for these arguments (the shared value
+    /// type with the union of the values' nullabilities).
+    pub unsafe fn new_unchecked(
+        values: Vec<ArrayRef>,
+        array_indices: ArrayRef,
+        row_indices: ArrayRef,
+        dtype: DType,
+    ) -> Self {
+        let mut slots: ArraySlots = ArraySlots::with_capacity(values.len() + 2);
         slots.push(Some(array_indices));
         slots.push(Some(row_indices));
+        slots.extend(values.into_iter().map(Some));
 
-        Ok(unsafe {
+        // SAFETY: the caller of `new_unchecked` upholds every invariant; here we only assemble the
+        // canonical slot layout (`array_indices`, `row_indices`, then values) that follows.
+        unsafe { Self::new_unchecked_slots(slots, dtype) }
+    }
+
+    /// Constructs an [`InterleaveArray`] from a pre-assembled `slots` buffer, skipping both the
+    /// spec re-check and the slot copy that [`new_unchecked`](Self::new_unchecked) performs.
+    ///
+    /// This is the lowest-level assembly path: it stamps `dtype` onto `slots` as-is. Callers that
+    /// already own a correctly laid-out [`ArraySlots`] — for example reusing a validated parent's
+    /// selectors while swapping its values — avoid materializing an intermediate `Vec<ArrayRef>`
+    /// and re-pushing it into a fresh `ArraySlots`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must uphold every [module invariant](self) *and* the slot layout: `slots[0]` is
+    /// the `array_indices` selector, `slots[1]` is the `row_indices` selector, and `slots[2..]` are
+    /// the value arrays. Every slot must be `Some`, there must be at least two values
+    /// (`slots.len() >= 4`), and `dtype` must equal the value returned by `Interleave::check` for
+    /// these arguments.
+    pub unsafe fn new_unchecked_slots(slots: ArraySlots, dtype: DType) -> Self {
+        let num_values = slots.len() - 2;
+        let len = slots[0]
+            .as_ref()
+            .vortex_expect("interleave array_indices slot present")
+            .len();
+
+        unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Interleave, dtype, len, InterleaveData { num_values })
                     .with_slots(slots),
             )
-        })
+        }
     }
 }
 
@@ -259,16 +308,14 @@ impl VTable for Interleave {
             "InterleaveArray slots must all be present"
         );
 
-        let values: Vec<ArrayRef> = slots[..data.num_values]
+        let array_indices = slots[0]
+            .clone()
+            .vortex_expect("validated array_indices slot");
+        let row_indices = slots[1].clone().vortex_expect("validated row_indices slot");
+        let values: Vec<ArrayRef> = slots[2..]
             .iter()
             .map(|s| s.clone().vortex_expect("validated value slot"))
             .collect();
-        let array_indices = slots[data.num_values]
-            .clone()
-            .vortex_expect("validated array_indices slot");
-        let row_indices = slots[data.num_values + 1]
-            .clone()
-            .vortex_expect("validated row_indices slot");
 
         // All semantic invariants live in `check`; here we only confirm the array's cached `dtype`
         // and `len` agree with what the children imply.
@@ -300,13 +347,11 @@ impl VTable for Interleave {
         None
     }
 
-    fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        if idx == array.num_values() {
-            "array_indices".to_string()
-        } else if idx == array.num_values() + 1 {
-            "row_indices".to_string()
-        } else {
-            format!("value_{idx}")
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        match idx {
+            0 => "array_indices".to_string(),
+            1 => "row_indices".to_string(),
+            _ => format!("value_{}", idx - 2),
         }
     }
 
@@ -370,18 +415,18 @@ impl ValidityVTable<Interleave> for Interleave {
         if !array.as_ref().dtype().is_nullable() {
             return Ok(Validity::NonNullable);
         }
-        // The output validity is itself an interleave — by the same selectors — of the values'
-        // validities, expressed as non-nullable boolean arrays. This bottoms out immediately
-        // because the inner interleave is non-nullable.
-        let mut value_validities: Vec<ArrayRef> = Vec::with_capacity(array.num_values());
-        for i in 0..array.num_values() {
-            value_validities.push(value_validity_array(array.value(i))?);
+        let num_values = array.num_values();
+        let mut slots: ArraySlots = ArraySlots::with_capacity(num_values + 2);
+        slots.push(Some(array.array_indices().clone()));
+        slots.push(Some(array.row_indices().clone()));
+        for i in 0..num_values {
+            slots.push(Some(value_validity_array(array.value(i))?));
         }
-        let interleaved = InterleaveArray::try_new(
-            value_validities,
-            array.array_indices().clone(),
-            array.row_indices().clone(),
-        )?;
+        // SAFETY: `value_validity_array` yields a non-nullable boolean array per value,
+        // the selectors already validated.
+        let interleaved = unsafe {
+            InterleaveArray::new_unchecked_slots(slots, DType::Bool(Nullability::NonNullable))
+        };
         Ok(Validity::Array(interleaved.into_array()))
     }
 }
@@ -404,8 +449,8 @@ mod tests {
 
     use super::*;
     use crate::Canonical;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -496,10 +541,10 @@ mod tests {
             InterleaveArray::try_new(values.clone(), array_indices.clone(), row_indices.clone())?
                 .into_array();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let reference = interleave_reference(&values, &array_indices, &row_indices, &mut ctx)?;
 
-        assert_arrays_eq!(interleaved, reference);
+        assert_arrays_eq!(interleaved, reference, &mut ctx);
         Ok(())
     }
 
@@ -522,6 +567,29 @@ mod tests {
             ],
             &[(0, 0), (1, 1), (0, 2)],
         )
+    }
+
+    #[test]
+    fn interleave_binary_spans_word_boundary() -> VortexResult<()> {
+        // Exercises a two-value gather across more than one 64-bit packing word, with out-of-order
+        // routing into both branches so neither buffer is consumed contiguously.
+        let branch0: Vec<Option<bool>> = (0..100).map(|i| Some(i % 3 == 0)).collect();
+        let branch1: Vec<Option<bool>> = (0..100).map(|i| Some(i % 5 == 0)).collect();
+        let indices: Vec<(usize, usize)> = (0..200).map(|i| (i % 2, (i * 7) % 100)).collect();
+        check(&[&branch0, &branch1], &indices)
+    }
+
+    #[test]
+    fn interleave_binary_nullable_spans_word_boundary() -> VortexResult<()> {
+        // Same two-value gather, now with nulls so the validity packing is exercised too.
+        let branch0: Vec<Option<bool>> = (0..70)
+            .map(|i| (i % 4 != 0).then_some(i % 2 == 0))
+            .collect();
+        let branch1: Vec<Option<bool>> = (0..70)
+            .map(|i| (i % 3 != 0).then_some(i % 2 == 1))
+            .collect();
+        let indices: Vec<(usize, usize)> = (0..150).map(|i| (i % 2, (i * 11) % 70)).collect();
+        check(&[&branch0, &branch1], &indices)
     }
 
     #[test]
@@ -603,6 +671,45 @@ mod tests {
     }
 
     #[test]
+    fn execute_rejects_out_of_bounds_array_index() -> VortexResult<()> {
+        let value = BoolArray::from_iter([true]).into_array();
+        let array_indices = PrimitiveArray::from_iter([2u32]).into_array();
+        let row_indices = PrimitiveArray::from_iter([0u32]).into_array();
+        let interleaved =
+            InterleaveArray::try_new(vec![value.clone(), value], array_indices, row_indices)?
+                .into_array();
+
+        let mut ctx = array_session().create_execution_ctx();
+        let err = interleaved
+            .execute::<Canonical>(&mut ctx)
+            .err()
+            .vortex_expect("expected execution to reject out-of-bounds array index");
+        assert!(
+            err.to_string().contains("array index out of bounds"),
+            "{err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn execute_rejects_out_of_bounds_row_index() -> VortexResult<()> {
+        let value = BoolArray::from_iter([true]).into_array();
+        let array_indices = PrimitiveArray::from_iter([0u32]).into_array();
+        let row_indices = PrimitiveArray::from_iter([1u32]).into_array();
+        let interleaved =
+            InterleaveArray::try_new(vec![value.clone(), value], array_indices, row_indices)?
+                .into_array();
+
+        let mut ctx = array_session().create_execution_ctx();
+        let err = interleaved
+            .execute::<Canonical>(&mut ctx)
+            .err()
+            .vortex_expect("expected execution to reject out-of-bounds row index");
+        assert!(err.to_string().contains("row index out of bounds"), "{err}");
+        Ok(())
+    }
+
+    #[test]
     #[should_panic(expected = "only implemented for boolean values")]
     fn non_boolean_value_execution_panics() {
         // Execution dispatches on the value type: primitive values have no kernel yet.
@@ -613,7 +720,7 @@ mod tests {
         let interleaved = InterleaveArray::try_new(vec![v0, v1], array_indices, row_indices)
             .vortex_expect("primitive values should construct")
             .into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         interleaved.execute::<Canonical>(&mut ctx).ok();
     }
 }

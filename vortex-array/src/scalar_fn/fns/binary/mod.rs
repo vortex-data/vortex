@@ -281,8 +281,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
@@ -499,7 +499,7 @@ mod tests {
         let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
             result_equal
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
@@ -510,7 +510,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             result_different
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
@@ -519,6 +519,7 @@ mod tests {
 
     #[test]
     fn test_or_kleene_validity() {
+        let mut ctx = array_session().create_execution_ctx();
         use crate::IntoArray;
         use crate::arrays::BoolArray;
         use crate::arrays::StructArray;
@@ -537,11 +538,16 @@ mod tests {
         let expr = or(col("a"), col("b"));
         let result = struct_arr.apply(&expr).unwrap();
 
-        assert_arrays_eq!(result, BoolArray::from_iter([Some(true)]).into_array())
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(true)]).into_array(),
+            &mut ctx
+        )
     }
 
     #[test]
     fn test_scalar_subtract_unsigned() {
+        let mut ctx = array_session().create_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
@@ -551,11 +557,12 @@ mod tests {
         let values = buffer![1u16, 2, 3].into_array();
         let rhs = ConstantArray::new(Scalar::from(1u16), 3).into_array();
         let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u16, 1, 2]));
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u16, 1, 2]), &mut ctx);
     }
 
     #[test]
     fn test_scalar_subtract_signed() {
+        let mut ctx = array_session().create_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
@@ -565,11 +572,12 @@ mod tests {
         let values = buffer![1i64, 2, 3].into_array();
         let rhs = ConstantArray::new(Scalar::from(-1i64), 3).into_array();
         let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([2i64, 3, 4]));
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([2i64, 3, 4]), &mut ctx);
     }
 
     #[test]
     fn test_scalar_subtract_nullable() {
+        let mut ctx = array_session().create_execution_ctx();
         use crate::IntoArray;
         use crate::arrays::ConstantArray;
         use crate::arrays::PrimitiveArray;
@@ -579,12 +587,14 @@ mod tests {
         let result = values.into_array().binary(rhs, Operator::Sub).unwrap();
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)])
+            PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)]),
+            &mut ctx
         );
     }
 
     #[test]
     fn test_scalar_subtract_float() {
+        let mut ctx = array_session().create_execution_ctx();
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
@@ -594,7 +604,11 @@ mod tests {
         let values = buffer![1.0f64, 2.0, 3.0].into_array();
         let rhs = ConstantArray::new(Scalar::from(-1f64), 3).into_array();
         let result = values.binary(rhs, Operator::Sub).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([2.0f64, 3.0, 4.0]));
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_iter([2.0f64, 3.0, 4.0]),
+            &mut ctx
+        );
     }
 
     #[test]

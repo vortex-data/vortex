@@ -12,10 +12,10 @@ statement ok
 INSERT INTO pep_test VALUES (0, 'Hello', 0), (1, 'Hi', 1), (2, 'Hey', 2);
 
 statement ok
-COPY (SELECT * FROM pep_test) TO '$__TEST_DIR__/pe-pushdown.vortex';
+COPY (SELECT * FROM pep_test) TO '${WORK_DIR}/pe-pushdown.vortex';
 
 query T
-SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
+SELECT str FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY str;
 ----
 Hello
 Hey
@@ -25,13 +25,13 @@ Hi
 # Vortex EXPLAIN output now has "SELECT projections" which indicates
 # pushdown was successful
 query TT
-EXPLAIN (FORMAT json) SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex';
+EXPLAIN (FORMAT json) SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex';
 ----
 <REGEX>:SELECT projections
 
 # we need an "order by" for test output to be deterministic
 query I
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY strlen(str);
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY strlen(str);
 ----
 2
 3
@@ -39,12 +39,12 @@ SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY strlen(str);
 
 # explain: same for aliased columns
 query TT
-EXPLAIN (FORMAT json) SELECT strlen(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex';
+EXPLAIN (FORMAT json) SELECT strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex';
 ----
 <REGEX>:SELECT projections
 
 query I
-SELECT strlen(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY strlen(str);
+SELECT strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY strlen(str);
 ----
 2
 3
@@ -53,13 +53,13 @@ SELECT strlen(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY strlen(
 # explain: strlen with filter using strlen
 query TT
 EXPLAIN (FORMAT json)
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE strlen(str) > 2;
 ----
 <REGEX>:SELECT projections
 
 query I
-SELECT strlen(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE strlen(str) > 2
 ORDER BY strlen(str);
 ----
@@ -68,7 +68,7 @@ ORDER BY strlen(str);
 
 # Same, but filter expression has multiple children
 query I
-SELECT strlen(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE strlen(str) * 2 > 4
 ORDER BY strlen(str);
 ----
@@ -76,7 +76,7 @@ ORDER BY strlen(str);
 5
 
 query I
-SELECT strlen(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE len(str) * 2 > 4
 ORDER BY strlen(str);
 ----
@@ -85,7 +85,7 @@ ORDER BY strlen(str);
 
 # strlen with filter using len, no pushdown
 query I
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE len(str) > 2
 ORDER BY strlen(str);
 ----
@@ -95,13 +95,13 @@ ORDER BY strlen(str);
 # explain: len() in WHERE conflicts with strlen() in SELECT, no pushdown
 query TT
 EXPLAIN (FORMAT json)
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex' WHERE len(str) > 2;
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex' WHERE len(str) > 2;
 ----
 <!REGEX>:SELECT projections
 
 # strlen with str, no pushdown
 query TI
-SELECT str, strlen(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT str, strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE strlen(str) > 3 ORDER BY str;
 ----
 Hello 5
@@ -109,14 +109,14 @@ Hello 5
 # explain: bare str in SELECT conflicts with strlen(), no pushdown
 query TT
 EXPLAIN (FORMAT json)
-SELECT str, strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex';
+SELECT str, strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex';
 ----
 <!REGEX>:SELECT projections
 
 
 # pushdown of prefix() not supported
 query B
-SELECT prefix(str, 'H') FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
+SELECT prefix(str, 'H') FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY str;
 ----
 true
 true
@@ -124,14 +124,14 @@ true
 
 # conflict on str, no pushdown.
 query TI
-SELECT str, strlen(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT str, strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE strlen(str) > 3 ORDER BY str;
 ----
 Hello 5
 
 # conflict in SELCECT, no pushdown
 query TI
-SELECT str, strlen(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
+SELECT str, strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY str;
 ----
 Hello 5
 Hey 3
@@ -139,7 +139,7 @@ Hi 2
 
 # same with aliased strlen()
 query IT
-SELECT strlen(str) AS l, str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str;
+SELECT strlen(str) AS l, str FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY str;
 ----
 5 Hello
 3 Hey
@@ -147,7 +147,7 @@ SELECT strlen(str) AS l, str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY st
 
 # str as part of multi-arg ||, conflict
 query IT
-SELECT strlen(str) AS l, str || '!' AS s FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) AS l, str || '!' AS s FROM '${WORK_DIR}/pe-pushdown.vortex'
 ORDER BY l;
 ----
 2 Hi!
@@ -156,13 +156,13 @@ ORDER BY l;
 
 query TT
 EXPLAIN (FORMAT json)
-SELECT strlen(str), str || '!' FROM '$__TEST_DIR__/pe-pushdown.vortex';
+SELECT strlen(str), str || '!' FROM '${WORK_DIR}/pe-pushdown.vortex';
 ----
 <!REGEX>:SELECT projections
 
 # strlen() and a different multi-arg use of str (substr): no pushdown
 query IT
-SELECT strlen(str) AS l, substr(str, 1, 1) AS c FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) AS l, substr(str, 1, 1) AS c FROM '${WORK_DIR}/pe-pushdown.vortex'
 ORDER BY l;
 ----
 2 H
@@ -171,7 +171,7 @@ ORDER BY l;
 
 # fn -> cte
 query I
-SELECT strlen(str) FROM (SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str);
+SELECT strlen(str) FROM (SELECT str FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY str);
 ----
 5
 3
@@ -179,7 +179,7 @@ SELECT strlen(str) FROM (SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDE
 
 # fn -> cte -> cte
 query I
-WITH cte1 AS (SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str),
+WITH cte1 AS (SELECT str FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY str),
      cte2 AS (SELECT str from cte1)
 SELECT strlen(str) FROM cte2;
 ----
@@ -189,7 +189,7 @@ SELECT strlen(str) FROM cte2;
 
 # cte -> fn -> cte
 query TI
-WITH cte1 AS (SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str),
+WITH cte1 AS (SELECT str FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY str),
      cte2 AS (SELECT str, strlen(str) as l from cte1)
 SELECT str, l FROM cte2;
 ----
@@ -198,7 +198,7 @@ Hey 3
 Hi 2
 
 query I
-CREATE VIEW pe1 AS SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex';
+CREATE VIEW pe1 AS SELECT str FROM '${WORK_DIR}/pe-pushdown.vortex';
 ----
 
 query T
@@ -249,7 +249,7 @@ Hi 2
 
 # fn -> cte with fn -> cte
 query I
-WITH cte1 AS (SELECT str FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY str),
+WITH cte1 AS (SELECT str FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY str),
      cte2 AS (SELECT str, strlen(str) as l from cte1)
 SELECT strlen(str) FROM cte2;
 ----
@@ -258,14 +258,14 @@ SELECT strlen(str) FROM cte2;
 2
 
 query II
-SELECT before, strlen(str) AS l FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY before;
+SELECT before, strlen(str) AS l FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY before;
 ----
 0 5
 1 2
 2 3
 
 query II
-SELECT strlen(str) AS l, after FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY after;
+SELECT strlen(str) AS l, after FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY after;
 ----
 5 0
 2 1
@@ -273,14 +273,14 @@ SELECT strlen(str) AS l, after FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY 
 
 # virtual column don't block pushdown
 query II
-SELECT strlen(str) AS l, file_row_number FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY l DESC;
+SELECT strlen(str) AS l, file_row_number FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY l DESC;
 ----
 5 0
 3 2
 2 1
 
 query II
-SELECT strlen(str) AS l, file_index FROM '$__TEST_DIR__/pe-pushdown.vortex' ORDER BY l DESC;
+SELECT strlen(str) AS l, file_index FROM '${WORK_DIR}/pe-pushdown.vortex' ORDER BY l DESC;
 ----
 5 0
 3 0
@@ -337,13 +337,13 @@ SELECT strlen(str) AS a, len(str) * 2 AS b FROM pe1 ORDER BY a;
 # This is only usage of str in SELECT so we push it down
 query TT
 EXPLAIN (FORMAT JSON)
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE str != '';
 ----
 <REGEX>:SELECT projections
 
 query I
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE str != ''
 ORDER BY strlen(str);
 ----
@@ -356,7 +356,7 @@ ORDER BY strlen(str);
 # as there is usage in WHERE.
 # This also tests functions with multiple arguments using "str" inside
 query I
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE prefix("str", 'H') > 0
 ORDER BY strlen(str);
 ----
@@ -365,7 +365,7 @@ ORDER BY strlen(str);
 5
 
 query I
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE suffix(concat("str", 'y'), 'y') > 0
 ORDER BY strlen(str);
 ----
@@ -376,13 +376,13 @@ ORDER BY strlen(str);
 # explain: prefix()/suffix() in WHERE are multi-arg uses of str, no pushdown
 query TT
 EXPLAIN (FORMAT JSON)
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex' WHERE prefix("str", 'H') > 0;
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex' WHERE prefix("str", 'H') > 0;
 ----
 <!REGEX>:SELECT projections
 
 # conflict with concat(), no pushdown
 query I
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE concat(str, str) = 'HelloHello'
 ORDER BY strlen(str);
 ----
@@ -390,7 +390,7 @@ ORDER BY strlen(str);
 
 # both strlen()s are replaced correctly.
 query II
-SELECT strlen(str), strlen(str) * 2 FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str), strlen(str) * 2 FROM '${WORK_DIR}/pe-pushdown.vortex'
 ORDER BY strlen(str);
 ----
 2 4
@@ -399,24 +399,24 @@ ORDER BY strlen(str);
 
 query TT
 EXPLAIN (FORMAT JSON)
-SELECT strlen(str), strlen(str) * 2 FROM '$__TEST_DIR__/pe-pushdown.vortex';
+SELECT strlen(str), strlen(str) * 2 FROM '${WORK_DIR}/pe-pushdown.vortex';
 ----
 <REGEX>:SELECT projections
 
 query I
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex'
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
 WHERE str = 'Hello' ORDER BY strlen(str);
 ----
 5
 
 query TT
 EXPLAIN (FORMAT json)
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex' WHERE str = 'Hello';
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex' WHERE str = 'Hello';
 ----
 <REGEX>:SELECT projections
 
 query TT
 EXPLAIN (FORMAT json)
-SELECT strlen(str) FROM '$__TEST_DIR__/pe-pushdown.vortex' WHERE prefix(str, 'H');
+SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex' WHERE prefix(str, 'H');
 ----
 <REGEX>:SELECT projections

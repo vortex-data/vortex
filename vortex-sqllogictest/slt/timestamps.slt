@@ -5,7 +5,7 @@ include ./setup.slt.no
 
 # Write timestamp with timezone
 query I
-COPY (SELECT TIMESTAMP WITH TIME ZONE '2025-05-03 16:19:14.338895+03:00' AS tstz) TO '$__TEST_DIR__/timestamps.vortex';
+COPY (SELECT TIMESTAMP WITH TIME ZONE '2025-05-03 16:19:14.338895+03:00' AS tstz) TO '${WORK_DIR}/timestamps.vortex';
 ----
 1
 
@@ -13,12 +13,12 @@ COPY (SELECT TIMESTAMP WITH TIME ZONE '2025-05-03 16:19:14.338895+03:00' AS tstz
 # note that result drops the tz info due to this issue https://github.com/apache/datafusion/issues/12218
 onlyif datafusion
 query P
-SELECT * FROM '$__TEST_DIR__/timestamps.vortex';
+SELECT * FROM '${WORK_DIR}/timestamps.vortex';
 ----
 2025-05-03T13:19:14.338895
 
 onlyif duckdb
 query P
-SELECT tstz FROM '$__TEST_DIR__/timestamps.vortex';
+SELECT tstz FROM '${WORK_DIR}/timestamps.vortex';
 ----
 2025-05-03 13:19:14.338895+00

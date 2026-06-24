@@ -498,6 +498,7 @@ impl FileStatsAccumulator {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::bool::BoolArrayExt;
     use vortex_array::builders::VarBinViewBuilder;
@@ -510,7 +511,7 @@ mod tests {
     #[case(DType::Utf8(Nullability::NonNullable))]
     #[case(DType::Binary(Nullability::NonNullable))]
     fn truncates_accumulated_stats(#[case] dtype: DType) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), 2);
         builder.append_value("Value to be truncated");
         builder.append_value("untruncated");
@@ -555,7 +556,7 @@ mod tests {
 
     #[test]
     fn always_adds_is_truncated_column() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array, &mut ctx)

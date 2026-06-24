@@ -92,6 +92,7 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::encodings::sequence::Sequence;
     use vortex::scalar::PValue;
+    use vortex_array::VortexSessionExecute;
 
     use crate::CanonicalCudaExt;
     use crate::CudaSession;
@@ -124,14 +125,15 @@ mod tests {
         len: usize,
         nullability: Nullability,
     ) {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session()).unwrap();
 
-        let array = Sequence::try_new_typed(base, multiplier, nullability, len).unwrap();
-
-        let cpu_result = crate::canonicalize_cpu(array.clone()).unwrap().into_array();
+        let array = Sequence::try_new_typed(base, multiplier, nullability, len)
+            .unwrap()
+            .into_array();
 
         let gpu_result = SequenceExecutor
-            .execute(array.into_array(), &mut cuda_ctx)
+            .execute(array.clone(), &mut cuda_ctx)
             .await
             .unwrap()
             .into_host()
@@ -139,6 +141,6 @@ mod tests {
             .unwrap()
             .into_array();
 
-        assert_arrays_eq!(cpu_result, gpu_result);
+        assert_arrays_eq!(array, gpu_result, &mut ctx);
     }
 }

@@ -4,6 +4,7 @@
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
@@ -32,7 +33,7 @@ impl FlatLayoutFixture for ListViewFixture {
         vec![ListView.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // ListView of i32: [[1,2,3], [4,5], [6], [7,8,9,10]]
         let int_elements = PrimitiveArray::new(
             buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10],

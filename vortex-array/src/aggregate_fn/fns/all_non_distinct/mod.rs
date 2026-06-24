@@ -12,6 +12,7 @@ mod struct_;
 #[cfg(test)]
 mod tests;
 mod varbin;
+mod variant;
 
 use std::sync::LazyLock;
 
@@ -38,6 +39,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::fns::all_non_distinct::variant::check_variant_identical;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
@@ -264,8 +266,8 @@ fn check_canonical_identical(
         (Canonical::Extension(lhs), Canonical::Extension(rhs)) => {
             check_extension_identical(lhs, rhs, ctx)
         }
-        (Canonical::Variant(_), _) | (_, Canonical::Variant(_)) => {
-            vortex_bail!("Variant arrays don't support AllNonDistinct")
+        (Canonical::Variant(lhs), Canonical::Variant(rhs)) => {
+            check_variant_identical(lhs, rhs, ctx)
         }
         _ => Err(vortex_err!(
             "Canonical type mismatch in AllNonDistinct: {:?} vs {:?}",

@@ -10,9 +10,15 @@ use vortex_error::VortexResult;
 use crate::segments::SegmentId;
 use crate::sequence::SequenceId;
 
+/// Shared writer-side segment sink.
 pub type SegmentSinkRef = Arc<dyn SegmentSink>;
 
 #[async_trait]
+/// Assigns segment ids and writes segment buffers during layout writing.
+///
+/// Segment sinks are responsible for preserving any ordering guarantees required by the storage
+/// backend. The [`SequenceId`] argument lets sinks serialize id assignment while still allowing
+/// upstream layout strategies to do work concurrently.
 pub trait SegmentSink: Send + Sync {
     /// Write the given data into a segment, ordered based on the provided sequence identifier.
     ///

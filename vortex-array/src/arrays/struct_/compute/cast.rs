@@ -227,7 +227,8 @@ mod tests {
         assert_eq!(result.dtype(), &target);
         assert_arrays_eq!(
             result.unmasked_field_by_name("b").unwrap(),
-            ConstantArray::new(Scalar::null(utf8_null), 1)
+            ConstantArray::new(Scalar::null(utf8_null), 1),
+            &mut ctx
         );
     }
 

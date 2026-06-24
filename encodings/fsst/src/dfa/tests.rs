@@ -31,7 +31,11 @@ use crate::FSSTArray;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = vortex_array::array_session();
+    crate::initialize(&session);
+    session
+});
 
 /// Helper: make a Symbol from a byte string (up to 8 bytes, zero-padded).
 fn sym(bytes: &[u8]) -> Symbol {
@@ -264,20 +268,14 @@ fn test_contains_pushdown_rejects_len_255() {
 // ---------------------------------------------------------------------------
 
 fn make_fsst_str(strings: &[Option<&str>]) -> FSSTArray {
-    let varbin = VarBinArray::from_iter(
+    let array = VarBinArray::from_iter(
         strings.iter().copied(),
         DType::Utf8(Nullability::NonNullable),
-    );
-    let compressor = fsst_train_compressor(&varbin);
-    let len = varbin.len();
-    let dtype = varbin.dtype().clone();
-    fsst_compress(
-        varbin,
-        len,
-        &dtype,
-        &compressor,
-        &mut SESSION.create_execution_ctx(),
     )
+    .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
+    fsst_compress(&array, &compressor, &mut ctx).unwrap()
 }
 
 fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> {
@@ -362,6 +360,7 @@ fn test_like_edge_cases(
         ConstantArray::new(pattern, opts.len()).into_array(),
     )?;
     let expected_arr = BoolArray::from_iter(expected.iter().copied());
-    assert_arrays_eq!(&result, &expected_arr);
+    let mut ctx = SESSION.create_execution_ctx();
+    assert_arrays_eq!(&result, &expected_arr, &mut ctx);
     Ok(())
 }

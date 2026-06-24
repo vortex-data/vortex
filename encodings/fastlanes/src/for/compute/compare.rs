@@ -90,17 +90,27 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::FoR;
     use crate::FoRArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     fn for_arr(encoded: ArrayRef, reference: Scalar) -> FoRArray {
         FoR::try_new(encoded, reference).vortex_expect("FoR array construction should succeed")
@@ -123,7 +133,11 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_arrays_eq!(result, BoolArray::from_iter([false, true, false].map(Some)));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, true, false].map(Some)),
+            &mut SESSION.create_execution_ctx()
+        );
 
         let result = compare_constant(
             lhs.as_view(),
@@ -133,7 +147,11 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_arrays_eq!(result, BoolArray::from_iter([true, true, false].map(Some)));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([true, true, false].map(Some)),
+            &mut SESSION.create_execution_ctx()
+        );
 
         for op in [
             CompareOperator::Lt,
@@ -203,7 +221,8 @@ mod tests {
         .unwrap();
         assert_arrays_eq!(
             result,
-            BoolArray::from_iter([false, false, false].map(Some))
+            BoolArray::from_iter([false, false, false].map(Some)),
+            &mut SESSION.create_execution_ctx()
         );
 
         let result = compare_constant(
@@ -214,7 +233,11 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_arrays_eq!(result, BoolArray::from_iter([true, true, true].map(Some)));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([true, true, true].map(Some)),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -237,7 +260,11 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_arrays_eq!(result, BoolArray::from_iter([Some(false), Some(true)]));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(false), Some(true)]),
+            &mut SESSION.create_execution_ctx()
+        );
 
         let result = compare_constant(
             lhs.as_view(),
@@ -247,6 +274,10 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_arrays_eq!(result, BoolArray::from_iter([Some(true), Some(false)]));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(true), Some(false)]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 }

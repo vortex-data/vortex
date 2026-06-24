@@ -82,7 +82,10 @@ impl VortexFile {
         }
     }
 
-    /// Enable layout reader caching
+    /// Enable layout reader caching.
+    ///
+    /// Repeated calls to [`layout_reader`](Self::layout_reader), [`scan`](Self::scan), and
+    /// [`data_source`](Self::data_source) will share the same reader tree.
     pub fn with_caching(self) -> Self {
         Self {
             footer: self.footer,
@@ -170,7 +173,8 @@ impl VortexFile {
         )))
     }
 
-    /// Initiate a scan of the file, returning a builder for configuring the scan.
+    /// Initiate a scan of the file, returning a builder for projection, filtering, selection, and
+    /// execution options.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
         Ok(ScanBuilder::new(
             self.session.clone(),
@@ -202,6 +206,9 @@ impl VortexFile {
         )
     }
 
+    /// Return the file's natural row splits as root-coordinate ranges.
+    ///
+    /// These are the ranges that [`SplitBy::Layout`] would use for an all-fields scan.
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
         let reader = self.layout_reader()?;
         Ok(SplitBy::Layout

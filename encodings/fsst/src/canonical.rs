@@ -151,9 +151,11 @@ mod tests {
         let (arr_vec, data_vec): (Vec<ArrayRef>, Vec<Vec<Option<Vec<u8>>>>) = (0..10)
             .map(|_| {
                 let (array, data) = make_data();
-                let compressor = fsst_train_compressor(&array);
+                let array = array.into_array();
+                let compressor = fsst_train_compressor(&array, &mut ctx).unwrap();
                 (
-                    fsst_compress(&array, array.len(), array.dtype(), &compressor, &mut ctx)
+                    fsst_compress(&array, &compressor, &mut ctx)
+                        .unwrap()
                         .into_array(),
                     data,
                 )
@@ -206,15 +208,14 @@ mod tests {
         let varbin = VarBinArray::from_iter(
             [Some(b"long enough too".to_vec().into_boxed_slice())],
             dtype,
-        );
+        )
+        .into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let fsst_array = fsst_compress(
             &varbin,
-            varbin.len(),
-            varbin.dtype(),
-            &fsst_train_compressor(&varbin),
+            &fsst_train_compressor(&varbin, &mut ctx)?,
             &mut ctx,
-        )
+        )?
         .into_array();
         fsst_array.append_to_builder(&mut builder, &mut ctx)?;
 

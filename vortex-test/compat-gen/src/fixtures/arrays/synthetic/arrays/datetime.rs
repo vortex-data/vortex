@@ -6,6 +6,7 @@ use std::sync::Arc;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::PrimitiveArray;
@@ -34,7 +35,7 @@ impl FlatLayoutFixture for DateTimeFixture {
         vec![Extension.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // Timestamps in seconds (i64): 2024-01-01T00:00:00Z, 2024-06-15T12:30:00Z, 2024-12-31T23:59:59Z
         let ts_seconds = TemporalArray::new_timestamp(
             PrimitiveArray::new(

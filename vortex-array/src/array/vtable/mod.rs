@@ -2,6 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! This module contains the VTable definitions for a Vortex encoding.
+//!
+//! A Vortex array encoding is implemented by a small static vtable type plus an associated
+//! `TypedArrayData` value stored in each array instance. The vtable owns behavior such as
+//! validation, serialization, execution, child traversal, scalar access, and validity access.
+//!
+//! The public [`ArrayRef`] API performs common precondition checks before calling
+//! into these traits. Implementations should focus on encoding-specific work and uphold the
+//! documented postconditions.
 
 mod operations;
 mod validity;
@@ -54,15 +62,25 @@ use crate::validity::Validity;
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
+    /// Per-array data owned by this encoding, excluding child arrays.
+    ///
+    /// Child arrays belong in [`ArrayParts::slots`](crate::ArrayParts::slots) so traversal,
+    /// serialization, and layout writers can discover them generically.
     type TypedArrayData: 'static + Send + Sync + Clone + Debug + Display + ArrayHash + ArrayEq;
 
+    /// Scalar and element-wise operation hooks for this encoding.
     type OperationsVTable: OperationsVTable<Self>;
+    /// Validity hook for nullable instances of this encoding.
     type ValidityVTable: ValidityVTable<Self>;
 
     /// Returns the ID of the array.
     fn id(&self) -> ArrayId;
 
     /// Validates that externally supplied logical metadata matches the array data.
+    ///
+    /// This is called by [`Array::try_from_parts`](crate::Array::try_from_parts) before the array
+    /// is published. Implementations should check dtype, length, slot count, child dtypes/lengths,
+    /// metadata bounds, and any buffer shape invariants that unsafe accessors depend on.
     fn validate(
         &self,
         data: &Self::TypedArrayData,
@@ -71,7 +89,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()>;
 
-    /// Returns the number of buffers in the array.
+    /// Returns the number of top-level buffers in the array.
     fn nbuffers(array: ArrayView<'_, Self>) -> usize;
 
     /// Returns the buffer at the given index.
@@ -122,14 +140,21 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
             .vortex_expect("child_name index out of bounds")
     }
 
-    /// Serialize metadata into a byte buffer for IPC or file storage.
-    /// Return `None` if the array cannot be serialized.
+    /// Serialize encoding metadata into a byte buffer for IPC or file storage.
+    ///
+    /// Return `None` if the array cannot be serialized by this encoding. Buffers and children are
+    /// serialized separately through [`buffer`](Self::buffer), [`nbuffers`](Self::nbuffers), and
+    /// child traversal.
     fn serialize(
         array: ArrayView<'_, Self>,
         session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>>;
 
-    /// Deserialize an array from serialized components.
+    /// Deserialize an array from serialized metadata, buffers, and children.
+    ///
+    /// The returned [`ArrayParts`](crate::ArrayParts) are still validated by the generic adapter.
+    /// Deserializers should use the provided `session` to resolve plugin-owned metadata instead of
+    /// relying on global state.
     fn deserialize(
         &self,
         dtype: &DType,
@@ -140,7 +165,10 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         session: &VortexSession,
     ) -> VortexResult<crate::array::ArrayParts<Self>>;
 
-    /// Writes the array into a canonical builder.
+    /// Writes the array's logical values into a canonical builder.
+    ///
+    /// The default implementation executes the full array to [`Canonical`] and appends that result.
+    /// Encodings may override this to avoid materializing an intermediate canonical array.
     fn append_to_builder(
         array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
@@ -185,13 +213,18 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// incorrectly contains null values.
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
-    /// Attempt to reduce the array to a simpler representation.
+    /// Attempt to reduce the array to a simpler representation without changing logical values.
+    ///
+    /// Reductions are opportunistic and may return `Ok(None)` when no cheaper representation is
+    /// known.
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         _ = array;
         Ok(None)
     }
 
-    /// Attempt to perform a reduction of the parent of this array.
+    /// Attempt to reduce `parent` after this array appears as one of its children.
+    ///
+    /// This is used by lazy arrays to let child execution unlock parent simplifications.
     fn reduce_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,
