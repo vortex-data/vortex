@@ -247,7 +247,6 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         partition_selection: file_selection,
         partition_range: file_range,
         limit: None,
-        scheduler_provider: None,
     };
 
     let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;

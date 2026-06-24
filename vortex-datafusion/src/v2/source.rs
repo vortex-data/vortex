@@ -120,9 +120,6 @@ use vortex::metrics::MetricsRegistry;
 use vortex::scan::DataSourceRef;
 use vortex::scan::PlannedMorselScanRef;
 use vortex::scan::ScanRequest;
-use vortex::scan::ScanScheduler;
-use vortex::scan::ScanSchedulerConfig;
-use vortex::scan::ScanSchedulerProvider;
 use vortex::session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -179,7 +176,6 @@ pub struct VortexDataSourceBuilder {
     arrow_schema: Option<SchemaRef>,
     projection: Option<Vec<usize>>,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
-    scheduler_provider: Option<Arc<ScanSchedulerProvider>>,
 }
 
 impl VortexDataSourceBuilder {
@@ -216,24 +212,6 @@ impl VortexDataSourceBuilder {
     /// also configure the wrapped source to write to this same registry.
     pub fn with_metrics_registry(mut self, metrics_registry: Arc<dyn MetricsRegistry>) -> Self {
         self.metrics_registry = Some(metrics_registry);
-        self
-    }
-
-    /// Configures a shared scan scheduler for scans from this DataFusion source.
-    pub fn with_scan_scheduler(mut self, scheduler: Arc<ScanScheduler>) -> Self {
-        self.scheduler_provider = Some(Arc::new(ScanSchedulerProvider::Shared(scheduler)));
-        self
-    }
-
-    /// Configures the scheduler ownership strategy for scans from this DataFusion source.
-    pub fn with_scan_scheduler_provider(mut self, provider: Arc<ScanSchedulerProvider>) -> Self {
-        self.scheduler_provider = Some(provider);
-        self
-    }
-
-    /// Configures this source to create a new scan scheduler for each Vortex scan.
-    pub fn with_new_scan_scheduler_per_query(mut self, config: ScanSchedulerConfig) -> Self {
-        self.scheduler_provider = Some(Arc::new(ScanSchedulerProvider::PerScan(config)));
         self
     }
 
@@ -315,7 +293,6 @@ impl VortexDataSourceBuilder {
             ordered: false,
             num_partitions: get_available_parallelism().unwrap_or(1),
             metrics_registry: self.metrics_registry,
-            scheduler_provider: self.scheduler_provider,
             morsel_plan: Arc::new(OnceCell::new()),
         })
     }
@@ -330,7 +307,6 @@ impl VortexDataSource {
             arrow_schema: None,
             projection: None,
             metrics_registry: None,
-            scheduler_provider: None,
         }
     }
 
@@ -427,9 +403,6 @@ pub struct VortexDataSource {
     /// Optional Vortex metrics registry populated by the wrapped source.
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 
-    /// Optional scheduler provider passed through the Vortex [`ScanRequest`].
-    scheduler_provider: Option<Arc<ScanSchedulerProvider>>,
-
     /// Shared planned scan for DataFusion morsel repartitioning.
     morsel_plan: Arc<OnceCell<Option<PlannedMorselScanRef>>>,
 }
@@ -495,7 +468,6 @@ impl DataSource for VortexDataSource {
             filter: self.filter.clone(),
             limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
             ordered: self.ordered,
-            scheduler_provider: self.scheduler_provider.clone(),
             ..Default::default()
         };
 

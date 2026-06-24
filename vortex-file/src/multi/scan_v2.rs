@@ -659,10 +659,7 @@ impl DataSource for ScanPlanDataSource {
         let meta = ScanMeta {
             label: Some("scan2".to_string()),
         };
-        let provider = scan_request
-            .scheduler_provider
-            .clone()
-            .unwrap_or_else(|| self.session.scan_scheduler_provider());
+        let provider = self.session.scan_scheduler_provider();
         let scheduler = provider.scheduler_for_scan(&meta);
 
         let mut planned_files = Vec::new();
@@ -717,10 +714,7 @@ impl DataSource for ScanPlanDataSource {
         let meta = ScanMeta {
             label: Some("scan2".to_string()),
         };
-        let provider = scan_request
-            .scheduler_provider
-            .clone()
-            .unwrap_or_else(|| self.session.scan_scheduler_provider());
+        let provider = self.session.scan_scheduler_provider();
         let scheduler = provider.scheduler_for_scan(&meta);
 
         let mut ready = VecDeque::new();
@@ -923,10 +917,7 @@ pub(crate) fn scan_plan_file_stream(
     let meta = ScanMeta {
         label: Some("scan2".to_string()),
     };
-    let provider = request
-        .scheduler_provider
-        .clone()
-        .unwrap_or_else(|| file.session().scan_scheduler_provider());
+    let provider = file.session().scan_scheduler_provider();
     let scheduler = provider.scheduler_for_scan(&meta);
 
     let limit_remaining = request.limit.map(AtomicU64::new).map(Arc::new);

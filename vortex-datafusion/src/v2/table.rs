@@ -26,9 +26,6 @@ use datafusion_physical_plan::ExecutionPlan;
 use vortex::expr::stats::Precision as VortexPrecision;
 use vortex::metrics::MetricsRegistry;
 use vortex::scan::DataSourceRef;
-use vortex::scan::ScanScheduler;
-use vortex::scan::ScanSchedulerConfig;
-use vortex::scan::ScanSchedulerProvider;
 use vortex::session::VortexSession;
 
 use crate::v2::source::VortexDataSource;
@@ -81,7 +78,6 @@ pub struct VortexTable {
     session: VortexSession,
     arrow_schema: SchemaRef,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
-    scheduler_provider: Option<Arc<ScanSchedulerProvider>>,
 }
 
 impl fmt::Debug for VortexTable {
@@ -107,7 +103,6 @@ impl VortexTable {
             session,
             arrow_schema,
             metrics_registry: None,
-            scheduler_provider: None,
         }
     }
 
@@ -117,24 +112,6 @@ impl VortexTable {
     /// configure the wrapped source to write to this same registry.
     pub fn with_metrics_registry(mut self, metrics_registry: Arc<dyn MetricsRegistry>) -> Self {
         self.metrics_registry = Some(metrics_registry);
-        self
-    }
-
-    /// Configures a shared scan scheduler for scans from this table.
-    pub fn with_scan_scheduler(mut self, scheduler: Arc<ScanScheduler>) -> Self {
-        self.scheduler_provider = Some(Arc::new(ScanSchedulerProvider::Shared(scheduler)));
-        self
-    }
-
-    /// Configures the scheduler ownership strategy for scans from this table.
-    pub fn with_scan_scheduler_provider(mut self, provider: Arc<ScanSchedulerProvider>) -> Self {
-        self.scheduler_provider = Some(provider);
-        self
-    }
-
-    /// Configures this table to create a new scan scheduler for each Vortex scan.
-    pub fn with_new_scan_scheduler_per_query(mut self, config: ScanSchedulerConfig) -> Self {
-        self.scheduler_provider = Some(Arc::new(ScanSchedulerProvider::PerScan(config)));
         self
     }
 }
@@ -161,9 +138,6 @@ impl TableProvider for VortexTable {
             VortexDataSource::builder(Arc::clone(&self.data_source), self.session.clone());
         if let Some(metrics_registry) = &self.metrics_registry {
             builder = builder.with_metrics_registry(Arc::clone(metrics_registry));
-        }
-        if let Some(provider) = &self.scheduler_provider {
-            builder = builder.with_scan_scheduler_provider(Arc::clone(provider));
         }
         let data_source = builder
             .with_arrow_schema(Arc::clone(&self.arrow_schema))

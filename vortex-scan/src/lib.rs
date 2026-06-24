@@ -227,10 +227,6 @@ pub struct ScanRequest {
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
     pub limit: Option<u64>,
-    /// Optional scheduler provider override for this scan.
-    ///
-    /// When absent, a data source should use the provider configured on its [`VortexSession`].
-    pub scheduler_provider: Option<Arc<ScanSchedulerProvider>>,
 }
 
 impl Default for ScanRequest {
@@ -244,7 +240,6 @@ impl Default for ScanRequest {
             ordered: false,
             limit: None,
             partition_range: None,
-            scheduler_provider: None,
         }
     }
 }
