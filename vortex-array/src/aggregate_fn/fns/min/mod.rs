@@ -49,7 +49,7 @@ impl MinPartial {
 
         // NaN scalars are incomparable under `partial_min`; they poison the minimum when NaNs
         // participate, and are dropped when they are skipped.
-        if self.element_dtype.is_float() && (scalar_is_nan(&min) || self.is_poisoned()) {
+        if scalar_is_nan(&min) || self.is_poisoned() {
             if !self.skip_nans {
                 self.poison();
             }
