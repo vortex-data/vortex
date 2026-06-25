@@ -4,23 +4,23 @@
 include ../setup.slt.no
 
 query I
-COPY (SELECT * FROM (VALUES ('Hello'), ('Hi')) AS t(str)) TO '$__TEST_DIR__/file_row_1.vortex';
+COPY (SELECT * FROM (VALUES ('Hello'), ('Hi')) AS t(str)) TO '${WORK_DIR}/file_row_1.vortex';
 ----
 2
 
 query I
-COPY (SELECT * FROM (VALUES ('1'), ('2'), ('3'), ('45')) AS t(str)) TO '$__TEST_DIR__/file_row_2.vortex';
+COPY (SELECT * FROM (VALUES ('1'), ('2'), ('3'), ('45')) AS t(str)) TO '${WORK_DIR}/file_row_2.vortex';
 ----
 4
 
 query TI
-SELECT str, file_row_number FROM '$__TEST_DIR__/file_row_1.vortex';
+SELECT str, file_row_number FROM '${WORK_DIR}/file_row_1.vortex';
 ----
 Hello 0
 Hi 1
 
 query IT
-SELECT file_row_number, str FROM '$__TEST_DIR__/file_row_2.vortex';
+SELECT file_row_number, str FROM '${WORK_DIR}/file_row_2.vortex';
 ----
 0 1
 1 2
@@ -28,7 +28,7 @@ SELECT file_row_number, str FROM '$__TEST_DIR__/file_row_2.vortex';
 3 45
 
 query IT
-SELECT file_row_number, str FROM '$__TEST_DIR__/file_row_2.vortex'
+SELECT file_row_number, str FROM '${WORK_DIR}/file_row_2.vortex'
 WHERE len(str) = 1;
 ----
 0 1
@@ -36,7 +36,7 @@ WHERE len(str) = 1;
 2 3
 
 query TI
-SELECT *, file_row_number FROM '$__TEST_DIR__/*.vortex'
+SELECT *, file_row_number FROM '${WORK_DIR}/*.vortex'
 ORDER BY str;
 ----
 1 0
@@ -47,7 +47,7 @@ Hello 0
 Hi 1
 
 query I
-SELECT file_row_number FROM '$__TEST_DIR__/*.vortex'
+SELECT file_row_number FROM '${WORK_DIR}/*.vortex'
 WHERE len(str) > 1
 ORDER BY file_row_number;
 ----

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#include "optimizer.hpp"
+#include "table_function.hpp"
 #include "duckdb/catalog/catalog.hpp"
+#include "duckdb/main/config.hpp"
+#include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
-#include "duckdb_vx/optimizer.h"
-#include "duckdb_vx/table_function.h"
-#include "vortex.h"
 #include <optional>
 
 /**

@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::CheckedMul;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::IndexedSourceExt;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -13,12 +19,17 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
+use crate::dtype::BigCast;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
+use crate::dtype::i256;
 use crate::match_each_decimal_value_type;
+use crate::scalar::DecimalValue;
 use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
+use crate::validity::Validity;
 
 impl CastReduce for Decimal {
     fn cast(array: ArrayView<'_, Decimal>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -77,55 +88,244 @@ impl CastKernel for Decimal {
             );
         };
 
-        // Scale changes are not yet supported
-        if from_decimal_dtype.scale() != to_decimal_dtype.scale() {
-            vortex_bail!(
-                "Casting decimal with scale {} to scale {} not yet implemented",
-                from_decimal_dtype.scale(),
-                to_decimal_dtype.scale()
-            );
-        }
-
-        // Downcasting precision is not yet supported
-        if to_decimal_dtype.precision() < from_decimal_dtype.precision() {
-            vortex_bail!(
-                "Downcasting decimal from precision {} to {} not yet implemented",
-                from_decimal_dtype.precision(),
-                to_decimal_dtype.precision()
-            );
-        }
-
         // If the dtype is exactly the same, return self
         if array.dtype() == dtype {
             return Ok(Some(array.array().clone()));
         }
 
+        let validity = array.validity()?;
+
         // Cast the validity to the new nullability
-        let new_validity = array
-            .validity()?
+        let new_validity = validity
+            .clone()
             .cast_nullability(*to_nullability, array.len(), ctx)?;
 
-        // If the target needs a wider physical type, upcast the values
-        let target_values_type = DecimalType::smallest_decimal_value_type(to_decimal_dtype);
-        let array = if target_values_type > array.values_type() {
-            upcast_decimal_values(array, target_values_type)?
-        } else {
-            array.array().as_::<Decimal>().into_owned()
-        };
+        // Reuse the values buffer untouched when no rescale is required, the target precision
+        // only widens (so every value still fits), and the current physical type is already wide
+        // enough to hold the target precision. This keeps the common precision-widening cast
+        // (and pure nullability changes) zero-copy instead of allocating and re-scanning.
+        if from_decimal_dtype.scale() == to_decimal_dtype.scale()
+            && to_decimal_dtype.precision() >= from_decimal_dtype.precision()
+            && array
+                .values_type()
+                .is_compatible_decimal_value_type(*to_decimal_dtype)
+        {
+            // SAFETY: the source values are bit-identical and remain in range for the wider
+            // precision, and new_validity has the same length, only its nullability tag changes.
+            unsafe {
+                return Ok(Some(
+                    DecimalArray::new_unchecked_handle(
+                        array.buffer_handle().clone(),
+                        array.values_type(),
+                        *to_decimal_dtype,
+                        new_validity,
+                    )
+                    .into_array(),
+                ));
+            }
+        }
 
-        // SAFETY: new_validity same length as previous validity, just cast
-        unsafe {
-            Ok(Some(
-                DecimalArray::new_unchecked_handle(
-                    array.buffer_handle().clone(),
-                    array.values_type(),
+        let valid_values = validity.execute_mask(array.len(), ctx)?;
+        let target_values_type = DecimalType::smallest_decimal_value_type(to_decimal_dtype);
+
+        match_each_decimal_value_type!(array.values_type(), |F| {
+            match_each_decimal_value_type!(target_values_type, |T| {
+                cast_decimal_values::<F, T>(
+                    array,
+                    *from_decimal_dtype,
                     *to_decimal_dtype,
                     new_validity,
+                    &valid_values,
                 )
-                .into_array(),
-            ))
+                .map(Some)
+            })
+        })
+    }
+}
+
+fn cast_decimal_values<F, T>(
+    array: ArrayView<'_, Decimal>,
+    from_decimal_dtype: DecimalDType,
+    to_decimal_dtype: DecimalDType,
+    validity: Validity,
+    valid_values: &Mask,
+) -> VortexResult<ArrayRef>
+where
+    F: NativeDecimalType,
+    T: NativeDecimalType + CheckedMul,
+    DecimalValue: From<F>,
+{
+    let values = array.buffer::<F>();
+    let values = values.as_slice();
+    let cast_plan = DecimalCastPlan::<T>::new(from_decimal_dtype, to_decimal_dtype);
+
+    let buffer = match valid_values {
+        Mask::AllTrue(_) => {
+            let mut buffer = BufferMut::<T>::with_capacity(values.len());
+            values
+                .try_map_into(&mut buffer.spare_capacity_mut()[..values.len()], |value| {
+                    cast_plan.cast(value)
+                })
+                .map_err(|idx| {
+                    decimal_cast_error::<F, T>(values[idx], from_decimal_dtype, to_decimal_dtype)
+                })?;
+            // SAFETY: try_map_into initializes every lane before returning Ok.
+            unsafe { buffer.set_len(values.len()) };
+            buffer.freeze()
+        }
+        Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
+        Mask::Values(mask) => {
+            let mut buffer = BufferMut::<T>::with_capacity(values.len());
+            values
+                .try_map_masked_into(
+                    mask.bit_buffer(),
+                    &mut buffer.spare_capacity_mut()[..values.len()],
+                    |value| cast_plan.cast(value),
+                )
+                .map_err(|idx| {
+                    decimal_cast_error::<F, T>(values[idx], from_decimal_dtype, to_decimal_dtype)
+                })?;
+            // SAFETY: try_map_masked_into initializes every lane before returning Ok.
+            unsafe { buffer.set_len(values.len()) };
+            buffer.freeze()
+        }
+    };
+
+    Ok(DecimalArray::new(buffer, to_decimal_dtype, validity).into_array())
+}
+
+#[cold]
+fn decimal_cast_error<F, T>(
+    value: F,
+    from_decimal_dtype: DecimalDType,
+    to_decimal_dtype: DecimalDType,
+) -> VortexError
+where
+    F: NativeDecimalType,
+    T: NativeDecimalType,
+    DecimalValue: From<F>,
+{
+    match DecimalValue::from(value)
+        .cast_decimal(from_decimal_dtype, to_decimal_dtype)
+        .and_then(|value| {
+            value.cast::<T>().ok_or_else(|| {
+                vortex_err!(
+                    "decimal value cannot be represented as {} after casting to {}",
+                    T::DECIMAL_TYPE,
+                    to_decimal_dtype
+                )
+            })
+        }) {
+        Ok(_) => {
+            // The fast path only returns `None` for values the slow path also rejects, so this
+            // arm should be unreachable. If it is hit, the fast and slow paths have drifted and
+            // we are erroring on a value that is actually representable.
+            debug_assert!(
+                false,
+                "decimal fast-path cast rejected value {value} that the slow path accepts \
+                 (from {from_decimal_dtype} to {to_decimal_dtype})"
+            );
+            vortex_err!(
+                "decimal value cannot be represented as {} after casting from {} to {}",
+                T::DECIMAL_TYPE,
+                from_decimal_dtype,
+                to_decimal_dtype
+            )
+        }
+        Err(error) => error,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DecimalCastPlan<T> {
+    SameScale { min: T, max: T },
+    ScaleUp { factor: T, min: T, max: T },
+    ScaleUpOverflow,
+    ScaleDown { factor: i256, min: i256, max: i256 },
+    ScaleDownOverflow,
+}
+
+impl<T> DecimalCastPlan<T>
+where
+    T: NativeDecimalType + CheckedMul,
+{
+    fn new(from_decimal_dtype: DecimalDType, to_decimal_dtype: DecimalDType) -> Self {
+        let scale_delta = to_decimal_dtype.scale() as i16 - from_decimal_dtype.scale() as i16;
+        if scale_delta == 0 {
+            let (min, max) = decimal_precision_range::<T>(to_decimal_dtype);
+            return Self::SameScale { min, max };
+        }
+
+        if scale_delta > 0 {
+            let Some(factor) = decimal_scale_factor::<T>(scale_delta as u32) else {
+                return Self::ScaleUpOverflow;
+            };
+            let (min, max) = decimal_precision_range::<T>(to_decimal_dtype);
+            return Self::ScaleUp { factor, min, max };
+        }
+
+        let Some(factor) = decimal_scale_factor::<i256>((-scale_delta) as u32) else {
+            return Self::ScaleDownOverflow;
+        };
+        let (min, max) = decimal_precision_range::<i256>(to_decimal_dtype);
+        Self::ScaleDown { factor, min, max }
+    }
+
+    #[inline]
+    fn cast<F>(&self, value: F) -> Option<T>
+    where
+        F: NativeDecimalType,
+    {
+        match *self {
+            DecimalCastPlan::SameScale { min, max } => {
+                let value = <T as BigCast>::from(value)?;
+                (value >= min && value <= max).then_some(value)
+            }
+            DecimalCastPlan::ScaleUp { factor, min, max } => {
+                let value = <T as BigCast>::from(value)?;
+                let value = value.checked_mul(&factor)?;
+                (value >= min && value <= max).then_some(value)
+            }
+            DecimalCastPlan::ScaleUpOverflow | DecimalCastPlan::ScaleDownOverflow => {
+                (value == F::default()).then_some(T::default())
+            }
+            DecimalCastPlan::ScaleDown { factor, min, max } => {
+                let value = <i256 as BigCast>::from(value)?;
+                if value == i256::ZERO {
+                    return Some(T::default());
+                }
+                if value % factor != i256::ZERO {
+                    return None;
+                }
+
+                let value = value / factor;
+                if value < min || value > max {
+                    return None;
+                }
+                <T as BigCast>::from(value)
+            }
         }
     }
+}
+
+fn decimal_precision_range<T: NativeDecimalType>(decimal_dtype: DecimalDType) -> (T, T) {
+    let precision = usize::from(decimal_dtype.precision());
+    (
+        T::MIN_BY_PRECISION[precision],
+        T::MAX_BY_PRECISION[precision],
+    )
+}
+
+fn decimal_scale_factor<T>(exp: u32) -> Option<T>
+where
+    T: NativeDecimalType + CheckedMul,
+{
+    let ten = <T as BigCast>::from(10_i8)?;
+    let mut factor = <T as BigCast>::from(1_i8)?;
+    for _ in 0..exp {
+        factor = factor.checked_mul(&ten)?;
+    }
+    Some(factor)
 }
 
 /// Upcast a DecimalArray to a wider physical representation (e.g., i32 -> i64) while keeping
@@ -262,40 +462,55 @@ mod tests {
     }
 
     #[test]
-    fn cast_different_scale_fails() {
+    fn cast_different_scale_rescales() {
         let array = DecimalArray::new(
             buffer![100i32],
             DecimalDType::new(10, 2),
             Validity::NonNullable,
         );
 
-        // Try to cast to different scale - not supported
+        // Cast 1.00 to scale 3, where it is stored as 1000.
         let different_dtype = DType::Decimal(DecimalDType::new(15, 3), Nullability::NonNullable);
         #[expect(deprecated)]
-        let result = array
+        let casted = array
             .into_array()
             .cast(different_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .unwrap()
+            .to_decimal();
 
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Casting decimal with scale 2 to scale 3 not yet implemented")
-        );
+        assert_eq!(casted.precision(), 15);
+        assert_eq!(casted.scale(), 3);
+        assert_eq!(casted.values_type(), DecimalType::I64);
+        assert_eq!(casted.buffer::<i64>().as_ref(), &[1000]);
     }
 
     #[test]
-    fn cast_downcast_precision_fails() {
+    fn cast_downcast_precision_succeeds_when_values_fit() {
         let array = DecimalArray::new(
             buffer![100i64],
             DecimalDType::new(18, 2),
             Validity::NonNullable,
         );
 
-        // Try to downcast precision - not supported
+        // Downcasting precision is allowed when every value fits.
         let smaller_dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
+        #[expect(deprecated)]
+        let casted = array.into_array().cast(smaller_dtype).unwrap().to_decimal();
+
+        assert_eq!(casted.precision(), 10);
+        assert_eq!(casted.scale(), 2);
+        assert_eq!(casted.buffer::<i64>().as_ref(), &[100]);
+    }
+
+    #[test]
+    fn cast_downcast_precision_checks_values() {
+        let array = DecimalArray::new(
+            buffer![1000i64],
+            DecimalDType::new(18, 0),
+            Validity::NonNullable,
+        );
+
+        let smaller_dtype = DType::Decimal(DecimalDType::new(3, 0), Nullability::NonNullable);
         #[expect(deprecated)]
         let result = array
             .into_array()
@@ -307,8 +522,62 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Downcasting decimal from precision 18 to 10 not yet implemented")
+                .contains("does not fit in precision")
         );
+    }
+
+    #[test]
+    fn cast_lower_scale_requires_exact_rescale() {
+        let array = DecimalArray::new(
+            buffer![123456i64],
+            DecimalDType::new(10, 4),
+            Validity::NonNullable,
+        );
+
+        let lower_scale_dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
+        #[expect(deprecated)]
+        let result = array
+            .into_array()
+            .cast(lower_scale_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("would lose precision")
+        );
+    }
+
+    #[test]
+    fn cast_lower_scale_ignores_null_lane_failures() {
+        let array = DecimalArray::new(
+            buffer![100i64, 123456],
+            DecimalDType::new(10, 4),
+            Validity::from_iter([true, false]),
+        );
+
+        let lower_scale_dtype = DType::Decimal(DecimalDType::new(3, 2), Nullability::Nullable);
+        #[expect(deprecated)]
+        let casted = array
+            .into_array()
+            .cast(lower_scale_dtype)
+            .unwrap()
+            .to_decimal();
+
+        let mask = casted
+            .as_ref()
+            .validity()
+            .unwrap()
+            .execute_mask(
+                casted.as_ref().len(),
+                &mut array_session().create_execution_ctx(),
+            )
+            .unwrap();
+        assert!(mask.value(0));
+        assert!(!mask.value(1));
+        assert_eq!(casted.buffer::<i16>().as_ref()[0], 1);
     }
 
     #[test]
@@ -329,6 +598,33 @@ mod tests {
         assert_eq!(casted.len(), 3);
         // Should be stored in i128 now (precision 38 requires i128)
         assert_eq!(casted.values_type(), DecimalType::I128);
+    }
+
+    #[test]
+    fn cast_widening_same_physical_type_is_zero_copy() {
+        // Decimal(10,2) and Decimal(18,2) are both physically i64 with the same scale, so widening
+        // the precision must reuse the values buffer rather than allocate and re-scan it.
+        let array = DecimalArray::new(
+            buffer![100i64, 200, 300],
+            DecimalDType::new(10, 2),
+            Validity::NonNullable,
+        );
+        let src_ptr = array.buffer::<i64>().as_ptr();
+
+        let wider_dtype = DType::Decimal(DecimalDType::new(18, 2), Nullability::NonNullable);
+        #[expect(deprecated)]
+        let casted = array.into_array().cast(wider_dtype).unwrap().to_decimal();
+
+        assert_eq!(casted.precision(), 18);
+        assert_eq!(casted.scale(), 2);
+        assert_eq!(casted.values_type(), DecimalType::I64);
+        assert_eq!(casted.buffer::<i64>().as_ref(), &[100, 200, 300]);
+        // The values buffer must be shared with the source (zero-copy), not reallocated.
+        assert_eq!(
+            casted.buffer::<i64>().as_ptr(),
+            src_ptr,
+            "precision-widening cast must reuse the source values buffer"
+        );
     }
 
     #[test]

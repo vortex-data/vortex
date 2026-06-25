@@ -4,9 +4,7 @@
 use std::ffi::CStr;
 use std::ffi::c_void;
 use std::ops::Range;
-use std::ptr;
 
-use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
 use bitvec::view::BitView;
 use vortex::array::dtype::Nullability;
@@ -18,7 +16,6 @@ use vortex::error::vortex_bail;
 use vortex::mask::Mask;
 
 use crate::cpp;
-use crate::cpp::duckdb_vx_error;
 use crate::cpp::idx_t;
 use crate::duckdb::LogicalType;
 use crate::duckdb::LogicalTypeRef;
@@ -280,20 +277,6 @@ impl VectorRef {
             validity: Some(unsafe { std::slice::from_raw_parts(validity_ptr, num_bytes) }),
             len,
         }
-    }
-
-    pub fn try_to_string(&self, len: u64) -> VortexResult<String> {
-        let mut err: duckdb_vx_error = ptr::null_mut();
-        let debug =
-            unsafe { cpp::duckdb_vector_to_string(self.as_ptr(), len.as_u64(), &raw mut err) };
-        if !err.is_null() {
-            vortex_bail!("{}", unsafe {
-                CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()
-            })
-        }
-        let string = unsafe { CStr::from_ptr(debug).to_string_lossy() }.to_string();
-        unsafe { cpp::duckdb_free(debug.cast_mut().cast()) };
-        Ok(string)
     }
 
     pub fn list_vector_reserve(&self, required_capacity: u64) -> VortexResult<()> {
