@@ -210,7 +210,9 @@ impl MinMaxPartial {
         // NaN scalars are incomparable under `partial_min`/`partial_max`, so they are handled
         // explicitly: a NaN extremum poisons the partial state when NaNs participate, and is
         // dropped when they are skipped.
-        if scalar_is_nan(&min) || scalar_is_nan(&max) || self.is_poisoned() {
+        if self.element_dtype.is_float()
+            && (scalar_is_nan(&min) || scalar_is_nan(&max) || self.is_poisoned())
+        {
             if !self.skip_nans {
                 self.poison();
             }
@@ -237,7 +239,7 @@ impl MinMaxPartial {
 
     /// Whether the partial state is poisoned to NaN.
     fn is_poisoned(&self) -> bool {
-        self.min.as_ref().is_some_and(scalar_is_nan)
+        self.element_dtype.is_float() && self.min.as_ref().is_some_and(scalar_is_nan)
     }
 }
 

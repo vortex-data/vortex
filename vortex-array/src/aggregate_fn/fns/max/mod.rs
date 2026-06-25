@@ -49,7 +49,7 @@ impl MaxPartial {
 
         // NaN scalars are incomparable under `partial_max`; they poison the maximum when NaNs
         // participate, and are dropped when they are skipped.
-        if scalar_is_nan(&max) || self.is_poisoned() {
+        if self.element_dtype.is_float() && (scalar_is_nan(&max) || self.is_poisoned()) {
             if !self.skip_nans {
                 self.poison();
             }
@@ -67,7 +67,7 @@ impl MaxPartial {
     }
 
     fn is_poisoned(&self) -> bool {
-        self.max.as_ref().is_some_and(scalar_is_nan)
+        self.element_dtype.is_float() && self.max.as_ref().is_some_and(scalar_is_nan)
     }
 }
 
