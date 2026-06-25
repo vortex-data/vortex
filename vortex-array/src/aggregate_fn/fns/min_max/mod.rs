@@ -149,6 +149,10 @@ pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
 
 /// Whether a scalar holds a primitive float NaN value.
 pub(crate) fn scalar_is_nan(scalar: &Scalar) -> bool {
+    if !scalar.dtype().is_float() {
+        return false;
+    }
+
     scalar.as_primitive_opt().is_some_and(|p| p.is_nan())
 }
 
