@@ -1,0 +1,123 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+# Two list columns so we can exercise list-length pushdown over the same and
+# different columns, in both SELECT and WHERE.
+statement ok
+CREATE TABLE list_test (id INTEGER, a INTEGER[], b INTEGER[]);
+
+statement ok
+INSERT INTO list_test VALUES
+  (1, [10, 20, 30], [1]),
+  (2, [40, 50, 60, 70], [2, 3]),
+  (3, [80], [4, 5, 6]),
+  (4, [90, 100, 110, 120, 130], [7, 8, 9, 10]),
+  (5, [140, 150], []);
+
+statement ok
+COPY (SELECT * FROM list_test) TO '$__TEST_DIR__/list-length.vortex';
+
+# array_length projection is pushed into the scan. The "SELECT projections"
+# marker in the Vortex EXPLAIN output indicates pushdown succeeded.
+query TT
+EXPLAIN (FORMAT json)
+SELECT array_length(a) FROM '$__TEST_DIR__/list-length.vortex';
+----
+<REGEX>:SELECT projections
+
+# len/length/array_length all map to list_length for list arguments.
+query I
+SELECT array_length(a) FROM '$__TEST_DIR__/list-length.vortex' ORDER BY id;
+----
+3
+4
+1
+5
+2
+
+query I
+SELECT len(a) FROM '$__TEST_DIR__/list-length.vortex' ORDER BY id;
+----
+3
+4
+1
+5
+2
+
+query I
+SELECT length(a) FROM '$__TEST_DIR__/list-length.vortex' ORDER BY id;
+----
+3
+4
+1
+5
+2
+
+# array_length over the other list column, including the empty list (length 0).
+query I
+SELECT array_length(b) FROM '$__TEST_DIR__/list-length.vortex' ORDER BY id;
+----
+1
+2
+3
+4
+0
+
+# array_length in WHERE is pushed into the scan as a complex filter: it shows up under the
+# scan's "Filters" as a list_length expression (and DuckDB drops its own filter operator). The
+# SELECT here is a plain column, so `list.length` can only appear via the pushed-down filter.
+query TT
+EXPLAIN (FORMAT json) SELECT id FROM '$__TEST_DIR__/list-length.vortex'
+WHERE array_length(a) >= 4;
+----
+<REGEX>:"Filters".*vortex\.list\.length
+
+# array_length in WHERE on the same column used in the SELECT projection.
+query I
+SELECT array_length(a) FROM '$__TEST_DIR__/list-length.vortex'
+WHERE array_length(a) >= 4
+ORDER BY id;
+----
+4
+5
+
+# array_length in WHERE filtering a different column than the SELECT projection.
+query II
+SELECT id, array_length(a) FROM '$__TEST_DIR__/list-length.vortex'
+WHERE array_length(b) >= 3
+ORDER BY id;
+----
+3 1
+4 5
+
+# array_length over different columns in both SELECT and WHERE is pushed on both sides: the
+# projection on `a` appears under "SELECT projections" and the filter on `b` under "Filters",
+# both as list_length expressions.
+query TT
+EXPLAIN (FORMAT json)
+SELECT array_length(a) FROM '$__TEST_DIR__/list-length.vortex'
+WHERE array_length(b) >= 2;
+----
+<REGEX>:"Filters".*vortex\.list\.length.*"SELECT projections".*vortex\.list\.length
+
+# array_length over different columns in both SELECT and WHERE.
+query II
+SELECT array_length(a), array_length(b) FROM '$__TEST_DIR__/list-length.vortex'
+WHERE array_length(b) >= 2
+ORDER BY id;
+----
+4 2
+1 3
+5 4
+
+# Mixing the len/length/array_length aliases across SELECT and WHERE.
+query I
+SELECT len(a) FROM '$__TEST_DIR__/list-length.vortex'
+WHERE length(b) >= 2
+ORDER BY id;
+----
+4
+1
+5

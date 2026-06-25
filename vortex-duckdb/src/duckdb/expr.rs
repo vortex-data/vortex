@@ -35,7 +35,7 @@ impl ExpressionRef {
         unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) }
     }
 
-    /// The (bound) return type of this expression. Borrowed from the expression.
+    /// The return type of this expression.
     pub fn return_type(&self) -> &LogicalTypeRef {
         unsafe { LogicalType::borrow(cpp::duckdb_vx_expr_get_return_type(self.as_ptr())) }
     }

@@ -59,13 +59,18 @@ fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
     }
 }
 
-/// Returns true if the expression's bound return type is a `LIST` or fixed-size `ARRAY`. Used to
-/// disambiguate the overloaded `len`/`length` functions, which also apply to strings and bits.
-fn is_list_typed(expr: &duckdb::ExpressionRef) -> bool {
+/// Whether the expression's return type is a `LIST` or fixed-size `ARRAY`.
+fn returns_a_list(expr: &duckdb::ExpressionRef) -> bool {
     matches!(
         expr.return_type().as_type_id(),
         DUCKDB_TYPE::DUCKDB_TYPE_LIST | DUCKDB_TYPE::DUCKDB_TYPE_ARRAY
     )
+}
+
+/// Wrap `expr` in `list_length`. Since vortex `list_length` returns u64 but duckdb equivalents
+/// return i64, we must cast as well.
+fn build_list_length(expr: Expression, nullability: Nullability) -> Expression {
+    cast(list_length(expr), DType::Primitive(PType::I64, nullability))
 }
 
 fn try_from_bound_function(
@@ -126,24 +131,37 @@ fn try_from_bound_function(
             };
             Like.new_expr(LikeOptions::default(), [value, lit(pattern)])
         }
-        // `array_length` is list-only, but `len`/`length` are also defined for strings and bits,
-        // so we gate on the argument's bound return type being a list or fixed-size array.
-        "len" | "length" | "array_length" => {
-            let children: Vec<_> = func.children().collect();
-            // Only the single-argument form maps to list_length; the two-argument
-            // (dimension) form of array_length has different semantics.
-            if children.len() != 1 || !is_list_typed(children[0]) {
+        "array_length" => {
+            let children = func.children().collect::<Vec<_>>();
+            // Only accept `array_length` with one arg (not the array_length(expr, dim) form)
+            if children.len() != 1 {
                 return Ok(None);
             }
             let Some(col) = try_from_expression_inner(children[0], col_sub)? else {
                 return Ok(None);
             };
-            let col = list_length(col);
-            // list_length returns u64, len()/array_length() return i64. We don't know the
-            // column's nullability here, so we set it to nullable; for a non-nullable
-            // column the validity will be AllValid so it's a marginal cost.
-            let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
-            cast(col, dtype)
+
+            // We don't know the column's nullability here, so we set it to nullable.
+            let list_len_expr = build_list_length(col, Nullability::Nullable);
+            list_len_expr
+        }
+        // len/length semantics depend on the return type of underlying expr.
+        "len" | "length" => {
+            let children: Vec<_> = func.children().collect();
+            vortex_ensure!(children.len() == 1);
+            let child = children[0];
+
+            if returns_a_list(child) {
+                let Some(col) = try_from_expression_inner(child, col_sub)? else {
+                    return Ok(None);
+                };
+
+                // Same nullability rationale as in "array_length" branch.
+                let list_len_expr = build_list_length(col, Nullability::Nullable);
+                return Ok(Some(list_len_expr));
+            } else {
+                return Ok(None);
+            }
         }
         _ => {
             debug!("bound function {}", func.scalar_function.name());
@@ -165,6 +183,11 @@ pub(super) fn try_from_bound_expression_with_col_sub(
     col_sub: &Expression,
 ) -> VortexResult<Option<Expression>> {
     try_from_expression_inner(value, Some(col_sub))
+}
+
+fn is_supported_length_alias(func: &BoundFunction) -> bool {
+    let children: Vec<_> = func.children().collect();
+    children.len() == 1 && returns_a_list(children[0])
 }
 
 // Called before pushdown_complex_filter or a table filter expression call.
@@ -203,10 +226,8 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
                 || name == "~~"
                 || name == "!~~"
                 || name == "strlen"
-                || (matches!(name, "len" | "length" | "array_length") && {
-                    let children: Vec<_> = func.children().collect();
-                    children.len() == 1 && is_list_typed(children[0])
-                })
+                || name == "array_length"
+                || (matches!(name, "len" | "length") && is_supported_length_alias(&func))
         }
         ExpressionClass::BoundOperator(op) => {
             if !matches!(
@@ -222,6 +243,13 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
             op.children().all(can_push_expression)
         }
     }
+}
+
+/// Applies `list_length` expression to a duckdb field
+fn list_length_on_field(field: &DuckdbField) -> Expression {
+    let col = get_item(field.name.as_str(), root());
+
+    build_list_length(col, field.dtype.nullability())
 }
 
 pub fn try_from_projection_expression(
@@ -242,17 +270,22 @@ pub fn try_from_projection_expression(
             let col = cast(col, dtype);
             Some(col)
         }
-        // `len`/`length`/`array_length` over a list column. The column dtype is known here, so
-        // unlike the filter path we can safely accept the overloaded `len`/`length` names by
-        // gating on the field being a list. Only the single-argument form is supported.
-        "len" | "length" | "array_length"
-            if matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..))
-                && func.children().count() == 1 =>
-        {
-            let col = list_length(get_item(field.name.as_str(), root()));
-            // list_length returns u64, len()/array_length() return i64 (BIGINT).
-            let dtype = DType::Primitive(PType::I64, field.dtype.nullability());
-            Some(cast(col, dtype))
+        "array_length" => {
+            if func.children().count() == 1 {
+                let expr = list_length_on_field(field);
+                Some(expr)
+            } else {
+                None
+            }
+        }
+        // len/length have different semantics depending on field dtype.
+        "len" | "length" => {
+            if matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..)) {
+                let expr = list_length_on_field(field);
+                Some(expr)
+            } else {
+                None
+            }
         }
         _ => None,
     })

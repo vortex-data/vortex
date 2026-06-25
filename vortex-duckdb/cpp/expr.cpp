@@ -48,9 +48,7 @@ extern "C" duckdb_vx_expr_class duckdb_vx_expr_get_class(duckdb_vx_expr ffi_expr
 }
 
 extern "C" duckdb_logical_type duckdb_vx_expr_get_return_type(duckdb_vx_expr ffi_expr) {
-    if (!ffi_expr) {
-        return nullptr;
-    }
+    D_ASSERT(ffi_expr);
     auto expr = reinterpret_cast<Expression *>(ffi_expr);
     return reinterpret_cast<duckdb_logical_type>(&expr->return_type);
 }
