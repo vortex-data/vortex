@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::AnyCanonical;
@@ -69,17 +68,12 @@ impl IntoArray for Columnar {
 
 /// Execute into [`Columnar`] by running `execute_until` with the [`AnyColumnar`] matcher.
 impl Executable for Columnar {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let result = array.execute_until::<AnyColumnar>(ctx)?;
-        if let Some(constant) = result.as_opt::<Constant>() {
-            Ok(Columnar::Constant(constant.into_owned()))
-        } else {
-            Ok(Columnar::Canonical(
-                result
-                    .as_opt::<AnyCanonical>()
-                    .map(Canonical::from)
-                    .vortex_expect("execute_until::<AnyColumnar> must return a columnar array"),
-            ))
+    fn execute(mut array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.execute_until::<AnyColumnar>(ctx)? {
+            ColumnarView::Constant(constant) => Ok(Columnar::Constant(constant.into_owned())),
+            ColumnarView::Canonical(canonical) => {
+                Ok(Columnar::Canonical(Canonical::from(canonical)))
+            }
         }
     }
 }

@@ -173,9 +173,14 @@ mod tests {
 
         // Keep every other row = 112/2 = 56 rows.
         let mask = Mask::from_iter((0..sliced.len()).map(|i| i % 2 == 0));
-        let filtered = sliced.filter(mask)?;
+        let mut filtered = sliced.filter(mask)?;
 
-        let executed = filtered.execute_until::<RunEnd>(&mut ctx)?;
+        // `execute_until::<RunEnd>` now errors unless execution converges to RunEnd, so reaching
+        // a match already proves the encoding was preserved.
+        let executed = filtered
+            .execute_until::<RunEnd>(&mut ctx)?
+            .into_owned()
+            .into_array();
         assert_eq!(
             executed.encoding_id().as_ref(),
             "vortex.runend",
