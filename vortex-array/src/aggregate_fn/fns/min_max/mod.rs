@@ -149,6 +149,10 @@ pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
 
 /// Whether a scalar holds a primitive float NaN value.
 pub(crate) fn scalar_is_nan(scalar: &Scalar) -> bool {
+    if !scalar.dtype().is_float() {
+        return false;
+    }
+
     scalar.as_primitive_opt().is_some_and(|p| p.is_nan())
 }
 
@@ -233,7 +237,7 @@ impl MinMaxPartial {
 
     /// Whether the partial state is poisoned to NaN.
     fn is_poisoned(&self) -> bool {
-        self.min.as_ref().is_some_and(scalar_is_nan)
+        self.element_dtype.is_float() && self.min.as_ref().is_some_and(scalar_is_nan)
     }
 }
 

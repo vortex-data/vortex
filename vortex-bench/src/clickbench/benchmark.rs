@@ -41,7 +41,7 @@ impl ClickBenchBenchmark {
     }
 }
 
-/// ClickBench sorted by event date and event time.
+/// ClickBench sorted by event time, with shard filenames shuffled to exercise sort pushdown.
 pub struct ClickBenchSortedBenchmark {
     pub queries_file: Option<String>,
     pub data_url: Url,

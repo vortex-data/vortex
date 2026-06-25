@@ -3,6 +3,7 @@
 
 //! This module defines the default layout strategy for a Vortex file.
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -35,6 +36,7 @@ use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_bytebool::ByteBool;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_error::VortexExpect;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::FoR;
@@ -297,7 +299,7 @@ impl WriteStrategyBuilder {
             dict,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
-                block_size: self.row_block_size,
+                block_size: NonZeroUsize::new(self.row_block_size).vortex_expect("must be non 0"),
                 ..Default::default()
             },
         );

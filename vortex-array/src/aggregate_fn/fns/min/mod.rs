@@ -67,7 +67,7 @@ impl MinPartial {
     }
 
     fn is_poisoned(&self) -> bool {
-        self.min.as_ref().is_some_and(scalar_is_nan)
+        self.element_dtype.is_float() && self.min.as_ref().is_some_and(scalar_is_nan)
     }
 }
 

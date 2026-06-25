@@ -219,6 +219,7 @@ impl LayoutReader for ZonedReader {
 
 #[cfg(test)]
 mod test {
+    use std::num::NonZeroUsize;
     use std::sync::Arc;
 
     use rstest::fixture;
@@ -237,6 +238,7 @@ mod test {
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
@@ -283,7 +285,7 @@ mod test {
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
             ZonedLayoutOptions {
-                block_size: 3,
+                block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
                 ..Default::default()
             },
         );
@@ -370,7 +372,7 @@ mod test {
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
             ZonedLayoutOptions {
-                block_size: 3,
+                block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
                 ..Default::default()
             },
         );
@@ -469,34 +471,5 @@ mod test {
             assert!(result.all_true());
             Ok(())
         })
-    }
-
-    #[test]
-    fn test_writer_rejects_zero_block_size() {
-        let ctx = ArrayContext::empty();
-        let segments = Arc::new(TestSegments::default());
-        let (ptr, eof) = SequenceId::root().split();
-        let strategy = ZonedStrategy::new(
-            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-            FlatLayoutStrategy::default(),
-            ZonedLayoutOptions {
-                block_size: 0,
-                ..Default::default()
-            },
-        );
-        let array_stream = ChunkedArray::from_iter([buffer![1, 2, 3].into_array()])
-            .into_array()
-            .to_array_stream()
-            .sequenced(ptr);
-        let segments2 = Arc::<TestSegments>::clone(&segments);
-
-        let result = block_on(|handle| async move {
-            let session = session_with_handle(handle);
-            strategy
-                .write_stream(ctx, segments2, array_stream, eof, &session)
-                .await
-        });
-
-        assert!(result.is_err());
     }
 }
