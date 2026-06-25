@@ -188,12 +188,16 @@ impl StructReader {
         )?;
 
         if partitioned.partitions.len() == 1 {
-            // If there's only one partition, we step into the field scope of the original
-            // expression by replacing any `$.a` with `$`.
-            return Ok(Partitioned::Single(
-                partitioned.partition_names[0].clone(),
-                replace(expr, &col(partitioned.partition_names[0].clone()), root()),
-            ));
+            // A single partition can delegate to the child verbatim (`$.a` -> `$`), but only when
+            // nothing is reconstructed here: `pack`/`merge` accumulate wrappers across nested
+            // structs and misplace validity, so reconstruction falls through to the multi path.
+            let single = replace(expr, &col(partitioned.partition_names[0].clone()), root());
+            if !(single.is::<Pack>() || single.is::<Merge>()) {
+                return Ok(Partitioned::Single(
+                    partitioned.partition_names[0].clone(),
+                    single,
+                ));
+            }
         }
 
         // We now need to process the partitioned expressions to rewrite the root scope
