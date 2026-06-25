@@ -22,6 +22,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrow::ArrowExport;
 use vortex_array::arrow::ArrowExportVTable;
@@ -94,6 +95,14 @@ static ARROW_POINT: CachedId = CachedId::new(PointType::NAME);
 /// matching `Point` storage.
 fn point_type(geo_metadata: &GeoMetadata, dimension: Dimension) -> PointType {
     PointType::new(dimension.into(), geoarrow_metadata(geo_metadata))
+}
+
+/// The coordinate `Struct<x, y, ...>` of `Point` storage.
+pub(crate) fn point_coordinates(
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<StructArray> {
+    storage.clone().execute::<StructArray>(ctx)
 }
 
 /// Decode `Point` storage to `geo_types` points, for the geo scalar functions.
