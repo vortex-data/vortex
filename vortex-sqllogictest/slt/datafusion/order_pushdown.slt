@@ -10,7 +10,7 @@ CREATE EXTERNAL TABLE ordered_pushdown (
 )
 STORED AS vortex
 WITH ORDER (c1 ASC)
-LOCATION '$__TEST_DIR__/ordered_pushdown/';
+LOCATION '${WORK_DIR}/ordered_pushdown/';
 
 statement ok
 INSERT INTO ordered_pushdown VALUES

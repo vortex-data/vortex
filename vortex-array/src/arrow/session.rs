@@ -57,7 +57,7 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
-use crate::dtype::arrow::FromArrowType;
+use crate::dtype::arrow::TryFromArrowType;
 use crate::dtype::arrow::to_data_type_naive;
 use crate::dtype::extension::ExtId;
 use crate::extension::datetime::AnyTemporal;
@@ -313,7 +313,7 @@ impl ArrowSession {
     /// match (or all return `None`), recurses into container types ([`DataType::List`]
     /// family, [`DataType::FixedSizeList`], [`DataType::Struct`]) so extension metadata
     /// on nested element/struct fields is preserved. Leaf types use the canonical
-    /// Arrow → Vortex mapping via [`DType::from_arrow`].
+    /// Arrow → Vortex mapping via [`DType::try_from_arrow`].
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
         if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
             for plugin in self.importers(&Id::new(name)).iter() {
@@ -345,7 +345,7 @@ impl ArrowSession {
                     .collect::<VortexResult<Vec<_>>>()?;
                 DType::Struct(StructFields::from_iter(entries), nullability)
             }
-            _ => DType::from_arrow(field),
+            _ => DType::try_from_arrow(field)?,
         })
     }
 

@@ -100,10 +100,6 @@ jobs:
             --bench fsst_cuda \
             --bench runend_cuda \
             --profile bench
-      - name: Verify CUDA kernels were built
-        run: test -f vortex-cuda/kernels/gen/release/dynamic_dispatch.ptx
-      - name: Stage CUDA kernels with Codspeed artifacts
-        run: cp -R vortex-cuda/kernels/gen/release target/codspeed/cuda-kernels
       - name: Upload benchmark executables
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
@@ -156,7 +152,6 @@ jobs:
         uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
         env:
           CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
-          VORTEX_CUDA_KERNELS_DIR: ${{ github.workspace }}/target/codspeed/cuda-kernels
         with:
           run: cargo codspeed run $(printf -- '--bench %s ' ${{ matrix.benches }})
           token: ${{ secrets.CODSPEED_TOKEN }}

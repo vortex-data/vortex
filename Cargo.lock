@@ -9990,6 +9990,7 @@ dependencies = [
  "oneshot",
  "parking_lot",
  "pin-project-lite",
+ "rstest",
  "tokio",
  "tracing",
  "vortex-alp",
@@ -10337,6 +10338,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-python-cuda"
+version = "0.1.0"
+dependencies = [
+ "pyo3",
+ "vortex-cuda",
+]
+
+[[package]]
 name = "vortex-row"
 version = "0.1.0"
 dependencies = [
@@ -10441,10 +10450,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bigdecimal",
- "clap",
  "datafusion 54.0.0",
  "datafusion-sqllogictest",
- "futures",
  "indicatif",
  "regex",
  "rstest",

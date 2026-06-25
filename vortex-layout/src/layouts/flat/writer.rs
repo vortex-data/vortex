@@ -29,6 +29,8 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::children::OwnedLayoutChildren;
+use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::flat_layout_inline_array_node;
 use crate::segments::SegmentSinkRef;
@@ -104,7 +106,13 @@ impl LayoutStrategy for FlatLayoutStrategy {
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let Some(chunk) = stream.next().await else {
-            vortex_bail!("flat layout needs a single chunk");
+            // an empty input has no segment to write.
+            return Ok(ChunkedLayout::new(
+                0,
+                stream.dtype().clone(),
+                OwnedLayoutChildren::layout_children(vec![]),
+            )
+            .into_layout());
         };
         let (sequence_id, chunk) = chunk?;
 

@@ -115,7 +115,7 @@ fn test_decimal_cast_between_decimal_types() {
         Nullability::NonNullable,
     );
 
-    // Cast to different decimal type (currently just preserves value)
+    // Cast to different decimal type.
     let result = decimal_scalar
         .cast(&DType::Decimal(
             DecimalDType::new(20, 4),
@@ -123,9 +123,9 @@ fn test_decimal_cast_between_decimal_types() {
         ))
         .unwrap();
 
-    // Value should be preserved (TODO(connor): proper scaling logic - whatever that means???)
+    // 123.45 with scale 2 is represented as 123.4500 with scale 4.
     let decimal_value: Option<DecimalValue> = result.try_into().unwrap();
-    assert_eq!(decimal_value, Some(DecimalValue::I32(12345)));
+    assert_eq!(decimal_value, Some(DecimalValue::I128(1234500)));
 }
 
 #[test]
@@ -309,7 +309,6 @@ fn test_decimal_to_decimal_different_scale() {
     );
 
     // Cast to decimal with scale=4
-    // TODO: This should properly rescale, but for now it preserves the raw value
     let target_dtype = DType::Decimal(DecimalDType::new(10, 4), Nullability::NonNullable);
     let result = decimal.cast(&target_dtype);
     assert!(result.is_ok());
@@ -317,7 +316,85 @@ fn test_decimal_to_decimal_different_scale() {
     let casted = result.unwrap();
     assert_eq!(
         casted.as_decimal().decimal_value(),
-        Some(DecimalValue::I32(10000))
+        Some(DecimalValue::I64(1000000))
+    );
+}
+
+#[test]
+fn test_decimal_to_decimal_lower_scale_exact() {
+    let decimal = Scalar::decimal(
+        DecimalValue::I64(1234500), // 123.4500
+        DecimalDType::new(10, 4),
+        Nullability::NonNullable,
+    );
+
+    let casted = decimal
+        .cast(&DType::Decimal(
+            DecimalDType::new(10, 2),
+            Nullability::NonNullable,
+        ))
+        .unwrap();
+
+    assert_eq!(
+        casted.as_decimal().decimal_value(),
+        Some(DecimalValue::I64(12345))
+    );
+}
+
+#[test]
+fn test_decimal_to_decimal_lower_scale_lossy_fails() {
+    let decimal = Scalar::decimal(
+        DecimalValue::I64(1234567), // 123.4567
+        DecimalDType::new(10, 4),
+        Nullability::NonNullable,
+    );
+
+    let result = decimal.cast(&DType::Decimal(
+        DecimalDType::new(10, 2),
+        Nullability::NonNullable,
+    ));
+
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("would lose precision")
+    );
+}
+
+#[test]
+fn test_primitive_i64_to_decimal_rescales() {
+    let scalar = Scalar::primitive(42i64, Nullability::NonNullable);
+
+    let casted = scalar
+        .cast(&DType::Decimal(
+            DecimalDType::new(21, 2),
+            Nullability::NonNullable,
+        ))
+        .unwrap();
+
+    assert_eq!(
+        casted.as_decimal().decimal_value(),
+        Some(DecimalValue::I128(4200))
+    );
+}
+
+#[test]
+fn test_primitive_to_decimal_precision_checked() {
+    let scalar = Scalar::primitive(1000i32, Nullability::NonNullable);
+
+    let result = scalar.cast(&DType::Decimal(
+        DecimalDType::new(2, 0),
+        Nullability::NonNullable,
+    ));
+
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("does not fit in precision")
     );
 }
 

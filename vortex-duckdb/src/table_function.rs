@@ -138,6 +138,8 @@ pub struct PartitionData {
 pub enum Cardinality {
     /// Unknown number of rows
     Unknown,
+    /// The exact number of rows.
+    Exact(u64),
     /// An estimate of the number of rows.
     Estimate(u64),
 }
@@ -478,12 +480,18 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
 /// here.
 const DEFAULT_SELECTIVITY: f64 = 0.2;
 pub fn cardinality(bind_data: &TableFunctionBind) -> Cardinality {
+    let has_non_optional_filter = bind_data.has_non_optional_filter.load(Ordering::Relaxed);
     match bind_data.data_source.row_count() {
-        Precision::Exact(v) | Precision::Inexact(v) => {
-            if !bind_data.has_non_optional_filter.load(Ordering::Relaxed) {
-                // Although we may have an exact upper bound here, reporting
-                // it as exact has a negative performance impact on tpcds as
-                // it's not a real post-filter calculation.
+        Precision::Exact(v) => {
+            if !has_non_optional_filter {
+                return Cardinality::Exact(v);
+            }
+            let post_cardinality = v as f64 * DEFAULT_SELECTIVITY;
+            let post_cardinality: u64 = post_cardinality.as_();
+            Cardinality::Estimate(max(1, post_cardinality))
+        }
+        Precision::Inexact(v) => {
+            if !has_non_optional_filter {
                 return Cardinality::Estimate(v);
             }
             let post_cardinality = v as f64 * DEFAULT_SELECTIVITY;

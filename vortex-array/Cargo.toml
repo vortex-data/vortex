@@ -115,6 +115,10 @@ name = "cast_primitive"
 harness = false
 
 [[bench]]
+name = "cast_decimal"
+harness = false
+
+[[bench]]
 name = "search_sorted"
 harness = false
 

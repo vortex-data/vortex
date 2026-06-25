@@ -1899,6 +1899,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+cuda = [
+    { name = "vortex-data-cuda" },
+]
 duckdb = [
     { name = "duckdb" },
 ]
@@ -1941,8 +1944,9 @@ requires-dist = [
     { name = "ray", marker = "extra == 'ray'", specifier = ">=2.48" },
     { name = "substrait", specifier = ">=0.23.0,<0.29.0" },
     { name = "typing-extensions", specifier = ">=4.5.0" },
+    { name = "vortex-data-cuda", marker = "extra == 'cuda'", directory = "vortex-python-cuda" },
 ]
-provides-extras = ["duckdb", "numpy", "pandas", "polars", "ray"]
+provides-extras = ["cuda", "duckdb", "numpy", "pandas", "polars", "ray"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1959,6 +1963,16 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.5.0" },
     { name = "ray", specifier = ">=2.48" },
 ]
+
+[[package]]
+name = "vortex-data-cuda"
+source = { directory = "vortex-python-cuda" }
+dependencies = [
+    { name = "vortex-data" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "vortex-data", specifier = "==0.1.0" }]
 
 [[package]]
 name = "watchfiles"

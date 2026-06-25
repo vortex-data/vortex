@@ -5,12 +5,9 @@ use std::ffi::CStr;
 use std::ptr;
 
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::cpp;
-use crate::duckdb::ClientContext;
-use crate::duckdb::ClientContextRef;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::QueryResult;
 use crate::duckdb_try;
@@ -59,20 +56,6 @@ impl ConnectionRef {
         }
 
         Ok(unsafe { QueryResult::new(result) })
-    }
-
-    /// Get the client context for this connection.
-    pub fn client_context(&self) -> VortexResult<&ClientContextRef> {
-        unsafe {
-            let client_context = cpp::duckdb_vx_connection_get_client_context(self.as_ptr());
-            if client_context.is_null() {
-                vortex_bail!(
-                    "Failed to get client context: connection={:p}",
-                    self.as_ptr()
-                )
-            }
-            Ok(ClientContext::borrow(client_context))
-        }
     }
 }
 
