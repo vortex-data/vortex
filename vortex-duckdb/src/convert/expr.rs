@@ -133,7 +133,7 @@ fn try_from_bound_function(
         }
         "array_length" => {
             let children = func.children().collect::<Vec<_>>();
-            // Only accept `array_length` with one arg (not the array_length(expr, dim) form)
+            // Only accept array_length(expr) rather than array_length(expr, dim).
             if children.len() != 1 {
                 return Ok(None);
             }
@@ -142,8 +142,7 @@ fn try_from_bound_function(
             };
 
             // We don't know the column's nullability here, so we set it to nullable.
-            let list_len_expr = build_list_length(col, Nullability::Nullable);
-            list_len_expr
+            build_list_length(col, Nullability::Nullable)
         }
         // len/length semantics depend on the return type of underlying expr.
         "len" | "length" => {
@@ -271,22 +270,12 @@ pub fn try_from_projection_expression(
             Some(col)
         }
         "array_length" => {
-            if func.children().count() == 1 {
-                let expr = list_length_on_field(field);
-                Some(expr)
-            } else {
-                None
-            }
+            // Only accept array_length(expr) rather than array_length(expr, dim).
+            (func.children().count() == 1).then(|| list_length_on_field(field))
         }
         // len/length have different semantics depending on field dtype.
-        "len" | "length" => {
-            if matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..)) {
-                let expr = list_length_on_field(field);
-                Some(expr)
-            } else {
-                None
-            }
-        }
+        "len" | "length" => matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..))
+            .then(|| list_length_on_field(field)),
         _ => None,
     })
 }
