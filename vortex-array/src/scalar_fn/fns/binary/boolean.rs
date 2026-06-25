@@ -758,13 +758,13 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
@@ -772,7 +772,7 @@ mod tests {
 
     #[test]
     fn test_kleene_truth_table() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let lhs = BoolArray::from_iter([
             Some(true),
             Some(true),
@@ -835,7 +835,7 @@ mod tests {
 
     #[test]
     fn test_null_constant_kleene() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let lhs = BoolArray::from_iter([Some(false), Some(true), None]).into_array();
         let null = ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
             .into_array();
@@ -869,22 +869,34 @@ mod tests {
         let r = r.to_bool().into_array();
 
         let v0 = r
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap()
             .as_bool()
             .value();
         let v1 = r
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap()
             .as_bool()
             .value();
         let v2 = r
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                2,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap()
             .as_bool()
             .value();
         let v3 = r
-            .execute_scalar(3, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                3,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap()
             .as_bool()
             .value();
@@ -913,22 +925,34 @@ mod tests {
             .into_array();
 
         let v0 = r
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap()
             .as_bool()
             .value();
         let v1 = r
-            .execute_scalar(1, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap()
             .as_bool()
             .value();
         let v2 = r
-            .execute_scalar(2, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                2,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap()
             .as_bool()
             .value();
         let v3 = r
-            .execute_scalar(3, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                3,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap()
             .as_bool()
             .value();

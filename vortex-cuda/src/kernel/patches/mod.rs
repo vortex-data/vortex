@@ -176,12 +176,12 @@ mod tests {
     use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
-    use vortex::array::array_session;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::primitive::PrimitiveDataParts;
     use vortex::array::assert_arrays_eq;
     use vortex::array::buffer::BufferHandle;
     use vortex::array::builtins::ArrayBuiltins;
+    use vortex::array::default_session_builder;
     use vortex::array::patches::Patches;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
@@ -217,7 +217,7 @@ mod tests {
 
     async fn full_test_case<Values: NativePType + DeviceRepr, Indices: NativePType + DeviceRepr>() {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session()).unwrap();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
 
         let values = PrimitiveArray::from_iter(0..128);
         let values = force_cast::<Values>(values, &mut ctx);

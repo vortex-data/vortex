@@ -18,7 +18,8 @@ use vortex_zstd::Zstd;
 use vortex_zstd::ZstdData;
 
 /// A shared session for the `ListView` rebuild benchmark, used to create execution contexts.
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 #[divan::bench(sample_size = 1000)]
 fn rebuild_naive(bencher: Bencher) {

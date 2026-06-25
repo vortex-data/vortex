@@ -306,7 +306,6 @@ mod tests {
     use vortex_array::expr::proto::ExprSerializeProtoExt;
     use vortex_array::expr::root;
     use vortex_array::scalar_fn::session::ScalarFnSession;
-    use vortex_array::scalar_fn::session::ScalarFnSessionExt;
     use vortex_array::session::ArraySession;
 
     use super::*;
@@ -318,12 +317,12 @@ mod tests {
     /// A session that knows the `JsonToVariant` definition but has no Variant encoding registered,
     /// so executing the function exercises the fallback that errors when no kernel is present.
     fn session() -> VortexSession {
-        let session = VortexSession::empty()
+        let mut session = VortexSession::builder()
             .with::<ArraySession>()
             .with::<DTypeSession>()
             .with::<ScalarFnSession>();
-        session.scalar_fns().register(JsonToVariant);
-        session
+        session.get_mut::<ScalarFnSession>().register(JsonToVariant);
+        session.build()
     }
 
     #[test]

@@ -131,9 +131,9 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::varbin::VarBinArrayExt;
     use crate::arrays::varbin::builder::VarBinBuilder;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::expr::stats::Precision;
@@ -153,13 +153,19 @@ mod tests {
         assert_eq!(array.dtype().nullability(), Nullable);
         assert_eq!(
             array
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             Scalar::utf8("hello".to_string(), Nullable)
         );
         assert!(
             array
-                .execute_scalar(1, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    1,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
                 .is_null()
         );

@@ -37,13 +37,13 @@ mod vtable;
 use std::sync::Arc;
 
 pub use array::ParquetVariantArrayExt;
-use vortex_array::arrow::ArrowSessionExt;
-use vortex_array::session::ArraySessionExt;
+use vortex_array::arrow::ArrowSession;
+use vortex_array::session::ArraySession;
 pub use vortex_json::JsonToVariant;
 pub use vortex_json::JsonToVariantOptions;
 pub use vortex_json::ShreddingSpec;
 pub use vortex_json::json_to_variant;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 pub use vtable::ParquetVariant;
 pub use vtable::ParquetVariantArray;
 
@@ -52,10 +52,12 @@ pub use vtable::ParquetVariantArray;
 ///
 /// This also initializes [`vortex_json`], registering the `Json` extension dtype and the
 /// `json_to_variant` scalar function whose execution this crate provides.
-pub fn initialize(session: &VortexSession) {
+pub fn initialize(session: &mut VortexSessionBuilder) {
     vortex_json::initialize(session);
-    session.arrays().register(ParquetVariant);
+    session.get_mut::<ArraySession>().register(ParquetVariant);
     kernel::initialize(session);
-    session.arrow().register_exporter(Arc::new(ParquetVariant));
-    session.arrow().register_importer(Arc::new(ParquetVariant));
+
+    let arrow = session.get_mut::<ArrowSession>();
+    arrow.register_exporter(Arc::new(ParquetVariant));
+    arrow.register_importer(Arc::new(ParquetVariant));
 }

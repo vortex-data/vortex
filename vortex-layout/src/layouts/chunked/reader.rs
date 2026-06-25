@@ -362,7 +362,6 @@ mod test {
     use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
-    use vortex_io::session::RuntimeSessionExt;
     use vortex_session::registry::ReadContext;
 
     use crate::IntoLayout;
@@ -392,7 +391,7 @@ mod test {
         let (mut sequence_id, eof) = SequenceId::root().split();
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = crate::test::session_with_handle(handle);
             strategy
                 .write_stream(
                     ctx,

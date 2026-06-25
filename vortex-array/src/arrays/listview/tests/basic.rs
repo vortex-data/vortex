@@ -9,7 +9,6 @@ use vortex_error::VortexResult;
 
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListArray;
@@ -18,6 +17,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::list_view_from_list;
 use crate::assert_arrays_eq;
+use crate::default_session_builder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -26,7 +26,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_basic_listview_comprehensive() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     // Comprehensive test for basic ListView functionality including scalar_at.
     // Logical lists: [[1,2,3], [4,5], [6,7,8,9]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
@@ -57,7 +57,10 @@ fn test_basic_listview_comprehensive() {
 
     // Test scalar_at which returns entire lists as Scalar values.
     let first_scalar = listview
-        .execute_scalar(0, &mut array_session().create_execution_ctx())
+        .execute_scalar(
+            0,
+            &mut default_session_builder().build().create_execution_ctx(),
+        )
         .unwrap();
     assert_eq!(
         first_scalar,
@@ -83,7 +86,7 @@ fn test_basic_listview_comprehensive() {
 
 #[test]
 fn test_out_of_order_offsets() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     // ListView-specific: Tests that offsets can be non-sequential and out-of-order.
     // Logical lists: [[7,8,9], [1,2,3], [4,5,6]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
@@ -135,7 +138,7 @@ fn test_from_list_array() -> VortexResult<()> {
     let validity = Validity::from_iter([true, false, true]);
 
     let list_array = ListArray::try_new(elements, offsets, validity)?;
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let list_view = list_view_from_list(list_array, &mut ctx)?;
 
     assert_eq!(list_view.len(), 3);
@@ -148,9 +151,18 @@ fn test_from_list_array() -> VortexResult<()> {
     );
 
     // Check validity is preserved.
-    assert!(list_view.is_valid(0, &mut array_session().create_execution_ctx())?);
-    assert!(list_view.is_invalid(1, &mut array_session().create_execution_ctx())?);
-    assert!(list_view.is_valid(2, &mut array_session().create_execution_ctx())?);
+    assert!(list_view.is_valid(
+        0,
+        &mut default_session_builder().build().create_execution_ctx()
+    )?);
+    assert!(list_view.is_invalid(
+        1,
+        &mut default_session_builder().build().create_execution_ctx()
+    )?);
+    assert!(list_view.is_valid(
+        2,
+        &mut default_session_builder().build().create_execution_ctx()
+    )?);
 
     // Check third list.
     assert_arrays_eq!(
@@ -167,7 +179,7 @@ fn test_from_list_array() -> VortexResult<()> {
 #[case::constant_offsets(false, true)] // Varying sizes, constant offsets
 #[case::both_constant(true, true)] // Both constant
 fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_offsets: bool) {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     // Logical lists vary by case:
     // - constant_sizes: [[1,2,3], [4,5,6], [7,8,9]] (size 3 each, varying offsets)
     // - constant_offsets: [[1,2,3], [1,2], [1]] (all start at 0, varying sizes)
@@ -213,7 +225,10 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(0)
                 .unwrap()
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             1i32.into()
         );
@@ -221,7 +236,10 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(1)
                 .unwrap()
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             1i32.into()
         );
@@ -229,7 +247,10 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(2)
                 .unwrap()
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             1i32.into()
         );

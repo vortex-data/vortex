@@ -120,7 +120,7 @@ pub mod variant;
 pub use variant::Variant;
 pub use variant::VariantArray;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+pub(crate) fn initialize(session: &mut vortex_session::VortexSessionBuilder) {
     bool::initialize(session);
     chunked::initialize(session);
     decimal::initialize(session);

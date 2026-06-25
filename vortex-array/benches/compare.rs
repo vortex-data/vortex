@@ -29,7 +29,7 @@ fn compare_bool(bencher: Bencher) {
 
     let arr1 = BoolArray::from_iter((0..ARRAY_SIZE).map(|_| rng.sample(range) == 0)).into_array();
     let arr2 = BoolArray::from_iter((0..ARRAY_SIZE).map(|_| rng.sample(range) == 0)).into_array();
-    let session = vortex_array::array_session();
+    let session = vortex_array::default_session_builder().build();
 
     bencher
         .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))
@@ -57,7 +57,7 @@ fn compare_int(bencher: Bencher) {
         .map(|_| rng.sample(range))
         .collect::<Buffer<_>>()
         .into_array();
-    let session = vortex_array::array_session();
+    let session = vortex_array::default_session_builder().build();
 
     bencher
         .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))

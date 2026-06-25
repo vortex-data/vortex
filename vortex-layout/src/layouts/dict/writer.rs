@@ -191,8 +191,7 @@ impl LayoutStrategy for DictStrategy {
                 let ctx2 = ctx.clone();
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let session2 = session.clone();
-                let codes_fut = handle.spawn_nested(move |h| async move {
-                    let session2 = session2.with_handle(h);
+                let codes_fut = handle.spawn_nested(move |_h| async move {
                     codes.write_stream(
                         ctx2,
                         segment_sink2,
@@ -208,8 +207,7 @@ impl LayoutStrategy for DictStrategy {
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let dtype2 = dtype2.clone();
                 let session2 = session.clone();
-                let values_layout = handle.spawn_nested(move |h| async move {
-                    let session2 = session2.with_handle(h);
+                let values_layout = handle.spawn_nested(move |_h| async move {
                     values.write_stream(
                         ctx2,
                         segment_sink2,
@@ -608,7 +606,7 @@ mod tests {
     use crate::sequence::SequentialStreamExt;
 
     static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+        LazyLock::new(|| VortexSession::builder().with::<ArraySession>().build());
 
     /// Regression test for a bug where the codes stream dtype was hardcoded to U16 instead of
     /// using the actual codes dtype from the array. When `max_len <= 255`, the dict encoder

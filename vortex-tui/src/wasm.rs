@@ -122,9 +122,11 @@ pub fn open_vortex_file(data: &[u8]) -> Result<(), JsValue> {
     use vortex::VortexSessionDefault;
     use vortex::buffer::ByteBuffer;
     use vortex::io::runtime::wasm::WasmRuntime;
-    use vortex::io::session::RuntimeSessionExt;
+    use vortex::io::session::RuntimeSessionBuilderExt;
 
-    let session = VortexSession::default().with_handle(WasmRuntime::handle());
+    let session = VortexSession::default_builder()
+        .with_handle(WasmRuntime::handle())
+        .build();
     let buffer = ByteBuffer::from(data.to_vec());
     let app = Rc::new(RefCell::new(
         AppState::from_buffer(session, buffer).map_err(|e| JsValue::from_str(&e.to_string()))?,

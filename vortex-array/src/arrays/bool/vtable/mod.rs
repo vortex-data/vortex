@@ -11,6 +11,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -44,7 +45,7 @@ use crate::hash::ArrayHash;
 /// A [`Bool`]-encoded Vortex array.
 pub type BoolArray = Array<Bool>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
     kernel::initialize(session);
 }
 
@@ -212,15 +213,15 @@ mod tests {
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
 
     #[test]
     fn test_nullable_bool_serde_roundtrip() {
-        let session = array_session();
+        let session = default_session_builder().build();
         let mut ctx = session.create_execution_ctx();
         let array = BoolArray::from_iter([Some(true), None, Some(false), None]);
         let dtype = array.dtype().clone();

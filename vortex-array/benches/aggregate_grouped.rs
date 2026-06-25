@@ -31,7 +31,8 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 const GROUP_COUNT: usize = 128;
 const GROUP_SIZE_SEED: u64 = 42;

@@ -17,8 +17,9 @@
 //! session before deserializing or executing arrays that may contain these encodings.
 //!
 //! ```rust
-//! let session = vortex_array::array_session();
-//! vortex_fastlanes::initialize(&session);
+//! let mut session = vortex_array::default_session_builder();
+//! vortex_fastlanes::initialize(&mut session);
+//! let _session = session.build();
 //! ```
 //!
 //! ## Paper
@@ -53,43 +54,41 @@ use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::patched::use_experimental_patches;
-use vortex_array::session::ArraySessionExt;
-use vortex_session::VortexSession;
+use vortex_array::session::ArraySession;
+use vortex_session::VortexSessionBuilder;
 
 /// Initialize fastlanes encodings in the given session.
-pub fn initialize(session: &VortexSession) {
-    // If we're using the experimental Patched encoding, register a shim
-    // for BitPacked with interior patches decode as Patched array.
-    if use_experimental_patches() {
-        session.arrays().register(BitPackedPatchedPlugin);
-    } else {
-        session.arrays().register(BitPacked);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    {
+        let arrays = session.get_mut::<ArraySession>();
+
+        // If we're using the experimental Patched encoding, register a shim
+        // for BitPacked with interior patches decode as Patched array.
+        if use_experimental_patches() {
+            arrays.register(BitPackedPatchedPlugin);
+        } else {
+            arrays.register(BitPacked);
+        }
+        arrays.register(Delta);
+        arrays.register(FoR);
+        arrays.register(RLE);
     }
-    session.arrays().register(Delta);
-    session.arrays().register(FoR);
-    session.arrays().register(RLE);
+
     bitpacking::initialize(session);
     r#for::initialize(session);
     rle::initialize(session);
 
     // Register the encoding-specific aggregate kernels.
-    session.aggregate_fns().register_aggregate_kernel(
+    let aggregate_fns = session.get_mut::<AggregateFnSession>();
+    aggregate_fns.register_aggregate_kernel(
         BitPacked.id(),
         Some(IsConstant.id()),
         &BitPackedIsConstantKernel,
     );
-    session.aggregate_fns().register_aggregate_kernel(
-        FoR.id(),
-        Some(IsConstant.id()),
-        &FoRIsConstantKernel,
-    );
-    session.aggregate_fns().register_aggregate_kernel(
-        FoR.id(),
-        Some(IsSorted.id()),
-        &FoRIsSortedKernel,
-    );
+    aggregate_fns.register_aggregate_kernel(FoR.id(), Some(IsConstant.id()), &FoRIsConstantKernel);
+    aggregate_fns.register_aggregate_kernel(FoR.id(), Some(IsSorted.id()), &FoRIsSortedKernel);
 }
 
 /// Fill-forward null values in a buffer, replacing each null with the last valid value seen.
@@ -169,9 +168,9 @@ mod test {
     use super::*;
 
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        initialize(&session);
-        session
+        let mut builder = vortex_array::default_session_builder();
+        initialize(&mut builder);
+        builder.build()
     });
 
     #[test]

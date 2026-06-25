@@ -20,7 +20,8 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 /// Benchmarks zip on VarBinView arrays with a highly fragmented mask (worst case for per-slice lookup paths).
 #[divan::bench]

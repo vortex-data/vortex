@@ -245,9 +245,9 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::expr::get_item;
@@ -262,7 +262,7 @@ mod tests {
     fn invert_booleans() {
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         assert_arrays_eq!(
             bools.into_array().apply(&not_expr).unwrap(),
             BoolArray::from_iter([true, false, true, true, false, false]),

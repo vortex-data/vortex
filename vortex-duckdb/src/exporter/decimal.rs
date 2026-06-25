@@ -135,8 +135,8 @@ pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexR
 #[cfg(test)]
 mod tests {
     use vortex::array::VortexSessionExecute;
-    use vortex::array::array_session;
     use vortex::array::arrays::DecimalArray;
+    use vortex::array::default_session_builder;
     use vortex::dtype::DecimalDType;
     use vortex::error::VortexExpect;
 
@@ -150,7 +150,7 @@ mod tests {
     ) -> VortexResult<Box<dyn ColumnExporter>> {
         let validity = array.as_ref().validity()?.execute_mask(
             array.as_ref().len(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         )?;
         let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
 

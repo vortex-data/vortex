@@ -118,11 +118,12 @@ pub use footer::*;
 pub use forever_constant::*;
 pub use open::*;
 pub use strategy::*;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
-use vortex_array::session::ArraySessionExt;
+use vortex_array::session::ArraySession;
 use vortex_pco::Pco;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 pub use writer::*;
 
 /// The current version of the Vortex file format
@@ -161,7 +162,7 @@ mod forever_constant {
 ///
 /// NOTE: this function will be changed in the future to encapsulate logic for using different
 /// Vortex "Editions" that may support different sets of encodings.
-pub fn register_default_encodings(session: &VortexSession) {
+pub fn register_default_encodings(session: &mut VortexSessionBuilder) {
     vortex_bytebool::initialize(session);
     vortex_fsst::initialize(session);
     #[cfg(feature = "unstable_encodings")]
@@ -169,7 +170,8 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_zigzag::initialize(session);
 
     {
-        let arrays = session.arrays();
+        let arrays = session.get_mut::<ArraySession>();
+        arrays.register(Dict);
         arrays.register(Pco);
         #[cfg(feature = "zstd")]
         arrays.register(vortex_zstd::Zstd);
@@ -195,8 +197,8 @@ pub fn register_default_encodings(session: &VortexSession) {
 #[cfg(test)]
 mod default_encoding_tests {
     use vortex_array::VTable as _;
-    use vortex_array::array_session;
     use vortex_array::arrays::Filter;
+    use vortex_array::default_session_builder;
     use vortex_array::optimizer::kernels::ArrayKernelsExt as _;
     use vortex_array::session::ArraySessionExt as _;
     use vortex_fsst::FSST;
@@ -205,12 +207,14 @@ mod default_encoding_tests {
 
     #[test]
     fn register_default_encodings_registers_external_execute_parent_kernels() {
-        let session = array_session();
+        let session = default_session_builder().build();
 
         assert!(session.arrays().registry().find(&FSST.id()).is_none());
         assert!(!session.kernels().has_execute_parent(Filter.id(), FSST.id()));
 
-        register_default_encodings(&session);
+        let mut builder = default_session_builder();
+        register_default_encodings(&mut builder);
+        let session = builder.build();
 
         assert!(session.arrays().registry().find(&FSST.id()).is_some());
         assert!(session.kernels().has_execute_parent(Filter.id(), FSST.id()));

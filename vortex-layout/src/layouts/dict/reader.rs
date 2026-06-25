@@ -339,11 +339,11 @@ mod tests {
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::default_session_builder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
@@ -365,7 +365,7 @@ mod tests {
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
-    use vortex_io::session::RuntimeSessionExt;
+    use vortex_io::session::RuntimeSessionBuilderExt;
     use vortex_session::VortexSession;
 
     use crate::LayoutId;
@@ -386,10 +386,11 @@ mod tests {
     // FIXME(ngates): Deprecate the global `runtime::single::block_on` helper and require tests
     // to call `block_on` on an explicit runtime instance.
     fn session_with_handle(handle: Handle) -> VortexSession {
-        array_session()
+        default_session_builder()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
+            .build()
     }
 
     async fn write_dict_layout(
@@ -704,7 +705,7 @@ mod tests {
     }
 
     fn test_apply(original: Expression, outer: Expression, inner: Expression) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some("abc"), Some("def"), None],
             DType::Utf8(Nullability::Nullable),

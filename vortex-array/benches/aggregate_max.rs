@@ -16,7 +16,8 @@ fn main() {
 
 const N: usize = 100_000;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 #[divan::bench]
 fn max_i32(bencher: Bencher) {

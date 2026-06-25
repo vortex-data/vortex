@@ -34,7 +34,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 use vortex_session::registry::Id;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -320,13 +320,13 @@ impl Default for KernelSession {
     fn default() -> Self {
         // `ArrayKernels::default` installs the built-in parent-reduce kernels. The execute-parent
         // kernels are registered by the per-encoding `initialize` functions, which operate on a
-        // session. `KernelSession` clones share their registry storage, so kernels registered into
-        // the temporary session land in `this.kernels`.
+        // session builder. `KernelSession` clones share their registry storage, so kernels
+        // registered into the temporary builder land in `this.kernels`.
         let this = Self {
             kernels: ArrayKernels::default(),
         };
-        let session = VortexSession::empty().with_some(this.clone());
-        crate::arrays::initialize(&session);
+        let mut session = VortexSessionBuilder::default().with_some(this.clone());
+        crate::arrays::initialize(&mut session);
         this
     }
 }
@@ -341,7 +341,13 @@ impl SessionVar for KernelSession {
     }
 }
 
-/// Extension trait for accessing the optimizer kernel registry from a [`VortexSession`].
+/// Returns the active [`ArrayKernels`] registry for a session builder.
+pub fn builder_kernels(session: &mut VortexSessionBuilder) -> &ArrayKernels {
+    session.get_mut::<KernelSession>().kernels()
+}
+
+/// Extension trait for accessing the optimizer kernel registry from a
+/// [`VortexSession`][vortex_session::VortexSession].
 pub trait ArrayKernelsExt: SessionExt {
     /// Returns the active [`ArrayKernels`] registry if the session contains a [`KernelSession`].
     fn kernels_opt(&self) -> Option<&ArrayKernels> {
@@ -372,18 +378,22 @@ mod tests {
 
     #[test]
     fn kernel_session_default_registers_builtin_kernels() {
-        let session = VortexSession::empty().with::<KernelSession>();
+        let session = VortexSession::builder().with::<KernelSession>().build();
 
         assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
     }
 
     #[test]
     fn initialize_registers_builtin_kernels_into_empty_kernel_session() {
-        let session = VortexSession::empty().with_some(KernelSession::empty());
+        let session = VortexSession::builder()
+            .with_some(KernelSession::empty())
+            .build();
 
         assert!(!session.kernels().has_execute_parent(Binary.id(), Bool.id()));
 
-        crate::initialize(&session);
+        let mut builder = VortexSession::builder().with_some(KernelSession::empty());
+        crate::initialize(&mut builder);
+        let session = builder.build();
 
         assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
     }

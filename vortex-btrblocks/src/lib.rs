@@ -40,7 +40,7 @@
 //! # Example
 //!
 //! ```rust
-//! use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+//! use vortex_array::{IntoArray, VortexSessionExecute, default_session_builder};
 //! use vortex_array::arrays::PrimitiveArray;
 //! use vortex_array::validity::Validity;
 //! use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, Scheme, SchemeExt};
@@ -48,7 +48,7 @@
 //! use vortex_buffer::buffer;
 //!
 //! # fn example() -> vortex_error::VortexResult<()> {
-//! let session = array_session();
+//! let session = default_session_builder().build();
 //! let array = PrimitiveArray::new(buffer![42u64; 1024], Validity::NonNullable).into_array();
 //!
 //! let compressor = BtrBlocksCompressor::default();

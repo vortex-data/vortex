@@ -249,9 +249,9 @@ mod tests {
     use crate::aggregate_fn::fns::bounded_min::BoundedMinOptions;
     use crate::aggregate_fn::fns::max::Max;
     use crate::aggregate_fn::fns::min::Min;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
+    use crate::default_session_builder;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
@@ -261,12 +261,12 @@ mod tests {
     }
 
     fn fresh_session() -> VortexSession {
-        array_session()
+        default_session_builder().build()
     }
 
     #[test]
     fn bounded_min_truncates_utf8_to_lower_bound() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let array =
             VarBinViewArray::from_iter_str(["snowman⛄️snowman", "untruncated"]).into_array();
         let mut acc = Accumulator::try_new(
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn bounded_min_keeps_fixed_width_values_exact() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let array = PrimitiveArray::new(buffer![10i32, 20, 5], Validity::NonNullable).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMin,

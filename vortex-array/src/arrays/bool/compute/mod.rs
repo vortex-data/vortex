@@ -17,9 +17,9 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::default_session_builder;
 
     #[rstest]
     // Basic bool arrays
@@ -45,7 +45,7 @@ mod tests {
     fn test_bool_consistency(#[case] array: BoolArray) {
         test_array_consistency(
             &array.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         );
     }
 }

@@ -62,10 +62,10 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::default_session_builder;
     use vortex_session::VortexSession;
 
     use crate::ALPRDArrayExt;
@@ -73,9 +73,9 @@ mod test {
     use crate::RDEncoder;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
-        crate::initialize(&session);
-        session
+        let mut session = default_session_builder();
+        crate::initialize(&mut session);
+        session.build()
     });
 
     #[rstest]

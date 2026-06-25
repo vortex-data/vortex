@@ -168,8 +168,9 @@ mod tests {
     /// Export a JSON extension array to Arrow's canonical JSON extension.
     #[test]
     fn exports_json_extension_array_as_arrow_json() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        initialize(&session);
+        let mut builder = vortex_array::default_session_builder();
+        initialize(&mut builder);
+        let session = builder.build();
 
         let storage = VarBinArray::from_iter(
             [Some("{\"id\":1}"), Some("{\"id\":2}")],
@@ -206,8 +207,9 @@ mod tests {
     /// Import Arrow's canonical JSON extension as a Vortex JSON extension array.
     #[test]
     fn imports_arrow_json_extension_array_as_vortex_json() -> VortexResult<()> {
-        let session = vortex_array::array_session();
-        initialize(&session);
+        let mut builder = vortex_array::default_session_builder();
+        initialize(&mut builder);
+        let session = builder.build();
 
         let mut field = Field::new("data", DataType::Utf8, false);
         field.try_with_extension_type(ArrowJson::default())?;

@@ -26,7 +26,8 @@ fn main() {
 const ARRAY_SIZE: usize = 100_000;
 const NUM_ACCESSES: usize = 1000;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 #[divan::bench]
 fn execute_scalar_struct_simple(bencher: Bencher) {

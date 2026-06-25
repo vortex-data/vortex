@@ -171,7 +171,6 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
@@ -181,6 +180,7 @@ mod tests {
     use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -216,7 +216,7 @@ mod tests {
         );
         let mask = Mask::from_iter([true, false, true]);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -256,7 +256,7 @@ mod tests {
         // true -> if_true, false -> if_false
         let mask = Mask::from_iter([false, true, true]);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -293,7 +293,7 @@ mod tests {
         );
         let mask = Mask::from_iter([true, true, false]);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -336,7 +336,7 @@ mod tests {
         );
         let mask = Mask::from_iter([true, false]);
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?

@@ -11,6 +11,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
@@ -39,7 +40,7 @@ mod validity;
 /// A [`FixedSizeList`]-encoded Vortex array.
 pub type FixedSizeListArray = Array<FixedSizeList>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
     kernel::initialize(session);
 }
 

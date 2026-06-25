@@ -28,10 +28,11 @@ fn main() {
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::empty()
+    VortexSession::builder()
         .with::<ArraySession>()
         .with::<KernelSession>()
         .with::<ArrowSession>()
+        .build()
 });
 
 const LEN: usize = 65_536;

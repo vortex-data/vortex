@@ -15,7 +15,7 @@
 //! - [`convert_columns`] and [`compute_row_sizes`], compatibility helpers around
 //!   [`RowEncoder`].
 //! - [`initialize`], which registers the [`RowSize`] and [`RowEncode`] scalar functions on a
-//!   [`VortexSession`].
+//!   [`VortexSession`][vortex_session::VortexSession].
 //!
 //! Internally, encoding is split into two scalar functions. [`RowSize`] performs the sizing
 //! pass and classifies fixed-width versus variable-width input columns. [`RowEncode`] uses
@@ -48,16 +48,17 @@ pub use encoder::convert_columns_with_options;
 pub use options::RowEncodingOptions;
 pub use options::RowSortField;
 pub use size::RowSize;
-use vortex_array::scalar_fn::session::ScalarFnSessionExt;
-use vortex_session::VortexSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
+use vortex_session::VortexSessionBuilder;
 
 /// Register the row-encoding scalar functions ([`RowSize`] and [`RowEncode`]) on the given
-/// session.
+/// session builder.
 ///
 /// Call this during session construction when row encoding must be available through the
 /// expression layer. The direct [`RowEncoder`] API constructs the scalar-function calls
 /// itself and does not require global registration.
-pub fn initialize(session: &VortexSession) {
-    session.scalar_fns().register(RowSize);
-    session.scalar_fns().register(RowEncode);
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    let scalar_fns = session.get_mut::<ScalarFnSession>();
+    scalar_fns.register(RowSize);
+    scalar_fns.register(RowEncode);
 }

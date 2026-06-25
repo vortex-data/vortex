@@ -12,7 +12,7 @@ use vortex_error::vortex_ensure;
 pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+pub(crate) fn initialize(session: &mut vortex_session::VortexSessionBuilder) {
     vtable::initialize(session);
 }
 
@@ -89,7 +89,6 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -99,6 +98,7 @@ mod tests {
     use crate::arrays::variant::VariantArrayExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -141,7 +141,7 @@ mod tests {
     }
 
     fn execute_variant(array: ArrayRef) -> VortexResult<VariantArray> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let Canonical::Variant(variant) = array.execute::<Canonical>(&mut ctx)? else {
             return Err(vortex_err!("expected canonical variant array"));
         };
@@ -159,7 +159,7 @@ mod tests {
         let shredded = array
             .shredded()
             .ok_or_else(|| vortex_err!("expected shredded child"))?;
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let shredded = shredded.clone().execute::<PrimitiveArray>(&mut ctx)?;
         let expected_shredded_array = if let Some(values) = expected_shredded
             .iter()
@@ -181,7 +181,7 @@ mod tests {
     ) -> VortexResult<()> {
         assert_eq!(array.len(), expected_core.len());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         for (idx, expected) in expected_core.iter().enumerate() {
             let scalar = array.core_storage().execute_scalar(idx, &mut ctx)?;
             let variant = scalar.as_variant();
@@ -273,7 +273,7 @@ mod tests {
         let shredded = PrimitiveArray::from_option_iter([Some(10i32), Some(20), None]).into_array();
         let variant = VariantArray::try_new(core_storage, Some(shredded))?;
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         for (idx, expected) in [Some(10i32), None, Some(3)].into_iter().enumerate() {
             let scalar = variant.execute_scalar(idx, &mut ctx)?;
             let variant = scalar.as_variant();
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn variant_get_keeps_valid_shredded_rows_for_matching_dtype() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let core_storage = row_storage([1, 2, 3])?;
         let shredded = StructArray::try_from_iter([(
             "a",
@@ -395,7 +395,9 @@ mod tests {
         let result = variant
             .into_array()
             .apply(&expr)?
-            .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
+            .execute::<PrimitiveArray>(
+                &mut default_session_builder().build().create_execution_ctx(),
+            )?;
 
         assert_arrays_eq!(
             result,
@@ -407,7 +409,7 @@ mod tests {
 
     #[test]
     fn variant_get_treats_value_and_typed_value_as_logical_field_names() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let core_storage = row_storage([1, 2, 3])?;
         let shredded = StructArray::try_from_iter([
             (
@@ -430,7 +432,9 @@ mod tests {
             .clone()
             .into_array()
             .apply(&value_expr)?
-            .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
+            .execute::<PrimitiveArray>(
+                &mut default_session_builder().build().create_execution_ctx(),
+            )?;
         assert_arrays_eq!(
             value_result,
             PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)]),
@@ -445,7 +449,9 @@ mod tests {
         let typed_value_result = variant
             .into_array()
             .apply(&typed_value_expr)?
-            .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
+            .execute::<PrimitiveArray>(
+                &mut default_session_builder().build().create_execution_ctx(),
+            )?;
         assert_arrays_eq!(
             typed_value_result,
             PrimitiveArray::from_option_iter([Some(40i32), Some(50), Some(60)]),

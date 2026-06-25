@@ -28,12 +28,12 @@ use crate::size::RowSize;
 /// # Example
 ///
 /// ```rust
-/// use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+/// use vortex_array::{IntoArray, VortexSessionExecute, default_session_builder};
 /// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_row::{RowEncoder, RowSortField};
 ///
 /// # fn example() -> vortex_error::VortexResult<()> {
-/// let mut ctx = array_session().create_execution_ctx();
+/// let mut ctx = default_session_builder().build().create_execution_ctx();
 /// let ids = PrimitiveArray::from_iter([3i32, 1, 2]).into_array();
 /// let scores = PrimitiveArray::from_iter([10i32, 20, 10]).into_array();
 ///

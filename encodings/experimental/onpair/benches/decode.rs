@@ -80,9 +80,9 @@ use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    vortex_onpair::initialize(&session);
-    session
+    let mut builder = vortex_array::default_session_builder();
+    vortex_onpair::initialize(&mut builder);
+    builder.build()
 });
 
 #[derive(Copy, Clone, Debug)]

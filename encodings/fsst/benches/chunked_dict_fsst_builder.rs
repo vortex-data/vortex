@@ -29,9 +29,9 @@ const BENCH_ARGS: &[(usize, usize, usize)] = &[
 ];
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    vortex_fsst::initialize(&session);
-    session
+    let mut builder = vortex_array::default_session_builder();
+    vortex_fsst::initialize(&mut builder);
+    builder.build()
 });
 
 fn make_dict_fsst_chunks<T: NativePType>(

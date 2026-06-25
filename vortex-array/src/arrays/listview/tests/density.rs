@@ -27,7 +27,7 @@ use crate::validity::Validity;
 const EPS: f32 = 1e-6;
 
 fn test_execution_ctx() -> ExecutionCtx {
-    let session = crate::array_session();
+    let session = crate::default_session_builder().build();
     session.create_execution_ctx()
 }
 

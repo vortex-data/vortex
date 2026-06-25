@@ -23,14 +23,14 @@
 //! compression is selected.
 //!
 //! ```rust
-//! use vortex_array::{IntoArray, VortexSessionExecute, array_session};
+//! use vortex_array::{IntoArray, VortexSessionExecute, default_session_builder};
 //! use vortex_array::arrays::PrimitiveArray;
 //! use vortex_array::validity::Validity;
 //! use vortex_buffer::buffer;
 //! use vortex_compressor::CascadingCompressor;
 //!
 //! # fn example() -> vortex_error::VortexResult<()> {
-//! let session = array_session();
+//! let session = default_session_builder().build();
 //! let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable).into_array();
 //! let compressor = CascadingCompressor::new(Vec::new());
 //!

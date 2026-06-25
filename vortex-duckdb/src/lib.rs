@@ -13,7 +13,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionBuilderExt;
 use vortex::session::VortexSession;
 
 use crate::duckdb::Database;
@@ -42,9 +42,9 @@ mod e2e_test;
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::default().with_handle(RUNTIME.handle());
-    vortex_geo::initialize(&session);
-    session
+    let mut builder = VortexSession::default_builder();
+    vortex_geo::initialize(&mut builder);
+    builder.with_handle(RUNTIME.handle()).build()
 });
 
 // Duckdb's logger requires a *Context as first argument which

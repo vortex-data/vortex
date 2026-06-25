@@ -269,7 +269,9 @@ mod tests {
 
     #[test]
     fn test_dict_encode_integer_stats() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = vortex_array::default_session_builder()
+            .build()
+            .create_execution_ctx();
         let data = buffer![100i32, 200, 100, 0, 100];
         let validity =
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array());

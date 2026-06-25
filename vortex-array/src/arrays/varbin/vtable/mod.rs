@@ -37,6 +37,7 @@ mod validity;
 
 use canonical::varbin_to_canonical;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::EqMode;
 use crate::arrays::varbin::compute::rules::PARENT_RULES;
@@ -46,7 +47,7 @@ use crate::hash::ArrayHash;
 /// A [`VarBin`]-encoded Vortex array.
 pub type VarBinArray = Array<VarBin>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
     kernel::initialize(session);
 }
 

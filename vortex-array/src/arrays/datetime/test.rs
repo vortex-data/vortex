@@ -11,10 +11,10 @@ use crate::IntoArray;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
-use crate::array_session;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::datetime::TemporalData;
 use crate::assert_arrays_eq;
+use crate::default_session_builder;
 use crate::expr::gt;
 use crate::expr::lit;
 use crate::expr::root;
@@ -28,7 +28,7 @@ use crate::validity::Validity;
 
 macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let array = buffer![100 as $prim].into_array();
         let temporal: TemporalData = $constructor(array, $unit);
 
@@ -149,7 +149,7 @@ test_fail_case!(
 // We test Timestamp explicitly to avoid the macro getting too complex.
 #[test]
 fn test_timestamp() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     let ts = buffer![100i64].into_array();
     let ts_array = ts.into_array();
 

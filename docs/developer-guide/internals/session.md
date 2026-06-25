@@ -96,7 +96,7 @@ let session = VortexSession::default();
 ```
 
 For tests or specialized use-cases, sessions can be assembled from individual components using
-the `.with::<T>()` builder:
+`VortexSession::builder()`:
 
 ```rust
 let session = VortexSession::builder()

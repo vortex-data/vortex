@@ -14,4 +14,5 @@ use std::sync::LazyLock;
 
 use vortex_session::VortexSession;
 
-pub(crate) static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+pub(crate) static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| crate::default_session_builder().build());

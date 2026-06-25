@@ -12,6 +12,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
@@ -41,7 +42,7 @@ mod validity;
 /// A [`VarBinView`]-encoded Vortex array.
 pub type VarBinViewArray = Array<VarBinView>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
     kernel::initialize(session);
 }
 
@@ -249,8 +250,8 @@ mod tests {
     use crate::ArrayContext;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::serde::SerializeOptions;
     use crate::serde::SerializedArray;
 
@@ -266,7 +267,7 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let session = array_session();
+        let session = default_session_builder().build();
         let mut ctx = session.create_execution_ctx();
         let array_ctx = ArrayContext::empty();
         let serialized = array

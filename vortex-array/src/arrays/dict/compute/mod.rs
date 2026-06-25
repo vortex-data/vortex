@@ -78,7 +78,8 @@ mod test {
     use crate::dtype::PType::I32;
     use crate::scalar_fn::fns::operators::Operator;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| crate::default_session_builder().build());
 
     #[test]
     fn canonicalise_nullable_primitive() {
@@ -341,7 +342,8 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| crate::default_session_builder().build());
 
     #[rstest]
     // Primitive arrays

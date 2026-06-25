@@ -149,12 +149,12 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::executor::dictionary::ConstantArray;
     use crate::arrow::executor::dictionary::DictArray;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::executor::VortexSessionExecute;
@@ -165,7 +165,10 @@ mod tests {
     }
 
     fn execute(array: crate::ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
-        array.execute_arrow(Some(dt), &mut array_session().create_execution_ctx())
+        array.execute_arrow(
+            Some(dt),
+            &mut default_session_builder().build().create_execution_ctx(),
+        )
     }
 
     fn dict_basic_input() -> crate::ArrayRef {

@@ -129,14 +129,16 @@ mod tests {
 
     #[test]
     fn array_session_default_registers_encodings() {
-        let session = VortexSession::empty().with::<ArraySession>();
+        let session = VortexSession::builder().with::<ArraySession>().build();
 
         assert!(session.arrays().registry().find(&Bool.id()).is_some());
     }
 
     #[test]
     fn empty_array_session_registers_no_encodings() {
-        let session = VortexSession::empty().with_some(ArraySession::empty());
+        let session = VortexSession::builder()
+            .with_some(ArraySession::empty())
+            .build();
 
         assert!(session.arrays().registry().find(&Bool.id()).is_none());
     }

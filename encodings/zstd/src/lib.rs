@@ -15,10 +15,11 @@
 //! array session:
 //!
 //! ```rust
-//! use vortex_array::session::ArraySessionExt;
+//! use vortex_array::session::ArraySession;
 //!
-//! let session = vortex_array::array_session();
-//! session.arrays().register(vortex_zstd::Zstd);
+//! let mut session = vortex_array::default_session_builder();
+//! session.get_mut::<ArraySession>().register(vortex_zstd::Zstd);
+//! let _session = session.build();
 //! ```
 
 pub use array::*;

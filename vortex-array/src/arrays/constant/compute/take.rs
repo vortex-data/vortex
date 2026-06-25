@@ -76,18 +76,18 @@ mod tests {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::default_session_builder;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
     fn take_nullable_indices() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(
@@ -116,7 +116,10 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .execute_mask(taken.len(), &mut array_session().create_execution_ctx())
+                .execute_mask(
+                    taken.len(),
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
                 .indices(),
             AllOr::Some(valid_indices)
@@ -125,7 +128,7 @@ mod tests {
 
     #[test]
     fn take_all_valid_indices() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array())
@@ -144,7 +147,10 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .execute_mask(taken.len(), &mut array_session().create_execution_ctx())
+                .execute_mask(
+                    taken.len(),
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
                 .indices(),
             AllOr::All

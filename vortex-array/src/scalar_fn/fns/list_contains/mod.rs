@@ -406,12 +406,12 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ListArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
@@ -437,7 +437,7 @@ mod tests {
     use crate::validity::Validity;
 
     static STATS_SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<StatsSession>());
+        LazyLock::new(|| VortexSession::builder().with::<StatsSession>().build());
 
     fn stat(expr: Expression, stat: Stat) -> Expression {
         stat_expr(expr, stat.aggregate_fn().unwrap())
@@ -461,13 +461,19 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut array_session().create_execution_ctx())
-                .unwrap(),
+            item.execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
+            .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut array_session().create_execution_ctx())
-                .unwrap(),
+            item.execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
+            .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -480,13 +486,19 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut array_session().create_execution_ctx())
-                .unwrap(),
+            item.execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
+            .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut array_session().create_execution_ctx())
-                .unwrap(),
+            item.execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
+            .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
     }
@@ -499,13 +511,19 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut array_session().create_execution_ctx())
-                .unwrap(),
+            item.execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
+            .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut array_session().create_execution_ctx())
-                .unwrap(),
+            item.execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
+            .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -524,13 +542,19 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut array_session().create_execution_ctx())
-                .unwrap(),
+            item.execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
+            .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert_eq!(
-            item.execute_scalar(1, &mut array_session().create_execution_ctx())
-                .unwrap(),
+            item.execute_scalar(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
+            .unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -549,13 +573,19 @@ mod tests {
         let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
-            item.execute_scalar(0, &mut array_session().create_execution_ctx())
-                .unwrap(),
+            item.execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
+            .unwrap(),
             Scalar::bool(true, Nullability::Nullable)
         );
         assert!(
             !item
-                .is_valid(1, &mut array_session().create_execution_ctx())
+                .is_valid(
+                    1,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap()
         );
     }
@@ -647,7 +677,10 @@ mod tests {
         let result = arr.clone().apply(&expr).unwrap();
         assert_eq!(
             result
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             Scalar::bool(true, Nullability::NonNullable)
         );
@@ -657,7 +690,10 @@ mod tests {
         let result = arr.apply(&expr).unwrap();
         assert_eq!(
             result
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             Scalar::bool(false, Nullability::NonNullable)
         );
@@ -752,7 +788,7 @@ mod tests {
         #[case] value: Option<&str>,
         #[case] expected: BoolArray,
     ) {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let element_nullability = list_array
             .dtype()
             .as_list_element_opt()
@@ -770,7 +806,7 @@ mod tests {
 
     #[test]
     fn test_constant_list() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let list_array = ConstantArray::new(
             Scalar::list(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
@@ -789,7 +825,7 @@ mod tests {
 
     #[test]
     fn test_all_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let list_array = ConstantArray::new(
             Scalar::null(DType::List(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
@@ -811,7 +847,7 @@ mod tests {
 
     #[test]
     fn test_list_array_element() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let list_scalar = Scalar::list(
             Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
             vec![1.into(), 3.into(), 6.into()],
@@ -828,7 +864,7 @@ mod tests {
 
     #[test]
     fn test_list_contains_empty_listview() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let empty_elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
         let offsets = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
         let sizes = Buffer::from_iter([0u32, 0, 0, 0]).into_array();
@@ -852,7 +888,7 @@ mod tests {
 
     #[test]
     fn test_list_contains_all_null_elements() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let elements = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None, None]);
         let offsets = Buffer::from_iter([0u32, 2, 4]).into_array();
         let sizes = Buffer::from_iter([2u32, 2, 1]).into_array();
@@ -888,7 +924,7 @@ mod tests {
 
     #[test]
     fn test_list_contains_large_offsets() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let elements = Buffer::from_iter([1i32, 2, 3, 4, 5]).into_array();
 
         let offsets = Buffer::from_iter([0u32, 1, 4, 0]).into_array();
@@ -912,7 +948,7 @@ mod tests {
 
     #[test]
     fn test_list_contains_offset_size_boundary() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let elements = Buffer::from_iter(0..256).into_array();
         let offsets = Buffer::from_iter([0u8, 100, 200, 254]).into_array();
         let sizes = Buffer::from_iter([50u8, 50, 54, 2]).into_array();

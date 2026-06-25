@@ -1213,8 +1213,8 @@ mod test {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::patches::Patches;
     use crate::patches::PrimitiveArray;
     use crate::search_sorted::SearchResult;
@@ -1222,7 +1222,7 @@ mod test {
 
     #[test]
     fn test_filter() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             100,
             0,
@@ -1251,7 +1251,7 @@ mod test {
 
     #[test]
     fn take_with_nulls() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1297,7 +1297,7 @@ mod test {
 
     #[test]
     fn take_search_with_nulls_chunked() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1343,7 +1343,7 @@ mod test {
 
     #[test]
     fn take_search_chunked_multiple_chunks() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             2048,
             0,
@@ -1372,7 +1372,7 @@ mod test {
 
     #[test]
     fn take_search_chunked_indices_with_no_patches() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             20,
             0,
@@ -1395,7 +1395,7 @@ mod test {
 
     #[test]
     fn take_search_chunked_interleaved() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             30,
             0,
@@ -1424,7 +1424,7 @@ mod test {
 
     #[test]
     fn test_take_search_multiple_chunk_offsets() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             1500,
             0,
@@ -1448,7 +1448,7 @@ mod test {
 
     #[test]
     fn test_slice() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
@@ -1465,7 +1465,7 @@ mod test {
 
     #[test]
     fn doubly_sliced() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
@@ -1489,7 +1489,7 @@ mod test {
 
     #[test]
     fn test_mask_all_true() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1506,7 +1506,7 @@ mod test {
 
     #[test]
     fn test_mask_all_false() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1539,7 +1539,7 @@ mod test {
 
     #[test]
     fn test_mask_partial() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1573,7 +1573,7 @@ mod test {
 
     #[test]
     fn test_mask_with_offset() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             5,                                  // offset
@@ -1605,7 +1605,7 @@ mod test {
 
     #[test]
     fn test_mask_nullable_values() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1642,7 +1642,7 @@ mod test {
 
     #[test]
     fn test_filter_keep_all() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1670,7 +1670,7 @@ mod test {
 
     #[test]
     fn test_filter_none() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1688,7 +1688,7 @@ mod test {
 
     #[test]
     fn test_filter_with_indices() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1716,7 +1716,7 @@ mod test {
 
     #[test]
     fn test_slice_full_range() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1742,7 +1742,7 @@ mod test {
 
     #[test]
     fn test_slice_partial() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1787,7 +1787,7 @@ mod test {
 
     #[test]
     fn test_slice_with_offset() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             5,                                  // offset
@@ -1815,7 +1815,7 @@ mod test {
 
     #[test]
     fn test_patch_values() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,
@@ -1881,7 +1881,7 @@ mod test {
 
     #[test]
     fn test_mask_boundary_patches() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         // Test masking patches at array boundaries
         let patches = Patches::new(
             10,
@@ -1912,7 +1912,7 @@ mod test {
 
     #[test]
     fn test_mask_all_patches_removed() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         // Test when all patches are masked out
         let patches = Patches::new(
             10,
@@ -1933,7 +1933,7 @@ mod test {
 
     #[test]
     fn test_mask_no_patches_removed() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         // Test when no patches are masked
         let patches = Patches::new(
             10,
@@ -1964,7 +1964,7 @@ mod test {
 
     #[test]
     fn test_mask_single_patch() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         // Test with a single patch
         let patches = Patches::new(
             5,
@@ -1992,7 +1992,7 @@ mod test {
 
     #[test]
     fn test_mask_contiguous_patches() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         // Test with contiguous patches
         let patches = Patches::new(
             10,
@@ -2023,7 +2023,7 @@ mod test {
 
     #[test]
     fn test_mask_with_large_offset() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         // Test with a large offset that shifts all indices
         let patches = Patches::new(
             20,
@@ -2056,7 +2056,7 @@ mod test {
     #[test]
     #[should_panic(expected = "Filter mask length 5 does not match array length 10")]
     fn test_mask_wrong_length() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let patches = Patches::new(
             10,
             0,

@@ -334,16 +334,16 @@ mod tests {
     use crate::array::ParquetVariantArrayExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        session
+        let mut session = vortex_array::default_session_builder();
+        crate::initialize(&mut session);
+        session.build()
     });
 
     fn roundtrip(array: ArrayRef) -> VortexResult<ArrayRef> {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let session = vortex_array::array_session();
+        let session = vortex_array::default_session_builder().build();
         session.arrays().register(ParquetVariant);
 
         let ctx = ArrayContext::empty();
@@ -382,10 +382,11 @@ mod tests {
 
     #[fixture]
     fn parquet_variant_file_session() -> VortexSession {
-        let session = vortex_array::array_session()
+        let mut builder = vortex_array::default_session_builder()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
-        vortex_file::register_default_encodings(&session);
+        vortex_file::register_default_encodings(&mut builder);
+        let session = builder.build();
         session.arrays().register(ParquetVariant);
         session
     }

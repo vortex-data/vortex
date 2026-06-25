@@ -30,7 +30,8 @@ fn main() {
 }
 
 /// A shared session for the `ListView` rebuild benchmarks, used to create execution contexts.
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 fn make_primitive_lv(num_lists: usize, list_size: usize, step: usize) -> ListViewArray {
     let element_count = step * num_lists + list_size;

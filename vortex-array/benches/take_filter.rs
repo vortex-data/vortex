@@ -57,7 +57,8 @@ const INDEX_SEED: u64 = 43;
 const LIST_SIZE: usize = 4;
 const NULL_INDEX_INTERVAL: usize = 8;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 fn primitive_array() -> ArrayRef {
     PrimitiveArray::from_iter(0..ARRAY_LEN as u32).into_array()

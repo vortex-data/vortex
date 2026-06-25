@@ -30,9 +30,9 @@ fn main() {
 }
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    vortex_fsst::initialize(&session);
-    session
+    let mut builder = vortex_array::default_session_builder();
+    vortex_fsst::initialize(&mut builder);
+    builder.build()
 });
 
 const N: usize = NUM_STRINGS;

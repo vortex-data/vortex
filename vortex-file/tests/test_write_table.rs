@@ -30,13 +30,13 @@ use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session()
+    let mut builder = vortex_array::default_session_builder()
         .with::<LayoutSession>()
         .with::<RuntimeSession>();
 
-    vortex_file::register_default_encodings(&session);
+    vortex_file::register_default_encodings(&mut builder);
 
-    session
+    builder.build()
 });
 
 #[tokio::test]

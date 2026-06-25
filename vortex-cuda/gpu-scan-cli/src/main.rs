@@ -100,6 +100,15 @@ fn cuda_write_strategy() -> Arc<dyn vortex::layout::LayoutStrategy> {
         .build()
 }
 
+#[cuda_available]
+fn cuda_scan_session() -> VortexResult<VortexSession> {
+    let session = VortexSession::default_builder()
+        .with_some(CudaSession::try_default()?)
+        .build();
+    register_cuda_layout(&session);
+    Ok(session)
+}
+
 /// Convert an input Vortex file to CUDA-compatible encodings and write to disk.
 #[cuda_available]
 async fn cmd_convert(input: PathBuf, output: PathBuf) -> VortexResult<()> {
@@ -149,8 +158,7 @@ async fn cmd_scan(path: PathBuf, gpu_file: bool, json_output: bool) -> VortexRes
             .init();
     }
 
-    let session = VortexSession::default();
-    register_cuda_layout(&session);
+    let session = cuda_scan_session()?;
 
     let mut cuda_ctx = CudaSession::create_execution_ctx(&session)?
         .with_launch_strategy(Arc::new(TracingLaunchStrategy));

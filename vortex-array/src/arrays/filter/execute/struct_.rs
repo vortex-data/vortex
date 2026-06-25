@@ -50,13 +50,13 @@ mod test {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability::Nullable;
@@ -88,7 +88,7 @@ mod test {
 
     #[test]
     fn filter_struct_selects_correct_rows() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let array = StructArray::try_new(
             ["x", "y"].into(),
             vec![
@@ -119,7 +119,7 @@ mod test {
 
     #[test]
     fn filter_empty_struct() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let mask = Mask::from_iter([
@@ -134,7 +134,7 @@ mod test {
 
     #[test]
     fn filter_empty_struct_with_empty_filter() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 0, Validity::NonNullable).unwrap();
         let filtered = struct_arr.filter(Mask::from_iter::<[bool; 0]>([])).unwrap();

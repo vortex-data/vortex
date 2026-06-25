@@ -153,11 +153,11 @@ mod test {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::default_session_builder;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
@@ -181,21 +181,30 @@ mod test {
         let actual = values.take(indices.into_array()).unwrap();
         assert_eq!(
             actual
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    0,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .vortex_expect("no fail"),
             Scalar::from(Some(1))
         );
         // position 3 is null
         assert_eq!(
             actual
-                .execute_scalar(1, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    1,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );
         // the third index is null
         assert_eq!(
             actual
-                .execute_scalar(2, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    2,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );
@@ -223,15 +232,15 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::validity::Validity;
 
     #[test]
     fn take_null_index_skips_out_of_bounds_value() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let values = PrimitiveArray::from_iter([10i32, 20, 30]);
         let indices = PrimitiveArray::new(
             buffer![1u64, 3],

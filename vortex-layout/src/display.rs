@@ -230,7 +230,6 @@ mod tests {
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
-    use vortex_io::session::RuntimeSessionExt;
 
     use crate::IntoLayout;
     use crate::OwnedLayoutChildren;
@@ -242,7 +241,6 @@ mod tests {
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::strategy::LayoutStrategy;
-    use crate::test::SESSION;
 
     /// Test display_tree with inline array_tree metadata (no segment source needed).
     #[test]
@@ -251,7 +249,7 @@ mod tests {
         if std::env::var("NEXTEST_RUN_ID").is_ok() {
             temp_env::with_var("FLAT_LAYOUT_INLINE_ARRAY_NODE", Some("1"), || {
                 block_on(|handle| async move {
-                    let session = SESSION.clone().with_handle(handle);
+                    let session = crate::test::session_with_handle(handle);
                     let ctx = ArrayContext::empty();
                     let segments = Arc::new(TestSegments::default());
 
@@ -349,7 +347,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
         if std::env::var("NEXTEST_RUN_ID").is_ok() {
             temp_env::with_var("FLAT_LAYOUT_INLINE_ARRAY_NODE", None::<&str>, || {
                 block_on(|handle| async move {
-                    let session = SESSION.clone().with_handle(handle);
+                    let session = crate::test::session_with_handle(handle);
                     let ctx = ArrayContext::empty();
                     let segments = Arc::new(TestSegments::default());
 
@@ -419,7 +417,7 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
                 // Create a simple primitive array
                 let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::AllValid);
                 let layout = block_on(|handle| async {
-                    let session = SESSION.clone().with_handle(handle);
+                    let session = crate::test::session_with_handle(handle);
                     FlatLayoutStrategy::default()
                         .write_stream(
                             ctx.clone(),
@@ -464,7 +462,7 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
                 // Create a simple primitive array
                 let array = PrimitiveArray::new(buffer![10i64, 20, 30], Validity::NonNullable);
                 let layout = block_on(|handle| async {
-                    let session = SESSION.clone().with_handle(handle);
+                    let session = crate::test::session_with_handle(handle);
                     FlatLayoutStrategy::default()
                         .write_stream(
                             ctx,

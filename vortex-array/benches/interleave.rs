@@ -24,9 +24,9 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::InterleaveArray;
+use vortex_array::default_session_builder;
 use vortex_buffer::Buffer;
 
 fn main() {
@@ -133,7 +133,7 @@ fn vortex_inputs(combo: Combo) -> (Vec<ArrayRef>, Buffer<u32>, Buffer<u32>) {
 #[divan::bench(args = combos())]
 fn vortex(bencher: Bencher, combo: Combo) {
     let (values, array_indices, row_indices) = vortex_inputs(combo);
-    let session = array_session();
+    let session = default_session_builder().build();
     bencher
         .with_inputs(|| {
             (

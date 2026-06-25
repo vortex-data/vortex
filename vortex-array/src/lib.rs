@@ -91,13 +91,13 @@ pub use metadata::*;
 pub use smallvec;
 pub use vortex_array_macros::array_slots;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 use vortex_session::registry::Context;
 
 use crate::aggregate_fn::session::AggregateFnSession;
 use crate::arrow::ArrowSession;
 use crate::dtype::session::DTypeSession;
 use crate::memory::MemorySession;
-use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::KernelSession;
 use crate::scalar_fn::session::ScalarFnSession;
 use crate::session::ArraySession;
@@ -157,20 +157,20 @@ pub mod flatbuffers {
 ///
 /// If the session contains a [`KernelSession`], this registers into its registry. Sessions that use
 /// [`KernelSession::default`] already receive these built-in kernels.
-pub fn initialize(session: &VortexSession) {
-    if session.kernels_opt().is_some() {
+pub fn initialize(session: &mut VortexSessionBuilder) {
+    if session.get_mut_opt::<KernelSession>().is_some() {
         arrays::initialize(session);
     }
 }
 
-/// Builds a fresh [`VortexSession`] registered with all of vortex-array's built-in session
+/// Builds a fresh [`VortexSessionBuilder`] registered with all of vortex-array's built-in session
 /// variables: arrays, dtypes, scalar functions, stats, optimizer kernels, aggregate functions,
 /// Arrow conversion, and memory.
 ///
 /// Each call returns an independent session (with its own registries), so callers may register
 /// additional encodings or kernels into it without affecting any other session. This does not
 /// register file, layout, or runtime state — those live in higher-level crates.
-pub fn array_session() -> VortexSession {
+pub fn default_session_builder() -> VortexSessionBuilder {
     VortexSession::builder()
         .with::<ArraySession>()
         .with::<KernelSession>()
@@ -180,12 +180,12 @@ pub fn array_session() -> VortexSession {
         .with::<AggregateFnSession>()
         .with::<ArrowSession>()
         .with::<MemorySession>()
-        .build()
 }
 
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...
-pub static LEGACY_SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+pub static LEGACY_SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| default_session_builder().build());
 
 pub type ArrayContext = Context<ArrayPluginRef>;

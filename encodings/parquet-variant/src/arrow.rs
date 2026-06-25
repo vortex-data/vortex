@@ -314,9 +314,9 @@ mod tests {
 
     #[fixture]
     fn session() -> VortexSession {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        session
+        let mut builder = vortex_array::default_session_builder();
+        crate::initialize(&mut builder);
+        builder.build()
     }
 
     fn arrow_variant_storage() -> StructArray {

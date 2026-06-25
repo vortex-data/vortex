@@ -104,16 +104,16 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::builtins::ArrayBuiltins;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
     fn ctx() -> ExecutionCtx {
-        array_session().create_execution_ctx()
+        default_session_builder().build().create_execution_ctx()
     }
 
     #[test]

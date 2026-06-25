@@ -113,7 +113,7 @@ mod tests {
     use crate::BitPackedData;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = vortex_array::default_session_builder().build();
         session.arrays().register(BitPackedPatchedPlugin);
         session
     });

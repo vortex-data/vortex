@@ -182,10 +182,10 @@ mod tests {
     use vortex_array::ExecutionCtx;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::sum::sum;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+    use vortex_array::default_session_builder;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::optimizer::ArrayOptimizer;
@@ -230,8 +230,11 @@ mod tests {
             time_unit,
             None,
         );
-        DateTimeParts::try_from_temporal(temporal, &mut array_session().create_execution_ctx())
-            .vortex_expect("TemporalArray must produce valid DateTimeParts")
+        DateTimeParts::try_from_temporal(
+            temporal,
+            &mut default_session_builder().build().create_execution_ctx(),
+        )
+        .vortex_expect("TemporalArray must produce valid DateTimeParts")
     }
 
     /// Create a constant timestamp scalar at midnight for the given day.
@@ -296,7 +299,7 @@ mod tests {
         );
 
         // Verify correctness: days [0, 1, 2] <= 1 should give [true, true, false]
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         assert_eq!(true_count(&optimized, &mut ctx), 2);
     }
 
@@ -325,7 +328,7 @@ mod tests {
         let optimized = between.optimize().unwrap();
 
         // Verify correctness: days [0, 1, 2, 3, 4] between 1 and 3 should give [false, true, true, true, false]
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         assert_eq!(true_count(&optimized, &mut ctx), 3);
     }
 
@@ -348,7 +351,7 @@ mod tests {
         // (optimization doesn't apply, so we keep the original structure)
         // Just verify it still computes correctly
         // days [0, 1, 2] at midnight <= day 1 at noon: [true, true, false]
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         assert_eq!(true_count(&optimized, &mut ctx), 2);
     }
 
@@ -366,7 +369,7 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let dtp = DateTimeParts::try_from_temporal(temporal, &mut ctx).unwrap();
         let len = dtp.len();
 

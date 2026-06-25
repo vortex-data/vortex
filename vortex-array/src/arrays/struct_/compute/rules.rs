@@ -153,7 +153,8 @@ mod tests {
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::cast::Cast;
     use crate::validity::Validity;
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| crate::default_session_builder().build());
 
     fn no_struct_cast_plugin(
         _child: &ArrayRef,
@@ -264,7 +265,7 @@ mod tests {
             Struct.id(),
             &[no_struct_cast_plugin as ReduceParentFn],
         );
-        let session = VortexSession::empty().with_some(kernels);
+        let session = VortexSession::builder().with_some(kernels).build();
 
         let optimized = cast.optimize_ctx(&session).unwrap();
         assert!(optimized.is::<ScalarFn>());

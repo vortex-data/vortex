@@ -196,8 +196,7 @@ impl VortexWriteOptions {
         // buffer stream, so we don't need to poll it until all buffers have been drained.
         let ctx2 = ctx.clone();
         let session = self.session.clone();
-        let layout_fut = self.session.handle().spawn_nested(move |h| async move {
-            let session = session.with_handle(h);
+        let layout_fut = self.session.handle().spawn_nested(move |_h| async move {
             let layout = self
                 .strategy
                 .write_stream(

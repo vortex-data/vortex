@@ -548,7 +548,9 @@ mod tests {
         };
 
         let deserialized = ZonedMetadata::deserialize(&metadata.serialize())?;
-        let session = VortexSession::empty().with::<AggregateFnSession>();
+        let session = VortexSession::builder()
+            .with::<AggregateFnSession>()
+            .build();
         let aggregate_fns = aggregate_fns_from_specs(&deserialized.aggregate_specs, &session)?;
 
         assert_eq!(aggregate_fns.as_ref(), std::slice::from_ref(&aggregate_fn));
@@ -619,7 +621,7 @@ mod tests {
             )
             .into_layout(),
         ]);
-        let session = vortex_array::array_session();
+        let session = vortex_array::default_session_builder().build();
         let build_read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
             session: &session,
@@ -650,7 +652,7 @@ mod tests {
             aggregate_specs: Arc::new([]),
         };
         let children = OwnedLayoutChildren::layout_children(vec![]);
-        let session = vortex_array::array_session();
+        let session = vortex_array::default_session_builder().build();
         let build_read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
             session: &session,

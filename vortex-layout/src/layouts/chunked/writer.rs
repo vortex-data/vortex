@@ -66,8 +66,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
                 let dtype = dtype2.clone();
                 let session = session.clone();
 
-                yield handle.spawn_nested(move |handle| async move {
-                    let session = session.with_handle(handle);
+                yield handle.spawn_nested(move |_handle| async move {
                     chunk_strategy
                         .write_stream(
                             ctx,

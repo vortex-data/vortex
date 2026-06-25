@@ -105,8 +105,8 @@ mod test {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::default_session_builder;
     use vortex_array::dtype::Nullability;
 
     use crate::Sequence;
@@ -174,7 +174,7 @@ mod test {
         let _array = array
             .take(indices.into_array())
             .unwrap()
-            .execute::<Canonical>(&mut array_session().create_execution_ctx())
+            .execute::<Canonical>(&mut default_session_builder().build().create_execution_ctx())
             .unwrap();
     }
 }

@@ -631,7 +631,7 @@ mod tests {
 
     use super::*;
     use crate::VortexSessionExecute;
-    use crate::array_session;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::Nullability;
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn execute_arrow_target_none_preserves_top_level_uuid_metadata() -> VortexResult<()> {
-        let vortex_session = array_session();
+        let vortex_session = default_session_builder().build();
         let mut ctx = vortex_session.create_execution_ctx();
         let session = vortex_session.arrow();
 

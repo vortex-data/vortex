@@ -279,11 +279,11 @@ mod test {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArrayExt;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -291,7 +291,7 @@ mod test {
 
     #[test]
     fn test_rechunk_one_chunk() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![buffer![0u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -305,7 +305,7 @@ mod test {
 
     #[test]
     fn test_rechunk_two_chunks() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![buffer![0u64].into_array(), buffer![5u64].into_array()],
             DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -320,7 +320,7 @@ mod test {
 
     #[test]
     fn test_rechunk_tiny_target_chunks() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 buffer![0u64, 1, 2, 3].into_array(),
@@ -339,7 +339,7 @@ mod test {
 
     #[test]
     fn test_rechunk_with_too_big_chunk() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let chunked = ChunkedArray::try_new(
             vec![
                 buffer![0u64, 1, 2].into_array(),
@@ -373,11 +373,11 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.all_valid(&mut array_session().create_execution_ctx())?);
+        assert!(chunked.all_valid(&mut default_session_builder().build().create_execution_ctx())?);
         assert!(
             !chunked
                 .into_array()
-                .all_invalid(&mut array_session().create_execution_ctx())?
+                .all_invalid(&mut default_session_builder().build().create_execution_ctx())?
         );
 
         Ok(())
@@ -397,11 +397,11 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.all_valid(&mut array_session().create_execution_ctx())?);
+        assert!(!chunked.all_valid(&mut default_session_builder().build().create_execution_ctx())?);
         assert!(
             chunked
                 .into_array()
-                .all_invalid(&mut array_session().create_execution_ctx())?
+                .all_invalid(&mut default_session_builder().build().create_execution_ctx())?
         );
 
         Ok(())
@@ -421,11 +421,11 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.all_valid(&mut array_session().create_execution_ctx())?);
+        assert!(!chunked.all_valid(&mut default_session_builder().build().create_execution_ctx())?);
         assert!(
             !chunked
                 .into_array()
-                .all_invalid(&mut array_session().create_execution_ctx())?
+                .all_invalid(&mut default_session_builder().build().create_execution_ctx())?
         );
 
         Ok(())

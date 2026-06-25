@@ -27,7 +27,8 @@ fn main() {
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 const SIZES: &[usize] = &[1_000, 10_000, 100_000, 250_000];
 const DENSITY_SWEEP_SIZE: usize = 100_000;

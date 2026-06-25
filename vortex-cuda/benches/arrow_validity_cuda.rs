@@ -26,7 +26,6 @@ use vortex::buffer::Buffer;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::session::VortexSession;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -43,6 +42,11 @@ const EXPORT_BENCH_SIZES: &[(usize, &str)] = &[(100_000_000, "100M")];
 
 fn validity_bitmap_byte_len(len: usize, bit_offset: usize) -> usize {
     (bit_offset + len).div_ceil(8)
+}
+
+fn create_cuda_execution_ctx() -> CudaExecutionCtx {
+    CudaSession::create_execution_ctx(&vortex_cuda::cuda_session())
+        .vortex_expect("failed to create execution context")
 }
 
 unsafe fn release_arrow_device_array(array: &mut ArrowDeviceArray) {
@@ -105,9 +109,7 @@ fn benchmark_arrow_validity_export(c: &mut Criterion) {
                 &len,
                 |b, &len| {
                     b.iter_custom(|iters| {
-                        let mut cuda_ctx =
-                            CudaSession::create_execution_ctx(&VortexSession::empty())
-                                .vortex_expect("failed to create execution context");
+                        let mut cuda_ctx = create_cuda_execution_ctx();
                         let array = block_on(primitive_with_device_bool_validity(
                             len,
                             validity_offset,
@@ -157,9 +159,8 @@ fn benchmark_arrow_validity_repack(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                        .vortex_expect("failed to create execution context")
-                        .with_launch_strategy(Arc::new(timed));
+                    let mut cuda_ctx =
+                        create_cuda_execution_ctx().with_launch_strategy(Arc::new(timed));
                     let (input_offset, input_buffer) =
                         block_on(device_validity_buffer(len, INPUT_OFFSET, &mut cuda_ctx))
                             .vortex_expect("failed to create validity fixture");
@@ -199,9 +200,8 @@ fn benchmark_arrow_validity_count_nulls(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     let timed = TimedLaunchStrategy::default();
                     let timer = timed.timer();
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                        .vortex_expect("failed to create execution context")
-                        .with_launch_strategy(Arc::new(timed));
+                    let mut cuda_ctx =
+                        create_cuda_execution_ctx().with_launch_strategy(Arc::new(timed));
                     let (_, input_buffer) =
                         block_on(device_validity_buffer(len, ARROW_OFFSET, &mut cuda_ctx))
                             .vortex_expect("failed to create validity fixture");

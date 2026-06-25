@@ -31,7 +31,7 @@ use vortex_session::registry::ReadContext;
 use crate::PcoData;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
+    let session = vortex_array::default_session_builder().build();
     session.arrays().register(Pco);
     session
 });

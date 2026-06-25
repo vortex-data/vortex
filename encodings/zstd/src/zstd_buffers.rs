@@ -529,10 +529,10 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::default_session_builder;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProvider;
@@ -585,12 +585,12 @@ mod tests {
     #[case::empty_primitive(make_empty_primitive_array())]
     #[case::inlined_varbinview(make_inlined_varbinview_array())]
     fn test_roundtrip(#[case] input: ArrayRef) -> VortexResult<()> {
-        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?;
+        let compressed = ZstdBuffers::compress(&input, 3, &default_session_builder().build())?;
 
         assert_eq!(compressed.len(), input.len());
         assert_eq!(compressed.dtype(), input.dtype());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let decompressed = compressed.into_array().execute::<ArrayRef>(&mut ctx)?;
 
         assert_arrays_eq!(input, decompressed, &mut ctx);
@@ -634,7 +634,7 @@ mod tests {
         let input = make_primitive_array();
         input.statistics().set(Stat::Min, Precision::exact(0i32));
 
-        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?;
+        let compressed = ZstdBuffers::compress(&input, 3, &default_session_builder().build())?;
 
         assert!(!compressed.statistics().get(Stat::Min).is_absent());
         Ok(())
@@ -643,9 +643,10 @@ mod tests {
     #[test]
     fn test_validity_delegates_for_nullable_input() -> VortexResult<()> {
         let input = make_nullable_primitive_array();
-        let compressed = ZstdBuffers::compress(&input, 3, &array_session())?.into_array();
+        let compressed =
+            ZstdBuffers::compress(&input, 3, &default_session_builder().build())?.into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         assert_eq!(compressed.all_valid(&mut ctx)?, input.all_valid(&mut ctx)?);
         assert_eq!(
             compressed.all_invalid(&mut ctx)?,

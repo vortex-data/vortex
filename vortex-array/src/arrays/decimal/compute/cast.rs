@@ -388,12 +388,12 @@ mod tests {
     use super::upcast_decimal_values;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::DecimalArray;
     use crate::builtins::ArrayBuiltins;
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::DecimalType;
@@ -572,7 +572,7 @@ mod tests {
             .unwrap()
             .execute_mask(
                 casted.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
+                &mut default_session_builder().build().create_execution_ctx(),
             )
             .unwrap();
         assert!(mask.value(0));
@@ -736,7 +736,7 @@ mod tests {
             .unwrap()
             .execute_mask(
                 casted.as_ref().len(),
-                &mut array_session().create_execution_ctx(),
+                &mut default_session_builder().build().create_execution_ctx(),
             )
             .unwrap();
         assert!(mask.value(0));

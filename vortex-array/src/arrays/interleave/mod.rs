@@ -450,10 +450,10 @@ mod tests {
     use super::*;
     use crate::Canonical;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::default_session_builder;
 
     /// Reference (oracle) implementation of the interleave spec, used only to validate the optimized
     /// [execute](super::execute) path. It is intentionally simple and slow: it pulls each output
@@ -541,7 +541,7 @@ mod tests {
             InterleaveArray::try_new(values.clone(), array_indices.clone(), row_indices.clone())?
                 .into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let reference = interleave_reference(&values, &array_indices, &row_indices, &mut ctx)?;
 
         assert_arrays_eq!(interleaved, reference, &mut ctx);
@@ -679,7 +679,7 @@ mod tests {
             InterleaveArray::try_new(vec![value.clone(), value], array_indices, row_indices)?
                 .into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let err = interleaved
             .execute::<Canonical>(&mut ctx)
             .err()
@@ -700,7 +700,7 @@ mod tests {
             InterleaveArray::try_new(vec![value.clone(), value], array_indices, row_indices)?
                 .into_array();
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let err = interleaved
             .execute::<Canonical>(&mut ctx)
             .err()
@@ -720,7 +720,7 @@ mod tests {
         let interleaved = InterleaveArray::try_new(vec![v0, v1], array_indices, row_indices)
             .vortex_expect("primitive values should construct")
             .into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         interleaved.execute::<Canonical>(&mut ctx).ok();
     }
 }

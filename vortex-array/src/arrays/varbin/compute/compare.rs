@@ -162,12 +162,12 @@ mod test {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::builtins::ArrayBuiltins;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
@@ -200,7 +200,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     result.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
+                    &mut default_session_builder().build().create_execution_ctx()
                 )
                 .unwrap()
                 .to_bit_buffer(),
@@ -236,7 +236,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     result.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
+                    &mut default_session_builder().build().create_execution_ctx()
                 )
                 .unwrap()
                 .to_bit_buffer(),
@@ -255,13 +255,13 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
@@ -291,7 +291,7 @@ mod tests {
     /// [`CompareKernel`]: super::CompareKernel
     #[test]
     fn varbin_i64_offsets_compare_constant() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let mut builder = VarBinBuilder::<i64>::with_capacity(3);
         builder.append_value(b"abc");
         builder.append_value(b"xyz");
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn varbin_i64_offsets_compare_constant_binary() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let mut builder = VarBinBuilder::<i64>::with_capacity(3);
         builder.append_value(b"abc");
         builder.append_value(b"xyz");

@@ -16,10 +16,10 @@ mod tests {
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::canonical_uncompressed_size_in_bytes;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -27,7 +27,7 @@ mod tests {
     use crate::validity::Validity;
 
     fn aggregate(array: &ArrayRef) -> VortexResult<u64> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let mut acc =
             Accumulator::try_new(UncompressedSizeInBytes, EmptyOptions, array.dtype().clone())?;
         acc.accumulate(array, &mut ctx)?;
@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn constant_utf8_matches_canonical_size() -> VortexResult<()> {
         let constant = ConstantArray::new("abcdefghijkl".to_string(), 10).into_array();
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let canonical = constant.clone().execute::<Canonical>(&mut ctx)?;
         let expected = canonical_uncompressed_size_in_bytes(&canonical, &mut ctx)?;
 

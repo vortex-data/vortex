@@ -6,7 +6,7 @@ use vortex_array::arrays::Dict;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
-use vortex_array::optimizer::kernels::ArrayKernelsExt;
+use vortex_array::optimizer::kernels::builder_kernels;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
@@ -16,12 +16,12 @@ use vortex_array::scalar_fn::fns::cast::Cast;
 use vortex_array::scalar_fn::fns::cast::CastExecuteAdaptor;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeExecuteAdaptor;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::FSST;
 
-pub(super) fn initialize(session: &VortexSession) {
-    let kernels = session.kernels();
+pub(super) fn initialize(session: &mut VortexSessionBuilder) {
+    let kernels = builder_kernels(session);
     kernels.register_execute_parent_kernel(Cast.id(), FSST, CastExecuteAdaptor(FSST));
     kernels.register_execute_parent_kernel(Binary.id(), FSST, CompareExecuteAdaptor(FSST));
     kernels.register_execute_parent_kernel(Filter.id(), FSST, FilterExecuteAdaptor(FSST));
@@ -55,9 +55,9 @@ mod tests {
     use crate::fsst_train_compressor;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        session
+        let mut session = vortex_array::default_session_builder();
+        crate::initialize(&mut session);
+        session.build()
     });
 
     fn build_test_fsst_array() -> ArrayRef {

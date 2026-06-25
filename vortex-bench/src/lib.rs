@@ -66,7 +66,7 @@ pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
 use vortex::VortexSessionDefault;
 pub use vortex::error::vortex_panic;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionBuilderExt;
 use vortex::session::VortexSession;
 
 // All benchmarks run with mimalloc for consistency.
@@ -74,7 +74,7 @@ use vortex::session::VortexSession;
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio());
+    LazyLock::new(|| VortexSession::default_builder().with_tokio().build());
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {

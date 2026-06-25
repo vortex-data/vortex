@@ -129,7 +129,6 @@ mod test {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
@@ -137,13 +136,14 @@ mod test {
     use crate::arrays::chunked::ChunkedArrayExt;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::default_session_builder;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
 
     #[test]
     fn test_take() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let a = buffer![1i32, 2, 3].into_array();
         let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
             .unwrap();
@@ -157,7 +157,7 @@ mod test {
 
     #[test]
     fn test_take_nullable_values() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let a = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array();
         let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
             .unwrap();
@@ -175,7 +175,7 @@ mod test {
 
     #[test]
     fn test_take_nullable_indices() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let a = buffer![1i32, 2, 3].into_array();
         let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
             .unwrap();
@@ -196,7 +196,7 @@ mod test {
 
     #[test]
     fn test_take_nullable_struct() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let struct_array =
             StructArray::try_new(FieldNames::default(), vec![], 100, Validity::NonNullable)
                 .unwrap();
@@ -222,7 +222,7 @@ mod test {
 
     #[test]
     fn test_empty_take() {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let a = buffer![1i32, 2, 3].into_array();
         let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
             .unwrap();
@@ -243,7 +243,7 @@ mod test {
 
     #[test]
     fn test_take_shuffled_indices() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let c0 = buffer![0i32, 1, 2].into_array();
         let c1 = buffer![3i32, 4, 5].into_array();
         let c2 = buffer![6i32, 7, 8].into_array();
@@ -312,7 +312,7 @@ mod test {
 
     #[test]
     fn test_take_null_indices() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
         let c0 = buffer![10i32, 20, 30].into_array();
         let c1 = buffer![40i32, 50, 60].into_array();
         let arr = ChunkedArray::try_new(

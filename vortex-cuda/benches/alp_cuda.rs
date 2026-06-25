@@ -22,8 +22,8 @@ use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
-use vortex::array::array_session;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::default_session_builder;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
@@ -74,7 +74,7 @@ where
     let encoded = alp_encode(
         primitive_array.as_view(),
         None,
-        &mut array_session().create_execution_ctx(),
+        &mut default_session_builder().build().create_execution_ctx(),
     )
     .vortex_expect("failed to ALP-encode array");
 

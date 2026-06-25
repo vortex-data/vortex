@@ -104,9 +104,9 @@ mod tests {
     use crate::ops::find_slice_end_index;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        session
+        let mut session = vortex_array::default_session_builder();
+        crate::initialize(&mut session);
+        session.build()
     });
 
     fn decode_run_array<R: RunEndIndexType>(

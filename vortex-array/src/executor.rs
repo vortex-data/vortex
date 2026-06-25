@@ -876,7 +876,9 @@ mod tests {
 
     #[test]
     fn execution_ctx_snapshots_execute_parent_kernels_at_creation() {
-        let session = VortexSession::empty().with_some(KernelSession::empty());
+        let session = VortexSession::builder()
+            .with_some(KernelSession::empty())
+            .build();
         let key = execute_parent_key(Bool.id(), Primitive.id());
 
         let before_registration = session.create_execution_ctx();

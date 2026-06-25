@@ -18,7 +18,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 /// Mutable host buffer contract used by [`WritableHostBuffer`].
 pub trait HostBufferMut: Send + 'static {
@@ -221,16 +221,22 @@ pub trait MemorySessionExt: SessionExt {
     fn allocator(&self) -> HostAllocatorRef {
         self.memory().allocator()
     }
-
-    /// Returns a new session configured to use `allocator` as its host allocator.
-    fn with_allocator(self, allocator: HostAllocatorRef) -> VortexSession {
-        let mut builder = self.session().to_builder();
-        builder.get_mut::<MemorySession>().set_allocator(allocator);
-        builder.build()
-    }
 }
 
 impl<S: SessionExt> MemorySessionExt for S {}
+
+/// Extension trait for configuring session-scoped memory before a session is built.
+pub trait MemorySessionBuilderExt {
+    /// Configure the host allocator.
+    fn with_allocator(self, allocator: HostAllocatorRef) -> Self;
+}
+
+impl MemorySessionBuilderExt for VortexSessionBuilder {
+    fn with_allocator(mut self, allocator: HostAllocatorRef) -> Self {
+        self.get_mut::<MemorySession>().set_allocator(allocator);
+        self
+    }
+}
 
 /// Default host allocator.
 #[derive(Debug, Default)]

@@ -76,7 +76,8 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::builders::dict::dict_encode;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| crate::default_session_builder().build());
 
     fn assert_min_max(array: &ArrayRef, expected: Option<(i32, i32)>) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();

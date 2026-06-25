@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use vortex_error::VortexExpect;
 use vortex_session::SessionExt;
 use vortex_session::SessionVar;
-use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::runtime::Handle;
 
@@ -50,23 +50,31 @@ pub trait RuntimeSessionExt: SessionExt {
                 .vortex_expect("Runtime handle not configured in Vortex session. Please setup a `CurrentThreadRuntime`, or configure the session for `with_tokio`.")
                 .clone()
     }
+}
+impl<S: SessionExt> RuntimeSessionExt for S {}
 
+/// Extension trait for configuring runtime session data before a session is built.
+pub trait RuntimeSessionBuilderExt {
     /// Configure the runtime session to use the application's Tokio runtime.
     ///
     /// For example, if the application is launched using `#[tokio::main]`.
     #[cfg(feature = "tokio")]
-    fn with_tokio(self) -> VortexSession {
-        use crate::runtime::tokio::TokioRuntime;
-        let mut builder = self.session().to_builder();
-        builder.get_mut::<RuntimeSession>().handle = Some(TokioRuntime::current());
-        builder.build()
-    }
+    fn with_tokio(self) -> Self;
 
     /// Configure the runtime session to use a specific Vortex runtime handle.
-    fn with_handle(self, handle: Handle) -> VortexSession {
-        let mut builder = self.session().to_builder();
-        builder.get_mut::<RuntimeSession>().handle = Some(handle);
-        builder.build()
+    fn with_handle(self, handle: Handle) -> Self;
+}
+
+impl RuntimeSessionBuilderExt for VortexSessionBuilder {
+    #[cfg(feature = "tokio")]
+    fn with_tokio(mut self) -> Self {
+        use crate::runtime::tokio::TokioRuntime;
+        self.get_mut::<RuntimeSession>().handle = Some(TokioRuntime::current());
+        self
+    }
+
+    fn with_handle(mut self, handle: Handle) -> Self {
+        self.get_mut::<RuntimeSession>().handle = Some(handle);
+        self
     }
 }
-impl<S: SessionExt> RuntimeSessionExt for S {}

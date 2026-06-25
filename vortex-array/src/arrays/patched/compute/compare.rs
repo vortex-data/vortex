@@ -188,7 +188,9 @@ mod tests {
         )
         .unwrap();
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)
             .unwrap()
@@ -221,7 +223,9 @@ mod tests {
         )
         .unwrap();
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
 
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
         // Slice the array so that the first patch should be skipped.
@@ -258,7 +262,9 @@ mod tests {
             None,
         )?;
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
             .try_downcast::<Patched>()
@@ -292,7 +298,9 @@ mod tests {
             None,
         )?;
 
-        let mut ctx = crate::array_session().create_execution_ctx();
+        let mut ctx = crate::default_session_builder()
+            .build()
+            .create_execution_ctx();
         let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
             .try_downcast::<Patched>()

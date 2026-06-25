@@ -88,10 +88,10 @@ mod tests {
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::default_session_builder;
     use crate::dtype::Nullability;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
@@ -118,7 +118,7 @@ mod tests {
     fn test_extension_consistency(#[case] array: ExtensionArray) {
         test_array_consistency(
             &array.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         );
     }
 }

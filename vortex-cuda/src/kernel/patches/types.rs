@@ -318,7 +318,9 @@ mod tests {
         #[case] chunk_offsets: ArrayRef,
         #[case] expected: ArrayRef,
     ) -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut ctx = vortex_array::default_session_builder()
+            .build()
+            .create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let indices = PrimitiveArray::from_iter([100u32, 1100, 2100, 3100, 4100]);
         let values = PrimitiveArray::from_iter([10u32, 11, 12, 13, 14]);

@@ -85,7 +85,8 @@ mod tests {
     #[cfg(feature = "zstd")]
     use crate::BtrBlocksCompressorBuilder;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| vortex_array::default_session_builder().build());
 
     #[rstest]
     #[case::zctl(

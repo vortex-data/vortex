@@ -19,13 +19,13 @@ use vortex::array::validity::Validity;
 use vortex::buffer::buffer;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionBuilderExt;
 use vortex::session::VortexSession;
 use vortex_datafusion::VortexFormat;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let session = VortexSession::default().with_tokio();
+    let session = VortexSession::default_builder().with_tokio().build();
 
     let temp_dir = tempdir()?;
     let strings = ChunkedArray::from_iter([

@@ -62,9 +62,9 @@ mod tests {
     use crate::initialize;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        initialize(&session);
-        session
+        let mut builder = vortex_array::default_session_builder();
+        initialize(&mut builder);
+        builder.build()
     });
 
     fn nullable_i32() -> DType {

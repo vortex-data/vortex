@@ -74,7 +74,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::ExprSerializeProtoExt;
-    use crate::array_session;
+    use crate::default_session_builder;
     use crate::expr::Expression;
     use crate::expr::and;
     use crate::expr::between;
@@ -108,16 +108,18 @@ mod tests {
         let s_expr = expr.serialize_proto().unwrap();
         let buf = s_expr.encode_to_vec();
         let s_expr = pb::Expr::decode(buf.as_slice()).unwrap();
-        let deser_expr = Expression::from_proto(&s_expr, &array_session()).unwrap();
+        let deser_expr =
+            Expression::from_proto(&s_expr, &default_session_builder().build()).unwrap();
 
         assert_eq!(&deser_expr, &expr);
     }
 
     #[test]
     fn unknown_expression_id_allow_unknown() {
-        let session = VortexSession::empty()
+        let session = VortexSession::builder()
             .with::<ScalarFnSession>()
-            .allow_unknown();
+            .allow_unknown()
+            .build();
 
         let expr_proto = pb::Expr {
             id: "vortex.test.foreign_scalar_fn".to_string(),

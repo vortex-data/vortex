@@ -12,7 +12,7 @@ pub(crate) mod compute;
 mod vtable;
 pub use vtable::List;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+pub(crate) fn initialize(session: &mut vortex_session::VortexSessionBuilder) {
     compute::initialize(session);
 }
 

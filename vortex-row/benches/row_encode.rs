@@ -41,7 +41,8 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 const N: usize = 100_000;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| vortex_array::default_session_builder().build());
 
 fn main() {
     divan::main();

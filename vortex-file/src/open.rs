@@ -390,7 +390,7 @@ mod tests {
     use vortex_array::buffer::BufferHandle;
     use vortex_array::memory::DefaultHostAllocator;
     use vortex_array::memory::HostAllocator;
-    use vortex_array::memory::MemorySessionExt;
+    use vortex_array::memory::MemorySessionBuilderExt;
     use vortex_array::memory::WritableHostBuffer;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
@@ -450,11 +450,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_initial_read_size() {
-        let session = vortex_array::array_session()
+        let mut builder = vortex_array::default_session_builder()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
 
-        crate::register_default_encodings(&session);
+        crate::register_default_encodings(&mut builder);
+        let session = builder.build();
 
         // Create a large file (> 1MB)
         let mut buf = ByteBufferMut::empty();
@@ -511,11 +512,16 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_open_path_uses_memory_session_allocator() {
-        let session = vortex_array::array_session()
+        let allocations = Arc::new(AtomicUsize::new(0));
+        let mut builder = vortex_array::default_session_builder()
             .with::<LayoutSession>()
-            .with::<RuntimeSession>();
+            .with::<RuntimeSession>()
+            .with_allocator(Arc::new(CountingAllocator {
+                allocations: Arc::clone(&allocations),
+            }));
 
-        crate::register_default_encodings(&session);
+        crate::register_default_encodings(&mut builder);
+        let session = builder.build();
 
         let mut buf = ByteBufferMut::empty();
         let array = Buffer::from((0i32..16_384).collect::<Vec<i32>>()).into_array();
@@ -531,11 +537,7 @@ mod tests {
         ));
         std::fs::write(&file_path, ByteBuffer::from(buf).as_slice()).unwrap();
 
-        let allocations = Arc::new(AtomicUsize::new(0));
-        let session = session.with_allocator(Arc::new(CountingAllocator {
-            allocations: Arc::clone(&allocations),
-        }));
-
+        allocations.store(0, Ordering::Relaxed);
         let _file = session.open_options().open_path(&file_path).await.unwrap();
         std::fs::remove_file(&file_path).unwrap();
 

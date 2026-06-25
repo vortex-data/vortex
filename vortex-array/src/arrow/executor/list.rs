@@ -225,7 +225,8 @@ mod tests {
     use crate::validity::Validity;
 
     /// A shared session for these list-executor tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| crate::default_session_builder().build());
 
     #[test]
     fn test_to_arrow_list_i32() -> VortexResult<()> {

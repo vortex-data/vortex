@@ -167,7 +167,6 @@ mod tests {
 
     use rstest::rstest;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -176,6 +175,7 @@ mod tests {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::default_session_builder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar_fn::fns::operators::Operator;
@@ -186,9 +186,9 @@ mod tests {
     use crate::ByteBoolArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = array_session();
-        crate::initialize(&session);
-        session
+        let mut session = default_session_builder();
+        crate::initialize(&mut session);
+        session.build()
     });
 
     fn bb(v: Vec<bool>) -> ByteBoolArray {
@@ -351,7 +351,7 @@ mod tests {
     #[case::single_null(bb_opt(vec![None]))]
     #[case::mixed_with_nulls(bb_opt(vec![Some(true), None, Some(false), None, Some(true)]))]
     fn test_bytebool_consistency(#[case] array: ByteBoolArray) {
-        let ctx = &mut array_session().create_execution_ctx();
+        let ctx = &mut default_session_builder().build().create_execution_ctx();
         test_array_consistency(&array.into_array(), ctx);
     }
 }

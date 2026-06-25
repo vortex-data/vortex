@@ -8,7 +8,7 @@ use jni::objects::JClass;
 use jni::sys::jlong;
 use vortex::VortexSessionDefault;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::session::RuntimeSessionExt;
+use vortex::io::session::RuntimeSessionBuilderExt;
 use vortex::session::VortexSession;
 
 use crate::RUNTIME;
@@ -16,8 +16,9 @@ use crate::RUNTIME;
 /// Constructs a fresh [`VortexSession`] bound to the JNI-shared tokio runtime and returns
 /// an opaque pointer that Java must pass to [`Java_dev_vortex_jni_NativeSession_free`].
 pub(crate) fn new_session() -> Box<VortexSession> {
-    let session = VortexSession::default().with_handle(RUNTIME.handle());
-    vortex_parquet_variant::initialize(&session);
+    let mut builder = VortexSession::default_builder();
+    vortex_parquet_variant::initialize(&mut builder);
+    let session = builder.with_handle(RUNTIME.handle()).build();
     Box::new(session)
 }
 

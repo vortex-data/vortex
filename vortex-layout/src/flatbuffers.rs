@@ -272,7 +272,9 @@ mod tests {
             LayoutEncodingId::new("vortex.test.foreign_child_layout"),
         ]);
         let array_ctx = ReadContext::new([]);
-        let session = vortex_array::array_session().with::<LayoutSession>();
+        let session = vortex_array::default_session_builder()
+            .with::<LayoutSession>()
+            .build();
 
         let layout = layout_from_flatbuffer_with_options(
             layout_buffer,

@@ -18,12 +18,12 @@ mod test {
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::NullArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::default_session_builder;
     use crate::dtype::DType;
 
     #[test]
@@ -40,7 +40,7 @@ mod test {
                 .unwrap()
                 .execute_mask(
                     sliced_arr.len(),
-                    &mut array_session().create_execution_ctx()
+                    &mut default_session_builder().build().create_execution_ctx()
                 )
                 .unwrap(),
             Mask::AllFalse(4)
@@ -62,7 +62,10 @@ mod test {
             taken_arr
                 .validity()
                 .unwrap()
-                .execute_mask(taken_arr.len(), &mut array_session().create_execution_ctx())
+                .execute_mask(
+                    taken_arr.len(),
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             Mask::AllFalse(5)
         ));
@@ -73,7 +76,10 @@ mod test {
         let nulls = NullArray::new(10);
 
         let scalar = nulls
-            .execute_scalar(0, &mut array_session().create_execution_ctx())
+            .execute_scalar(
+                0,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);
@@ -109,7 +115,7 @@ mod test {
     fn test_null_consistency(#[case] array: NullArray) {
         test_array_consistency(
             &array.into_array(),
-            &mut array_session().create_execution_ctx(),
+            &mut default_session_builder().build().create_execution_ctx(),
         );
     }
 }

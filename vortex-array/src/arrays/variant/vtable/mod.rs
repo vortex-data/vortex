@@ -12,6 +12,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 use vortex_session::registry::CachedId;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -42,7 +43,7 @@ use crate::serde::ArrayChildren;
 /// A [`Variant`]-encoded Vortex array.
 pub type VariantArray = Array<Variant>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
     kernel::initialize(session);
 }
 

@@ -114,6 +114,7 @@ use vortex_array::stats::session::StatsSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 // We re-export like so in order to allow users to search inside subcrates when using the Rust docs.
 
@@ -282,14 +283,20 @@ pub mod encodings {
 
 /// Extension trait to create a default Vortex session.
 pub trait VortexSessionDefault {
+    /// Creates a default Vortex session builder with standard arrays, layouts, scalar functions,
+    /// optimizer kernels, expressions, aggregate functions, and runtime support.
+    fn default_builder() -> VortexSessionBuilder;
+
     /// Creates a default Vortex session with standard arrays, layouts, scalar functions,
     /// optimizer kernels, expressions, aggregate functions, and runtime support.
-    fn default() -> VortexSession;
+    fn default() -> VortexSession {
+        Self::default_builder().build()
+    }
 }
 
 impl VortexSessionDefault for VortexSession {
-    fn default() -> VortexSession {
-        let session = VortexSession::empty()
+    fn default_builder() -> VortexSessionBuilder {
+        let builder = VortexSession::builder()
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<KernelSession>()
@@ -302,13 +309,14 @@ impl VortexSessionDefault for VortexSession {
             .with::<RuntimeSession>();
 
         #[cfg(feature = "files")]
-        let session = {
-            let session = session.with::<file::multi::MultiFileSession>();
-            file::register_default_encodings(&session);
-            session
-        };
+        {
+            let mut builder = builder.with::<file::multi::MultiFileSession>();
+            file::register_default_encodings(&mut builder);
+            builder
+        }
 
-        session
+        #[cfg(not(feature = "files"))]
+        builder
     }
 }
 
@@ -322,9 +330,9 @@ mod test {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::default_session_builder;
     use vortex_array::dtype::FieldNames;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
@@ -472,7 +480,7 @@ mod test {
 
         assert_eq!(recovered_array.len(), array.len());
 
-        let mut ctx = array_session().create_execution_ctx();
+        let mut ctx = default_session_builder().build().create_execution_ctx();
 
         let recovered_primitive = recovered_array.execute::<PrimitiveArray>(&mut ctx)?;
         assert!(recovered_primitive.validity()?.mask_eq(

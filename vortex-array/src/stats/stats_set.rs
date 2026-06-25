@@ -566,8 +566,8 @@ mod test {
     use smallvec::smallvec;
 
     use crate::VortexSessionExecute;
-    use crate::array_session;
     use crate::arrays::PrimitiveArray;
+    use crate::default_session_builder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -877,7 +877,10 @@ mod test {
             .collect_vec();
         array
             .statistics()
-            .compute_all(&all_stats, &mut array_session().create_execution_ctx())
+            .compute_all(
+                &all_stats,
+                &mut default_session_builder().build().create_execution_ctx(),
+            )
             .unwrap();
 
         let stats = array.statistics().to_owned();

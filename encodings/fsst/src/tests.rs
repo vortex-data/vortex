@@ -23,9 +23,9 @@ use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session();
-    crate::initialize(&session);
-    session
+    let mut session = vortex_array::default_session_builder();
+    crate::initialize(&mut session);
+    session.build()
 });
 
 /// this function is VERY slow on miri, so we only want to run it once

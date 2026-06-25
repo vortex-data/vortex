@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::VortexSessionBuilder;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -36,7 +37,7 @@ use crate::array::ArrayId;
 /// A [`Struct`]-encoded Vortex array.
 pub type StructArray = Array<Struct>;
 
-pub(crate) fn initialize(session: &VortexSession) {
+pub(crate) fn initialize(session: &mut VortexSessionBuilder) {
     kernel::initialize(session);
 }
 

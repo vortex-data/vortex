@@ -17,7 +17,6 @@ use crate::IntoArray;
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
-use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListView;
@@ -27,6 +26,7 @@ use crate::arrays::listview::ListViewArrayExt;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::conformance::mask::test_mask_conformance;
+use crate::default_session_builder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -64,10 +64,16 @@ fn test_slice_comprehensive() {
         assert_eq!(
             full_list
                 .array()
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    i,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             listview
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(
+                    i,
+                    &mut default_session_builder().build().create_execution_ctx()
+                )
                 .unwrap(),
             "Mismatch at index {}",
             i
@@ -84,7 +90,7 @@ fn test_slice_comprehensive() {
 
 #[test]
 fn test_slice_out_of_order() {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     // ListView-specific: Test slicing with out-of-order offsets.
     // Logical lists: [[70,80], [10,20,30], [40,50,60], [90], [30]]
     let elements = buffer![10i32, 20, 30, 40, 50, 60, 70, 80, 90].into_array();
@@ -163,13 +169,19 @@ fn test_slice_with_nulls() {
     assert!(
         sliced_list
             .array()
-            .is_invalid(0, &mut array_session().create_execution_ctx())
+            .is_invalid(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Original index 1 was null.
     assert!(
         sliced_list
             .array()
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Original index 2 was valid.
 
@@ -299,12 +311,18 @@ fn test_cast_with_nulls() {
     let result_list = result.to_listview();
     assert!(
         result_list
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     );
     assert!(
         result_list
-            .is_invalid(1, &mut array_session().create_execution_ctx())
+            .is_invalid(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     );
 }
@@ -394,7 +412,7 @@ fn test_cast_large_dataset() {
 
 #[test]
 fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     // [[1, 2], [3], [4]]
     let if_true = ListViewArray::new(
         buffer![1i32, 2, 3, 4].into_array(),
@@ -416,7 +434,7 @@ fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
     let result = mask
         .into_array()
         .zip(if_true, if_false)?
-        .execute::<ArrayRef>(&mut array_session().create_execution_ctx())?;
+        .execute::<ArrayRef>(&mut default_session_builder().build().create_execution_ctx())?;
     assert!(result.is::<ListView>());
     assert_eq!(
         result.dtype(),
@@ -440,7 +458,7 @@ fn test_zip_widens_false_element_nullability() -> VortexResult<()> {
 
 #[test]
 fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     // [[1, null], [3], [4]]
     let if_true = ListViewArray::new(
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array(),
@@ -462,7 +480,7 @@ fn test_zip_widens_true_element_nullability() -> VortexResult<()> {
     let result = mask
         .into_array()
         .zip(if_true, if_false)?
-        .execute::<ArrayRef>(&mut array_session().create_execution_ctx())?;
+        .execute::<ArrayRef>(&mut default_session_builder().build().create_execution_ctx())?;
     assert!(result.is::<ListView>());
     assert_eq!(
         result.dtype(),
@@ -540,7 +558,7 @@ fn test_is_constant_basic(
     )
     .into_array();
 
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     assert_eq!(is_constant(&listview, &mut ctx).unwrap(), expected);
 }
 
@@ -559,7 +577,7 @@ fn test_constant_with_constant_elements() {
     .into_array();
 
     // All lists contain [42, 42] so should be constant.
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     assert!(is_constant(&listview, &mut ctx).unwrap());
 }
 
@@ -583,7 +601,7 @@ fn test_constant_with_nulls() {
         .with_zero_copy_to_list(true)
     }
     .into_array();
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     assert!(!is_constant(&listview_mixed, &mut ctx).unwrap());
 
     // Case 2: All nulls - should be constant.
@@ -593,7 +611,7 @@ fn test_constant_with_nulls() {
             .with_zero_copy_to_list(true)
     }
     .into_array();
-    let mut ctx2 = array_session().create_execution_ctx();
+    let mut ctx2 = default_session_builder().build().create_execution_ctx();
     assert!(is_constant(&listview_all_null, &mut ctx2).unwrap());
 }
 
@@ -608,7 +626,7 @@ fn test_constant_repeated_same_lists() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     // All lists are [10, 20, 30] so should be constant.
-    let mut ctx = array_session().create_execution_ctx();
+    let mut ctx = default_session_builder().build().create_execution_ctx();
     assert!(is_constant(&listview, &mut ctx).unwrap());
 }
 
@@ -650,22 +668,34 @@ fn test_mask_preserves_structure() {
     // Check validity: true in selection means null.
     assert!(
         !result_list
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Masked.
     assert!(
         result_list
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Not masked.
     assert!(
         !result_list
-            .is_valid(2, &mut array_session().create_execution_ctx())
+            .is_valid(
+                2,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Masked.
     assert!(
         !result_list
-            .is_valid(3, &mut array_session().create_execution_ctx())
+            .is_valid(
+                3,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Masked.
 
@@ -704,17 +734,26 @@ fn test_mask_with_existing_nulls() {
     // Check combined validity:
     assert!(
         result_list
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Was valid, mask is false -> valid.
     assert!(
         !result_list
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Was invalid, mask is true -> invalid.
     assert!(
         !result_list
-            .is_valid(2, &mut array_session().create_execution_ctx())
+            .is_valid(
+                2,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Was valid, mask is true -> invalid.
 }
@@ -737,17 +776,26 @@ fn test_mask_with_gaps() {
     assert_eq!(result_list.len(), 3);
     assert!(
         !result_list
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Masked
     assert!(
         result_list
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Not masked
     assert!(
         result_list
-            .is_valid(2, &mut array_session().create_execution_ctx())
+            .is_valid(
+                2,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Not masked
 
@@ -782,17 +830,26 @@ fn test_mask_constant_arrays() {
     assert_eq!(result_list.len(), 3);
     assert!(
         result_list
-            .is_valid(0, &mut array_session().create_execution_ctx())
+            .is_valid(
+                0,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     );
     assert!(
         !result_list
-            .is_valid(1, &mut array_session().create_execution_ctx())
+            .is_valid(
+                1,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     ); // Masked
     assert!(
         result_list
-            .is_valid(2, &mut array_session().create_execution_ctx())
+            .is_valid(
+                2,
+                &mut default_session_builder().build().create_execution_ctx()
+            )
             .unwrap()
     );
 
