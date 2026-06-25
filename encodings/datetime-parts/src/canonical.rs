@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
-use vortex_array::ExecutionCtx;
+use vortex_array::AnyColumnar;
+use vortex_array::CanonicalView;
+use vortex_array::ColumnarView::Canonical;
+use vortex_array::ColumnarView::Constant;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
@@ -20,11 +23,7 @@ use vortex_error::vortex_panic;
 use crate::array::DateTimePartsParts;
 
 /// Decode [`DateTimePartsParts`] into a [`TemporalArray`].
-pub fn decode_to_temporal(
-    parts: DateTimePartsParts,
-    dtype: &DType,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<TemporalArray> {
+pub fn decode_to_temporal(parts: DateTimePartsParts, dtype: &DType) -> VortexResult<TemporalArray> {
     let DType::Extension(ext) = dtype else {
         vortex_panic!(Compute: "expected dtype to be DType::Extension variant")
     };
@@ -45,45 +44,56 @@ pub fn decode_to_temporal(
     let days = parts.days.as_::<Primitive>();
     let validity = days.validity()?;
 
-    let mut values: BufferMut<i64> = match_each_integer_ptype!(days.ptype(), |D| {
-        BufferMut::from_iter(days.as_slice::<D>().iter().map(|d| {
-            let d: i64 = d.as_();
-            d * 86_400 * divisor
-        }))
-    });
-
-    // Seconds/subseconds may be Constant — handle the fast path.
-    if let Some(seconds) = parts.seconds.as_constant() {
+    let seconds = parts.seconds.as_::<AnyColumnar>();
+    let constant_seconds = if let Constant(seconds) = seconds {
         let seconds = seconds
+            .scalar()
+            .value()
+            .vortex_expect("no value")
             .as_primitive()
-            .as_::<i64>()
+            .as_i64()
             .vortex_expect("non-nullable");
-        let seconds = seconds * divisor;
-        for v in values.iter_mut() {
-            *v += seconds;
-        }
+        seconds * divisor
     } else {
-        let seconds_buf = parts.seconds.execute::<PrimitiveArray>(ctx)?;
-        match_each_integer_ptype!(seconds_buf.ptype(), |S| {
-            for (v, second) in values.iter_mut().zip(seconds_buf.as_slice::<S>()) {
+        0
+    };
+
+    let subseconds = parts.subseconds.as_::<AnyColumnar>();
+    let constant_subseconds = if let Constant(subseconds) = subseconds {
+        subseconds
+            .scalar()
+            .value()
+            .vortex_expect("no value")
+            .as_primitive()
+            .as_i64()
+            .vortex_expect("non-nullable")
+    } else {
+        0
+    };
+
+    let mut values = decode_days(
+        &days,
+        86_400i64 * divisor,
+        constant_seconds + constant_subseconds,
+    );
+
+    if let Canonical(seconds) = seconds {
+        let CanonicalView::Primitive(seconds) = seconds else {
+            vortex_panic!("not a primitive");
+        };
+        match_each_integer_ptype!(seconds.ptype(), |S| {
+            for (v, second) in values.iter_mut().zip(seconds.as_slice::<S>()) {
                 let second: i64 = second.as_();
                 *v += second * divisor;
             }
         });
     }
-
-    if let Some(subseconds) = parts.subseconds.as_constant() {
-        let subseconds = subseconds
-            .as_primitive()
-            .as_::<i64>()
-            .vortex_expect("non-nullable");
-        for v in values.iter_mut() {
-            *v += subseconds;
-        }
-    } else {
-        let subseconds_buf = parts.subseconds.execute::<PrimitiveArray>(ctx)?;
-        match_each_integer_ptype!(subseconds_buf.ptype(), |S| {
-            for (v, subsecond) in values.iter_mut().zip(subseconds_buf.as_slice::<S>()) {
+    if let Canonical(subseconds) = subseconds {
+        let CanonicalView::Primitive(subseconds) = subseconds else {
+            vortex_panic!("not a primitive");
+        };
+        match_each_integer_ptype!(subseconds.ptype(), |S| {
+            for (v, subsecond) in values.iter_mut().zip(subseconds.as_slice::<S>()) {
                 let subsecond: i64 = subsecond.as_();
                 *v += subsecond;
             }
@@ -95,6 +105,36 @@ pub fn decode_to_temporal(
         options.unit,
         options.tz.clone(),
     ))
+}
+
+// For constant seconds and subseconds, compute day * day_to_unit + const_offset
+fn decode_days<P: PrimitiveArrayExt>(days: &P, day_to_unit: i64, offset: i64) -> BufferMut<i64> {
+    /// If "days" are u16 or u32, LLVM doesn't auto-vectorize the code due to
+    /// widening to i64. If we process the code in fixed-size chunks and unroll
+    /// the chunks with seq_macro, vectorization happens.
+    const CHUNK: usize = 64;
+    let n = days.len();
+    let mut values = BufferMut::<i64>::with_capacity(n);
+    match_each_integer_ptype!(days.ptype(), |D| {
+        let src = days.as_slice::<D>();
+        let (src_chunks, src_rem) = src.as_chunks::<CHUNK>();
+        let (dst_chunks, _) = values.spare_capacity_mut()[..n].as_chunks_mut::<CHUNK>();
+        for (s_chunk, d_chunk) in src_chunks.iter().zip(dst_chunks.iter_mut()) {
+            seq_macro::seq!(I in 0..64 {
+                let day: i64 = s_chunk[I].as_();
+                d_chunk[I].write(day * day_to_unit + offset);
+            });
+        }
+        let tail_start = src_chunks.len() * CHUNK;
+        let dst_tail = &mut values.spare_capacity_mut()[tail_start..n];
+        for (s, d) in src_rem.iter().zip(dst_tail.iter_mut()) {
+            let day: i64 = s.as_();
+            d.write(day * day_to_unit + offset);
+        }
+    });
+    // SAFETY: every element in 0..n was written above.
+    unsafe { values.set_len(n) };
+    values
 }
 
 #[cfg(test)]
@@ -164,7 +204,7 @@ mod test {
             subseconds: date_times.subseconds().clone(),
         };
 
-        let primitive_values = decode_to_temporal(parts, &dtype, &mut ctx)?
+        let primitive_values = decode_to_temporal(parts, &dtype)?
             .temporal_values()
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
