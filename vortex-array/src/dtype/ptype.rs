@@ -21,6 +21,7 @@ use num_traits::Unsigned;
 use num_traits::bounds::UpperBounded;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::dtype::DType;
@@ -845,7 +846,7 @@ impl TryFrom<&DType> for PType {
         if let DType::Primitive(p, _) = value {
             Ok(*p)
         } else {
-            Err(vortex_err!("Cannot convert DType {} into PType", value))
+            vortex_bail!("Cannot convert DType {value} into PType")
         }
     }
 }
