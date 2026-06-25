@@ -7,12 +7,14 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use datafusion_common::Result as DFResult;
+use datafusion_common::ScalarValue;
 use datafusion_common::exec_datafusion_err;
 use datafusion_common::tree_node::TreeNode;
 use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_functions::core::getfield::GetFieldFunc;
 use datafusion_functions::string::octet_length::OctetLengthFunc;
+use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::ScalarFunctionExpr;
 use datafusion_physical_expr::projection::ProjectionExpr;
@@ -32,6 +34,7 @@ use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
+use vortex::expr::list_length;
 use vortex::expr::lit;
 use vortex::expr::nested_case_when;
 use vortex::expr::not;
@@ -155,12 +158,48 @@ impl DefaultExpressionConvertor {
         Ok(cast(byte_length(input), return_dtype))
     }
 
+    /// Attempts to convert DataFusion's `array_length` function (aliased as `list_length`) to
+    /// Vortex `list_length`.
+    ///
+    /// Supports the single-argument form `array_length(arr)` and the equivalent two-argument
+    /// form with an explicit first dimension `array_length(arr, 1)`. Higher dimensions recurse
+    /// into nested lists and are rejected by [`can_array_length_be_pushed_down`] before reaching
+    /// this point.
+    fn try_convert_array_length(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
+        let Some(input) = array_length_input(scalar_fn) else {
+            return Err(exec_datafusion_err!(
+                "array_length pushdown supports only the one-argument form or an explicit first \
+                 dimension"
+            ));
+        };
+
+        let input = self.convert(input.as_ref())?;
+        // Both DataFusion `array_length` and Vortex `list_length` return UInt64; the cast aligns
+        // nullability with DataFusion's declared return type.
+        let return_dtype = self
+            .session
+            .arrow()
+            .from_arrow_field(&Field::new(
+                "",
+                scalar_fn.return_type().clone(),
+                scalar_fn.nullable(),
+            ))
+            .map_err(|e| exec_datafusion_err!("Failed to convert return type to dtype: {e}"))?;
+        Ok(cast(list_length(input), return_dtype))
+    }
+
     /// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
     fn try_convert_scalar_function(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
         if let Some(octet_length_fn) =
             ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn)
         {
             return self.try_convert_octet_length(octet_length_fn);
+        }
+
+        if let Some(array_length_fn) =
+            ScalarFunctionExpr::try_downcast_func::<ArrayLength>(scalar_fn)
+        {
+            return self.try_convert_array_length(array_length_fn);
         }
 
         if let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)
@@ -511,6 +550,7 @@ fn is_convertible_expr(expr: &Arc<dyn PhysicalExpr>) -> bool {
         || expr.downcast_ref::<ScalarFunctionExpr>().is_some_and(|sf| {
             ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(sf).is_some()
                 || ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(sf).is_some()
+                || ScalarFunctionExpr::try_downcast_func::<ArrayLength>(sf).is_some()
         })
 }
 
@@ -572,14 +612,20 @@ fn supported_data_types(dt: &DataType) -> bool {
 }
 
 /// Checks if a scalar function can be pushed down.
-/// Currently GetFieldFunc and OctetLengthFunc are supported.
+/// Currently GetFieldFunc, OctetLengthFunc, and ArrayLength are supported.
 fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
     if ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some() {
         return true;
     }
 
-    ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn)
+    if ScalarFunctionExpr::try_downcast_func::<OctetLengthFunc>(scalar_fn)
         .is_some_and(|octet_length| can_octet_length_be_pushed_down(octet_length, schema))
+    {
+        return true;
+    }
+
+    ScalarFunctionExpr::try_downcast_func::<ArrayLength>(scalar_fn)
+        .is_some_and(|array_length| can_array_length_be_pushed_down(array_length, schema))
 }
 
 fn can_octet_length_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
@@ -596,6 +642,59 @@ fn can_octet_length_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Sche
 
         dt.is_binary() || dt.is_string()
     }) && can_be_pushed_down_impl(input, schema)
+}
+
+fn can_array_length_be_pushed_down(scalar_fn: &ScalarFunctionExpr, schema: &Schema) -> bool {
+    let Some(input) = array_length_input(scalar_fn) else {
+        return false;
+    };
+
+    // The argument must resolve to a list type. We gate on the resolved data type rather than
+    // `can_be_pushed_down_impl`, since list columns are intentionally rejected there. We still
+    // require the argument to be a convertible expression (e.g. a column or struct field access).
+    input.data_type(schema).as_ref().is_ok_and(|data_type| {
+        matches!(
+            data_type,
+            DataType::List(_) | DataType::LargeList(_) | DataType::FixedSizeList(_, _)
+        )
+    }) && is_convertible_expr(input)
+}
+
+/// Returns the list argument of an `array_length` call if the call is a form we can rewrite to
+/// `list_length`: either the single-argument form `array_length(arr)`, or the two-argument form
+/// with an explicit first dimension `array_length(arr, 1)`, which is equivalent. Higher
+/// dimensions recurse into nested lists and are not supported.
+fn array_length_input(scalar_fn: &ScalarFunctionExpr) -> Option<&Arc<dyn PhysicalExpr>> {
+    match scalar_fn.args() {
+        [input] => Some(input),
+        [input, dimension] if is_dimension_one(dimension) => Some(input),
+        _ => None,
+    }
+}
+
+/// Returns true if `expr` is an integer literal equal to 1. The dimension argument of
+/// `array_length` is coerced to `Int64`, but we accept any integer width defensively.
+fn is_dimension_one(expr: &Arc<dyn PhysicalExpr>) -> bool {
+    let Some(literal) = expr.downcast_ref::<df_expr::Literal>() else {
+        return false;
+    };
+
+    let dimension = match literal.value() {
+        ScalarValue::Int8(Some(v)) => i64::from(*v),
+        ScalarValue::Int16(Some(v)) => i64::from(*v),
+        ScalarValue::Int32(Some(v)) => i64::from(*v),
+        ScalarValue::Int64(Some(v)) => *v,
+        ScalarValue::UInt8(Some(v)) => i64::from(*v),
+        ScalarValue::UInt16(Some(v)) => i64::from(*v),
+        ScalarValue::UInt32(Some(v)) => i64::from(*v),
+        ScalarValue::UInt64(Some(v)) => match i64::try_from(*v) {
+            Ok(v) => v,
+            Err(_) => return false,
+        },
+        _ => return false,
+    };
+
+    dimension == 1
 }
 
 #[cfg(test)]
@@ -645,6 +744,21 @@ mod tests {
             ScalarFunctionExpr::try_new(
                 Arc::new(ScalarUDF::from(OctetLengthFunc::new())),
                 vec![input],
+                schema,
+                Arc::new(ConfigOptions::new()),
+            )
+            .unwrap(),
+        )
+    }
+
+    fn array_length_expr(
+        args: Vec<Arc<dyn PhysicalExpr>>,
+        schema: &Schema,
+    ) -> Arc<dyn PhysicalExpr> {
+        Arc::new(
+            ScalarFunctionExpr::try_new(
+                Arc::new(ScalarUDF::from(ArrayLength::new())),
+                args,
                 schema,
                 Arc::new(ConfigOptions::new()),
             )
@@ -794,6 +908,23 @@ mod tests {
         vortex.cast(i32?)
         └── input: vortex.byte_length()
             └── input: vortex.get_item(name)
+                └── input: vortex.root()
+        ");
+    }
+
+    #[rstest]
+    fn test_expr_from_df_array_length(test_schema: Schema) {
+        let expr = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let array_length = array_length_expr(vec![expr], &test_schema);
+
+        let result = DefaultExpressionConvertor::default()
+            .convert(array_length.as_ref())
+            .unwrap();
+
+        assert_snapshot!(result.display_tree().to_string(), @r"
+        vortex.cast(u64?)
+        └── input: vortex.list.length()
+            └── input: vortex.get_item(unsupported_list)
                 └── input: vortex.root()
         ");
     }
@@ -972,6 +1103,52 @@ mod tests {
         )) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down_impl(&octet_length, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_array_length_supported(test_schema: Schema) {
+        let expr = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let array_length = array_length_expr(vec![expr], &test_schema);
+
+        assert!(can_be_pushed_down_impl(&array_length, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_array_length_unsupported_operand(test_schema: Schema) {
+        // `array_length` over a non-list column cannot be pushed down.
+        let expr = Arc::new(df_expr::Column::new("name", 1)) as Arc<dyn PhysicalExpr>;
+        let array_length = Arc::new(ScalarFunctionExpr::new(
+            "array_length",
+            Arc::new(ScalarUDF::from(ArrayLength::new())),
+            vec![expr],
+            Arc::new(Field::new("array_length", DataType::UInt64, true)),
+            Arc::new(ConfigOptions::new()),
+        )) as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down_impl(&array_length, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_array_length_dimension_one_supported(test_schema: Schema) {
+        // `array_length(arr, 1)` is the first-dimension length, equivalent to `list_length`.
+        let list = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let dimension =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(1)))) as Arc<dyn PhysicalExpr>;
+        let array_length = array_length_expr(vec![list, dimension], &test_schema);
+
+        assert!(can_be_pushed_down_impl(&array_length, &test_schema));
+    }
+
+    #[rstest]
+    fn test_can_be_pushed_down_array_length_higher_dimension_not_supported(test_schema: Schema) {
+        // Dimensions other than 1 recurse into nested lists, which `list_length` does not model,
+        // so they must not be pushed down.
+        let list = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let dimension =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(2)))) as Arc<dyn PhysicalExpr>;
+        let array_length = array_length_expr(vec![list, dimension], &test_schema);
+
+        assert!(!can_be_pushed_down_impl(&array_length, &test_schema));
     }
 
     // https://github.com/vortex-data/vortex/issues/6211

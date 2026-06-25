@@ -9831,6 +9831,7 @@ dependencies = [
  "datafusion-execution 54.0.0",
  "datafusion-expr 54.0.0",
  "datafusion-functions 54.0.0",
+ "datafusion-functions-nested 54.0.0",
  "datafusion-physical-expr 54.0.0",
  "datafusion-physical-expr-adapter 54.0.0",
  "datafusion-physical-expr-common 54.0.0",
