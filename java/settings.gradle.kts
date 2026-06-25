@@ -17,11 +17,10 @@ toolchainManagement {
 
 rootProject.name = "vortex-root"
 
-// API bindings
+// API bindings (JMH benchmarks live in vortex-jni's `jmh` source set; see vortex-jni/BENCHMARKS.md)
 include("vortex-jni")
 
-// Benchmarks
-include("vortex-jni-bench")
+// Spark integration
 include("vortex-spark_2.12")
 project(":vortex-spark_2.12").projectDir = file("vortex-spark")
 

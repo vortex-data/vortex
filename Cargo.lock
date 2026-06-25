@@ -10148,6 +10148,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "async-fs",
+ "codspeed-divan-compat",
  "futures",
  "jni",
  "object_store",
