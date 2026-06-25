@@ -23,18 +23,18 @@ use vortex_error::vortex_err;
 ///
 /// Accepted values:
 ///
-/// - `v1`, `scan`, `scan_builder`, `scan-builder`, `layout-reader`, or unset: use the
-///   existing LayoutReader-based scan.
-/// - `v2` or `scan2`: use the scan2
+/// - unset, empty, `v2`, or `scan2`: use the scan2
 ///   [`ScanPlan`](vortex_scan::plan::ScanPlan) implementation.
+/// - `v1`, `scan`, `scan_builder`, `scan-builder`, `layout-reader`, or `legacy`: use the
+///   existing LayoutReader-based scan.
 pub const SCAN_IMPL_ENV: &str = "VORTEX_SCAN_IMPL";
 
 /// Returns whether the scan2 implementation should be used by scan data sources.
 pub fn scan2_enabled() -> VortexResult<bool> {
     match std::env::var(SCAN_IMPL_ENV) {
-        Ok(value) if value.is_empty() => Ok(false),
+        Ok(value) if value.is_empty() => Ok(true),
         Ok(value) => parse_scan_impl(&value),
-        Err(std::env::VarError::NotPresent) => Ok(false),
+        Err(std::env::VarError::NotPresent) => Ok(true),
         Err(std::env::VarError::NotUnicode(value)) => {
             vortex_bail!("{SCAN_IMPL_ENV} must be valid unicode, got {value:?}")
         }
@@ -43,10 +43,10 @@ pub fn scan2_enabled() -> VortexResult<bool> {
 
 fn parse_scan_impl(value: &str) -> VortexResult<bool> {
     match value {
-        "v1" | "scan" | "scan_builder" | "scan-builder" | "layout-reader" => Ok(false),
+        "v1" | "scan" | "scan_builder" | "scan-builder" | "layout-reader" | "legacy" => Ok(false),
         "v2" | "scan2" => Ok(true),
         other => vortex_bail!(
-            "{SCAN_IMPL_ENV} must be one of v1, scan, scan_builder, scan-builder, layout-reader, v2, or scan2, got {other:?}"
+            "{SCAN_IMPL_ENV} must be one of v1, scan, scan_builder, scan-builder, layout-reader, legacy, v2, or scan2, got {other:?}"
         ),
     }
 }
@@ -90,5 +90,55 @@ fn is_temporal(dtype: &DType) -> bool {
     match dtype {
         DType::Extension(ext) => ext.metadata_opt::<AnyTemporal>().is_some(),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_impl_env_defaults_to_scan2() -> VortexResult<()> {
+        temp_env::with_var(SCAN_IMPL_ENV, None::<&str>, || {
+            assert!(scan2_enabled()?);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn scan_impl_env_empty_uses_scan2() -> VortexResult<()> {
+        temp_env::with_var(SCAN_IMPL_ENV, Some(""), || {
+            assert!(scan2_enabled()?);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn scan_impl_env_legacy_values_disable_scan2() -> VortexResult<()> {
+        for value in [
+            "v1",
+            "scan",
+            "scan_builder",
+            "scan-builder",
+            "layout-reader",
+            "legacy",
+        ] {
+            temp_env::with_var(SCAN_IMPL_ENV, Some(value), || -> VortexResult<()> {
+                assert!(!scan2_enabled()?);
+                Ok(())
+            })?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn scan_impl_env_scan2_values_enable_scan2() -> VortexResult<()> {
+        for value in ["v2", "scan2"] {
+            temp_env::with_var(SCAN_IMPL_ENV, Some(value), || -> VortexResult<()> {
+                assert!(scan2_enabled()?);
+                Ok(())
+            })?;
+        }
+        Ok(())
     }
 }

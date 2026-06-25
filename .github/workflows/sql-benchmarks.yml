@@ -14,7 +14,7 @@ on:
         required: false
         type: string
         default: ""
-        description: "Optional VORTEX_SCAN_IMPL value for Vortex file scans"
+        description: "Optional VORTEX_SCAN_IMPL override for Vortex file scans, e.g. v1 for legacy scans"
       benchmark_matrix:
         required: false
         type: string

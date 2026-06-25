@@ -39,5 +39,4 @@ jobs:
     secrets: inherit
     with:
       mode: "pr"
-      vortex_scan_impl: "v2"
       benchmark_profile: ${{ inputs.benchmark_profile || 'base' }}
