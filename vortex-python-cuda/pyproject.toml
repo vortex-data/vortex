@@ -4,8 +4,9 @@ name = "vortex-data-cuda"
 dynamic = ["version", "description", "authors"]
 requires-python = ">= 3.11"
 # The CUDA extension package must exactly match the base package version because the two extensions
-# exchange Vortex IPC buffers. Keep this in sync with the workspace package version; release
-# automation may rewrite it when publishing a non-workspace version.
+# exchange private Vortex vtable metadata. Future buffer-handoff support will extend this private
+# bridge. Keep this in sync with the workspace package version; release automation may rewrite it
+# when publishing a non-workspace version.
 dependencies = ["vortex-data==0.1.0"]
 classifiers = [
     "Development Status :: 4 - Beta",

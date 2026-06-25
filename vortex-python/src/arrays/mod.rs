@@ -17,11 +17,13 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use pyo3::types::PyDict;
 use pyo3::types::PyList;
 use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
-use pyo3_bytes::PyBytes;
+use pyo3::types::PyTuple;
+use pyo3_bytes::PyBytes as PyBufferBytes;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -33,9 +35,11 @@ use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;
+use vortex::array::session::ArraySessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::flatbuffers::WriteFlatBufferExt;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
 use vortex::scalar_fn::fns::operators::Operator;
@@ -55,6 +59,38 @@ use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
 use crate::serde::context::PyArrayContext;
 use crate::session::session;
+
+fn array_metadata_tuple<'py>(
+    py: Python<'py>,
+    array: &ArrayRef,
+) -> PyVortexResult<Bound<'py, PyTuple>> {
+    let metadata = session().array_serialize(array)?.ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "Array {} does not support metadata serialization",
+            array.encoding_id()
+        ))
+    })?;
+    let dtype = array.dtype().write_flatbuffer_bytes()?;
+    let children = array
+        .children()
+        .iter()
+        .map(|child| array_metadata_tuple(py, child).map(|tuple| tuple.into_any()))
+        .collect::<PyVortexResult<Vec<_>>>()?;
+    let children = PyList::new(py, children)?;
+
+    PyTuple::new(
+        py,
+        [
+            array.encoding_id().to_string().into_py_any(py)?,
+            PyBytes::new(py, dtype.as_slice()).into_any().into(),
+            array.len().into_py_any(py)?,
+            PyBytes::new(py, metadata.as_slice()).into_any().into(),
+            array.nbuffers().into_py_any(py)?,
+            children.into_any().into(),
+        ],
+    )
+    .map_err(Into::into)
+}
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "arrays")?;
@@ -372,6 +408,17 @@ impl PyArray {
                 .to_pyarrow(py)?
                 .into_bound(py))
         }
+    }
+
+    /// Export this array's vtable metadata tree for optional native extensions.
+    ///
+    /// The returned private tuple intentionally excludes buffers; consumers must provide buffer
+    /// handles through a separate bridge before deserializing arrays that own physical buffers.
+    fn __vortex_array_metadata__<'py>(
+        self_: &'py Bound<'py, Self>,
+    ) -> PyVortexResult<Bound<'py, PyTuple>> {
+        let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
+        array_metadata_tuple(self_.py(), &array)
     }
 
     fn __len__(&self) -> PyResult<usize> {
@@ -801,14 +848,14 @@ impl PyArray {
         for buf in array_buffers.into_iter() {
             // PyBytes wraps bytes::Bytes and implements the buffer protocol
             // This allows PickleBuffer to reference the data without copying
-            let py_bytes = PyBytes::new(buf).into_py_any(py)?;
+            let py_bytes = PyBufferBytes::new(buf).into_py_any(py)?;
             let pickle_buffer = pickle_buffer_class.call1((py_bytes,))?;
             pickle_buffers.push(pickle_buffer);
         }
 
         let mut dtype_pickle_buffers = Vec::new();
         for buf in dtype_buffers.into_iter() {
-            let py_bytes = PyBytes::new(buf).into_py_any(py)?;
+            let py_bytes = PyBufferBytes::new(buf).into_py_any(py)?;
             let pickle_buffer = pickle_buffer_class.call1((py_bytes,))?;
             dtype_pickle_buffers.push(pickle_buffer);
         }

@@ -543,14 +543,14 @@ fn released_device_array(device_id: i64) -> ArrowDeviceArray {
 }
 
 /// Release an Arrow C schema if it is live.
-fn release_schema(schema: &mut FFI_ArrowSchema) {
+pub fn release_schema(schema: &mut FFI_ArrowSchema) {
     if let Some(release) = schema.release {
         unsafe { release(schema) };
     }
 }
 
 /// Release an Arrow device array if it is live.
-fn release_device_array(array: &mut ArrowDeviceArray) {
+pub fn release_device_array(array: &mut ArrowDeviceArray) {
     if let Some(release) = array.array.release {
         unsafe { release(&raw mut array.array) };
     }

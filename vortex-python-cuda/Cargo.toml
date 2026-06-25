@@ -27,5 +27,7 @@ default = ["extension-module"]
 extension-module = []
 
 [dependencies]
+arrow-schema = { workspace = true }
 pyo3 = { workspace = true, features = ["abi3", "abi3-py311"] }
+vortex = { workspace = true }
 vortex-cuda = { workspace = true }
