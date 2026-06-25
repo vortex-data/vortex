@@ -14,7 +14,6 @@ use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
-use crate::aggregate_fn::kernels::GroupedAggregateKernelResult;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::array::ArrayId;
 use crate::arrays::PrimitiveArray;
@@ -65,22 +64,6 @@ impl GroupIds {
     /// Create group ids from materialized values.
     pub fn from_iter(ids: impl IntoIterator<Item = u32>, num_groups: usize) -> VortexResult<Self> {
         Self::from_buffer(Buffer::from_iter(ids), num_groups)
-    }
-
-    /// Create group ids containing `0..num_groups`.
-    pub fn range(num_groups: usize) -> VortexResult<Self> {
-        validate_num_groups(num_groups)?;
-        if num_groups == 0 {
-            return Self::from_buffer(Buffer::<u32>::empty(), num_groups);
-        }
-
-        let last = u32::try_from(num_groups - 1).map_err(|_| {
-            vortex_err!(
-                "num_groups {} exceeds dense u32 group id capacity",
-                num_groups
-            )
-        })?;
-        Self::from_buffer((0..=last).collect(), num_groups)
     }
 
     /// Return the encoded ids array.
@@ -178,14 +161,6 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         Ok(())
     }
 
-    fn accumulate_kernel_result(
-        &mut self,
-        result: GroupedAggregateKernelResult,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        self.accumulate_partials(result.partials(), result.group_ids(), ctx)
-    }
-
     fn try_accumulate_kernel(
         &mut self,
         batch: &ArrayRef,
@@ -198,10 +173,13 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             self.aggregate_fn.id(),
             batch.encoding_id(),
             group_ids.encoding_id(),
-        ) && let Some(result) =
-            kernel.grouped_aggregate(&self.aggregate_fn, batch, group_ids, ctx)?
-        {
-            self.accumulate_kernel_result(result, ctx)?;
+        ) && kernel.grouped_accumulate(
+            &self.aggregate_fn,
+            batch,
+            group_ids,
+            &mut self.partials,
+            ctx,
+        )? {
             return Ok(true);
         }
 

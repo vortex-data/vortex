@@ -7,7 +7,7 @@ mod decimal;
 mod grouped;
 mod primitive;
 
-pub(crate) use grouped::SumGroupedKernel;
+pub(crate) use grouped::SUM_GROUPED_KERNEL;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;

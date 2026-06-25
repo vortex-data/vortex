@@ -5,7 +5,6 @@ use num_traits::AsPrimitive;
 use num_traits::ToPrimitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -19,15 +18,14 @@ use super::primitive::sum_float_all;
 use super::primitive::sum_signed_all;
 use super::primitive::sum_unsigned_all;
 use crate::ArrayRef;
-use crate::Canonical;
-use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::EmptyOptions;
 use crate::aggregate_fn::GroupIds;
-use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
-use crate::aggregate_fn::kernels::GroupedAggregateKernelResult;
+use crate::aggregate_fn::kernels::GroupedAggregateKernel;
+use crate::aggregate_fn::kernels::GroupedAggregateKernelAdapter;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::NativePType;
@@ -35,58 +33,36 @@ use crate::match_each_native_ptype;
 
 const MIN_AVG_RUN_LENGTH_FOR_GROUPED_SUM_RUNS: usize = 4;
 
+pub(crate) static SUM_GROUPED_KERNEL: GroupedAggregateKernelAdapter<Sum, SumGroupedKernel> =
+    GroupedAggregateKernelAdapter::new(SumGroupedKernel);
+
 #[derive(Debug)]
 pub(crate) struct SumGroupedKernel;
 
-impl DynGroupedAggregateKernel for SumGroupedKernel {
-    fn grouped_aggregate(
+impl GroupedAggregateKernel<Sum> for SumGroupedKernel {
+    fn grouped_accumulate(
         &self,
-        aggregate_fn: &AggregateFnRef,
+        _options: &EmptyOptions,
+        partials: &mut [SumPartial],
         batch: &ArrayRef,
         group_ids: &GroupIds,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<GroupedAggregateKernelResult>> {
-        let Some(options) = aggregate_fn.as_opt::<Sum>() else {
-            return Ok(None);
-        };
-
-        let columnar = batch.clone().execute::<Columnar>(ctx)?;
-        match &columnar {
-            Columnar::Canonical(Canonical::Primitive(_))
-            | Columnar::Canonical(Canonical::Bool(_)) => {}
-            // Decimal and constants still use the universal grouped fallback.
-            Columnar::Canonical(Canonical::Decimal(_)) | Columnar::Constant(_) => return Ok(None),
-            Columnar::Canonical(_) => {
-                vortex_bail!("Unsupported canonical type for sum: {}", columnar.dtype())
-            }
+    ) -> VortexResult<bool> {
+        if let Some(primitive) = batch.as_opt::<Primitive>() {
+            let group_ids = group_ids.validated_ids(ctx)?;
+            let primitive = primitive.into_owned();
+            accumulate_grouped_primitive(partials, &primitive, group_ids.as_ref(), ctx)?;
+            return Ok(true);
         }
 
-        let partial_dtype = Sum
-            .partial_dtype(options, batch.dtype())
-            .ok_or_else(|| vortex_error::vortex_err!("Unsupported sum dtype: {}", batch.dtype()))?;
-        let ids = group_ids.validated_ids(ctx)?;
-        let mut partials = (0..group_ids.num_groups())
-            .map(|_| Sum.empty_partial(options, batch.dtype()))
-            .collect::<VortexResult<Vec<_>>>()?;
-
-        match &columnar {
-            Columnar::Canonical(Canonical::Primitive(p)) => {
-                accumulate_grouped_primitive(&mut partials, p, ids.as_ref(), ctx)?;
-            }
-            Columnar::Canonical(Canonical::Bool(b)) => {
-                accumulate_grouped_bool(&mut partials, b, ids.as_ref(), ctx)?;
-            }
-            Columnar::Canonical(Canonical::Decimal(_)) | Columnar::Constant(_) => unreachable!(),
-            Columnar::Canonical(_) => unreachable!(),
+        if let Some(bools) = batch.as_opt::<Bool>() {
+            let group_ids = group_ids.validated_ids(ctx)?;
+            let bools = bools.into_owned();
+            accumulate_grouped_bool(partials, &bools, group_ids.as_ref(), ctx)?;
+            return Ok(true);
         }
 
-        let Some(partials) = Sum.partials_to_array(&partials, &partial_dtype)? else {
-            return Ok(None);
-        };
-        Ok(Some(GroupedAggregateKernelResult::dense(
-            partials,
-            group_ids.num_groups(),
-        )?))
+        Ok(false)
     }
 }
 

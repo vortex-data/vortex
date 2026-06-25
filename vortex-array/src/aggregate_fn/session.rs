@@ -18,8 +18,8 @@ use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::aggregate_fn::fns::bounded_max::BoundedMax;
 use crate::aggregate_fn::fns::bounded_min::BoundedMin;
+use crate::aggregate_fn::fns::count::COUNT_GROUPED_KERNEL;
 use crate::aggregate_fn::fns::count::Count;
-use crate::aggregate_fn::fns::count::CountGroupedKernel;
 use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
@@ -29,8 +29,8 @@ use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::null_count::NullCount;
+use crate::aggregate_fn::fns::sum::SUM_GROUPED_KERNEL;
 use crate::aggregate_fn::fns::sum::Sum;
-use crate::aggregate_fn::fns::sum::SumGroupedKernel;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
@@ -68,7 +68,27 @@ impl SessionVar for AggregateFnSession {
 }
 
 type AggregateKernelKey = (ArrayId, Option<AggregateFnId>);
-type GroupedAggregateKernelKey = (AggregateFnId, Option<ArrayId>, Option<ArrayId>);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct GroupedAggregateKernelKey {
+    aggregate_id: AggregateFnId,
+    values_id: Option<ArrayId>,
+    group_ids_id: Option<ArrayId>,
+}
+
+impl GroupedAggregateKernelKey {
+    fn new(
+        aggregate_id: AggregateFnId,
+        values_id: Option<ArrayId>,
+        group_ids_id: Option<ArrayId>,
+    ) -> Self {
+        Self {
+            aggregate_id,
+            values_id,
+            group_ids_id,
+        }
+    }
+}
 
 impl Default for AggregateFnSession {
     fn default() -> Self {
@@ -103,8 +123,8 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
-        this.register_grouped_kernel(Count.id(), None, None, &CountGroupedKernel);
-        this.register_grouped_kernel(Sum.id(), None, None, &SumGroupedKernel);
+        this.register_grouped_kernel(Count.id(), None, None, &COUNT_GROUPED_KERNEL);
+        this.register_grouped_kernel(Sum.id(), None, None, &SUM_GROUPED_KERNEL);
 
         this
     }
@@ -174,10 +194,26 @@ impl AggregateFnSession {
         let group_ids_id = group_ids_id.into();
         self.grouped_kernels.read(|kernels| {
             kernels
-                .get(&(fn_id, Some(values_id), Some(group_ids_id)))
-                .or_else(|| kernels.get(&(fn_id, Some(values_id), None)))
-                .or_else(|| kernels.get(&(fn_id, None, Some(group_ids_id))))
-                .or_else(|| kernels.get(&(fn_id, None, None)))
+                .get(&GroupedAggregateKernelKey::new(
+                    fn_id,
+                    Some(values_id),
+                    Some(group_ids_id),
+                ))
+                .or_else(|| {
+                    kernels.get(&GroupedAggregateKernelKey::new(
+                        fn_id,
+                        Some(values_id),
+                        None,
+                    ))
+                })
+                .or_else(|| {
+                    kernels.get(&GroupedAggregateKernelKey::new(
+                        fn_id,
+                        None,
+                        Some(group_ids_id),
+                    ))
+                })
+                .or_else(|| kernels.get(&GroupedAggregateKernelKey::new(fn_id, None, None)))
                 .copied()
         })
     }
@@ -194,8 +230,10 @@ impl AggregateFnSession {
         kernel: &'static dyn DynGroupedAggregateKernel,
     ) {
         let fn_id = agg_fn_id.into();
-        self.grouped_kernels
-            .insert((fn_id, values_id, group_ids_id), kernel)
+        self.grouped_kernels.insert(
+            GroupedAggregateKernelKey::new(fn_id, values_id, group_ids_id),
+            kernel,
+        )
     }
 }
 
@@ -210,6 +248,8 @@ impl<S: SessionExt> AggregateFnSessionExt for S {}
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
+
     use vortex_error::VortexResult;
 
     use super::*;
@@ -217,7 +257,6 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::aggregate_fn::AggregateFnRef;
     use crate::aggregate_fn::GroupIds;
-    use crate::aggregate_fn::kernels::GroupedAggregateKernelResult;
     use crate::arrays::Constant;
     use crate::arrays::Primitive;
 
@@ -225,14 +264,15 @@ mod tests {
     struct TestGroupedKernel;
 
     impl DynGroupedAggregateKernel for TestGroupedKernel {
-        fn grouped_aggregate(
+        fn grouped_accumulate(
             &self,
             _aggregate_fn: &AggregateFnRef,
             _batch: &ArrayRef,
             _group_ids: &GroupIds,
+            _states: &mut dyn Any,
             _ctx: &mut ExecutionCtx,
-        ) -> VortexResult<Option<GroupedAggregateKernelResult>> {
-            Ok(None)
+        ) -> VortexResult<bool> {
+            Ok(false)
         }
     }
 

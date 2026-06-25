@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod grouped;
-pub(crate) use grouped::CountGroupedKernel;
+pub(crate) use grouped::COUNT_GROUPED_KERNEL;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
