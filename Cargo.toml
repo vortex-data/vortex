@@ -242,6 +242,14 @@ similar = "3.0.0"
 sketches-ddsketch = "0.4.0"
 smallvec = "1.15.1"
 smol = "2.0.2"
+spatialbench = "0.2"
+spatialbench-arrow = "0.2"
+# spatialbench still pins arrow 56, two majors behind the workspace arrow. Until upstream
+# catches up, write its generated batches with a matching parquet instead of converting
+# arrow versions at the boundary.
+spatialbench-parquet = { package = "parquet", version = "56", features = [
+    "async",
+] }
 static_assertions = "1.1"
 strum = "0.28"
 syn = { version = "2.0.117", features = ["full"] }
