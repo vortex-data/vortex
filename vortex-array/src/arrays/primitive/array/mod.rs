@@ -480,7 +480,7 @@ impl Array<Primitive> {
         }
     }
 
-    pub fn map_each_with_validity<T, R, F>(self, f: F, ctx: &mut ExecutionCtx) -> VortexResult<Self>
+    pub fn map_each_with_validity<T, R, F>(self, ctx: &mut ExecutionCtx, f: F) -> VortexResult<Self>
     where
         T: NativePType,
         R: NativePType,

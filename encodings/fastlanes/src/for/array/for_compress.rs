@@ -38,16 +38,13 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
 ) -> VortexResult<PrimitiveArray> {
     // Set null values to the min value, ensuring that decompress into a value in the primitive
     // range (and stop them wrapping around).
-    let encoded = parray.map_each_with_validity::<T, _, _>(
-        |(v, bool)| {
-            if bool {
-                v.wrapping_sub(&min)
-            } else {
-                T::zero()
-            }
-        },
-        ctx,
-    )?;
+    let encoded = parray.map_each_with_validity::<T, _, _>(ctx, |(v, bool)| {
+        if bool {
+            v.wrapping_sub(&min)
+        } else {
+            T::zero()
+        }
+    })?;
     Ok(encoded)
 }
 
