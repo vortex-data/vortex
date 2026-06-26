@@ -31,8 +31,6 @@ fn varbin_compute_min_max(
         .validity()?
         .execute_mask(array.len(), ctx)?
         .to_bit_buffer();
-    // Walk the views directly, borrowing each value (inlined bytes or a slice of a data
-    // buffer) rather than materializing an owned `ByteBuffer` per element.
     let views = array.views();
     let buffers = array
         .data_buffers()
