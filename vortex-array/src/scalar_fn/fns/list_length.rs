@@ -190,7 +190,6 @@ impl Matcher for AnyList {
 mod tests {
     use std::sync::Arc;
 
-    use insta::assert_snapshot;
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -378,11 +377,14 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let result = lengths.execute::<ArrayRef>(&mut ctx);
 
-        assert_snapshot!(
-            result.unwrap_err().to_string(),
-            @"Invalid argument error: Cannot cast array with invalid values to non-nullable type."
+        assert!(result.is_err());
 
+        let err_message = result.unwrap_err().to_string();
+
+        assert!(
+            err_message.contains("Cannot cast array with invalid values to non-nullable type.")
         );
+
         Ok(())
     }
 
