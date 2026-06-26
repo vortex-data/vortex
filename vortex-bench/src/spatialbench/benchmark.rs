@@ -79,7 +79,7 @@ impl Benchmark for SpatialBenchBenchmark {
         // convention). Only SF1.0 and SF10.0 are validated (like TPC-H); other scale factors return
         // `None`. Each vec covers Q1..Q9 — the queries that finish — and is identical for Parquet and
         // Vortex. Q10..Q12 are heavy spatial joins that time out, so they are left unvalidated (a
-        // shorter vec means the runner skips them). 
+        // shorter vec means the runner skips them).
         match self.scale_factor.as_str() {
             "1.0" => Some(vec![0, 94, 1, 22, 258, 316691, 3, 6000000, 369, 37]),
             "10.0" => Some(vec![0, 994, 1, 79, 231, 3144328, 3, 60000000, 9357, 573]),
