@@ -213,6 +213,10 @@ typedef enum DUCKDB_VX_EXPR_TYPE {
 
 duckdb_vx_expr_class duckdb_vx_expr_get_class(duckdb_vx_expr expr);
 
+/// Return the (bound) return type of the expression. The logical type is borrowed from the
+/// expression and must not be freed.
+duckdb_logical_type duckdb_vx_expr_get_return_type(duckdb_vx_expr expr);
+
 const char *duckdb_vx_expr_get_bound_column_ref_get_name(duckdb_vx_expr expr);
 
 duckdb_value duckdb_vx_expr_bound_constant_get_value(duckdb_vx_expr expr);
