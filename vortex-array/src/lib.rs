@@ -103,7 +103,6 @@ use crate::scalar_fn::session::ScalarFnSession;
 use crate::session::ArraySession;
 use crate::stats::session::StatsSession;
 
-pub mod accessor;
 pub mod aggregate_fn;
 #[doc(hidden)]
 pub mod aliases;

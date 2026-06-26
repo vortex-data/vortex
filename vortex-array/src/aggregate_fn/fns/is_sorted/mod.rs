@@ -487,7 +487,7 @@ impl AggregateFnVTable for IsSorted {
                 let batch_is_sorted = match c {
                     Canonical::Primitive(p) => check_primitive_sorted(p, partial.strict, ctx)?,
                     Canonical::Bool(b) => check_bool_sorted(b, partial.strict, ctx)?,
-                    Canonical::VarBinView(v) => check_varbinview_sorted(v, partial.strict)?,
+                    Canonical::VarBinView(v) => check_varbinview_sorted(v, partial.strict, ctx)?,
                     Canonical::Decimal(d) => check_decimal_sorted(d, partial.strict, ctx)?,
                     Canonical::Extension(e) => check_extension_sorted(e, partial.strict, ctx)?,
                     Canonical::Null(_) => !partial.strict,

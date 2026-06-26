@@ -543,6 +543,7 @@ impl PcoData {
             self.ptype,
             unsliced_validity.slice(self.slice_start..self.slice_stop)?,
             self.slice_stop - self.slice_start,
+            ctx,
         ))
     }
 

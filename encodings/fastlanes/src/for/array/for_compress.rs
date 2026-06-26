@@ -3,9 +3,8 @@
 
 use num_traits::PrimInt;
 use num_traits::WrappingSub;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::expr::stats::Stat;
@@ -16,16 +15,17 @@ use vortex_error::vortex_err;
 use crate::FoR;
 use crate::FoRArray;
 use crate::FoRData;
+
 impl FoRData {
-    pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
+    pub fn encode(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
         let array_ref = array.clone().into_array();
         let min = array_ref
             .statistics()
-            .compute_stat(Stat::Min, &mut LEGACY_SESSION.create_execution_ctx())?
+            .compute_stat(Stat::Min, ctx)?
             .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
-            compress_primitive::<T>(array, T::try_from(&min)?)?.into_array()
+            compress_primitive::<T>(array, T::try_from(&min)?, ctx)?.into_array()
         });
         FoR::try_new(encoded, min)
     }
@@ -34,16 +34,20 @@ impl FoRData {
 fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: PrimitiveArray,
     min: T,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     // Set null values to the min value, ensuring that decompress into a value in the primitive
     // range (and stop them wrapping around).
-    let encoded = parray.map_each_with_validity::<T, _, _>(|(v, bool)| {
-        if bool {
-            v.wrapping_sub(&min)
-        } else {
-            T::zero()
-        }
-    })?;
+    let encoded = parray.map_each_with_validity::<T, _, _>(
+        |(v, bool)| {
+            if bool {
+                v.wrapping_sub(&min)
+            } else {
+                T::zero()
+            }
+        },
+        ctx,
+    )?;
     Ok(encoded)
 }
 
@@ -53,12 +57,14 @@ mod test {
 
     use itertools::Itertools;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
     use vortex_array::expr::stats::StatsProvider;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
@@ -69,33 +75,30 @@ mod test {
     use crate::r#for::array::for_decompress::fused_decompress;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
+        let session = array_session();
         crate::initialize(&session);
         session
     });
 
     #[test]
     fn test_compress_round_trip_small() {
-        let array = PrimitiveArray::new(
-            (1i32..10).collect::<vortex_buffer::Buffer<_>>(),
-            Validity::NonNullable,
-        );
-        let compressed = FoRData::encode(array.clone()).unwrap();
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = PrimitiveArray::new((1i32..10).collect::<Buffer<_>>(), Validity::NonNullable);
+        let compressed = FoRData::encode(array.clone(), &mut ctx).unwrap();
         assert_eq!(i32::try_from(compressed.reference_scalar()).unwrap(), 1);
 
-        assert_arrays_eq!(compressed, array, &mut SESSION.create_execution_ctx());
+        assert_arrays_eq!(compressed, array, &mut ctx);
     }
 
     #[test]
     fn test_compress() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a range offset by a million.
         let array = PrimitiveArray::new(
-            (0u32..10_000)
-                .map(|v| v + 1_000_000)
-                .collect::<vortex_buffer::Buffer<_>>(),
+            (0u32..10_000).map(|v| v + 1_000_000).collect::<Buffer<_>>(),
             Validity::NonNullable,
         );
-        let compressed = FoRData::encode(array).unwrap();
+        let compressed = FoRData::encode(array, &mut ctx).unwrap();
         assert_eq!(
             u32::try_from(compressed.reference_scalar()).unwrap(),
             1_000_000u32
@@ -104,28 +107,27 @@ mod test {
 
     #[test]
     fn test_zeros() {
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![0i32; 100], Validity::NonNullable);
         assert_eq!(array.statistics().len(), 0);
 
         let dtype = array.dtype().clone();
-        let compressed = FoRData::encode(array).unwrap();
+        let compressed = FoRData::encode(array, &mut ctx).unwrap();
         assert_eq!(compressed.reference_scalar().dtype(), &dtype);
         assert!(compressed.reference_scalar().dtype().is_signed_int());
         assert!(compressed.encoded().dtype().is_signed_int());
 
-        let encoded = compressed
-            .encoded()
-            .execute_scalar(0, &mut SESSION.create_execution_ctx())
-            .unwrap();
+        let encoded = compressed.encoded().execute_scalar(0, &mut ctx).unwrap();
         assert_eq!(encoded, Scalar::from(0i32));
     }
 
     #[test]
     fn test_decompress() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a range offset by a million.
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
-        let compressed = FoRData::encode(array.clone()).unwrap();
-        assert_arrays_eq!(compressed, array, &mut SESSION.create_execution_ctx());
+        let compressed = FoRData::encode(array.clone(), &mut ctx).unwrap();
+        assert_arrays_eq!(compressed, array, &mut ctx);
     }
 
     #[test]
@@ -156,7 +158,7 @@ mod test {
     fn test_overflow() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
-        let compressed = FoRData::encode(array.clone())?;
+        let compressed = FoRData::encode(array.clone(), &mut ctx)?;
         assert_eq!(
             i8::MIN,
             compressed
