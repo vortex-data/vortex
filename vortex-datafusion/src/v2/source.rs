@@ -69,6 +69,7 @@
 
 use std::fmt;
 use std::fmt::Formatter;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -118,7 +119,8 @@ use vortex::expr::transform::replace;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::metrics::MetricsRegistry;
 use vortex::scan::DataSourceRef;
-use vortex::scan::PlannedMorselScanRef;
+use vortex::scan::DataSourceScanRef;
+use vortex::scan::ScanPartitioning;
 use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
@@ -293,7 +295,7 @@ impl VortexDataSourceBuilder {
             ordered: false,
             num_partitions: get_available_parallelism().unwrap_or(1),
             metrics_registry: self.metrics_registry,
-            morsel_plan: Arc::new(OnceCell::new()),
+            scan: Arc::new(OnceCell::new()),
         })
     }
 }
@@ -311,19 +313,19 @@ impl VortexDataSource {
     }
 
     fn scan_partition_count(&self) -> usize {
-        if self.should_morsel_repartition() {
+        if self.should_target_partitioning() {
             self.num_partitions.max(1)
         } else {
             1
         }
     }
 
-    fn should_morsel_repartition(&self) -> bool {
-        self.data_source.supports_morsel_partitioning() && !self.ordered && self.limit.is_none()
+    fn should_target_partitioning(&self) -> bool {
+        !self.ordered && self.limit.is_none()
     }
 
-    fn reset_morsel_plan(&mut self) {
-        self.morsel_plan = Arc::new(OnceCell::new());
+    fn reset_scan(&mut self) {
+        self.scan = Arc::new(OnceCell::new());
     }
 
     /// Returns the metrics registry attached to this source, if one was configured.
@@ -342,12 +344,9 @@ impl VortexDataSource {
 /// During execution, it builds the final Vortex [`ScanRequest`] from the
 /// current projection, pushed filters, ordering hints, and row limit.
 ///
-/// For unordered scans without a limit, this integration reports DataFusion's
-/// requested partition count when the wrapped source supports ScanPlan morsel
-/// partitioning. The async morsel plan is still built lazily in [`DataSource::open`],
-/// so partitions beyond the discovered morsel count produce empty streams.
-/// Ordered and limited scans use one output partition so the source can preserve
-/// semantics.
+/// For unordered scans without a limit, this integration passes DataFusion's
+/// requested partition count to the Vortex scan request. Ordered and limited scans use one output
+/// partition so the source can preserve semantics.
 ///
 /// Use [`crate::VortexSource`] instead when DataFusion should discover and plan
 /// `.vortex` files on its own.
@@ -396,15 +395,14 @@ pub struct VortexDataSource {
     ordered: bool,
 
     /// The requested partition count from DataFusion, populated by [`DataSource::repartitioned`].
-    /// When morsel partitioning is enabled, this is also the count we report back to DataFusion.
-    /// The final lazy plan may discover fewer non-empty partitions.
+    /// When target partitioning is enabled, this is also the count we report back to DataFusion.
     num_partitions: usize,
 
     /// Optional Vortex metrics registry populated by the wrapped source.
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 
-    /// Shared planned scan for DataFusion morsel repartitioning.
-    morsel_plan: Arc<OnceCell<Option<PlannedMorselScanRef>>>,
+    /// Shared Vortex scan used by all DataFusion output partitions.
+    scan: Arc<OnceCell<DataSourceScanRef>>,
 }
 
 impl fmt::Debug for VortexDataSource {
@@ -418,17 +416,40 @@ impl fmt::Debug for VortexDataSource {
     }
 }
 
-async fn scan_to_array_stream(
-    data_source: DataSourceRef,
-    scan_request: ScanRequest,
+fn known_partition_count(scan: &DataSourceScanRef) -> Option<usize> {
+    match scan.partition_count() {
+        Precision::Exact(count) | Precision::Inexact(count) => Some(count),
+        Precision::Absent => None,
+    }
+}
+
+fn scan_partition_to_array_stream(
+    scan: DataSourceScanRef,
+    partition: usize,
+) -> DFResult<BoxStream<'static, VortexResult<ArrayRef>>> {
+    if let Some(partition_count) = known_partition_count(&scan)
+        && partition >= partition_count
+    {
+        return Ok(stream::empty().boxed());
+    }
+
+    let Some(partition) = scan
+        .partition(partition)
+        .map_err(|e| DataFusionError::External(Box::new(e)))?
+    else {
+        return Ok(stream::empty().boxed());
+    };
+    Ok(partition
+        .execute()
+        .map_err(|e| DataFusionError::External(Box::new(e)))?
+        .boxed())
+}
+
+fn scan_partitions_to_array_stream(
+    scan: DataSourceScanRef,
+    ordered: bool,
     num_partitions: usize,
 ) -> DFResult<BoxStream<'static, VortexResult<ArrayRef>>> {
-    let ordered = scan_request.ordered;
-    let scan = data_source
-        .scan(scan_request)
-        .await
-        .map_err(|e| DataFusionError::External(Box::new(e)))?;
-
     // Each split.execute() returns a lazy stream whose early polls do preparation
     // work (expression resolution, layout traversal, first I/O spawns). Unordered
     // scans can poll multiple split streams concurrently so the next split is
@@ -461,13 +482,24 @@ impl DataSource for VortexDataSource {
             )));
         }
 
-        // Build the scan request with pushed-down projection, filter, and limit.
-        // The projection is included so the scan can prune columns at the I/O level.
+        let use_target_partitioning = self.should_target_partitioning();
+        let partitioning = if use_target_partitioning {
+            ScanPartitioning::Target(
+                NonZeroUsize::new(scan_partition_count)
+                    .expect("scan partition count is always non-zero"),
+            )
+        } else {
+            ScanPartitioning::SourceDefault
+        };
+
+        // Build the scan request with pushed-down projection, filter, limit, and physical
+        // partitioning preference.
         let scan_request = ScanRequest {
             projection: self.projected_projection.clone(),
             filter: self.filter.clone(),
             limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
             ordered: self.ordered,
+            partitioning,
             ..Default::default()
         };
 
@@ -480,9 +512,8 @@ impl DataSource for VortexDataSource {
         ));
         let session = self.session.clone();
         let num_partitions = self.num_partitions.max(1);
-        let scan_partition_count = self.scan_partition_count();
-        let use_morsel_repartition = self.should_morsel_repartition();
-        let morsel_plan = Arc::clone(&self.morsel_plan);
+        let ordered = self.ordered;
+        let scan = Arc::clone(&self.scan);
 
         // Pre-build the leftover projector (if any) so we can apply it after batch conversion.
         let leftover_projector = self
@@ -493,43 +524,27 @@ impl DataSource for VortexDataSource {
 
         // Defer the async DataSource work to the first poll of the stream.
         let stream = stream::once(async move {
-            let array_stream: BoxStream<'static, VortexResult<ArrayRef>> = if use_morsel_repartition
-            {
-                let planned = morsel_plan
-                    .get_or_try_init(|| {
-                        let data_source = Arc::clone(&data_source);
-                        let scan_request = scan_request.clone();
-                        async move {
-                            data_source
-                                .plan_morsel_partitions(scan_request, scan_partition_count)
-                                .await
-                                .map_err(|e| DataFusionError::External(Box::new(e)))
-                        }
-                    })
-                    .await?;
-
-                if let Some(planned) = planned {
-                    if partition >= planned.partition_count() {
-                        // DataFusion can schedule every partition it asked us to expose. If the
-                        // final lazy plan found fewer morsels, the surplus partitions are empty.
-                        stream::empty().boxed()
-                    } else {
-                        Arc::clone(planned)
-                            .partition(partition)
-                            .map_err(|e| DataFusionError::External(Box::new(e)))?
-                            .execute()
-                            .map_err(|e| DataFusionError::External(Box::new(e)))?
-                            .boxed()
+            let scan = scan
+                .get_or_try_init(|| {
+                    let data_source = Arc::clone(&data_source);
+                    let scan_request = scan_request.clone();
+                    async move {
+                        data_source
+                            .scan(scan_request)
+                            .await
+                            .map_err(|e| DataFusionError::External(Box::new(e)))
                     }
+                })
+                .await?;
+
+            let array_stream: BoxStream<'static, VortexResult<ArrayRef>> =
+                if use_target_partitioning {
+                    scan_partition_to_array_stream(Arc::clone(scan), partition)?
                 } else if partition == 0 {
-                    scan_to_array_stream(Arc::clone(&data_source), scan_request, num_partitions)
-                        .await?
+                    scan_partitions_to_array_stream(Arc::clone(scan), ordered, num_partitions)?
                 } else {
                     stream::empty().boxed()
-                }
-            } else {
-                scan_to_array_stream(Arc::clone(&data_source), scan_request, num_partitions).await?
-            };
+                };
 
             let handle = session.handle();
             let stream = array_stream
@@ -596,13 +611,13 @@ impl DataSource for VortexDataSource {
         let mut this = self.clone();
         this.num_partitions = target_partitions;
         this.ordered |= output_ordering.is_some();
-        this.reset_morsel_plan();
+        this.reset_scan();
         Ok(Some(Arc::new(this)))
     }
 
     fn output_partitioning(&self) -> Partitioning {
-        // Report the engine-requested partition count. We do not pre-open files here just to learn
-        // the exact morsel count; open() maps any surplus partitions to empty streams.
+        // Report the engine-requested partition count. The Vortex scan request carries the same
+        // target, and any source-level fallback maps surplus partitions to empty streams.
         Partitioning::UnknownPartitioning(self.scan_partition_count())
     }
 
@@ -638,7 +653,7 @@ impl DataSource for VortexDataSource {
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
         let mut this = self.clone();
         this.limit = limit;
-        this.reset_morsel_plan();
+        this.reset_scan();
         Some(Arc::new(this))
     }
 
@@ -701,7 +716,7 @@ impl DataSource for VortexDataSource {
         this.leftover_schema = Arc::clone(&final_schema);
         this.leftover_statistics =
             vec![ColumnStatistics::new_unknown(); final_schema.fields().len()];
-        this.reset_morsel_plan();
+        this.reset_scan();
 
         Ok(Some(Arc::new(this)))
     }
@@ -764,7 +779,7 @@ impl DataSource for VortexDataSource {
 
         let mut this = self.clone();
         this.filter = new_filter;
-        this.reset_morsel_plan();
+        this.reset_scan();
         Ok(
             FilterPushdownPropagation::with_parent_pushdown_result(pushdown_results)
                 .with_updated_node(Arc::new(this) as _),

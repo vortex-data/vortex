@@ -74,10 +74,8 @@ use crate::DataSourceScan;
 use crate::DataSourceScanRef;
 use crate::Partition;
 use crate::PartitionRef;
-use crate::PartitionStream;
-use crate::PlannedMorselScan;
-use crate::PlannedMorselScanRef;
 use crate::ScanMeta;
+use crate::ScanPartitioning;
 use crate::ScanRequest as DataSourceScanRequest;
 use crate::ScanScheduler;
 use crate::ScanSchedulerSessionExt;
@@ -278,6 +276,7 @@ pub trait ScanPlanFactory: 'static + Send + Sync {
     async fn open(&self) -> VortexResult<Option<ScanPlanRef>>;
 }
 
+#[derive(Clone)]
 enum ScanPlanChild {
     Opened(ScanPlanBinding),
     Deferred(Arc<dyn ScanPlanFactory>),
@@ -355,6 +354,70 @@ impl ScanPlanDataSource {
         bindings.sort_unstable_by_key(|(idx, _)| *idx);
         Ok(bindings)
     }
+
+    async fn scan_target_partitions(
+        &self,
+        scan_request: DataSourceScanRequest,
+        target_partitions: usize,
+    ) -> VortexResult<DataSourceScanRef> {
+        let dtype = scan_request.projection.return_dtype(&self.dtype)?;
+
+        let meta = ScanMeta {
+            label: Some("scan2".to_string()),
+        };
+        let provider = self.session.scan_scheduler_provider();
+        let scheduler = provider.scheduler_for_scan(&meta);
+
+        let mut planned_bindings = Vec::new();
+        for (partition_idx, binding) in self.open_sources(false).await? {
+            let Some(request) =
+                binding_scan_request(partition_idx, &binding, scan_request.clone())?
+            else {
+                continue;
+            };
+            let row_range = request
+                .row_range
+                .clone()
+                .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?;
+            let prepared = Arc::new(PreparedScanPlan::try_new(
+                &binding,
+                &self.session,
+                &request,
+            )?);
+            let execution = Arc::new(ScanExecution::try_new(
+                binding,
+                self.session.clone(),
+                prepared,
+                None,
+            )?);
+            let ranges = execution.splits(&row_range)?;
+            if !ranges.is_empty() {
+                planned_bindings.push((execution, ranges));
+            }
+        }
+
+        let mut partitions = vec![Vec::new(); target_partitions];
+        let mut morsel_idx = 0usize;
+        for (execution, ranges) in planned_bindings {
+            for range in ranges {
+                let partition = morsel_idx % target_partitions;
+                partitions[partition].push(PlannedScanPlanMorsel {
+                    execution: Arc::clone(&execution),
+                    range,
+                });
+                morsel_idx = morsel_idx.saturating_add(1);
+            }
+        }
+
+        let read_byte_budget = read_byte_budget(&scheduler);
+
+        Ok(Arc::new(PlannedScanPlanScan {
+            dtype,
+            partitions,
+            handle: self.session.handle(),
+            read_byte_budget,
+        }))
+    }
 }
 
 #[async_trait]
@@ -403,112 +466,30 @@ impl DataSource for ScanPlanDataSource {
         vortex_bail!("ScanPlanDataSource partitions are not yet serializable")
     }
 
-    async fn plan_morsel_partitions(
-        &self,
-        scan_request: DataSourceScanRequest,
-        target_partitions: usize,
-    ) -> VortexResult<Option<PlannedMorselScanRef>> {
-        if scan_request.ordered || scan_request.limit.is_some() {
-            return Ok(None);
-        }
-
-        let target_partitions = target_partitions.max(1);
-        let dtype = scan_request.projection.return_dtype(&self.dtype)?;
-
-        let meta = ScanMeta {
-            label: Some("scan2".to_string()),
-        };
-        let provider = self.session.scan_scheduler_provider();
-        let scheduler = provider.scheduler_for_scan(&meta);
-
-        let mut planned_bindings = Vec::new();
-        let mut total_morsels = 0usize;
-        for (partition_idx, binding) in self.open_sources(false).await? {
-            let Some(request) =
-                binding_scan_request(partition_idx, &binding, scan_request.clone())?
-            else {
-                continue;
-            };
-            let row_range = request
-                .row_range
-                .clone()
-                .ok_or_else(|| vortex_err!("scan2 partition row range missing"))?;
-            let prepared = Arc::new(PreparedScanPlan::try_new(
-                &binding,
-                &self.session,
-                &request,
-            )?);
-            let execution = Arc::new(ScanExecution::try_new(
-                binding,
-                self.session.clone(),
-                prepared,
-                None,
-            )?);
-            let ranges = execution.splits(&row_range)?;
-            if ranges.is_empty() {
-                continue;
-            }
-            total_morsels = total_morsels.saturating_add(ranges.len());
-            planned_bindings.push((execution, ranges));
-        }
-
-        // The physical plan may expose more engine partitions than we can fill with morsels.
-        // Keep only non-empty planned partitions; engine adapters can return empty streams for
-        // any surplus advertised partitions.
-        let partition_count = total_morsels.min(target_partitions);
-        let mut partitions = vec![Vec::new(); partition_count];
-        let mut morsel_idx = 0usize;
-        for (execution, ranges) in planned_bindings {
-            for range in ranges {
-                let partition = morsel_idx % partition_count;
-                partitions[partition].push(PlannedScanPlanMorsel {
-                    execution: Arc::clone(&execution),
-                    range,
-                });
-                morsel_idx = morsel_idx.saturating_add(1);
-            }
-        }
-
-        let read_byte_budget = read_byte_budget(&scheduler);
-
-        Ok(Some(Arc::new(PlannedScanPlanScan {
-            dtype,
-            partitions,
-            handle: self.session.handle(),
-            read_byte_budget,
-        })))
-    }
-
     async fn scan(&self, scan_request: DataSourceScanRequest) -> VortexResult<DataSourceScanRef> {
+        if let ScanPartitioning::Target(target_partitions) = scan_request.partitioning
+            && !scan_request.ordered
+            && scan_request.limit.is_none()
+        {
+            return self
+                .scan_target_partitions(scan_request, target_partitions.get())
+                .await;
+        }
+
         let meta = ScanMeta {
             label: Some("scan2".to_string()),
         };
         let provider = self.session.scan_scheduler_provider();
         let scheduler = provider.scheduler_for_scan(&meta);
-
-        let mut ready = VecDeque::new();
-        let mut deferred = VecDeque::new();
-
-        for (index, child) in self.children.iter().enumerate() {
-            match child {
-                ScanPlanChild::Opened(binding) => ready.push_back((index, binding.clone())),
-                ScanPlanChild::Deferred(factory) => {
-                    deferred.push_back((index, Arc::clone(factory)));
-                }
-            }
-        }
 
         let dtype = scan_request.projection.return_dtype(&self.dtype)?;
         let limit_remaining = scan_request.limit.map(AtomicU64::new).map(Arc::new);
 
-        Ok(Box::new(ScanPlanDataSourceScan {
+        Ok(Arc::new(ScanPlanDataSourceScan {
             dtype,
             request: scan_request,
-            ready,
-            deferred,
-            handle: self.session.handle(),
+            children: self.children.clone(),
             session: self.session.clone(),
-            concurrency: self.concurrency,
             scheduler,
             limit_remaining,
         }))
@@ -560,20 +541,13 @@ impl DataSource for ScanPlanDataSource {
         }
         Ok(stats_set)
     }
-
-    fn supports_morsel_partitioning(&self) -> bool {
-        true
-    }
 }
 
 struct ScanPlanDataSourceScan {
     dtype: DType,
     request: DataSourceScanRequest,
-    ready: VecDeque<(usize, ScanPlanBinding)>,
-    deferred: VecDeque<(usize, Arc<dyn ScanPlanFactory>)>,
-    handle: Handle,
+    children: Vec<ScanPlanChild>,
     session: VortexSession,
-    concurrency: usize,
     scheduler: Arc<ScanScheduler>,
     limit_remaining: Option<Arc<AtomicU64>>,
 }
@@ -584,86 +558,45 @@ impl DataSourceScan for ScanPlanDataSourceScan {
     }
 
     fn partition_count(&self) -> Precision<usize> {
-        let count = self.ready.len() + self.deferred.len();
-        if self.deferred.is_empty() {
+        let count = self.children.len();
+        if self
+            .children
+            .iter()
+            .all(|child| matches!(child, ScanPlanChild::Opened(_)))
+        {
             Precision::exact(count)
         } else {
             Precision::inexact(count)
         }
     }
 
-    fn partitions(self: Box<Self>) -> PartitionStream {
-        let Self {
-            dtype: _,
-            request,
-            ready,
-            deferred,
-            handle,
-            session,
-            concurrency,
-            scheduler,
-            limit_remaining,
-        } = *self;
-
-        let ordered = request.ordered;
-        let ready_stream = stream::iter(ready).map(Ok);
-        let spawned = stream::iter(deferred).map(move |(index, factory)| {
-            handle.spawn(async move {
-                factory
-                    .open()
-                    .instrument(tracing::info_span!("ScanPlanFactory::open"))
-                    .await
-                    .map(|opened| opened.map(|root| (index, ScanPlanBinding::new(root))))
-            })
-        });
-
-        let deferred_stream = if ordered {
-            spawned
-                .buffered(concurrency)
-                .filter_map(|result| async move {
-                    match result {
-                        Ok(Some(binding)) => Some(Ok(binding)),
-                        Ok(None) => None,
-                        Err(error) => Some(Err(error)),
-                    }
-                })
-                .boxed()
-        } else {
-            spawned
-                .buffer_unordered(concurrency)
-                .filter_map(|result| async move {
-                    match result {
-                        Ok(Some(binding)) => Some(Ok(binding)),
-                        Ok(None) => None,
-                        Err(error) => Some(Err(error)),
-                    }
-                })
-                .boxed()
+    fn partition(self: Arc<Self>, partition_idx: usize) -> VortexResult<Option<PartitionRef>> {
+        let Some(child) = self.children.get(partition_idx) else {
+            vortex_bail!(
+                "scan partition {partition_idx} is outside 0..{}",
+                self.children.len()
+            );
         };
 
-        ready_stream
-            .chain(deferred_stream)
-            .filter_map(move |binding_result| {
-                let request = request.clone();
-                let scheduler = Arc::clone(&scheduler);
-                let limit_remaining = limit_remaining.clone();
-                let session = session.clone();
-                async move {
-                    match binding_result {
-                        Ok((index, binding)) => binding_partition(
-                            index,
-                            binding,
-                            session,
-                            request,
-                            scheduler,
-                            limit_remaining,
-                        )
-                        .transpose(),
-                        Err(error) => Some(Err(error)),
-                    }
-                }
-            })
-            .boxed()
+        match child {
+            ScanPlanChild::Opened(binding) => binding_partition(
+                partition_idx,
+                binding.clone(),
+                self.session.clone(),
+                self.request.clone(),
+                Arc::clone(&self.scheduler),
+                self.limit_remaining.clone(),
+            ),
+            ScanPlanChild::Deferred(factory) => Ok(Some(Box::new(DeferredScanPlanPartition {
+                dtype: self.dtype.clone(),
+                index: partition_idx,
+                factory: Arc::clone(factory),
+                session: self.session.clone(),
+                request: self.request.clone(),
+                scheduler: Arc::clone(&self.scheduler),
+                limit_remaining: self.limit_remaining.clone(),
+            }))),
+        }
     }
 }
 
@@ -693,6 +626,78 @@ fn binding_partition(
         scheduler,
         limit_remaining,
     })))
+}
+
+struct DeferredScanPlanPartition {
+    dtype: DType,
+    index: usize,
+    factory: Arc<dyn ScanPlanFactory>,
+    session: VortexSession,
+    request: DataSourceScanRequest,
+    scheduler: Arc<ScanScheduler>,
+    limit_remaining: Option<Arc<AtomicU64>>,
+}
+
+impl Partition for DeferredScanPlanPartition {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn index(&self) -> usize {
+        self.index
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        Precision::Absent
+    }
+
+    fn byte_size(&self) -> Precision<u64> {
+        Precision::Absent
+    }
+
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+        let Self {
+            dtype,
+            index,
+            factory,
+            session,
+            request,
+            scheduler,
+            limit_remaining,
+        } = *self;
+
+        let output_dtype = dtype.clone();
+        let stream = stream::once(async move {
+            let Some(root) = factory
+                .open()
+                .instrument(tracing::info_span!("ScanPlanFactory::open"))
+                .await?
+            else {
+                return Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                    dtype,
+                    stream::empty(),
+                )));
+            };
+
+            let binding = ScanPlanBinding::new(root);
+            let Some(partition) =
+                binding_partition(index, binding, session, request, scheduler, limit_remaining)?
+            else {
+                return Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                    dtype,
+                    stream::empty(),
+                )));
+            };
+
+            partition.execute()
+        })
+        .try_flatten();
+
+        Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+            output_dtype,
+            stream,
+        )))
+    }
 }
 
 fn scan_plan_binding_stream(
@@ -2023,16 +2028,16 @@ struct PlannedScanPlanMorsel {
     range: Range<u64>,
 }
 
-impl PlannedMorselScan for PlannedScanPlanScan {
+impl DataSourceScan for PlannedScanPlanScan {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
-    fn partition_count(&self) -> usize {
-        self.partitions.len()
+    fn partition_count(&self) -> Precision<usize> {
+        Precision::exact(self.partitions.len())
     }
 
-    fn partition(self: Arc<Self>, partition: usize) -> VortexResult<PartitionRef> {
+    fn partition(self: Arc<Self>, partition: usize) -> VortexResult<Option<PartitionRef>> {
         if partition >= self.partitions.len() {
             vortex_bail!(
                 "planned scan partition {partition} is outside 0..{}",
@@ -2040,10 +2045,10 @@ impl PlannedMorselScan for PlannedScanPlanScan {
             );
         }
 
-        Ok(Box::new(PlannedScanPlanPartition {
+        Ok(Some(Box::new(PlannedScanPlanPartition {
             planned: self,
             index: partition,
-        }))
+        })))
     }
 }
 

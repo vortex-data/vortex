@@ -269,28 +269,23 @@ fn multi_file_scan_plan_data_source_filters_and_projects() -> VortexResult<()> {
         let mut ctx = session.create_execution_ctx();
         assert_arrays_eq!(actual, buffer![3u32, 4, 5, 6].into_array(), &mut ctx);
 
-        let planned = data_source
-            .plan_morsel_partitions(
-                vortex_scan::ScanRequest {
-                    projection: col("numbers"),
-                    filter: Some(gt(col("numbers"), lit(2u32))),
-                    ..Default::default()
-                },
-                128,
-            )
-            .await?
-            .ok_or_else(|| {
-                vortex_error::vortex_err!("scan plan data source must plan morsel partitions")
-            })?;
-
-        assert_eq!(planned.partition_count(), 2);
-
-        let dtype = planned.dtype().clone();
-        let stream = stream::iter(0..planned.partition_count())
-            .then(|partition| {
-                let planned = Arc::clone(&planned);
-                async move { planned.partition(partition)?.execute() }
+        let target_partitions = std::num::NonZeroUsize::new(128)
+            .ok_or_else(|| vortex_error::vortex_err!("target partition count must be non-zero"))?;
+        let scan = data_source
+            .scan(vortex_scan::ScanRequest {
+                projection: col("numbers"),
+                filter: Some(gt(col("numbers"), lit(2u32))),
+                partitioning: vortex_scan::ScanPartitioning::Target(target_partitions),
+                ..Default::default()
             })
+            .await?;
+
+        assert_eq!(scan.partition_count(), Precision::Exact(128));
+
+        let dtype = scan.dtype().clone();
+        let stream = scan
+            .partitions()
+            .then(|partition| async move { partition?.execute() })
             .try_flatten()
             .boxed();
         let actual = ArrayStreamAdapter::new(dtype, stream).read_all().await?;

@@ -3,16 +3,11 @@
 
 use std::any::Any;
 use std::ops::Range;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::Context;
-use std::task::Poll;
 
 use async_trait::async_trait;
 use futures::FutureExt;
-use futures::Stream;
 use futures::stream;
-use futures::stream::StreamExt;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
@@ -34,7 +29,6 @@ use vortex_scan::DataSourceScan;
 use vortex_scan::DataSourceScanRef;
 use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
-use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
@@ -134,7 +128,7 @@ impl DataSource for LayoutReaderDataSource {
                 row_count
             };
 
-            return Ok(Box::new(Empty { dtype, row_count }));
+            return Ok(Arc::new(Empty { dtype, row_count }));
         }
 
         // Check file-level pruning: if the filter can be proven false for the entire row range
@@ -150,14 +144,14 @@ impl DataSource for LayoutReaderDataSource {
             if let Some(Ok(result_mask)) = pruning_result
                 && result_mask.all_false()
             {
-                return Ok(Box::new(Empty {
+                return Ok(Arc::new(Empty {
                     dtype,
                     row_count: 0,
                 }));
             }
         }
 
-        Ok(Box::new(LayoutReaderScan {
+        Ok(Arc::new(LayoutReaderScan {
             reader: Arc::clone(&self.reader),
             session: self.session.clone(),
             dtype,
@@ -167,7 +161,7 @@ impl DataSource for LayoutReaderDataSource {
             selection: scan_request.selection,
             ordered: scan_request.ordered,
             metrics_registry: self.metrics_registry.clone(),
-            next_row: row_range.start,
+            start_row: row_range.start,
             end_row: row_range.end,
             split_size: self.split_max_row_count,
         }))
@@ -188,7 +182,7 @@ struct LayoutReaderScan {
     ordered: bool,
     selection: Selection,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
-    next_row: u64,
+    start_row: u64,
     end_row: u64,
     split_size: u64,
 }
@@ -199,76 +193,62 @@ impl DataSourceScan for LayoutReaderScan {
     }
 
     fn partition_count(&self) -> Precision<usize> {
-        let (lower, upper) = self.size_hint();
-        match upper {
-            Some(u) if u == lower => Precision::exact(lower),
-            Some(u) => Precision::inexact(u),
-            None => Precision::inexact(lower),
+        if self.start_row >= self.end_row {
+            return Precision::exact(0usize);
         }
+
+        if self.filter.is_none() && self.limit.is_some_and(|limit| limit == 0) {
+            return Precision::exact(0usize);
+        }
+
+        let remaining_rows = self.end_row - self.start_row;
+        let rows_to_scan = if self.filter.is_none() {
+            self.limit
+                .map_or(remaining_rows, |limit| remaining_rows.min(limit))
+        } else {
+            remaining_rows
+        };
+        let splits = rows_to_scan.div_ceil(self.split_size);
+        Precision::exact(usize::try_from(splits).unwrap_or(usize::MAX))
     }
 
-    fn partitions(self: Box<Self>) -> PartitionStream {
-        (*self).boxed()
-    }
-}
-
-impl Stream for LayoutReaderScan {
-    type Item = VortexResult<PartitionRef>;
-
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-
-        if this.next_row >= this.end_row {
-            return Poll::Ready(None);
+    fn partition(self: Arc<Self>, partition_idx: usize) -> VortexResult<Option<PartitionRef>> {
+        let row_offset = (partition_idx as u64).saturating_mul(self.split_size);
+        let split_start = self.start_row.saturating_add(row_offset);
+        if split_start >= self.end_row {
+            vortex_bail!(
+                "layout reader scan partition {partition_idx} is outside 0..{}",
+                self.partition_count().as_exact().unwrap_or(0)
+            );
         }
 
-        if this.limit.is_some_and(|limit| limit == 0) {
-            return Poll::Ready(None);
+        if self.filter.is_none() && self.limit.is_some_and(|limit| row_offset >= limit) {
+            return Ok(None);
         }
 
-        let split_end = this
-            .next_row
-            .saturating_add(this.split_size)
-            .min(this.end_row);
-        let row_range = this.next_row..split_end;
-        let split_rows = split_end - this.next_row;
+        let split_end = split_start
+            .saturating_add(self.split_size)
+            .min(self.end_row);
+        let row_range = split_start..split_end;
 
-        let split_limit = this.limit;
-        // Only decrement the remaining limit when there is no filter. With a filter,
-        // the actual output row count is unknown (could be anywhere from 0 to split_rows),
-        // so decrementing by split_rows would be too aggressive and could stop producing
-        // splits before the limit is reached. Instead, pass the full remaining limit to
-        // each split and let the engine enforce the exact limit at the stream level.
-        if this.filter.is_none()
-            && let Some(ref mut limit) = this.limit
-        {
-            *limit = limit.saturating_sub(split_rows);
-        }
+        let split_limit = if self.filter.is_none() {
+            self.limit.map(|limit| limit.saturating_sub(row_offset))
+        } else {
+            self.limit
+        };
+        // With a filter, output cardinality is unknown, so each split receives the full limit.
 
-        let split = Box::new(LayoutReaderSplit {
-            reader: Arc::clone(&this.reader),
-            session: this.session.clone(),
-            projection: this.projection.clone(),
-            filter: this.filter.clone(),
+        Ok(Some(Box::new(LayoutReaderSplit {
+            reader: Arc::clone(&self.reader),
+            session: self.session.clone(),
+            projection: self.projection.clone(),
+            filter: self.filter.clone(),
             limit: split_limit,
-            ordered: this.ordered,
+            ordered: self.ordered,
             row_range,
-            selection: this.selection.clone(),
-            metrics_registry: this.metrics_registry.clone(),
-        }) as PartitionRef;
-
-        this.next_row = split_end;
-
-        Poll::Ready(Some(Ok(split)))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.next_row >= self.end_row {
-            return (0, Some(0));
-        }
-        let remaining_rows = self.end_row - self.next_row;
-        let splits = remaining_rows.div_ceil(self.split_size);
-        (0, Some(usize::try_from(splits).unwrap_or(usize::MAX)))
+            selection: self.selection.clone(),
+            metrics_registry: self.metrics_registry.clone(),
+        })))
     }
 }
 
@@ -347,8 +327,15 @@ impl DataSourceScan for Empty {
         Precision::exact(1usize)
     }
 
-    fn partitions(self: Box<Self>) -> PartitionStream {
-        stream::iter([Ok(self as _)]).boxed()
+    fn partition(self: Arc<Self>, partition_idx: usize) -> VortexResult<Option<PartitionRef>> {
+        if partition_idx != 0 {
+            vortex_bail!("empty scan partition {partition_idx} is outside 0..1");
+        }
+
+        Ok(Some(Box::new(Empty {
+            dtype: self.dtype.clone(),
+            row_count: self.row_count,
+        })))
     }
 }
 

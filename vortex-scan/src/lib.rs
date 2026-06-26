@@ -30,10 +30,13 @@ pub mod selection;
 pub mod task;
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream;
 use futures::stream::BoxStream;
 pub use scheduler::ScanMeta;
 pub use scheduler::ScanScheduler;
@@ -129,29 +132,6 @@ pub trait DataSource: 'static + Send + Sync {
         vortex_bail!("DataSource does not support deserialization")
     }
 
-    /// Whether this source can split one scan into stable round-robin morsel partitions.
-    ///
-    /// Engines can use this to expose parallel scan partitions even when the underlying
-    /// source does not have enough file-level partitions. This is an execution hint, not
-    /// a guarantee that each partition has contiguous rows.
-    fn supports_morsel_partitioning(&self) -> bool {
-        false
-    }
-
-    /// Plans one scan into round-robin morsel partitions.
-    ///
-    /// Implementations should return `Ok(None)` when they cannot share one planned scan across
-    /// output partitions. When supported, the returned plan should cap its actual partition count
-    /// at the number of planned morsels and each partition should share the same planned scan
-    /// state instead of re-planning independently.
-    async fn plan_morsel_partitions(
-        &self,
-        _scan_request: ScanRequest,
-        _target_partitions: usize,
-    ) -> VortexResult<Option<PlannedMorselScanRef>> {
-        Ok(None)
-    }
-
     /// Returns a scan over the source.
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
 
@@ -205,6 +185,17 @@ fn root_field_path(expr: &Expression) -> Option<FieldPath> {
         .then(|| FieldPath::from_name(field.clone()))
 }
 
+/// Requested physical partitioning for a scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScanPartitioning {
+    /// Use the data source's natural partitioning for this scan.
+    #[default]
+    SourceDefault,
+    /// Ask the data source to expose this many output partitions when it can preserve the scan
+    /// semantics. Sources may fall back to their natural partitioning for constrained scans.
+    Target(NonZeroUsize),
+}
+
 /// A request to scan a data source.
 #[derive(Debug, Clone)]
 pub struct ScanRequest {
@@ -228,6 +219,8 @@ pub struct ScanRequest {
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
     pub limit: Option<u64>,
+    /// Requested physical partitioning for the scan.
+    pub partitioning: ScanPartitioning,
 }
 
 impl Default for ScanRequest {
@@ -241,38 +234,39 @@ impl Default for ScanRequest {
             ordered: false,
             limit: None,
             partition_range: None,
+            partitioning: ScanPartitioning::SourceDefault,
         }
     }
 }
 
-/// A boxed data source scan.
-pub type DataSourceScanRef = Box<dyn DataSourceScan>;
-
-/// A reference-counted scan that has already been planned into morsel partitions.
-pub type PlannedMorselScanRef = Arc<dyn PlannedMorselScan>;
-
-/// A planned scan that can return shared execution partitions.
-pub trait PlannedMorselScan: 'static + Send + Sync {
-    /// The returned dtype of the scan.
-    fn dtype(&self) -> &DType;
-
-    /// The exact number of non-empty execution partitions in this plan.
-    fn partition_count(&self) -> usize;
-
-    /// Returns one planned execution partition.
-    fn partition(self: Arc<Self>, partition: usize) -> VortexResult<PartitionRef>;
-}
+/// A reference-counted data source scan.
+pub type DataSourceScanRef = Arc<dyn DataSourceScan>;
 
 /// A data source scan produces partitions that can be executed to read data from the source.
-pub trait DataSourceScan: 'static + Send {
+pub trait DataSourceScan: 'static + Send + Sync {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
 
     /// Returns an estimate of the total number of partitions the scan will produce.
     fn partition_count(&self) -> Precision<usize>;
 
+    /// Returns a partition by index, or `None` when the partition slot has no work.
+    fn partition(self: Arc<Self>, partition: usize) -> VortexResult<Option<PartitionRef>>;
+
     /// Returns a stream of partitions to be processed.
-    fn partitions(self: Box<Self>) -> PartitionStream;
+    fn partitions(self: Arc<Self>) -> PartitionStream {
+        let partition_count = match self.partition_count() {
+            Precision::Exact(count) | Precision::Inexact(count) => count,
+            Precision::Absent => 0,
+        };
+
+        stream::iter(0..partition_count)
+            .filter_map(move |partition| {
+                let scan = Arc::clone(&self);
+                async move { scan.partition(partition).transpose() }
+            })
+            .boxed()
+    }
 }
 
 /// A reference-counted partition.

@@ -4,10 +4,8 @@
 //! A [`DataSource`] that combines multiple [`LayoutReaderRef`]s into a single scannable source.
 //!
 //! Readers may be pre-opened or deferred via [`LayoutReaderFactory`]. Deferred readers are opened
-//! concurrently during scanning using `buffer_unordered`: up to `concurrency` file opens run in
-//! parallel as spawned tasks on the session runtime. Once opened, each reader yields a single
-//! partition covering its full row range; internal I/O pipelining and chunking are handled by
-//! [`ScanBuilder`].
+//! when their partition is executed. Each reader yields a single partition covering its full row
+//! range; internal I/O pipelining and chunking are handled by [`ScanBuilder`].
 //!
 //! # Schema Resolution
 //!
@@ -25,12 +23,11 @@
 //! - **Error resilience**: Skip failed sources instead of aborting the entire scan.
 
 use std::any::Any;
-use std::collections::VecDeque;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::FutureExt;
-use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::stream;
 use itertools::Itertools;
 use tracing::Instrument;
@@ -43,24 +40,18 @@ use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_scan::DataSource;
 use vortex_scan::DataSourceScan;
 use vortex_scan::DataSourceScanRef;
 use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
-use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
-use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::scan_builder::ScanBuilder;
-
-/// Default concurrency for opening deferred readers.
-const DEFAULT_CONCURRENCY: usize = 8;
 
 /// An async factory that produces a [`LayoutReaderRef`].
 ///
@@ -76,17 +67,15 @@ pub trait LayoutReaderFactory: 'static + Send + Sync {
 /// A [`DataSource`] that combines multiple [`LayoutReaderRef`]s into a single scannable source.
 ///
 /// Readers may be pre-opened or deferred via [`LayoutReaderFactory`]. Deferred readers are opened
-/// concurrently during scanning using `buffer_unordered`, mirroring the DuckDB scan pattern: up
-/// to `concurrency` file opens run in parallel as spawned tasks on the session runtime. Once
-/// opened, each reader yields a single partition covering its full row range; internal I/O
-/// pipelining and chunking are handled by [`ScanBuilder`].
+/// when their partition is executed. Once opened, each reader yields a single partition covering
+/// its full row range; internal I/O pipelining and chunking are handled by [`ScanBuilder`].
 pub struct MultiLayoutDataSource {
     dtype: DType,
     session: VortexSession,
     children: Vec<MultiLayoutChild>,
-    concurrency: usize,
 }
 
+#[derive(Clone)]
 pub enum MultiLayoutChild {
     Opened {
         reader: LayoutReaderRef,
@@ -124,8 +113,6 @@ impl MultiLayoutDataSource {
         session: &VortexSession,
     ) -> Self {
         let dtype = first.dtype().clone();
-        let concurrency = get_available_parallelism().unwrap_or(DEFAULT_CONCURRENCY);
-
         let total = 1 + remaining.len();
         let mut sizes = byte_sizes;
         if sizes.is_empty() {
@@ -155,7 +142,6 @@ impl MultiLayoutDataSource {
             dtype,
             session: session.clone(),
             children,
-            concurrency,
         }
     }
 
@@ -172,8 +158,6 @@ impl MultiLayoutDataSource {
         byte_sizes: Vec<Option<u64>>,
         session: &VortexSession,
     ) -> Self {
-        let concurrency = get_available_parallelism().unwrap_or(DEFAULT_CONCURRENCY);
-
         let mut sizes = byte_sizes;
         if sizes.is_empty() {
             sizes = vec![None; factories.len()];
@@ -192,21 +176,11 @@ impl MultiLayoutDataSource {
                 .zip_eq(sizes)
                 .map(|(factory, byte_size)| MultiLayoutChild::Deferred { factory, byte_size })
                 .collect(),
-            concurrency,
         }
     }
 
     pub fn children(&self) -> &Vec<MultiLayoutChild> {
         &self.children
-    }
-
-    /// Sets the concurrency for opening deferred readers.
-    ///
-    /// Controls how many file opens run in parallel via `buffer_unordered`.
-    /// Defaults to the number of available CPU cores.
-    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
-        self.concurrency = concurrency;
-        self
     }
 }
 
@@ -286,28 +260,13 @@ impl DataSource for MultiLayoutDataSource {
     }
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
-        let mut ready = VecDeque::new();
-        let mut deferred = VecDeque::new();
-
-        for child in &self.children {
-            match child {
-                MultiLayoutChild::Opened { reader, .. } => ready.push_back(Arc::clone(reader)),
-                MultiLayoutChild::Deferred { factory, .. } => {
-                    deferred.push_back(Arc::clone(factory))
-                }
-            }
-        }
-
         let dtype = scan_request.projection.return_dtype(&self.dtype)?;
 
-        Ok(Box::new(MultiLayoutScan {
+        Ok(Arc::new(MultiLayoutScan {
             session: self.session.clone(),
             dtype,
             request: scan_request,
-            ready,
-            deferred,
-            handle: self.session.handle(),
-            concurrency: self.concurrency,
+            children: self.children.clone(),
         }))
     }
 
@@ -320,10 +279,7 @@ struct MultiLayoutScan {
     session: VortexSession,
     dtype: DType,
     request: ScanRequest,
-    ready: VecDeque<LayoutReaderRef>,
-    deferred: VecDeque<Arc<dyn LayoutReaderFactory>>,
-    handle: vortex_io::runtime::Handle,
-    concurrency: usize,
+    children: Vec<MultiLayoutChild>,
 }
 
 impl DataSourceScan for MultiLayoutScan {
@@ -332,91 +288,57 @@ impl DataSourceScan for MultiLayoutScan {
     }
 
     fn partition_count(&self) -> Precision<usize> {
-        let count = self.ready.len() + self.deferred.len();
-        if self.deferred.is_empty() {
+        let count = self.children.len();
+        if self
+            .children
+            .iter()
+            .all(|child| matches!(child, MultiLayoutChild::Opened { .. }))
+        {
             Precision::exact(count)
         } else {
             Precision::inexact(count)
         }
     }
 
-    fn partitions(self: Box<Self>) -> PartitionStream {
-        let Self {
-            session,
-            dtype: _,
-            request,
-            ready,
-            deferred,
-            handle,
-            concurrency,
-        } = *self;
-
-        let ordered = request.ordered;
-
-        // Pre-opened readers are immediately available.
-        let ready_stream = stream::iter(ready).map(Ok);
-
-        // Deferred readers are opened concurrently via spawned tasks.
-        // When ordered, we use `buffered` to preserve the original partition order.
-        // When unordered, we use `buffer_unordered` to yield partitions as they open.
-        let spawned = stream::iter(deferred).map(move |factory| {
-            handle.spawn(async move {
-                factory
-                    .open()
-                    .instrument(tracing::info_span!("LayoutReaderFactory::open"))
-                    .await
-            })
-        });
-
-        let deferred_stream = if ordered {
-            spawned
-                .buffered(concurrency)
-                .filter_map(|result| async move {
-                    match result {
-                        Ok(Some(reader)) => Some(Ok(reader)),
-                        Ok(None) => None,
-                        Err(e) => Some(Err(e)),
-                    }
-                })
-                .boxed()
-        } else {
-            spawned
-                .buffer_unordered(concurrency)
-                .filter_map(|result| async move {
-                    match result {
-                        Ok(Some(reader)) => Some(Ok(reader)),
-                        Ok(None) => None,
-                        Err(e) => Some(Err(e)),
-                    }
-                })
-                .boxed()
+    fn partition(self: Arc<Self>, partition_idx: usize) -> VortexResult<Option<PartitionRef>> {
+        let Some(child) = self.children.get(partition_idx) else {
+            vortex_bail!(
+                "multi-layout scan partition {partition_idx} is outside 0..{}",
+                self.children.len()
+            );
         };
 
-        // For each reader (ready or just-opened), generate a partition.
-        // Partition generation is synchronous (just creates structs with row ranges), so
-        // `flat_map` is appropriate here. The real I/O work happens when `execute()` is called.
-        ready_stream
-            .chain(deferred_stream)
-            .enumerate()
-            .flat_map(move |(i, reader_result)| match reader_result {
-                Ok(reader) => reader_partition(i, reader, session.clone(), request.clone()),
-                Err(e) => stream::once(async move { Err(e) }).boxed(),
-            })
-            .boxed()
+        match child {
+            MultiLayoutChild::Opened { reader, .. } => reader_partition(
+                partition_idx,
+                Arc::clone(reader),
+                self.session.clone(),
+                self.request.clone(),
+            ),
+            MultiLayoutChild::Deferred { factory, .. } => {
+                Ok(Some(Box::new(DeferredMultiLayoutPartition {
+                    dtype: self.dtype.clone(),
+                    index: partition_idx,
+                    factory: Arc::clone(factory),
+                    session: self.session.clone(),
+                    request: self.request.clone(),
+                })))
+            }
+        }
     }
 }
 
-/// Generates a partition stream for a single layout reader.
+/// Generates a partition for a single layout reader.
 ///
 /// Checks file-level pruning first (via `pruning_evaluation`). If the filter proves no rows
-/// can match, returns an empty stream. Otherwise, yields a single partition covering the
+/// can match, returns `None`. Otherwise, yields a single partition covering the
 /// reader's full row range.
 fn reader_partition(
     partition_idx: usize,
     reader: LayoutReaderRef,
     session: VortexSession,
     request: ScanRequest,
-) -> PartitionStream {
+) -> VortexResult<Option<PartitionRef>> {
     let row_count = reader.row_count();
     let row_range = request.row_range.clone().unwrap_or(0..row_count);
 
@@ -424,17 +346,17 @@ fn reader_partition(
     if let Some(range) = &request.partition_range
         && !range.contains(&partition_idx_u64)
     {
-        return stream::empty().boxed();
+        return Ok(None);
     };
     match &request.partition_selection {
         Selection::IncludeByIndex(buffer) => {
             if buffer.as_slice().binary_search(&partition_idx_u64).is_err() {
-                return stream::empty().boxed();
+                return Ok(None);
             }
         }
         Selection::ExcludeByIndex(buffer) => {
             if buffer.as_slice().binary_search(&partition_idx_u64).is_ok() {
-                return stream::empty().boxed();
+                return Ok(None);
             }
         }
         _ => {}
@@ -449,22 +371,84 @@ fn reader_partition(
             && let Some(Ok(result_mask)) = pruning_future.now_or_never()
             && result_mask.all_false()
         {
-            return stream::empty().boxed();
+            return Ok(None);
         }
     }
 
-    stream::once(async move {
-        Ok(Box::new(MultiLayoutPartition {
-            reader,
+    Ok(Some(Box::new(MultiLayoutPartition {
+        reader,
+        session,
+        request: ScanRequest {
+            row_range: Some(row_range),
+            ..request
+        },
+        index: partition_idx,
+    })))
+}
+
+struct DeferredMultiLayoutPartition {
+    dtype: DType,
+    index: usize,
+    factory: Arc<dyn LayoutReaderFactory>,
+    session: VortexSession,
+    request: ScanRequest,
+}
+
+impl Partition for DeferredMultiLayoutPartition {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn index(&self) -> usize {
+        self.index
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        Precision::Absent
+    }
+
+    fn byte_size(&self) -> Precision<u64> {
+        Precision::Absent
+    }
+
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+        let Self {
+            dtype,
+            index,
+            factory,
             session,
-            request: ScanRequest {
-                row_range: Some(row_range),
-                ..request
-            },
-            index: partition_idx,
-        }) as PartitionRef)
-    })
-    .boxed()
+            request,
+        } = *self;
+
+        let output_dtype = dtype.clone();
+        let stream = stream::once(async move {
+            let Some(reader) = factory
+                .open()
+                .instrument(tracing::info_span!("LayoutReaderFactory::open"))
+                .await?
+            else {
+                return Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                    dtype,
+                    stream::empty(),
+                )));
+            };
+
+            let Some(partition) = reader_partition(index, reader, session, request)? else {
+                return Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                    dtype,
+                    stream::empty(),
+                )));
+            };
+
+            partition.execute()
+        })
+        .try_flatten();
+
+        Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+            output_dtype,
+            stream,
+        )))
+    }
 }
 
 /// A partition backed by a single [`LayoutReaderRef`] and a row range.
