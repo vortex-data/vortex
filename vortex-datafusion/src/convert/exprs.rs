@@ -668,29 +668,12 @@ fn array_length_input(scalar_fn: &ScalarFunctionExpr) -> Option<&Arc<dyn Physica
     }
 }
 
-/// Returns true if `expr` is an integer literal equal to 1. The dimension argument of
-/// `array_length` is coerced to `Int64`, but we accept any integer width defensively.
+/// Returns true if `expr` is an `Int64` literal equal to 1. DataFusion coerces the `array_length`
+/// dimension argument to `Int64`, so that is the only form we need to recognize; any other literal
+/// simply isn't pushed down.
 fn is_dimension_one(expr: &Arc<dyn PhysicalExpr>) -> bool {
-    let Some(literal) = expr.downcast_ref::<df_expr::Literal>() else {
-        return false;
-    };
-
-    let dimension = match literal.value() {
-        ScalarValue::Int8(Some(v)) => i64::from(*v),
-        ScalarValue::Int16(Some(v)) => i64::from(*v),
-        ScalarValue::Int32(Some(v)) => i64::from(*v),
-        ScalarValue::Int64(Some(v)) => *v,
-        ScalarValue::UInt8(Some(v)) => i64::from(*v),
-        ScalarValue::UInt16(Some(v)) => i64::from(*v),
-        ScalarValue::UInt32(Some(v)) => i64::from(*v),
-        ScalarValue::UInt64(Some(v)) => match i64::try_from(*v) {
-            Ok(v) => v,
-            Err(_) => return false,
-        },
-        _ => return false,
-    };
-
-    dimension == 1
+    expr.downcast_ref::<df_expr::Literal>()
+        .is_some_and(|literal| matches!(literal.value(), ScalarValue::Int64(Some(1))))
 }
 
 #[cfg(test)]

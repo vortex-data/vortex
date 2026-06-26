@@ -13,8 +13,6 @@ use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_common::GetExt;
-use datafusion_expr::ScalarUDF;
-use datafusion_functions_nested::length::ArrayLength;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use insta::assert_snapshot;
 use object_store::ObjectStore;
@@ -23,7 +21,6 @@ use rstest::rstest;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
-use vortex::array::arrays::ListArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::validity::Validity;
@@ -231,114 +228,6 @@ async fn test_octet_length_pushdown() -> anyhow::Result<()> {
         | abcd | 4   |
         | é    | 2   |
         +------+-----+
-        ");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn test_array_length_pushdown() -> anyhow::Result<()> {
-    // `new(true)` enables projection pushdown so the `array_length` projection is pushed into
-    // the Vortex scan rather than evaluated above it.
-    let ctx = TestSessionContext::new(true);
-    // `array_length` is a nested-array function; the test session is built without the
-    // `nested_expressions` default feature, so register it explicitly.
-    ctx.session
-        .register_udf(ScalarUDF::from(ArrayLength::new()));
-    let session = VortexSession::default();
-
-    // Five lists with element counts 3, 4, 0, 5, 2 respectively. The empty list exercises the
-    // 0 (not NULL) result that both DataFusion's `array_length` and Vortex's `list_length`
-    // produce for a non-null empty list.
-    let elements = buffer![
-        10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140
-    ]
-    .into_array();
-    let offsets = buffer![0i32, 3, 7, 7, 12, 14].into_array();
-    let int_list = ListArray::try_new(elements, offsets, Validity::AllValid)?.into_array();
-    let ids = buffer![0i32, 1, 2, 3, 4].into_array();
-
-    let st = StructArray::try_new(
-        ["id", "int_list"].into(),
-        vec![ids, int_list],
-        5,
-        Validity::NonNullable,
-    )?;
-
-    let mut writer = ObjectStoreWrite::new(Arc::clone(&ctx.store), &"list.vortex".into()).await?;
-    session
-        .write_options()
-        .write(&mut writer, st.into_array().to_array_stream())
-        .await?;
-    writer.shutdown().await?;
-
-    // Projection: `array_length` computed from the list offsets without materializing elements.
-    let result = ctx
-        .session
-        .sql(
-            "SELECT id, array_length(int_list) AS len \
-             FROM '/list.vortex' \
-             ORDER BY id",
-        )
-        .await?
-        .collect()
-        .await?;
-
-    assert_eq!(
-        result[0].schema().field_with_name("len")?.data_type(),
-        &DataType::UInt64
-    );
-    assert_snapshot!(pretty_format_batches(&result)?, @r"
-        +----+-----+
-        | id | len |
-        +----+-----+
-        | 0  | 3   |
-        | 1  | 4   |
-        | 2  | 0   |
-        | 3  | 5   |
-        | 4  | 2   |
-        +----+-----+
-        ");
-
-    // The explicit first-dimension form `array_length(int_list, 1)` is equivalent and pushes
-    // down identically.
-    let with_dimension = ctx
-        .session
-        .sql(
-            "SELECT array_length(int_list, 1) AS len \
-             FROM '/list.vortex' \
-             ORDER BY id",
-        )
-        .await?
-        .collect()
-        .await?;
-
-    assert_snapshot!(pretty_format_batches(&with_dimension)?, @r"
-        +-----+
-        | len |
-        +-----+
-        | 3   |
-        | 4   |
-        | 0   |
-        | 5   |
-        | 2   |
-        +-----+
-        ");
-
-    // Filter: `WHERE array_length(int_list) >= 4` keeps the 4- and 5-element lists.
-    let filtered = ctx
-        .session
-        .sql("SELECT COUNT(*) AS cnt FROM '/list.vortex' WHERE array_length(int_list) >= 4")
-        .await?
-        .collect()
-        .await?;
-
-    assert_snapshot!(pretty_format_batches(&filtered)?, @r"
-        +-----+
-        | cnt |
-        +-----+
-        | 2   |
-        +-----+
         ");
 
     Ok(())

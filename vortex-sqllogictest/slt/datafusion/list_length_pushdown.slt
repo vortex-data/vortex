@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# `array_length` / `list_length` over a list column is rewritten to Vortex's `list_length` and
+# pushed into the scan (computed from list offsets, without materializing the elements).
+
+include ../setup.slt.no
+
+# Projection-expression pushdown is off by default; enable it so the length computation folds
+# into the Vortex scan rather than being evaluated by a ProjectionExec above it.
+statement ok
+SET vortex.projection_pushdown = true;
+
+# A Vortex file with a list column whose rows have 3, 2, and 4 elements.
+query I
+COPY (
+    SELECT 1 AS id, make_array(10, 20, 30) AS tags
+    UNION ALL SELECT 2, make_array(40, 50)
+    UNION ALL SELECT 3, make_array(60, 70, 80, 90)
+) TO '${WORK_DIR}/list_length.vortex';
+----
+3
+
+# `array_length(list)` returns the per-row element count as UInt64.
+query II
+SELECT id, array_length(tags) AS len FROM '${WORK_DIR}/list_length.vortex' ORDER BY id;
+----
+1 3
+2 2
+3 4
+
+# The explicit first-dimension form `array_length(list, 1)` is equivalent.
+query II
+SELECT id, array_length(tags, 1) AS len FROM '${WORK_DIR}/list_length.vortex' ORDER BY id;
+----
+1 3
+2 2
+3 4
+
+# Filtering on the length pushes the predicate into the scan.
+query I
+SELECT count(*) FROM '${WORK_DIR}/list_length.vortex' WHERE array_length(tags) >= 3;
+----
+2
+
+# The physical plan must show the projection pushed into the Vortex DataSourceExec, with no
+# array_length ScalarFunctionExpr remaining above the scan.
+query TT
+EXPLAIN SELECT array_length(tags) AS len FROM '${WORK_DIR}/list_length.vortex';
+----
+logical_plan
+01)Projection: array_length(${WORK_DIR}/list_length.vortex.tags) AS len
+02)--TableScan: ${WORK_DIR}/list_length.vortex projection=[tags]
+physical_plan DataSourceExec: file_groups={<slt:ignore>}, projection=[array_length(tags@1) as len], file_type=vortex
