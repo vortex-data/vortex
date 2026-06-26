@@ -6,12 +6,12 @@ use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::accessor::ArrayAccessor;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ListArray;
@@ -352,24 +352,22 @@ fn scalar_at_empty_children_leading() {
 }
 
 #[test]
-pub fn pack_nested_structs() {
+pub fn pack_nested_structs() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let struct_array = StructArray::try_new(
         ["a"].into(),
         vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()],
         4,
         Validity::NonNullable,
-    )
-    .unwrap();
+    )?;
     let dtype = struct_array.dtype().clone();
     let chunked = ChunkedArray::try_new(
         vec![
-            ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())
-                .unwrap()
+            ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())?
                 .into_array(),
         ],
         dtype,
-    )
-    .unwrap()
+    )?
     .into_array();
     #[expect(deprecated)]
     let canonical_struct = chunked.to_struct();
@@ -377,11 +375,28 @@ pub fn pack_nested_structs() {
     let canonical_varbin = canonical_struct.unmasked_fields()[0].to_varbinview();
     #[expect(deprecated)]
     let original_varbin = struct_array.unmasked_fields()[0].to_varbinview();
-    let orig_values =
-        original_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
-    let canon_values =
-        canonical_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
+    let orig_mask = original_varbin
+        .validity()?
+        .execute_mask(original_varbin.len(), &mut ctx)?;
+    let orig_values = (0..original_varbin.len())
+        .map(|i| {
+            orig_mask
+                .value(i)
+                .then(|| original_varbin.bytes_at(i).to_vec())
+        })
+        .collect::<Vec<_>>();
+    let canon_mask = canonical_varbin
+        .validity()?
+        .execute_mask(canonical_varbin.len(), &mut ctx)?;
+    let canon_values = (0..canonical_varbin.len())
+        .map(|i| {
+            canon_mask
+                .value(i)
+                .then(|| canonical_varbin.bytes_at(i).to_vec())
+        })
+        .collect::<Vec<_>>();
     assert_eq!(orig_values, canon_values);
+    Ok(())
 }
 
 #[test]

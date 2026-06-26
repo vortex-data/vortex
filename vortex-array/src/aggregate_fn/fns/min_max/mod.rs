@@ -411,7 +411,7 @@ impl AggregateFnVTable for MinMax {
             Columnar::Canonical(c) => match c {
                 Canonical::Primitive(p) => accumulate_primitive(partial, p, ctx),
                 Canonical::Bool(b) => accumulate_bool(partial, b, ctx),
-                Canonical::VarBinView(v) => accumulate_varbinview(partial, v),
+                Canonical::VarBinView(v) => accumulate_varbinview(partial, v, ctx),
                 Canonical::Decimal(d) => accumulate_decimal(partial, d, ctx),
                 Canonical::Extension(e) => accumulate_extension(partial, e, ctx),
                 Canonical::Null(_) => Ok(()),

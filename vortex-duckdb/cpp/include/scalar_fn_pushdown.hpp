@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
 #pragma once
+#include "duckdb.h"
 
 #include "duckdb/optimizer/optimizer_extension.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
@@ -9,7 +9,6 @@
 #include "duckdb/planner/operator/logical_get.hpp"
 #include <optional>
 
-// Only one consumer of this header file, so "using" is fine
 using namespace duckdb;
 
 using ExpressionPtr = unique_ptr<Expression>;
@@ -50,6 +49,8 @@ struct GetAnalysis {
      * or without function application in the query plan.
      */
     unordered_map<TableColumnScanIndex, const BoundFunctionExpression *> col_to_fn;
+
+    TableColumnStorageIndex StorageIndex(TableColumnScanIndex idx) const;
 };
 
 using Analyses = unordered_map<TableIndex, GetAnalysis>;
@@ -73,6 +74,8 @@ using Analyses = unordered_map<TableIndex, GetAnalysis>;
  * Storing a reference is fine because the plan outlives the optimizer pass.
  */
 using Projections = unordered_map<TableIndex, LogicalProjection &>;
+
+LogicalOperatorPtr TryPushdownScalarFunctions(ClientContext &context, LogicalOperatorPtr plan);
 
 /**
  * Collect fn(col) expressions i.e. expressions where a single function (not
@@ -104,14 +107,6 @@ struct ScalarFnReplace final : LogicalOperatorVisitor {
 };
 
 void FindGetsAndProjections(LogicalOperator &op, Analyses &analyses, Projections &aliases);
-
-LogicalOperatorPtr TryPushdownScalarFunctions(ClientContext &context, LogicalOperatorPtr plan);
-void VortexOptimizeFunction(OptimizerExtensionInput &input, LogicalOperatorPtr &plan);
-
-struct VortexOptimizerExtension final : OptimizerExtension {
-    inline VortexOptimizerExtension() : OptimizerExtension(VortexOptimizeFunction, nullptr, {}) {
-    }
-};
 
 struct GetBinding {
     GetAnalysis &analysis;

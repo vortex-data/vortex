@@ -31,7 +31,7 @@ const SOURCE_FILES: [&str; 7] = [
     "cpp/vortex_duckdb.cpp",
     "cpp/copy_function.cpp",
     "cpp/expr.cpp",
-    "cpp/optimizer.cpp",
+    "cpp/scalar_fn_pushdown.cpp",
     "cpp/table_filter.cpp",
     "cpp/table_function.cpp",
     "cpp/vector.cpp",
@@ -175,14 +175,13 @@ const DUCKDB_C_API_FUNCTIONS: [&str; 133] = [
     "duckdb_vector_size",
 ];
 
-const DUCKDB_C_API_HEADERS: [&str; 7] = [
+const DUCKDB_C_API_HEADERS: [&str; 6] = [
     "cpp/include/vortex_duckdb.h",
     "cpp/include/expr.h",
     "cpp/include/table_filter.h",
     "cpp/include/vector.h",
     "cpp/include/copy_function.h",
     "cpp/include/table_function.h",
-    "cpp/include/optimizer.h",
 ];
 
 const DOWNLOAD_MAX_RETRIES: i32 = 3;

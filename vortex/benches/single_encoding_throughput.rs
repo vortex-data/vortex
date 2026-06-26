@@ -191,14 +191,14 @@ fn bench_for_compress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| int_array.clone())
-        .bench_values(|a| FoR::encode(a).unwrap());
+        .with_inputs(|| (int_array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(a, mut ctx)| FoR::encode(a, &mut ctx).unwrap());
 }
 
 #[divan::bench(name = "for_decompress_i32")]
 fn bench_for_decompress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
-    let compressed = FoR::encode(int_array).unwrap();
+    let compressed = FoR::encode(int_array, &mut SESSION.create_execution_ctx()).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))

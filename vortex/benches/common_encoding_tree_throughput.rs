@@ -102,7 +102,7 @@ mod setup {
     pub fn for_bp_u64() -> ArrayRef {
         let mut ctx = SESSION.create_execution_ctx();
         let (uint_array, ..) = setup_primitive_arrays();
-        let compressed = FoR::encode(uint_array).unwrap();
+        let compressed = FoR::encode(uint_array, &mut ctx).unwrap();
         let inner = compressed.encoded();
         let bp = BitPacked::encode(inner, 8, &mut ctx).unwrap();
         FoR::try_new(bp.into_array(), compressed.reference_scalar().clone())
@@ -122,7 +122,7 @@ mod setup {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let for_array = FoR::encode(alp_encoded_prim).unwrap();
+        let for_array = FoR::encode(alp_encoded_prim, &mut ctx).unwrap();
         let inner = for_array.encoded();
         let bp = BitPacked::encode(inner, 8, &mut ctx).unwrap();
         let for_with_bp =
@@ -200,7 +200,7 @@ mod setup {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let ends_for = FoR::encode(ends_prim).unwrap();
+        let ends_for = FoR::encode(ends_prim, &mut ctx).unwrap();
         let ends_inner = ends_for.encoded();
         let ends_bp = BitPacked::encode(ends_inner, 8, &mut ctx).unwrap();
         let compressed_ends =
@@ -343,7 +343,7 @@ mod setup {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let days_for = FoR::encode(days_prim).unwrap();
+        let days_for = FoR::encode(days_prim, &mut ctx).unwrap();
         let days_inner = days_for.encoded();
         let days_bp = BitPacked::encode(days_inner, 16, &mut ctx).unwrap();
         let compressed_days =
@@ -357,7 +357,7 @@ mod setup {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let seconds_for = FoR::encode(seconds_prim).unwrap();
+        let seconds_for = FoR::encode(seconds_prim, &mut ctx).unwrap();
         let seconds_inner = seconds_for.encoded();
         let seconds_bp = BitPacked::encode(seconds_inner, 17, &mut ctx).unwrap();
         let compressed_seconds = FoR::try_new(
@@ -372,7 +372,7 @@ mod setup {
             .subseconds
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        let subseconds_for = FoR::encode(subseconds_prim).unwrap();
+        let subseconds_for = FoR::encode(subseconds_prim, &mut ctx).unwrap();
         let subseconds_inner = subseconds_for.encoded();
         let subseconds_bp = BitPacked::encode(subseconds_inner, 20, &mut ctx).unwrap();
         let compressed_subseconds = FoR::try_new(

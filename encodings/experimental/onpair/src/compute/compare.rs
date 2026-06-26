@@ -69,6 +69,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::VarBinArray;
@@ -84,7 +85,7 @@ mod tests {
     use crate::compress::DEFAULT_DICT12_CONFIG;
     use crate::compress::onpair_compress;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
     #[cfg_attr(miri, ignore)]
     #[rstest]
@@ -99,10 +100,9 @@ mod tests {
             [Some(""), Some("a"), Some(""), Some("bbb")],
             DType::Utf8(Nullability::NonNullable),
         );
-        let arr = onpair_compress(&input, input.len(), input.dtype(), DEFAULT_DICT12_CONFIG)?
-            .into_array();
-
         let mut ctx = SESSION.create_execution_ctx();
+        let arr = onpair_compress(input.as_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?.into_array();
+
         let result = arr
             .binary(ConstantArray::new("", input.len()).into_array(), op)?
             .execute::<BoolArray>(&mut ctx)?;
@@ -117,9 +117,8 @@ mod tests {
             [Some(""), None, Some("x")],
             DType::Utf8(Nullability::Nullable),
         );
-        let arr = onpair_compress(&input, input.len(), input.dtype(), DEFAULT_DICT12_CONFIG)?
-            .into_array();
         let mut ctx = SESSION.create_execution_ctx();
+        let arr = onpair_compress(input.as_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?.into_array();
 
         let eq_empty = arr
             .clone()
