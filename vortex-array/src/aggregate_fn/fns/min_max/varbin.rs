@@ -27,23 +27,43 @@ fn varbin_compute_min_max(
     dtype: &DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<MinMaxResult>> {
-    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
-    let minmax = (0..array.len())
-        .filter(|&i| mask.value(i))
-        .map(|i| array.bytes_at(i))
+    let mask = array
+        .validity()?
+        .execute_mask(array.len(), ctx)?
+        .to_bit_buffer();
+    // Walk the views directly, borrowing each value (inlined bytes or a slice of a data
+    // buffer) rather than materializing an owned `ByteBuffer` per element.
+    let views = array.views();
+    let buffers = array
+        .data_buffers()
+        .iter()
+        .map(|b| b.as_host())
+        .collect::<Vec<_>>();
+    let minmax = views
+        .iter()
+        .zip(mask.iter())
+        .filter(|(_, v)| *v)
+        .map(|(view, _)| {
+            if view.is_inlined() {
+                view.as_inlined().value()
+            } else {
+                let view_ref = view.as_view();
+                &buffers[view_ref.buffer_index as usize][view_ref.as_range()]
+            }
+        })
         .minmax();
     Ok(match minmax {
         itertools::MinMaxResult::NoElements => None,
         itertools::MinMaxResult::OneElement(value) => {
-            let scalar = make_scalar(dtype, value.as_slice());
+            let scalar = make_scalar(dtype, value);
             Some(MinMaxResult {
                 min: scalar.clone(),
                 max: scalar,
             })
         }
         itertools::MinMaxResult::MinMax(min, max) => Some(MinMaxResult {
-            min: make_scalar(dtype, min.as_slice()),
-            max: make_scalar(dtype, max.as_slice()),
+            min: make_scalar(dtype, min),
+            max: make_scalar(dtype, max),
         }),
     })
 }

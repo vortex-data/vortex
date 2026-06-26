@@ -18,6 +18,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
@@ -69,7 +70,8 @@ where
                 let bytes = view_bytes(view, &buffers);
                 flat.extend_from_slice(bytes);
                 offsets.push(O::from_usize(flat.len()));
-                uncompressed_lengths.push(view.len() as i32);
+                uncompressed_lengths
+                    .push(i32::try_from(view.len()).vortex_expect("must fit in i32"));
             }
         }
         AllOr::None => {
@@ -81,7 +83,8 @@ where
                     let bytes = view_bytes(view, &buffers);
                     flat.extend_from_slice(bytes);
                     offsets.push(O::from_usize(flat.len()));
-                    uncompressed_lengths.push(view.len() as i32);
+                    uncompressed_lengths
+                        .push(i32::try_from(view.len()).vortex_expect("must fit in i32"));
                 } else {
                     offsets.push(O::from_usize(flat.len()));
                     uncompressed_lengths.push(0);
