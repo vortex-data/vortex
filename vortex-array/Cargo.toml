@@ -237,6 +237,10 @@ name = "filter_bool"
 harness = false
 
 [[bench]]
+name = "list_length"
+harness = false
+
+[[bench]]
 name = "listview_rebuild"
 harness = false
 

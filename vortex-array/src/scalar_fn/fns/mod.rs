@@ -14,6 +14,7 @@ pub mod is_not_null;
 pub mod is_null;
 pub mod like;
 pub mod list_contains;
+pub mod list_length;
 pub mod literal;
 pub mod mask;
 pub mod merge;
