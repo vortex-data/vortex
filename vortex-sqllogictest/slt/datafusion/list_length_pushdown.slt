@@ -1,18 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# `array_length` / `list_length` over a list column is rewritten to Vortex's `list_length` and
-# pushed into the scan (computed from list offsets, without materializing the elements).
+# array_length / array_length(_, 1) / list_length over a list column is rewritten to Vortex's list_length and
+# pushed into the scan.
 
 include ../setup.slt.no
 
-# Projection-expression pushdown is off by default; enable it so the length computation folds
-# into the Vortex scan rather than being evaluated by a ProjectionExec above it.
 statement ok
 SET vortex.projection_pushdown = true;
 
-# A Vortex-backed external table with two list columns, so we can exercise list-length pushdown
-# over the same and different columns in both SELECT and WHERE. Row 5's `b` is an empty list.
 statement ok
 CREATE EXTERNAL TABLE list_test (id INT, a INT[], b INT[])
 STORED AS vortex
@@ -26,8 +22,8 @@ INSERT INTO list_test VALUES
   (4, [90, 100, 110, 120, 130], [7, 8, 9, 10]),
   (5, [140, 150], []);
 
-# array_length(a) projection is pushed into the scan: it appears in the DataSourceExec
-# projection with no ProjectionExec above the scan.
+# Projection on column a is pushed down
+
 query TT
 EXPLAIN SELECT array_length(a) AS len FROM list_test;
 ----
@@ -45,17 +41,14 @@ SELECT array_length(a) FROM list_test ORDER BY id;
 5
 2
 
-# `list_length` is an alias for `array_length`.
-query I
-SELECT list_length(a) FROM list_test ORDER BY id;
+query TT
+EXPLAIN SELECT array_length(a, 1) AS len FROM list_test;
 ----
-3
-4
-1
-5
-2
+logical_plan
+01)Projection: array_length(list_test.a, Int64(1)) AS len
+02)--TableScan: list_test projection=[a]
+physical_plan DataSourceExec: file_groups={<slt:ignore>}, projection=[array_length(a@1, 1) as len], file_type=vortex
 
-# The explicit first-dimension form `array_length(a, 1)` is equivalent.
 query I
 SELECT array_length(a, 1) FROM list_test ORDER BY id;
 ----
@@ -65,17 +58,44 @@ SELECT array_length(a, 1) FROM list_test ORDER BY id;
 5
 2
 
-# array_length over the other list column, including the empty list (length 0, not NULL).
-query I
-SELECT array_length(b) FROM list_test ORDER BY id;
+query TT
+EXPLAIN SELECT list_length(a) AS len FROM list_test;
 ----
-1
-2
+logical_plan
+01)Projection: array_length(list_test.a) AS list_length(list_test.a) AS len
+02)--TableScan: list_test projection=[a]
+physical_plan DataSourceExec: file_groups={<slt:ignore>}, projection=[array_length(a@1) as len], file_type=vortex
+
+query I
+SELECT list_length(a) FROM list_test ORDER BY id;
+----
 3
 4
-0
+1
+5
+2
 
-# array_length in WHERE is pushed into the scan as a predicate (no FilterExec above the scan).
+# Projections on columns a and b are pushed down
+
+query TT
+EXPLAIN SELECT array_length(a) as len_a, array_length(b) AS len_b FROM list_test;
+----
+logical_plan
+01)Projection: array_length(list_test.a) AS len_a, array_length(list_test.b) AS len_b
+02)--TableScan: list_test projection=[a, b]
+physical_plan DataSourceExec: file_groups={<slt:ignore>}, projection=[array_length(a@1) as len_a, array_length(b@2) as len_b], file_type=vortex
+
+query II
+SELECT array_length(a), array_length(b) FROM list_test ORDER BY id;
+----
+3 1
+4 2
+1 3
+5 4
+2 0
+
+# Filter on a is pushed down
+
 query TT
 EXPLAIN SELECT id FROM list_test WHERE array_length(a) >= 4;
 ----
@@ -91,49 +111,24 @@ SELECT id FROM list_test WHERE array_length(a) >= 4 ORDER BY id;
 2
 4
 
-# array_length on the same column in both SELECT and WHERE produces the correct result.
-query I
-SELECT array_length(a) FROM list_test WHERE array_length(a) >= 4 ORDER BY id;
-----
-4
-5
-
-# array_length filtering a different column than the projection.
-query II
-SELECT id, array_length(a) FROM list_test WHERE array_length(b) >= 3 ORDER BY id;
-----
-3 1
-4 5
-
-# array_length over different columns in both SELECT and WHERE.
-query II
-SELECT array_length(a), array_length(b) FROM list_test WHERE array_length(b) >= 2 ORDER BY id;
-----
-4 2
-1 3
-5 4
-
-# The projection fold interacts with parallelism. When a filter is present, DataFusion's
-# EnforceDistribution rule inserts a RepartitionExec to parallelize the work above the scan; it
-# lands between the ProjectionExec and the DataSourceExec and blocks the projection fold, so only
-# the filter is pushed down. (target_partitions is pinned so the RepartitionExec count is stable.)
-statement ok
-SET datafusion.execution.target_partitions = 2;
+# Filters on a and b are pushed down
 
 query TT
-EXPLAIN SELECT array_length(a) AS len FROM list_test WHERE array_length(a) >= 4;
+EXPLAIN SELECT id FROM list_test WHERE array_length(a) >= 4 AND array_length(b) >= 3;
 ----
 logical_plan
-01)Projection: array_length(list_test.a) AS len
-02)--Filter: array_length(list_test.a) >= UInt64(4)
-03)----TableScan: list_test projection=[a], partial_filters=[array_length(list_test.a) >= UInt64(4)]
-physical_plan
-01)ProjectionExec: expr=[array_length(a@0) as len]
-02)--RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
-03)----DataSourceExec: file_groups={<slt:ignore>}, projection=[a], file_type=vortex, predicate: array_length(a@1) >= 4
+01)Projection: list_test.id
+02)--Filter: array_length(list_test.a) >= UInt64(4) AND array_length(list_test.b) >= UInt64(3)
+03)----TableScan: list_test projection=[id, a, b], partial_filters=[array_length(list_test.a) >= UInt64(4), array_length(list_test.b) >= UInt64(3)]
+physical_plan DataSourceExec: file_groups={<slt:ignore>}, projection=[id], file_type=vortex, predicate: array_length(a@1) >= 4 AND array_length(b@2) >= 3
 
-# With a single partition no RepartitionExec is inserted, so the ProjectionExec stays adjacent to
-# the scan and both the projection and the predicate fold into it.
+query I
+SELECT id FROM list_test WHERE array_length(a) >= 4 AND array_length(b) >= 3 ORDER BY id;
+----
+4
+
+# Projection and filter on column a are both pushed down in case of no repartitioning
+
 statement ok
 SET datafusion.execution.target_partitions = 1;
 
@@ -145,3 +140,26 @@ logical_plan
 02)--Filter: array_length(list_test.a) >= UInt64(4)
 03)----TableScan: list_test projection=[a], partial_filters=[array_length(list_test.a) >= UInt64(4)]
 physical_plan DataSourceExec: file_groups={<slt:ignore>}, projection=[array_length(a@1) as len], file_type=vortex, predicate: array_length(a@1) >= 4
+
+query I
+SELECT array_length(a) FROM list_test WHERE array_length(a) >= 4 ORDER BY id;
+----
+4
+5
+
+# Projection on column a and filter on column b are both pushed down in case of no repartitioning
+
+query TT
+EXPLAIN SELECT array_length(a) AS len FROM list_test WHERE array_length(b) >= 3;
+----
+logical_plan
+01)Projection: array_length(list_test.a) AS len
+02)--Filter: array_length(list_test.b) >= UInt64(3)
+03)----TableScan: list_test projection=[a, b], partial_filters=[array_length(list_test.b) >= UInt64(3)]
+physical_plan DataSourceExec: file_groups={<slt:ignore>}, projection=[array_length(a@1) as len], file_type=vortex, predicate: array_length(b@2) >= 3
+
+query I
+SELECT array_length(a) FROM list_test WHERE array_length(b) >= 3 ORDER BY id;
+----
+1
+5
