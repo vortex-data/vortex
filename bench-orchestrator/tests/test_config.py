@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from bench_orchestrator.config import (
+    Benchmark,
     BenchmarkTarget,
     Engine,
     Format,
@@ -37,6 +38,31 @@ def test_resolve_axis_targets_filters_unsupported_combinations() -> None:
         BenchmarkTarget(engine=Engine.DUCKDB, format=Format.PARQUET),
     ]
     assert warnings == ["Format arrow is not supported by engine duckdb"]
+
+
+def test_resolve_axis_targets_skips_engines_a_benchmark_cannot_run() -> None:
+    # SpatialBench is DuckDB-only (ST_* spatial SQL), so the DataFusion axis is dropped with a warning.
+    targets, warnings = resolve_axis_targets(
+        [Engine.DATAFUSION, Engine.DUCKDB],
+        [Format.PARQUET, Format.VORTEX],
+        Benchmark.SPATIALBENCH,
+    )
+
+    assert targets == [
+        BenchmarkTarget(engine=Engine.DUCKDB, format=Format.PARQUET),
+        BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX),
+    ]
+    assert warnings == ["Benchmark spatialbench does not support engine datafusion"]
+
+
+def test_validate_targets_rejects_engine_a_benchmark_cannot_run() -> None:
+    errors = validate_targets(
+        [BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.PARQUET)],
+        {},
+        Benchmark.SPATIALBENCH,
+    )
+
+    assert errors == ["Benchmark spatialbench does not support engine datafusion"]
 
 
 def test_validate_targets_rejects_remote_lance() -> None:

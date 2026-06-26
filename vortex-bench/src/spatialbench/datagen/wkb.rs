@@ -5,9 +5,11 @@
 //! Geometry is emitted as WKB, which DuckDB reads directly as `GEOMETRY` via `ST_GeomFromWKB`.
 
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
 use anyhow::Result;
 // spatialbench emits arrow-56 batches, so they must be written with its matching arrow-56
 // parquet crate, not the workspace's arrow-58 one. The parquet file itself is version-neutral.
@@ -23,7 +25,9 @@ use spatialbench_parquet::basic::Compression;
 use spatialbench_parquet::file::properties::WriterProperties;
 use spatialbench_parquet::format::KeyValue;
 use tokio::fs::File as TokioFile;
+use tokio::process::Command;
 use tracing::info;
+use tracing::warn;
 
 use super::table::Table;
 use crate::Format;
@@ -109,6 +113,65 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
         }
     }
 
+    // `zone` isn't generated in-process (`Table::is_generated` is false); it comes from the upstream
+    // CLI. Best-effort: a missing/failed CLI shouldn't block the zone-free queries, so warn and
+    // carry on.
+    if let Err(e) = generate_zone(scale_factor, &parquet_dir).await {
+        warn!(
+            error = %e,
+            "zone table not generated — SpatialBench queries Q2/Q4/Q6/Q10/Q11 need it. Install the \
+             upstream generator (`cargo install --path <sedona-spatialbench>/spatialbench-cli`) or \
+             set SPATIALBENCH_CLI to its binary, then re-run."
+        );
+    }
+
+    Ok(())
+}
+
+/// Generate the externally-sourced `zone` table by shelling out to the upstream `spatialbench-cli`.
+async fn generate_zone(scale_factor: f64, parquet_dir: &Path) -> Result<()> {
+    if parquet_dir.join("zone_0.parquet").exists() {
+        return Ok(());
+    }
+    let cli = std::env::var("SPATIALBENCH_CLI").unwrap_or_else(|_| "spatialbench-cli".to_string());
+
+    // Generate into a scratch dir so the CLI's `zone.parquet` name can't collide with the base
+    // tables, then move the produced parts into place as `zone_{part}.parquet`.
+    // Start from an empty scratch dir (clear any leftover from an interrupted run).
+    let scratch = parquet_dir.join(".zone-scratch");
+    fs::remove_dir_all(&scratch).ok();
+    fs::create_dir_all(&scratch)?;
+
+    info!(
+        scale_factor,
+        cli, "Generating SpatialBench zone table via spatialbench-cli"
+    );
+    let status = Command::new(&cli)
+        .arg("-s")
+        .arg(scale_factor.to_string())
+        .args(["-T", "zone", "-f", "parquet", "-o"])
+        .arg(&scratch)
+        .status()
+        .await
+        .with_context(|| format!("failed to spawn `{cli}` (is it installed / on PATH?)"))?;
+    anyhow::ensure!(
+        status.success(),
+        "`{cli}` exited with {status} while generating zone"
+    );
+
+    // The CLI writes `zone.parquet` (single part) or `zone/zone.N.parquet`.
+    let mut produced: Vec<PathBuf> = glob::glob(&scratch.join("**/*.parquet").to_string_lossy())?
+        .collect::<std::result::Result<_, _>>()?;
+    produced.sort();
+    anyhow::ensure!(
+        !produced.is_empty(),
+        "`{cli}` produced no zone parquet under {}",
+        scratch.display()
+    );
+    for (part_idx, src) in produced.iter().enumerate() {
+        fs::rename(src, parquet_dir.join(format!("zone_{part_idx}.parquet")))?;
+    }
+    fs::remove_dir_all(&scratch).ok();
     Ok(())
 }
 
