@@ -50,7 +50,7 @@ pub struct Footer {
 }
 
 impl Footer {
-    pub(crate) fn new(
+    pub fn new(
         root_layout: LayoutRef,
         segments: Arc<[SegmentSpec]>,
         statistics: Option<FileStatistics>,
