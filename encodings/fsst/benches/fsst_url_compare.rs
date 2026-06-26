@@ -13,6 +13,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::like;
 use vortex_array::expr::lit;
@@ -57,13 +58,17 @@ static URL_VIEW_DATA: LazyLock<VarBinViewArray> = LazyLock::new(|| {
 
 /// Pick a concrete URL from the dataset that uses the given domain.
 fn pick_url_with_domain(data: &VarBinArray, domain: &str) -> String {
-    use vortex_array::accessor::ArrayAccessor;
-    data.with_iterator(|iter| {
-        iter.flatten()
-            .map(|b| std::str::from_utf8(b).unwrap().to_string())
-            .find(|u| u.contains(domain))
-            .unwrap_or_else(|| format!("http://{domain}/missing"))
-    })
+    let mut ctx = SESSION.create_execution_ctx();
+    let mask = data
+        .validity()
+        .unwrap()
+        .execute_mask(data.len(), &mut ctx)
+        .unwrap();
+    (0..data.len())
+        .filter(|&i| mask.value(i))
+        .map(|i| unsafe { String::from_utf8_unchecked(data.bytes_at(i).to_vec()) })
+        .find(|u| u.contains(domain))
+        .unwrap_or_else(|| format!("http://{domain}/missing"))
 }
 
 #[divan::bench]

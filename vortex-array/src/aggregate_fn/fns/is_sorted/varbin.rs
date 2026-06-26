@@ -4,13 +4,37 @@
 use vortex_error::VortexResult;
 
 use super::IsSortedIteratorExt;
-use crate::accessor::ArrayAccessor;
+use crate::ExecutionCtx;
 use crate::arrays::VarBinViewArray;
 
-pub(super) fn check_varbinview_sorted(array: &VarBinViewArray, strict: bool) -> VortexResult<bool> {
+pub(super) fn check_varbinview_sorted(
+    array: &VarBinViewArray,
+    strict: bool,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    let mask = array
+        .validity()?
+        .execute_mask(array.len(), ctx)?
+        .to_bit_buffer();
+    let views = array.views();
+    let buffers = array
+        .data_buffers()
+        .iter()
+        .map(|b| b.as_host())
+        .collect::<Vec<_>>();
+    let iter = views.iter().zip(mask.iter()).map(|(view, valid)| {
+        valid.then(|| {
+            if view.is_inlined() {
+                view.as_inlined().value()
+            } else {
+                let view_ref = view.as_view();
+                &buffers[view_ref.buffer_index as usize][view_ref.as_range()]
+            }
+        })
+    });
     Ok(if strict {
-        array.with_iterator(|bytes_iter| bytes_iter.is_strict_sorted())
+        iter.is_strict_sorted()
     } else {
-        array.with_iterator(|bytes_iter| bytes_iter.is_sorted())
+        iter.is_sorted()
     })
 }

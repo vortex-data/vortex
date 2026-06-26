@@ -14,7 +14,6 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -1645,12 +1644,16 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
         .execute::<StructArray>(&mut ctx)?
         .unmasked_field_by_name("strings")
         .cloned()?;
-    let strings = strings_field
-        .execute::<VarBinViewArray>(&mut ctx)?
-        .with_iterator(|iter| {
-            iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
-                .collect::<Vec<_>>()
-        });
+    let strings_view = strings_field.execute::<VarBinViewArray>(&mut ctx)?;
+    let mask = strings_view
+        .validity()?
+        .execute_mask(strings_view.len(), &mut ctx)?;
+    let strings = (0..strings_view.len())
+        .map(|i| {
+            mask.value(i)
+                .then(|| unsafe { String::from_utf8_unchecked(strings_view.bytes_at(i).to_vec()) })
+        })
+        .collect::<Vec<_>>();
     assert_eq!(
         strings,
         vec![
