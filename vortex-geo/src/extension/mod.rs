@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub(crate) mod coordinate;
+mod multipolygon;
 mod point;
 mod polygon;
 mod wkb;
@@ -12,6 +13,7 @@ use std::sync::Arc;
 use geo_types::Geometry;
 use geoarrow::datatypes::Crs;
 use geoarrow::datatypes::Metadata;
+pub use multipolygon::*;
 pub use point::*;
 pub use polygon::*;
 use vortex_array::ArrayRef;
@@ -46,6 +48,8 @@ pub(crate) fn geometries(
         point_geometries(&storage, ctx)
     } else if ext.is::<Polygon>() {
         polygon_geometries(&storage, ctx)
+    } else if ext.is::<MultiPolygon>() {
+        multipolygon_geometries(&storage, ctx)
     } else {
         vortex_bail!("geo: unsupported geometry extension {}", array.dtype())
     }
