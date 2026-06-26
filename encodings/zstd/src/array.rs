@@ -175,6 +175,33 @@ impl VTable for Zstd {
         }
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        let mut data = array.data().clone();
+        if data.dictionary.is_some() {
+            let Some((dictionary, frames)) = buffers.split_first() else {
+                vortex_bail!("Expected dictionary buffer");
+            };
+            data.dictionary = Some(dictionary.clone().try_to_host_sync()?);
+            data.frames = frames
+                .iter()
+                .map(|buffer| buffer.clone().try_to_host_sync())
+                .collect::<VortexResult<Vec<_>>>()?;
+        } else {
+            data.frames = buffers
+                .iter()
+                .map(|buffer| buffer.clone().try_to_host_sync())
+                .collect::<VortexResult<Vec<_>>>()?;
+        }
+        Ok(
+            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                .with_slots(array.slots().iter().cloned().collect()),
+        )
+    }
+
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,

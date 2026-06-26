@@ -711,7 +711,9 @@ fn recursively_canonicalize_slots(
                 .transpose()
         })
         .collect::<VortexResult<ArraySlots>>()?;
-    array.clone().with_slots(slots)
+    // SAFETY: recursive canonicalization rewrites child slots to equivalent canonical
+    // representations, preserving the parent array's logical values and statistics.
+    unsafe { array.clone().with_slots(slots) }
 }
 impl Executable for RecursiveCanonical {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {

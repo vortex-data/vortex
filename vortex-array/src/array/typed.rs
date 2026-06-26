@@ -196,6 +196,12 @@ impl<V: VTable> Debug for ArrayData<V> {
 /// `Array<V>` holds an [`ArrayRef`] (shared, heap-allocated) and provides typed access
 /// to the encoding-specific data via [`Deref`] to `V::TypedArrayData`.
 ///
+/// Buffers are intentionally not stored in the common `ArrayInner` or [`ArrayParts`] state.
+/// Encodings may expose buffers only when writing or serializing, and those buffers need not be the
+/// same representation they keep in memory. For example, an encoding may hold a deserialized
+/// in-memory data structure and synthesize serialized buffers at write time; hoisting buffers here
+/// would force it to retain both forms or make the serialized layout dictate the runtime layout.
+///
 /// This is the primary type for working with typed arrays. Convert to [`ArrayRef`]
 /// via [`into_array()`](IntoArray::into_array) or [`AsRef<ArrayRef>`].
 pub struct Array<V: VTable> {

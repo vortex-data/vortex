@@ -164,6 +164,28 @@ impl VTable for Pco {
         }
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        let mut data = array.data().clone();
+        let chunk_metas_len = data.metadata.chunks.len();
+        vortex_ensure!(buffers.len() >= chunk_metas_len);
+        data.chunk_metas = buffers[..chunk_metas_len]
+            .iter()
+            .map(|buffer| buffer.clone().try_to_host_sync())
+            .collect::<VortexResult<Vec<_>>>()?;
+        data.pages = buffers[chunk_metas_len..]
+            .iter()
+            .map(|buffer| buffer.clone().try_to_host_sync())
+            .collect::<VortexResult<Vec<_>>>()?;
+        Ok(
+            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                .with_slots(array.slots().iter().cloned().collect()),
+        )
+    }
+
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
