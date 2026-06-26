@@ -11,10 +11,12 @@ include ../setup.slt.no
 statement ok
 SET vortex.projection_pushdown = true;
 
-# Two list columns so we can exercise list-length pushdown over the same and different columns,
-# in both SELECT and WHERE. Row 5's `b` is an empty list (length 0).
+# A Vortex-backed external table with two list columns, so we can exercise list-length pushdown
+# over the same and different columns in both SELECT and WHERE. Row 5's `b` is an empty list.
 statement ok
-CREATE TABLE list_test (id INT, a INT[], b INT[]);
+CREATE EXTERNAL TABLE list_test (id INT, a INT[], b INT[])
+STORED AS vortex
+LOCATION '${WORK_DIR}/list_test/';
 
 statement ok
 INSERT INTO list_test VALUES
@@ -24,21 +26,18 @@ INSERT INTO list_test VALUES
   (4, [90, 100, 110, 120, 130], [7, 8, 9, 10]),
   (5, [140, 150], []);
 
-statement ok
-COPY (SELECT * FROM list_test) TO '${WORK_DIR}/list-length.vortex';
-
 # array_length(a) projection is pushed into the scan: it appears in the DataSourceExec
 # projection with no ProjectionExec above the scan.
 query TT
-EXPLAIN SELECT array_length(a) AS len FROM '${WORK_DIR}/list-length.vortex';
+EXPLAIN SELECT array_length(a) AS len FROM list_test;
 ----
 logical_plan
-01)Projection: array_length(${WORK_DIR}/list-length.vortex.a) AS len
-02)--TableScan: ${WORK_DIR}/list-length.vortex projection=[a]
+01)Projection: array_length(list_test.a) AS len
+02)--TableScan: list_test projection=[a]
 physical_plan DataSourceExec: file_groups={<slt:ignore>}, projection=[array_length(a@1) as len], file_type=vortex
 
 query I
-SELECT array_length(a) FROM '${WORK_DIR}/list-length.vortex' ORDER BY id;
+SELECT array_length(a) FROM list_test ORDER BY id;
 ----
 3
 4
@@ -48,7 +47,7 @@ SELECT array_length(a) FROM '${WORK_DIR}/list-length.vortex' ORDER BY id;
 
 # `list_length` is an alias for `array_length`.
 query I
-SELECT list_length(a) FROM '${WORK_DIR}/list-length.vortex' ORDER BY id;
+SELECT list_length(a) FROM list_test ORDER BY id;
 ----
 3
 4
@@ -58,7 +57,7 @@ SELECT list_length(a) FROM '${WORK_DIR}/list-length.vortex' ORDER BY id;
 
 # The explicit first-dimension form `array_length(a, 1)` is equivalent.
 query I
-SELECT array_length(a, 1) FROM '${WORK_DIR}/list-length.vortex' ORDER BY id;
+SELECT array_length(a, 1) FROM list_test ORDER BY id;
 ----
 3
 4
@@ -68,7 +67,7 @@ SELECT array_length(a, 1) FROM '${WORK_DIR}/list-length.vortex' ORDER BY id;
 
 # array_length over the other list column, including the empty list (length 0, not NULL).
 query I
-SELECT array_length(b) FROM '${WORK_DIR}/list-length.vortex' ORDER BY id;
+SELECT array_length(b) FROM list_test ORDER BY id;
 ----
 1
 2
@@ -78,40 +77,37 @@ SELECT array_length(b) FROM '${WORK_DIR}/list-length.vortex' ORDER BY id;
 
 # array_length in WHERE is pushed into the scan as a predicate (no FilterExec above the scan).
 query TT
-EXPLAIN SELECT id FROM '${WORK_DIR}/list-length.vortex' WHERE array_length(a) >= 4;
+EXPLAIN SELECT id FROM list_test WHERE array_length(a) >= 4;
 ----
 logical_plan
-01)Projection: ${WORK_DIR}/list-length.vortex.id
-02)--Filter: array_length(${WORK_DIR}/list-length.vortex.a) >= UInt64(4)
-03)----TableScan: ${WORK_DIR}/list-length.vortex projection=[id, a], partial_filters=[array_length(${WORK_DIR}/list-length.vortex.a) >= UInt64(4)]
+01)Projection: list_test.id
+02)--Filter: array_length(list_test.a) >= UInt64(4)
+03)----TableScan: list_test projection=[id, a], partial_filters=[array_length(list_test.a) >= UInt64(4)]
 physical_plan DataSourceExec: file_groups={<slt:ignore>}, projection=[id], file_type=vortex, predicate: array_length(a@1) >= 4
 
 query I
-SELECT id FROM '${WORK_DIR}/list-length.vortex' WHERE array_length(a) >= 4 ORDER BY id;
+SELECT id FROM list_test WHERE array_length(a) >= 4 ORDER BY id;
 ----
 2
 4
 
 # array_length on the same column in both SELECT and WHERE produces the correct result.
 query I
-SELECT array_length(a) FROM '${WORK_DIR}/list-length.vortex'
-WHERE array_length(a) >= 4 ORDER BY id;
+SELECT array_length(a) FROM list_test WHERE array_length(a) >= 4 ORDER BY id;
 ----
 4
 5
 
 # array_length filtering a different column than the projection.
 query II
-SELECT id, array_length(a) FROM '${WORK_DIR}/list-length.vortex'
-WHERE array_length(b) >= 3 ORDER BY id;
+SELECT id, array_length(a) FROM list_test WHERE array_length(b) >= 3 ORDER BY id;
 ----
 3 1
 4 5
 
 # array_length over different columns in both SELECT and WHERE.
 query II
-SELECT array_length(a), array_length(b) FROM '${WORK_DIR}/list-length.vortex'
-WHERE array_length(b) >= 2 ORDER BY id;
+SELECT array_length(a), array_length(b) FROM list_test WHERE array_length(b) >= 2 ORDER BY id;
 ----
 4 2
 1 3
@@ -125,13 +121,12 @@ statement ok
 SET datafusion.execution.target_partitions = 2;
 
 query TT
-EXPLAIN SELECT array_length(a) AS len FROM '${WORK_DIR}/list-length.vortex'
-WHERE array_length(a) >= 4;
+EXPLAIN SELECT array_length(a) AS len FROM list_test WHERE array_length(a) >= 4;
 ----
 logical_plan
-01)Projection: array_length(${WORK_DIR}/list-length.vortex.a) AS len
-02)--Filter: array_length(${WORK_DIR}/list-length.vortex.a) >= UInt64(4)
-03)----TableScan: ${WORK_DIR}/list-length.vortex projection=[a], partial_filters=[array_length(${WORK_DIR}/list-length.vortex.a) >= UInt64(4)]
+01)Projection: array_length(list_test.a) AS len
+02)--Filter: array_length(list_test.a) >= UInt64(4)
+03)----TableScan: list_test projection=[a], partial_filters=[array_length(list_test.a) >= UInt64(4)]
 physical_plan
 01)ProjectionExec: expr=[array_length(a@0) as len]
 02)--RepartitionExec: partitioning=RoundRobinBatch(2), input_partitions=1
@@ -143,11 +138,10 @@ statement ok
 SET datafusion.execution.target_partitions = 1;
 
 query TT
-EXPLAIN SELECT array_length(a) AS len FROM '${WORK_DIR}/list-length.vortex'
-WHERE array_length(a) >= 4;
+EXPLAIN SELECT array_length(a) AS len FROM list_test WHERE array_length(a) >= 4;
 ----
 logical_plan
-01)Projection: array_length(${WORK_DIR}/list-length.vortex.a) AS len
-02)--Filter: array_length(${WORK_DIR}/list-length.vortex.a) >= UInt64(4)
-03)----TableScan: ${WORK_DIR}/list-length.vortex projection=[a], partial_filters=[array_length(${WORK_DIR}/list-length.vortex.a) >= UInt64(4)]
+01)Projection: array_length(list_test.a) AS len
+02)--Filter: array_length(list_test.a) >= UInt64(4)
+03)----TableScan: list_test projection=[a], partial_filters=[array_length(list_test.a) >= UInt64(4)]
 physical_plan DataSourceExec: file_groups={<slt:ignore>}, projection=[array_length(a@1) as len], file_type=vortex, predicate: array_length(a@1) >= 4
