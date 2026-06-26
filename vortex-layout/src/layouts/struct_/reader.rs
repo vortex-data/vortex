@@ -22,6 +22,7 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::col;
+use vortex_array::expr::is_root;
 use vortex_array::expr::make_free_field_annotator;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
@@ -379,6 +380,38 @@ impl LayoutReader for StructReader {
                 projected.await
             }
         }))
+    }
+
+    fn projection_evaluation_attaching_aggregate_stats(
+        &self,
+        row_range: &Range<u64>,
+        expr: &Expression,
+        mask_fut: MaskFuture,
+        attach_aggregate_stats: bool,
+    ) -> VortexResult<ArrayFuture> {
+        // Only forward the request when the projection resolves to a single field with the
+        // identity sub-projection. Validity, pack/merge, and multi-field projections rewrite the
+        // produced array, so the per-field zone-map stats would not describe the result; those
+        // fall back to the plain projection (no stats attached).
+        if attach_aggregate_stats
+            && self.validity()?.is_none()
+            && let Partitioned::Single(name, partition) = &self.partition_expr(expr.clone())?
+            && is_root(partition)
+        {
+            return self
+                .field_reader(name)?
+                .projection_evaluation_attaching_aggregate_stats(
+                    row_range,
+                    partition,
+                    mask_fut,
+                    attach_aggregate_stats,
+                )
+                .map_err(|err| {
+                    err.with_context(format!("While evaluating projection partition {name}"))
+                });
+        }
+
+        self.projection_evaluation(row_range, expr, mask_fut)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

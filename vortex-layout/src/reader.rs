@@ -194,6 +194,25 @@ pub trait LayoutReader: 'static + Send + Sync {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture>;
+
+    /// Like [`projection_evaluation`](Self::projection_evaluation), but additionally requests that
+    /// zone-map aggregate statistics be attached to the produced array when they can be derived
+    /// exactly.
+    ///
+    /// Only [`ZonedReader`](crate::layouts::zoned) attaches statistics; readers that wrap others
+    /// (struct, chunked, dict) must forward this call to their relevant children so the request
+    /// reaches nested zoned readers. The default implementation ignores the flag and delegates to
+    /// [`projection_evaluation`](Self::projection_evaluation), which is correct for leaf readers
+    /// and any reader that cannot host zoned children.
+    fn projection_evaluation_attaching_aggregate_stats(
+        &self,
+        row_range: &Range<u64>,
+        expr: &Expression,
+        mask: MaskFuture,
+        _attach_aggregate_stats: bool,
+    ) -> VortexResult<ArrayFuture> {
+        self.projection_evaluation(row_range, expr, mask)
+    }
 }
 
 /// Future resolving to a projected Vortex array.

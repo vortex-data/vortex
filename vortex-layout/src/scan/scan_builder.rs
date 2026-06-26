@@ -79,6 +79,8 @@ pub struct ScanBuilder<A> {
     file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<u64>,
+    /// Whether to attach zone-map aggregate statistics to produced arrays.
+    attach_aggregate_stats: bool,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
@@ -103,6 +105,7 @@ impl ScanBuilder<ArrayRef> {
             metrics_registry: None,
             file_stats: None,
             limit: None,
+            attach_aggregate_stats: false,
             row_offset: 0,
         }
     }
@@ -227,6 +230,14 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    /// Attach zone-map aggregate statistics to produced arrays when they can be derived exactly.
+    ///
+    /// See [`ScanRequest::attach_aggregate_stats`](vortex_scan::ScanRequest::attach_aggregate_stats).
+    pub fn with_attach_aggregate_stats(mut self, attach_aggregate_stats: bool) -> Self {
+        self.attach_aggregate_stats = attach_aggregate_stats;
+        self
+    }
+
     /// The [`DType`] returned by the scan, after applying the projection.
     pub fn dtype(&self) -> VortexResult<DType> {
         self.projection.return_dtype(self.layout_reader.dtype())
@@ -256,6 +267,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             metrics_registry: self.metrics_registry,
             file_stats: self.file_stats,
             limit: self.limit,
+            attach_aggregate_stats: self.attach_aggregate_stats,
             row_offset: self.row_offset,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
@@ -321,6 +333,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.concurrency,
             self.map_fn,
             self.limit,
+            self.attach_aggregate_stats,
             dtype,
         ))
     }

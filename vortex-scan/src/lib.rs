@@ -144,6 +144,14 @@ pub struct ScanRequest {
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
     pub limit: Option<u64>,
+    /// Attach zone-map aggregate statistics (`Sum`/`Min`/`Max`/`NullCount`/`NaNCount`) to the
+    /// arrays produced by the scan when they can be derived exactly from the layout's zone map.
+    ///
+    /// This is intended for scans that exist solely to feed a pushed-down aggregate, where the
+    /// downstream accumulator can consume the exact stat instead of decoding the array. It is
+    /// `false` by default because attaching stats forces the zone map to be loaded, which would
+    /// add I/O and decode overhead to ordinary scans that never read the stats.
+    pub attach_aggregate_stats: bool,
 }
 
 impl Default for ScanRequest {
@@ -157,6 +165,7 @@ impl Default for ScanRequest {
             ordered: false,
             limit: None,
             partition_range: None,
+            attach_aggregate_stats: false,
         }
     }
 }

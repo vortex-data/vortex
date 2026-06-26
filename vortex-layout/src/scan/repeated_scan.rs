@@ -53,6 +53,8 @@ pub struct RepeatedScan<A: 'static + Send> {
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<u64>,
+    /// Whether to attach zone-map aggregate statistics to produced arrays.
+    attach_aggregate_stats: bool,
     /// The dtype of the projected arrays.
     dtype: DType,
 }
@@ -101,6 +103,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         concurrency: usize,
         map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
         limit: Option<u64>,
+        attach_aggregate_stats: bool,
         dtype: DType,
     ) -> Self {
         Self {
@@ -115,6 +118,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             concurrency,
             map_fn,
             limit,
+            attach_aggregate_stats,
             dtype,
         }
     }
@@ -177,6 +181,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
+            attach_aggregate_stats: self.attach_aggregate_stats,
             mapper: Arc::clone(&self.map_fn),
         });
 

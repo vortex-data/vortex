@@ -132,9 +132,12 @@ pub fn split_exec<A: 'static + Send>(
     };
 
     // Step 4: execute the projection, only at the mask for rows which match the filter
-    let projection_future =
-        ctx.reader
-            .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
+    let projection_future = ctx.reader.projection_evaluation_attaching_aggregate_stats(
+        &row_range,
+        &ctx.projection,
+        filter_mask.clone(),
+        ctx.attach_aggregate_stats,
+    )?;
 
     let mapper = Arc::clone(&ctx.mapper);
     let array_fut = async move {
@@ -160,6 +163,9 @@ pub struct TaskContext<A> {
     pub reader: Arc<dyn LayoutReader>,
     /// The projection expression to apply to gather the scanned rows.
     pub projection: Expression,
+    /// Whether to attach zone-map aggregate statistics to produced arrays (see
+    /// [`ScanRequest::attach_aggregate_stats`](vortex_scan::ScanRequest::attach_aggregate_stats)).
+    pub attach_aggregate_stats: bool,
     /// Function that maps into an A.
     pub mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }

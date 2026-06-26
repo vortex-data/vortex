@@ -13,6 +13,9 @@ use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
+use vortex_array::expr::is_root;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -33,6 +36,7 @@ pub struct ZonedReader {
     name: Arc<str>,
     lazy_children: Arc<LazyReaderChildren>,
     pruning: PruningState,
+    session: VortexSession,
 }
 
 impl ZonedReader {
@@ -59,10 +63,16 @@ impl ZonedReader {
         ));
 
         Ok(Self {
-            pruning: PruningState::new(&layout, aggregate_fns, Arc::clone(&lazy_children), session),
+            pruning: PruningState::new(
+                &layout,
+                aggregate_fns,
+                Arc::clone(&lazy_children),
+                session.clone(),
+            ),
             layout,
             name,
             lazy_children,
+            session,
         })
     }
 
@@ -87,6 +97,18 @@ impl ZonedReader {
         zone_idx
             .saturating_mul(self.layout.zone_len as u64)
             .min(self.layout.row_count())
+    }
+
+    /// Whether `row_range` starts and ends on zone boundaries, so that the zones it covers
+    /// describe exactly its rows. The final zone may be short, so an end at `row_count` is aligned.
+    fn row_range_is_zone_aligned(&self, row_range: &Range<u64>) -> bool {
+        let zone_len = self.layout.zone_len as u64;
+        if zone_len == 0 {
+            return false;
+        }
+        let row_count = self.layout.row_count();
+        row_range.start.is_multiple_of(zone_len)
+            && (row_range.end.is_multiple_of(zone_len) || row_range.end == row_count)
     }
 }
 
@@ -215,6 +237,70 @@ impl LayoutReader for ZonedReader {
         self.data_child()?
             .projection_evaluation(row_range, expr, mask)
     }
+
+    fn projection_evaluation_attaching_aggregate_stats(
+        &self,
+        row_range: &Range<u64>,
+        expr: &Expression,
+        mask: MaskFuture,
+        attach_aggregate_stats: bool,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+        let data = self
+            .data_child()?
+            .projection_evaluation(row_range, expr, mask.clone())?;
+
+        // Conservative gate: only attach when the produced array provably contains exactly the
+        // rows of the covered zones. This requires the identity projection, no filtering (the
+        // input mask is all-true), and a row range aligned to zone boundaries. Otherwise the
+        // array is a subset of the zones and the per-zone stats do not describe it.
+        if !attach_aggregate_stats
+            || self.layout.zone_len == 0
+            || !is_root(expr)
+            || !self.row_range_is_zone_aligned(row_range)
+        {
+            return Ok(data);
+        }
+
+        let zone_range = self.zone_range(row_range);
+        let zone_map = self.pruning.shared_zone_map();
+        let name = Arc::clone(&self.name);
+        let session = self.session.clone();
+
+        Ok(Box::pin(async move {
+            let mask = mask.await?;
+            let array = data.await?;
+
+            // A non-trivial filter mask means the array is a subset of the zone rows.
+            if !mask.all_true() {
+                return Ok(array);
+            }
+
+            let zone_map = match zone_map.await {
+                Ok(zone_map) => zone_map,
+                Err(err) => {
+                    trace!("Skipping aggregate stats attach for {name}: {err}");
+                    return Ok(array);
+                }
+            };
+
+            for stat in [
+                Stat::Sum,
+                Stat::Min,
+                Stat::Max,
+                Stat::NullCount,
+                Stat::NaNCount,
+            ] {
+                if let Some(partial) =
+                    zone_map.combined_partial(stat, zone_range.clone(), &session)?
+                    && let Some(value) = partial.into_value()
+                {
+                    array.statistics().set(stat, Precision::Exact(value));
+                }
+            }
+
+            Ok(array)
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -327,6 +413,66 @@ mod test {
 
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
             assert_arrays_eq!(result, expected, &mut ctx);
+        })
+    }
+
+    #[rstest]
+    fn test_attach_aggregate_stats(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        use vortex_array::expr::stats::Precision;
+        use vortex_array::expr::stats::Stat;
+        use vortex_array::expr::stats::StatsProvider;
+        use vortex_array::scalar::Scalar;
+
+        block_on(|handle| async {
+            let session = session_with_handle(handle);
+            let row_count = layout.row_count();
+            let reader = layout
+                .new_reader("".into(), segments, &session, &Default::default())
+                .unwrap();
+
+            // With the flag enabled and a full, zone-aligned, unfiltered identity projection,
+            // the produced array carries exact Sum/Min/Max statistics from the zone map.
+            let with_stats = reader
+                .projection_evaluation_attaching_aggregate_stats(
+                    &(0..row_count),
+                    &root(),
+                    MaskFuture::new_true(row_count.try_into().unwrap()),
+                    true,
+                )
+                .unwrap()
+                .await
+                .unwrap();
+
+            assert_eq!(
+                with_stats.statistics().get(Stat::Sum),
+                Precision::exact(Scalar::from(45i64))
+            );
+            assert_eq!(
+                with_stats.statistics().get(Stat::Min),
+                Precision::exact(Scalar::from(1i32))
+            );
+            assert_eq!(
+                with_stats.statistics().get(Stat::Max),
+                Precision::exact(Scalar::from(9i32))
+            );
+
+            // With the flag disabled, no aggregate statistics are attached.
+            let without_stats = reader
+                .projection_evaluation_attaching_aggregate_stats(
+                    &(0..row_count),
+                    &root(),
+                    MaskFuture::new_true(row_count.try_into().unwrap()),
+                    false,
+                )
+                .unwrap()
+                .await
+                .unwrap();
+
+            assert!(without_stats.statistics().get(Stat::Sum).is_absent());
+            assert!(without_stats.statistics().get(Stat::Min).is_absent());
+            assert!(without_stats.statistics().get(Stat::Max).is_absent());
         })
     }
 

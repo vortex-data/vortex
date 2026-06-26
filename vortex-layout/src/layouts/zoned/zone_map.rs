@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
@@ -31,6 +32,7 @@ use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::traversal::NodeExt;
 use vortex_array::expr::traversal::Transformed;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::stat::StatFn;
@@ -47,6 +49,7 @@ use vortex_mask::Mask;
 use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
 
+use crate::layouts::zoned::schema::aggregate_state_dtype;
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
 
@@ -193,6 +196,56 @@ impl ZoneMap {
                 Ok(Transformed::no(expr))
             })
             .map(Transformed::into_inner)
+    }
+
+    /// Combine the per-zone partials over the zones in `zone_range` into a single partial scalar
+    /// for `stat`, if this zone map stores an exact partial column for it.
+    ///
+    /// Returns `Ok(None)` when `stat` has no aggregate function, when the zone map does not store
+    /// an exactly-satisfying partial column for it, or when that column is not a plain primitive
+    /// partial (e.g. a bounded min/max struct state, which is only approximate). The returned
+    /// scalar has the aggregate function's partial dtype, matching what the accumulator's legacy
+    /// stats bridge expects.
+    pub(super) fn combined_partial(
+        &self,
+        stat: Stat,
+        zone_range: Range<u64>,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Scalar>> {
+        let Some(aggregate_fn) = stat.aggregate_fn() else {
+            return Ok(None);
+        };
+        let Some(partial_dtype) = aggregate_state_dtype(&self.column_dtype, &aggregate_fn) else {
+            return Ok(None);
+        };
+
+        let field_name = aggregate_fn.to_string();
+        let Some(field) = self.array.unmasked_field_by_name_opt(&field_name) else {
+            return Ok(None);
+        };
+        // Only attach when the stored column is a plain primitive partial whose dtype matches the
+        // aggregate function's partial dtype. Bounded min/max store a struct state and are only
+        // approximate, so we never attach an exact stat from them.
+        if !field.dtype().eq_ignore_nullability(&partial_dtype) {
+            return Ok(None);
+        }
+
+        let start = usize::try_from(zone_range.start)?;
+        let end = usize::try_from(zone_range.end.min(self.array.len() as u64))?;
+        if start >= end {
+            return Ok(None);
+        }
+
+        let mut ctx = session.create_execution_ctx();
+        let mut accumulator = aggregate_fn.accumulator(&self.column_dtype)?;
+        for zone_idx in start..end {
+            let partial = field.execute_scalar(zone_idx, &mut ctx)?;
+            if partial.is_null() {
+                continue;
+            }
+            accumulator.combine_partials(partial)?;
+        }
+        Ok(Some(accumulator.partial_scalar()?))
     }
 }
 

@@ -32,7 +32,7 @@ use crate::LazyReaderChildren;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 
-type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
+pub(super) type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 pub(super) type SharedPruningResult =
     Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
 type PredicateCache = Arc<OnceLock<Option<Expression>>>;
@@ -128,6 +128,15 @@ impl PruningState {
                 }
             })
             .clone()
+    }
+
+    /// Shared future resolving to this layout's [`ZoneMap`], independent of any pruning predicate.
+    ///
+    /// Used by the reader to derive exact aggregate statistics from the zone map when a scan
+    /// requests them. Shares the same lazily-initialized zone map as pruning, so no extra I/O or
+    /// decode is incurred when both run.
+    pub(super) fn shared_zone_map(&self) -> SharedZoneMap {
+        self.zone_map()
     }
 
     fn zone_map(&self) -> SharedZoneMap {

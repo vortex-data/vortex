@@ -516,6 +516,7 @@ impl Partition for MultiLayoutPartition {
             .with_projection(request.projection)
             .with_some_filter(request.filter)
             .with_some_limit(request.limit)
+            .with_attach_aggregate_stats(request.attach_aggregate_stats)
             .with_ordered(request.ordered);
 
         if let Some(row_range) = request.row_range {

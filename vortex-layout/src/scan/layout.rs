@@ -166,6 +166,7 @@ impl DataSource for LayoutReaderDataSource {
             limit: scan_request.limit,
             selection: scan_request.selection,
             ordered: scan_request.ordered,
+            attach_aggregate_stats: scan_request.attach_aggregate_stats,
             metrics_registry: self.metrics_registry.clone(),
             next_row: row_range.start,
             end_row: row_range.end,
@@ -187,6 +188,7 @@ struct LayoutReaderScan {
     limit: Option<u64>,
     ordered: bool,
     selection: Selection,
+    attach_aggregate_stats: bool,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     next_row: u64,
     end_row: u64,
@@ -254,6 +256,7 @@ impl Stream for LayoutReaderScan {
             ordered: this.ordered,
             row_range,
             selection: this.selection.clone(),
+            attach_aggregate_stats: this.attach_aggregate_stats,
             metrics_registry: this.metrics_registry.clone(),
         }) as PartitionRef;
 
@@ -281,6 +284,7 @@ struct LayoutReaderSplit {
     ordered: bool,
     row_range: Range<u64>,
     selection: Selection,
+    attach_aggregate_stats: bool,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 }
 
@@ -319,6 +323,7 @@ impl Partition for LayoutReaderSplit {
             .with_some_filter(self.filter)
             .with_some_limit(self.limit)
             .with_some_metrics_registry(self.metrics_registry)
+            .with_attach_aggregate_stats(self.attach_aggregate_stats)
             .with_ordered(self.ordered);
 
         let dtype = builder.dtype()?;
