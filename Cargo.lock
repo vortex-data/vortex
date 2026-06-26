@@ -4239,6 +4239,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "geoarrow-cast"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41c308d653690a4e8ef3cbba69696056bd819e624766ece66d64cc26a638acc1"
+dependencies = [
+ "arrow-schema 58.3.0",
+ "geo-traits",
+ "geoarrow-array",
+ "geoarrow-schema",
+ "wkt 0.14.0",
+]
+
+[[package]]
 name = "geoarrow-schema"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10394,6 +10407,7 @@ dependencies = [
  "geo-traits",
  "geo-types",
  "geoarrow",
+ "geoarrow-cast",
  "prost 0.14.4",
  "rstest",
  "vortex-array",
