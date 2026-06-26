@@ -35,8 +35,7 @@ pub trait Benchmark: Send + Sync {
 
     /// SQL an `engine` must run before this benchmark's queries (e.g. loading engine
     /// extensions). Runners replay these after every (re)open. Default: none.
-    fn engine_init_sql(&self, engine: Engine) -> Vec<String> {
-        let _ = engine;
+    fn engine_init_sql(&self, _engine: Engine) -> Vec<String> {
         Vec::new()
     }
 
