@@ -368,7 +368,7 @@ impl ExecutionCtx {
     /// Use the [`format_args!`] macro to create the `msg` argument.
     pub fn log(&mut self, msg: fmt::Arguments<'_>) {
         #[cfg(debug_assertions)]
-        if tracing::enabled!(tracing::Level::DEBUG) {
+        if tracing::enabled!(tracing::Level::TRACE) {
             let formatted = format!(" - {msg}");
             tracing::trace!("exec[{}]: {formatted}", self.id);
             self.ops.push(formatted);

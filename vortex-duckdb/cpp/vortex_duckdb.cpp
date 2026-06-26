@@ -3,8 +3,10 @@
 
 #include "data.hpp"
 #include "error.hpp"
+#include "scalar_fn_pushdown.hpp"
 #include "vortex_duckdb.h"
 
+#include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/assert.hpp"
 #include "duckdb/common/types.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
@@ -15,6 +17,7 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/config.hpp"
 #include "duckdb/main/connection.hpp"
+#include "duckdb/optimizer/optimizer_extension.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
@@ -262,4 +265,27 @@ extern "C" duckdb_blob duckdb_vx_value_get_geometry(duckdb_value value) {
         memcpy(buf, str.c_str(), size);
     }
     return {buf, size};
+}
+
+static void VortexOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
+    plan = TryPushdownScalarFunctions(input.context, std::move(plan));
+}
+
+struct VortexOptimizerExtension final : OptimizerExtension {
+    inline VortexOptimizerExtension() : OptimizerExtension(VortexOptimizeFunction, nullptr, {}) {
+    }
+};
+
+extern "C" duckdb_state duckdb_vx_optimizer_extension_register(duckdb_database ffi_db) {
+    D_ASSERT(ffi_db);
+    const DatabaseWrapper &wrapper = *reinterpret_cast<DatabaseWrapper *>(ffi_db);
+    DatabaseInstance &db = *wrapper.database->instance;
+    try {
+        DBConfig::GetConfig(db).GetCallbackManager().Register(VortexOptimizerExtension());
+    } catch (const std::exception &e) {
+        ErrorData data(e);
+        DUCKDB_LOG_ERROR(db, "Failed to create Vortex optimizer extension:\t" + data.Message());
+        return DuckDBError;
+    }
+    return DuckDBSuccess;
 }
