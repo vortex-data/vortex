@@ -162,9 +162,7 @@ impl DefaultExpressionConvertor {
     /// Vortex `list_length`.
     ///
     /// Supports the single-argument form `array_length(arr)` and the equivalent two-argument
-    /// form with an explicit first dimension `array_length(arr, 1)`. Higher dimensions recurse
-    /// into nested lists and are rejected by [`can_array_length_be_pushed_down`] before reaching
-    /// this point.
+    /// form with an explicit first dimension `array_length(arr, 1)`.
     fn try_convert_array_length(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
         let Some(input) = array_length_input(scalar_fn) else {
             return Err(exec_datafusion_err!(
@@ -174,8 +172,6 @@ impl DefaultExpressionConvertor {
         };
 
         let input = self.convert(input.as_ref())?;
-        // Both DataFusion `array_length` and Vortex `list_length` return UInt64; the cast aligns
-        // nullability with DataFusion's declared return type.
         let return_dtype = self
             .session
             .arrow()
@@ -732,7 +728,7 @@ mod tests {
                 true,
             ),
             Field::new(
-                "unsupported_list",
+                "tags",
                 DataType::List(Arc::new(Field::new("item", DataType::Int32, true))),
                 true,
             ),
@@ -914,7 +910,7 @@ mod tests {
 
     #[rstest]
     fn test_expr_from_df_array_length(test_schema: Schema) {
-        let expr = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let expr = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
         let array_length = array_length_expr(vec![expr], &test_schema);
 
         let result = DefaultExpressionConvertor::default()
@@ -924,7 +920,7 @@ mod tests {
         assert_snapshot!(result.display_tree().to_string(), @r"
         vortex.cast(u64?)
         └── input: vortex.list.length()
-            └── input: vortex.get_item(unsupported_list)
+            └── input: vortex.get_item(tags)
                 └── input: vortex.root()
         ");
     }
@@ -992,8 +988,7 @@ mod tests {
 
     #[rstest]
     fn test_can_be_pushed_down_column_unsupported_type(test_schema: Schema) {
-        let col_expr =
-            Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let col_expr = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down_impl(&col_expr, &test_schema));
     }
@@ -1050,7 +1045,7 @@ mod tests {
 
     #[rstest]
     fn test_can_be_pushed_down_binary_unsupported_operand(test_schema: Schema) {
-        let left = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let left = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
         let right =
             Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(42)))) as Arc<dyn PhysicalExpr>;
         let binary_expr = Arc::new(df_expr::BinaryExpr::new(left, DFOperator::Eq, right))
@@ -1073,7 +1068,7 @@ mod tests {
 
     #[rstest]
     fn test_can_be_pushed_down_like_unsupported_operand(test_schema: Schema) {
-        let expr = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let expr = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
         let pattern = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
             "test%".to_string(),
         )))) as Arc<dyn PhysicalExpr>;
@@ -1093,7 +1088,7 @@ mod tests {
 
     #[rstest]
     fn test_can_be_pushed_down_octet_length_unsupported_operand(test_schema: Schema) {
-        let expr = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let expr = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
         let octet_length = Arc::new(ScalarFunctionExpr::new(
             "octet_length",
             Arc::new(ScalarUDF::from(OctetLengthFunc::new())),
@@ -1107,7 +1102,7 @@ mod tests {
 
     #[rstest]
     fn test_can_be_pushed_down_array_length_supported(test_schema: Schema) {
-        let expr = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let expr = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
         let array_length = array_length_expr(vec![expr], &test_schema);
 
         assert!(can_be_pushed_down_impl(&array_length, &test_schema));
@@ -1131,7 +1126,7 @@ mod tests {
     #[rstest]
     fn test_can_be_pushed_down_array_length_dimension_one_supported(test_schema: Schema) {
         // `array_length(arr, 1)` is the first-dimension length, equivalent to `list_length`.
-        let list = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let list = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
         let dimension =
             Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(1)))) as Arc<dyn PhysicalExpr>;
         let array_length = array_length_expr(vec![list, dimension], &test_schema);
@@ -1143,7 +1138,7 @@ mod tests {
     fn test_can_be_pushed_down_array_length_higher_dimension_not_supported(test_schema: Schema) {
         // Dimensions other than 1 recurse into nested lists, which `list_length` does not model,
         // so they must not be pushed down.
-        let list = Arc::new(df_expr::Column::new("unsupported_list", 5)) as Arc<dyn PhysicalExpr>;
+        let list = Arc::new(df_expr::Column::new("tags", 5)) as Arc<dyn PhysicalExpr>;
         let dimension =
             Arc::new(df_expr::Literal::new(ScalarValue::Int64(Some(2)))) as Arc<dyn PhysicalExpr>;
         let array_length = array_length_expr(vec![list, dimension], &test_schema);
