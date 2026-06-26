@@ -25,7 +25,7 @@ query TT
 EXPLAIN (FORMAT json)
 SELECT array_length(a) FROM '$__TEST_DIR__/list-length.vortex';
 ----
-<REGEX>:SELECT projections
+<REGEX>:"SELECT projections".*vortex\.list\.length
 
 # len/length/array_length all map to list_length for list arguments.
 query I
@@ -37,6 +37,12 @@ SELECT array_length(a) FROM '$__TEST_DIR__/list-length.vortex' ORDER BY id;
 5
 2
 
+query TT
+EXPLAIN (FORMAT json)
+SELECT len(a) FROM '$__TEST_DIR__/list-length.vortex';
+----
+<REGEX>:"SELECT projections".*vortex\.list\.length
+
 query I
 SELECT len(a) FROM '$__TEST_DIR__/list-length.vortex' ORDER BY id;
 ----
@@ -45,6 +51,12 @@ SELECT len(a) FROM '$__TEST_DIR__/list-length.vortex' ORDER BY id;
 1
 5
 2
+
+query TT
+EXPLAIN (FORMAT json)
+SELECT length(a) FROM '$__TEST_DIR__/list-length.vortex';
+----
+<REGEX>:"SELECT projections".*vortex\.list\.length
 
 query I
 SELECT length(a) FROM '$__TEST_DIR__/list-length.vortex' ORDER BY id;
@@ -56,6 +68,12 @@ SELECT length(a) FROM '$__TEST_DIR__/list-length.vortex' ORDER BY id;
 2
 
 # array_length over the other list column, including the empty list (length 0).
+query TT
+EXPLAIN (FORMAT json)
+SELECT array_length(b) FROM '$__TEST_DIR__/list-length.vortex';
+----
+<REGEX>:"SELECT projections".*vortex\.list\.length
+
 query I
 SELECT array_length(b) FROM '$__TEST_DIR__/list-length.vortex' ORDER BY id;
 ----
@@ -75,6 +93,13 @@ WHERE array_length(a) >= 4;
 <REGEX>:"Filters".*vortex\.list\.length
 
 # array_length in WHERE on the same column used in the SELECT projection.
+query TT
+EXPLAIN (FORMAT json)
+SELECT array_length(a) FROM '$__TEST_DIR__/list-length.vortex'
+WHERE array_length(a) >= 4;
+----
+<REGEX>:"Filters".*vortex\.list\.length.*"SELECT projections".*vortex\.list\.length
+
 query I
 SELECT array_length(a) FROM '$__TEST_DIR__/list-length.vortex'
 WHERE array_length(a) >= 4
@@ -84,6 +109,13 @@ ORDER BY id;
 5
 
 # array_length in WHERE filtering a different column than the SELECT projection.
+query TT
+EXPLAIN (FORMAT json)
+SELECT id, array_length(a) FROM '$__TEST_DIR__/list-length.vortex'
+WHERE array_length(b) >= 3;
+----
+<REGEX>:"Filters".*vortex\.list\.length.*"SELECT projections".*vortex\.list\.length
+
 query II
 SELECT id, array_length(a) FROM '$__TEST_DIR__/list-length.vortex'
 WHERE array_length(b) >= 3
@@ -103,6 +135,13 @@ WHERE array_length(b) >= 2;
 <REGEX>:"Filters".*vortex\.list\.length.*"SELECT projections".*vortex\.list\.length
 
 # array_length over different columns in both SELECT and WHERE.
+query TT
+EXPLAIN (FORMAT json)
+SELECT array_length(a), array_length(b) FROM '$__TEST_DIR__/list-length.vortex'
+WHERE array_length(b) >= 2;
+----
+<REGEX>:"Filters".*vortex\.list\.length.*"SELECT projections".*vortex\.list\.length
+
 query II
 SELECT array_length(a), array_length(b) FROM '$__TEST_DIR__/list-length.vortex'
 WHERE array_length(b) >= 2
@@ -113,6 +152,13 @@ ORDER BY id;
 5 4
 
 # Mixing the len/length/array_length aliases across SELECT and WHERE.
+query TT
+EXPLAIN (FORMAT json)
+SELECT len(a) FROM '$__TEST_DIR__/list-length.vortex'
+WHERE length(b) >= 2;
+----
+<REGEX>:"Filters".*vortex\.list\.length.*"SELECT projections".*vortex\.list\.length
+
 query I
 SELECT len(a) FROM '$__TEST_DIR__/list-length.vortex'
 WHERE length(b) >= 2
