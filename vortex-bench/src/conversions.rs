@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -26,11 +27,19 @@ use vortex::array::arrow::FromArrowArray;
 use vortex::array::builders::builder_with_capacity;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
+use vortex::dtype::FieldPath;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::file::VortexWriteOptions;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteStrategyBuilder;
+use vortex::layout::LayoutStrategy;
+use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex::layout::layouts::compressed::CompressingStrategy;
+use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::session::VortexSession;
 
 use crate::CompactionStrategy;
@@ -126,8 +135,7 @@ pub async fn convert_parquet_file_to_vortex(
         .open(output_path)
         .await?;
 
-    compaction
-        .apply_options(SESSION.write_options())
+    write_options_for(compaction, &dtype, is_spatialbench(parquet_path))
         .write(
             &mut output_file,
             ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, stream)),
@@ -135,6 +143,54 @@ pub async fn convert_parquet_file_to_vortex(
         .await?;
 
     Ok(())
+}
+
+/// Whether `path` points at SpatialBench data.
+fn is_spatialbench(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == "spatialbench")
+}
+
+/// Vortex write options for converting `dtype`-shaped data.
+///
+/// For SpatialBench (`skip_binary_dict`), the geometry blobs are large and
+/// unique, so the dictionary builder balloons memory (tens of GB) for zero gain.
+fn write_options_for(
+    compaction: CompactionStrategy,
+    dtype: &DType,
+    skip_binary_dict: bool,
+) -> VortexWriteOptions {
+    let binary_fields: Vec<_> = match dtype {
+        DType::Struct(fields, _) if skip_binary_dict => fields
+            .names()
+            .iter()
+            .zip(fields.fields())
+            .filter(|(_, field)| matches!(field, DType::Binary(_)))
+            .map(|(name, _)| name.clone())
+            .collect(),
+        _ => Vec::new(),
+    };
+    if binary_fields.is_empty() {
+        return compaction.apply_options(SESSION.write_options());
+    }
+
+    let mut builder = WriteStrategyBuilder::default();
+    if matches!(compaction, CompactionStrategy::Compact) {
+        builder =
+            builder.with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
+    }
+    for name in binary_fields {
+        builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());
+    }
+    SESSION.write_options().with_strategy(builder.build())
+}
+
+/// A chunked + compressed layout that skips dictionary encoding for opaque `Binary` blobs.
+fn no_dict_layout() -> Arc<dyn LayoutStrategy> {
+    Arc::new(CompressingStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        BtrBlocksCompressorBuilder::default().build(),
+    ))
 }
 
 /// Convert all Parquet files in a directory to Vortex format.
