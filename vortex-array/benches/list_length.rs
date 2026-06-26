@@ -116,31 +116,31 @@ fn run(bencher: Bencher, array: ArrayRef) {
 }
 
 #[divan::bench]
-fn list_small(bencher: Bencher) {
+fn list_length_small(bencher: Bencher) {
     run(bencher, make_list(SMALL));
 }
 
 #[divan::bench]
-fn list_medium(bencher: Bencher) {
+fn list_length_medium(bencher: Bencher) {
     run(bencher, make_list(MEDIUM));
 }
 
 #[divan::bench]
-fn list_large(bencher: Bencher) {
+fn list_length_large(bencher: Bencher) {
     run(bencher, make_list(LARGE));
 }
 
 #[divan::bench]
-fn listview_small(bencher: Bencher) {
+fn listview_length_small(bencher: Bencher) {
     run(bencher, make_listview(SMALL));
 }
 
 #[divan::bench]
-fn listview_medium(bencher: Bencher) {
+fn listview_length_medium(bencher: Bencher) {
     run(bencher, make_listview(MEDIUM));
 }
 
 #[divan::bench]
-fn listview_large(bencher: Bencher) {
+fn listview_length_large(bencher: Bencher) {
     run(bencher, make_listview(LARGE));
 }
