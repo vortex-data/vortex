@@ -25,7 +25,6 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBin;
@@ -121,9 +120,12 @@ impl VTable for FSST {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        data.validate(dtype, len, slots, &mut ctx)
+        // `VTable::validate` runs inside `try_from_parts`, which has no session, so it performs
+        // only the ctx-free structural checks. The value-level bound check needs to read an
+        // offset out of a possibly-encoded child array (and therefore an `ExecutionCtx`); it runs
+        // at construction time in `FSST::try_new` and `FSST::deserialize`, where a real session is
+        // available.
+        data.validate_structure(dtype, len, slots)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -568,30 +570,33 @@ impl FSSTData {
         }
     }
 
-    pub fn validate(
+    /// Validate the ctx-free structural invariants (dtype, lengths, nullability, slot shapes).
+    pub fn validate_structure(
         &self,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
-        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let codes_offsets = slots[CODES_OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("FSSTArray codes_offsets slot");
-        Self::validate_parts(
+        Self::validate_structure_parts(
             &self.symbol_table.symbols,
             &self.symbol_table.symbol_lengths,
-            &self.codes_bytes,
             codes_offsets,
             dtype.nullability(),
             uncompressed_lengths_from_slots(slots),
             dtype,
             len,
-            ctx,
         )
     }
 
     /// Validate using the decomposed components (codes bytes + offsets + nullability).
+    ///
+    /// Runs the ctx-free structural checks ([`Self::validate_structure_parts`]) and then the
+    /// value-level check that the last codes offset does not exceed the codes byte length. The
+    /// latter reads a scalar out of `codes_offsets` (which may be an encoded child), so it
+    /// requires an [`ExecutionCtx`].
     #[expect(clippy::too_many_arguments)]
     fn validate_parts(
         symbols: &Buffer<Symbol>,
@@ -603,6 +608,44 @@ impl FSSTData {
         dtype: &DType,
         len: usize,
         ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        Self::validate_structure_parts(
+            symbols,
+            symbol_lengths,
+            codes_offsets,
+            codes_nullability,
+            uncompressed_lengths,
+            dtype,
+            len,
+        )?;
+
+        // Validate that last offset doesn't exceed bytes length (when host-resident).
+        if codes_bytes.is_on_host() && codes_offsets.is_host() && !codes_offsets.is_empty() {
+            let last_offset: usize = (&codes_offsets
+                .execute_scalar(codes_offsets.len() - 1, ctx)
+                .vortex_expect("offsets must support scalar_at"))
+                .try_into()
+                .vortex_expect("Failed to convert offset to usize");
+            vortex_ensure!(
+                last_offset <= codes_bytes.len(),
+                InvalidArgument: "Last codes offset {} exceeds codes bytes length {}",
+                last_offset,
+                codes_bytes.len()
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Validate the ctx-free structural invariants shared by every construction path.
+    fn validate_structure_parts(
+        symbols: &Buffer<Symbol>,
+        symbol_lengths: &Buffer<u8>,
+        codes_offsets: &ArrayRef,
+        codes_nullability: Nullability,
+        uncompressed_lengths: &ArrayRef,
+        dtype: &DType,
+        len: usize,
     ) -> VortexResult<()> {
         vortex_ensure!(
             matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
@@ -640,21 +683,6 @@ impl FSSTData {
 
         if codes_nullability != dtype.nullability() {
             vortex_bail!(InvalidArgument: "codes nullability must match outer dtype nullability");
-        }
-
-        // Validate that last offset doesn't exceed bytes length (when host-resident).
-        if codes_bytes.is_on_host() && codes_offsets.is_host() && !codes_offsets.is_empty() {
-            let last_offset: usize = (&codes_offsets
-                .execute_scalar(codes_offsets.len() - 1, ctx)
-                .vortex_expect("offsets must support scalar_at"))
-                .try_into()
-                .vortex_expect("Failed to convert offset to usize");
-            vortex_ensure!(
-                last_offset <= codes_bytes.len(),
-                InvalidArgument: "Last codes offset {} exceeds codes bytes length {}",
-                last_offset,
-                codes_bytes.len()
-            );
         }
 
         Ok(())
