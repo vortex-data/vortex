@@ -7,6 +7,12 @@
 //! [`CanonicalMessage`](crate::message)s, and served to the kernel through the `vx_decode_child`
 //! host import. The kernel's canonical output is then sliced/filtered/projected like any other
 //! reader.
+//!
+//! WASM layouts are **decode-only**: the kernel decompresses, nothing more. There is deliberately
+//! no pushdown — filters and projections are evaluated on the fully decoded array (exactly as a
+//! [`FlatLayout`](vortex_layout::layouts::flat) leaf does), never pushed into the kernel, and there
+//! is no statistics-based pruning. This keeps kernels simple and untrusted file code off the
+//! query-planning path.
 
 use std::ops::BitAnd;
 use std::ops::Range;
@@ -169,7 +175,7 @@ impl LayoutReader for WasmReader {
         _expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        // v1 does not push pruning into the kernel.
+        // Decode-only: no statistics-based pruning. Return the mask unchanged.
         Ok(MaskFuture::ready(mask))
     }
 
@@ -179,6 +185,8 @@ impl LayoutReader for WasmReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
+        // Decode-only: fully decode, then evaluate the predicate on the decoded array. Nothing is
+        // pushed into the kernel.
         let row_range = usize::try_from(row_range.start)?..usize::try_from(row_range.end)?;
         let array = self.decoded_array_future();
         let expr = expr.clone();

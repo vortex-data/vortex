@@ -185,23 +185,24 @@ host each implement an encoder and a decoder for it.
 
 ## Reader flow (`WasmReader`)
 
-`WasmReader` builds one child reader for the data layout (propagating
-`LayoutReaderContext`). Its `projection_evaluation`:
+WASM layouts are **decode-only**: the kernel decompresses and nothing more. There is no pushdown
+and no statistics-based pruning — filters and projections are evaluated on the fully decoded array,
+exactly as a `Flat` leaf does. This keeps kernels simple and keeps untrusted, file-supplied code
+off the query-planning path.
 
-1. asks the data child reader for the *raw serialized array* of the wasm-encoded node. The data
-   child is a `Flat` layout, so the reader requests its segment and forms the
-   `SerializedArray` bytes (header + buffers) — but **does not** decode the top node (its
-   encoding is the unknown wasm encoding). We add a small `LayoutReader` capability /
-   `reader_context` channel to fetch raw serialized bytes rather than a decoded array.
-2. runs `WasmKernel::decode(bytes, host_decoder)` on a blocking pool (`spawn` blocking, since
-   `wasmi` execution is synchronous and potentially long-running), where `host_decoder`
-   implements `vx_decode_child` by decoding the requested child node via
-   `SerializedArray::child(...).decode(session)`.
-3. wraps the resulting `Canonical` into an `ArrayRef`, applies the requested projection
-   expression and mask, and returns it.
+`WasmReader` builds one child reader per child layout (propagating `LayoutReaderContext`). Its
+`projection_evaluation`:
 
-Filtering/pruning fall back to the generic "decode then evaluate" path in v1; pushdown into the
-WASM kernel is out of scope.
+1. fetches and compiles the kernel from its segment;
+2. eagerly decodes each child input through the normal layout reader machinery and encodes each as
+   a [`CanonicalMessage`](#canonicalmessage-wire-format) — these back the `vx_decode_child` host
+   import;
+3. fetches the optional payload segment;
+4. runs `WasmKernel::decode(payload, decoder)`, then slices to the row range, applies the input row
+   mask, and evaluates the projection expression on the decoded array.
+
+`filter_evaluation` is the same decode-then-evaluate path returning a refined mask;
+`pruning_evaluation` returns the input mask unchanged. Neither pushes anything into the kernel.
 
 ### Why the guest parses the header
 
@@ -314,15 +315,14 @@ kernel can only corrupt *that array's* values, never host memory.
 4. **Real encodings (done):** Frame-of-Reference and FoR + bit packing, each as a Rust example
    kernel (compiled to wasm32) and an end-to-end round-trip test.
 5. **Breadth (next):** `Bool`/`VarBinView`/`Struct` in the wire format, bitmap validity, kernel
-   dedup + caching, fuel/memory limits, a `no_std` guest SDK to shrink kernels, Arrow-FFI return
-   mode, and pushdown.
+   dedup + caching, fuel/memory limits, a `no_std` guest SDK to shrink kernels, and an Arrow-FFI
+   return mode.
+
+Pushdown (filter/pruning into the kernel) is explicitly **out of scope** — WASM encodings only
+decompress; the engine filters on the decoded output.
 
 ## Open questions
 
-- **Raw-bytes access:** the cleanest way for `WasmReader` to obtain the *undecoded* serialized
-  array from a child layout. Options: a new optional `LayoutReader` method, a `reader_context`
-  flag that makes `FlatReader` hand back bytes, or a dedicated `RawFlatLayout`. Leaning toward a
-  narrow trait method.
 - **Kernel caching key:** digest of the blob vs. segment id; cross-file caching in a session.
 - **Async vs. blocking:** running `wasmi` on the IO runtime's blocking pool vs. a dedicated
   decode pool.
