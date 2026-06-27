@@ -281,20 +281,32 @@ kernel may consume inputs of a different type than it produces.
 
 ## Binary size
 
-Example kernels, `wasm32-unknown-unknown`, size-optimized profile (`opt-level = "z"`, `lto`,
-`codegen-units = 1`, `panic = "abort"`, `strip`):
+The prototype example kernels (`wasm32-unknown-unknown`, size-optimized: `opt-level = "z"`, `lto`,
+`codegen-units = 1`, `panic = "abort"`, `strip`) were ~69–74 KB. That is **almost entirely the
+guest's `vortex` dependencies, not Rust `std`**:
 
-| kernel | size |
+| guest | size |
 |---|---|
-| identity | ~69 KB |
-| for | ~73 KB |
-| for-bitpack | ~74 KB |
+| zero-dependency (core + std + alloc only) | **~5.9 KB** |
+| prototype kernel (via `vortex-error` + `vortex-flatbuffers` + `vortex-buffer`) | ~74 KB |
 
-`-Z build-std=std,panic_abort` shaves a few KB (~68 KB). The kernel *logic* is a few hundred
-bytes; the floor is Rust `std` (the allocator plus panic/formatting machinery pulled in
-transitively). Reaching single-digit KB means a `no_std` guest SDK with a minimal allocator and no
-formatting — a worthwhile follow-up, but a larger change than this slice. (Kernels are read once
-per file and cached, so this size is amortized; it is still worth driving down.)
+`vortex-error` is the dominant cost: it pulls in `jiff`, `prost`, and `arrow-schema` as
+non-optional dependencies, none of which a kernel needs. `vortex-flatbuffers` then drags
+`vortex-error` in transitively.
+
+**The guest SDK must therefore avoid `vortex-error` entirely** and use a minimal, formatting-free
+error type (a `GuestError` carrying a `&'static str`, no `format!`). Two facts make this clean:
+
+- The **decoded-array boundary is Arrow C Data Interface**, which is pure byte layout — the guest
+  builds/reads it with only `core`/`alloc`, no vortex crates.
+- The **generated flatbuffer code is pure `flatbuffers` + `alloc`** (zero vortex references), so the
+  guest can parse the serialized array header by depending on the `flatbuffers` crate plus the
+  generated `array`/`dtype` modules, **without** `vortex-flatbuffers`'s `vortex-error`/`vortex-buffer`
+  (either by depending on `vortex-flatbuffers` with its trait helpers feature-gated off, or by
+  `include!`-ing the generated modules directly).
+
+Target guest dependency set: `flatbuffers` + `core`/`alloc` only. Expected kernel size: low
+single-digit to low-tens of KB rather than ~70 KB.
 
 ## Output format
 
