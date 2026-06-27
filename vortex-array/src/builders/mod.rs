@@ -34,10 +34,12 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::ListViewArray;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::match_each_decimal_value_type;
@@ -283,4 +285,34 @@ pub fn builder_with_capacity_in(
 ) -> Box<dyn ArrayBuilder> {
     let _allocator = allocator;
     builder_with_capacity(dtype, capacity)
+}
+
+/// Append a list-typed `array` into `builder`, dispatching to whichever list builder kind was
+/// supplied.
+///
+/// The canonical builder for [`DType::List`] is [`ListViewBuilder`] (that is what
+/// [`builder_with_capacity`] produces), but direct callers may pass a [`ListBuilder`]. List
+/// encodings should append through this helper rather than assuming the builder produced by
+/// [`builder_with_capacity`], so that both builder kinds are handled regardless of the source
+/// encoding (`ListArray` or `ListViewArray`).
+pub(crate) fn append_list_array_to_builder(
+    array: &ArrayRef,
+    builder: &mut dyn ArrayBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    if let Some(builder) = builder
+        .as_any_mut()
+        .downcast_mut::<ListViewBuilder<u64, u64>>()
+    {
+        let listview = array.clone().execute::<ListViewArray>(ctx)?;
+        return builder.append_listview_array(&listview, ctx);
+    }
+    if let Some(builder) = builder.as_any_mut().downcast_mut::<ListBuilder<u64>>() {
+        return builder.append_list_array(array, ctx);
+    }
+    vortex_bail!(
+        "appending a list array requires a ListViewBuilder<u64, u64> or ListBuilder<u64>, got a \
+         builder for dtype {}",
+        builder.dtype()
+    );
 }

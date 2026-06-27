@@ -173,8 +173,10 @@ impl<O: IntegerPType> ListBuilder<O> {
     /// [`ListViewArray`] and converting into the `ListArray` (`n + 1` offsets) layout.
     ///
     /// [`ListBuilder`] is not the canonical builder for [`DType::List`] (that is
-    /// [`ListViewBuilder`](crate::builders::ListViewBuilder)), so no encoding dispatches into it via
-    /// `append_to_builder`; this helper exists for direct callers such as tests.
+    /// [`ListViewBuilder`](crate::builders::ListViewBuilder)), so it is never produced by
+    /// [`builder_with_capacity`]. List encodings still dispatch into it through
+    /// [`append_list_array_to_builder`](crate::builders::append_list_array_to_builder) when a caller
+    /// supplies one directly.
     pub(crate) fn append_list_array(
         &mut self,
         array: &ArrayRef,
@@ -334,6 +336,7 @@ mod tests {
     use Nullability::Nullable;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::array_session;
@@ -344,6 +347,7 @@ mod tests {
     use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::builders::builder_with_capacity;
     use crate::builders::list::ListArray;
     use crate::builders::list::ListBuilder;
     use crate::dtype::DType;
@@ -512,6 +516,38 @@ mod tests {
                 )
                 .unwrap(),
         );
+    }
+
+    /// `append_to_builder` must handle any list builder kind, not just the one that
+    /// `builder_with_capacity` produces. Regression test: a `List`-encoded array appended into the
+    /// canonical `ListViewBuilder`, and a `ListView`-encoded array appended into a `ListBuilder`.
+    #[test]
+    fn test_append_to_builder_any_list_builder() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+
+        let list = ListArray::from_iter_opt_slow::<u64, _, _>(
+            [Some(vec![0, 1, 2]), None, Some(vec![4, 5])],
+            Arc::new(I32.into()),
+        )?
+        .into_array();
+
+        // `builder_with_capacity` produces a `ListViewBuilder` for `DType::List`; appending the
+        // `List`-encoded array must dispatch into it instead of bailing.
+        let mut listview_builder = builder_with_capacity(list.dtype(), list.len());
+        list.append_to_builder(listview_builder.as_mut(), &mut ctx)?;
+        assert_arrays_eq!(listview_builder.finish(), list, &mut ctx);
+
+        // The reverse: a `ListView`-encoded array appended into an explicit `ListBuilder`.
+        let listview = list
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)?
+            .into_array();
+        let mut list_builder =
+            ListBuilder::<u64>::with_capacity(Arc::new(I32.into()), Nullable, 8, 4);
+        listview.append_to_builder(&mut list_builder, &mut ctx)?;
+        assert_arrays_eq!(list_builder.finish(), list, &mut ctx);
+
+        Ok(())
     }
 
     #[test]

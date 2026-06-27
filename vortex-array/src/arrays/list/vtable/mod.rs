@@ -35,7 +35,7 @@ use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
-use crate::builders::ListBuilder;
+use crate::builders::append_list_array_to_builder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -198,10 +198,7 @@ impl VTable for List {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let Some(builder) = builder.as_any_mut().downcast_mut::<ListBuilder<u64>>() else {
-            vortex_bail!("append_to_builder for List requires a ListBuilder<u64, u64>");
-        };
-        builder.append_list_array(&array.into_owned().into_array(), ctx)
+        append_list_array_to_builder(&array.into_owned().into_array(), builder, ctx)
     }
 }
 
