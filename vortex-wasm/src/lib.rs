@@ -35,6 +35,9 @@ pub use layout::WasmLayoutMetadata;
 pub use reader::WasmReader;
 use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
+pub use writer::IdentityEncoder;
+pub use writer::WasmEncoded;
+pub use writer::WasmEncoder;
 pub use writer::WasmLayoutStrategy;
 
 /// Register the [`WasmLayout`] encoding on a session so files containing it can be read.

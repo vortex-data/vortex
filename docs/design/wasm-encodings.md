@@ -212,6 +212,36 @@ satisfied by `vortex-flatbuffers`: it only depends on `flatbuffers`, `vortex-buf
 full control over how it interprets its own metadata and buffers — exactly mirroring what a
 native Vortex `VTable::deserialize` would do, but sandboxed.
 
+## Write side (`WasmEncoder`)
+
+`WasmLayoutStrategy` pairs a kernel with a `WasmEncoder`, the write-side counterpart of the
+kernel. For each input chunk the encoder returns a `WasmEncoded { payload, child }`: the `payload`
+bytes the guest parses, and the single child input array the kernel decodes. The strategy writes
+the child through a child strategy, the payload as its own segment, and the kernel once at
+end-of-file; multiple chunks are wrapped in a `ChunkedLayout` sharing the one kernel segment.
+`IdentityEncoder` (empty payload, chunk as child) is the trivial case.
+
+## Worked example: Frame of Reference (the minimal real encoding)
+
+FoR is the smallest encoding that actually transforms data, so it is the reference example.
+
+- **Write** (`ForEncoder`, host): pick a reference (the column minimum), store it in the payload
+  (`[i32 reference]`), and store `value - reference` as the child deltas array.
+- **Read** (the FoR kernel, guest): read the reference from the payload, decode the child deltas
+  via `vx_decode_child`, and emit `reference + delta[i]`.
+
+Both halves live as runnable code:
+
+- `vortex-wasm-guest/examples/for-kernel/` — the FoR kernel in Rust, built on the guest SDK
+  (`MessageReader`, `host::decode_child`, `primitive_message`, `export_wasm_encoding!`), compiling
+  to `wasm32-unknown-unknown`.
+- `vortex-wasm/tests/for_roundtrip.rs` — the host `ForEncoder` plus an equivalent FoR kernel
+  written in WAT (so the test is self-contained), writing and reading a FoR `WasmLayout` end to
+  end through real layout machinery.
+
+The deltas are stored at the same width as the values in this minimal version; pairing FoR with a
+bit-packing child encoding (narrower deltas) is the natural next step and needs no ABI changes.
+
 ## Output format
 
 Primary: **Vortex canonical encodings**, transported via `CanonicalMessage`. This keeps the

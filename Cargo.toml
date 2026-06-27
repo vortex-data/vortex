@@ -73,8 +73,9 @@ members = [
 exclude = [
     "java/testfiles",
     "wasm-test",
-    # Example WASM kernel; only meaningful for the wasm32 target.
+    # Example WASM kernels; only meaningful for the wasm32 target.
     "vortex-wasm-guest/examples/identity-kernel",
+    "vortex-wasm-guest/examples/for-kernel",
 ]
 resolver = "2"
 

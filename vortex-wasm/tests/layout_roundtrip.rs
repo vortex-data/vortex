@@ -30,6 +30,7 @@ use vortex_layout::sequence::SequentialArrayStreamExt;
 use vortex_layout::sequence::SequentialStreamAdapter;
 use vortex_layout::sequence::SequentialStreamExt;
 use vortex_layout::session::LayoutSession;
+use vortex_wasm::IdentityEncoder;
 use vortex_wasm::WasmLayoutStrategy;
 
 /// Identity kernel: returns child 0 verbatim.
@@ -75,6 +76,7 @@ fn wasm_layout_round_trips_through_identity_kernel() {
         let strategy = WasmLayoutStrategy::new(
             kernel,
             "test.identity",
+            Arc::new(IdentityEncoder),
             Arc::new(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>,
         );
 
