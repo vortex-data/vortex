@@ -16,6 +16,7 @@ use crate::ArraySlots;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
@@ -110,6 +111,7 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
     }
 
     #[inline]
+    #[expect(deprecated)]
     fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
         assert!(chunk * 1024 <= self.as_ref().len() + self.offset());
         assert!(lane < self.n_lanes());

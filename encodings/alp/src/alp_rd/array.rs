@@ -22,6 +22,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
@@ -154,6 +155,7 @@ impl VTable for ALPRD {
         ))
     }
 
+    #[expect(deprecated)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -497,6 +499,7 @@ fn patches_from_slots(
     PatchesData::patches_from_slots(patches_data, len, slots, LP_PATCH_SLOTS)
 }
 
+#[expect(deprecated)]
 fn validate_parts(
     dtype: &DType,
     len: usize,

@@ -18,6 +18,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArraySlots;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
@@ -309,6 +310,7 @@ impl VarBinViewData {
         Ok(())
     }
 
+    #[expect(deprecated)]
     fn validate_views<F>(
         views: &Buffer<BinaryView>,
         buffers: &Arc<[ByteBuffer]>,

@@ -18,6 +18,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::NumericalAggregateOpts;
@@ -220,6 +221,7 @@ impl ListViewData {
     }
 
     /// Validates the components that would be used to create a `ListViewArray`.
+    #[expect(deprecated)]
     pub fn validate(
         elements: &ArrayRef,
         offsets: &ArrayRef,
@@ -382,6 +384,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         )
     }
 
+    #[expect(deprecated)]
     fn offset_at(&self, index: usize) -> usize {
         assert!(
             index < self.as_ref().len(),
@@ -401,6 +404,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             })
     }
 
+    #[expect(deprecated)]
     fn size_at(&self, index: usize) -> usize {
         assert!(
             index < self.as_ref().len(),
@@ -638,6 +642,7 @@ impl Array<ListView> {
     /// # Safety
     ///
     /// See [`ListViewData::with_zero_copy_to_list`].
+    #[expect(deprecated)]
     pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
         if cfg!(debug_assertions) && is_zctl {
             let offsets_primitive = self
@@ -738,6 +743,7 @@ where
 
 /// Helper function to validate if the `ListViewArray` components are actually zero-copyable to
 /// [`ListArray`](crate::arrays::ListArray).
+#[expect(deprecated)]
 fn validate_zctl(
     elements: &ArrayRef,
     offsets_primitive: PrimitiveArray,

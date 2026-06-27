@@ -20,6 +20,7 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+#[expect(deprecated)]
 use vortex_array::LEGACY_SESSION;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -50,6 +51,7 @@ pub struct ZstdBuffers;
 
 impl ZstdBuffers {
     /// Construct a [`ZstdBuffersArray`] from compressed buffer data.
+    #[expect(deprecated)]
     pub fn try_new(
         dtype: DType,
         len: usize,
@@ -507,6 +509,7 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
 }
 
 impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
+    #[expect(deprecated)]
     fn validity(array: ArrayView<'_, ZstdBuffers>) -> VortexResult<Validity> {
         if !array.dtype().is_nullable() {
             return Ok(Validity::NonNullable);

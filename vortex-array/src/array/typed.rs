@@ -23,6 +23,7 @@ use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayId;
@@ -376,6 +377,7 @@ impl<V: VTable> Array<V> {
         note = "Use `execute_scalar` instead, which allows passing an execution context for more \
         efficient execution when fetching multiple scalars from the same array."
     )]
+    #[expect(deprecated)]
     pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
         self.inner
             .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())

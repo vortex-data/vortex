@@ -24,6 +24,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
@@ -186,6 +187,7 @@ impl Validity {
     /// Returns whether the `index` item is valid.
     #[deprecated(note = "use `execute_is_valid` with an explicit `ExecutionCtx`")]
     #[inline]
+    #[expect(deprecated)]
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
         self.execute_is_valid(index, &mut LEGACY_SESSION.create_execution_ctx())
     }
@@ -193,6 +195,7 @@ impl Validity {
     /// Returns whether the `index` item is null.
     #[deprecated(note = "use `execute_is_null` with an explicit `ExecutionCtx`")]
     #[inline]
+    #[expect(deprecated)]
     pub fn is_null(&self, index: usize) -> VortexResult<bool> {
         self.execute_is_null(index, &mut LEGACY_SESSION.create_execution_ctx())
     }

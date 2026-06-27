@@ -6,6 +6,7 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayView;
@@ -19,6 +20,7 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 impl TakeReduce for Constant {
+    #[expect(deprecated)]
     fn take(array: ArrayView<'_, Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = match indices

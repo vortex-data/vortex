@@ -26,6 +26,7 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VTable;
 use crate::VortexSessionExecute;
@@ -269,6 +270,7 @@ impl ArrayRef {
         note = "Use `execute_scalar` instead, which allows passing an execution context for more \
         efficient execution when fetching multiple scalars from the same array."
     )]
+    #[expect(deprecated)]
     pub fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
         self.execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
     }
@@ -360,6 +362,7 @@ impl ArrayRef {
 
     /// Returns the canonical representation of the array.
     #[deprecated(note = "use `array.execute::<Canonical>(ctx)` instead")]
+    #[expect(deprecated)]
     pub fn into_canonical(self) -> VortexResult<Canonical> {
         self.execute(&mut LEGACY_SESSION.create_execution_ctx())
     }

@@ -12,6 +12,7 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::Constant;
@@ -108,6 +109,7 @@ impl ArrowDatum for Datum {
 #[deprecated(
     note = "Relies on the hidden global `LEGACY_SESSION`; use `from_arrow_columnar` with an explicit `ExecutionCtx` instead"
 )]
+#[expect(deprecated)]
 pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayRef>
 where
     ArrayRef: FromArrowArray<A>,

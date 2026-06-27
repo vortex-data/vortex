@@ -23,6 +23,7 @@ pub use null_buffer::to_null_buffer;
 pub use session::*;
 
 use crate::ArrayRef;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 

@@ -25,6 +25,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
@@ -114,6 +115,7 @@ impl VTable for FSST {
         *ID
     }
 
+    #[expect(deprecated)]
     fn validate(
         &self,
         data: &Self::TypedArrayData,

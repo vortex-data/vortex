@@ -6,6 +6,7 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayView;
@@ -19,6 +20,7 @@ use crate::optimizer::rules::ParentRuleSet;
 
 impl TakeReduce for Null {
     #[expect(clippy::cast_possible_truncation)]
+    #[expect(deprecated)]
     fn take(array: ArrayView<'_, Null>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let indices = indices
             .clone()

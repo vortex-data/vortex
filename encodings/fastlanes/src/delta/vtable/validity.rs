@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayView;
+#[expect(deprecated)]
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::validity::Validity;
@@ -13,6 +14,7 @@ use crate::bit_transpose::untranspose_validity;
 use crate::delta::array::DeltaArrayExt;
 
 impl ValidityVTable<Delta> for Delta {
+    #[expect(deprecated)]
     fn validity(array: ArrayView<'_, Delta>) -> VortexResult<Validity> {
         let start = array.offset();
         let end = start + array.len();

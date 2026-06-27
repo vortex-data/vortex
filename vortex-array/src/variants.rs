@@ -12,6 +12,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::sum::sum;
@@ -115,6 +116,7 @@ impl BoolTyped<'_> {
     #[deprecated(
         note = "Relies on the hidden global `LEGACY_SESSION`; use `sum(array, ctx)` with an explicit `ExecutionCtx` instead"
     )]
+    #[expect(deprecated)]
     pub fn true_count(&self) -> VortexResult<usize> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let true_count = sum(self.0, &mut ctx)?;
@@ -151,6 +153,7 @@ impl PrimitiveTyped<'_> {
     #[deprecated(
         note = "Relies on the hidden global `LEGACY_SESSION`; use `execute_scalar` with an explicit `ExecutionCtx` instead"
     )]
+    #[expect(deprecated)]
     pub fn value_unchecked(&self, idx: usize) -> VortexResult<PValue> {
         Ok(self
             .0

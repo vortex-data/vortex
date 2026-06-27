@@ -7,6 +7,7 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayView;
@@ -56,6 +57,7 @@ fn execute_expr(
 }
 
 impl ValidityVTable<ScalarFn> for ScalarFn {
+    #[expect(deprecated)]
     fn validity(array: ArrayView<'_, ScalarFn>) -> VortexResult<Validity> {
         let inputs: Vec<_> = array
             .iter_children()

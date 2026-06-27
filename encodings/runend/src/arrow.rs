@@ -5,6 +5,7 @@ use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -25,6 +26,7 @@ impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
 where
     R::Native: NativePType,
 {
+    #[expect(deprecated)]
     fn from_arrow(array: &RunArray<R>, nullable: bool) -> VortexResult<Self> {
         let offset = array.run_ends().offset();
         let len = array.run_ends().len();

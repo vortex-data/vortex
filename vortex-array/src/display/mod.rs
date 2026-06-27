@@ -20,6 +20,7 @@ use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
 use crate::ArrayRef;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 
@@ -522,6 +523,7 @@ impl ArrayRef {
         DisplayArrayAs(self, DisplayOptions::TableDisplay)
     }
 
+    #[expect(deprecated)]
     fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
         match options {
             DisplayOptions::MetadataOnly => EncodingSummaryExtractor::write(self, f),

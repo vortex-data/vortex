@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
+#[expect(deprecated)]
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
@@ -38,6 +39,7 @@ pub trait CanonicalCudaExt {
 
 #[async_trait]
 impl CanonicalCudaExt for Canonical {
+    #[expect(deprecated)]
     async fn into_host(self) -> VortexResult<Self> {
         match self {
             Canonical::Struct(struct_array) => {

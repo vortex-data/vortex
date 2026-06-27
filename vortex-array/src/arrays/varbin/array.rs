@@ -15,6 +15,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
@@ -230,6 +231,7 @@ impl VarBinData {
     }
 
     /// Validates that every non-null value is valid UTF-8.
+    #[expect(deprecated)]
     fn validate_utf8(offsets: &ArrayRef, bytes: &[u8], validity: &Validity) -> VortexResult<()> {
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
             let string_bytes = &bytes[start..end];
@@ -335,6 +337,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
         )
     }
 
+    #[expect(deprecated)]
     fn offset_at(&self, index: usize) -> usize {
         assert!(
             index <= self.as_ref().len(),

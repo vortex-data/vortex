@@ -13,6 +13,7 @@ use std::hint;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::scalar::Scalar;
@@ -270,6 +271,7 @@ fn search_sorted_side_idx<F: FnMut(usize) -> VortexResult<Ordering>>(
 }
 
 impl IndexOrd<Scalar> for ArrayRef {
+    #[expect(deprecated)]
     fn index_cmp(&self, idx: usize, elem: &Scalar) -> VortexResult<Option<Ordering>> {
         let scalar_a = self.execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?;
         Ok(scalar_a.partial_cmp(elem))

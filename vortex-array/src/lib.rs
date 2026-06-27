@@ -185,6 +185,11 @@ pub fn array_session() -> VortexSession {
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...
+#[deprecated(
+    note = "LEGACY_SESSION creates an ExecutionCtx detached from any real session; thread an \
+            ExecutionCtx through from the caller instead. Existing call sites are grandfathered \
+            with #[expect(deprecated)]; do not add new ones."
+)]
 pub static LEGACY_SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 pub type ArrayContext = Context<ArrayPluginRef>;

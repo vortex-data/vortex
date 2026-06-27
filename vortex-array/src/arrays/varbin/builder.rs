@@ -8,6 +8,7 @@ use vortex_error::vortex_panic;
 
 use crate::IntoArray;
 #[cfg(debug_assertions)]
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 #[cfg(debug_assertions)]
 use crate::VortexSessionExecute;
@@ -104,6 +105,7 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         // this stat eagerly. This avoids an O(n) recomputation when the array is
         // deserialized and VarBinArray::validate checks sortedness.
         #[cfg(debug_assertions)]
+        #[expect(deprecated)]
         {
             let offsets_are_sorted = offsets
                 .statistics()

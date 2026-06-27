@@ -18,6 +18,7 @@ use crate::ArraySlots;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::NumericalAggregateOpts;
@@ -182,6 +183,7 @@ impl ListData {
     /// Validates the components that would be used to create a `ListArray`.
     ///
     /// This function checks all the invariants required by `ListArray::new_unchecked`.
+    #[expect(deprecated)]
     pub fn validate(
         elements: &ArrayRef,
         offsets: &ArrayRef,
@@ -296,6 +298,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
         )
     }
 
+    #[expect(deprecated)]
     fn offset_at(&self, index: usize) -> VortexResult<usize> {
         vortex_ensure!(
             index <= self.as_ref().len(),

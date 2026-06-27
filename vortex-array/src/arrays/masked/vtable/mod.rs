@@ -22,6 +22,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
 use crate::IntoArray;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
@@ -112,6 +113,7 @@ impl VTable for Masked {
         Ok(Some(vec![]))
     }
 
+    #[expect(deprecated)]
     fn deserialize(
         &self,
         dtype: &DType,

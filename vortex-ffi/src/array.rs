@@ -14,6 +14,7 @@ use arrow_array::ffi::from_ffi;
 use paste::paste;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+#[expect(deprecated)]
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::NullArray;
@@ -219,6 +220,7 @@ pub unsafe extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const
 // Returns NULL and sets error_out if index is out of bounds or array doesn't
 // have dtype DTYPE_STRUCT.
 #[unsafe(no_mangle)]
+#[expect(deprecated)]
 pub unsafe extern "C-unwind" fn vx_array_get_field(
     array: *const vx_array,
     index: usize,
@@ -258,6 +260,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
 /// validity array. Sets error if index is out of bounds or underlying validity
 /// array is corrupted.
 #[unsafe(no_mangle)]
+#[expect(deprecated)]
 pub unsafe extern "C-unwind" fn vx_array_element_is_invalid(
     array: *const vx_array,
     index: usize,
@@ -271,6 +274,7 @@ pub unsafe extern "C-unwind" fn vx_array_element_is_invalid(
 
 /// Check how many items in the array are invalid (null).
 #[unsafe(no_mangle)]
+#[expect(deprecated)]
 pub unsafe extern "C-unwind" fn vx_array_invalid_count(
     array: *const vx_array,
     error_out: *mut *mut vx_error,
@@ -391,6 +395,7 @@ macro_rules! ffiarray_get_ptype {
     ($ptype:ident) => {
         paste! {
             #[unsafe(no_mangle)]
+            #[expect(deprecated)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: usize) -> $ptype {
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
@@ -404,6 +409,7 @@ macro_rules! ffiarray_get_ptype {
             }
 
             #[unsafe(no_mangle)]
+            #[expect(deprecated)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: usize) -> $ptype {
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
@@ -436,6 +442,7 @@ ffiarray_get_ptype!(f64);
 /// Return the utf-8 string at `index` in the array. The pointer will be null if the value at `index` is null.
 /// The caller must free the returned pointer.
 #[unsafe(no_mangle)]
+#[expect(deprecated)]
 pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     array: *const vx_array,
     index: u32,
@@ -456,6 +463,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
 /// Return the binary at `index` in the array. The pointer will be null if the value at `index` is null.
 /// The caller must free the returned pointer.
 #[unsafe(no_mangle)]
+#[expect(deprecated)]
 pub unsafe extern "C-unwind" fn vx_array_get_binary(
     array: *const vx_array,
     index: u32,

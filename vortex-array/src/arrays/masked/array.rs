@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+#[expect(deprecated)]
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
@@ -75,6 +76,7 @@ impl MaskedData {
 
 impl Array<Masked> {
     /// Constructs a new `MaskedArray`.
+    #[expect(deprecated)]
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
         let dtype = child.dtype().as_nullable();
         let len = child.len();

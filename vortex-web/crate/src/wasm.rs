@@ -19,6 +19,7 @@ use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use serde::Serialize;
 use vortex::array::ArrayRef;
+#[expect(deprecated)]
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
@@ -771,6 +772,7 @@ fn dtype_to_schema(dtype: &DType, default_name: &str) -> VortexResult<Schema> {
 /// Convert a Vortex ArrayRef into an Arrow RecordBatch using the given schema.
 ///
 /// Always uses `execute_arrow` with explicit types to ensure view types are avoided.
+#[expect(deprecated)]
 fn array_to_record_batch(
     array: ArrayRef,
     dtype: &DType,

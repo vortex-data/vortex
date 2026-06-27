@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+#[expect(deprecated)]
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
@@ -16,6 +17,7 @@ use crate::ALPRD;
 use crate::ALPRDArrayExt;
 
 impl MaskReduce for ALPRD {
+    #[expect(deprecated)]
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_left_parts = MaskExpr.try_new_array(
             array.left_parts().len(),
