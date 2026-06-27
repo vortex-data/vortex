@@ -184,6 +184,15 @@ pub fn array_session() -> VortexSession {
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...
-pub static LEGACY_SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+/// Returns the hidden global [`VortexSession`] used as a back-compat shim for code paths that
+/// cannot yet thread an explicit session through.
+///
+/// This accessor is registered as a `clippy::disallowed_methods` entry: new call sites are
+/// rejected, and the existing call sites carry an explicit `#[allow(clippy::disallowed_methods)]`.
+/// Prefer threading an explicit [`VortexSession`]/`ExecutionCtx` instead.
+pub fn legacy_session() -> &'static VortexSession {
+    static LEGACY_SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+    LazyLock::force(&LEGACY_SESSION)
+}
 
 pub type ArrayContext = Context<ArrayPluginRef>;

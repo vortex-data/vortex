@@ -284,6 +284,7 @@ mod tests {
     use crate::scalar_fn::fns::not::Not;
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn chunked_dict_with_shared_values_pulls_values_up() -> VortexResult<()> {
         let values = buffer![10u32, 20, 30].into_array();
         let chunk0 = DictArray::try_new(buffer![0u8, 1].into_array(), values.clone())?.into_array();
@@ -298,7 +299,7 @@ mod tests {
 
         assert!(ArrayRef::ptr_eq(dict.values(), &values));
         assert_eq!(codes.nchunks(), 2);
-        let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = crate::legacy_session().create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             PrimitiveArray::from_iter([10u32, 20, 30, 10, 20]),
@@ -309,6 +310,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn chunked_dict_with_distinct_values_stays_chunked() -> VortexResult<()> {
         let values0 = buffer![10u32, 20, 30].into_array();
         let values1 = buffer![10u32, 20, 30].into_array();
@@ -321,7 +323,7 @@ mod tests {
         let optimized = array.optimize()?;
 
         assert!(optimized.is::<Chunked>());
-        let mut ctx = crate::LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = crate::legacy_session().create_execution_ctx();
         assert_arrays_eq!(
             optimized,
             PrimitiveArray::from_iter([10u32, 20, 30, 10, 20]),

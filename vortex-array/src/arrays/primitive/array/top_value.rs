@@ -10,16 +10,17 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::NativeValue;
 use crate::dtype::NativePType;
+use crate::legacy_session;
 use crate::match_each_native_ptype;
 use crate::scalar::PValue;
 
 impl PrimitiveArray {
     /// Compute most common present value of this array
+    #[allow(clippy::disallowed_methods)]
     pub fn top_value(&self) -> VortexResult<Option<(PValue, usize)>> {
         if self.is_empty() {
             return Ok(None);
@@ -34,7 +35,7 @@ impl PrimitiveArray {
                 self.as_slice::<P>(),
                 self.as_ref().validity()?.execute_mask(
                     self.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut legacy_session().create_execution_ctx(),
                 )?,
             );
             Ok(Some((top.into(), count)))

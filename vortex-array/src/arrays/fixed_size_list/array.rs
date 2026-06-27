@@ -12,7 +12,6 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -21,6 +20,7 @@ use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::FixedSizeList;
 use crate::dtype::DType;
+use crate::legacy_session;
 use crate::validity::Validity;
 
 /// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
@@ -231,6 +231,7 @@ pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
         child_to_validity(self.as_ref().slots()[VALIDITY_SLOT].as_ref(), nullability)
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
             index < self.as_ref().len(),
@@ -242,7 +243,7 @@ pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
         {
             debug_assert!(
                 self.fixed_size_list_validity()
-                    .execute_is_valid(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_is_valid(index, &mut legacy_session().create_execution_ctx())
                     .unwrap_or(false)
             );
         }

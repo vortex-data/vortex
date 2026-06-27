@@ -21,7 +21,6 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
@@ -38,6 +37,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
@@ -296,12 +296,13 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.append_value(list_scalar)
     }
 
+    #[allow(clippy::disallowed_methods)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         // TODO: The `ArrayBuilder` trait does not thread an `ExecutionCtx` through its extend
-        // methods, so we are forced to mint a fresh `LEGACY_SESSION` context here on every call
+        // methods, so we are forced to mint a fresh `legacy_session()` context here on every call
         // (which for chunked input means once per chunk). Once the trait carries a `&mut
         // ExecutionCtx`, the caller's session should be reused instead.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
 
         let listview = array
             .clone()

@@ -19,7 +19,6 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
@@ -28,6 +27,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::legacy_session;
 use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -86,6 +86,7 @@ impl VTable for RunEnd {
         *ID
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn validate(
         &self,
         data: &Self::TypedArrayData,
@@ -100,7 +101,7 @@ impl VTable for RunEnd {
             .as_ref()
             .vortex_expect("RunEndArray values slot");
         // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
         RunEndData::validate_parts(ends, values, data.offset, len, &mut ctx)?;
         vortex_ensure!(
             values.dtype() == dtype,

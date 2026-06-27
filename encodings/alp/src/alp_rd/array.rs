@@ -159,6 +159,7 @@ impl VTable for ALPRD {
         ))
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -470,6 +471,7 @@ fn patches_from_slots(
     PatchesData::patches_from_slots(patches_data, len, slots, LP_PATCH_SLOTS)
 }
 
+#[allow(clippy::disallowed_methods)]
 fn validate_parts(
     dtype: &DType,
     len: usize,

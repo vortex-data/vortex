@@ -12,13 +12,13 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::ArrowSessionExt;
 use crate::arrow::FromArrowArray;
 use crate::executor::ExecutionCtx;
+use crate::legacy_session;
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]
@@ -106,8 +106,9 @@ impl ArrowDatum for Datum {
 ///
 /// The provided array must have length
 #[deprecated(
-    note = "Relies on the hidden global `LEGACY_SESSION`; use `from_arrow_columnar` with an explicit `ExecutionCtx` instead"
+    note = "Relies on the hidden global `legacy_session()`; use `from_arrow_columnar` with an explicit `ExecutionCtx` instead"
 )]
+#[allow(clippy::disallowed_methods)]
 pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayRef>
 where
     ArrayRef: FromArrowArray<A>,
@@ -128,7 +129,7 @@ where
 
     Ok(ConstantArray::new(
         array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut legacy_session().create_execution_ctx())
             .vortex_expect("array of length 1 must support execute_scalar(0)"),
         len,
     )

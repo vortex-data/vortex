@@ -5,12 +5,12 @@ use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::NativePType;
+use vortex_array::legacy_session;
 use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -25,6 +25,7 @@ impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
 where
     R::Native: NativePType,
 {
+    #[allow(clippy::disallowed_methods)]
     fn from_arrow(array: &RunArray<R>, nullable: bool) -> VortexResult<Self> {
         let offset = array.run_ends().offset();
         let len = array.run_ends().len();
@@ -57,7 +58,7 @@ where
 
         // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees.
         // TODO(ctx): trait fixes - FromArrowArray::from_arrow has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
         RunEndData::validate_parts(&ends_slice, &values_slice, offset, len, &mut ctx)?;
         Ok(unsafe { RunEndData::new_unchecked(offset) })
     }

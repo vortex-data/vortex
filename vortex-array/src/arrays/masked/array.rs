@@ -9,7 +9,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -18,6 +17,7 @@ use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::array_slots;
 use crate::arrays::Masked;
+use crate::legacy_session;
 use crate::validity::Validity;
 
 #[array_slots(Masked)]
@@ -75,13 +75,14 @@ impl MaskedData {
 
 impl Array<Masked> {
     /// Constructs a new `MaskedArray`.
+    #[allow(clippy::disallowed_methods)]
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
         let dtype = child.dtype().as_nullable();
         let len = child.len();
         let validity_slot = validity_to_child(&validity, len);
         let data = MaskedData::try_new(
             len,
-            child.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
+            child.all_valid(&mut legacy_session().create_execution_ctx())?,
             validity,
         )?;
         Ok(unsafe {

@@ -13,7 +13,6 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
@@ -25,6 +24,7 @@ use crate::canonical::Canonical;
 use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::legacy_session;
 use crate::scalar::Scalar;
 
 pub struct BoolBuilder {
@@ -127,10 +127,11 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
+    #[allow(clippy::disallowed_methods)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         #[expect(deprecated)]
         let bool_array = array.to_bool();
-        self.append_bool_array(&bool_array, &mut LEGACY_SESSION.create_execution_ctx())
+        self.append_bool_array(&bool_array, &mut legacy_session().create_execution_ctx())
             .vortex_expect("Failed to append bool array");
     }
 

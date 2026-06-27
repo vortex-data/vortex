@@ -8,7 +8,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::arrays::StructArray;
@@ -16,6 +15,7 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
+use vortex_array::legacy_session;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
@@ -153,8 +153,9 @@ struct NamedArrays {
 }
 
 impl NamedArrays {
+    #[allow(clippy::disallowed_methods)]
     fn all_invalid(&self) -> VortexResult<bool> {
         // By convention the first array is the logical validity signal for the stat column.
-        self.arrays[0].all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+        self.arrays[0].all_invalid(&mut legacy_session().create_execution_ctx())
     }
 }

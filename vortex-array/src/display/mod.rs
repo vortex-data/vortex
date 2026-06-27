@@ -19,8 +19,8 @@ use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
 use crate::ArrayRef;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::legacy_session;
 
 /// Describe how to convert an array to a string.
 ///
@@ -521,6 +521,7 @@ impl ArrayRef {
         DisplayArrayAs(self, DisplayOptions::TableDisplay)
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
         match options {
             DisplayOptions::MetadataOnly => EncodingSummaryExtractor::write(self, f),
@@ -536,7 +537,7 @@ impl ArrayRef {
                 let is_truncated = self.len() > limit;
 
                 let fmt_scalar = |i| {
-                    self.execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    self.execute_scalar(i, &mut legacy_session().create_execution_ctx())
                         .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
                 };
                 write!(
@@ -587,7 +588,7 @@ impl ArrayRef {
 
                 let mut builder = tabled::builder::Builder::default();
                 // Reuse a single execution context across all per-row accesses below.
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let mut ctx = legacy_session().create_execution_ctx();
 
                 // Special logic for struct arrays.
                 let DType::Struct(sf, _) = self.dtype() else {

@@ -17,4 +17,5 @@ disallowed-methods = [
     { path = "std::thread::available_parallelism", reason = "This function might do an unbounded amount of work, use `vortex_utils::parallelism::get_available_parallelism instead" },
     { path = "vortex_session::registry::Id::new", reason = "Interning a static id on every call grabs the interner lock (#8380). Use a `CachedId` static for static ids; for a dynamic string, annotate the call with `#[expect(clippy::disallowed_methods)]`.", allow-invalid = true },
     { path = "vortex_session::registry::Id::new_static", reason = "Interning a static id on every call grabs the interner lock; use a `CachedId` static instead (#8380).", allow-invalid = true },
+    { path = "vortex_array::legacy_session", reason = "Relies on the hidden global session; thread an explicit `VortexSession`/`ExecutionCtx` through instead" },
 ]

@@ -26,7 +26,6 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VTable;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::sum::sum;
@@ -50,6 +49,7 @@ use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
+use crate::legacy_session;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
@@ -269,8 +269,9 @@ impl ArrayRef {
         note = "Use `execute_scalar` instead, which allows passing an execution context for more \
         efficient execution when fetching multiple scalars from the same array."
     )]
+    #[allow(clippy::disallowed_methods)]
     pub fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        self.execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+        self.execute_scalar(index, &mut legacy_session().create_execution_ctx())
     }
 
     /// Execute the array to extract a scalar at the given index.
@@ -360,8 +361,9 @@ impl ArrayRef {
 
     /// Returns the canonical representation of the array.
     #[deprecated(note = "use `array.execute::<Canonical>(ctx)` instead")]
+    #[allow(clippy::disallowed_methods)]
     pub fn into_canonical(self) -> VortexResult<Canonical> {
-        self.execute(&mut LEGACY_SESSION.create_execution_ctx())
+        self.execute(&mut legacy_session().create_execution_ctx())
     }
 
     /// Returns the canonical representation of the array.

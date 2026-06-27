@@ -15,7 +15,6 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
@@ -26,6 +25,7 @@ use crate::array_slots;
 use crate::arrays::Dict;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::legacy_session;
 use crate::match_each_integer_ptype;
 
 #[derive(Clone, prost::Message)]
@@ -144,11 +144,12 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         Ok(())
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes = self.codes();
         let codes_validity = codes
             .validity()?
-            .execute_mask(codes.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute_mask(codes.len(), &mut legacy_session().create_execution_ctx())?;
         #[expect(deprecated)]
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();

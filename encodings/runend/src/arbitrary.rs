@@ -5,7 +5,6 @@ use arbitrary::Arbitrary;
 use arbitrary::Result;
 use arbitrary::Unstructured;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
@@ -14,6 +13,7 @@ use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::legacy_session;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -39,12 +39,13 @@ impl ArbitraryRunEndArray {
     /// Generate an arbitrary RunEndArray with the given dtype for values.
     ///
     /// The dtype must be a primitive or boolean type.
+    #[allow(clippy::disallowed_methods)]
     pub fn with_dtype(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<Self> {
         // Number of runs (values/ends pairs)
         let num_runs = u.int_in_range(0..=20)?;
 
         // TODO(ctx): trait fixes - Arbitrary::arbitrary has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
         if num_runs == 0 {
             // Empty RunEndArray
             let ends = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();

@@ -16,7 +16,6 @@ use crate::ArraySlots;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -31,6 +30,7 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
+use crate::legacy_session;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
@@ -110,17 +110,18 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
     }
 
     #[inline]
+    #[allow(clippy::disallowed_methods)]
     fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
         assert!(chunk * 1024 <= self.as_ref().len() + self.offset());
         assert!(lane < self.n_lanes());
 
         let start = self.lane_offsets().execute_scalar(
             chunk * self.n_lanes() + lane,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut legacy_session().create_execution_ctx(),
         )?;
         let stop = self.lane_offsets().execute_scalar(
             chunk * self.n_lanes() + lane + 1,
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut legacy_session().create_execution_ctx(),
         )?;
 
         let start = start

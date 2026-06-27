@@ -23,8 +23,8 @@ pub use null_buffer::to_null_buffer;
 pub use session::*;
 
 use crate::ArrayRef;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::legacy_session;
 
 /// Construct a Vortex array from an Arrow array (or other Arrow container) of type `A`.
 ///
@@ -66,11 +66,16 @@ pub trait IntoArrowArray {
 impl IntoArrowArray for ArrayRef {
     /// Convert this [`crate::ArrayRef`] into an Arrow [`crate::ArrayRef`] by using the array's
     /// preferred (cheapest) Arrow [`DataType`].
+    #[allow(clippy::disallowed_methods)]
     fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef> {
-        self.execute_arrow(None, &mut LEGACY_SESSION.create_execution_ctx())
+        self.execute_arrow(None, &mut legacy_session().create_execution_ctx())
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
-        self.execute_arrow(Some(data_type), &mut LEGACY_SESSION.create_execution_ctx())
+        self.execute_arrow(
+            Some(data_type),
+            &mut legacy_session().create_execution_ctx(),
+        )
     }
 }

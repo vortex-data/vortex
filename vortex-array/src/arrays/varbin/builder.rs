@@ -8,8 +8,6 @@ use vortex_error::vortex_panic;
 
 use crate::IntoArray;
 #[cfg(debug_assertions)]
-use crate::LEGACY_SESSION;
-#[cfg(debug_assertions)]
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
@@ -17,6 +15,8 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
+#[cfg(debug_assertions)]
+use crate::legacy_session;
 use crate::validity::Validity;
 
 pub struct VarBinBuilder<O: IntegerPType> {
@@ -94,6 +94,7 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         self.validity.append_n(true, num);
     }
 
+    #[allow(clippy::disallowed_methods)]
     pub fn finish(self, dtype: DType) -> VarBinArray {
         let offsets = PrimitiveArray::new(self.offsets.freeze(), Validity::NonNullable);
         let nulls = self.validity.freeze();
@@ -107,7 +108,7 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         {
             let offsets_are_sorted = offsets
                 .statistics()
-                .compute_is_sorted(&mut LEGACY_SESSION.create_execution_ctx())
+                .compute_is_sorted(&mut legacy_session().create_execution_ctx())
                 .unwrap_or(false);
             debug_assert!(offsets_are_sorted, "VarBinBuilder offsets must be sorted");
         }

@@ -13,7 +13,6 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
@@ -28,6 +27,7 @@ use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::i256;
+use crate::legacy_session;
 use crate::match_each_decimal_value;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
@@ -195,6 +195,7 @@ impl ArrayBuilder for DecimalBuilder {
         Ok(())
     }
 
+    #[allow(clippy::disallowed_methods)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         #[expect(deprecated)]
         let decimal_array = array.to_decimal();
@@ -213,7 +214,7 @@ impl ArrayBuilder for DecimalBuilder {
                 .vortex_expect("validity_mask")
                 .execute_mask(
                     decimal_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
+                    &mut legacy_session().create_execution_ctx(),
                 )
                 .vortex_expect("Failed to compute validity mask"),
         );

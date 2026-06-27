@@ -84,13 +84,13 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::executor::byte::VarBinViewArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::legacy_session;
 
     fn make_utf8_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["hello", "world", "this is a longer string for testing"])
@@ -184,6 +184,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn filtered_utf8_view_export_does_not_retain_unselected_buffers() -> VortexResult<()> {
         let unselected = "x".repeat(1 << 20);
         let array =
@@ -194,7 +195,7 @@ mod tests {
 
         let arrow = filtered.execute_arrow(
             Some(&DataType::Utf8View),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut legacy_session().create_execution_ctx(),
         )?;
 
         assert_eq!(arrow.as_string_view().value(0), "selected");

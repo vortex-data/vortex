@@ -18,7 +18,6 @@ use crate::ArraySlots;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::min_max;
@@ -33,6 +32,7 @@ use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
+use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::operators::Operator;
@@ -182,6 +182,7 @@ impl ListData {
     /// Validates the components that would be used to create a `ListArray`.
     ///
     /// This function checks all the invariants required by `ListArray::new_unchecked`.
+    #[allow(clippy::disallowed_methods)]
     pub fn validate(
         elements: &ArrayRef,
         offsets: &ArrayRef,
@@ -202,7 +203,7 @@ impl ListData {
 
         // We can safely unwrap the DType as primitive now
         let offsets_ptype = offsets.dtype().as_ptype();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
 
         // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed)
         if let Some(is_sorted) = offsets.statistics().compute_is_sorted(&mut ctx) {
@@ -296,6 +297,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
         )
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn offset_at(&self, index: usize) -> VortexResult<usize> {
         vortex_ensure!(
             index <= self.as_ref().len(),
@@ -309,7 +311,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
             }))
         } else {
             self.offsets()
-                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())?
+                .execute_scalar(index, &mut legacy_session().create_execution_ctx())?
                 .as_primitive()
                 .as_::<usize>()
                 .ok_or_else(|| vortex_error::vortex_err!("offset value does not fit in usize"))
