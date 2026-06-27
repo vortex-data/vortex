@@ -21,7 +21,9 @@ use vortex_session::VortexSession;
 use crate::FSST;
 
 pub(super) fn initialize(session: &VortexSession) {
-    let kernels = session.kernels();
+    let Some(kernels) = session.kernels() else {
+        return;
+    };
     kernels.register_execute_parent_kernel(Cast.id(), FSST, CastExecuteAdaptor(FSST));
     kernels.register_execute_parent_kernel(Binary.id(), FSST, CompareExecuteAdaptor(FSST));
     kernels.register_execute_parent_kernel(Filter.id(), FSST, FilterExecuteAdaptor(FSST));

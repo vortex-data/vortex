@@ -16,7 +16,9 @@ use crate::OnPair;
 
 // TODO: implement ListExecute & TakeExecute for OnPair
 pub(super) fn initialize(session: &VortexSession) {
-    let kernels = session.kernels();
+    let Some(kernels) = session.kernels() else {
+        return;
+    };
     kernels.register_execute_parent_kernel(Filter.id(), OnPair, FilterExecuteAdaptor(OnPair));
     kernels.register_execute_parent_kernel(Binary.id(), OnPair, CompareExecuteAdaptor(OnPair));
     kernels.register_execute_parent_kernel(

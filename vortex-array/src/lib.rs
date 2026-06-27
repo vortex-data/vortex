@@ -90,6 +90,7 @@ pub use mask_future::*;
 pub use metadata::*;
 pub use smallvec;
 pub use vortex_array_macros::array_slots;
+use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::Context;
 
@@ -97,7 +98,6 @@ use crate::aggregate_fn::session::AggregateFnSession;
 use crate::arrow::ArrowSession;
 use crate::dtype::session::DTypeSession;
 use crate::memory::MemorySession;
-use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::kernels::KernelSession;
 use crate::scalar_fn::session::ScalarFnSession;
 use crate::session::ArraySession;
@@ -157,7 +157,7 @@ pub mod flatbuffers {
 /// If the session contains a [`KernelSession`], this registers into its registry. Sessions that use
 /// [`KernelSession::default`] already receive these built-in kernels.
 pub fn initialize(session: &VortexSession) {
-    if session.kernels_opt().is_some() {
+    if session.get_opt::<KernelSession>().is_some() {
         arrays::initialize(session);
     }
 }
@@ -170,7 +170,7 @@ pub fn initialize(session: &VortexSession) {
 /// additional encodings or kernels into it without affecting any other session. This does not
 /// register file, layout, or runtime state — those live in higher-level crates.
 pub fn array_session() -> VortexSession {
-    VortexSession::builder()
+    VortexSession::empty()
         .with::<ArraySession>()
         .with::<KernelSession>()
         .with::<DTypeSession>()
@@ -179,7 +179,6 @@ pub fn array_session() -> VortexSession {
         .with::<AggregateFnSession>()
         .with::<ArrowSession>()
         .with::<MemorySession>()
-        .build()
 }
 
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute

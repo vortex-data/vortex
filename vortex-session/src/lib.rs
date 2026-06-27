@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod immutable;
 pub mod registry;
+mod session;
 
 use std::any::Any;
 use std::fmt::Debug;
 use std::hash::Hasher;
 
-pub use immutable::SessionBuilder;
-pub use immutable::VortexSession;
-pub use immutable::VortexSessionVar;
+pub use session::SessionGuard;
+pub use session::SessionMut;
+pub use session::VortexSession;
+pub use session::VortexSessionVar;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct UnknownPluginPolicy {
@@ -32,34 +33,29 @@ pub trait SessionExt: Sized + private::Sealed {
     /// Returns the [`VortexSession`].
     fn session(&self) -> VortexSession;
 
-    /// Returns the session variable of type `V`.
+    /// Returns the session variable of type `V`, inserting a default one if it does not exist.
     ///
-    /// # Panics
-    ///
-    /// If no variable of that type exists in this session.
-    fn get<V: VortexSessionVar>(&self) -> &V;
+    /// The default is constructed and inserted copy-on-write: `V::default()` runs without any lock
+    /// held, so it may freely re-enter the session, and a concurrent insert of the same type is
+    /// resolved by keeping the first value published.
+    fn get<V: VortexSessionVar + Default>(&self) -> SessionGuard<'_, V>;
 
     /// Returns the session variable of type `V` if it exists.
-    fn get_opt<V: VortexSessionVar>(&self) -> Option<&V>;
+    fn get_opt<V: VortexSessionVar>(&self) -> Option<SessionGuard<'_, V>>;
+
+    /// Returns a copy-on-write [`SessionMut`] handle for the variable of type `V`, inserting a
+    /// default one first if it does not exist.
+    ///
+    /// The handle starts as a clone of the current value; mutating it through `DerefMut` and
+    /// dropping it publishes the result back into the session copy-on-write — the ergonomic
+    /// equivalent of reading the variable, modifying a clone, and re-registering it with
+    /// [`VortexSession::register`].
+    fn get_mut<V: VortexSessionVar + Default + Clone>(&self) -> SessionMut<'_, V>;
 }
 
 mod private {
     pub trait Sealed {}
     impl Sealed for super::VortexSession {}
-}
-
-impl SessionExt for VortexSession {
-    fn session(&self) -> VortexSession {
-        self.clone()
-    }
-
-    fn get<V: VortexSessionVar>(&self) -> &V {
-        VortexSession::get::<V>(self)
-    }
-
-    fn get_opt<V: VortexSessionVar>(&self) -> Option<&V> {
-        VortexSession::get_opt::<V>(self)
-    }
 }
 
 /// This trait defines variables that can be stored against a Vortex session.

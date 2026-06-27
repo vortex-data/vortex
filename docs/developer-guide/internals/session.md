@@ -95,14 +95,13 @@ all built-in components and encodings:
 let session = VortexSession::default();
 ```
 
-For tests or specialized use-cases, sessions can be assembled from individual components using
-the `.with::<T>()` builder:
+For tests or specialized use-cases, sessions can be assembled from individual components by
+starting from an empty session and chaining the `.with::<T>()` helpers:
 
 ```rust
-let session = VortexSession::builder()
+let session = VortexSession::empty()
     .with::<ArraySession>()
     .with::<LayoutSession>()
     .with::<ScalarFnSession>()
-    .with::<RuntimeSession>()
-    .build();
+    .with::<RuntimeSession>();
 ```

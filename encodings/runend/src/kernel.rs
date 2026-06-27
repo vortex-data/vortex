@@ -27,7 +27,9 @@ use crate::array::RunEndArrayExt;
 use crate::compute::take_from::RunEndTakeFrom;
 
 pub(super) fn initialize(session: &VortexSession) {
-    let kernels = session.kernels();
+    let Some(kernels) = session.kernels() else {
+        return;
+    };
     kernels.register_execute_parent_kernel(Binary.id(), RunEnd, CompareExecuteAdaptor(RunEnd));
     kernels.register_execute_parent_kernel(Slice.id(), RunEnd, RunEndSliceKernel);
     kernels.register_execute_parent_kernel(Filter.id(), RunEnd, FilterExecuteAdaptor(RunEnd));

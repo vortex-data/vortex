@@ -21,7 +21,9 @@ use vortex_session::VortexSession;
 use crate::BitPacked;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    let kernels = session.kernels();
+    let Some(kernels) = session.kernels() else {
+        return;
+    };
     kernels.register_execute_parent_kernel(
         Between.id(),
         BitPacked,

@@ -4,6 +4,7 @@
 use std::any::Any;
 
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
@@ -73,7 +74,7 @@ impl SessionVar for LayoutSession {
 /// Extension trait for accessing layout session data.
 pub trait LayoutSessionExt: SessionExt {
     /// Returns the layout encoding registry.
-    fn layouts(&self) -> &LayoutSession {
+    fn layouts(&self) -> SessionGuard<'_, LayoutSession> {
         self.get::<LayoutSession>()
     }
 }

@@ -20,9 +20,10 @@ use crate::RLE;
 use crate::rle::RLEArrayExt;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(Slice.id(), RLE, SliceExecuteAdaptor(RLE));
+    let Some(kernels) = session.kernels() else {
+        return;
+    };
+    kernels.register_execute_parent_kernel(Slice.id(), RLE, SliceExecuteAdaptor(RLE));
 }
 
 impl SliceKernel for RLE {

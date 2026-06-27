@@ -15,7 +15,9 @@ use crate::scalar_fn::fns::zip::Zip;
 use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    let kernels = session.kernels();
+    let Some(kernels) = session.kernels() else {
+        return;
+    };
     kernels.register_execute_parent_kernel(Cast.id(), VarBinView, CastExecuteAdaptor(VarBinView));
     kernels.register_execute_parent_kernel(Dict.id(), VarBinView, TakeExecuteAdaptor(VarBinView));
     kernels.register_execute_parent_kernel(Zip.id(), VarBinView, ZipExecuteAdaptor(VarBinView));

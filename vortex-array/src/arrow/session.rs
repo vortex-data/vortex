@@ -40,6 +40,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 
@@ -609,11 +610,11 @@ impl SessionVar for ArrowSession {
 /// Extension trait for accessing the [`ArrowSession`] on a Vortex session.
 pub trait ArrowSessionExt: SessionExt {
     /// Get the Arrow session.
-    fn arrow(&self) -> &ArrowSession;
+    fn arrow(&self) -> SessionGuard<'_, ArrowSession>;
 }
 
 impl<S: SessionExt> ArrowSessionExt for S {
-    fn arrow(&self) -> &ArrowSession {
+    fn arrow(&self) -> SessionGuard<'_, ArrowSession> {
         self.get::<ArrowSession>()
     }
 }

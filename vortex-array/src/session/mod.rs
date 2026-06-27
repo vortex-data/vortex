@@ -7,6 +7,7 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
@@ -99,7 +100,7 @@ impl SessionVar for ArraySession {
 /// Session data for Vortex arrays.
 pub trait ArraySessionExt: SessionExt {
     /// Returns the array encoding registry.
-    fn arrays(&self) -> &ArraySession {
+    fn arrays(&self) -> SessionGuard<'_, ArraySession> {
         self.get::<ArraySession>()
     }
 

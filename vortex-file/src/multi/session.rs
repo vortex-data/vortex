@@ -8,6 +8,7 @@ use std::fmt;
 use std::fmt::Debug;
 
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 
 use crate::footer::Footer;
@@ -77,7 +78,7 @@ impl SessionVar for MultiFileSession {
 /// Extension trait for accessing the [`MultiFileSession`] from a session.
 pub(super) trait MultiFileSessionExt: SessionExt {
     /// Returns a reference to the [`MultiFileSession`] state.
-    fn multi_file(&self) -> &MultiFileSession {
+    fn multi_file(&self) -> SessionGuard<'_, MultiFileSession> {
         self.get::<MultiFileSession>()
     }
 }

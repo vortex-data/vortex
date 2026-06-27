@@ -15,7 +15,9 @@ use vortex_session::VortexSession;
 use crate::ByteBool;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    let kernels = session.kernels();
+    let Some(kernels) = session.kernels() else {
+        return;
+    };
     kernels.register_execute_parent_kernel(Binary.id(), ByteBool, BooleanExecuteAdaptor(ByteBool));
     kernels.register_execute_parent_kernel(Cast.id(), ByteBool, CastExecuteAdaptor(ByteBool));
     kernels.register_execute_parent_kernel(Dict.id(), ByteBool, TakeExecuteAdaptor(ByteBool));
