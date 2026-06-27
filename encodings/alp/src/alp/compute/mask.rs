@@ -36,16 +36,13 @@ impl MaskKernel for ALP {
     ) -> VortexResult<Option<ArrayRef>> {
         let vortex_mask = Validity::Array(mask.not()?).execute_mask(array.len(), ctx)?;
         let masked_encoded = array.encoded().clone().mask(mask.clone())?;
-        let masked_dtype = array
-            .dtype()
-            .with_nullability(masked_encoded.dtype().nullability());
+        // Patch values are concrete floats with no nulls; `Patches::mask` filters them and
+        // preserves that, so no cast is needed.
         let masked_patches = array
             .patches()
             .map(|p| p.mask(&vortex_mask, ctx))
             .transpose()?
-            .flatten()
-            .map(|patches| patches.cast_values(&masked_dtype))
-            .transpose()?;
+            .flatten();
         Ok(Some(
             ALP::new(masked_encoded, array.exponents(), masked_patches).into_array(),
         ))
@@ -99,7 +96,7 @@ mod test {
     }
 
     #[test]
-    fn test_mask_alp_with_patches_casts_surviving_patch_values_to_nullable() {
+    fn test_mask_alp_with_patches_keeps_patch_values_without_nulls() {
         let mut ctx = array_session().create_execution_ctx();
         let values = PrimitiveArray::from_iter([1.234f32, f32::NAN, 2.345, f32::INFINITY, 3.456]);
         let alp = alp_encode(values.as_view(), None, &mut ctx).unwrap();
@@ -113,7 +110,15 @@ mod test {
         let masked_alp = masked.as_opt::<crate::ALP>().unwrap();
         let masked_patches = masked_alp.patches().unwrap();
 
+        // Masking introduces nulls into the array, but the surviving patch values stay concrete
+        // (no cast), so they remain free of nulls.
         assert_eq!(masked.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(masked_patches.dtype().nullability(), Nullability::Nullable);
+        assert!(
+            masked_patches
+                .values()
+                .validity()
+                .unwrap()
+                .definitely_no_nulls()
+        );
     }
 }

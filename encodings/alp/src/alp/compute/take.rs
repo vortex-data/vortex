@@ -19,19 +19,14 @@ impl TakeExecute for ALP {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_encoded = array.encoded().take(indices.clone())?;
+        // Patch values are concrete floats with no nulls; `Patches::take` preserves that, so no
+        // cast is needed — `ALP::validate_patches` checks the dtype (ignoring nullability) and
+        // `definitely_no_nulls`.
         let taken_patches = array
             .patches()
             .map(|p| p.take(indices, ctx))
             .transpose()?
-            .flatten()
-            .map(|patches| {
-                patches.cast_values(
-                    &array
-                        .dtype()
-                        .with_nullability(taken_encoded.dtype().nullability()),
-                )
-            })
-            .transpose()?;
+            .flatten();
         Ok(Some(
             ALP::new(taken_encoded, array.exponents(), taken_patches).into_array(),
         ))

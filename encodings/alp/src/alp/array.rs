@@ -311,9 +311,14 @@ impl ALPData {
 
         let expected_type = DType::Primitive(T::PTYPE, encoded.dtype().nullability());
         vortex_ensure!(
-            patches.dtype() == &expected_type,
-            "Expected patches type {expected_type}, actual {}",
+            patches.dtype().eq_ignore_nullability(&expected_type),
+            "Expected patches type {expected_type} (ignoring nullability), actual {}",
             patches.dtype(),
+        );
+        vortex_ensure!(
+            patches.values().validity()?.definitely_no_nulls(),
+            "ALP patch values must contain no nulls, got {}",
+            patches.values(),
         );
 
         Ok(())
