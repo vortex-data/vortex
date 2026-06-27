@@ -7,15 +7,24 @@
 //! The format is a single contiguous, self-describing blob with inline buffer bytes so that one
 //! copy moves an entire array. The guest SDK implements a byte-compatible encoder and decoder.
 //! See `docs/design/wasm-encodings.md`.
+//!
+//! ## Nullability
+//!
+//! A nullable primitive is a values buffer plus a validity bitmap (LSB-first, 1 = valid). When
+//! `validity == Bitmap` the message carries two buffers: buffer 0 is the values, buffer 1 is the
+//! bitmap (`ceil(len / 8)` bytes). The values buffer always has an entry at every position;
+//! null-ness lives entirely in the bitmap.
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -67,9 +76,10 @@ fn alignment_exponent(width: usize) -> u8 {
 
 /// Encode an already-canonical array into a [`CanonicalMessage`] byte blob.
 ///
-/// The first implementation supports `Null` and `Primitive` (with non-bitmap validity). Other
-/// kinds return an error rather than silently producing an unreadable message.
-pub fn encode_canonical(canonical: &Canonical) -> VortexResult<Vec<u8>> {
+/// `ctx` is used to materialize a validity bitmap for nullable arrays. The first implementation
+/// supports `Null` and `Primitive` (including bitmap validity). Other kinds return an error rather
+/// than silently producing an unreadable message.
+pub fn encode_canonical(canonical: &Canonical, ctx: &mut ExecutionCtx) -> VortexResult<Vec<u8>> {
     let mut out = Vec::new();
     match canonical {
         Canonical::Null(array) => {
@@ -84,30 +94,42 @@ pub fn encode_canonical(canonical: &Canonical) -> VortexResult<Vec<u8>> {
             );
         }
         Canonical::Primitive(array) => {
+            let ptype = array.ptype();
+            let values = array.buffer_handle().to_host_sync();
+            let bitmap = match array.validity()? {
+                Validity::NonNullable | Validity::AllValid | Validity::AllInvalid => None,
+                Validity::Array(_) => {
+                    // Materialize the validity as a contiguous (offset-0) bitmap.
+                    let mask = array.validity()?.execute_mask(array.len(), ctx)?;
+                    let bits = mask.to_bit_buffer();
+                    let nbytes = array.len().div_ceil(8);
+                    Some(bits.inner().as_slice()[..nbytes].to_vec())
+                }
+            };
             let validity = match array.validity()? {
                 Validity::NonNullable => MessageValidity::NonNullable,
                 Validity::AllValid => MessageValidity::AllValid,
                 Validity::AllInvalid => MessageValidity::AllInvalid,
-                Validity::Array(_) => {
-                    vortex_bail!("CanonicalMessage abi v1 does not support bitmap validity yet")
-                }
+                Validity::Array(_) => MessageValidity::Bitmap,
             };
-            let ptype = array.ptype();
-            let bytes = array.buffer_handle().to_host_sync();
+            let nbuffers = if bitmap.is_some() { 2 } else { 1 };
             write_header(
                 &mut out,
                 MessageKind::Primitive,
                 ptype_to_u8(ptype),
                 validity,
                 array.len(),
-                1,
+                nbuffers,
                 0,
             );
             write_buffer(
                 &mut out,
                 alignment_exponent(ptype.byte_width()),
-                bytes.as_ref(),
+                values.as_ref(),
             );
+            if let Some(bitmap) = bitmap {
+                write_buffer(&mut out, 0, &bitmap);
+            }
         }
         other => vortex_bail!(
             "CanonicalMessage abi v1 cannot encode canonical kind {:?}",
@@ -189,20 +211,22 @@ fn read_header(bytes: &[u8]) -> VortexResult<Header> {
     })
 }
 
-/// Read the first buffer's inline bytes, returning `(alignment_exponent, bytes)`.
-fn read_first_buffer(bytes: &[u8]) -> VortexResult<(u8, &[u8])> {
-    let entry = MESSAGE_HEADER_LEN;
-    let len = usize::try_from(read_u64(bytes, entry)?)?;
-    let alignment_exp = *bytes
-        .get(entry + 8)
-        .ok_or_else(|| vortex_error::vortex_err!("CanonicalMessage truncated buffer header"))?;
-    let data_start = entry + BUFFER_ENTRY_HEADER_LEN;
-    let data_end = data_start + len;
-    vortex_ensure!(
-        data_end <= bytes.len(),
-        "CanonicalMessage truncated buffer data"
-    );
-    Ok((alignment_exp, &bytes[data_start..data_end]))
+/// Read each buffer's inline bytes in order.
+fn read_buffers<'a>(bytes: &'a [u8], header: &Header) -> VortexResult<Vec<&'a [u8]>> {
+    let mut offset = MESSAGE_HEADER_LEN;
+    let mut out = Vec::with_capacity(header.nbuffers as usize);
+    for _ in 0..header.nbuffers {
+        let len = usize::try_from(read_u64(bytes, offset)?)?;
+        let data_start = offset + BUFFER_ENTRY_HEADER_LEN;
+        let data_end = data_start + len;
+        vortex_ensure!(
+            data_end <= bytes.len(),
+            "CanonicalMessage truncated reading buffer data"
+        );
+        out.push(&bytes[data_start..data_end]);
+        offset = data_end;
+    }
+    Ok(out)
 }
 
 /// Decode a [`CanonicalMessage`] byte blob into a Vortex array.
@@ -212,27 +236,34 @@ pub fn decode_message(bytes: &[u8]) -> VortexResult<ArrayRef> {
         MessageKind::Null => Ok(NullArray::new(header.length).into_array()),
         MessageKind::Primitive => {
             vortex_ensure!(
-                header.nbuffers == 1,
-                "primitive CanonicalMessage must have exactly one buffer, got {}",
-                header.nbuffers
-            );
-            vortex_ensure!(
                 header.nchildren == 0,
                 "primitive CanonicalMessage must have no children"
             );
+            let expected_buffers = if header.validity == MessageValidity::Bitmap {
+                2
+            } else {
+                1
+            };
+            vortex_ensure!(
+                header.nbuffers == expected_buffers,
+                "primitive CanonicalMessage with validity {:?} must have {expected_buffers} buffers, got {}",
+                header.validity,
+                header.nbuffers
+            );
+            let buffers = read_buffers(bytes, &header)?;
             let ptype = ptype_from_u8(header.ptype)?;
+            let values =
+                ByteBuffer::copy_from_aligned(buffers[0], Alignment::new(ptype.byte_width()));
             let validity = match header.validity {
                 MessageValidity::NonNullable => Validity::NonNullable,
                 MessageValidity::AllValid => Validity::AllValid,
                 MessageValidity::AllInvalid => Validity::AllInvalid,
                 MessageValidity::Bitmap => {
-                    vortex_bail!("CanonicalMessage abi v1 does not support bitmap validity yet")
+                    let bitmap = ByteBuffer::copy_from(buffers[1]);
+                    Validity::from(BitBuffer::new(bitmap, header.length))
                 }
             };
-            let (_alignment_exp, data) = read_first_buffer(bytes)?;
-            let buffer: ByteBuffer =
-                ByteBuffer::copy_from_aligned(data, Alignment::new(ptype.byte_width()));
-            Ok(PrimitiveArray::from_byte_buffer(buffer, ptype, validity).into_array())
+            Ok(PrimitiveArray::from_byte_buffer(values, ptype, validity).into_array())
         }
         other => vortex_bail!("CanonicalMessage abi v1 cannot decode kind {:?}", other),
     }
@@ -240,6 +271,8 @@ pub fn decode_message(bytes: &[u8]) -> VortexResult<ArrayRef> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
@@ -248,8 +281,9 @@ mod tests {
 
     #[test]
     fn primitive_round_trip() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let array = PrimitiveArray::new(buffer![1u32, 2, 3, 4, 5], Validity::NonNullable);
-        let bytes = encode_canonical(&Canonical::Primitive(array))?;
+        let bytes = encode_canonical(&Canonical::Primitive(array), &mut ctx)?;
         let decoded = decode_message(&bytes)?;
         assert_eq!(decoded.len(), 5);
         let expected: Vec<u8> = [1u32, 2, 3, 4, 5]
@@ -257,6 +291,32 @@ mod tests {
             .flat_map(|v| v.to_le_bytes())
             .collect();
         assert_eq!(decoded.buffers()[0].as_ref(), expected.as_slice());
+        Ok(())
+    }
+
+    #[test]
+    fn nullable_primitive_round_trip() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        // Positions 1 and 4 are null.
+        let validity = Validity::from_iter([true, false, true, true, false]);
+        let array = PrimitiveArray::new(buffer![10i64, 99, 30, 40, 99], validity);
+
+        let bytes = encode_canonical(&Canonical::Primitive(array), &mut ctx)?;
+        let decoded = decode_message(&bytes)?;
+
+        assert_eq!(decoded.len(), 5);
+        let bits = decoded
+            .validity()?
+            .execute_mask(5, &mut ctx)?
+            .to_bit_buffer();
+        let valid: Vec<bool> = (0..5).map(|i| bits.value(i)).collect();
+        assert_eq!(valid, vec![true, false, true, true, false]);
+        // Values at valid positions survive the round trip.
+        let values: Vec<u8> = [10i64, 99, 30, 40, 99]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect();
+        assert_eq!(decoded.buffers()[0].as_ref(), values.as_slice());
         Ok(())
     }
 }

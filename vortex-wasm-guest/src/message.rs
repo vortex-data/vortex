@@ -78,6 +78,30 @@ pub fn primitive_message(ptype: PType, length: usize, data: &[u8]) -> Vec<u8> {
     .finish()
 }
 
+/// Convenience: build a nullable primitive message from value bytes and a validity bitmap.
+///
+/// `validity` is an LSB-first bitmap (`ceil(length / 8)` bytes, 1 = valid). The values buffer must
+/// hold an entry at every position; null positions may contain any bytes.
+pub fn nullable_primitive_message(
+    ptype: PType,
+    length: usize,
+    data: &[u8],
+    validity: &[u8],
+) -> Vec<u8> {
+    let alignment_exponent = ptype.byte_width().trailing_zeros() as u8;
+    MessageBuilder::new(
+        MessageKind::Primitive,
+        ptype as u8,
+        MessageValidity::Bitmap,
+        length,
+        2,
+        0,
+    )
+    .buffer(alignment_exponent, data)
+    .buffer(0, validity)
+    .finish()
+}
+
 /// Convenience: build a null message.
 pub fn null_message(length: usize) -> Vec<u8> {
     MessageBuilder::new(
@@ -131,16 +155,40 @@ impl<'a> MessageReader<'a> {
         u32::from_le_bytes(self.bytes[12..16].try_into().expect("4 bytes"))
     }
 
-    /// The inline bytes of buffer index 0, if present.
-    pub fn first_buffer(&self) -> VortexResult<&'a [u8]> {
-        vortex_ensure!(self.nbuffers() >= 1, "message has no buffers");
-        let entry = MESSAGE_HEADER_LEN;
-        let len =
-            u64::from_le_bytes(self.bytes[entry..entry + 8].try_into().expect("8 bytes")) as usize;
-        let start = entry + BUFFER_ENTRY_HEADER_LEN;
+    /// The inline bytes of buffer `idx`, if present.
+    pub fn buffer(&self, idx: u32) -> VortexResult<&'a [u8]> {
+        vortex_ensure!(idx < self.nbuffers(), "message has no buffer {idx}");
+        let mut offset = MESSAGE_HEADER_LEN;
+        for _ in 0..idx {
+            let len =
+                u64::from_le_bytes(self.bytes[offset..offset + 8].try_into().expect("8 bytes"))
+                    as usize;
+            offset += BUFFER_ENTRY_HEADER_LEN + len;
+            vortex_ensure!(
+                offset <= self.bytes.len(),
+                "message truncated walking buffers"
+            );
+        }
+        let len = u64::from_le_bytes(self.bytes[offset..offset + 8].try_into().expect("8 bytes"))
+            as usize;
+        let start = offset + BUFFER_ENTRY_HEADER_LEN;
         let end = start + len;
         vortex_ensure!(end <= self.bytes.len(), "message truncated reading buffer");
         Ok(&self.bytes[start..end])
+    }
+
+    /// The inline bytes of buffer index 0 (e.g. a primitive's values).
+    pub fn first_buffer(&self) -> VortexResult<&'a [u8]> {
+        self.buffer(0)
+    }
+
+    /// The validity bitmap (buffer index 1) when [`validity`](Self::validity) is `Bitmap`.
+    pub fn validity_bitmap(&self) -> VortexResult<Option<&'a [u8]>> {
+        if self.validity() == MessageValidity::Bitmap as u8 {
+            Ok(Some(self.buffer(1)?))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Interpret the first buffer as a slice of little-endian `u32`s.

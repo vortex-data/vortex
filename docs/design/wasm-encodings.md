@@ -60,8 +60,7 @@ At read time the reader:
    host, which reconstructs a Vortex `Canonical` array.
 
 The output is expressed in Vortex canonical encodings (`Primitive`, `Bool`, `VarBinView`,
-`Struct`, ...). Arrow C Data Interface is an alternative we keep open as a fallback (see
-[Output format](#output-format)) but the canonical-buffer wire format is the primary path.
+`Struct`, ...) transported via the `CanonicalMessage` wire format.
 
 ## Crates
 
@@ -175,13 +174,22 @@ CanonicalMessage:
   u32  nchildren
   [nbuffers]  { u64 len; u8 alignment_exp; u8[7] pad; bytes[len] }   // buffer table + inline data
   [nchildren] CanonicalMessage                                       // recursive
-  // when validity == Bitmap, the bitmap is buffer index 0 by convention
 ```
 
 `kind`/`ptype`/`validity` map directly onto the Vortex `Canonical` enum and `PType`. The first
-implementation supports `Null`, `Bool`, and `Primitive` (with all four validity variants);
-`VarBinView` and `Struct` follow. Both sides share the *same byte format*; the guest SDK and the
-host each implement an encoder and a decoder for it.
+implementation supports `Null` and `Primitive`; `Bool`/`VarBinView`/`Struct` follow. Both sides
+share the *same byte format*; the guest SDK and the host each implement an encoder and a decoder.
+
+**Nullability.** A primitive's buffer layout depends on `validity`:
+
+- `NonNullable` / `AllValid` / `AllInvalid` → one buffer (the values). Null-ness is implicit, so no
+  bitmap is transmitted.
+- `Bitmap` → two buffers: buffer 0 is the values, buffer 1 is the validity bitmap (`ceil(len / 8)`
+  bytes, LSB-first, 1 = valid). The values buffer always holds an entry at every position — null
+  slots may contain arbitrary bytes — so decoding a nullable column means the kernel emits *both*
+  the reconstructed values and the bitmap. The host turns the bitmap into a `Validity::Array`. The
+  guest SDK provides `nullable_primitive_message(...)` to build this and
+  `MessageReader::validity_bitmap()` to read it.
 
 ## Reader flow (`WasmReader`)
 
@@ -279,16 +287,10 @@ per file and cached, so this size is amortized; it is still worth driving down.)
 
 ## Output format
 
-Primary: **Vortex canonical encodings**, transported via `CanonicalMessage`. This keeps the
-output in Vortex's native representation with zero extra dependencies in the guest.
-
-Fallback: **Arrow C Data Interface**. `arrow-rs` already implements the C Data Interface and
-Vortex has `FromArrowArray`. A guest could instead populate `FFI_ArrowArray`/`FFI_ArrowSchema`
-structs in linear memory and return their pointers; the host would translate the wasm-relative
-pointers, import via `arrow::ffi`, and convert with `ArrayRef::from_arrow`. We keep the ABI's
-`kind` byte extensible so an Arrow-FFI return mode can be added without breaking v1. The
-canonical path is preferred because it avoids re-deriving Arrow buffer layouts and pointer
-fix-ups inside the sandbox.
+Output is always **Vortex canonical encodings**, transported via `CanonicalMessage`. This keeps the
+output in Vortex's native representation with zero extra dependencies in the guest. An Arrow C Data
+Interface return mode was considered and explicitly **dropped** — Vortex canonical is sufficient
+and avoids re-deriving Arrow buffer layouts and pointer fix-ups inside the sandbox.
 
 ## Security & resource limits
 
@@ -314,9 +316,11 @@ kernel can only corrupt *that array's* values, never host memory.
    the `WasmEncoder` write extension point, and round-trip tests through real layout machinery.
 4. **Real encodings (done):** Frame-of-Reference and FoR + bit packing, each as a Rust example
    kernel (compiled to wasm32) and an end-to-end round-trip test.
-5. **Breadth (next):** `Bool`/`VarBinView`/`Struct` in the wire format, bitmap validity, kernel
-   dedup + caching, fuel/memory limits, a `no_std` guest SDK to shrink kernels, and an Arrow-FFI
-   return mode.
+5. **Nullability (done):** bitmap validity in the wire format (host + guest), with an end-to-end
+   nullable-column round-trip test.
+6. **Breadth (next):** `Bool`/`VarBinView`/`Struct` in the wire format, kernel dedup + caching,
+   fuel/memory limits, and a `no_std` guest SDK to shrink kernels. (Arrow-FFI return is dropped —
+   Vortex canonical is sufficient.)
 
 Pushdown (filter/pruning into the kernel) is explicitly **out of scope** — WASM encodings only
 decompress; the engine filters on the decoded output.

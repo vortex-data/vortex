@@ -76,7 +76,7 @@ pub enum MessageValidity {
     AllValid = 1,
     /// Nullable, every element is null.
     AllInvalid = 2,
-    /// A bitmap stored as buffer index 0.
+    /// A validity bitmap stored as buffer index 1 (buffer 0 holds the values).
     Bitmap = 3,
 }
 

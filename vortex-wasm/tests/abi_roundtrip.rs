@@ -9,6 +9,7 @@
 //! `CanonicalMessage` wire format, without needing a full Rust-to-wasm guest build.
 
 use vortex_array::Canonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
@@ -67,9 +68,10 @@ fn echo_kernel_round_trips_a_primitive_child() -> VortexResult<()> {
     let wasm = wat::parse_str(ECHO_KERNEL_WAT).expect("valid wat");
     let kernel = WasmKernel::new(&wasm)?;
 
+    let mut ctx = vortex_array::array_session().create_execution_ctx();
     let child = PrimitiveArray::new(buffer![10i64, 20, 30, 40], Validity::NonNullable);
     let decoder = EchoDecoder {
-        message: encode_canonical(&Canonical::Primitive(child))?,
+        message: encode_canonical(&Canonical::Primitive(child), &mut ctx)?,
     };
 
     let decoded = kernel.decode(&[], &decoder)?;

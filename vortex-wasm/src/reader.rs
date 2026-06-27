@@ -105,7 +105,7 @@ impl WasmReader {
                     .projection_evaluation(&(0..row_count), &root(), MaskFuture::new_true(len))?
                     .await?;
                 let canonical = array.execute::<Canonical>(&mut ctx)?;
-                messages.push(encode_canonical(&canonical)?);
+                messages.push(encode_canonical(&canonical, &mut ctx)?);
             }
 
             let payload = match payload_segment {
