@@ -150,8 +150,10 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     if let Some(patches) = array.patches()
         && let Some(patches) = patches.take(&indices.clone().into_array(), ctx)?
     {
-        let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
-        return unpatched_taken.patch(&cast_patches, ctx);
+        // `take` carries the take indices' nullability into the patch values, matching
+        // `unpatched_taken`'s validity. `patch` (via `Validity::patch`) asserts the two agree,
+        // so no cast is required to align them.
+        return unpatched_taken.patch(&patches, ctx);
     }
 
     Ok(unpatched_taken)

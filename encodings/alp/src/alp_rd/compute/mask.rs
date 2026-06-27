@@ -4,8 +4,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::fns::mask::Mask as MaskExpr;
@@ -22,8 +20,8 @@ impl MaskReduce for ALPRD {
             EmptyOptions,
             [array.left_parts().clone(), mask.clone()],
         )?;
-        // NOTE: `MaskReduce::mask` has a fixed trait signature without `ExecutionCtx`, so we
-        // construct a legacy ctx locally at this trait boundary.
+        // The original exceptions are already the non-nullable left-parts dtype, which the
+        // (now nullable) masked array still requires, so they can be reused as-is.
         Ok(Some(
             ALPRD::try_new(
                 array.dtype().as_nullable(),
@@ -32,7 +30,6 @@ impl MaskReduce for ALPRD {
                 array.right_parts().clone(),
                 array.right_bit_width(),
                 array.left_parts_patches(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
             )?
             .into_array(),
         ))
@@ -43,8 +40,6 @@ impl MaskReduce for ALPRD {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
 
@@ -55,13 +50,9 @@ mod tests {
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn test_mask_simple<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
-        let mut ctx = array_session().create_execution_ctx();
         test_mask_conformance(
             &RDEncoder::new(&[a, b])
-                .encode(
-                    PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view(),
-                    &mut ctx,
-                )
+                .encode(PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view())
                 .into_array(),
         );
     }
@@ -70,13 +61,11 @@ mod tests {
     #[case(0.1f32, 3e25f32)]
     #[case(0.5f64, 1e100f64)]
     fn test_mask_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
-        let mut ctx = array_session().create_execution_ctx();
         test_mask_conformance(
             &RDEncoder::new(&[a])
                 .encode(
                     PrimitiveArray::from_option_iter([Some(a), None, Some(outlier), Some(a), None])
                         .as_view(),
-                    &mut ctx,
                 )
                 .into_array(),
         );

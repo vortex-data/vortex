@@ -19,21 +19,16 @@ impl TakeExecute for ALP {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_encoded = array.encoded().take(indices.clone())?;
+        // `Patches::take` carries the take indices' nullability into the patch values, so the
+        // taken patches already match `taken_encoded`'s nullability. Construct via `try_new` to
+        // assert that invariant instead of casting the values to force it.
         let taken_patches = array
             .patches()
             .map(|p| p.take(indices, ctx))
             .transpose()?
-            .flatten()
-            .map(|patches| {
-                patches.cast_values(
-                    &array
-                        .dtype()
-                        .with_nullability(taken_encoded.dtype().nullability()),
-                )
-            })
-            .transpose()?;
+            .flatten();
         Ok(Some(
-            ALP::new(taken_encoded, array.exponents(), taken_patches).into_array(),
+            ALP::try_new(taken_encoded, array.exponents(), taken_patches)?.into_array(),
         ))
     }
 }

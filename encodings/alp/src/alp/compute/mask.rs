@@ -36,18 +36,16 @@ impl MaskKernel for ALP {
     ) -> VortexResult<Option<ArrayRef>> {
         let vortex_mask = Validity::Array(mask.not()?).execute_mask(array.len(), ctx)?;
         let masked_encoded = array.encoded().clone().mask(mask.clone())?;
-        let masked_dtype = array
-            .dtype()
-            .with_nullability(masked_encoded.dtype().nullability());
+        // Masking always yields a nullable array, and `Patches::mask` widens the surviving patch
+        // values to nullable to match, so the patches already have the correct dtype. `try_new`
+        // asserts this.
         let masked_patches = array
             .patches()
             .map(|p| p.mask(&vortex_mask, ctx))
             .transpose()?
-            .flatten()
-            .map(|patches| patches.cast_values(&masked_dtype))
-            .transpose()?;
+            .flatten();
         Ok(Some(
-            ALP::new(masked_encoded, array.exponents(), masked_patches).into_array(),
+            ALP::try_new(masked_encoded, array.exponents(), masked_patches)?.into_array(),
         ))
     }
 }
