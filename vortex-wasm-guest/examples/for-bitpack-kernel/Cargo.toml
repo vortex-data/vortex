@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Example Frame-of-Reference (FoR) decoder kernel. Build with:
-#   cargo build -p for-kernel --target wasm32-unknown-unknown --release
+# Example Frame-of-Reference + bit-packing decoder kernel. Build with:
+#   cargo build -p for-bitpack-kernel --target wasm32-unknown-unknown --release
 #
 # Excluded from the main workspace (see the root Cargo.toml `exclude`); only meaningful for wasm32.
 
 [workspace]
 
 [package]
-name = "for-kernel"
+name = "for-bitpack-kernel"
 version = "0.1.0"
 edition = "2024"
 publish = false

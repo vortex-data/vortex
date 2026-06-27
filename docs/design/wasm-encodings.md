@@ -239,8 +239,42 @@ Both halves live as runnable code:
   written in WAT (so the test is self-contained), writing and reading a FoR `WasmLayout` end to
   end through real layout machinery.
 
-The deltas are stored at the same width as the values in this minimal version; pairing FoR with a
-bit-packing child encoding (narrower deltas) is the natural next step and needs no ABI changes.
+## Worked example: FoR + bit packing (real size reduction)
+
+`for-bitpack-kernel` composes FoR with bit packing in a single kernel and shows genuine on-disk
+savings:
+
+- **Write** (`ForBitpackEncoder`): `delta = value - reference`, then pack the deltas into the
+  minimum number of bits (`bit_width(max_delta)`), stored as a **`u8` child**. The payload carries
+  `[i32 reference][u8 bit_width][u32 len]`.
+- **Read** (the kernel): read the payload, decode the packed `u8` child via `vx_decode_child`, and
+  unpack `bit_width` bits per element (`vortex_wasm_guest::bitpack::unpack`) before adding the
+  reference.
+
+For 1024 `i32` values within a 6-bit window, the deltas occupy **768 bytes vs 4096 raw (5.3×)**.
+The pack/unpack routine lives once in `vortex_wasm_guest::bitpack` and is used by both the kernel
+and the host encoder (in tests).
+
+This is the case that motivated giving each child its own dtype: the packed child is `u8` while the
+output is `i32`. The `WasmLayout` records each child's (primitive) dtype in its metadata, so a
+kernel may consume inputs of a different type than it produces.
+
+## Binary size
+
+Example kernels, `wasm32-unknown-unknown`, size-optimized profile (`opt-level = "z"`, `lto`,
+`codegen-units = 1`, `panic = "abort"`, `strip`):
+
+| kernel | size |
+|---|---|
+| identity | ~69 KB |
+| for | ~73 KB |
+| for-bitpack | ~74 KB |
+
+`-Z build-std=std,panic_abort` shaves a few KB (~68 KB). The kernel *logic* is a few hundred
+bytes; the floor is Rust `std` (the allocator plus panic/formatting machinery pulled in
+transitively). Reaching single-digit KB means a `no_std` guest SDK with a minimal allocator and no
+formatting — a worthwhile follow-up, but a larger change than this slice. (Kernels are read once
+per file and cached, so this size is amortized; it is still worth driving down.)
 
 ## Output format
 
@@ -270,15 +304,18 @@ kernel can only corrupt *that array's* values, never host memory.
 
 ## Implementation phases
 
-1. **Foundation (in progress):** crate scaffolding, ABI constants, `CanonicalMessage`
-   (host+guest) for Null/Bool/Primitive, `WasmKernel` over `wasmi` with `vx_decode_child`, a
-   `.wat`-based host test exercising the full ABI round trip.
-2. **Layout:** `WasmLayout`/`WasmLayoutEncoding`/metadata, `WasmReader`, registration; raw
-   serialized-bytes access from the data child.
-3. **Writer:** `WasmLayoutStrategy` writing the kernel at EOF via `split_off`; round-trip a file
-   end-to-end with a real Rust guest example.
-4. **Breadth:** `VarBinView`/`Struct` in the wire format, kernel dedup, fuel limits, Arrow-FFI
-   return mode, pushdown.
+1. **Foundation (done):** crate scaffolding, ABI constants, `CanonicalMessage` (host+guest) for
+   Null/Primitive, `WasmKernel` over `wasmi` with `vx_decode_child`, a `.wat`-based host test
+   exercising the full ABI round trip.
+2. **Layout (done):** `WasmLayout`/`WasmLayoutEncoding`/metadata (with per-child dtypes),
+   `WasmReader`, registration.
+3. **Writer + encoders (done):** `WasmLayoutStrategy` writing the kernel at EOF via `split_off`,
+   the `WasmEncoder` write extension point, and round-trip tests through real layout machinery.
+4. **Real encodings (done):** Frame-of-Reference and FoR + bit packing, each as a Rust example
+   kernel (compiled to wasm32) and an end-to-end round-trip test.
+5. **Breadth (next):** `Bool`/`VarBinView`/`Struct` in the wire format, bitmap validity, kernel
+   dedup + caching, fuel/memory limits, a `no_std` guest SDK to shrink kernels, Arrow-FFI return
+   mode, and pushdown.
 
 ## Open questions
 

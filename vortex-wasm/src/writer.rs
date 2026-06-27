@@ -35,7 +35,7 @@ use vortex_layout::sequence::SequentialStreamExt;
 use vortex_session::VortexSession;
 
 use crate::layout::WasmLayout;
-use crate::layout::wasm_layout_children;
+use crate::layout::same_dtype_children;
 
 /// The encoder's output for a single input chunk: a payload the guest parses, plus the single
 /// child input array the kernel decodes.
@@ -179,7 +179,7 @@ impl LayoutStrategy for WasmLayoutStrategy {
                     self.encoding_id.clone(),
                     kernel_segment,
                     p.payload_segment,
-                    wasm_layout_children(vec![p.child]),
+                    vec![p.child],
                 )
                 .into_layout()
             })
@@ -189,10 +189,7 @@ impl LayoutStrategy for WasmLayoutStrategy {
             1 => Ok(chunks.remove(0)),
             _ => {
                 let row_count = chunks.iter().map(|c| c.row_count()).sum();
-                Ok(
-                    ChunkedLayout::new(row_count, dtype, wasm_layout_children(chunks))
-                        .into_layout(),
-                )
+                Ok(ChunkedLayout::new(row_count, dtype, same_dtype_children(chunks)).into_layout())
             }
         }
     }

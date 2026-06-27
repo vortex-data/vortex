@@ -58,12 +58,9 @@ impl WasmReader {
         session: VortexSession,
         ctx: LayoutReaderContext,
     ) -> VortexResult<Self> {
-        let nchildren = layout.children_ref().nchildren();
-        let dtype = layout.dtype_ref().clone();
-        let mut children = Vec::with_capacity(nchildren);
-        for idx in 0..nchildren {
-            // v1 limitation: child layouts share the output dtype. See `layout` module docs.
-            let child_layout = layout.children_ref().child(idx, &dtype)?;
+        let mut children = Vec::with_capacity(layout.child_layouts().len());
+        for (idx, child_layout) in layout.child_layouts().iter().enumerate() {
+            // Each child carries its own dtype, so the reader does not need the parent's.
             children.push(child_layout.new_reader(
                 format!("{name}.input[{idx}]").into(),
                 Arc::clone(&segment_source),

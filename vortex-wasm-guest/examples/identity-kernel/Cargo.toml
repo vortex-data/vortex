@@ -23,5 +23,8 @@ vortex-error = { path = "../../../vortex-error", default-features = false }
 vortex-wasm-guest = { path = "../.." }
 
 [profile.release]
-opt-level = "s"
+opt-level = "z"
 lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

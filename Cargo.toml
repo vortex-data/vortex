@@ -76,6 +76,7 @@ exclude = [
     # Example WASM kernels; only meaningful for the wasm32 target.
     "vortex-wasm-guest/examples/identity-kernel",
     "vortex-wasm-guest/examples/for-kernel",
+    "vortex-wasm-guest/examples/for-bitpack-kernel",
 ]
 resolver = "2"
 

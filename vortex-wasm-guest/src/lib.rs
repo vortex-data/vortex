@@ -15,6 +15,7 @@
 //! See `docs/design/wasm-encodings.md`.
 
 pub mod abi;
+pub mod bitpack;
 mod encoding;
 pub mod header;
 pub mod host;
