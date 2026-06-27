@@ -36,6 +36,12 @@ This document describes the on-disk format, the host/guest ABI, and the crate la
 
 ### Key principle: the data is a *normal* serialized array; the WASM layout adds only the decoder
 
+> **Status:** this is the *target* on-disk model (phase 5 below). The current implementation uses a
+> transitional payload+child write model (see [Write side](#write-side-wasmencoder)): the encoder
+> produces an explicit payload plus a child array rather than the guest parsing the serialized array
+> flatbuffer itself. The host/guest *boundary* described below (Arrow C Data Interface) is already
+> in place; the on-disk "embed only the decoder" change is the remaining work.
+
 An encoding that wants a WASM decoder is still implemented as an ordinary Vortex array encoding
 whose data is written in the **existing serialized array format** (the `ArrayNode` flatbuffer plus
 its buffers and child nodes). A `WasmLayout` wraps that standard data and additionally **embeds the
@@ -63,15 +69,17 @@ At read time, when the native VTable is absent, the reader:
    host decodes that child node through the `VortexSession` (native encodings) and hands it back as
    **Arrow C Data Interface**;
 5. the guest produces its decoded output, also as **Arrow C Data Interface**;
-6. the host imports that via `arrow`'s `from_ffi` and `ArrayRef::from_arrow`, yielding a Vortex
-   array.
+6. the host reads those C structs out of guest memory, deep-copies the buffers, and rebuilds a
+   Vortex array via `ArrayRef::from_arrow`, yielding a Vortex array.
 
-**Boundary formats.** Encoded arrays in (the node to decode, and any child *encoding* bytes) are
-the existing Vortex serialized format, parsed in-guest with `vortex-flatbuffers`. *Decoded* arrays
-crossing the boundary in either direction (child results in, final result out) use the **Arrow C
-Data Interface**. The guest builds/consumes those C structs with **nanoarrow** compiled into the
-module; the host uses `arrow`'s FFI import. There is no bespoke wire format — `CanonicalMessage`
-is removed.
+**Boundary formats.** *Decoded* arrays crossing the boundary in either direction (child results in,
+final result out) use the **Arrow C Data Interface**. Both sides build and read those C structs
+**directly as plain bytes** (no Arrow library, no nanoarrow) — the layout is fixed and documented in
+[`crate::abi`](../../vortex-wasm-guest/src/abi.rs). The host cannot hand the guest a borrowed
+`FFI_ArrowArray` because the boundary is wasm32 (4-byte pointers, separate address space), so it
+copies buffers out of guest memory and reconstructs `arrow_data::ArrayData` itself rather than using
+`arrow`'s same-address-space `from_ffi`. There is no bespoke wire format — `CanonicalMessage` is
+removed.
 
 ## Crates
 
@@ -80,18 +88,19 @@ Two new crates, kept out of the core dependency graph so that `wasmi` never leak
 
 ### `vortex-wasm-guest` (the guest SDK)
 
-A small, `no_std`-friendly crate that an encoding author links against when building their
-decoder to `wasm32-unknown-unknown`. It depends **only** on `vortex-flatbuffers` (with the
-`array` feature), `vortex-error`, and `vortex-buffer` — never on `vortex-array` or the rest of
-Vortex. It provides:
+A small crate that an encoding author links against when building their decoder to
+`wasm32-unknown-unknown`. It is **dependency-free** — `core`/`alloc`/`std` only, never any Vortex
+crate (not even `vortex-error`) and no Arrow library — which is what keeps a compiled kernel to
+~16 KB (see [Binary size](#binary-size)). It provides:
 
-- the host/guest ABI (exported entrypoints, imported host functions);
-- `ArrayHeader`, a thin wrapper over the generated `vortex-flatbuffers` `Array`/`ArrayNode`
-  types for reading the serialized array header (encoding id, metadata bytes, buffer ranges,
-  children);
-- a `CanonicalMessage` reader/writer for the wire format used to pass canonical arrays across
-  the boundary in both directions;
-- a `WasmEncoding` trait plus an `export_wasm_encoding!` macro that wires up `vx_alloc` and
+- the host/guest ABI (exported entrypoints, imported host functions) and the Arrow C struct field
+  offsets, in `abi`;
+- `arrow`: build a decoded primitive output (`Decoded` → Arrow C structs) and read a host-supplied
+  child (`ChildView`) — all as plain byte layout, no Arrow library;
+- `host::decode_child`, the safe wrapper over the `vx_decode_child` host import;
+- a minimal, formatting-free `GuestError` (a `&'static str`, no `format!`);
+- `bitpack`, shared LSB-first bit pack/unpack helpers;
+- a `WasmEncoding` trait plus an `export_wasm_encoding!` macro that wires up the `vx_alloc` and
   `vx_decode` exports around a user-supplied `decode` function.
 
 ### `vortex-wasm` (the host)
@@ -99,8 +108,10 @@ Vortex. It provides:
 Depends on `vortex-layout`, `vortex-array`, `vortex-session`, and `wasmi`. It provides:
 
 - `WasmKernel` — an instantiated, reusable wrapper around a `wasmi::Module` and the host import
-  table, exposing `decode(serialized_array, &dyn HostDecoder) -> Canonical`;
-- the `CanonicalMessage` host-side serializer/parser (mirror of the guest's);
+  table, exposing `decode(input, &dyn HostDecoder, &VortexSession) -> ArrayRef`;
+- `arrow_ffi` — the host side of the Arrow C Data Interface boundary: `import` rebuilds a Vortex
+  array from C structs in guest memory; `export` writes a canonical array as C structs into guest
+  memory for `vx_decode_child`;
 - `WasmLayout` + `WasmLayoutEncoding` + `WasmLayoutMetadata`, the layout `VTable`
   implementation;
 - `WasmReader`, the `LayoutReader` that drives the kernel;
@@ -176,38 +187,27 @@ which is acceptable since kernels are read once per file and cached.)
 - `vx_host_log(ptr: i32, len: i32)` (optional, debug only)
   Log a UTF-8 string from guest memory.
 
-### `CanonicalMessage` wire format
+### Decoded-array boundary: Arrow C Data Interface
 
-A single contiguous, self-describing blob with inline buffer bytes (so one copy moves an entire
-array across the boundary):
+Decoded arrays cross the boundary in both directions as the [Arrow C Data Interface]. Both sides
+lay out the `ArrowSchema` and `ArrowArray` C structs as plain bytes in the wasm32 ABI (4-byte
+pointers, 8-byte/8-aligned `int64`); the field offsets are constants shared by the guest's `abi`
+module and the host's `arrow_ffi`. The `ArrowArray.buffers` pointer addresses a contiguous array of
+4-byte pointers, one per buffer, that point into the same linear memory.
 
-```
-CanonicalMessage:
-  u8   kind            // 0 Null, 1 Bool, 2 Primitive, 3 VarBinView, 4 Struct  (extensible)
-  u8   ptype           // PType discriminant, valid when kind == Primitive
-  u8   validity        // 0 NonNullable, 1 AllValid, 2 AllInvalid, 3 Bitmap
-  u8   _pad
-  u64  length          // logical element count
-  u32  nbuffers
-  u32  nchildren
-  [nbuffers]  { u64 len; u8 alignment_exp; u8[7] pad; bytes[len] }   // buffer table + inline data
-  [nchildren] CanonicalMessage                                       // recursive
-```
+- `vx_decode`'s return value points at an 8-byte `(array_ptr: u32, schema_ptr: u32)` pair; each
+  `vx_decode_child` call writes the same pair at its `out_ptr`.
+- The host allocates space in guest memory for child structs/buffers via the guest's `vx_alloc`.
+- Scope today is **primitive and boolean** arrays. A primitive/bool array always exposes two
+  buffers in Arrow order — buffer 0 the validity bitmap, buffer 1 the values — matching Arrow's own
+  layout.
 
-`kind`/`ptype`/`validity` map directly onto the Vortex `Canonical` enum and `PType`. The first
-implementation supports `Null` and `Primitive`; `Bool`/`VarBinView`/`Struct` follow. Both sides
-share the *same byte format*; the guest SDK and the host each implement an encoder and a decoder.
+**Nullability.** The schema's `flags` carries `ARROW_FLAG_NULLABLE` (2). When set, buffer 0 is a
+validity bitmap (`ceil(len / 8)` bytes, LSB-first, 1 = valid) and `null_count` is `-1` (unknown);
+when clear the validity pointer is null. The values buffer always holds an entry at every position —
+null slots may contain arbitrary bytes. The host turns a present bitmap into a `Validity::Array`.
 
-**Nullability.** A primitive's buffer layout depends on `validity`:
-
-- `NonNullable` / `AllValid` / `AllInvalid` → one buffer (the values). Null-ness is implicit, so no
-  bitmap is transmitted.
-- `Bitmap` → two buffers: buffer 0 is the values, buffer 1 is the validity bitmap (`ceil(len / 8)`
-  bytes, LSB-first, 1 = valid). The values buffer always holds an entry at every position — null
-  slots may contain arbitrary bytes — so decoding a nullable column means the kernel emits *both*
-  the reconstructed values and the bitmap. The host turns the bitmap into a `Validity::Array`. The
-  guest SDK provides `nullable_primitive_message(...)` to build this and
-  `MessageReader::validity_bitmap()` to read it.
+[Arrow C Data Interface]: https://arrow.apache.org/docs/format/CDataInterface.html
 
 ## Reader flow (`WasmReader`)
 
@@ -220,12 +220,12 @@ off the query-planning path.
 `projection_evaluation`:
 
 1. fetches and compiles the kernel from its segment;
-2. eagerly decodes each child input through the normal layout reader machinery and encodes each as
-   a [`CanonicalMessage`](#canonicalmessage-wire-format) — these back the `vx_decode_child` host
-   import;
+2. eagerly decodes each child input through the normal layout reader machinery into a canonical
+   array — these back the `vx_decode_child` host import, which exports them as Arrow C structs on
+   demand;
 3. fetches the optional payload segment;
-4. runs `WasmKernel::decode(payload, decoder)`, then slices to the row range, applies the input row
-   mask, and evaluates the projection expression on the decoded array.
+4. runs `WasmKernel::decode(payload, decoder, session)`, then slices to the row range, applies the
+   input row mask, and evaluates the projection expression on the decoded array.
 
 `filter_evaluation` is the same decode-then-evaluate path returning a refined mask;
 `pruning_evaluation` returns the input mask unchanged. Neither pushes anything into the kernel.
@@ -260,11 +260,11 @@ FoR is the smallest encoding that actually transforms data, so it is the referen
 Both halves live as runnable code:
 
 - `vortex-wasm-guest/examples/for-kernel/` — the FoR kernel in Rust, built on the guest SDK
-  (`MessageReader`, `host::decode_child`, `primitive_message`, `export_wasm_encoding!`), compiling
-  to `wasm32-unknown-unknown`.
-- `vortex-wasm/tests/for_roundtrip.rs` — the host `ForEncoder` plus an equivalent FoR kernel
-  written in WAT (so the test is self-contained), writing and reading a FoR `WasmLayout` end to
-  end through real layout machinery.
+  (`host::decode_child`, `Decoded`, `export_wasm_encoding!`), compiling to
+  `wasm32-unknown-unknown`.
+- `vortex-wasm/tests/kernel_roundtrip.rs` — the host `ForEncoder` plus the **compiled** FoR kernel
+  (committed under `tests/fixtures/`, `include_bytes!`-ed), writing and reading a FoR `WasmLayout`
+  end to end through real layout machinery and the real guest.
 
 ## Worked example: FoR + bit packing (real size reduction)
 
@@ -321,10 +321,12 @@ single-digit to low-tens of KB rather than ~70 KB.
 
 ## Output format
 
-Output is always **Vortex canonical encodings**, transported via `CanonicalMessage`. This keeps the
-output in Vortex's native representation with zero extra dependencies in the guest. An Arrow C Data
-Interface return mode was considered and explicitly **dropped** — Vortex canonical is sufficient
-and avoids re-deriving Arrow buffer layouts and pointer fix-ups inside the sandbox.
+A kernel returns its decoded array as **Arrow C Data Interface** structs (see the
+[decoded-array boundary](#decoded-array-boundary-arrow-c-data-interface)). The host rebuilds a
+Vortex array from them with `ArrayRef::from_arrow`, so once imported the result is in Vortex's
+native representation and re-encodes to canonical encodings like any other array. Arrow was chosen
+over a bespoke Vortex wire format because it needs **no Vortex dependency in the guest** — the C
+struct layout is plain bytes the guest writes directly — which is the key to keeping kernels small.
 
 ## Security & resource limits
 
@@ -341,24 +343,27 @@ kernel can only corrupt *that array's* values, never host memory.
 
 ## Implementation phases
 
-The first iteration (below) used a bespoke `CanonicalMessage` wire format and a `WasmEncoder` that
-wrote its own payload. That is being **replaced** by the architecture above: data on disk is the
-existing serialized array format, and decoded arrays cross the boundary as Arrow C Data Interface.
+The first iteration used a bespoke `CanonicalMessage` wire format; it has been **replaced** by the
+Arrow C Data Interface boundary with a dependency-free Rust guest. The remaining "next" work is the
+on-disk change so the embedded blob is *only* the decoder over an otherwise-normal serialized array.
 
-1. **Prototype (done, being reworked):** `WasmKernel` over `wasmi`, `WasmLayout`/`WasmReader`/
-   `WasmLayoutStrategy`, `vx_decode_child`, and end-to-end round trips (identity, FoR, FoR+bit
-   packing, nullable) via WAT kernels and a bespoke `CanonicalMessage`. Proved the VM + layout +
-   EOF kernel placement + child decode work end to end.
+1. **Prototype (done, superseded):** `WasmKernel` over `wasmi`, `WasmLayout`/`WasmReader`/
+   `WasmLayoutStrategy`, `vx_decode_child`, and end-to-end round trips via WAT kernels and a bespoke
+   `CanonicalMessage`. Proved the VM + layout + EOF kernel placement + child decode work end to end.
 2. **Arrow C Data Interface import (done):** [`arrow_ffi::import`](../../vortex-wasm/src/arrow_ffi.rs)
    reconstructs a Vortex array (primitive + bool, incl. validity) from Arrow C structs in a guest
-   memory image, via `from_arrow`; unit-tested without wasm.
-3. **Arrow boundary, both directions (next):** host exports child results as Arrow C structs into
-   guest memory; `vx_decode` returns Arrow C structs; remove `CanonicalMessage`.
-4. **`WasmLayout` embeds only the decoder (next):** the strategy writes the encoded array in the
+   memory image, via `from_arrow`.
+3. **Arrow boundary, both directions (done):** [`arrow_ffi::export`](../../vortex-wasm/src/arrow_ffi.rs)
+   writes host-decoded children as Arrow C structs into guest memory; `vx_decode` returns Arrow C
+   structs; `CanonicalMessage` removed.
+4. **Dependency-free Rust guest SDK (done):** `vortex-wasm-guest` builds/reads the C structs as
+   plain bytes (no Arrow library, no nanoarrow, no Vortex crates); ~16 KB kernels. End-to-end tested
+   against compiled fixtures in [`kernel_roundtrip.rs`](../../vortex-wasm/tests/kernel_roundtrip.rs).
+5. **`WasmLayout` embeds only the decoder (next):** the strategy writes the encoded array in the
    existing serialized format (so a native VTable reads the same bytes without the blob) and embeds
-   only the `.wasm`; the guest decodes from the serialized array flatbuffer it parses itself.
-5. **Guest SDK (next):** nanoarrow compiled into the module to build/consume the C Data Interface;
-   decide guest language (C+nanoarrow vs Rust + a nanoarrow binding). Resolve the wasm C toolchain.
+   only the `.wasm`; the guest decodes from the serialized array flatbuffer it parses itself with
+   `vortex-flatbuffers` (the generated code is pure `flatbuffers` + `alloc`). This replaces the
+   current payload+child write model.
 6. **Breadth (later):** `VarBinView`/`Struct`/`List` across the Arrow boundary, kernel dedup +
    caching, fuel/memory limits.
 

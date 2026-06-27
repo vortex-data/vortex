@@ -23,83 +23,15 @@ pub const MEMORY_EXPORT: &str = "memory";
 /// Guest export: `vx_alloc(len: i32) -> i32`. Allocates `len` bytes, returns the offset.
 pub const ALLOC_EXPORT: &str = "vx_alloc";
 
-/// Guest export: `vx_decode(input_ptr: i32, input_len: i32) -> i32`. Decodes the serialized array
-/// and returns the offset of a length-prefixed [`CanonicalMessage`](crate::message), i.e.
-/// `[u32 len][message bytes…]`.
+/// Guest export: `vx_decode(input_ptr: i32, input_len: i32) -> i32`. Decodes the encoding-specific
+/// input and returns the offset of an `(array_ptr: u32, schema_ptr: u32)` pair pointing at the
+/// decoded array's Arrow C Data Interface structs (see [`crate::arrow_ffi`]).
 pub const DECODE_EXPORT: &str = "vx_decode";
 
 /// Host import: `vx_decode_child(node_index: i32, out_ptr: i32) -> i32`. The host decodes the
-/// child array at `node_index`, writes a [`CanonicalMessage`](crate::message) into freshly
-/// allocated guest memory, and stores the `(offset: u32, len: u32)` pair at `out_ptr`.
+/// child array at `node_index`, writes its Arrow C Data Interface structs into freshly allocated
+/// guest memory, and stores the `(array_ptr: u32, schema_ptr: u32)` pair at `out_ptr`.
 pub const DECODE_CHILD_IMPORT: &str = "vx_decode_child";
 
 /// Host import: `vx_host_log(ptr: i32, len: i32)`. Logs a UTF-8 string from guest memory.
 pub const HOST_LOG_IMPORT: &str = "vx_host_log";
-
-/// Discriminant for the canonical array kind in a [`CanonicalMessage`](crate::message).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum MessageKind {
-    /// A `NullArray` — only a length.
-    Null = 0,
-    /// A `BoolArray`.
-    Bool = 1,
-    /// A `PrimitiveArray`.
-    Primitive = 2,
-    /// A `VarBinViewArray` (utf8 / binary).
-    VarBinView = 3,
-    /// A `StructArray`.
-    Struct = 4,
-}
-
-impl MessageKind {
-    /// Convert from the on-wire discriminant.
-    pub fn from_u8(value: u8) -> Option<Self> {
-        Some(match value {
-            0 => Self::Null,
-            1 => Self::Bool,
-            2 => Self::Primitive,
-            3 => Self::VarBinView,
-            4 => Self::Struct,
-            _ => return None,
-        })
-    }
-}
-
-/// Discriminant for the validity representation in a [`CanonicalMessage`](crate::message).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum MessageValidity {
-    /// The dtype is non-nullable.
-    NonNullable = 0,
-    /// Nullable, but every element is valid.
-    AllValid = 1,
-    /// Nullable, every element is null.
-    AllInvalid = 2,
-    /// A validity bitmap stored as buffer index 1 (buffer 0 holds the values).
-    Bitmap = 3,
-}
-
-impl MessageValidity {
-    /// Convert from the on-wire discriminant.
-    pub fn from_u8(value: u8) -> Option<Self> {
-        Some(match value {
-            0 => Self::NonNullable,
-            1 => Self::AllValid,
-            2 => Self::AllInvalid,
-            3 => Self::Bitmap,
-            _ => return None,
-        })
-    }
-}
-
-/// Size in bytes of the fixed [`CanonicalMessage`](crate::message) header preceding the buffer
-/// table.
-///
-/// Layout: `u8 kind | u8 ptype | u8 validity | u8 pad | u64 length | u32 nbuffers | u32 nchildren`.
-pub const MESSAGE_HEADER_LEN: usize = 20;
-
-/// Size in bytes of each buffer-table entry header preceding its inline bytes.
-///
-/// Layout: `u64 len | u8 alignment_exponent | u8[7] pad`.
-pub const BUFFER_ENTRY_HEADER_LEN: usize = 16;

@@ -4,21 +4,27 @@
 //! The embedded WebAssembly decode runtime.
 //!
 //! [`WasmKernel`] wraps a compiled `wasmi` module and drives the host/guest ABI: it copies the
-//! serialized array into guest memory, calls the guest's `vx_decode` export, services
-//! `vx_decode_child` callbacks from a [`HostDecoder`], and reconstructs a Vortex array from the
-//! returned [`CanonicalMessage`](crate::message).
+//! kernel input into guest memory, calls the guest's `vx_decode` export, services `vx_decode_child`
+//! callbacks from a [`HostDecoder`], and reconstructs a Vortex array from the Arrow C Data
+//! Interface structs the guest returns (see [`crate::arrow_ffi`]).
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
+use vortex_array::VortexSessionExecute;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 use wasmi::Caller;
 use wasmi::Engine;
 use wasmi::Extern;
 use wasmi::Linker;
+use wasmi::Memory;
 use wasmi::Module;
 use wasmi::Store;
+use wasmi::TypedFunc;
 
 use crate::abi::ALLOC_EXPORT;
 use crate::abi::DECODE_CHILD_IMPORT;
@@ -26,23 +32,24 @@ use crate::abi::DECODE_EXPORT;
 use crate::abi::HOST_LOG_IMPORT;
 use crate::abi::HOST_MODULE;
 use crate::abi::MEMORY_EXPORT;
-use crate::message::decode_message;
+use crate::arrow_ffi;
+use crate::arrow_ffi::GuestMem;
 
 /// Host-side callback used by a kernel to decode child arrays.
 ///
-/// When a guest encounters a child node it cannot (or does not want to) decode itself, it calls
-/// the `vx_decode_child` host import. The kernel forwards that to this trait, which is expected to
-/// decode the child through the [`VortexSession`](vortex_session::VortexSession) and return the
-/// result as [`CanonicalMessage`](crate::message) bytes.
+/// When a guest needs a decoded child it calls the `vx_decode_child` host import. The kernel
+/// forwards that here; the implementation decodes the child through the
+/// [`VortexSession`](vortex_session::VortexSession) and returns it as a canonical array, which the
+/// kernel then hands to the guest as Arrow C Data Interface structs.
 pub trait HostDecoder {
-    /// Decode the child array at `node_index` (document order within the serialized array header)
-    /// and return its `CanonicalMessage` bytes.
-    fn decode_child(&self, node_index: usize) -> VortexResult<Vec<u8>>;
+    /// Decode the child array at `node_index` and return it in canonical form.
+    fn decode_child(&self, node_index: usize) -> VortexResult<Canonical>;
 }
 
 /// Mutable host state threaded through a single `decode` call.
 struct HostState<'a> {
     decoder: &'a dyn HostDecoder,
+    session: &'a VortexSession,
     /// Captures a host-side error raised inside an import so it can surface as the decode error
     /// rather than an opaque wasm trap.
     error: Option<VortexError>,
@@ -68,16 +75,22 @@ impl WasmKernel {
         Ok(Self { engine, module })
     }
 
-    /// Decode the serialized array `input`, servicing child decodes through `decoder`.
+    /// Decode `input`, servicing child decodes through `decoder`.
     ///
-    /// `input` is the serialized Vortex array (flatbuffer header followed by its data buffers) for
-    /// the wasm-encoded node. It may be empty if the guest sources all of its data through
-    /// `vx_decode_child`.
-    pub fn decode(&self, input: &[u8], decoder: &dyn HostDecoder) -> VortexResult<ArrayRef> {
+    /// `input` is the encoding-specific bytes the kernel consumes. Child decodes and the kernel's
+    /// result cross the boundary as Arrow C Data Interface structs; `session` is used to encode the
+    /// host-decoded children.
+    pub fn decode(
+        &self,
+        input: &[u8],
+        decoder: &dyn HostDecoder,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
         let mut store = Store::new(
             &self.engine,
             HostState {
                 decoder,
+                session,
                 error: None,
             },
         );
@@ -112,7 +125,7 @@ impl WasmKernel {
                         if mem.read(&caller, ptr.max(0) as usize, &mut buf).is_ok()
                             && let Ok(s) = std::str::from_utf8(&buf)
                         {
-                            tracing_log(s);
+                            eprintln!("[wasm kernel] {s}");
                         }
                     }
                 },
@@ -126,7 +139,6 @@ impl WasmKernel {
         let memory = instance
             .get_memory(&store, MEMORY_EXPORT)
             .ok_or_else(|| vortex_err!("wasm kernel does not export memory '{MEMORY_EXPORT}'"))?;
-
         let alloc = instance
             .get_typed_func::<i32, i32>(&store, ALLOC_EXPORT)
             .map_err(|e| vortex_err!("wasm kernel missing {ALLOC_EXPORT}: {e}"))?;
@@ -158,55 +170,75 @@ impl WasmKernel {
             vortex_bail!("wasm kernel {DECODE_EXPORT} returned error code {result_ptr}");
         }
 
-        let mut len_bytes = [0u8; 4];
+        // The result is a pointer to an (array_ptr: u32, schema_ptr: u32) pair.
+        let mut pair = [0u8; 8];
         memory
-            .read(&store, result_ptr as usize, &mut len_bytes)
-            .map_err(|e| vortex_err!("failed to read result length: {e}"))?;
-        let msg_len = u32::from_le_bytes(len_bytes) as usize;
-        let mut msg = vec![0u8; msg_len];
-        memory
-            .read(&store, result_ptr as usize + 4, &mut msg)
-            .map_err(|e| vortex_err!("failed to read result message: {e}"))?;
+            .read(&store, result_ptr as usize, &mut pair)
+            .map_err(|e| vortex_err!("failed to read result pair: {e}"))?;
+        let array_ptr = u32::from_le_bytes(pair[0..4].try_into().expect("4 bytes"));
+        let schema_ptr = u32::from_le_bytes(pair[4..8].try_into().expect("4 bytes"));
 
-        decode_message(&msg)
+        arrow_ffi::import(memory.data(&store), array_ptr, schema_ptr)
     }
 }
 
-fn tracing_log(message: &str) {
-    // Kept deliberately simple; kernels log only when debugging.
-    eprintln!("[wasm kernel] {message}");
+/// A [`GuestMem`] that allocates via the guest's exported `vx_alloc` and writes through `wasmi`.
+struct CallerGuestMem<'c, 'b, 's> {
+    caller: &'c mut Caller<'b, HostState<'s>>,
+    memory: Memory,
+    alloc: TypedFunc<i32, i32>,
 }
 
-/// Service a `vx_decode_child` import call.
+impl GuestMem for CallerGuestMem<'_, '_, '_> {
+    fn alloc(&mut self, len: u32) -> VortexResult<u32> {
+        let ptr = self
+            .alloc
+            .call(&mut *self.caller, i32::try_from(len)?)
+            .map_err(|e| vortex_err!("guest {ALLOC_EXPORT} trapped: {e}"))?;
+        Ok(ptr.max(0) as u32)
+    }
+
+    fn write(&mut self, off: u32, bytes: &[u8]) -> VortexResult<()> {
+        self.memory
+            .write(&mut *self.caller, off as usize, bytes)
+            .map_err(|e| vortex_err!("failed to write guest memory: {e}"))
+    }
+}
+
+/// Service a `vx_decode_child` import call: decode the child, export it as Arrow C structs into
+/// guest memory, and write the resulting `(array_ptr, schema_ptr)` pair at `out_ptr`.
 fn host_decode_child(
     caller: &mut Caller<'_, HostState>,
     node_index: i32,
     out_ptr: i32,
 ) -> VortexResult<()> {
     let node_index = usize::try_from(node_index)?;
-    let msg = caller.data().decoder.decode_child(node_index)?;
+    let canonical = caller.data().decoder.decode_child(node_index)?;
+    let mut ctx: ExecutionCtx = caller.data().session.create_execution_ctx();
 
+    let memory = caller
+        .get_export(MEMORY_EXPORT)
+        .and_then(Extern::into_memory)
+        .ok_or_else(|| vortex_err!("guest missing memory export"))?;
     let alloc = caller
         .get_export(ALLOC_EXPORT)
         .and_then(Extern::into_func)
         .ok_or_else(|| vortex_err!("guest missing {ALLOC_EXPORT} export"))?
         .typed::<i32, i32>(&*caller)
         .map_err(|e| vortex_err!("guest {ALLOC_EXPORT} has wrong signature: {e}"))?;
-    let dst = alloc
-        .call(&mut *caller, i32::try_from(msg.len())?)
-        .map_err(|e| vortex_err!("guest {ALLOC_EXPORT} trapped: {e}"))?;
 
-    let memory = caller
-        .get_export(MEMORY_EXPORT)
-        .and_then(Extern::into_memory)
-        .ok_or_else(|| vortex_err!("guest missing memory export"))?;
-    memory
-        .write(&mut *caller, dst.max(0) as usize, &msg)
-        .map_err(|e| vortex_err!("failed to write child message into guest memory: {e}"))?;
+    let (array_ptr, schema_ptr) = {
+        let mut guest_mem = CallerGuestMem {
+            caller,
+            memory,
+            alloc,
+        };
+        arrow_ffi::export(&canonical, &mut ctx, &mut guest_mem)?
+    };
 
     let mut out = [0u8; 8];
-    out[0..4].copy_from_slice(&(dst as u32).to_le_bytes());
-    out[4..8].copy_from_slice(&(msg.len() as u32).to_le_bytes());
+    out[0..4].copy_from_slice(&array_ptr.to_le_bytes());
+    out[4..8].copy_from_slice(&schema_ptr.to_le_bytes());
     memory
         .write(&mut *caller, out_ptr.max(0) as usize, &out)
         .map_err(|e| vortex_err!("failed to write decode_child out-params: {e}"))?;

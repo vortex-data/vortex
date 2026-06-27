@@ -8,8 +8,9 @@
 //! written with an encoding it was never compiled against by running the embedded kernel against
 //! the serialized array and the host's existing decode machinery.
 //!
-//! - [`abi`] defines the host/guest ABI and the `CanonicalMessage` wire format constants.
-//! - [`message`] encodes/decodes canonical arrays in that wire format.
+//! - [`abi`] defines the host/guest ABI constants.
+//! - [`arrow_ffi`] imports/exports canonical arrays across the boundary as Arrow C Data Interface
+//!   structs.
 //! - [`WasmKernel`] is the `wasmi`-backed runtime that drives the ABI.
 //! - [`WasmLayout`] / [`WasmReader`] / [`WasmLayoutStrategy`] integrate kernels into the layout
 //!   tree, so wasm-decoded arrays read and write like any other layout.
@@ -22,7 +23,6 @@ pub mod abi;
 pub mod arrow_ffi;
 mod kernel;
 mod layout;
-pub mod message;
 mod reader;
 mod writer;
 

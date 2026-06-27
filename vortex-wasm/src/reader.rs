@@ -3,10 +3,10 @@
 
 //! [`WasmReader`] drives an embedded kernel to decode a [`WasmLayout`].
 //!
-//! Child layouts are decoded eagerly through the normal layout reader machinery, encoded into
-//! [`CanonicalMessage`](crate::message)s, and served to the kernel through the `vx_decode_child`
-//! host import. The kernel's canonical output is then sliced/filtered/projected like any other
-//! reader.
+//! Child layouts are decoded eagerly through the normal layout reader machinery into canonical
+//! arrays, and served to the kernel through the `vx_decode_child` host import — the kernel receives
+//! them as Arrow C Data Interface structs. The kernel's output is then sliced/filtered/projected
+//! like any other reader.
 //!
 //! WASM layouts are **decode-only**: the kernel decompresses, nothing more. There is deliberately
 //! no pushdown — filters and projections are evaluated on the fully decoded array (exactly as a
@@ -43,7 +43,6 @@ use vortex_session::VortexSession;
 use crate::HostDecoder;
 use crate::WasmKernel;
 use crate::layout::WasmLayout;
-use crate::message::encode_canonical;
 
 /// Stateful reader for a [`WasmLayout`].
 pub struct WasmReader {
@@ -95,17 +94,16 @@ impl WasmReader {
             let kernel_handle = segment_source.request(kernel_segment).await?;
             let kernel = WasmKernel::new(kernel_handle.to_host_sync().as_ref())?;
 
-            // Eagerly decode each child input into a CanonicalMessage.
+            // Eagerly decode each child input into a canonical array.
             let mut ctx = session.create_execution_ctx();
-            let mut messages = Vec::with_capacity(children.len());
+            let mut canonicals = Vec::with_capacity(children.len());
             for child in &children {
                 let row_count = child.row_count();
                 let len = usize::try_from(row_count)?;
                 let array = child
                     .projection_evaluation(&(0..row_count), &root(), MaskFuture::new_true(len))?
                     .await?;
-                let canonical = array.execute::<Canonical>(&mut ctx)?;
-                messages.push(encode_canonical(&canonical, &mut ctx)?);
+                canonicals.push(array.execute::<Canonical>(&mut ctx)?);
             }
 
             let payload = match payload_segment {
@@ -118,8 +116,8 @@ impl WasmReader {
                 None => Vec::new(),
             };
 
-            let decoder = PrecomputedDecoder { messages };
-            kernel.decode(&payload, &decoder)
+            let decoder = PrecomputedDecoder { canonicals };
+            kernel.decode(&payload, &decoder, &session)
         }
         .boxed()
     }
@@ -127,15 +125,15 @@ impl WasmReader {
 
 /// A [`HostDecoder`] backed by child arrays decoded up front.
 struct PrecomputedDecoder {
-    messages: Vec<Vec<u8>>,
+    canonicals: Vec<Canonical>,
 }
 
 impl HostDecoder for PrecomputedDecoder {
-    fn decode_child(&self, node_index: usize) -> VortexResult<Vec<u8>> {
-        self.messages.get(node_index).cloned().ok_or_else(|| {
+    fn decode_child(&self, node_index: usize) -> VortexResult<Canonical> {
+        self.canonicals.get(node_index).cloned().ok_or_else(|| {
             vortex_err!(
                 "kernel requested child {node_index} but only {} are available",
-                self.messages.len()
+                self.canonicals.len()
             )
         })
     }

@@ -5,7 +5,7 @@
 //! memory.
 //!
 //! Decoded arrays cross the host/guest boundary as the [Arrow C Data Interface]. The guest builds
-//! the `ArrowSchema`/`ArrowArray` structs (e.g. with nanoarrow compiled into the module); this
+//! the `ArrowSchema`/`ArrowArray` structs directly as plain bytes (no Arrow library needed); this
 //! module reads that standard layout out of the guest's 32-bit address space, deep-copies the
 //! buffers, reconstructs an Arrow array, and converts it to a Vortex array via
 //! [`ArrayRef::from_arrow`].
@@ -284,7 +284,7 @@ mod tests {
 
     impl GuestMem for VecMem {
         fn alloc(&mut self, len: u32) -> VortexResult<u32> {
-            while self.mem.len() % 8 != 0 {
+            while !self.mem.len().is_multiple_of(8) {
                 self.mem.push(0);
             }
             let off = self.mem.len() as u32;
@@ -337,7 +337,7 @@ mod tests {
 
         fn put(&mut self, bytes: &[u8]) -> u32 {
             // 8-align every region so struct int64 fields are aligned.
-            while self.mem.len() % 8 != 0 {
+            while !self.mem.len().is_multiple_of(8) {
                 self.mem.push(0);
             }
             let off = self.mem.len() as u32;
