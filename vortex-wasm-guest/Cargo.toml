@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[package]
+name = "vortex-wasm-guest"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Guest SDK for writing Vortex WebAssembly decoder kernels"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-flatbuffers = { workspace = true, features = ["array"] }
+
+[lints]
+workspace = true

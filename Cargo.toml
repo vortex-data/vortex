@@ -39,6 +39,8 @@ members = [
     "vortex-python",
     "vortex-python-cuda",
     "vortex-tui",
+    "vortex-wasm",
+    "vortex-wasm-guest",
     "vortex-web/crate",
     "vortex-sqllogictest",
     "vortex-test/compat-gen",
@@ -68,7 +70,12 @@ members = [
     "benchmarks/random-access-bench",
     "vortex-geo",
 ]
-exclude = ["java/testfiles", "wasm-test"]
+exclude = [
+    "java/testfiles",
+    "wasm-test",
+    # Example WASM kernel; only meaningful for the wasm32 target.
+    "vortex-wasm-guest/examples/identity-kernel",
+]
 resolver = "2"
 
 [workspace.package]
@@ -269,6 +276,8 @@ tracing-subscriber = "0.3"
 url = "2.5.7"
 uuid = { version = "1.23", features = ["js"] }
 wasm-bindgen-futures = "0.4.54"
+wasmi = "1.1"
+wat = "1"
 wkb = "0.9.2"
 xshell = "0.2.6"
 zigzag = "0.1.0"
@@ -325,6 +334,8 @@ vortex-cuda-macros = { path = "./vortex-cuda/macros" }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-test-e2e-cuda = { path = "./vortex-test/e2e-cuda", default-features = false }
 vortex-tui = { path = "./vortex-tui" }
+vortex-wasm = { version = "0.1.0", path = "./vortex-wasm", default-features = false }
+vortex-wasm-guest = { version = "0.1.0", path = "./vortex-wasm-guest", default-features = false }
 
 [workspace.lints.rust]
 let_underscore_drop = "deny"

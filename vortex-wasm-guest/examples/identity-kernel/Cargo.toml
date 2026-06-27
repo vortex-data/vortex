@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Example Vortex WASM decoder kernel. Build with:
+#   cargo build -p identity-kernel --target wasm32-unknown-unknown --release
+#
+# This crate is excluded from the main workspace (see the root Cargo.toml `exclude`) because it is
+# only meaningful for the wasm32 target.
+
+[workspace]
+
+[package]
+name = "identity-kernel"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+vortex-error = { path = "../../../vortex-error", default-features = false }
+vortex-wasm-guest = { path = "../.." }
+
+[profile.release]
+opt-level = "s"
+lto = true
