@@ -5,9 +5,9 @@
 //!
 //! A `WasmLayout` holds:
 //! - **child layouts** providing the decoded inputs the kernel consumes (served to the guest via
-//!   the `vx_decode_child` host import). Each child keeps its own dtype, so a kernel may consume
-//!   inputs of a different type than its output (e.g. a `u8` packed-delta child for an `i32`
-//!   output).
+//!   the `vx_decode_child` host import). Each child carries the layout's own output dtype — the
+//!   same dtype a native VTable would read the bytes with — so it is recovered from the layout
+//!   dtype on deserialization and never stored in the metadata.
 //! - a **kernel segment** containing the embedded `.wasm` blob (written at end-of-file);
 //! - an optional **payload segment** containing the encoding's own header bytes that the guest
 //!   parses.
@@ -19,8 +19,6 @@ use std::sync::Arc;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -47,9 +45,6 @@ vtable!(Wasm);
 /// Layout encoding id for [`WasmLayout`].
 pub const WASM_LAYOUT_ID: &str = "vortex.wasm";
 
-/// Sentinel ptype discriminant used in metadata for a non-primitive child.
-const NON_PRIMITIVE_PTYPE: u32 = u32::MAX;
-
 impl VTable for Wasm {
     type Layout = WasmLayout;
     type Encoding = WasmLayoutEncoding;
@@ -72,21 +67,10 @@ impl VTable for Wasm {
     }
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
-        let mut child_ptypes = Vec::with_capacity(layout.children.len());
-        let mut child_nullable = Vec::with_capacity(layout.children.len());
-        for child in layout.children.iter() {
-            match PType::try_from(child.dtype()) {
-                Ok(ptype) => child_ptypes.push(ptype_to_u32(ptype)),
-                Err(_) => child_ptypes.push(NON_PRIMITIVE_PTYPE),
-            }
-            child_nullable.push(child.dtype().is_nullable());
-        }
         ProstMetadata(WasmLayoutMetadata {
             encoding_id: layout.encoding_id.clone(),
             abi_version: layout.abi_version,
             has_payload: layout.payload_segment.is_some(),
-            child_ptypes,
-            child_nullable,
         })
     }
 
@@ -156,23 +140,12 @@ impl VTable for Wasm {
             ),
         };
 
-        // Reconstruct each child layout from its recorded (primitive) dtype.
+        // Each child carries the layout's own output dtype (the dtype a native VTable would read
+        // the same bytes with), so it is recovered from `dtype` rather than stored in the metadata.
         let n = children.nchildren();
         let mut child_layouts = Vec::with_capacity(n);
         for idx in 0..n {
-            let ptype = metadata
-                .child_ptypes
-                .get(idx)
-                .copied()
-                .unwrap_or(NON_PRIMITIVE_PTYPE);
-            if ptype == NON_PRIMITIVE_PTYPE {
-                vortex_bail!(
-                    "WasmLayout deserialization currently supports primitive children only (child {idx})"
-                );
-            }
-            let nullable = metadata.child_nullable.get(idx).copied().unwrap_or(false);
-            let child_dtype = DType::Primitive(ptype_from_u32(ptype)?, Nullability::from(nullable));
-            child_layouts.push(children.child(idx, &child_dtype)?);
+            child_layouts.push(children.child(idx, dtype)?);
         }
 
         Ok(WasmLayout {
@@ -294,6 +267,9 @@ pub fn same_dtype_children(children: Vec<LayoutRef>) -> Arc<dyn LayoutChildren> 
 }
 
 /// Serialized metadata for [`WasmLayout`].
+///
+/// Deliberately minimal: the child layouts carry their own encoding ids and the layout dtype is
+/// recorded in the file, so neither child encoding ids nor child dtypes are duplicated here.
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct WasmLayoutMetadata {
     /// Guest encoding id (e.g. `"acme.delta"`).
@@ -305,43 +281,4 @@ pub struct WasmLayoutMetadata {
     /// Whether a payload segment follows the kernel segment.
     #[prost(bool, tag = "3")]
     pub has_payload: bool,
-    /// Per-child primitive type discriminant ([`NON_PRIMITIVE_PTYPE`] for non-primitive children).
-    #[prost(uint32, repeated, tag = "4")]
-    pub child_ptypes: Vec<u32>,
-    /// Per-child nullability.
-    #[prost(bool, repeated, tag = "5")]
-    pub child_nullable: Vec<bool>,
-}
-
-fn ptype_to_u32(ptype: PType) -> u32 {
-    match ptype {
-        PType::U8 => 0,
-        PType::U16 => 1,
-        PType::U32 => 2,
-        PType::U64 => 3,
-        PType::I8 => 4,
-        PType::I16 => 5,
-        PType::I32 => 6,
-        PType::I64 => 7,
-        PType::F16 => 8,
-        PType::F32 => 9,
-        PType::F64 => 10,
-    }
-}
-
-fn ptype_from_u32(value: u32) -> VortexResult<PType> {
-    Ok(match value {
-        0 => PType::U8,
-        1 => PType::U16,
-        2 => PType::U32,
-        3 => PType::U64,
-        4 => PType::I8,
-        5 => PType::I16,
-        6 => PType::I32,
-        7 => PType::I64,
-        8 => PType::F16,
-        9 => PType::F32,
-        10 => PType::F64,
-        other => vortex_bail!("invalid WasmLayout child ptype discriminant: {other}"),
-    })
 }

@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! [`WasmLayoutStrategy`] writes a [`WasmLayout`]: a [`WasmEncoder`] turns each input chunk into a
-//! payload (parsed by the guest) plus one child input array, the child is written through a child
-//! strategy, and the embedded kernel is appended as a segment at the end of the file.
+//! payload (parsed by the guest) plus an optional child input array, any child is written through a
+//! child strategy, and the embedded kernel is appended as a segment at the end of the file.
 //!
 //! The kernel is written with a sequence id taken from the end-of-file pointer, so the segment
 //! sink flushes it only after every data segment. The child writes and the kernel write are driven
@@ -37,13 +37,17 @@ use vortex_session::VortexSession;
 use crate::layout::WasmLayout;
 use crate::layout::same_dtype_children;
 
-/// The encoder's output for a single input chunk: a payload the guest parses, plus the single
+/// The encoder's output for a single input chunk: a payload the guest parses, plus an optional
 /// child input array the kernel decodes.
+///
+/// A child, when present, carries the layout's output dtype (so a native VTable could read the same
+/// bytes). An encoding whose entire encoded form fits in the opaque `payload` (e.g. bit packing)
+/// returns `child: None`.
 pub struct WasmEncoded {
     /// Encoding-specific header bytes the guest parses (empty for an identity encoding).
     pub payload: ByteBuffer,
-    /// The single child input array (e.g. Frame-of-Reference deltas).
-    pub child: ArrayRef,
+    /// The optional child input array (e.g. Frame-of-Reference deltas), in the output dtype.
+    pub child: Option<ArrayRef>,
 }
 
 /// Write-side counterpart of a WASM decoder kernel: transforms an input chunk into the kernel's
@@ -61,7 +65,7 @@ impl WasmEncoder for IdentityEncoder {
     fn encode(&self, chunk: ArrayRef, _ctx: &mut ExecutionCtx) -> VortexResult<WasmEncoded> {
         Ok(WasmEncoded {
             payload: ByteBuffer::empty(),
-            child: chunk,
+            child: Some(chunk),
         })
     }
 }
@@ -97,7 +101,7 @@ struct ChunkParts {
     row_count: u64,
     dtype: vortex_array::dtype::DType,
     payload_segment: Option<SegmentId>,
-    child: LayoutRef,
+    child: Option<LayoutRef>,
 }
 
 #[async_trait]
@@ -130,7 +134,7 @@ impl LayoutStrategy for WasmLayoutStrategy {
                 let mut exec = session.create_execution_ctx();
                 let WasmEncoded { payload, child } = self.encoder.encode(chunk, &mut exec)?;
 
-                // Sub-sequence positions for this chunk: payload, then the child input.
+                // Sub-sequence positions for this chunk: payload, then the optional child input.
                 let mut ptr = seq_id.descend();
                 let payload_segment = if payload.is_empty() {
                     None
@@ -139,24 +143,30 @@ impl LayoutStrategy for WasmLayoutStrategy {
                     Some(segment_sink.write(payload_seq, vec![payload]).await?)
                 };
 
-                let child_dtype = child.dtype().clone();
-                let child_seq = ptr.advance();
-                let child_eof = ptr;
-                let child_stream = SequentialStreamAdapter::new(
-                    child_dtype,
-                    once(std::future::ready(Ok((child_seq, child)))),
-                )
-                .sendable();
-                let child_layout = self
-                    .child
-                    .write_stream(
-                        ctx.clone(),
-                        Arc::clone(&segment_sink),
-                        child_stream,
-                        child_eof,
-                        session,
-                    )
-                    .await?;
+                let child_layout = match child {
+                    Some(child) => {
+                        let child_dtype = child.dtype().clone();
+                        let child_seq = ptr.advance();
+                        let child_eof = ptr;
+                        let child_stream = SequentialStreamAdapter::new(
+                            child_dtype,
+                            once(std::future::ready(Ok((child_seq, child)))),
+                        )
+                        .sendable();
+                        Some(
+                            self.child
+                                .write_stream(
+                                    ctx.clone(),
+                                    Arc::clone(&segment_sink),
+                                    child_stream,
+                                    child_eof,
+                                    session,
+                                )
+                                .await?,
+                        )
+                    }
+                    None => None,
+                };
 
                 parts.push(ChunkParts {
                     row_count,
@@ -179,7 +189,7 @@ impl LayoutStrategy for WasmLayoutStrategy {
                     self.encoding_id.clone(),
                     kernel_segment,
                     p.payload_segment,
-                    vec![p.child],
+                    p.child.into_iter().collect(),
                 )
                 .into_layout()
             })

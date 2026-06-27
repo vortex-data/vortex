@@ -171,7 +171,10 @@ impl WasmEncoder for ForEncoder {
         let payload = ByteBuffer::from(reference.to_le_bytes().to_vec());
         let child =
             PrimitiveArray::new(Buffer::copy_from(&deltas), Validity::NonNullable).into_array();
-        Ok(WasmEncoded { payload, child })
+        Ok(WasmEncoded {
+            payload,
+            child: Some(child),
+        })
     }
 }
 
@@ -186,12 +189,12 @@ fn for_round_trips() {
     assert_eq!(out.buffers()[0].as_ref(), expected.as_slice());
 }
 
-/// FoR + bit-packing encoder for `i32`: store `[i32 reference][u8 bit_width][u32 len]` as the
-/// payload and the LSB-first bit-packed deltas as a `u8` child.
+/// FoR + bit-packing encoder for `i32`: the entire encoded form is the opaque payload
+/// `[i32 reference][u8 bit_width][u32 len][packed deltas…]`, so there is **no child**.
 struct ForBitpackEncoder;
 
 impl ForBitpackEncoder {
-    fn encode_i32(values: &[i32]) -> (ByteBuffer, ArrayRef) {
+    fn encode_i32(values: &[i32]) -> ByteBuffer {
         let reference = values.iter().copied().min().unwrap_or(0);
         let deltas: Vec<u32> = values
             .iter()
@@ -200,14 +203,12 @@ impl ForBitpackEncoder {
         let bw = bitpack::bit_width(deltas.iter().copied().max().unwrap_or(0));
         let packed = bitpack::pack(&deltas, bw);
 
-        let mut payload = Vec::with_capacity(9);
+        let mut payload = Vec::with_capacity(9 + packed.len());
         payload.extend_from_slice(&reference.to_le_bytes());
         payload.push(bw);
         payload.extend_from_slice(&(values.len() as u32).to_le_bytes());
-
-        let child =
-            PrimitiveArray::new(Buffer::copy_from(&packed), Validity::NonNullable).into_array();
-        (ByteBuffer::from(payload), child)
+        payload.extend_from_slice(&packed);
+        ByteBuffer::from(payload)
     }
 }
 
@@ -217,8 +218,10 @@ impl WasmEncoder for ForBitpackEncoder {
         if primitive.ptype() != PType::I32 {
             vortex_bail!("ForBitpackEncoder only supports i32");
         }
-        let (payload, child) = Self::encode_i32(primitive.as_slice::<i32>());
-        Ok(WasmEncoded { payload, child })
+        Ok(WasmEncoded {
+            payload: Self::encode_i32(primitive.as_slice::<i32>()),
+            child: None,
+        })
     }
 }
 
@@ -226,8 +229,8 @@ impl WasmEncoder for ForBitpackEncoder {
 fn for_bitpack_reduces_size() {
     // 1024 values within a 6-bit window of the reference => 6 bits each instead of 32.
     let values: Vec<i32> = (0..1024).map(|i| 10_000 + (i % 64)).collect();
-    let (_payload, child) = ForBitpackEncoder::encode_i32(&values);
-    let packed_bytes = child.buffers()[0].len();
+    let payload = ForBitpackEncoder::encode_i32(&values);
+    let packed_bytes = payload.len() - 9; // minus the [i32 ref][u8 bw][u32 len] header
     assert_eq!(packed_bytes, bitpack::packed_len(values.len(), 6));
     assert!(
         packed_bytes * 4 < values.len() * 4,

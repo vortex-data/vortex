@@ -127,17 +127,22 @@ Depends on `vortex-layout`, `vortex-array`, `vortex-session`, and `wasmi`. It pr
 |------------|------------------------------------------------------------------------|
 | `row_count`| rows produced by the decoded output                                    |
 | `metadata` | prost `WasmLayoutMetadata` (see below)                                  |
-| `children` | `[data_layout]` — the encoded array(s); index 0 is the transparent data |
-| `segments` | `[kernel_segment_id]` — the embedded `.wasm` blob                      |
+| `children` | `[data_layout]` — the encoded child input(s), each in the output dtype; empty when the encoded form lives entirely in the payload |
+| `segments` | `[kernel_segment_id]` (+ optional payload segment) — the embedded `.wasm` blob |
 
 ```protobuf
 message WasmLayoutMetadata {
   string  encoding_id = 1;   // guest encoding id, e.g. "acme.delta"
   uint32  abi_version = 2;   // host/guest ABI version
-  bytes   output_dtype = 3;  // serialized DType of the decoded output (optional;
-                             // falls back to the layout dtype if absent)
+  bool    has_payload = 3;   // whether a payload segment follows the kernel segment
 }
 ```
+
+The metadata is deliberately minimal. A child layout already records its **own encoding id** in the
+layout flatbuffer, and a child's **dtype is the layout's output dtype** (the dtype a native VTable
+would read the same bytes with), which is itself in the file — so neither is duplicated here. The
+layout flatbuffer has no per-layout dtype field; the parent supplies a child's dtype on
+deserialization, and `WasmLayout` supplies its own.
 
 The kernel itself is content-addressed: identical kernels across many `WasmLayout` nodes in one
 file should share a single segment (a writer-side dedup keyed on the blob digest). For the first
@@ -243,10 +248,12 @@ native Vortex `VTable::deserialize` would do, but sandboxed.
 
 `WasmLayoutStrategy` pairs a kernel with a `WasmEncoder`, the write-side counterpart of the
 kernel. For each input chunk the encoder returns a `WasmEncoded { payload, child }`: the `payload`
-bytes the guest parses, and the single child input array the kernel decodes. The strategy writes
-the child through a child strategy, the payload as its own segment, and the kernel once at
-end-of-file; multiple chunks are wrapped in a `ChunkedLayout` sharing the one kernel segment.
-`IdentityEncoder` (empty payload, chunk as child) is the trivial case.
+bytes the guest parses, and an **optional** child input array the kernel decodes. A child, when
+present, carries the layout's output dtype; an encoding whose entire encoded form fits in the
+payload returns `child: None`. The strategy writes any child through a child strategy, the payload
+as its own segment, and the kernel once at end-of-file; multiple chunks are wrapped in a
+`ChunkedLayout` sharing the one kernel segment. `IdentityEncoder` (empty payload, chunk as child) is
+the trivial case.
 
 ## Worked example: Frame of Reference (the minimal real encoding)
 
@@ -272,19 +279,22 @@ Both halves live as runnable code:
 savings:
 
 - **Write** (`ForBitpackEncoder`): `delta = value - reference`, then pack the deltas into the
-  minimum number of bits (`bit_width(max_delta)`), stored as a **`u8` child**. The payload carries
-  `[i32 reference][u8 bit_width][u32 len]`.
-- **Read** (the kernel): read the payload, decode the packed `u8` child via `vx_decode_child`, and
-  unpack `bit_width` bits per element (`vortex_wasm_guest::bitpack::unpack`) before adding the
-  reference.
+  minimum number of bits (`bit_width(max_delta)`). The whole encoded form fits in the opaque
+  payload — `[i32 reference][u8 bit_width][u32 len][packed deltas…]` — so this encoding has **no
+  child**.
+- **Read** (the kernel): read the payload header, then unpack `bit_width` bits per element
+  (`vortex_wasm_guest::bitpack::unpack`) directly from the payload bytes before adding the
+  reference. No `vx_decode_child` call.
 
-For 1024 `i32` values within a 6-bit window, the deltas occupy **768 bytes vs 4096 raw (5.3×)**.
-The pack/unpack routine lives once in `vortex_wasm_guest::bitpack` and is used by both the kernel
-and the host encoder (in tests).
+For 1024 `i32` values within a 6-bit window, the packed deltas occupy **768 bytes vs 4096 raw
+(5.3×)**. The pack/unpack routine lives once in `vortex_wasm_guest::bitpack` and is used by both the
+kernel and the host encoder (in tests).
 
-This is the case that motivated giving each child its own dtype: the packed child is `u8` while the
-output is `i32`. The `WasmLayout` records each child's (primitive) dtype in its metadata, so a
-kernel may consume inputs of a different type than it produces.
+This shows the two shapes an encoding can take. FoR keeps a **child** (the deltas, in the output
+dtype) decoded via `vx_decode_child`; FoR+bit-packing folds its entire encoded form into the
+**payload** and has no child. Because a child always carries the layout's output dtype, child dtypes
+are never stored in the metadata — an encoding that needs a differently-typed buffer carries it in
+the payload instead.
 
 ## Binary size
 
