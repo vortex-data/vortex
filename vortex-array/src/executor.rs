@@ -26,6 +26,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -33,7 +34,9 @@ use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::array::Array;
 use crate::array::ArrayId;
+use crate::arrays::Null;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
@@ -92,11 +95,42 @@ impl ArrayRef {
         E::execute(self, ctx)
     }
 
-    /// Iteratively execute this array until the [`Matcher`] matches, using an explicit work
+    /// Iteratively execute this array until the [`Matcher`] `M` matches, returning the matched
+    /// view borrowing the executed array.
+    ///
+    /// The fully-executed array is written back into `self`, and the returned [`Matcher::Match`]
+    /// borrows from it. This lets callers obtain a typed view of the result without re-downcasting
+    /// the returned array.
+    ///
+    /// # Errors
+    ///
+    /// Errors if execution converges to a canonical form that `M` does not match, since no further
+    /// execution progress is possible. Wrap `M` in [`OrCanonical`](crate::OrCanonical) to handle
+    /// the canonical fallback without erroring.
+    ///
+    /// Also errors once execution reaches a configurable maximum number of iterations (default
+    /// `2^22`, override with `VORTEX_MAX_ITERATIONS`).
+    pub fn execute_until<'a, M: Matcher>(
+        &'a mut self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<M::Match<'a>> {
+        // The loop consumes the array to extract owned buffers, so swap in a cheap, alloc-free
+        // placeholder while it runs, then write the executed array back into `self`.
+        let owned = std::mem::replace(self, Array::<Null>::new(0).into_array());
+        *self = owned.execute_until_done(ctx, M::matches)?;
+        M::try_match(self).ok_or_else(|| {
+            vortex_err!(
+                "execute_until did not converge to a matching array (got {})",
+                self.encoding_id()
+            )
+        })
+    }
+
+    /// Iteratively execute this array until `done` matches, using an explicit work
     /// stack plus an optional builder for `AppendChild`.
     ///
-    /// Note: the returned array may not match `M`. If execution converges to a canonical form
-    /// that does not match `M`, the canonical array is returned since no further execution
+    /// Note: the returned array may not satisfy `done`. If execution converges to a canonical form
+    /// that `done` does not match, the canonical array is returned since no further execution
     /// progress is possible.
     ///
     /// For safety, this errors once execution reaches a configurable maximum number of
@@ -163,7 +197,11 @@ impl ArrayRef {
     /// partially consumes `current_array`: some slots already live in the builder, so a
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
-    pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute_until_done(
+        self,
+        ctx: &mut ExecutionCtx,
+        done: DonePredicate,
+    ) -> VortexResult<ArrayRef> {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
         let mut stack: Vec<StackFrame> = Vec::new();
@@ -172,9 +210,7 @@ impl ArrayRef {
         let max_iterations = max_iterations();
 
         for _ in 0..max_iterations {
-            let is_done = stack
-                .last()
-                .map_or(M::matches as DonePredicate, |frame| frame.done);
+            let is_done = stack.last().map_or(done, |frame| frame.done);
 
             if is_done(&current_array) || AnyCanonical::matches(&current_array) {
                 match stack.pop() {

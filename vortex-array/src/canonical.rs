@@ -3,6 +3,7 @@
 
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use vortex_buffer::BitBuffer;
@@ -543,12 +544,8 @@ impl From<Canonical> for ArrayRef {
 /// canonical form. Callers should prefer to execute into `Columnar` if they are able to optimize
 /// their use for constant arrays.
 impl Executable for Canonical {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let result = array.execute_until::<AnyCanonical>(ctx)?;
-        Ok(result
-            .as_opt::<AnyCanonical>()
-            .map(Canonical::from)
-            .vortex_expect("execute_until::<AnyCanonical> must return a canonical array"))
+    fn execute(mut array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        Ok(Canonical::from(array.execute_until::<AnyCanonical>(ctx)?))
     }
 }
 
@@ -1110,6 +1107,41 @@ impl Matcher for AnyCanonical {
             Some(CanonicalView::Variant(a))
         } else {
             array.as_opt::<Extension>().map(CanonicalView::Extension)
+        }
+    }
+}
+
+/// A matcher that matches `M`, falling back to any canonical array.
+///
+/// [`ArrayRef::execute_until`] errors if execution converges to a canonical form that the
+/// requested matcher does not match. Wrapping the matcher in `OrCanonical` instead surfaces that
+/// canonical result as [`OrCanonicalMatch::Canonical`], letting the caller decide how to handle
+/// it rather than erroring.
+pub struct OrCanonical<M>(PhantomData<M>);
+
+/// The match produced by [`OrCanonical`]: either the inner matcher matched, or execution
+/// converged to a canonical form the inner matcher did not match.
+pub enum OrCanonicalMatch<'a, M: Matcher> {
+    /// The inner matcher `M` matched.
+    Matched(M::Match<'a>),
+    /// `M` did not match, but the array reached canonical form.
+    Canonical(CanonicalView<'a>),
+}
+
+impl<M: Matcher> Matcher for OrCanonical<M> {
+    type Match<'a> = OrCanonicalMatch<'a, M>;
+
+    #[inline]
+    fn matches(array: &ArrayRef) -> bool {
+        M::matches(array) || AnyCanonical::matches(array)
+    }
+
+    #[inline]
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        if let Some(matched) = M::try_match(array) {
+            Some(OrCanonicalMatch::Matched(matched))
+        } else {
+            AnyCanonical::try_match(array).map(OrCanonicalMatch::Canonical)
         }
     }
 }

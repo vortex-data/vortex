@@ -359,13 +359,9 @@ mod tests {
         let input = literal_vector_array(&[3.0f64, 4.0], 4);
 
         let scalar_fn = L2Norm::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![input])?.into_array();
+        let mut result = ScalarFnArray::try_new(scalar_fn, vec![input])?.into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        let output = result.execute_until::<Constant>(&mut ctx)?;
-
-        let constant = output
-            .as_opt::<Constant>()
-            .expect("L2Norm over a constant input must produce a constant output");
+        let constant = result.execute_until::<Constant>(&mut ctx)?;
         assert_eq!(constant.len(), 4);
         let norm = constant
             .scalar()
@@ -390,13 +386,9 @@ mod tests {
         let input = ConstantArray::new(null_scalar, 3).into_array();
 
         let scalar_fn = L2Norm::new().erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![input])?.into_array();
+        let mut result = ScalarFnArray::try_new(scalar_fn, vec![input])?.into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        let output = result.execute_until::<Constant>(&mut ctx)?;
-
-        let constant = output
-            .as_opt::<Constant>()
-            .expect("null constant input must produce a constant output");
+        let constant = result.execute_until::<Constant>(&mut ctx)?;
         assert_eq!(constant.len(), 3);
         assert!(constant.scalar().is_null());
         assert_eq!(

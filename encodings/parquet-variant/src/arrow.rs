@@ -15,10 +15,12 @@ use parquet_variant_compute::GetOptions;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use parquet_variant_compute::unshred_variant;
 use vortex_array::ArrayRef;
+use vortex_array::CanonicalView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::OrCanonical;
+use vortex_array::OrCanonicalMatch;
 use vortex_array::VTable;
-use vortex_array::arrays::Variant;
 use vortex_array::arrays::variant::VariantArrayExt;
 use vortex_array::arrow::ArrowExport;
 use vortex_array::arrow::ArrowExportVTable;
@@ -30,7 +32,6 @@ use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
@@ -117,24 +118,34 @@ pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
 }
 
 pub(crate) fn parquet_variant_for_export(
-    array: ArrayRef,
+    mut array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let executed = array.execute_until::<ParquetVariant>(ctx)?;
-    if executed.is::<ParquetVariant>() {
-        return Ok(executed);
-    }
+    // Execution may converge to either `ParquetVariant` storage or the canonical `Variant` form;
+    // `OrCanonical` surfaces both rather than erroring on the canonical fallback.
+    let variant = match array.execute_until::<OrCanonical<ParquetVariant>>(ctx)? {
+        OrCanonicalMatch::Matched(parquet) => return Ok(parquet.into_owned().into_array()),
+        OrCanonicalMatch::Canonical(CanonicalView::Variant(variant)) => variant,
+        OrCanonicalMatch::Canonical(_) => {
+            vortex_bail!("cannot export Variant without ParquetVariant storage")
+        }
+    };
 
-    let variant = executed
-        .as_opt::<Variant>()
-        .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant storage"))?;
-    let core_storage = variant
-        .core_storage()
-        .clone()
-        .execute_until::<ParquetVariant>(ctx)?;
-    let parquet_core = core_storage
-        .as_opt::<ParquetVariant>()
-        .ok_or_else(|| vortex_err!("cannot export Variant without ParquetVariant core storage"))?;
+    let mut core_storage = variant.core_storage().clone();
+    // Materialize the ParquetVariant components from the executed core storage now, before the
+    // `shredded` branch, so the early-return path can still hand back the owned core array.
+    let (core_validity, core_metadata, core_value) =
+        match core_storage.execute_until::<OrCanonical<ParquetVariant>>(ctx)? {
+            OrCanonicalMatch::Matched(parquet_core) => (
+                ParquetVariantArrayExt::validity(&parquet_core),
+                parquet_core.metadata_array().clone(),
+                parquet_core.value_array().cloned(),
+            ),
+            OrCanonicalMatch::Canonical(_) => {
+                vortex_bail!("cannot export Variant without ParquetVariant core storage")
+            }
+        };
+
     let Some(shredded) = variant.shredded() else {
         return Ok(core_storage);
     };
@@ -144,13 +155,8 @@ pub(crate) fn parquet_variant_for_export(
     // `to_arrow` and `unshred_variant` can consume.
     let typed_value = parquet_typed_value_from_logical_shredded(shredded.clone(), ctx)?;
 
-    ParquetVariant::try_new(
-        ParquetVariantArrayExt::validity(&parquet_core),
-        parquet_core.metadata_array().clone(),
-        parquet_core.value_array().cloned(),
-        Some(typed_value),
-    )
-    .map(IntoArray::into_array)
+    ParquetVariant::try_new(core_validity, core_metadata, core_value, Some(typed_value))
+        .map(IntoArray::into_array)
 }
 
 impl ArrowExportVTable for ParquetVariant {
