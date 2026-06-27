@@ -20,16 +20,17 @@ impl TakeExecute for ALPRD {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_left_parts = array.left_parts().take(indices.clone())?;
+        // `Patches::take` ignores null take-indices, so the resulting patch values are all valid,
+        // but it reports a nullable dtype. Patch values must be stored as the non-nullable
+        // left-parts dtype (the invariant `ALPRD::try_new` asserts), so drop the spurious
+        // nullability with a lazy cast — no execution happens here, it is materialized later.
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.take(indices, ctx))
             .transpose()?
             .flatten()
             .map(|p| {
-                let values_dtype = p
-                    .values()
-                    .dtype()
-                    .with_nullability(taken_left_parts.dtype().nullability());
+                let values_dtype = p.values().dtype().as_nonnullable();
                 p.cast_values(&values_dtype)
             })
             .transpose()?;

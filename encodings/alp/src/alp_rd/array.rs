@@ -17,14 +17,11 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
-use vortex_array::Canonical;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -209,13 +206,7 @@ impl VTable for ALPRD {
                 )
             })
             .transpose()?;
-        // NOTE: `VTable::deserialize` has a fixed trait signature without `ExecutionCtx`, so we
-        // cannot plumb a ctx in here. We construct a legacy ctx locally at this trait boundary.
-        let left_parts_patches = ALPRDData::canonicalize_patches(
-            &left_parts,
-            left_parts_patches,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
+        let left_parts_patches = ALPRDData::validate_patches(&left_parts, left_parts_patches)?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(
             left_parts_dictionary,
@@ -371,8 +362,7 @@ impl ALPRD {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ALPRDArray> {
         let len = left_parts.len();
-        let left_parts_patches =
-            ALPRDData::canonicalize_patches(&left_parts, left_parts_patches, ctx)?;
+        let left_parts_patches = ALPRDData::validate_patches(&left_parts, left_parts_patches)?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
         Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
@@ -400,26 +390,27 @@ impl ALPRD {
 }
 
 impl ALPRDData {
-    fn canonicalize_patches(
+    /// Validate that `left_parts_patches` are well-formed for an `ALPRDArray` without performing
+    /// any execution.
+    ///
+    /// Patch values must already be stored as the non-nullable `left_parts` dtype. Requiring the
+    /// non-nullable dtype also guarantees the patch values contain no nulls, so no execution is
+    /// needed to verify validity. Callers are responsible for constructing patches with the correct
+    /// value dtype (the encoder, `deserialize`, and the compute kernels all already do so).
+    fn validate_patches(
         left_parts: &ArrayRef,
         left_parts_patches: Option<Patches>,
-        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Patches>> {
-        left_parts_patches
-            .map(|patches| {
-                if !patches.values().all_valid(ctx)? {
-                    vortex_bail!("patches must be all valid: {}", patches.values());
-                }
-                // TODO(ngates): assert the DType, don't cast it.
-                // TODO(joe): assert the DType, don't cast it in the next PR.
-                let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
-                // Force execution of the lazy cast so patch values are materialized
-                // before serialization.
-                let canonical = patches.values().clone().execute::<Canonical>(ctx)?;
-                *patches.values_mut() = canonical.into_array();
-                Ok(patches)
-            })
-            .transpose()
+        if let Some(patches) = &left_parts_patches {
+            let expected = left_parts.dtype().as_nonnullable();
+            vortex_ensure!(
+                patches.values().dtype() == &expected,
+                "ALPRD patch values must have dtype {expected} (the non-nullable left-parts dtype), \
+                 got {}",
+                patches.values().dtype(),
+            );
+        }
+        Ok(left_parts_patches)
     }
 
     /// Build a new `ALPRDArray` from components.
@@ -548,18 +539,12 @@ fn validate_parts(
             "patches array_len {} != outer len {len}",
             patches.array_len(),
         );
+        let expected_patches_dtype = left_parts.dtype().as_nonnullable();
         vortex_ensure!(
-            patches.dtype().eq_ignore_nullability(left_parts.dtype()),
-            "patches dtype {} does not match left_parts dtype {}",
+            patches.dtype() == &expected_patches_dtype,
+            "patches dtype {} does not match expected non-nullable left_parts dtype {}",
             patches.dtype(),
-            left_parts.dtype(),
-        );
-        vortex_ensure!(
-            patches
-                .values()
-                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
-            "patches must be all valid: {}",
-            patches.values()
+            expected_patches_dtype,
         );
     }
 
