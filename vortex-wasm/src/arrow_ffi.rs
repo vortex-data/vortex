@@ -25,10 +25,19 @@ use arrow_buffer::Buffer as ArrowBuffer;
 use arrow_data::ArrayData;
 use arrow_schema::DataType;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrow::FromArrowArray;
+use vortex_array::dtype::PType;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+
+/// Size of an `ArrowSchema` struct in the wasm32 C ABI.
+const SCHEMA_SIZE: usize = 48;
+/// Size of an `ArrowArray` struct in the wasm32 C ABI.
+const ARRAY_SIZE: usize = 64;
 
 /// `ArrowSchema` field offsets in the wasm32 C ABI (4-byte pointers, 8-byte/8-aligned `int64`).
 mod schema {
@@ -137,6 +146,102 @@ pub fn import(mem: &[u8], array_ptr: u32, schema_ptr: u32) -> VortexResult<Array
     ArrayRef::from_arrow(arrow.as_ref(), nullable)
 }
 
+/// Arrow C Data Interface format code for a Vortex primitive type.
+fn format_code(ptype: PType) -> &'static str {
+    match ptype {
+        PType::I8 => "c",
+        PType::U8 => "C",
+        PType::I16 => "s",
+        PType::U16 => "S",
+        PType::I32 => "i",
+        PType::U32 => "I",
+        PType::I64 => "l",
+        PType::U64 => "L",
+        PType::F16 => "e",
+        PType::F32 => "f",
+        PType::F64 => "g",
+    }
+}
+
+/// A writable view of a WASM guest's linear memory, used to lay out Arrow C structs for the guest.
+///
+/// `alloc` allocates `len` bytes in guest memory (via the guest's `vx_alloc`) and returns the
+/// offset; `write` copies bytes to a previously allocated offset.
+pub trait GuestMem {
+    /// Allocate `len` bytes in guest memory, returning the offset.
+    fn alloc(&mut self, len: u32) -> VortexResult<u32>;
+    /// Write `bytes` at guest offset `off`.
+    fn write(&mut self, off: u32, bytes: &[u8]) -> VortexResult<()>;
+}
+
+fn put(mem: &mut dyn GuestMem, bytes: &[u8]) -> VortexResult<u32> {
+    let off = mem.alloc(u32::try_from(bytes.len().max(1))?)?;
+    mem.write(off, bytes)?;
+    Ok(off)
+}
+
+/// Export a canonical array as Arrow C Data Interface structs written into `mem`, returning the
+/// `(array_ptr, schema_ptr)` offsets a guest can consume.
+///
+/// Scope mirrors [`import`]: primitive and boolean, including a validity bitmap.
+pub fn export(
+    canonical: &Canonical,
+    ctx: &mut ExecutionCtx,
+    mem: &mut dyn GuestMem,
+) -> VortexResult<(u32, u32)> {
+    let (format, len, values, validity): (&str, usize, Vec<u8>, Validity) = match canonical {
+        Canonical::Primitive(array) => (
+            format_code(array.ptype()),
+            array.len(),
+            array.buffer_handle().to_host_sync().as_ref().to_vec(),
+            array.validity()?,
+        ),
+        other => vortex_bail!(
+            "arrow-ffi export supports primitive only, got {:?}",
+            std::mem::discriminant(other)
+        ),
+    };
+
+    let validity_ptr = match validity {
+        Validity::NonNullable | Validity::AllValid => 0,
+        Validity::AllInvalid | Validity::Array(_) => {
+            let bits = validity.execute_mask(len, ctx)?.to_bit_buffer();
+            let bitmap = &bits.inner().as_slice()[..len.div_ceil(8)];
+            put(mem, bitmap)?
+        }
+    };
+    let nullable = !matches!(validity, Validity::NonNullable);
+
+    let mut format_bytes = format.as_bytes().to_vec();
+    format_bytes.push(0);
+    let format_ptr = put(mem, &format_bytes)?;
+    let values_ptr = put(mem, &values)?;
+
+    let mut buffers = Vec::with_capacity(8);
+    buffers.extend_from_slice(&validity_ptr.to_le_bytes());
+    buffers.extend_from_slice(&values_ptr.to_le_bytes());
+    let buffers_ptr = put(mem, &buffers)?;
+
+    let mut schema = vec![0u8; SCHEMA_SIZE];
+    schema[schema::FORMAT..schema::FORMAT + 4].copy_from_slice(&format_ptr.to_le_bytes());
+    let flags: i64 = if nullable { ARROW_FLAG_NULLABLE } else { 0 };
+    schema[schema::FLAGS..schema::FLAGS + 8].copy_from_slice(&flags.to_le_bytes());
+    let schema_ptr = put(mem, &schema)?;
+
+    let mut array = vec![0u8; ARRAY_SIZE];
+    array[self::array::LENGTH..self::array::LENGTH + 8]
+        .copy_from_slice(&(len as i64).to_le_bytes());
+    let null_count: i64 = if nullable { -1 } else { 0 };
+    array[self::array::NULL_COUNT..self::array::NULL_COUNT + 8]
+        .copy_from_slice(&null_count.to_le_bytes());
+    array[self::array::N_BUFFERS..self::array::N_BUFFERS + 8].copy_from_slice(&2i64.to_le_bytes());
+    array[self::array::BUFFERS..self::array::BUFFERS + 4]
+        .copy_from_slice(&buffers_ptr.to_le_bytes());
+    let array_ptr = put(mem, &array)?;
+
+    Ok((array_ptr, schema_ptr))
+}
+
 fn build_array(
     dtype: DataType,
     len: usize,
@@ -159,9 +264,65 @@ fn build_array(
 mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
     use super::*;
+
+    /// A `Vec`-backed [`GuestMem`] simulating guest linear memory for wasm-free tests.
+    struct VecMem {
+        mem: Vec<u8>,
+    }
+
+    impl VecMem {
+        fn new() -> Self {
+            // Reserve offset 0 so it reads as a null pointer.
+            Self { mem: vec![0u8; 8] }
+        }
+    }
+
+    impl GuestMem for VecMem {
+        fn alloc(&mut self, len: u32) -> VortexResult<u32> {
+            while self.mem.len() % 8 != 0 {
+                self.mem.push(0);
+            }
+            let off = self.mem.len() as u32;
+            self.mem.resize(self.mem.len() + len as usize, 0);
+            Ok(off)
+        }
+
+        fn write(&mut self, off: u32, bytes: &[u8]) -> VortexResult<()> {
+            self.mem[off as usize..off as usize + bytes.len()].copy_from_slice(bytes);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn export_then_import_round_trip_nullable() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let validity = Validity::from_iter([true, false, true, false, true]);
+        let canonical =
+            Canonical::Primitive(PrimitiveArray::new(buffer![1i64, 2, 3, 4, 5], validity));
+
+        let mut mem = VecMem::new();
+        let (array_ptr, schema_ptr) = export(&canonical, &mut ctx, &mut mem)?;
+        let imported = import(&mem.mem, array_ptr, schema_ptr)?;
+
+        assert_eq!(imported.len(), 5);
+        let values = imported
+            .clone()
+            .execute::<Canonical>(&mut ctx)?
+            .into_primitive();
+        assert_eq!(values.as_slice::<i64>(), &[1, 2, 3, 4, 5]);
+        let bits = imported
+            .validity()?
+            .execute_mask(5, &mut ctx)?
+            .to_bit_buffer();
+        let valid: Vec<bool> = (0..5).map(|i| bits.value(i)).collect();
+        assert_eq!(valid, vec![true, false, true, false, true]);
+        Ok(())
+    }
 
     /// Lays out an Arrow C Data Interface image (wasm32) for a single primitive/bool array.
     struct ImageBuilder {
