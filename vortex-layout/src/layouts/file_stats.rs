@@ -11,7 +11,6 @@ use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
@@ -26,6 +25,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
+use vortex_array::legacy_session;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
@@ -236,8 +236,9 @@ struct NamedArrays {
 }
 
 impl NamedArrays {
+    #[allow(clippy::disallowed_methods)]
     fn all_invalid(&self) -> VortexResult<bool> {
-        self.arrays[0].all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+        self.arrays[0].all_invalid(&mut legacy_session().create_execution_ctx())
     }
 }
 

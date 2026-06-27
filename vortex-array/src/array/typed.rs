@@ -23,12 +23,12 @@ use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
+use crate::legacy_session;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
@@ -382,9 +382,10 @@ impl<V: VTable> Array<V> {
         note = "Use `execute_scalar` instead, which allows passing an execution context for more \
         efficient execution when fetching multiple scalars from the same array."
     )]
+    #[allow(clippy::disallowed_methods)]
     pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
         self.inner
-            .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(index, &mut legacy_session().create_execution_ctx())
     }
 
     /// Execute the array to extract a scalar at the given index.

@@ -14,13 +14,13 @@ use arrow_array::ffi::from_ffi;
 use paste::paste;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::NullArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::arrow::FromArrowArray;
+use vortex::array::legacy_session;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
@@ -219,6 +219,7 @@ pub unsafe extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const
 // Returns NULL and sets error_out if index is out of bounds or array doesn't
 // have dtype DTYPE_STRUCT.
 #[unsafe(no_mangle)]
+#[allow(clippy::disallowed_methods)]
 pub unsafe extern "C-unwind" fn vx_array_get_field(
     array: *const vx_array,
     index: usize,
@@ -227,7 +228,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
     try_or_default(error_out, || {
         let array = vx_array::as_ref(array);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
         let field_array = array
             .clone()
             .execute::<StructArray>(&mut ctx)?
@@ -258,6 +259,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
 /// validity array. Sets error if index is out of bounds or underlying validity
 /// array is corrupted.
 #[unsafe(no_mangle)]
+#[allow(clippy::disallowed_methods)]
 pub unsafe extern "C-unwind" fn vx_array_element_is_invalid(
     array: *const vx_array,
     index: usize,
@@ -265,12 +267,13 @@ pub unsafe extern "C-unwind" fn vx_array_element_is_invalid(
 ) -> bool {
     try_or_default(error, || {
         vortex_ensure!(!array.is_null());
-        vx_array::as_ref(array).is_invalid(index, &mut LEGACY_SESSION.create_execution_ctx())
+        vx_array::as_ref(array).is_invalid(index, &mut legacy_session().create_execution_ctx())
     })
 }
 
 /// Check how many items in the array are invalid (null).
 #[unsafe(no_mangle)]
+#[allow(clippy::disallowed_methods)]
 pub unsafe extern "C-unwind" fn vx_array_invalid_count(
     array: *const vx_array,
     error_out: *mut *mut vx_error,
@@ -278,7 +281,7 @@ pub unsafe extern "C-unwind" fn vx_array_invalid_count(
     try_or_default(error_out, || {
         vortex_ensure!(!array.is_null());
         let array = vx_array::as_ref(array);
-        array.invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
+        array.invalid_count(&mut legacy_session().create_execution_ctx())
     })
 }
 
@@ -394,8 +397,9 @@ macro_rules! ffiarray_get_ptype {
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: usize) -> $ptype {
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
+                #[allow(clippy::disallowed_methods)]
                 let value = array
-                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(index, &mut legacy_session().create_execution_ctx())
                     .vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_primitive()
@@ -407,8 +411,9 @@ macro_rules! ffiarray_get_ptype {
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: usize) -> $ptype {
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
+                #[allow(clippy::disallowed_methods)]
                 let value = array
-                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(index, &mut legacy_session().create_execution_ctx())
                     .vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_extension()
@@ -436,6 +441,7 @@ ffiarray_get_ptype!(f64);
 /// Return the utf-8 string at `index` in the array. The pointer will be null if the value at `index` is null.
 /// The caller must free the returned pointer.
 #[unsafe(no_mangle)]
+#[allow(clippy::disallowed_methods)]
 pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     array: *const vx_array,
     index: u32,
@@ -443,7 +449,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
     let value = array
-        .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(index as usize, &mut legacy_session().create_execution_ctx())
         .vortex_expect("scalar_at failed");
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
@@ -456,6 +462,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
 /// Return the binary at `index` in the array. The pointer will be null if the value at `index` is null.
 /// The caller must free the returned pointer.
 #[unsafe(no_mangle)]
+#[allow(clippy::disallowed_methods)]
 pub unsafe extern "C-unwind" fn vx_array_get_binary(
     array: *const vx_array,
     index: u32,
@@ -463,7 +470,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
     let value = array
-        .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(index as usize, &mut legacy_session().create_execution_ctx())
         .vortex_expect("scalar_at failed");
     let binary_scalar = value.as_binary();
     if let Some(bytes) = binary_scalar.value() {

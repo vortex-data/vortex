@@ -6,7 +6,6 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
@@ -14,13 +13,15 @@ use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::dict::TakeReduceAdaptor;
+use crate::legacy_session;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 impl TakeReduce for Constant {
+    #[allow(clippy::disallowed_methods)]
     fn take(array: ArrayView<'_, Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
         let result = match indices
             .validity()?
             .execute_mask(indices.len(), &mut ctx)?

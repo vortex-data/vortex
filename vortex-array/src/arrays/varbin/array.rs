@@ -15,7 +15,6 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -28,6 +27,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
@@ -230,6 +230,7 @@ impl VarBinData {
     }
 
     /// Validates that every non-null value is valid UTF-8.
+    #[allow(clippy::disallowed_methods)]
     fn validate_utf8(offsets: &ArrayRef, bytes: &[u8], validity: &Validity) -> VortexResult<()> {
         let validate_at = |i: usize, start: usize, end: usize| -> VortexResult<()> {
             let string_bytes = &bytes[start..end];
@@ -242,7 +243,7 @@ impl VarBinData {
             Ok(())
         };
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
         // TODO(joe): update the created VarBin with this decompressed Array.
         let primitive_offsets = offsets.clone().execute::<PrimitiveArray>(&mut ctx)?;
 
@@ -335,6 +336,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
         )
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn offset_at(&self, index: usize) -> usize {
         assert!(
             index <= self.as_ref().len(),
@@ -344,7 +346,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
 
         (&self
             .offsets()
-            .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(index, &mut legacy_session().create_execution_ctx())
             .vortex_expect("offsets must support execute_scalar"))
             .try_into()
             .vortex_expect("Failed to convert offset to usize")

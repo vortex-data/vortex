@@ -25,7 +25,6 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBin;
@@ -37,6 +36,7 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::legacy_session;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
@@ -114,6 +114,7 @@ impl VTable for FSST {
         *ID
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn validate(
         &self,
         data: &Self::TypedArrayData,
@@ -122,7 +123,7 @@ impl VTable for FSST {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
         data.validate(dtype, len, slots, &mut ctx)
     }
 

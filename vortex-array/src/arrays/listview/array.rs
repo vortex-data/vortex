@@ -18,7 +18,6 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
-use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
@@ -39,6 +38,7 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::PType;
 use crate::expr::stats::Stat;
+use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar_fn::fns::operators::Operator;
@@ -382,6 +382,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         )
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn offset_at(&self, index: usize) -> usize {
         assert!(
             index < self.as_ref().len(),
@@ -393,7 +394,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.offsets()
-                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(index, &mut legacy_session().create_execution_ctx())
                     .vortex_expect("offsets must support execute_scalar")
                     .as_primitive()
                     .as_::<usize>()
@@ -401,6 +402,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             })
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn size_at(&self, index: usize) -> usize {
         assert!(
             index < self.as_ref().len(),
@@ -413,7 +415,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.sizes()
-                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(index, &mut legacy_session().create_execution_ctx())
                     .vortex_expect("sizes must support execute_scalar")
                     .as_primitive()
                     .as_::<usize>()
@@ -740,6 +742,7 @@ where
 
 /// Helper function to validate if the `ListViewArray` components are actually zero-copyable to
 /// [`ListArray`](crate::arrays::ListArray).
+#[allow(clippy::disallowed_methods)]
 fn validate_zctl(
     elements: &ArrayRef,
     offsets_primitive: PrimitiveArray,
@@ -747,7 +750,7 @@ fn validate_zctl(
 ) -> VortexResult<()> {
     // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
     // if there are null views.
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = legacy_session().create_execution_ctx();
     if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted(&mut ctx) {
         vortex_ensure!(is_sorted, "offsets must be sorted");
     } else {

@@ -15,7 +15,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::ListArray;
 use crate::arrays::listview::ListViewArrayExt;
@@ -30,6 +29,7 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
+use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
@@ -222,6 +222,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.append_value(scalar.as_list())
     }
 
+    #[allow(clippy::disallowed_methods)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         #[expect(deprecated)]
         let list = array.to_listview();
@@ -234,7 +235,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
             &array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut legacy_session().create_execution_ctx())
                 .vortex_expect("Failed to compute validity mask"),
         );
 

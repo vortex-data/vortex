@@ -18,7 +18,6 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArraySlots;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -32,6 +31,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::legacy_session;
 use crate::validity::Validity;
 
 /// The validity bitmap indicating which elements are non-null.
@@ -309,6 +309,7 @@ impl VarBinViewData {
         Ok(())
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn validate_views<F>(
         views: &Buffer<BinaryView>,
         buffers: &Arc<[ByteBuffer]>,
@@ -370,7 +371,7 @@ impl VarBinViewData {
             // into a mask once and zip it with the views, validating only the valid (non-null)
             // entries.
             Validity::Array(_) => {
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let mut ctx = legacy_session().create_execution_ctx();
                 let mask = validity.execute_mask(views.len(), &mut ctx)?;
                 for ((idx, view), valid) in views.iter().enumerate().zip(mask.iter()) {
                     if valid {
