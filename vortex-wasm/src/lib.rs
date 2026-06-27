@@ -19,6 +19,7 @@
 //! See `docs/design/wasm-encodings.md` for the full design.
 
 pub mod abi;
+pub mod arrow_ffi;
 mod kernel;
 mod layout;
 pub mod message;
