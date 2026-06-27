@@ -107,6 +107,7 @@ impl VTable for ALPRD {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         validate_parts(
             dtype,
@@ -368,14 +369,17 @@ impl ALPRD {
         right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
-        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ALPRDArray> {
         let len = left_parts.len();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let left_parts_patches =
-            ALPRDData::canonicalize_patches(&left_parts, left_parts_patches, ctx)?;
+            ALPRDData::canonicalize_patches(&left_parts, left_parts_patches, &mut ctx)?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
-        Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots),
+            &mut ctx,
+        )
     }
 
     /// # Safety

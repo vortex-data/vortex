@@ -77,6 +77,7 @@ impl VTable for Masked {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots[MaskedSlots::CHILD].is_some(),

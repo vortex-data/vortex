@@ -117,9 +117,9 @@ pub(crate) struct ArrayData<V: VTable> {
 impl<V: VTable> ArrayInner<ArrayData<V>> {
     /// Create a new validated [`ArrayInner`] from construction parameters.
     #[doc(hidden)]
-    pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
+    pub fn try_new(new: ArrayParts<V>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         new.vtable
-            .validate(&new.data, &new.dtype, new.len, &new.slots)?;
+            .validate(&new.data, &new.dtype, new.len, &new.slots, ctx)?;
         Ok(ArrayInner {
             len: new.len,
             encoding_id: new.vtable.id(),
@@ -208,8 +208,8 @@ impl<V: VTable> Array<V> {
     ///
     /// This is the safe construction path for encoding implementors. It calls
     /// [`VTable::validate`] before publishing the array as an [`ArrayRef`].
-    pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
-        let store = ArrayInner::<ArrayData<V>>::try_new(new)?;
+    pub fn try_from_parts(new: ArrayParts<V>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let store = ArrayInner::<ArrayData<V>>::try_new(new, ctx)?;
         let inner = ArrayRef::from_inner(Arc::new(store));
         Ok(Self {
             inner,
@@ -541,7 +541,7 @@ mod tests {
         let expected = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
 
         let parts = array.try_into_parts().unwrap();
-        let rebuilt = Array::<Primitive>::try_from_parts(parts).unwrap();
+        let rebuilt = Array::<Primitive>::try_from_parts(parts, &mut ctx).unwrap();
 
         assert_arrays_eq!(rebuilt, expected, &mut ctx);
     }

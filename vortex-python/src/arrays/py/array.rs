@@ -14,6 +14,8 @@ use vortex::array::Array;
 use vortex::array::ArrayParts;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::stats::ArrayStats;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
@@ -75,7 +77,10 @@ impl IntoArray for PythonArray {
         let dtype = self.dtype.clone();
         let len = self.len;
         let stats = StatsSet::from(self.stats.clone());
-        match Array::try_from_parts(ArrayParts::new(vtable, dtype, len, self)) {
+        match Array::try_from_parts(
+            ArrayParts::new(vtable, dtype, len, self),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        ) {
             Ok(array) => array.with_stats_set(stats).into_array(),
             Err(err) => unreachable!(
                 "PythonArray metadata extracted from PyPythonArray must be valid: {err}"

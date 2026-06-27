@@ -81,6 +81,7 @@ impl VTable for Constant {
         dtype: &DType,
         _len: usize,
         _slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             data.scalar.dtype() == dtype,

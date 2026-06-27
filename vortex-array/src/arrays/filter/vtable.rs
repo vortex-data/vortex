@@ -76,6 +76,7 @@ impl VTable for Filter {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             slots[CHILD_SLOT].is_some(),

@@ -330,6 +330,7 @@ impl VTable for OnPair {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let s = OnPairSlotsView::from_slots(slots);
         validate_parts(

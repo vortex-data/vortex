@@ -63,6 +63,7 @@ impl VTable for Shared {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let source = slots[0]
             .as_ref()

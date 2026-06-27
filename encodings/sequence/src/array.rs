@@ -242,6 +242,7 @@ impl VTable for Sequence {
         dtype: &DType,
         len: usize,
         _slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         SequenceData::validate(data.base, data.multiplier, dtype, len)
     }

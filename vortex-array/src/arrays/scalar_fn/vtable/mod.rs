@@ -82,6 +82,7 @@ impl VTable for ScalarFn {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             data.scalar_fn.id() == self.id,

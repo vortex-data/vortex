@@ -64,6 +64,7 @@ impl VTable for PythonVTable {
         dtype: &DType,
         len: usize,
         _slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(data.vtable.id == self.id, "PythonArray vtable id mismatch");
         vortex_ensure!(&data.dtype == dtype, "PythonArray dtype mismatch");

@@ -61,6 +61,7 @@ impl VTable for ZigZag {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let encoded = slots[ENCODED_SLOT]
             .as_ref()

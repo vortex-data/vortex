@@ -18,6 +18,8 @@ use vortex_error::vortex_panic;
 
 use crate::ArraySlots;
 use crate::ExecutionCtx;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -422,8 +424,11 @@ impl Array<Primitive> {
         let len = handle.len() / ptype.byte_width();
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = PrimitiveData::from_buffer_handle(handle, ptype, validity);
-        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data).with_slots(slots))
-            .vortex_expect("PrimitiveData is always valid")
+        Array::try_from_parts(
+            ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Creates a new `PrimitiveArray` from a [`ByteBuffer`].

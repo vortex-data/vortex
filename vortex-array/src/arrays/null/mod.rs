@@ -50,6 +50,7 @@ impl VTable for Null {
         dtype: &DType,
         _len: usize,
         _slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(*dtype == DType::Null, "NullArray dtype must be DType::Null");
         Ok(())

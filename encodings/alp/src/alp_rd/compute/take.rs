@@ -48,7 +48,6 @@ impl TakeExecute for ALPRD {
                 right_parts,
                 array.right_bit_width(),
                 left_parts_exceptions,
-                ctx,
             )?
             .into_array(),
         ))

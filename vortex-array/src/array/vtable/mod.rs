@@ -87,6 +87,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()>;
 
     /// Returns the number of top-level buffers in the array.

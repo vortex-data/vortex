@@ -16,6 +16,8 @@ use vortex_mask::AllOr;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -232,6 +234,7 @@ impl Array<Dict> {
         Array::try_from_parts(
             ArrayParts::new(Dict, dtype, len, data)
                 .with_slots(smallvec![Some(codes), Some(values)]),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
     }
 

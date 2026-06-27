@@ -117,6 +117,7 @@ impl VTable for Bool {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let DType::Bool(nullability) = dtype else {
             vortex_bail!("Expected bool dtype, got {dtype:?}");

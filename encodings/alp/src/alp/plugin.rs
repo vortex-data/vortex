@@ -56,9 +56,10 @@ impl ArrayPlugin for ALPPatchedPlugin {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let alp_array = Array::<ALP>::try_from_parts(ArrayVTable::deserialize(
-            &ALP, dtype, len, metadata, buffers, children, session,
-        )?)
+        let alp_array = Array::<ALP>::try_from_parts(
+            ArrayVTable::deserialize(&ALP, dtype, len, metadata, buffers, children, session)?,
+            &mut session.create_execution_ctx(),
+        )
         .map_err(|_| vortex_err!("ALP plugin should only deserialize vortex.alp"))?;
 
         // Check if there are interior patches to externalize.

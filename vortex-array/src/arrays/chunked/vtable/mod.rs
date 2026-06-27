@@ -82,6 +82,7 @@ impl VTable for Chunked {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             !slots.is_empty(),

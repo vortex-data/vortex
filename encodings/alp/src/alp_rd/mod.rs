@@ -194,7 +194,7 @@ impl RDEncoder {
     fn encode_generic<T>(
         &self,
         array: ArrayView<'_, Primitive>,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> ALPRDArray
     where
         T: ALPRDFloat + NativePType,
@@ -294,7 +294,6 @@ impl RDEncoder {
             packed_right,
             self.right_bit_width,
             exceptions,
-            ctx,
         )
         .vortex_expect("ALPRDArray construction in encode")
     }

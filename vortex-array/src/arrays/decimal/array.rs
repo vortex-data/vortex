@@ -20,6 +20,8 @@ use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -440,7 +442,10 @@ impl Array<Decimal> {
         let len = buffer.len();
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new(buffer, decimal_dtype)?;
-        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.
@@ -510,7 +515,10 @@ impl Array<Decimal> {
         let len = values.len() / values_type.byte_width();
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new_handle(values, values_type, decimal_dtype)?;
-        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
     }
 
     /// Creates a new [`DecimalArray`] without validation from a [`BufferHandle`].

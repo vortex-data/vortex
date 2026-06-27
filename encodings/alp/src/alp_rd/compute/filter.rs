@@ -32,7 +32,6 @@ impl FilterKernel for ALPRD {
                 array.right_parts().filter(mask.clone())?,
                 array.right_bit_width(),
                 left_parts_exceptions,
-                ctx,
             )?
             .into_array(),
         ))

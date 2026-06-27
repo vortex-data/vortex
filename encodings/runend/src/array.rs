@@ -19,9 +19,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
@@ -92,6 +90,7 @@ impl VTable for RunEnd {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let ends = slots[ENDS_SLOT]
             .as_ref()
@@ -99,9 +98,7 @@ impl VTable for RunEnd {
         let values = slots[VALUES_SLOT]
             .as_ref()
             .vortex_expect("RunEndArray values slot");
-        // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        RunEndData::validate_parts(ends, values, data.offset, len, &mut ctx)?;
+        RunEndData::validate_parts(ends, values, data.offset, len, ctx)?;
         vortex_ensure!(
             values.dtype() == dtype,
             "expected dtype {}, got {}",
@@ -269,7 +266,10 @@ impl RunEnd {
         let dtype = values.dtype().clone();
         let slots = smallvec![Some(ends), Some(values)];
         let data = RunEndData::new(0);
-        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots),
+            ctx,
+        )
     }
 
     /// Build a new [`RunEndArray`] from ends, values, offset, and length.
@@ -284,7 +284,10 @@ impl RunEnd {
         let dtype = values.dtype().clone();
         let slots = smallvec![Some(ends), Some(values)];
         let data = RunEndData::new(offset);
-        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots),
+            ctx,
+        )
     }
 
     /// Build a new [`RunEndArray`] from ends and values (panics on invalid input).
@@ -301,7 +304,10 @@ impl RunEnd {
             let dtype = values.dtype().clone();
             let slots = smallvec![Some(ends), Some(values)];
             let data = unsafe { RunEndData::new_unchecked(0) };
-            Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
+            Array::try_from_parts(
+                ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots),
+                ctx,
+            )
         } else {
             vortex_bail!("REE can only encode primitive arrays")
         }

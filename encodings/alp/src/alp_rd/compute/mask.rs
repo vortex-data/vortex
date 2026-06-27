@@ -4,8 +4,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::fns::mask::Mask as MaskExpr;
@@ -22,8 +20,6 @@ impl MaskReduce for ALPRD {
             EmptyOptions,
             [array.left_parts().clone(), mask.clone()],
         )?;
-        // NOTE: `MaskReduce::mask` has a fixed trait signature without `ExecutionCtx`, so we
-        // construct a legacy ctx locally at this trait boundary.
         Ok(Some(
             ALPRD::try_new(
                 array.dtype().as_nullable(),
@@ -32,7 +28,6 @@ impl MaskReduce for ALPRD {
                 array.right_parts().clone(),
                 array.right_bit_width(),
                 array.left_parts_patches(),
-                &mut LEGACY_SESSION.create_execution_ctx(),
             )?
             .into_array(),
         ))

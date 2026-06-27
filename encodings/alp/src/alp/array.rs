@@ -20,7 +20,9 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
@@ -83,6 +85,7 @@ impl VTable for ALP {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let alp_slots = ALPSlotsView::from_slots(slots);
         let patches =
@@ -370,7 +373,10 @@ impl ALP {
         let len = encoded.len();
         let slots = ALPData::make_slots(&encoded, patches.as_ref());
         let data = ALPData::new(exponents, patches);
-        Array::try_from_parts(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(ALP, dtype, len, data).with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
     }
 
     /// # Safety

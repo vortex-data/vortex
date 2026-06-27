@@ -99,6 +99,7 @@ impl VTable for Primitive {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let DType::Primitive(_, nullability) = dtype else {
             vortex_bail!("Expected primitive dtype, got {dtype:?}");

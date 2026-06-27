@@ -14,6 +14,8 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::EmptyArrayData;
@@ -262,6 +264,7 @@ impl Array<Struct> {
                 EmptyArrayData,
             )
             .with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
     }
 
@@ -298,6 +301,7 @@ impl Array<Struct> {
         let slots = make_struct_slots(&fields, &validity, length);
         Array::try_from_parts(
             ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
     }
 

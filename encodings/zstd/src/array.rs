@@ -142,6 +142,7 @@ impl VTable for Zstd {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let validity = child_to_validity(slots[0].as_ref(), dtype.nullability());
         data.validate(dtype, len, &validity)

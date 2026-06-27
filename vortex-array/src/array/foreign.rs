@@ -16,6 +16,8 @@ use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionResult;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
@@ -104,6 +106,7 @@ impl VTable for ForeignArray {
         _dtype: &DType,
         _len: usize,
         _slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         Ok(())
     }
@@ -177,6 +180,7 @@ pub fn new_foreign_array(
             ForeignArrayData::new(metadata, buffers),
         )
         .with_slots(children),
+        &mut LEGACY_SESSION.create_execution_ctx(),
     )?
     .into_array())
 }

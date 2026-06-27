@@ -16,6 +16,8 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -92,6 +94,7 @@ impl VTable for RLE {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         validate_parts(
             slots[VALUES_SLOT]
@@ -213,7 +216,10 @@ impl RLE {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
         let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = RLEData::try_new(offset)?;
-        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(RLE, dtype, length, data).with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
     }
 
     /// Create a new RLE array without validation.

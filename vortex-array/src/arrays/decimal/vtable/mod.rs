@@ -115,6 +115,7 @@ impl VTable for Decimal {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let DType::Decimal(_, nullability) = dtype else {
             vortex_bail!("Expected decimal dtype, got {dtype:?}");

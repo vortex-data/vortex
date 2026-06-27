@@ -16,6 +16,8 @@ use vortex_error::vortex_panic;
 use vortex_session::registry::Id;
 
 use crate::ExecutionCtx;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -358,6 +360,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 self.data.clone(),
             )
             .with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )?
         .with_stats_set(stats)
         .into_array())

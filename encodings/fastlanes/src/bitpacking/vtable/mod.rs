@@ -17,6 +17,8 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -106,6 +108,7 @@ impl VTable for BitPacked {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let bp_slots = BitPackedSlotsView::from_slots(slots);
 
@@ -301,7 +304,10 @@ impl BitPacked {
             s
         };
         let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
-        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
     }
 
     pub fn into_parts(array: BitPackedArray) -> BitPackedDataParts {

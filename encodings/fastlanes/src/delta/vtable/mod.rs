@@ -16,6 +16,8 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -86,6 +88,7 @@ impl VTable for Delta {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let bases = slots[BASES_SLOT]
             .as_ref()
@@ -191,7 +194,10 @@ impl Delta {
         let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         let data = DeltaData::try_new(offset)?;
         let slots = smallvec![Some(bases), Some(deltas)];
-        Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(Delta, dtype, len, data).with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
     }
 
     /// Compress a primitive array using Delta encoding.

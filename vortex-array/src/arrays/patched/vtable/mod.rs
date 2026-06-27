@@ -113,6 +113,7 @@ impl VTable for Patched {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         data.validate(dtype, len, &PatchedSlotsView::from_slots(slots))
     }

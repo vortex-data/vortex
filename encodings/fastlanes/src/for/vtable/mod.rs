@@ -16,6 +16,8 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -81,6 +83,7 @@ impl VTable for FoR {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let encoded = slots[0].as_ref().vortex_expect("FoRArray encoded slot");
         validate_parts(encoded.dtype(), encoded.len(), &data.reference, dtype, len)
@@ -169,7 +172,10 @@ impl FoR {
         let len = encoded.len();
         let data = FoRData::try_new(reference)?;
         let slots = smallvec![Some(encoded)];
-        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(FoR, dtype, len, data).with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
     }
 
     /// Encode a primitive array using Frame of Reference encoding.

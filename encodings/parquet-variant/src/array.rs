@@ -13,7 +13,9 @@ use vortex_array::ArrayRef;
 use vortex_array::EmptyArrayData;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
@@ -81,6 +83,7 @@ impl ParquetVariant {
         ];
         Array::try_from_parts(
             ArrayParts::new(ParquetVariant, dtype, len, EmptyArrayData).with_slots(slots),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
     }
 

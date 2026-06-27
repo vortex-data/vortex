@@ -17,6 +17,8 @@ pub(crate) fn initialize(session: &vortex_session::VortexSession) {
 }
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::EmptyArrayData;
@@ -73,6 +75,7 @@ impl Array<Variant> {
         Ok(Array::try_from_parts(
             ArrayParts::new(Variant, dtype, len, EmptyArrayData)
                 .with_slots(vec![Some(core_storage), shredded].into()),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )?
         .with_stats_set(stats))
     }

@@ -21,6 +21,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
@@ -55,7 +56,10 @@ impl ZstdBuffers {
         len: usize,
         data: ZstdBuffersData,
     ) -> VortexResult<ZstdBuffersArray> {
-        Array::try_from_parts(ArrayParts::new(ZstdBuffers, dtype, len, data))
+        Array::try_from_parts(
+            ArrayParts::new(ZstdBuffers, dtype, len, data),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
     }
 
     /// Compress every top-level buffer of `array` independently with zstd.
@@ -99,6 +103,7 @@ impl ZstdBuffers {
         let compressed = Array::try_from_parts(
             ArrayParts::new(ZstdBuffers, array.dtype().clone(), array.len(), data)
                 .with_slots(slots),
+            &mut session.create_execution_ctx(),
         )?;
         compressed.statistics().inherit_from(array.statistics());
         Ok(compressed)
@@ -397,6 +402,7 @@ impl VTable for ZstdBuffers {
         _dtype: &DType,
         _len: usize,
         _slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         data.validate()
     }

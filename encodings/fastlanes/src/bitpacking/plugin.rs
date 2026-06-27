@@ -55,9 +55,10 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let bitpacked = Array::<BitPacked>::try_from_parts(ArrayVTable::deserialize(
-            &BitPacked, dtype, len, metadata, buffers, children, session,
-        )?)
+        let bitpacked = Array::<BitPacked>::try_from_parts(
+            ArrayVTable::deserialize(&BitPacked, dtype, len, metadata, buffers, children, session)?,
+            &mut session.create_execution_ctx(),
+        )
         .map_err(|_| vortex_err!("BitPacked plugin should only deserialize fastlanes.bitpacked"))?;
 
         // Create a new BitPackedArray without the interior patches installed.

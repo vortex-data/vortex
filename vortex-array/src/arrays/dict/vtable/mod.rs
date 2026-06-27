@@ -89,6 +89,7 @@ impl VTable for Dict {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let view = DictSlotsView::from_slots(slots);
         let codes = view.codes;

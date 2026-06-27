@@ -82,7 +82,6 @@ impl Scheme for ALPRDScheme {
             parts.right_parts,
             right_bit_width,
             parts.left_parts_patches,
-            exec_ctx,
         )?
         .into_array())
     }

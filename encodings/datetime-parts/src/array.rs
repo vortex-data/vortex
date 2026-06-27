@@ -105,6 +105,7 @@ impl VTable for DateTimeParts {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let slots = DateTimePartsSlotsView::from_slots(slots);
         DateTimePartsData::validate(dtype, slots.days, slots.seconds, slots.subseconds, len)
