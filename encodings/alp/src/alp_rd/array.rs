@@ -393,21 +393,25 @@ impl ALPRDData {
     /// Validate that `left_parts_patches` are well-formed for an `ALPRDArray` without performing
     /// any execution.
     ///
-    /// Patch values must already be stored as the non-nullable `left_parts` dtype. Requiring the
-    /// non-nullable dtype also guarantees the patch values contain no nulls, so no execution is
-    /// needed to verify validity. Callers are responsible for constructing patches with the correct
-    /// value dtype (the encoder, `deserialize`, and the compute kernels all already do so).
+    /// Patch values must have the same dtype as `left_parts` (ignoring nullability) and contain no
+    /// nulls. Both are checked statically — `definitely_no_nulls` requires no execution — so the
+    /// values never need to be cast. Callers are responsible for constructing patches with the
+    /// correct value dtype (the encoder, `deserialize`, and the compute kernels all already do so).
     fn validate_patches(
         left_parts: &ArrayRef,
         left_parts_patches: Option<Patches>,
     ) -> VortexResult<Option<Patches>> {
         if let Some(patches) = &left_parts_patches {
-            let expected = left_parts.dtype().as_nonnullable();
             vortex_ensure!(
-                patches.values().dtype() == &expected,
-                "ALPRD patch values must have dtype {expected} (the non-nullable left-parts dtype), \
-                 got {}",
-                patches.values().dtype(),
+                patches.dtype().eq_ignore_nullability(left_parts.dtype()),
+                "ALPRD patch values dtype {} must match left-parts dtype {}",
+                patches.dtype(),
+                left_parts.dtype(),
+            );
+            vortex_ensure!(
+                patches.values().validity()?.definitely_no_nulls(),
+                "ALPRD patch values must contain no nulls, got {}",
+                patches.values(),
             );
         }
         Ok(left_parts_patches)
@@ -539,12 +543,16 @@ fn validate_parts(
             "patches array_len {} != outer len {len}",
             patches.array_len(),
         );
-        let expected_patches_dtype = left_parts.dtype().as_nonnullable();
         vortex_ensure!(
-            patches.dtype() == &expected_patches_dtype,
-            "patches dtype {} does not match expected non-nullable left_parts dtype {}",
+            patches.dtype().eq_ignore_nullability(left_parts.dtype()),
+            "patches dtype {} does not match left_parts dtype {}",
             patches.dtype(),
-            expected_patches_dtype,
+            left_parts.dtype(),
+        );
+        vortex_ensure!(
+            patches.values().validity()?.definitely_no_nulls(),
+            "patches must contain no nulls: {}",
+            patches.values(),
         );
     }
 

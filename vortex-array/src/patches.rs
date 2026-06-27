@@ -910,7 +910,12 @@ impl Patches {
 
         let new_indices = new_indices.into_array();
         let new_array_len = take_indices.len();
-        let values_validity = take_indices_validity.take(&new_indices)?;
+        // When nulls are excluded every taken value is valid, so the values are non-nullable.
+        let values_validity = if include_nulls {
+            take_indices_validity.take(&new_indices)?
+        } else {
+            Validity::NonNullable
+        };
 
         Ok(Some(Self {
             array_len: new_array_len,
@@ -1058,8 +1063,13 @@ where
     }
 
     let new_sparse_indices = new_sparse_indices.into_array();
-    let values_validity =
-        Validity::from_mask(take_validity, take_nullability).take(&new_sparse_indices)?;
+    // When nulls are excluded every emitted value index is valid, so the value-index array is
+    // non-nullable; only when nulls are included must the take indices' nullability be preserved.
+    let values_validity = if include_nulls {
+        Validity::from_mask(take_validity, take_nullability).take(&new_sparse_indices)?
+    } else {
+        Validity::NonNullable
+    };
     Ok(Some((
         new_sparse_indices,
         PrimitiveArray::new(value_indices, values_validity).into_array(),
