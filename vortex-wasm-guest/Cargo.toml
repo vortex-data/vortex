@@ -19,10 +19,11 @@ version = { workspace = true }
 [package.metadata.docs.rs]
 all-features = true
 
+# Intentionally dependency-free (core + alloc only). A kernel produces/consumes the Arrow C Data
+# Interface, which is plain byte layout, so the guest needs no Vortex crates — keeping the compiled
+# `.wasm` small. In particular it does NOT depend on `vortex-error` (which pulls in jiff/prost/
+# arrow-schema) and uses a minimal [`GuestError`](crate::GuestError) instead.
 [dependencies]
-vortex-buffer = { workspace = true }
-vortex-error = { workspace = true }
-vortex-flatbuffers = { workspace = true, features = ["array"] }
 
 [lints]
 workspace = true

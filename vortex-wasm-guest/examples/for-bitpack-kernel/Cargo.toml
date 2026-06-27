@@ -18,7 +18,6 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-vortex-error = { path = "../../../vortex-error", default-features = false }
 vortex-wasm-guest = { path = "../.." }
 
 [profile.release]

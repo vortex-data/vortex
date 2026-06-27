@@ -4,8 +4,7 @@
 # Example Vortex WASM decoder kernel. Build with:
 #   cargo build -p identity-kernel --target wasm32-unknown-unknown --release
 #
-# This crate is excluded from the main workspace (see the root Cargo.toml `exclude`) because it is
-# only meaningful for the wasm32 target.
+# Excluded from the main workspace (see the root Cargo.toml `exclude`); only meaningful for wasm32.
 
 [workspace]
 
@@ -19,7 +18,6 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-vortex-error = { path = "../../../vortex-error", default-features = false }
 vortex-wasm-guest = { path = "../.." }
 
 [profile.release]

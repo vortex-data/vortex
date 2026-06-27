@@ -3,19 +3,20 @@
 
 //! The [`WasmEncoding`] trait an encoding author implements, and the glue that exports it.
 
-use vortex_error::VortexResult;
+use crate::arrow::Decoded;
+use crate::arrow::write_primitive;
+use crate::error::GuestResult;
 
 /// A decoder for a single WASM-embedded Vortex encoding.
 ///
-/// Implementors parse the serialized array header (via [`ArrayHeader`](crate::header::ArrayHeader)),
-/// fetch any decoded child arrays through [`host::decode_child`](crate::host::decode_child), and
-/// return the decoded output as a [`CanonicalMessage`](crate::message) byte blob (typically built
-/// with [`MessageBuilder`](crate::message::MessageBuilder)).
+/// Implementors read the encoding-specific input, fetch any child arrays via
+/// [`host::decode_child`](crate::host::decode_child), and return the decoded result as a
+/// [`Decoded`] primitive. The SDK lays it out as Arrow C Data Interface structs for the host.
 ///
 /// Wire it up with [`export_wasm_encoding!`](crate::export_wasm_encoding).
 pub trait WasmEncoding {
-    /// Decode the serialized array `input` into a `CanonicalMessage` blob.
-    fn decode(input: &[u8]) -> VortexResult<Vec<u8>>;
+    /// Decode `input` (the encoding-specific bytes the host passes to `vx_decode`).
+    fn decode(input: &[u8]) -> GuestResult<Decoded>;
 }
 
 /// Internal entry point invoked by [`export_wasm_encoding!`]. Not part of the stable API.
@@ -27,22 +28,14 @@ pub fn __run_decode<E: WasmEncoding>(in_ptr: i32, in_len: i32) -> i32 {
         unsafe { core::slice::from_raw_parts(in_ptr as *const u8, in_len as usize) }
     };
     match E::decode(input) {
-        Ok(msg) => {
-            let total = 4 + msg.len();
-            let ptr = crate::host::__alloc(total);
-            let len_prefix = (msg.len() as u32).to_le_bytes();
-            unsafe {
-                core::ptr::copy_nonoverlapping(len_prefix.as_ptr(), ptr, 4);
-                core::ptr::copy_nonoverlapping(msg.as_ptr(), ptr.add(4), msg.len());
-            }
-            ptr as i32
-        }
+        Ok(decoded) => write_primitive(&decoded),
         Err(_) => -1,
     }
 }
 
 /// Export a [`WasmEncoding`] as a complete kernel: defines the `vx_alloc` and `vx_decode` exports
-/// expected by the host ABI.
+/// expected by the host ABI. `vx_decode` returns a pointer to the `(array_ptr, schema_ptr)` pair of
+/// the result's Arrow C Data Interface structs.
 ///
 /// ```ignore
 /// struct MyEncoding;

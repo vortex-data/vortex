@@ -3,55 +3,51 @@
 
 //! A Frame-of-Reference (FoR) decoder kernel for `i32` — the minimal real encoding.
 //!
-//! The on-disk representation is a reference value plus per-element deltas. The writer stores the
-//! reference in the kernel's payload (`[i32 reference]`) and the deltas as the single child input.
-//! This kernel reconstructs `reference + delta[i]` for each element.
+//! Input (`vx_decode`): a 4-byte little-endian `i32` reference. Child 0: the per-element deltas
+//! (an `i32` array). Output: `reference + delta[i]` as an `i32` array, returned as Arrow C Data
+//! Interface structs.
 //!
-//! It demonstrates the full guest SDK surface: reading the payload, decoding a child via
-//! [`host::decode_child`], reading a [`MessageReader`], and building the output with
-//! [`primitive_message`].
+//! Demonstrates the dependency-free guest SDK: read a child via [`host::decode_child`], return a
+//! [`Decoded`], and wire it up with [`export_wasm_encoding!`].
 
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
+use vortex_wasm_guest::GuestResult;
 use vortex_wasm_guest::WasmEncoding;
-use vortex_wasm_guest::abi::MessageKind;
 use vortex_wasm_guest::abi::PType;
+use vortex_wasm_guest::arrow::Decoded;
 use vortex_wasm_guest::export_wasm_encoding;
+use vortex_wasm_guest::guest_ensure;
 use vortex_wasm_guest::host;
-use vortex_wasm_guest::message::MessageReader;
-use vortex_wasm_guest::message::primitive_message;
 
 struct FrameOfReference;
 
+fn read_i32(bytes: &[u8], i: usize) -> i32 {
+    let o = i * 4;
+    i32::from_le_bytes([bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]])
+}
+
 impl WasmEncoding for FrameOfReference {
-    fn decode(input: &[u8]) -> VortexResult<Vec<u8>> {
-        // Payload: a single little-endian i32 reference value.
-        vortex_ensure!(
+    fn decode(input: &[u8]) -> GuestResult<Decoded> {
+        guest_ensure!(
             input.len() >= 4,
             "FoR payload must contain an i32 reference"
         );
-        let reference = i32::from_le_bytes(input[0..4].try_into().expect("4 bytes"));
+        let reference = read_i32(input, 0);
 
-        // The deltas are the single child input.
         let child = host::decode_child(0)?;
-        let reader = MessageReader::new(&child)?;
-        reader.expect_kind(MessageKind::Primitive)?;
-        if reader.ptype() != PType::I32 as u8 {
-            vortex_bail!("FoR example kernel only supports i32 deltas");
+        guest_ensure!(child.ptype == PType::I32, "FoR expects i32 deltas");
+
+        let mut values = Vec::with_capacity(child.len * 4);
+        for i in 0..child.len {
+            let delta = read_i32(child.values, i);
+            values.extend_from_slice(&reference.wrapping_add(delta).to_le_bytes());
         }
 
-        let len = reader.length();
-        let deltas = reader.first_buffer()?;
-        vortex_ensure!(deltas.len() >= len * 4, "delta buffer shorter than length");
-
-        let mut out = Vec::with_capacity(len * 4);
-        for i in 0..len {
-            let delta = i32::from_le_bytes(deltas[i * 4..i * 4 + 4].try_into().expect("4 bytes"));
-            out.extend_from_slice(&reference.wrapping_add(delta).to_le_bytes());
-        }
-
-        Ok(primitive_message(PType::I32, len, &out))
+        Ok(Decoded {
+            ptype: PType::I32,
+            len: child.len,
+            values,
+            validity: None,
+        })
     }
 }
 

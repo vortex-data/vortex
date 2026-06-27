@@ -1,61 +1,59 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Access to the host-provided imports (`vortex_host` module) and the guest allocator.
+//! Guest allocator and access to host imports (the `vortex_host` module).
 
-use vortex_error::VortexResult;
-#[cfg(not(target_arch = "wasm32"))]
-use vortex_error::vortex_bail;
+use crate::arrow::ChildView;
+use crate::error::GuestError;
+use crate::error::GuestResult;
 
 #[cfg(target_arch = "wasm32")]
 mod imports {
     #[link(wasm_import_module = "vortex_host")]
     unsafe extern "C" {
         pub fn vx_decode_child(node_index: i32, out_ptr: i32) -> i32;
-        pub fn vx_host_log(ptr: i32, len: i32);
     }
 }
 
-/// Ask the host to decode the child array at `node_index` (an index into the root node's children)
-/// and return its [`CanonicalMessage`](crate::message) bytes.
+/// Ask the host to decode the child array at `node_index` and return a view of it.
+///
+/// The host writes the child as Arrow C Data Interface structs into this module's memory and
+/// stores the `(array_ptr, schema_ptr)` pair at a scratch location we pass in.
 #[cfg(target_arch = "wasm32")]
-pub fn decode_child(node_index: usize) -> VortexResult<Vec<u8>> {
+pub fn decode_child(node_index: usize) -> GuestResult<ChildView> {
     let mut out = [0u8; 8];
     let rc = unsafe { imports::vx_decode_child(node_index as i32, out.as_mut_ptr() as i32) };
     if rc != 0 {
-        vortex_error::vortex_bail!("host vx_decode_child returned error {rc}");
+        return Err(GuestError::new("host vx_decode_child failed"));
     }
-    let off = u32::from_le_bytes(out[0..4].try_into().expect("4 bytes")) as usize;
-    let len = u32::from_le_bytes(out[4..8].try_into().expect("4 bytes")) as usize;
-    let slice = unsafe { core::slice::from_raw_parts(off as *const u8, len) };
-    Ok(slice.to_vec())
+    let array_ptr = u32::from_le_bytes(out[0..4].try_into().expect("4 bytes"));
+    let schema_ptr = u32::from_le_bytes(out[4..8].try_into().expect("4 bytes"));
+    crate::arrow::read_child(array_ptr, schema_ptr)
 }
 
-/// Host stub used when the SDK is compiled for a non-wasm target (e.g. unit tests). Calling it is
-/// a programming error; real kernels run under [`crate::WasmKernel`](../../vortex_wasm) on wasm.
+/// Host stub for non-wasm targets (so the SDK builds on the host for unit tests).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn decode_child(_node_index: usize) -> VortexResult<Vec<u8>> {
-    vortex_bail!("decode_child is only available inside a running wasm kernel")
+pub fn decode_child(_node_index: usize) -> GuestResult<ChildView> {
+    Err(GuestError::new(
+        "decode_child is only available inside a running wasm kernel",
+    ))
 }
 
-/// Emit a debug log line to the host.
-#[cfg(target_arch = "wasm32")]
-pub fn log(message: &str) {
-    unsafe { imports::vx_host_log(message.as_ptr() as i32, message.len() as i32) };
-}
-
-/// No-op host log stub for non-wasm targets.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn log(_message: &str) {}
-
-/// Allocate `len` bytes in the guest's linear memory and return the pointer.
+/// Allocate `len` bytes in linear memory and return the offset.
 ///
-/// The allocation is intentionally leaked: the host reads any returned data before the kernel's
-/// store (and thus its entire linear memory) is dropped after the decode call completes.
+/// The allocation is leaked: the host reads any returned data before the kernel's store (and thus
+/// its entire linear memory) is dropped after the decode call.
 #[doc(hidden)]
 pub fn __alloc(len: usize) -> *mut u8 {
     let mut buf = Vec::<u8>::with_capacity(len.max(1));
     let ptr = buf.as_mut_ptr();
     core::mem::forget(buf);
     ptr
+}
+
+/// Allocate `bytes.len()` bytes, copy `bytes` in, and return the offset.
+pub(crate) fn alloc_bytes(bytes: &[u8]) -> u32 {
+    let ptr = __alloc(bytes.len().max(1));
+    unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len()) };
+    ptr as u32
 }
