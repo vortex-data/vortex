@@ -43,7 +43,6 @@ impl TakeExecute for ALPRD {
                 right_parts,
                 array.right_bit_width(),
                 left_parts_exceptions,
-                ctx,
             )?
             .into_array(),
         ))
@@ -82,7 +81,7 @@ mod test {
 
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert!(
@@ -108,7 +107,7 @@ mod test {
     fn take_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert!(
@@ -139,10 +138,7 @@ mod test {
         let mut ctx = SESSION.create_execution_ctx();
         test_take_conformance(
             &RDEncoder::new(&[a, b])
-                .encode(
-                    PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view(),
-                    &mut ctx,
-                )
+                .encode(PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view())
                 .into_array(),
             &mut ctx,
         );
@@ -158,7 +154,6 @@ mod test {
                 .encode(
                     PrimitiveArray::from_option_iter([Some(a), None, Some(outlier), Some(a), None])
                         .as_view(),
-                    &mut ctx,
                 )
                 .into_array(),
             &mut ctx,

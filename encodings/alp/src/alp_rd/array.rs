@@ -359,7 +359,6 @@ impl ALPRD {
         right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
-        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ALPRDArray> {
         let len = left_parts.len();
         let left_parts_patches = ALPRDData::validate_patches(&left_parts, left_parts_patches)?;
@@ -657,7 +656,7 @@ mod test {
         // Pick a seed that we know will trigger lots of patches.
         let encoder: alp_rd::RDEncoder = alp_rd::RDEncoder::new(&[seed.powi(-2)]);
 
-        let rd_array = encoder.encode(real_array.as_view(), &mut ctx);
+        let rd_array = encoder.encode(real_array.as_view());
 
         let decoded = rd_array
             .as_array()
