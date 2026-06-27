@@ -148,26 +148,41 @@ EOF-deadlock.
 All integers little-endian. The single shared linear memory is exported by the guest as
 `"memory"`.
 
+### Memory: host-owned allocation
+
+The guest is `#![no_std]` with **no allocator** — no `alloc`, no `Vec`, no Rust global allocator.
+Instead the **host owns an allocator over the guest's linear memory** and exposes it as imports.
+The host starts a bump allocator at the guest-exported `__heap_base` global (emitted by `wasm-ld`)
+and grows the memory with `memory.grow` as needed; both the host (placing inputs / host-decoded
+children) and the guest (building scratch + output buffers) allocate from this one allocator. This
+removes the guest's allocator entirely, which is the bulk of the remaining kernel size.
+
 ### Guest exports (host calls these)
 
-- `vx_alloc(len: i32) -> i32`
-  Allocate `len` bytes and return the offset. The host uses this to place inputs and
-  host-decoded children into guest memory.
 - `vx_decode(input_ptr: i32, input_len: i32) -> i32`
-  Decode the serialized array at `[input_ptr, input_ptr+input_len)`. Returns the offset of a
-  length-prefixed `CanonicalMessage` (`[u32 len][bytes…]`). A negative return value is an error
-  code.
+  Decode the serialized array at `[input_ptr, input_ptr+input_len)`. Returns the offset of an
+  `(array_ptr: u32, schema_ptr: u32)` pair pointing at the result's Arrow C Data Interface structs.
+  A negative return value is an error code.
 
 ### Host imports (guest calls these), module `"vortex_host"`
 
+- `vx_alloc(size: i32, align: i32) -> i32`
+  Allocate `size` bytes aligned to `align` in guest linear memory, returning the offset. The guest
+  uses this for any scratch and output buffers; the host services it from its allocator, growing
+  memory as needed.
+- `vx_free(ptr: i32, size: i32)`
+  Release a buffer previously returned by `vx_alloc` (a bump allocator may treat this as a no-op
+  until the decode call ends).
 - `vx_decode_child(node_index: i32, out_ptr: i32) -> i32`
   Ask the host to decode the child array at `node_index` (an index into the serialized array
-  header's `children`, in document order). The host decodes it through the session, encodes the
-  result as a `CanonicalMessage`, allocates space in guest memory via `vx_alloc`, copies the
-  message in, and writes its `(offset: u32, len: u32)` pair to the 8 bytes at `out_ptr`. Returns
-  0 on success, negative on error.
+  header's `children`, in document order). The host decodes it through the session, writes the
+  result as **Arrow C Data Interface** structs into guest memory (via its allocator), and stores
+  the `(array_ptr: u32, schema_ptr: u32)` pair at `out_ptr`. Returns 0 on success, negative on error.
 - `vx_host_log(ptr: i32, len: i32)` (optional, debug only)
   Log a UTF-8 string from guest memory.
+
+Note: `vx_alloc` is now a host **import** (the host owns guest memory), not a guest export as in the
+prototype.
 
 ### `CanonicalMessage` wire format
 
@@ -289,10 +304,14 @@ guest's `vortex` dependencies, not Rust `std`**:
 |---|---|
 | zero-dependency (core + std + alloc only) | **~5.9 KB** |
 | prototype kernel (via `vortex-error` + `vortex-flatbuffers` + `vortex-buffer`) | ~74 KB |
+| dependency-free SDK (Arrow C structs + `GuestError`, still uses `alloc`) | **~16 KB** |
+| target: `#![no_std]`, host-owned allocation (no guest allocator) | ~6 KB and below |
 
 `vortex-error` is the dominant cost: it pulls in `jiff`, `prost`, and `arrow-schema` as
 non-optional dependencies, none of which a kernel needs. `vortex-flatbuffers` then drags
-`vortex-error` in transitively.
+`vortex-error` in transitively. Dropping all vortex deps got kernels to ~16 KB; the remaining bulk
+is the guest's Rust allocator + `Vec`, removed by moving allocation to the host (see
+[Memory](#memory-host-owned-allocation)).
 
 **The guest SDK must therefore avoid `vortex-error` entirely** and use a minimal, formatting-free
 error type (a `GuestError` carrying a `&'static str`, no `format!`). Two facts make this clean:
