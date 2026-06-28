@@ -1,0 +1,94 @@
+# Runs the full suite of CUDA micro-benchmarks on a GPU runner under NVIDIA CUDA
+# PC sampling, collected by Polar Signals (parca-agent + the parcagpu CUPTI shim).
+#
+# Unlike `codspeed.yml`, this workflow does NOT use Codspeed. It runs every CUDA
+# benchmark directly (`cargo bench`) so the GPU work is captured as continuous
+# profiling data in Polar Signals rather than as wall-time regression numbers.
+#
+# See https://www.polarsignals.com/blog/posts/2026/06/10/nvidia-cuda-pc-sampling
+name: CUDA PC Sampling
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+
+on:
+  pull_request:
+    paths:
+      - "vortex-cuda/**"
+      - ".github/workflows/cuda-pc-sampling.yml"
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+
+jobs:
+  cuda-pc-sampling:
+    # Profiling uploads to Polar Signals Cloud, which needs repo secrets that are
+    # unavailable to forked PRs, and the GPU runner is internal-only.
+    if: github.repository == 'vortex-data/vortex' && github.event.pull_request.head.repo.fork == false
+    name: "CUDA micro-benchmarks (PC sampling)"
+    timeout-minutes: 60
+    runs-on: >-
+      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/tag=cuda-pc-sampling
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+
+      - name: Build parcagpu CUPTI shim
+        run: |
+          set -Eeu -o pipefail
+          sudo apt-get update
+          # cmake to configure the build; systemtap-sdt-dev provides the `dtrace`
+          # probe generator that parcagpu's USDT probes require.
+          sudo apt-get install -y --no-install-recommends cmake systemtap-sdt-dev
+          # parcagpu vendors its `proton` dependency as a git submodule.
+          git clone --depth 1 --branch v0.3.0 --recurse-submodules --shallow-submodules \
+            https://github.com/parca-dev/parcagpu.git
+          make -C parcagpu local
+          shim="$(find "$PWD/parcagpu" -name libparcagpucupti.so -print -quit)"
+          if [[ -z "$shim" ]]; then
+            echo "::error::Could not locate libparcagpucupti.so after building parcagpu"
+            exit 1
+          fi
+          echo "PARCAGPU_LIB=$shim" >> "$GITHUB_ENV"
+
+      - name: Build CUDA benchmarks
+        env:
+          # Emit device-code line info so Polar Signals can symbolize PC samples.
+          VORTEX_CUDA_LINEINFO: "1"
+        run: cargo bench -p vortex-cuda --no-run
+
+      - name: Setup Polar Signals
+        uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
+        with:
+          polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          # GPU PC sampling support landed in parca-agent v0.48.0.
+          parca_agent_version: "0.48.0"
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=cuda-pc-sampling"
+          project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+
+      - name: Run CUDA micro-benchmarks under PC sampling
+        env:
+          RUST_BACKTRACE: full
+          VORTEX_CUDA_LINEINFO: "1"
+          # The parcagpu CUPTI shim is injected into every CUDA process via the
+          # standard CUDA injection hook; it exposes PC samples as USDT probes that
+          # the Polar Signals parca-agent consumes over eBPF.
+          CUDA_INJECTION64_PATH: ${{ env.PARCAGPU_LIB }}
+          # Enable hardware PC sampling, targeting ~100 samples/sec, with the
+          # blog's recommended sampling factor of 20 (2^20 GPU cycles per sample).
+          PARCAGPU_PC_SAMPLING_RATE: "100"
+          PARCAGPU_SAMPLING_FACTOR: "20"
+        run: cargo bench -p vortex-cuda
