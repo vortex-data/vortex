@@ -421,7 +421,3 @@ incremental = false
 debug = false
 debug-assertions = true
 incremental = false
-
-# This improved build times significantly for default common cases that we use locally
-[profile.dev.package.vortex-fastlanes]
-debug = false
