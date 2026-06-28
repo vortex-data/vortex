@@ -14,9 +14,15 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
+// `ArrayBuilder`, `VarBinViewBuilder`, and `DType` are used only by the VarBinView canonicalization
+// benches and their helpers, all of which are excluded from CodSpeed (see the gating note below), so
+// they are gated to match and avoid unused-import errors under `--cfg codspeed`.
+#[cfg(not(codspeed))]
 use vortex_array::builders::ArrayBuilder;
+#[cfg(not(codspeed))]
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
+#[cfg(not(codspeed))]
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
@@ -34,6 +40,17 @@ const BENCH_ARGS: &[(usize, usize)] = &[
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
+// The canonicalization benchmarks gated below are excluded from CodSpeed's CPU simulation. Their
+// simulated instruction count is dominated by output-buffer allocation and glibc `memcpy`/`memmove`
+// (whose `ifunc`-selected implementation varies across runner images) rather than by Vortex compute,
+// so under simulation they report spurious, bidirectional regressions even when the code is
+// unchanged. `chunked_bool_canonical_into` is additionally small enough to sit near the simulation
+// noise floor. They cannot be stabilized by tuning inputs because the data movement is the thing
+// being measured. The `chunked_opt_bool_*` and `chunked_constant_*` benches below are compute-bound
+// and stable under simulation, so they are kept. Per `docs/developer-guide/benchmarking.md` such
+// benchmarks are gated with `#[cfg(not(codspeed))]` and remain available via local `cargo bench`.
+// See https://github.com/vortex-data/vortex/pull/8519 for the supporting analysis.
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_bool_chunks(len, chunk_count);
@@ -73,6 +90,8 @@ fn chunked_opt_bool_into_canonical(bencher: Bencher, (len, chunk_count): (usize,
         .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }
 
+// Excluded from CodSpeed: VarBinView canonicalization is `memcpy`-bound (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
@@ -91,6 +110,8 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
         })
 }
 
+// Excluded from CodSpeed: VarBinView canonicalization is `memcpy`-bound (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(false, len, chunk_count);
@@ -100,6 +121,8 @@ fn chunked_varbinview_into_canonical(bencher: Bencher, (len, chunk_count): (usiz
         .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }
 
+// Excluded from CodSpeed: VarBinView canonicalization is `memcpy`-bound (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
@@ -118,6 +141,8 @@ fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (
         })
 }
 
+// Excluded from CodSpeed: VarBinView canonicalization is `memcpy`-bound (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunks = make_string_chunks(true, len, chunk_count);
@@ -211,6 +236,9 @@ fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         .into_array()
 }
 
+// Only used by `chunked_bool_canonical_into`, which is excluded from CodSpeed (see above), so this
+// helper is gated to match and avoid dead-code errors under `--cfg codspeed`.
+#[cfg(not(codspeed))]
 fn make_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
 
@@ -220,6 +248,9 @@ fn make_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         .into_array()
 }
 
+// Only used by the gated VarBinView canonicalization benches above, which are excluded from
+// CodSpeed, so this helper is gated to match and avoid dead-code errors under `--cfg codspeed`.
+#[cfg(not(codspeed))]
 fn make_string_chunks(nullable: bool, len: usize, chunk_count: usize) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(123);
 

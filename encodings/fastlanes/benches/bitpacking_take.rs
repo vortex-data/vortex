@@ -70,6 +70,17 @@ fn take_10_contiguous(bencher: Bencher) {
         })
 }
 
+// The four `*take_10k_*` benches below are excluded from CodSpeed's CPU simulation. Each gathers 10k
+// elements and canonicalizes the result, so its simulated instruction count is bimodal: it is driven
+// by output-buffer allocation plus glibc `memcpy` and by the SIMD bit-unpack's code-layout
+// sensitivity across runner images, rather than by stable Vortex compute. That makes them report
+// spurious, bidirectional regressions under simulation even when the code is unchanged, and they
+// cannot be stabilized by tuning inputs because the data movement is the thing being measured. The
+// smaller take variants here are compute-bound and stable, so they are kept. Per
+// `docs/developer-guide/benchmarking.md` such benchmarks are gated with `#[cfg(not(codspeed))]` and
+// remain available via local `cargo bench`. See https://github.com/vortex-data/vortex/pull/8519 for
+// the supporting analysis.
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn take_10k_random(bencher: Bencher) {
     let values = fixture(65_536, 8);
@@ -92,6 +103,8 @@ fn take_10k_random(bencher: Bencher) {
         })
 }
 
+// Excluded from CodSpeed: bimodal 10k take+canonicalize (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn take_10k_contiguous(bencher: Bencher) {
     let values = fixture(65_536, 8);
@@ -221,6 +234,8 @@ fn patched_take_10_contiguous(bencher: Bencher) {
         })
 }
 
+// Excluded from CodSpeed: bimodal 10k take+canonicalize (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn patched_take_10k_random(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
@@ -262,6 +277,8 @@ fn patched_take_10k_contiguous_not_patches(bencher: Bencher) {
         })
 }
 
+// Excluded from CodSpeed: bimodal 10k take+canonicalize (see note above).
+#[cfg(not(codspeed))]
 #[divan::bench]
 fn patched_take_10k_contiguous_patches(bencher: Bencher) {
     let values = (0u32..BIG_BASE2 + NUM_EXCEPTIONS).collect::<Buffer<u32>>();
