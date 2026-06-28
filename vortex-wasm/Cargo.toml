@@ -35,7 +35,7 @@ vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
-wasmi = { workspace = true }
+wasmtime = { workspace = true }
 
 [dev-dependencies]
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }

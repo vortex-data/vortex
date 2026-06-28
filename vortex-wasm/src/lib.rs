@@ -11,7 +11,7 @@
 //! - [`abi`] defines the host/guest ABI constants.
 //! - [`arrow_ffi`] imports/exports canonical arrays across the boundary as Arrow C Data Interface
 //!   structs.
-//! - [`WasmKernel`] is the `wasmi`-backed runtime that drives the ABI.
+//! - [`WasmKernel`] is the `wasmtime`-backed runtime that drives the ABI.
 //! - [`WasmLayout`] / [`WasmReader`] / [`WasmLayoutStrategy`] integrate kernels into the layout
 //!   tree, so wasm-decoded arrays read and write like any other layout.
 //!

@@ -61,7 +61,7 @@ on-disk representation.
 
 At read time, when the native VTable is absent, the reader:
 
-1. loads + instantiates the kernel in an embedded WASM VM (`wasmi`), caching the compiled module;
+1. loads + instantiates the kernel in an embedded WASM VM (`wasmtime`), caching the compiled module;
 2. hands the guest the **serialized array** (flatbuffer header + buffers) for the node to decode;
 3. the guest **parses the array flatbuffer header itself** with `vortex-flatbuffers` compiled into
    the module (*without the rest of Vortex*), reading its own encoding metadata and buffers;
@@ -83,7 +83,7 @@ removed.
 
 ## Crates
 
-Two new crates, kept out of the core dependency graph so that `wasmi` never leaks into
+Two new crates, kept out of the core dependency graph so that `wasmtime` never leaks into
 `vortex-array`/`vortex-layout`:
 
 ### `vortex-wasm-guest` (the guest SDK)
@@ -105,9 +105,9 @@ crate (not even `vortex-error`) and no Arrow library — which is what keeps a c
 
 ### `vortex-wasm` (the host)
 
-Depends on `vortex-layout`, `vortex-array`, `vortex-session`, and `wasmi`. It provides:
+Depends on `vortex-layout`, `vortex-array`, `vortex-session`, and `wasmtime`. It provides:
 
-- `WasmKernel` — an instantiated, reusable wrapper around a `wasmi::Module` and the host import
+- `WasmKernel` — an instantiated, reusable wrapper around a `wasmtime::Module` and the host import
   table, exposing `decode(input, &dyn HostDecoder, &VortexSession) -> ArrayRef`;
 - `arrow_ffi` — the host side of the Arrow C Data Interface boundary: `import` rebuilds a Vortex
   array from C structs in guest memory; `export` writes a canonical array as C structs into guest
@@ -338,15 +338,44 @@ native representation and re-encodes to canonical encodings like any other array
 over a bespoke Vortex wire format because it needs **no Vortex dependency in the guest** — the C
 struct layout is plain bytes the guest writes directly — which is the key to keeping kernels small.
 
-## Security & resource limits
+## Runtime choice: `wasmtime`
 
-`wasmi` is a sandboxed interpreter: no host memory access beyond the explicit imports, no
-syscalls. We additionally:
+The host embeds [`wasmtime`](https://wasmtime.dev) (pinned to the **36.x LTS** line, 24-month
+support). It was chosen over `wasmer` and the earlier `wasmi` because the kernels are **untrusted
+file data on a decode hot path**, and `wasmtime`:
 
-- set fuel/step limits per `vx_decode` call to bound runtime;
-- cap guest linear-memory growth;
+- is the Bytecode Alliance reference runtime with the strongest sandboxing track record
+  (continuous OSS-Fuzz with differential oracles, a formal CVE process);
+- has first-class facilities for bounding untrusted code — `StoreLimits` (memory/instance caps),
+  plus fuel and epoch interruption for CPU time;
+- is built for *many short-lived instances* (pooling allocator, copy-on-write memory init,
+  `InstancePre`) — exactly the decode pattern;
+- exposes an API `wasmi` deliberately mirrors, so the host code is nearly identical either way.
+
+We use the default **Cranelift** backend (not the newer Winch/Pulley, which are less battle-tested)
+and compile each kernel once (`WasmKernel::new`), instantiating a fresh `Store` per decode.
+
+> **`wasm32` / browser caveat.** Neither `wasmtime` nor `wasmer` can execute guest wasm while the
+> runtime *itself* is compiled to `wasm32-unknown-unknown` (wasmtime's `runtime` feature does not
+> build for wasm32; wasmer only delegates to the host's `WebAssembly` engine there). Only `wasmi`
+> (a pure-Rust interpreter) self-hosts in wasm32. Vortex does target `wasm32-unknown-unknown` (the
+> `wasm-test` crate, `vortex-web`), but `vortex-wasm` is not in that build today (the `vortex`
+> umbrella does not depend on it), so this is not a current blocker. If the browser reader ever
+> needs to decode WASM-encoded files, the clean path is to select `wasmi` behind
+> `#[cfg(target_arch = "wasm32")]` — its API mirrors `wasmtime`, so `kernel.rs` would change little.
+
+### Sandboxing & resource limits
+
+`wasmtime` is a sandbox: no host memory access beyond the explicit imports, no syscalls. We
+additionally:
+
+- cap guest linear-memory growth per decode via `StoreLimits` (see `MAX_GUEST_MEMORY_BYTES`);
 - validate every guest-returned pointer/length against the current memory size before reading;
 - treat any guest trap or malformed Arrow C struct as a decode error (never a host panic).
+
+CPU-time bounding (fuel or epoch interruption) is a planned follow-up — both are first-class in
+`wasmtime`; epochs need a timer thread and fuel needs a budget, so the limit value is a policy
+choice still to be made.
 
 The kernel is untrusted data from the file, exactly like array bytes; correctness bugs in a
 kernel can only corrupt *that array's* values, never host memory.
@@ -357,9 +386,10 @@ The first iteration used a bespoke `CanonicalMessage` wire format; it has been *
 Arrow C Data Interface boundary with a dependency-free Rust guest. The remaining "next" work is the
 on-disk change so the embedded blob is *only* the decoder over an otherwise-normal serialized array.
 
-1. **Prototype (done, superseded):** `WasmKernel` over `wasmi`, `WasmLayout`/`WasmReader`/
-   `WasmLayoutStrategy`, `vx_decode_child`, and end-to-end round trips via WAT kernels and a bespoke
-   `CanonicalMessage`. Proved the VM + layout + EOF kernel placement + child decode work end to end.
+1. **Prototype (done, superseded):** `WasmKernel` over `wasmi` (since migrated to `wasmtime`),
+   `WasmLayout`/`WasmReader`/`WasmLayoutStrategy`, `vx_decode_child`, and end-to-end round trips via
+   WAT kernels and a bespoke `CanonicalMessage`. Proved the VM + layout + EOF kernel placement +
+   child decode work end to end.
 2. **Arrow C Data Interface import (done):** [`arrow_ffi::import`](../../vortex-wasm/src/arrow_ffi.rs)
    reconstructs a Vortex array (primitive + bool, incl. validity) from Arrow C structs in a guest
    memory image, via `from_arrow`.
@@ -375,7 +405,8 @@ on-disk change so the embedded blob is *only* the decoder over an otherwise-norm
    `vortex-flatbuffers` (the generated code is pure `flatbuffers` + `alloc`). This replaces the
    current payload+child write model.
 6. **Breadth (later):** `VarBinView`/`Struct`/`List` across the Arrow boundary, kernel dedup +
-   caching, fuel/memory limits.
+   caching, CPU-time limits (wasmtime fuel/epoch), and the `wasm32` fallback runtime if the browser
+   reader needs WASM encodings.
 
 Pushdown (filter/pruning into the kernel) is explicitly **out of scope** — WASM encodings only
 decompress; the engine filters on the decoded output.
@@ -383,5 +414,5 @@ decompress; the engine filters on the decoded output.
 ## Open questions
 
 - **Kernel caching key:** digest of the blob vs. segment id; cross-file caching in a session.
-- **Async vs. blocking:** running `wasmi` on the IO runtime's blocking pool vs. a dedicated
+- **Async vs. blocking:** running `wasmtime` on the IO runtime's blocking pool vs. a dedicated
   decode pool.

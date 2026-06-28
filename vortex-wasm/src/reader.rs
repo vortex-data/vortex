@@ -116,8 +116,8 @@ impl WasmReader {
                 None => Vec::new(),
             };
 
-            let decoder = PrecomputedDecoder { canonicals };
-            kernel.decode(&payload, &decoder, &session)
+            let decoder: Arc<dyn HostDecoder> = Arc::new(PrecomputedDecoder { canonicals });
+            kernel.decode(&payload, decoder, &session)
         }
         .boxed()
     }

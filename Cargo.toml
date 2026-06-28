@@ -278,7 +278,7 @@ tracing-subscriber = "0.3"
 url = "2.5.7"
 uuid = { version = "1.23", features = ["js"] }
 wasm-bindgen-futures = "0.4.54"
-wasmi = "1.1"
+wasmtime = { version = "36", default-features = false, features = ["cranelift", "runtime", "std"] }
 wat = "1"
 wkb = "0.9.2"
 xshell = "0.2.6"
