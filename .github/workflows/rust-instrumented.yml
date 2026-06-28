@@ -177,6 +177,11 @@ jobs:
         # sanitizer-built deps.
       - name: Run vortex-ffi tests with sanitizer
         run: |
+          # Doctests are compiled by rustdoc, which reads RUSTDOCFLAGS rather
+          # than RUSTFLAGS. Mirror the sanitizer flags so the doctest harness is
+          # built with the same -Zsanitizer value as its dependencies, otherwise
+          # rustc rejects the ABI mismatch.
+          RUSTDOCFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
           RUSTFLAGS="${RUSTFLAGS} ${{ matrix.sanitizer_flags }}" \
           cargo +$NIGHTLY_TOOLCHAIN test --locked --no-default-features \
             --target x86_64-unknown-linux-gnu --no-fail-fast -Zbuild-std \
