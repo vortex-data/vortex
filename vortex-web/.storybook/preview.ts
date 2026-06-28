@@ -3,7 +3,7 @@
 
 import { createElement } from 'react';
 import type { Preview } from '@storybook/react-vite';
-import { ThemeContext } from '../src/contexts/ThemeContextCore';
+import { ThemeProvider } from '../src/contexts/ThemeContext';
 import '../src/index.css';
 
 const preview: Preview = {
@@ -26,16 +26,13 @@ const preview: Preview = {
   },
   decorators: [
     (Story, context) => {
-      const theme = context.globals.theme || 'light';
-      document.documentElement.classList.toggle('dark', theme === 'dark');
-      document.documentElement.classList.toggle('light', theme === 'light');
-      // Supply the theme context so components using useTheme render in stories,
-      // following the Storybook theme toolbar rather than persisted preferences.
-      return createElement(
-        ThemeContext.Provider,
-        { value: { theme, setTheme: () => {} } },
-        Story(),
-      );
+      // Wrap every story in the real ThemeProvider so theme-aware components
+      // (e.g. FileHeader/ThemePicker, which call useTheme) have their context.
+      // Seed it from the toolbar's theme global; `key` remounts the provider
+      // when the toolbar theme changes so the switch takes effect.
+      const theme = (context.globals.theme as string) || 'light';
+      localStorage.setItem('vortex-theme', theme);
+      return createElement(ThemeProvider, { key: theme }, Story());
     },
   ],
   parameters: {

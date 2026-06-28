@@ -8,6 +8,8 @@ import type {
   DtypeCategory,
   FlattenedRow,
   DisplayKind,
+  SegmentMapEntry,
+  PhysicalSegment,
 } from './types';
 
 // Encoding styles — keyed by encoding string, with fallback for unknown encodings
@@ -68,6 +70,8 @@ export const DTYPE_CATEGORIES: DtypeCategory[] = [
 export const ROW_HEIGHT = 26;
 export const MIN_LABEL_WIDTH = 36;
 export const GROUP_SIZE = 10;
+/** Minimum rendered width (px) of a swimlane segment so tiny segments stay visible. */
+export const MIN_CELL_WIDTH = 3;
 
 /**
  * Determine dtype category from dtype string
@@ -415,6 +419,54 @@ export function collectSubtreeIds(node: LayoutTreeNode): Set<string> {
   }
   walk(node);
   return ids;
+}
+
+/**
+ * Collect the leaf descendants of a node (nodes with no children), in row order.
+ * Used to roll up a parent's data into a single swimlane bar so that container
+ * layouts (structs, chunked, zone maps) are not rendered as empty outlines.
+ */
+export function collectLeafDescendants(node: LayoutTreeNode): LayoutTreeNode[] {
+  const leaves: LayoutTreeNode[] = [];
+  function walk(n: LayoutTreeNode) {
+    if (n.children.length === 0) {
+      leaves.push(n);
+      return;
+    }
+    for (const child of n.children) walk(child);
+  }
+  for (const child of node.children) walk(child);
+  return leaves;
+}
+
+/**
+ * Build a lookup from segment index to its physical byte placement and the dtype
+ * of the layout node that owns it. Lets the swimlane plot bars by physical file
+ * offset (revealing gaps in a column's storage) rather than by row.
+ */
+export function buildSegmentIndex(
+  root: LayoutTreeNode,
+  segments: SegmentMapEntry[],
+): Map<number, PhysicalSegment> {
+  const placement = new Map<number, SegmentMapEntry>();
+  for (const s of segments) placement.set(s.index, s);
+
+  const index = new Map<number, PhysicalSegment>();
+  function walk(node: LayoutTreeNode) {
+    for (const id of node.segmentIds) {
+      const seg = placement.get(id);
+      if (seg) {
+        index.set(id, {
+          byteOffset: seg.byteOffset,
+          byteLength: seg.byteLength,
+          dtype: node.dtype,
+        });
+      }
+    }
+    for (const child of node.children) walk(child);
+  }
+  walk(root);
+  return index;
 }
 
 /**
