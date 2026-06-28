@@ -4,6 +4,7 @@
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -39,6 +40,7 @@ pub struct FlatReader {
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
+    array: OnceLock<SharedArrayFuture>,
 }
 
 impl FlatReader {
@@ -53,6 +55,7 @@ impl FlatReader {
             name,
             segment_source,
             session,
+            array: Default::default(),
         }
     }
 
@@ -61,30 +64,31 @@ impl FlatReader {
         let row_count =
             usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
 
-        // We create the segment_fut here to ensure we give the segment reader visibility into
-        // how to prioritize this segment, even if the `array` future has already been initialized.
-        // This is gross... see the function's TODO for a maybe better solution?
-        let segment_fut = self.segment_source.request(self.layout.segment_id());
+        self.array
+            .get_or_init(|| {
+                let segment_fut = self.segment_source.request(self.layout.segment_id());
 
-        let ctx = self.layout.array_ctx().clone();
-        let session = self.session.clone();
-        let dtype = self.layout.dtype().clone();
-        let array_tree = self.layout.array_tree().cloned();
-        async move {
-            let segment = segment_fut.await?;
-            let parts = if let Some(array_tree) = array_tree {
-                // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
-                SerializedArray::from_flatbuffer_and_segment(array_tree, segment)?
-            } else {
-                // Parse the flatbuffer from the segment itself.
-                SerializedArray::try_from(segment)?
-            };
-            parts
-                .decode(&dtype, row_count, &ctx, &session)
-                .map_err(Arc::new)
-        }
-        .boxed()
-        .shared()
+                let ctx = self.layout.array_ctx().clone();
+                let session = self.session.clone();
+                let dtype = self.layout.dtype().clone();
+                let array_tree = self.layout.array_tree().cloned();
+                async move {
+                    let segment = segment_fut.await?;
+                    let parts = if let Some(array_tree) = array_tree {
+                        // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
+                        SerializedArray::from_flatbuffer_and_segment(array_tree, segment)?
+                    } else {
+                        // Parse the flatbuffer from the segment itself.
+                        SerializedArray::try_from(segment)?
+                    };
+                    parts
+                        .decode(&dtype, row_count, &ctx, &session)
+                        .map_err(Arc::new)
+                }
+                .boxed()
+                .shared()
+            })
+            .clone()
     }
 }
 
@@ -229,29 +233,95 @@ impl LayoutReader for FlatReader {
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
 
+    use rstest::rstest;
     use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::expr::byte_length;
+    use vortex_array::expr::checked_add;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
+    use vortex_array::expr::not_eq;
     use vortex_array::expr::root;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
+    use crate::LayoutReaderRef;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::SegmentFuture;
+    use crate::segments::SegmentId;
+    use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
+
+    #[derive(Clone)]
+    struct CountingSegmentSource {
+        inner: TestSegments,
+        requests: Arc<AtomicUsize>,
+    }
+
+    impl SegmentSource for CountingSegmentSource {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.requests.fetch_add(1, Ordering::Relaxed);
+            self.inner.request(id)
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum RegressedQueryPattern {
+        ProjectionOnly,
+        FilterOnly,
+        FilteredProjection,
+        ComputedProjection,
+        StringFilteredProjection,
+        StringFilteredComputedProjection,
+    }
+
+    async fn counted_flat_reader(
+        session: &VortexSession,
+        array: ArrayRef,
+        requests: Arc<AtomicUsize>,
+    ) -> VortexResult<LayoutReaderRef> {
+        let array_ctx = ArrayContext::empty();
+        let segments = TestSegments::default();
+        let source: Arc<dyn SegmentSource> = Arc::new(CountingSegmentSource {
+            inner: segments.clone(),
+            requests,
+        });
+
+        let (ptr, eof) = SequenceId::root().split();
+        let layout = FlatLayoutStrategy::default()
+            .write_stream(
+                array_ctx,
+                Arc::new(segments),
+                array.to_array_stream().sequenced(ptr),
+                eof,
+                session,
+            )
+            .await?;
+
+        layout.new_reader("".into(), source, session, &Default::default())
+    }
 
     #[test]
     fn flat_identity() -> VortexResult<()> {
@@ -288,6 +358,183 @@ mod test {
                 .await?;
 
             assert_arrays_eq!(result, array, &mut ctx);
+
+            Ok(())
+        })
+    }
+
+    #[rstest]
+    #[case::clickbench_q3_q7_q9_q10_projection_only(RegressedQueryPattern::ProjectionOnly)]
+    #[case::clickbench_q2_tpcds_q88_q96_filter_only(RegressedQueryPattern::FilterOnly)]
+    #[case::tpcds_q19_q33_q56_numeric_filter_projection(RegressedQueryPattern::FilteredProjection)]
+    #[case::clickbench_q19_tpcds_q50_q79_computed_projection(
+        RegressedQueryPattern::ComputedProjection
+    )]
+    #[case::clickbench_q11_q25_string_filter_projection(
+        RegressedQueryPattern::StringFilteredProjection
+    )]
+    #[case::clickbench_q29_tpcds_q34_q46_q68_string_computed_filter_projection(
+        RegressedQueryPattern::StringFilteredComputedProjection
+    )]
+    fn flat_subrange_regressed_query_patterns_reuse_segment_request(
+        #[case] pattern: RegressedQueryPattern,
+    ) -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
+            let requests = Arc::new(AtomicUsize::new(0));
+
+            match pattern {
+                RegressedQueryPattern::ProjectionOnly => {
+                    let reader = counted_flat_reader(
+                        &session,
+                        buffer![1, 2, 3, 4, 5, 6].into_array(),
+                        Arc::clone(&requests),
+                    )
+                    .await?;
+                    let first =
+                        reader.projection_evaluation(&(0..3), &root(), MaskFuture::new_true(3))?;
+                    let second =
+                        reader.projection_evaluation(&(3..6), &root(), MaskFuture::new_true(3))?;
+
+                    let (first, second): (VortexResult<ArrayRef>, VortexResult<ArrayRef>) =
+                        futures::join!(first, second);
+                    assert_arrays_eq!(first?, buffer![1, 2, 3].into_array(), &mut ctx);
+                    assert_arrays_eq!(second?, buffer![4, 5, 6].into_array(), &mut ctx);
+                }
+                RegressedQueryPattern::FilterOnly => {
+                    let reader = counted_flat_reader(
+                        &session,
+                        buffer![0, 1, 2, 0, 4, 5].into_array(),
+                        Arc::clone(&requests),
+                    )
+                    .await?;
+                    let filter = not_eq(root(), lit(0_i32));
+                    let first =
+                        reader.filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))?;
+                    let second =
+                        reader.filter_evaluation(&(3..6), &filter, MaskFuture::new_true(3))?;
+
+                    let (first, second) = futures::join!(first, second);
+                    assert_eq!(first?.true_count(), 2);
+                    assert_eq!(second?.true_count(), 2);
+                }
+                RegressedQueryPattern::FilteredProjection => {
+                    let reader = counted_flat_reader(
+                        &session,
+                        buffer![0, 1, 2, 3, 0, 5].into_array(),
+                        Arc::clone(&requests),
+                    )
+                    .await?;
+                    let filter = gt(root(), lit(1_i32));
+                    let first_mask =
+                        reader.filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))?;
+                    let second_mask =
+                        reader.filter_evaluation(&(3..6), &filter, MaskFuture::new_true(3))?;
+                    let first = reader.projection_evaluation(&(0..3), &root(), first_mask)?;
+                    let second = reader.projection_evaluation(&(3..6), &root(), second_mask)?;
+
+                    let (first, second): (VortexResult<ArrayRef>, VortexResult<ArrayRef>) =
+                        futures::join!(first, second);
+                    assert_arrays_eq!(first?, buffer![2].into_array(), &mut ctx);
+                    assert_arrays_eq!(second?, buffer![3, 5].into_array(), &mut ctx);
+                }
+                RegressedQueryPattern::ComputedProjection => {
+                    let projection = checked_add(root(), lit(10_i32));
+                    let source = buffer![1, 2, 3, 4, 5, 6].into_array();
+                    let expected = source.clone().apply(&projection)?;
+                    let reader =
+                        counted_flat_reader(&session, source, Arc::clone(&requests)).await?;
+                    let first = reader.projection_evaluation(
+                        &(0..3),
+                        &projection,
+                        MaskFuture::new_true(3),
+                    )?;
+                    let second = reader.projection_evaluation(
+                        &(3..6),
+                        &projection,
+                        MaskFuture::new_true(3),
+                    )?;
+
+                    let (first, second): (VortexResult<ArrayRef>, VortexResult<ArrayRef>) =
+                        futures::join!(first, second);
+                    assert_arrays_eq!(first?, expected.slice(0..3)?, &mut ctx);
+                    assert_arrays_eq!(second?, expected.slice(3..6)?, &mut ctx);
+                }
+                RegressedQueryPattern::StringFilteredProjection => {
+                    let filter = not_eq(root(), lit(Scalar::utf8("", Nullability::Nullable)));
+                    let source = VarBinArray::from_iter(
+                        [
+                            Some(""),
+                            Some("abc"),
+                            Some("de"),
+                            Some(""),
+                            Some("fghi"),
+                            Some("j"),
+                        ],
+                        DType::Utf8(Nullability::Nullable),
+                    )
+                    .into_array();
+                    let first_expected = source
+                        .slice(0..3)?
+                        .filter(Mask::from_iter([false, true, true]))?;
+                    let second_expected = source
+                        .slice(3..6)?
+                        .filter(Mask::from_iter([false, true, true]))?;
+                    let reader =
+                        counted_flat_reader(&session, source, Arc::clone(&requests)).await?;
+                    let first_mask =
+                        reader.filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))?;
+                    let second_mask =
+                        reader.filter_evaluation(&(3..6), &filter, MaskFuture::new_true(3))?;
+                    let first = reader.projection_evaluation(&(0..3), &root(), first_mask)?;
+                    let second = reader.projection_evaluation(&(3..6), &root(), second_mask)?;
+
+                    let (first, second): (VortexResult<ArrayRef>, VortexResult<ArrayRef>) =
+                        futures::join!(first, second);
+                    assert_arrays_eq!(first?, first_expected, &mut ctx);
+                    assert_arrays_eq!(second?, second_expected, &mut ctx);
+                }
+                RegressedQueryPattern::StringFilteredComputedProjection => {
+                    let projection = byte_length(root());
+                    let filter = not_eq(root(), lit(Scalar::utf8("", Nullability::Nullable)));
+                    let source = VarBinArray::from_iter(
+                        [
+                            Some(""),
+                            Some("abc"),
+                            Some("de"),
+                            Some(""),
+                            Some("fghi"),
+                            Some("j"),
+                        ],
+                        DType::Utf8(Nullability::Nullable),
+                    )
+                    .into_array();
+                    let first_expected = source
+                        .slice(0..3)?
+                        .filter(Mask::from_iter([false, true, true]))?
+                        .apply(&projection)?;
+                    let second_expected = source
+                        .slice(3..6)?
+                        .filter(Mask::from_iter([false, true, true]))?
+                        .apply(&projection)?;
+                    let reader =
+                        counted_flat_reader(&session, source, Arc::clone(&requests)).await?;
+                    let first_mask =
+                        reader.filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))?;
+                    let second_mask =
+                        reader.filter_evaluation(&(3..6), &filter, MaskFuture::new_true(3))?;
+                    let first = reader.projection_evaluation(&(0..3), &projection, first_mask)?;
+                    let second = reader.projection_evaluation(&(3..6), &projection, second_mask)?;
+
+                    let (first, second): (VortexResult<ArrayRef>, VortexResult<ArrayRef>) =
+                        futures::join!(first, second);
+                    assert_arrays_eq!(first?, first_expected, &mut ctx);
+                    assert_arrays_eq!(second?, second_expected, &mut ctx);
+                }
+            }
+
+            assert_eq!(requests.load(Ordering::Relaxed), 1);
 
             Ok(())
         })
