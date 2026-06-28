@@ -65,8 +65,8 @@ impl CompareKernel for BitPacked {
 
 /// Compare every value against the constant via the fused FastLanes `unpack_cmp` kernel.
 ///
-/// `NativePType::is_eq` / `is_lt` etc. provide total comparison (matching the primitive between
-/// kernel's dispatch shape). `NotEq` has no direct method, so use `!is_eq`.
+/// `NativePType::is_eq` / `is_lt` etc. provide total comparison matching the kernel's dispatch
+/// shape.
 fn compare_constant_typed<T>(
     lhs: ArrayView<'_, BitPacked>,
     rhs: T,
@@ -80,26 +80,7 @@ where
         + FastLanesComparable<Bitpacked = <T as PhysicalPType>::Physical>,
     <T as PhysicalPType>::Physical: BitPacking + NativePType + BitPackingCompare,
 {
-    match operator {
-        CompareOperator::Eq => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_eq(b), ctx)
-        }
-        CompareOperator::NotEq => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| !a.is_eq(b), ctx)
-        }
-        CompareOperator::Lt => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_lt(b), ctx)
-        }
-        CompareOperator::Lte => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_le(b), ctx)
-        }
-        CompareOperator::Gt => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_gt(b), ctx)
-        }
-        CompareOperator::Gte => {
-            stream_compare_fused::<T, _>(lhs, rhs, nullability, |a, b| a.is_ge(b), ctx)
-        }
-    }
+    stream_compare_fused::<T>(lhs, rhs, operator, nullability, ctx)
 }
 
 #[cfg(test)]

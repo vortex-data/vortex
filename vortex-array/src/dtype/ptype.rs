@@ -153,6 +153,11 @@ pub trait NativePType:
     /// Whether another instance of this type (`other`) is bitwise equal to `self`
     fn is_eq(self, other: Self) -> bool;
 
+    /// Whether another instance of this type (`other`) is bitwise not equal to `self`
+    fn is_ne(self, other: Self) -> bool {
+        !self.is_eq(other)
+    }
+
     /// Downcast the provided object to a type-specific instance.
     fn downcast<V: PTypeDowncast>(visitor: V) -> V::Output<Self>;
 
