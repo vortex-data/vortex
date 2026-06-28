@@ -33,10 +33,17 @@ vortex = { workspace = true, features = ["object_store", "files"] }
 vortex-parquet-variant = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 jni = { workspace = true, features = ["invocation"] }
 
 [lib]
-crate-type = ["staticlib", "cdylib"]
+# rlib is added so the read-boundary bench and the canonical-file generator example can link the
+# crate; staticlib/cdylib remain for the JNI native library.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bench]]
+name = "read_boundary"
+harness = false
 
 [lints]
 workspace = true
