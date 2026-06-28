@@ -23,6 +23,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::RunEnd;
+use crate::RunEndIndex;
 use crate::array::RunEndArrayExt;
 use crate::compute::take_from::RunEndTakeFrom;
 

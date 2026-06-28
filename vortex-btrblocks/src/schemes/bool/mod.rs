@@ -3,5 +3,8 @@
 
 //! Bool compression schemes.
 
+mod runend;
+
+pub use runend::BoolRunEndScheme;
 pub use vortex_compressor::builtins::BoolConstantScheme;
 pub use vortex_compressor::stats::BoolStats;

@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::search_sorted::SearchResult;
-use vortex_array::search_sorted::SearchSorted;
-use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::RunEndIndex;
 use crate::array::RunEndArrayExt;
+pub(crate) use crate::shared::find_slice_end_index;
 
 impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(
@@ -25,26 +22,6 @@ impl OperationsVTable<RunEnd> for RunEnd {
             .values()
             .execute_scalar(array.find_physical_index(index)?, ctx)
     }
-}
-
-/// Find the physical offset for and index that would be an end of the slice i.e., one past the last element.
-///
-/// If the index exists in the array we want to take that position (as we are searching from the right)
-/// otherwise we want to take the next one
-pub(crate) fn find_slice_end_index(array: &ArrayRef, index: usize) -> VortexResult<usize> {
-    let result = array
-        .as_primitive_typed()
-        .search_sorted(&PValue::from(index), SearchSortedSide::Right)?;
-    Ok(match result {
-        SearchResult::Found(i) => i,
-        SearchResult::NotFound(i) => {
-            if i == array.len() {
-                i
-            } else {
-                i + 1
-            }
-        }
-    })
 }
 
 #[cfg(test)]

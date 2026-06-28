@@ -10,6 +10,7 @@ use vortex_array::scalar_fn::fns::fill_null::FillNullReduce;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::RunEndIndex;
 use crate::array::RunEndArrayExt;
 
 impl FillNullReduce for RunEnd {

@@ -23,6 +23,7 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::RunEnd;
+use crate::RunEndIndex;
 use crate::array::RunEndArrayExt;
 use crate::iter::trimmed_ends_iter;
 

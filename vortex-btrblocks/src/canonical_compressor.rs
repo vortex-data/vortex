@@ -203,6 +203,30 @@ mod tests {
     }
 
     #[test]
+    fn test_run_heavy_bool_uses_runend() -> VortexResult<()> {
+        use vortex_runend_bool::RunEndBool;
+
+        // 10 runs of length 100 each = 1000 rows, alternating true/false.
+        let mut bits = Vec::with_capacity(1000);
+        for run in 0..10 {
+            bits.extend(std::iter::repeat_n(run % 2 == 0, 100));
+        }
+        let array = BoolArray::from(BitBuffer::from(bits));
+        let btr = BtrBlocksCompressor::default();
+        let compressed = btr.compress(
+            &array.clone().into_array(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        assert!(
+            compressed.is::<RunEndBool>(),
+            "expected RunEndBool, got {}",
+            compressed.encoding_id()
+        );
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[test]
     fn test_binary_constant_compressed() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let values = vec![Some(b"constant-bytes".as_slice()); 100];

@@ -9633,6 +9633,7 @@ dependencies = [
  "vortex-onpair",
  "vortex-pco",
  "vortex-runend",
+ "vortex-runend-bool",
  "vortex-sequence",
  "vortex-session",
  "vortex-sparse",
@@ -10011,6 +10012,7 @@ dependencies = [
  "vortex-onpair",
  "vortex-pco",
  "vortex-runend",
+ "vortex-runend-bool",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -10382,6 +10384,22 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
+ "vortex-session",
+]
+
+[[package]]
+name = "vortex-runend-bool"
+version = "0.1.0"
+dependencies = [
+ "itertools 0.14.0",
+ "num-traits",
+ "prost 0.14.4",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-runend",
  "vortex-session",
 ]
 

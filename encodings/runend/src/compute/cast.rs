@@ -10,6 +10,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::RunEndIndex;
 use crate::array::RunEndArrayExt;
 impl CastReduce for RunEnd {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

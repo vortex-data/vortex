@@ -1,32 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(feature = "arbitrary")]
-mod arbitrary;
-#[cfg(feature = "arbitrary")]
-pub use arbitrary::ArbitraryRunEndArray;
+//! Run-end encoding specialized for boolean arrays.
+//!
+//! Boolean runs strictly alternate, so a [`RunEndBoolArray`] stores only the run `ends`, the value
+//! of the first run (`start`), and an optional validity child, rather than a separate values array.
+
 pub use array::*;
-pub use iter::trimmed_ends_iter;
-pub use shared::*;
 
 mod array;
-#[cfg(feature = "arrow")]
-mod arrow;
 pub mod compress;
 mod compute;
-pub mod decompress_bool;
-mod iter;
 mod kernel;
 mod ops;
-mod rules;
-mod shared;
-
-#[doc(hidden)]
-pub mod _benchmarking {
-    pub use compute::take::take_indices_unchecked;
-
-    use super::*;
-}
 
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
@@ -37,55 +23,45 @@ use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
-/// Initialize run-end encoding in the given session.
+/// Initialize run-end bool encoding in the given session.
 pub fn initialize(session: &VortexSession) {
-    session.arrays().register(RunEnd);
-    kernel::initialize(session);
+    session.arrays().register(RunEndBool);
 
-    // Register the RunEnd-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd.id(),
+        RunEndBool.id(),
         Some(MinMax.id()),
-        &compute::min_max::RunEndMinMaxKernel,
+        &compute::min_max::RunEndBoolMinMaxKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd.id(),
+        RunEndBool.id(),
         Some(IsConstant.id()),
-        &compute::is_constant::RunEndIsConstantKernel,
+        &compute::is_constant::RunEndBoolIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        RunEnd.id(),
+        RunEndBool.id(),
         Some(IsSorted.id()),
-        &compute::is_sorted::RunEndIsSortedKernel,
+        &compute::is_sorted::RunEndBoolIsSortedKernel,
     );
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
-
     use prost::Message;
     use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
-    use vortex_session::VortexSession;
 
-    use crate::RunEndMetadata;
-
-    pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = vortex_array::array_session();
-        crate::initialize(&session);
-        session
-    });
+    use crate::RunEndBoolMetadata;
 
     #[cfg_attr(miri, ignore)]
     #[test]
-    fn test_runend_metadata() {
+    fn test_runend_bool_metadata() {
         check_metadata(
-            "runend.metadata",
-            &RunEndMetadata {
+            "runend_bool.metadata",
+            &RunEndBoolMetadata {
                 ends_ptype: PType::U64 as i32,
                 num_runs: u64::MAX,
                 offset: u64::MAX,
+                start: true,
             }
             .encode_to_vec(),
         );

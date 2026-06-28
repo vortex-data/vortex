@@ -13,6 +13,7 @@ use vortex::array::search_sorted::SearchSortedSide;
 use vortex::dtype::IntegerPType;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::runend::RunEndArrayExt;
+use vortex::encodings::runend::RunEndIndex;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
