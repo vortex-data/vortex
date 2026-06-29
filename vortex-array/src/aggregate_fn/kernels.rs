@@ -4,14 +4,19 @@
 //! Pluggable aggregate function kernels used to provide encoding-specific implementations of
 //! aggregate functions.
 
+use std::any::Any;
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::GroupIds;
 use crate::scalar::Scalar;
 
 /// A pluggable kernel for an aggregate function.
@@ -27,53 +32,110 @@ pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
     ) -> VortexResult<Option<Scalar>>;
 }
 
-/// Partial grouped aggregate output produced by an encoding-specific grouped kernel.
+/// A typed grouped aggregate kernel.
 ///
-/// `group_ids` is parallel to `partials`: each row in `partials` is a partial state for the
-/// corresponding dense group ordinal. The ids may repeat, omit, and reorder groups, but must be
-/// valid slots in the accumulator's `0..num_groups` range. The grouped accumulator merges this
-/// batch through `accumulate_partials`.
-#[derive(Clone, Debug)]
-pub struct GroupedAggregateKernelResult {
-    group_ids: Buffer<u32>,
-    partials: ArrayRef,
+/// Implementations receive the concrete aggregate options and typed partial state. Return
+/// `Ok(false)` when the kernel cannot handle the current values or group-id encodings.
+pub trait GroupedAggregateKernel<V: AggregateFnVTable>: 'static + Send + Sync + Debug {
+    /// Accumulate `batch` into `states` according to `group_ids`.
+    fn grouped_accumulate(
+        &self,
+        options: &V::Options,
+        states: &mut [V::Partial],
+        batch: &ArrayRef,
+        group_ids: &GroupIds,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool>;
 }
 
-impl GroupedAggregateKernelResult {
-    pub fn new(group_ids: Buffer<u32>, partials: ArrayRef) -> Self {
+/// Bridges a typed [`GroupedAggregateKernel`] to type-erased grouped kernel dispatch.
+pub struct GroupedAggregateKernelAdapter<V, K> {
+    kernel: K,
+    _phantom: PhantomData<fn() -> V>,
+}
+
+impl<V, K> GroupedAggregateKernelAdapter<V, K> {
+    /// Create a new adapter around `kernel`.
+    pub const fn new(kernel: K) -> Self {
         Self {
-            group_ids,
-            partials,
+            kernel,
+            _phantom: PhantomData,
         }
     }
+}
 
-    pub fn group_ids(&self) -> &[u32] {
-        self.group_ids.as_ref()
-    }
-
-    pub fn partials(&self) -> &ArrayRef {
-        &self.partials
+impl<V, K> Debug for GroupedAggregateKernelAdapter<V, K>
+where
+    V: AggregateFnVTable,
+    K: GroupedAggregateKernel<V>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GroupedAggregateKernelAdapter")
+            .field("kernel", &self.kernel)
+            .finish()
     }
 }
 
 /// A pluggable kernel for batch aggregation of many groups.
 ///
-/// A grouped kernel can be registered for an aggregate function regardless of input encoding, or
-/// for a specific aggregate function and array encoding. Encoding-specific kernels are matched on
-/// the values array, not on a pre-grouped list wrapper.
+/// A grouped kernel can be registered for an aggregate function regardless of input encodings, or
+/// for a specific aggregate function plus values and/or group-id encoding.
 ///
 /// Kernels receive the same dense group ordinals that the caller passed to the grouped accumulator
 /// and may aggregate directly in the encoded domain.
 ///
-/// Return `Ok(None)` if the kernel cannot be applied to the given aggregate function.
+/// Return `Ok(false)` if the kernel cannot be applied to the given aggregate function or input
+/// encodings.
 pub trait DynGroupedAggregateKernel: 'static + Send + Sync + Debug {
-    /// Aggregate values into a partial-state batch keyed by dense group ordinal.
-    fn grouped_aggregate(
+    /// Accumulate values into type-erased partial state.
+    fn grouped_accumulate(
         &self,
         aggregate_fn: &AggregateFnRef,
         batch: &ArrayRef,
-        group_ids: &[u32],
-        num_groups: usize,
+        group_ids: &GroupIds,
+        states: &mut dyn Any,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<GroupedAggregateKernelResult>>;
+    ) -> VortexResult<bool>;
+}
+
+impl<V, K> DynGroupedAggregateKernel for GroupedAggregateKernelAdapter<V, K>
+where
+    V: AggregateFnVTable,
+    K: GroupedAggregateKernel<V>,
+{
+    fn grouped_accumulate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        group_ids: &GroupIds,
+        states: &mut dyn Any,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let Some(options) = aggregate_fn.as_opt::<V>() else {
+            return Ok(false);
+        };
+
+        let Some(states) = states.downcast_mut::<Vec<V::Partial>>() else {
+            vortex_bail!(
+                "Grouped aggregate kernel for {} received incompatible partial state",
+                aggregate_fn.id()
+            );
+        };
+
+        vortex_ensure!(
+            states.len() >= group_ids.num_groups(),
+            "Grouped aggregate kernel for {} received {} partial states for {} groups",
+            aggregate_fn.id(),
+            states.len(),
+            group_ids.num_groups()
+        );
+
+        self.kernel.grouped_accumulate(
+            options,
+            &mut states[..group_ids.num_groups()],
+            batch,
+            group_ids,
+            ctx,
+        )
+    }
 }

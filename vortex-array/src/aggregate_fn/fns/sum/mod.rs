@@ -7,6 +7,7 @@ mod decimal;
 mod grouped;
 mod primitive;
 
+pub(crate) use grouped::SUM_GROUPED_KERNEL;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -281,30 +282,6 @@ impl AggregateFnVTable for Sum {
         Ok(())
     }
 
-    fn accumulate_grouped(
-        &self,
-        partials: &mut [Self::Partial],
-        batch: &Columnar,
-        group_ids: &[u32],
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        match batch {
-            Columnar::Canonical(Canonical::Primitive(p)) => {
-                grouped::accumulate_grouped_primitive(partials, p, group_ids, ctx)?;
-                Ok(true)
-            }
-            Columnar::Canonical(Canonical::Bool(b)) => {
-                grouped::accumulate_grouped_bool(partials, b, group_ids, ctx)?;
-                Ok(true)
-            }
-            // Decimal and constants still use the universal grouped fallback.
-            Columnar::Canonical(Canonical::Decimal(_)) | Columnar::Constant(_) => Ok(false),
-            Columnar::Canonical(_) => {
-                vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype())
-            }
-        }
-    }
-
     fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
         Ok(partials)
     }
@@ -439,6 +416,7 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::GroupIds;
     use crate::aggregate_fn::GroupedAccumulator;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::fns::sum::sum;
@@ -616,10 +594,10 @@ mod tests {
         num_groups: usize,
     ) -> VortexResult<ArrayRef> {
         let mut acc = GroupedAccumulator::try_new(Sum, EmptyOptions, values.dtype().clone())?;
+        let group_ids = GroupIds::from_iter(group_ids.iter().copied(), num_groups)?;
         acc.accumulate(
             values,
-            group_ids,
-            num_groups,
+            &group_ids,
             &mut LEGACY_SESSION.create_execution_ctx(),
         )?;
         acc.finish(num_groups)
@@ -689,14 +667,16 @@ mod tests {
 
         let values1 =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
-        acc.accumulate(&values1, &[0, 0, 1, 1], 2, &mut ctx)?;
+        let group_ids1 = GroupIds::from_iter([0u32, 0, 1, 1], 2)?;
+        acc.accumulate(&values1, &group_ids1, &mut ctx)?;
         let result1 = acc.finish(2)?;
 
         let expected1 = PrimitiveArray::from_option_iter([Some(3i64), Some(7i64)]).into_array();
         assert_arrays_eq!(&result1, &expected1);
 
         let values2 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
-        acc.accumulate(&values2, &[0, 0], 1, &mut ctx)?;
+        let group_ids2 = GroupIds::from_iter([0u32, 0], 1)?;
+        acc.accumulate(&values2, &group_ids2, &mut ctx)?;
         let result2 = acc.finish(1)?;
 
         let expected2 = PrimitiveArray::from_option_iter([Some(30i64)]).into_array();

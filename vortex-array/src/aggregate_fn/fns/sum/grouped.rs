@@ -9,6 +9,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use super::Sum;
 use super::SumPartial;
 use super::SumState;
 use super::checked_add_i64;
@@ -16,14 +17,54 @@ use super::checked_add_u64;
 use super::primitive::sum_float_all;
 use super::primitive::sum_signed_all;
 use super::primitive::sum_unsigned_all;
+use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::GroupIds;
+use crate::aggregate_fn::kernels::GroupedAggregateKernel;
+use crate::aggregate_fn::kernels::GroupedAggregateKernelAdapter;
+use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 
 const MIN_AVG_RUN_LENGTH_FOR_GROUPED_SUM_RUNS: usize = 4;
+
+pub(crate) static SUM_GROUPED_KERNEL: GroupedAggregateKernelAdapter<Sum, SumGroupedKernel> =
+    GroupedAggregateKernelAdapter::new(SumGroupedKernel);
+
+#[derive(Debug)]
+pub(crate) struct SumGroupedKernel;
+
+impl GroupedAggregateKernel<Sum> for SumGroupedKernel {
+    fn grouped_accumulate(
+        &self,
+        _options: &EmptyOptions,
+        partials: &mut [SumPartial],
+        batch: &ArrayRef,
+        group_ids: &GroupIds,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        if let Some(primitive) = batch.as_opt::<Primitive>() {
+            let group_ids = group_ids.validated_ids(ctx)?;
+            let primitive = primitive.into_owned();
+            accumulate_grouped_primitive(partials, &primitive, group_ids.as_ref(), ctx)?;
+            return Ok(true);
+        }
+
+        if let Some(bools) = batch.as_opt::<Bool>() {
+            let group_ids = group_ids.validated_ids(ctx)?;
+            let bools = bools.into_owned();
+            accumulate_grouped_bool(partials, &bools, group_ids.as_ref(), ctx)?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+}
 
 fn for_each_valid_idx(validity: &Mask, len: usize, mut f: impl FnMut(usize)) {
     match validity.indices() {

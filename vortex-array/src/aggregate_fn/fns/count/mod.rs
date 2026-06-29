@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod grouped;
+pub(crate) use grouped::COUNT_GROUPED_KERNEL;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -95,16 +96,6 @@ impl AggregateFnVTable for Count {
         Ok(true)
     }
 
-    fn try_accumulate_grouped(
-        &self,
-        states: &mut [Self::Partial],
-        batch: &ArrayRef,
-        group_ids: &[u32],
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
-        grouped::try_accumulate_grouped(states, batch, group_ids, ctx)
-    }
-
     fn accumulate(
         &self,
         _partial: &mut Self::Partial,
@@ -139,6 +130,7 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::GroupIds;
     use crate::aggregate_fn::GroupedAccumulator;
     use crate::aggregate_fn::fns::count::Count;
     use crate::arrays::ChunkedArray;
@@ -258,10 +250,10 @@ mod tests {
         num_groups: usize,
     ) -> VortexResult<ArrayRef> {
         let mut acc = GroupedAccumulator::try_new(Count, EmptyOptions, values.dtype().clone())?;
+        let group_ids = GroupIds::from_iter(group_ids.iter().copied(), num_groups)?;
         acc.accumulate(
             values,
-            group_ids,
-            num_groups,
+            &group_ids,
             &mut LEGACY_SESSION.create_execution_ctx(),
         )?;
         acc.finish(num_groups)
@@ -308,12 +300,29 @@ mod tests {
     }
 
     #[test]
+    fn grouped_count_constant_group_ids() -> VortexResult<()> {
+        let values =
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4)]).into_array();
+        let group_ids = GroupIds::new(ConstantArray::new(1u32, values.len()).into_array(), 3)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut acc = GroupedAccumulator::try_new(Count, EmptyOptions, values.dtype().clone())?;
+
+        acc.accumulate(&values, &group_ids, &mut ctx)?;
+        let actual = acc.finish(3)?;
+
+        let expected = PrimitiveArray::from_iter([0u64, 3, 0]).into_array();
+        assert_arrays_eq!(&actual, &expected);
+        Ok(())
+    }
+
+    #[test]
     fn grouped_count_rejects_out_of_range_group_id() -> VortexResult<()> {
         let values = PrimitiveArray::new(buffer![1i32, 2], Validity::NonNullable).into_array();
         let mut acc = GroupedAccumulator::try_new(Count, EmptyOptions, values.dtype().clone())?;
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let group_ids = GroupIds::from_iter([0u32, 2], 2)?;
 
-        assert!(acc.accumulate(&values, &[0, 2], 2, &mut ctx).is_err());
+        assert!(acc.accumulate(&values, &group_ids, &mut ctx).is_err());
         Ok(())
     }
 
@@ -324,7 +333,8 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let mut left = GroupedAccumulator::try_new(Count, EmptyOptions, dtype.clone())?;
-        left.accumulate_partials(&partials, &[0, 1, 1], 2, &mut ctx)?;
+        let group_ids = GroupIds::from_iter([0u32, 1, 1], 2)?;
+        left.accumulate_partials(&partials, &group_ids, &mut ctx)?;
 
         let mut right = GroupedAccumulator::try_new(Count, EmptyOptions, dtype)?;
         right.merge_group(0, &left, 1)?;
