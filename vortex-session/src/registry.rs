@@ -55,6 +55,7 @@ impl Id {
 }
 
 impl From<&str> for Id {
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     fn from(s: &str) -> Self {
         Self::new(s)
     }
@@ -136,8 +137,12 @@ impl CachedId {
 impl Deref for CachedId {
     type Target = Id;
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "CachedId interns its static id once here"
+    )]
     fn deref(&self) -> &Id {
-        self.cached.get_or_init(|| Id::new(self.s))
+        self.cached.get_or_init(|| Id::new_static(self.s))
     }
 }
 

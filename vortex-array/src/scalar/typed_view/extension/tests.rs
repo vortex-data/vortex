@@ -20,6 +20,7 @@ impl ExtVTable for TestI32Ext {
     type Metadata = EmptyMetadata;
     type NativeValue<'a> = &'a str;
 
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
     fn id(&self) -> ExtId {
         ExtId::new("test_ext")
     }
@@ -103,6 +104,7 @@ fn test_ext_scalar_partial_ord_different_types() {
         type Metadata = EmptyMetadata;
         type NativeValue<'a> = &'a str;
 
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
         fn id(&self) -> ExtId {
             ExtId::new("test_ext_2")
         }
@@ -285,6 +287,7 @@ fn test_ext_scalar_with_metadata() {
         type Metadata = usize;
         type NativeValue<'a> = &'a str;
 
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
         fn id(&self) -> ExtId {
             ExtId::new("test_ext_metadata")
         }

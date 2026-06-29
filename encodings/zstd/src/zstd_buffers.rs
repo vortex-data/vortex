@@ -348,6 +348,7 @@ fn compute_output_layout(
     (offsets, total_size)
 }
 
+#[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
 fn array_id_from_string(s: &str) -> ArrayId {
     ArrayId::new(s)
 }

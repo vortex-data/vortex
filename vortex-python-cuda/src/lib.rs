@@ -292,6 +292,7 @@ fn deserialize_metadata_tree(
         .map(|child| deserialize_metadata_tree(child, session))
         .collect::<VortexResult<Vec<_>>>()?;
     let children = MetadataChildren(children);
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     let encoding_id = ArrayId::new(&metadata.encoding_id);
     let plugin = session
         .arrays()

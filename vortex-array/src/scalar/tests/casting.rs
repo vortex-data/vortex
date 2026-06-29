@@ -32,6 +32,7 @@ mod tests {
         type Metadata = usize;
         type NativeValue<'a> = &'a str;
 
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
         fn id(&self) -> ExtId {
             ExtId::new("apples")
         }
@@ -247,6 +248,7 @@ mod tests {
             type Metadata = usize;
             type NativeValue<'a> = &'a str;
 
+            #[expect(clippy::disallowed_methods, reason = "test-only id")]
             fn id(&self) -> ExtId {
                 ExtId::new("f16_ext")
             }
@@ -304,6 +306,7 @@ mod tests {
             type Metadata = usize;
             type NativeValue<'a> = &'a str;
 
+            #[expect(clippy::disallowed_methods, reason = "test-only id")]
             fn id(&self) -> ExtId {
                 ExtId::new("struct_ext")
             }

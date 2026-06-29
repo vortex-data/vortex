@@ -314,6 +314,7 @@ impl ArrowSession {
     /// family, [`DataType::FixedSizeList`], [`DataType::Struct`]) so extension metadata
     /// on nested element/struct fields is preserved. Leaf types use the canonical
     /// Arrow → Vortex mapping via [`DType::try_from_arrow`].
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
         if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
             for plugin in self.importers(&Id::new(name)).iter() {
@@ -406,6 +407,7 @@ impl ArrowSession {
     ///
     /// With `target = None` the fallback path picks the array's preferred Arrow physical type
     /// and executes directly into that, ignoring extension types.
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     pub fn execute_arrow(
         &self,
         array: ArrayRef,
@@ -474,6 +476,7 @@ impl ArrowSession {
     /// through to the canonical Arrow → Vortex array conversion.
     pub fn from_arrow_array(&self, array: ArrowArrayRef, field: &Field) -> VortexResult<ArrayRef> {
         if let Some(extension_name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
+            #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
             let importers = self.importers(&Id::new(extension_name));
             if !importers.is_empty() {
                 let dtype = self.from_arrow_field(field)?;
