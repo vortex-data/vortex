@@ -9897,6 +9897,8 @@ dependencies = [
  "bzip2",
  "clap",
  "futures",
+ "geoarrow",
+ "geoarrow-cast",
  "get_dir",
  "glob",
  "humansize",

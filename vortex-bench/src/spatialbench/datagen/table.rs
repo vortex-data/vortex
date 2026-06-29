@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The shared SpatialBench table catalog: the single source of truth for the table set, consumed by
-//! both [`super::wkb`] data generation and benchmark table registration.
+//! The shared SpatialBench table catalog: one source of truth for the base tables, used by both the
+//! WKB generation ([`super::wkb`]) and the native geometry conversion ([`super::native`]).
 
 /// A SpatialBench table.
 #[derive(Clone, Copy)]
@@ -11,6 +11,20 @@ pub enum Table {
     Building,
     Customer,
     Zone,
+}
+
+/// A geometry column and the geometry type its WKB bytes decode to.
+pub(crate) struct GeometryColumn {
+    pub(crate) name: &'static str,
+    pub(crate) kind: GeometryKind,
+}
+
+/// Geometry types a column can decode to on the native lane.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum GeometryKind {
+    Point,
+    Polygon,
+    MultiPolygon,
 }
 
 impl Table {
@@ -32,13 +46,29 @@ impl Table {
         !matches!(self, Table::Zone)
     }
 
-    /// Geometry columns SpatialBench tables.
-    pub(crate) fn geometry_columns(self) -> &'static [&'static str] {
+    /// Geometry columns to decode from WKB to native, with their geometry type. Empty for tables with
+    /// no geometry (e.g. `customer`).
+    pub(crate) fn geometry_columns(self) -> &'static [GeometryColumn] {
         match self {
-            Table::Trip => &["t_pickuploc", "t_dropoffloc"],
-            Table::Building => &["b_boundary"],
-            Table::Zone => &["z_boundary"],
+            Table::Trip => &[
+                GeometryColumn {
+                    name: "t_pickuploc",
+                    kind: GeometryKind::Point,
+                },
+                GeometryColumn {
+                    name: "t_dropoffloc",
+                    kind: GeometryKind::Point,
+                },
+            ],
+            Table::Building => &[GeometryColumn {
+                name: "b_boundary",
+                kind: GeometryKind::Polygon,
+            }],
             Table::Customer => &[],
+            Table::Zone => &[GeometryColumn {
+                name: "z_boundary",
+                kind: GeometryKind::MultiPolygon,
+            }],
         }
     }
 }

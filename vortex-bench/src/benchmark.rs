@@ -3,6 +3,8 @@
 
 //! Core benchmark trait and types.
 
+use std::path::Path;
+
 use arrow_schema::Schema;
 use glob::Pattern;
 use url::Url;
@@ -46,6 +48,13 @@ pub trait Benchmark: Send + Sync {
     /// Format-specific benchmark binaries (like lance-bench, datafusion-bench, duckdb-bench) should
     /// call this method to ensure base data exists, then perform their own format conversion.
     async fn generate_base_data(&self) -> anyhow::Result<()>;
+
+    /// Prepare benchmark- and format-specific data beyond the Parquet base that
+    /// [`Benchmark::generate_base_data`] produced. Called once per requested format, after the base
+    /// data exists. Default: nothing.
+    async fn prepare_format(&self, _format: Format, _base_path: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     /// Get expected row counts for validation (optional)
     /// If None, no validation will be performed

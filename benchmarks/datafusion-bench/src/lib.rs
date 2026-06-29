@@ -111,10 +111,9 @@ pub fn format_to_df_format(format: Format) -> Arc<dyn FileFormat> {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Arrow => Arc::new(ArrowFormat),
         Format::Parquet => Arc::new(ParquetFormat::new()),
-        Format::OnDiskVortex | Format::VortexCompact => Arc::new(VortexFormat::new_with_options(
-            SESSION.clone(),
-            vortex_table_options(),
-        )),
+        Format::OnDiskVortex | Format::VortexCompact | Format::VortexNative => Arc::new(
+            VortexFormat::new_with_options(SESSION.clone(), vortex_table_options()),
+        ),
         Format::OnDiskDuckDB | Format::Lance => {
             unimplemented!("Format {format} cannot be turned into a DataFusion `FileFormat`")
         }

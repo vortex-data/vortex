@@ -167,9 +167,9 @@ pub(crate) fn geo_parquet_metadata(table: Table) -> Option<String> {
     let primary = geometry_columns.first()?;
     let columns: serde_json::Map<String, serde_json::Value> = geometry_columns
         .iter()
-        .map(|&column| {
+        .map(|column| {
             (
-                column.to_string(),
+                column.name.to_string(),
                 serde_json::json!({ "encoding": "WKB", "geometry_types": [] }),
             )
         })
@@ -177,7 +177,7 @@ pub(crate) fn geo_parquet_metadata(table: Table) -> Option<String> {
     Some(
         serde_json::json!({
             "version": "1.0.0",
-            "primary_column": primary,
+            "primary_column": primary.name,
             "columns": columns,
         })
         .to_string(),
