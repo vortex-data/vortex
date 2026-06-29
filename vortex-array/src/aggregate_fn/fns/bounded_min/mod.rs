@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -79,7 +80,8 @@ impl AggregateFnVTable for BoundedMin {
     type Partial = BoundedMinPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.bounded_min")
+        static ID: CachedId = CachedId::new("vortex.bounded_min");
+        *ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

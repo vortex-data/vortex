@@ -26,6 +26,7 @@ use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::extension::geometries;
 use crate::extension::single_geometry;
@@ -50,7 +51,8 @@ impl ScalarFnVTable for GeoDistance {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.geo.distance")
+        static ID: CachedId = CachedId::new("vortex.geo.distance");
+        *ID
     }
 
     fn serialize(&self, _: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

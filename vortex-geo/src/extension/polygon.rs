@@ -62,7 +62,8 @@ impl ExtVTable for Polygon {
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new_static("vortex.geo.polygon")
+        static ID: CachedId = CachedId::new("vortex.geo.polygon");
+        *ID
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

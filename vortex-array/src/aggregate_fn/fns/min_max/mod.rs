@@ -13,6 +13,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
+use vortex_session::registry::CachedId;
 
 use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
@@ -291,7 +292,8 @@ impl AggregateFnVTable for MinMax {
     type Partial = MinMaxPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.min_max")
+        static ID: CachedId = CachedId::new("vortex.min_max");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

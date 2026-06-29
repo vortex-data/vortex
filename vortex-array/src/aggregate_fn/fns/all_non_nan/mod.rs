@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -34,7 +35,8 @@ impl AggregateFnVTable for AllNonNan {
     type Partial = bool;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.all_non_nan")
+        static ID: CachedId = CachedId::new("vortex.all_non_nan");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
