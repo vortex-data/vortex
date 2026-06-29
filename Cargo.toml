@@ -36,6 +36,7 @@ members = [
     "vortex-ffi",
     "fuzz",
     "vortex-jni",
+    "vortex-python-abi",
     "vortex-python",
     "vortex-python-cuda",
     "vortex-tui",
