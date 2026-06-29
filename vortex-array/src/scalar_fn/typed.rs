@@ -100,7 +100,7 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
         ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>>;
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
-    fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
+    fn validity(&self, expression: &Expression) -> VortexResult<Expression>;
 
     // Options operations — self-contained
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>>;
@@ -208,7 +208,7 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::simplify_untyped(&self.vtable, &self.options, expression)
     }
 
-    fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
+    fn validity(&self, expression: &Expression) -> VortexResult<Expression> {
         V::validity(&self.vtable, &self.options, expression)
     }
 

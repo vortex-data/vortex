@@ -24,6 +24,7 @@ use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::zip_expr;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -153,6 +154,18 @@ impl ScalarFnVTable for Zip {
         }
 
         Ok(None)
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(zip_expr(
+            expression.child(2).clone(),
+            expression.child(0).validity()?,
+            expression.child(1).validity()?,
+        ))
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

@@ -18,6 +18,8 @@ use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::Expression;
+use vortex_array::expr::lit;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
@@ -240,6 +242,14 @@ impl ScalarFnVTable for RowSize {
             Validity::NonNullable,
         )?
         .into_array())
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(lit(true))
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

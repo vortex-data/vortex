@@ -126,10 +126,10 @@ impl ScalarFnVTable for FillNull {
         &self,
         _options: &Self::Options,
         expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Expression> {
         // After fill_null, the result validity depends on the fill value's nullability.
         // If fill_value is non-nullable, the result is always valid.
-        Ok(Some(expression.child(1).validity()?))
+        expression.child(1).validity()
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

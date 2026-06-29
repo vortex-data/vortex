@@ -18,6 +18,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::expr::Expression;
+use vortex_array::expr::lit;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
@@ -88,6 +90,14 @@ impl ScalarFnVTable for RowEncode {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         execute_row_encode(options, args, ctx)
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(lit(true))
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

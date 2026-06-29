@@ -20,6 +20,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::is_not_null;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
@@ -117,6 +118,14 @@ impl ScalarFnVTable for DynamicComparison {
             args.row_count(),
         )
         .into_array())
+    }
+
+    fn validity(
+        &self,
+        _dynamic: &DynamicComparisonExpr,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(is_not_null(expression.clone()))
     }
 
     // Defer to the child

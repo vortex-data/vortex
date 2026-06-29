@@ -33,6 +33,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::expr::Expression;
+use crate::expr::and;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::ListScalar;
@@ -119,6 +121,17 @@ impl ScalarFnVTable for ListContains {
         }
 
         compute_list_contains(&list_array, &value_array, ctx)
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(and(
+            expression.child(0).validity()?,
+            expression.child(1).validity()?,
+        ))
     }
 
     // Nullability matters for contains([], x) where x is false.

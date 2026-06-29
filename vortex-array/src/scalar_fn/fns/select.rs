@@ -232,6 +232,14 @@ impl ScalarFnVTable for Select {
         Ok(None)
     }
 
+    fn validity(
+        &self,
+        _selection: &FieldSelection,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        expression.child(0).validity()
+    }
+
     fn is_null_sensitive(&self, _instance: &FieldSelection) -> bool {
         true
     }

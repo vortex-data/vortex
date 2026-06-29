@@ -41,6 +41,7 @@ use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::Null;
 use crate::arrays::Primitive;
+use crate::arrays::ScalarFn;
 use crate::arrays::SliceArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
@@ -276,7 +277,7 @@ impl ArrayRef {
     /// Execute the array to extract a scalar at the given index.
     pub fn execute_scalar(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        if self.dtype().is_nullable() && self.is_invalid(index, ctx)? {
+        if self.dtype().is_nullable() && !self.is::<ScalarFn>() && self.is_invalid(index, ctx)? {
             return Ok(Scalar::null(self.dtype().clone()));
         }
         let scalar = self.0.data.execute_scalar(self, index, ctx)?;

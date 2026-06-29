@@ -147,11 +147,11 @@ impl ScalarFnVTable for Like {
         &self,
         _options: &Self::Options,
         expression: &Expression,
-    ) -> VortexResult<Option<Expression>> {
+    ) -> VortexResult<Expression> {
         tracing::warn!("Computing validity for LIKE expression");
         let child_validity = expression.child(0).validity()?;
         let pattern_validity = expression.child(1).validity()?;
-        Ok(Some(and(child_validity, pattern_validity)))
+        Ok(and(child_validity, pattern_validity))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

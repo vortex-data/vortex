@@ -26,6 +26,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
+use crate::expr::is_not_null;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -153,6 +154,14 @@ impl ScalarFnVTable for VariantGet {
 
         let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
         VariantArray::try_new(array, None).map(|array| array.into_array())
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(is_not_null(expression.clone()))
     }
 }
 

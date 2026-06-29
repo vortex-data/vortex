@@ -12,6 +12,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::expression::Expression;
+use crate::expr::is_not_null;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -75,6 +76,14 @@ impl ScalarFnVTable for Root {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         vortex_bail!("Root expression is not executable")
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(is_not_null(expression.clone()))
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

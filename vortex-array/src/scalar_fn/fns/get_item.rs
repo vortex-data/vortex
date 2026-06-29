@@ -20,6 +20,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
+use crate::expr::is_not_null;
 use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -183,6 +184,14 @@ impl ScalarFnVTable for GetItem {
         }
 
         Ok(None)
+    }
+
+    fn validity(
+        &self,
+        _field_name: &FieldName,
+        expression: &Expression,
+    ) -> VortexResult<Expression> {
+        Ok(is_not_null(expression.clone()))
     }
 
     // This will apply struct nullability field. We could add a dtype??

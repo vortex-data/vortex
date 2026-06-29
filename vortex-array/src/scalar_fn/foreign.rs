@@ -118,4 +118,15 @@ impl ScalarFnVTable for ForeignScalarFnVTable {
     ) -> VortexResult<ArrayRef> {
         vortex_bail!("Cannot execute unknown scalar function '{}'", self.id);
     }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Expression> {
+        vortex_bail!(
+            "Cannot compute validity for unknown scalar function '{}'",
+            self.id
+        );
+    }
 }
