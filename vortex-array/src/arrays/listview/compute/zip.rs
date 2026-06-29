@@ -96,16 +96,22 @@ impl ZipKernel for ListView {
             let offsets_out = offsets.spare_capacity_mut();
             let sizes_out = sizes.spare_capacity_mut();
 
-            // We matched `Mask::Values` above, so the bit buffer is materialized. Walk it as 64-bit
-            // chunks and branchlessly blend both sides per row, letting the compiler vectorize the
-            // inner select instead of mispredicting a data-dependent branch per element.
+            // We matched `Mask::Values` above, so the bit buffer is materialized. `unaligned_chunks`
+            // iterates faster than `chunks`: it exposes the byte-aligned body as a plain `&[u64]`
+            // with no per-word reshifting, isolating any bit misalignment into a leading `prefix`
+            // and trailing `suffix` word. We blend both sides branchlessly per row so the compiler
+            // vectorizes the inner select instead of mispredicting a data-dependent branch.
             let mask_bits = mask
                 .values()
                 .vortex_expect("mask is Mask::Values")
                 .bit_buffer();
-            let chunks = mask_bits.chunks();
+            let unaligned = mask_bits.unaligned_chunks();
+            // The prefix word's low `lead` bits are padding; shifting them out aligns row 0 to bit 0,
+            // after which every chunk and the suffix start cleanly on a row boundary.
+            let lead = unaligned.lead_padding();
 
-            let mut select_block = |word: u64, base: usize, end: usize| {
+            let mut select_block = |word: u64, base: usize, n: usize| {
+                let end = base + n;
                 // `if_false` views address the second half of the concatenated elements, so shift
                 // their offsets by `false_shift`; sizes are taken verbatim from the chosen side.
                 select_column(
@@ -125,14 +131,17 @@ impl ZipKernel for ListView {
             };
 
             let mut base = 0;
-            for word in chunks.iter() {
-                select_block(word, base, base + 64);
+            if let Some(prefix) = unaligned.prefix() {
+                let n = (64 - lead).min(len);
+                select_block(prefix >> lead, base, n);
+                base += n;
+            }
+            for &word in unaligned.chunks() {
+                select_block(word, base, 64);
                 base += 64;
             }
-
-            let remainder = chunks.remainder_len();
-            if remainder > 0 {
-                select_block(chunks.remainder_bits(), base, base + remainder);
+            if let Some(suffix) = unaligned.suffix() {
+                select_block(suffix, base, len - base);
             }
         }
 
@@ -450,6 +459,69 @@ mod tests {
             sizes.iter().copied().collect::<Buffer<u64>>().into_array(),
             Validity::NonNullable,
         );
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A mask whose bit buffer starts at a non-byte-aligned offset (here from slicing a bool array)
+    /// has non-zero `unaligned_chunks` lead padding, exercising the prefix word alongside the
+    /// aligned chunk body and the suffix.
+    #[test]
+    fn zip_handles_offset_mask() -> VortexResult<()> {
+        // 200 single-element lists per side: `if_true[i] = [i]`, `if_false[i] = [1000 + i]`. With a
+        // 3-bit lead offset the mask spans more than 16 bytes, so `unaligned_chunks` exposes a
+        // non-empty aligned `chunks` body between the prefix and suffix words.
+        let len = 200usize;
+        let true_elements: Vec<i32> = (0..len as i32).collect();
+        let false_elements: Vec<i32> = (0..len as i32).map(|i| 1000 + i).collect();
+        let offsets: Vec<u64> = (0..len as u64).collect();
+        let sizes: Vec<u64> = vec![1; len];
+
+        let single_element_view = |elements: &[i32]| {
+            list_view(
+                elements
+                    .iter()
+                    .copied()
+                    .collect::<Buffer<i32>>()
+                    .into_array(),
+                offsets
+                    .iter()
+                    .copied()
+                    .collect::<Buffer<u64>>()
+                    .into_array(),
+                sizes.iter().copied().collect::<Buffer<u64>>().into_array(),
+                Validity::NonNullable,
+            )
+        };
+        let if_true = single_element_view(&true_elements);
+        let if_false = single_element_view(&false_elements);
+
+        // Slice off the first `offset` bits so the mask's bit buffer keeps a sub-byte offset while
+        // remaining `len` rows long. A non-trivial pattern straddles the prefix/body and chunk
+        // boundaries within the sliced window.
+        let offset = 3usize;
+        let mask_bits: Vec<bool> = (0..offset + len)
+            .map(|i| i.is_multiple_of(3) || i == offset + 64)
+            .collect();
+        let mask = BoolArray::from_iter(mask_bits.iter().copied())
+            .into_array()
+            .slice(offset..offset + len)?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = mask.zip(if_true, if_false)?.execute::<ArrayRef>(&mut ctx)?;
+        assert!(result.is::<ListView>());
+
+        // Each row collapses to a single element: `i` when the sliced mask is set, else `1000 + i`.
+        let expected_elements: Vec<i32> = (0..len)
+            .map(|i| {
+                if mask_bits[offset + i] {
+                    i as i32
+                } else {
+                    1000 + i as i32
+                }
+            })
+            .collect();
+        let expected = single_element_view(&expected_elements);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
