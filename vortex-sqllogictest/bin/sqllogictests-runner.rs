@@ -73,8 +73,12 @@ fn drive_datafusion(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<
                 Arc::new(DefaultTableFactory::new()),
             )
             .with_file_formats(vec![factory]);
-        let session =
-            SessionContext::new_with_state(session_state_builder.build()).enable_url_table();
+        // The workspace builds `datafusion` without the `nested_expressions` feature, so array
+        // functions (e.g. `make_array`, `array_length`) are not registered by default. Register
+        // them explicitly so SLT files can construct and query list columns.
+        let mut session_state = session_state_builder.build();
+        datafusion_functions_nested::register_all(&mut session_state)?;
+        let session = SessionContext::new_with_state(session_state).enable_url_table();
 
         let mut runner = Runner::new(|| async {
             Ok(PathNormalizing::new(

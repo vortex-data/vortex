@@ -144,6 +144,7 @@ datafusion-datasource = { version = "54", default-features = false }
 datafusion-execution = { version = "54" }
 datafusion-expr = { version = "54" }
 datafusion-functions = { version = "54" }
+datafusion-functions-nested = { version = "54" }
 datafusion-physical-expr = { version = "54" }
 datafusion-physical-expr-adapter = { version = "54" }
 datafusion-physical-expr-common = { version = "54" }
