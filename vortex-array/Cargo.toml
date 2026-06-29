@@ -217,6 +217,10 @@ name = "primitive_zip"
 harness = false
 
 [[bench]]
+name = "listview_zip"
+harness = false
+
+[[bench]]
 name = "take_primitive"
 harness = false
 
