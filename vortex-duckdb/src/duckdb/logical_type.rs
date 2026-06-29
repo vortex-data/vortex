@@ -33,6 +33,7 @@ use crate::cpp::duckdb_union_type_member_count;
 use crate::cpp::duckdb_union_type_member_name;
 use crate::cpp::duckdb_union_type_member_type;
 use crate::cpp::duckdb_vx_create_geometry;
+use crate::cpp::duckdb_vx_logical_type_contains_128bit;
 use crate::cpp::duckdb_vx_logical_type_copy;
 use crate::cpp::duckdb_vx_logical_type_stringify;
 use crate::cpp::idx_t;
@@ -153,6 +154,14 @@ impl LogicalType {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_BLOB)
     }
 
+    pub fn uint8() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT)
+    }
+
+    pub fn uint16() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT)
+    }
+
     pub fn uint32() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER)
     }
@@ -163,6 +172,14 @@ impl LogicalType {
 
     pub fn uint128() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UHUGEINT)
+    }
+
+    pub fn int8() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_TINYINT)
+    }
+
+    pub fn int16() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT)
     }
 
     pub fn int32() -> Self {
@@ -232,6 +249,28 @@ impl LogicalTypeRef {
 
     pub fn is_decimal(&self) -> bool {
         matches!(self.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL)
+    }
+
+    /// true if this type maps to Primitive
+    pub fn is_primitive_numeric(&self) -> bool {
+        matches!(
+            self.as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TINYINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_INTEGER
+                | DUCKDB_TYPE::DUCKDB_TYPE_BIGINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER
+                | DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_FLOAT
+                | DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE
+        )
+    }
+
+    /// true if T is HUGEINT/UHUGEINT or child type e.g. LIST(T) contains huge ints.
+    pub fn contains_128bit(&self) -> bool {
+        unsafe { duckdb_vx_logical_type_contains_128bit(self.as_ptr()) }
     }
 
     pub fn geometry_crs(&self) -> Option<DDBString> {

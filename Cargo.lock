@@ -10469,6 +10469,7 @@ dependencies = [
  "sqllogictest",
  "thiserror 2.0.18",
  "tokio",
+ "tracing-subscriber",
  "vortex",
  "vortex-datafusion",
  "vortex-duckdb",

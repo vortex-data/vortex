@@ -264,6 +264,12 @@ typedef struct {
 
 void duckdb_vx_expr_get_bound_function(duckdb_vx_expr expr, duckdb_vx_expr_bound_function *out);
 
+duckdb_vx_expr duckdb_vx_expr_get_bound_cast_child(duckdb_vx_expr expr);
+
+bool duckdb_vx_expr_get_bound_cast_is_try(duckdb_vx_expr expr);
+
+bool duckdb_vx_logical_type_contains_128bit(duckdb_logical_type type);
+
 #ifdef __cplusplus /* End C ABI */
 }
 #endif

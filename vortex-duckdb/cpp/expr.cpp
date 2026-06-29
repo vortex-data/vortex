@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "expr.h"
+#include "duckdb/common/type_visitor.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/planner/expression/bound_between_expression.hpp"
+#include "duckdb/planner/expression/bound_cast_expression.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/planner/expression/bound_comparison_expression.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
@@ -128,4 +130,24 @@ extern "C" void duckdb_vx_expr_get_bound_function(duckdb_vx_expr ffi_expr,
     out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
     out->scalar_function = reinterpret_cast<duckdb_vx_sfunc>(&expr.function);
     out->bind_info = expr.bind_info.get();
+}
+
+extern "C" duckdb_vx_expr duckdb_vx_expr_get_bound_cast_child(duckdb_vx_expr ffi_expr) {
+    D_ASSERT(ffi_expr);
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundCastExpression>();
+    return reinterpret_cast<duckdb_vx_expr>(expr.child.get());
+}
+
+extern "C" bool duckdb_vx_expr_get_bound_cast_is_try(duckdb_vx_expr ffi_expr) {
+    D_ASSERT(ffi_expr);
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundCastExpression>();
+    return expr.try_cast;
+}
+
+extern "C" bool duckdb_vx_logical_type_contains_128bit(duckdb_logical_type ffi_type) {
+    D_ASSERT(ffi_type);
+    auto &type = *reinterpret_cast<LogicalType *>(ffi_type);
+    return TypeVisitor::Contains(type, [](const LogicalType &t) {
+        return t.id() == LogicalTypeId::HUGEINT || t.id() == LogicalTypeId::UHUGEINT;
+    });
 }
