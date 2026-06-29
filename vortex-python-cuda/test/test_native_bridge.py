@@ -10,14 +10,14 @@ import vortex
 def test_debug_array_metadata_dtype_reads_base_vortex_array():
     array = vortex.Array.from_range(range(0, 3))
 
-    assert vortex_cuda._debug_array_metadata_dtype(array) == str(array.dtype)
+    assert vortex_cuda._debug_array_metadata_dtype(array) == str(array.dtype)  # pyright: ignore[reportPrivateUsage]
 
 
 def test_metadata_bridge_reports_arrays_that_need_buffer_handoff():
     array = vortex.array([1, 2, 3])
 
     with pytest.raises(RuntimeError, match="metadata-only bridge.*buffers"):
-        _ = vortex_cuda._debug_array_metadata_dtype(array)
+        _ = vortex_cuda._debug_array_metadata_dtype(array)  # pyright: ignore[reportPrivateUsage]
 
 
 def test_export_device_array_returns_capsules_or_clean_cuda_error():

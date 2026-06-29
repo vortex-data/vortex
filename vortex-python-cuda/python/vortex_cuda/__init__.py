@@ -2,9 +2,9 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from ._lib import (  # pyright: ignore[reportMissingModuleSource]
-    _debug_array_metadata_dtype as _debug_array_metadata_dtype,
+    _debug_array_metadata_dtype as _debug_array_metadata_dtype,  # pyright: ignore[reportPrivateUsage]
 )
-from ._lib import (
+from ._lib import (  # pyright: ignore[reportMissingModuleSource]
     cuda_available,
     export_device_array,
 )
