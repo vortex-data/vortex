@@ -27,6 +27,7 @@ use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::root;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::Between;
 use vortex::scalar_fn::fns::between::BetweenOptions;
@@ -36,6 +37,9 @@ use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex_geo::extension::WellKnownBinary;
+use vortex_geo::extension::native_geometry_scalar_from_wkb;
+use vortex_geo::scalar_fn::distance::GeoDistance;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb;
@@ -55,6 +59,91 @@ fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
         BoundConstant(constant) => Ok(constant.value.as_string().as_str().to_owned()),
         _ => vortex_bail!("Expected string expression, got {:?}", value.as_class_id()),
     }
+}
+
+/// Read an `f64` from a constant expression (e.g. the `ST_DWithin` distance literal).
+fn from_bound_f64(value: &duckdb::ExpressionRef) -> VortexResult<f64> {
+    match value.as_class().vortex_expect("unknown class") {
+        BoundConstant(constant) => f64::try_from(&Scalar::try_from(constant.value)?),
+        _ => vortex_bail!("Expected f64 constant, got {:?}", value.as_class_id()),
+    }
+}
+
+/// Lower a geo operand: a `GEOMETRY` literal arrives as WKB, decoded once to its native type so the
+/// pushed `GeoDistance` stays native; a column ref recurses. `None` (unsupported type) skips push.
+fn geo_operand(
+    value: &duckdb::ExpressionRef,
+    col_sub: Option<&Expression>,
+) -> VortexResult<Option<Expression>> {
+    if let Some(BoundConstant(constant)) = value.as_class() {
+        let scalar = Scalar::try_from(constant.value)?;
+        let DType::Extension(ext_dtype) = scalar.dtype() else {
+            return Ok(None);
+        };
+        if !ext_dtype.is::<WellKnownBinary>() {
+            return Ok(None);
+        }
+        let storage = scalar.as_extension().to_storage_scalar();
+        let Some(buf) = storage.as_binary_opt().and_then(|b| b.value()) else {
+            return Ok(None);
+        };
+        return Ok(native_geometry_scalar_from_wkb(buf.as_slice())?.map(lit));
+    }
+    try_from_expression_inner(value, col_sub)
+}
+
+/// Lower geo UDFs to native Vortex geo ops so the work runs in the scan. `None` otherwise.
+fn try_from_geo_function(
+    name: &str,
+    func: &BoundFunction,
+    col_sub: Option<&Expression>,
+) -> VortexResult<Option<Expression>> {
+    // Catch-all for every bound function: reject non-geo names before touching the children.
+    if !is_geo_function(name) {
+        debug!("bound function {name}");
+        return Ok(None);
+    }
+    let children: Vec<_> = func.children().collect();
+    let expr = match name.to_ascii_lowercase().as_str() {
+        "vortex_dwithin" => {
+            if children.len() != 3 {
+                return Ok(None);
+            }
+            let Some(a) = geo_operand(children[0], col_sub)? else {
+                return Ok(None);
+            };
+            let Some(b) = geo_operand(children[1], col_sub)? else {
+                return Ok(None);
+            };
+            let distance = from_bound_f64(children[2])?;
+            let geo_distance = GeoDistance.new_expr(EmptyOptions, [a, b]);
+            Binary.new_expr(Operator::Lte, [geo_distance, lit(distance)])
+        }
+        "st_distance" => {
+            if children.len() != 2 {
+                return Ok(None);
+            }
+            let Some(a) = geo_operand(children[0], col_sub)? else {
+                return Ok(None);
+            };
+            let Some(b) = geo_operand(children[1], col_sub)? else {
+                return Ok(None);
+            };
+            GeoDistance.new_expr(EmptyOptions, [a, b])
+        }
+        _ => return Ok(None),
+    };
+
+    Ok(Some(expr))
+}
+
+/// Geo UDFs that `try_from_geo_function` lowers - shared with `can_push_expression` so the pushable
+/// and lowered sets can't drift.
+fn is_geo_function(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "vortex_dwithin" | "st_distance"
+    )
 }
 
 fn try_from_bound_function(
@@ -115,10 +204,8 @@ fn try_from_bound_function(
             };
             Like.new_expr(LikeOptions::default(), [value, lit(pattern)])
         }
-        _ => {
-            debug!("bound function {}", func.scalar_function.name());
-            return Ok(None);
-        }
+        // Geo UDFs are handled here.
+        name => return try_from_geo_function(name, func, col_sub),
     };
 
     Ok(Some(expr))
@@ -173,6 +260,7 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
                 || name == "~~"
                 || name == "!~~"
                 || name == "strlen"
+                || (is_geo_function(name) && func.children().all(can_push_expression))
         }
         ExpressionClass::BoundOperator(op) => {
             if !matches!(

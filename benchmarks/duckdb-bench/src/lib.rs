@@ -78,6 +78,11 @@ impl DuckClient {
         for stmt in &statements {
             self.connection().query(stmt)?;
         }
+        // After `LOAD spatial`, register `vortex_dwithin` so the radius filter pushes. No-op without it.
+        self.db
+            .as_ref()
+            .vortex_expect("DuckClient database accessed after close")
+            .register_geo_aliases()?;
         self.init_sql = statements;
         Ok(())
     }
@@ -127,6 +132,11 @@ impl DuckClient {
                 .vortex_expect("connection just opened")
                 .query(stmt)?;
         }
+        // Re-register `vortex_dwithin` against the fresh instance.
+        self.db
+            .as_ref()
+            .vortex_expect("database just opened")
+            .register_geo_aliases()?;
 
         Ok(())
     }

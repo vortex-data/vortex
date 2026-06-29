@@ -13,6 +13,10 @@ typedef struct duckdb_vx_sfunc_ *duckdb_vx_sfunc;
 
 const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func);
 
+/// Register `vortex_dwithin`, a non-throwing alias of the spatial extension's `ST_DWithin`, so the
+/// radius filter pushes into the Vortex scan.
+duckdb_state duckdb_vx_register_geo_aliases(duckdb_database ffi_db);
+
 typedef struct duckdb_vx_expr_ *duckdb_vx_expr;
 
 /// Return the string representation of the expression. Must be freed with `duckdb_free`.

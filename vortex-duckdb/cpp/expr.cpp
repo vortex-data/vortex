@@ -11,6 +11,15 @@
 #include "duckdb/planner/expression/bound_operator_expression.hpp"
 #include "duckdb/planner/expression/bound_conjunction_expression.hpp"
 
+#include "duckdb/catalog/catalog.hpp"
+#include "duckdb/catalog/catalog_entry/scalar_function_catalog_entry.hpp"
+#include "duckdb/main/capi/capi_internal.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/main/connection.hpp"
+#include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
+
+#include <exception>
+
 using namespace duckdb;
 
 extern "C" const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func) {
@@ -19,6 +28,40 @@ extern "C" const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func) {
     }
     auto func = reinterpret_cast<ScalarFunction *>(ffi_func);
     return func->name.c_str();
+}
+
+extern "C" duckdb_state duckdb_vx_register_geo_aliases(duckdb_database ffi_db) {
+    if (!ffi_db) {
+        return DuckDBError;
+    }
+    const DatabaseWrapper &wrapper = *reinterpret_cast<DatabaseWrapper *>(ffi_db);
+    try {
+        Connection conn(*wrapper.database->instance);
+        ClientContext &context = *conn.context;
+        context.RunFunctionInTransaction([&]() {
+            auto &catalog = Catalog::GetSystemCatalog(context);
+            auto &entry = catalog.GetEntry<ScalarFunctionCatalogEntry>(
+                context, DEFAULT_SCHEMA, "st_dwithin");
+            // Copy each ST_DWithin overload to a non-throwing `vortex_dwithin` so DuckDB will push it.
+            ScalarFunctionSet set("vortex_dwithin");
+            for (const auto &overload : entry.functions.functions) {
+                ScalarFunction copy = overload;
+                copy.name = "vortex_dwithin";
+                copy.SetErrorMode(FunctionErrors::CANNOT_ERROR);
+                // Clear the bind so the radius stays as children[2] for the Vortex converter
+                // (ST_DWithin's bind folds it into bind_data). vortex_dwithin is only pushed, never run.
+                copy.bind = nullptr;
+                set.AddFunction(copy);
+            }
+            CreateScalarFunctionInfo info(std::move(set));
+            info.on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
+            catalog.CreateFunction(context, info);
+        });
+    } catch (const std::exception &) {
+        // No `spatial` loaded, so there is no `ST_DWithin` to alias; nothing to register.
+        return DuckDBSuccess;
+    }
+    return DuckDBSuccess;
 }
 
 extern "C" const char *duckdb_vx_expr_to_string(duckdb_vx_expr ffi_expr) {
