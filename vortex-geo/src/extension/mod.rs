@@ -210,8 +210,7 @@ mod tests {
         assert_eq!(decoded, meta);
     }
 
-    /// A little-endian WKB `POINT` literal decodes to the native `Point` extension scalar (the Q1
-    /// fast-path operand).
+    /// A little-endian WKB `POINT` literal decodes to the native `Point` extension scalar.
     #[test]
     fn decodes_wkb_point_to_native() -> VortexResult<()> {
         let mut wkb = vec![1u8]; // little-endian byte order
@@ -227,8 +226,7 @@ mod tests {
         Ok(())
     }
 
-    /// A little-endian WKB `POLYGON` literal decodes to the native `Polygon` extension scalar (the Q3
-    /// point→polygon operand), proving the literal decode is not point-only.
+    /// A little-endian WKB `POLYGON` literal decodes to the native `Polygon` extension scalar.
     #[test]
     fn decodes_wkb_polygon_to_native() -> VortexResult<()> {
         let ring = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (0.0, 0.0)];

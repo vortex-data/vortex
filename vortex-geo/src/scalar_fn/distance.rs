@@ -111,7 +111,7 @@ impl ScalarFnVTable for GeoDistance {
                     a.len(),
                     b.len()
                 );
-                // Fast path: two Point columns — distance straight over their `x`/`y` f64 buffers.
+                // Fast path: two Point columns, distance straight over their `x`/`y` f64 buffers.
                 if is_nonnull_point(a.dtype()) && is_nonnull_point(b.dtype()) {
                     let (xa, ya) = point_xy(&a, ctx)?;
                     let (xb, yb) = point_xy(&b, ctx)?;
@@ -138,7 +138,7 @@ fn distances_to_constant(
     query: &Scalar,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    // Fast path: Point column vs constant Point — `x`/`y` f64 buffers, broadcasting the constant.
+    // Fast path: Point column vs constant Point, `x`/`y` f64 buffers, broadcasting the constant.
     if is_nonnull_point(operand.dtype()) && is_point(query.dtype()) {
         let q = coordinate_from_struct(&query.as_extension().to_storage_scalar())?;
         let (xs, ys) = point_xy(operand, ctx)?;
@@ -178,7 +178,7 @@ fn point_xy(
     Ok((xs, ys))
 }
 
-/// Per-row planar distance `sqrt(dx² + dy²)` over two `(x, y)` f64 streams; a constant side is fed
+/// Per-row planar distance `sqrt(dx^2 + dy^2)` over two `(x, y)` f64 streams; a constant side is fed
 /// as `repeat(c)`.
 fn point_distances(
     xa: impl Iterator<Item = f64>,
@@ -200,7 +200,7 @@ fn is_point(dtype: &DType) -> bool {
         .is_some_and(|ext| ext.is::<Point>())
 }
 
-/// A non-nullable native `Point` — a column operand the fast path can read straight from `x`/`y`.
+/// A non-nullable native `Point`, a column operand the fast path can read straight from `x`/`y`.
 fn is_nonnull_point(dtype: &DType) -> bool {
     is_point(dtype) && !dtype.is_nullable()
 }

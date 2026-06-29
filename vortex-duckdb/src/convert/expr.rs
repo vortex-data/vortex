@@ -137,7 +137,7 @@ fn try_from_geo_function(
     Ok(Some(expr))
 }
 
-/// Geo UDFs that `try_from_geo_function` lowers — shared with `can_push_expression` so the pushable
+/// Geo UDFs that `try_from_geo_function` lowers - shared with `can_push_expression` so the pushable
 /// and lowered sets can't drift.
 fn is_geo_function(name: &str) -> bool {
     matches!(

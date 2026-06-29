@@ -58,7 +58,7 @@ extern "C" duckdb_state duckdb_vx_register_geo_aliases(duckdb_database ffi_db) {
             catalog.CreateFunction(context, info);
         });
     } catch (const std::exception &) {
-        // No `spatial` loaded → no `ST_DWithin` to alias; nothing to register.
+        // No `spatial` loaded, so there is no `ST_DWithin` to alias; nothing to register.
         return DuckDBSuccess;
     }
     return DuckDBSuccess;

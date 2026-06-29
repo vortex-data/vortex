@@ -237,7 +237,7 @@ fn strip_wkb_wrappers(sql: &str) -> String {
 
 /// Rewrite `ST_DWithin(..)` calls with a geometry literal operand (`ST_GeomFromText`) to the
 /// `vortex_dwithin` alias; leave the rest as `ST_DWithin`. `vortex_dwithin` is only correct when it
-/// pushes (its bind is cleared), and only single-table filters against a literal push — a join (two
+/// pushes (its bind is cleared), and only single-table filters against a literal push - a join (two
 /// columns) does not, so it must keep `ST_DWithin`.
 fn route_pushable_dwithin(sql: &str) -> String {
     const OPEN: &str = "ST_DWithin(";
