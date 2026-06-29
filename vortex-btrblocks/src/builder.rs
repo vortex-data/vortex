@@ -161,6 +161,21 @@ impl BtrBlocksCompressorBuilder {
         builder
     }
 
+    /// Same as with_compact() but ZstdBuffers is used instead of Zstd
+    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+    pub fn with_compact_buffers(self) -> Self {
+        let builder = self
+            .with_new_scheme(&string::ZstdBuffersScheme)
+            .with_new_scheme(&binary::ZstdBuffersScheme);
+
+        #[cfg(feature = "pco")]
+        let builder = builder
+            .with_new_scheme(&integer::PcoScheme)
+            .with_new_scheme(&float::PcoScheme);
+
+        builder
+    }
+
     /// Excludes schemes without CUDA kernel support and adds Zstd for string and binary compression.
     ///
     /// With the `unstable_encodings` feature, buffer-level Zstd compression is used which

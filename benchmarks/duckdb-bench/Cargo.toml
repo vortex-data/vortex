@@ -27,7 +27,7 @@ vortex-duckdb = { workspace = true }
 
 [features]
 cuda = ["dep:vortex-cuda"]
-unstable_encodings = ["vortex/unstable_encodings"]
+unstable_encodings = ["vortex/unstable_encodings", "vortex-bench/unstable_encodings"]
 
 [lints]
 workspace = true

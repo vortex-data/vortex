@@ -235,11 +235,17 @@ pub enum CompactionStrategy {
 impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
         match self {
-            CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::default()
-                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
-                    .build(),
-            ),
+            CompactionStrategy::Compact => {
+                #[cfg(feature = "unstable_encodings")]
+                let btrblocks = BtrBlocksCompressorBuilder::default().with_compact_buffers();
+                #[cfg(not(feature = "unstable_encodings"))]
+                let btrblocks = BtrBlocksCompressorBuilder::default().with_compact();
+                options.with_strategy(
+                    WriteStrategyBuilder::default()
+                        .with_btrblocks_builder(btrblocks)
+                        .build(),
+                )
+            }
             CompactionStrategy::Default => options,
         }
     }
