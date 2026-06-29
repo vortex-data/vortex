@@ -23,6 +23,11 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
 use crate::CudaDeviceBuffer;
+use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
+
+// cuDF imports Arrow validity masks into padded buffers and kernels may read through that
+// padded extent. Keep copied device buffers padded and zero-tailed so Arrow validity exports
+// can safely reuse matching bitmaps without repacking.
 
 #[derive(Clone)]
 pub struct VortexCudaStream(pub(crate) Arc<CudaStream>);
@@ -68,8 +73,8 @@ impl VortexCudaStream {
     /// (guaranteed by the returned future capturing it).
     ///
     /// The returned [`BufferHandle`] keeps the source byte length, while its
-    /// CUDA allocation may include zeroed tail padding. This is needed for
-    /// Arrow validity buffers passed to cuDF, which reads masks as 32-bit words.
+    /// CUDA allocation may include zeroed tail padding for consumers such as cuDF
+    /// that read validity masks through padded extents.
     pub(crate) fn copy_to_device<T, D>(
         &self,
         data: D,
@@ -90,7 +95,8 @@ impl VortexCudaStream {
 
         zero_padding(self, &mut cuda_slice, host_slice.len())?;
 
-        let cuda_buf = CudaDeviceBuffer::new(cuda_slice);
+        // `zero_padding` zeroed all allocation bytes after `byte_count`.
+        let cuda_buf = CudaDeviceBuffer::new_with_zeroed_tail(cuda_slice, byte_count)?;
         let buffer = BufferHandle::new_device(Arc::new(cuda_buf)).slice(0..byte_count);
         let stream = Arc::clone(&self.0);
 
@@ -131,29 +137,30 @@ impl VortexCudaStream {
 
         zero_padding(self, &mut cuda_slice, data.len())?;
 
-        let cuda_buf = CudaDeviceBuffer::new(cuda_slice);
+        // `zero_padding` zeroed all allocation bytes after `byte_count`.
+        let cuda_buf = CudaDeviceBuffer::new_with_zeroed_tail(cuda_slice, byte_count)?;
         Ok(BufferHandle::new_device(Arc::new(cuda_buf)).slice(0..byte_count))
     }
 }
 
 /// Returns the typed CUDA allocation length for `byte_count`.
 ///
-/// The backing allocation is padded for cuDF's 32-bit validity mask reads.
-/// The returned length is in `T` elements.
+/// The backing allocation is padded for consumers such as cuDF that read validity masks
+/// through padded extents. The returned length is in `T` elements.
 fn padded_device_allocation_len<T>(byte_count: usize) -> VortexResult<usize> {
     let element_size = size_of::<T>();
     vortex_ensure!(
         element_size != 0,
         "cannot copy zero-sized values to CUDA device"
     );
-    let min_allocation_bytes = byte_count.next_multiple_of(size_of::<u32>());
+    let min_allocation_bytes = byte_count.next_multiple_of(CUDF_VALIDITY_BUFFER_PADDING);
     Ok(min_allocation_bytes.div_ceil(element_size))
 }
 
 /// Zeroes the allocation tail after the copied values.
 ///
 /// Returned handles are sliced to the copied byte count; the trailing padding
-/// exists so a final 32-bit mask read stays within the backing allocation.
+/// exists so padded mask reads stay within the backing allocation.
 fn zero_padding<T: DeviceRepr + ValidAsZeroBits>(
     stream: &VortexCudaStream,
     cuda_slice: &mut CudaSlice<T>,
@@ -250,19 +257,38 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
 
 #[cfg(test)]
 mod tests {
+    use std::mem::size_of;
+
     use vortex::error::VortexResult;
 
     use super::padded_device_allocation_len;
     use crate::CudaSession;
+    use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
+    use crate::device_buffer::cuda_backing_allocation;
 
     #[test]
     fn test_padded_device_allocation_len() -> VortexResult<()> {
         assert_eq!(padded_device_allocation_len::<u8>(0)?, 0);
-        assert_eq!(padded_device_allocation_len::<u8>(1)?, 4);
-        assert_eq!(padded_device_allocation_len::<u8>(4)?, 4);
-        assert_eq!(padded_device_allocation_len::<u8>(5)?, 8);
-        assert_eq!(padded_device_allocation_len::<u32>(1)?, 1);
-        assert_eq!(padded_device_allocation_len::<u32>(5)?, 2);
+        assert_eq!(
+            padded_device_allocation_len::<u8>(1)?,
+            CUDF_VALIDITY_BUFFER_PADDING
+        );
+        assert_eq!(
+            padded_device_allocation_len::<u8>(4)?,
+            CUDF_VALIDITY_BUFFER_PADDING
+        );
+        assert_eq!(
+            padded_device_allocation_len::<u8>(5)?,
+            CUDF_VALIDITY_BUFFER_PADDING
+        );
+        assert_eq!(
+            padded_device_allocation_len::<u32>(1)?,
+            CUDF_VALIDITY_BUFFER_PADDING / size_of::<u32>()
+        );
+        assert_eq!(
+            padded_device_allocation_len::<u32>(5)?,
+            CUDF_VALIDITY_BUFFER_PADDING / size_of::<u32>()
+        );
         Ok(())
     }
 
@@ -275,6 +301,12 @@ mod tests {
         let host = handle.try_to_host()?.await?;
         assert_eq!(host.as_slice(), &[0xab]);
 
+        let backing = cuda_backing_allocation(&handle)?;
+        assert_eq!(backing.len(), CUDF_VALIDITY_BUFFER_PADDING);
+        let backing_host = backing.try_to_host()?.await?;
+        assert_eq!(backing_host[0], 0xab);
+        assert!(backing_host[1..].iter().all(|byte| *byte == 0));
+
         Ok(())
     }
 
@@ -286,6 +318,12 @@ mod tests {
         assert_eq!(handle.len(), 5);
         let host = handle.try_to_host()?.await?;
         assert_eq!(host.as_slice(), &[1, 2, 3, 4, 5]);
+
+        let backing = cuda_backing_allocation(&handle)?;
+        assert_eq!(backing.len(), CUDF_VALIDITY_BUFFER_PADDING);
+        let backing_host = backing.try_to_host()?.await?;
+        assert_eq!(&backing_host[..5], &[1, 2, 3, 4, 5]);
+        assert!(backing_host[5..].iter().all(|byte| *byte == 0));
 
         Ok(())
     }

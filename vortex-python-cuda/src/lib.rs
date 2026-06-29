@@ -461,6 +461,84 @@ fn release_exported(exported: &mut ArrowDeviceArrayWithSchema) {
     release_device_array(&mut exported.array);
 }
 
+/// Return non-owning details from Arrow Device capsules for Python-side smoke consumers.
+#[pyfunction]
+fn _debug_arrow_device_array_capsule_summary<'py>(
+    py: Python<'py>,
+    schema: Bound<'py, PyCapsule>,
+    device_array: Bound<'py, PyCapsule>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let schema = unsafe {
+        schema
+            .pointer_checked(Some(ARROW_SCHEMA_CAPSULE_NAME))?
+            .cast::<FFI_ArrowSchema>()
+            .as_ref()
+    };
+    let device_array = unsafe {
+        device_array
+            .pointer_checked(Some(ARROW_DEVICE_ARRAY_CAPSULE_NAME))?
+            .cast::<ArrowDeviceArray>()
+            .as_ref()
+    };
+
+    let summary = PyDict::new(py);
+    summary.set_item("schema_live", schema.release.is_some())?;
+    summary.set_item("array_live", device_array.array.release.is_some())?;
+    summary.set_item("is_cuda", device_array.device_type == ARROW_DEVICE_CUDA)?;
+    summary.set_item("device_type", device_array.device_type)?;
+    summary.set_item("device_id", device_array.device_id)?;
+    summary.set_item("length", device_array.array.length)?;
+    summary.set_item("null_count", device_array.array.null_count)?;
+    summary.set_item("n_buffers", device_array.array.n_buffers)?;
+    summary.set_item("n_children", device_array.array.n_children)?;
+    Ok(summary)
+}
+
+/// Simulate a Python Arrow Device consumer taking ownership from the returned capsules.
+#[pyfunction]
+fn _debug_consume_arrow_device_array_capsules(
+    schema: Bound<'_, PyCapsule>,
+    device_array: Bound<'_, PyCapsule>,
+) -> PyResult<(bool, bool, bool, bool, bool, bool)> {
+    let mut schema_ptr = schema
+        .pointer_checked(Some(ARROW_SCHEMA_CAPSULE_NAME))?
+        .cast::<FFI_ArrowSchema>();
+    let mut device_array_ptr = device_array
+        .pointer_checked(Some(ARROW_DEVICE_ARRAY_CAPSULE_NAME))?
+        .cast::<ArrowDeviceArray>();
+
+    let schema_ref = unsafe { schema_ptr.as_mut() };
+    let device_array_ref = unsafe { device_array_ptr.as_mut() };
+    let schema_had_release = schema_ref.release.is_some();
+    let array_had_release = device_array_ref.array.release.is_some();
+
+    release_schema(schema_ref);
+    release_device_array(device_array_ref);
+
+    let schema_release_cleared = schema_ref.release.is_none();
+    let array_release_cleared = device_array_ref.array.release.is_none();
+
+    set_capsule_name(&schema, USED_ARROW_SCHEMA_CAPSULE_NAME)?;
+    set_capsule_name(&device_array, USED_ARROW_DEVICE_ARRAY_CAPSULE_NAME)?;
+
+    Ok((
+        schema_had_release,
+        array_had_release,
+        schema_release_cleared,
+        array_release_cleared,
+        schema.is_valid_checked(Some(USED_ARROW_SCHEMA_CAPSULE_NAME)),
+        device_array.is_valid_checked(Some(USED_ARROW_DEVICE_ARRAY_CAPSULE_NAME)),
+    ))
+}
+
+fn set_capsule_name(capsule: &Bound<'_, PyCapsule>, name: &CStr) -> PyResult<()> {
+    let result = unsafe { ffi::PyCapsule_SetName(capsule.as_ptr(), name.as_ptr()) };
+    if result != 0 {
+        return Err(PyErr::fetch(capsule.py()));
+    }
+    Ok(())
+}
+
 fn schema_capsule<'py>(
     py: Python<'py>,
     schema: FFI_ArrowSchema,
@@ -573,6 +651,14 @@ fn _lib(m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cuda_available, m)?)?;
     m.add_function(wrap_pyfunction!(_debug_array_metadata_dtype, m)?)?;
     m.add_function(wrap_pyfunction!(_debug_array_metadata_display_values, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        _debug_arrow_device_array_capsule_summary,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        _debug_consume_arrow_device_array_capsules,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(export_device_array, m)?)?;
     Ok(())
 }
