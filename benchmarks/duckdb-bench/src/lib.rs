@@ -169,7 +169,10 @@ impl DuckClient {
         file_format: Format,
     ) -> Result<()> {
         let object_type = match file_format {
-            Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => "VIEW",
+            Format::Parquet
+            | Format::OnDiskVortex
+            | Format::VortexCompact
+            | Format::VortexNative => "VIEW",
             Format::OnDiskDuckDB => "TABLE",
             Format::Lance => {
                 anyhow::bail!(

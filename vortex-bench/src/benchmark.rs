@@ -3,6 +3,8 @@
 
 //! Core benchmark trait and types.
 
+use std::path::Path;
+
 use arrow_schema::Schema;
 use glob::Pattern;
 use url::Url;
@@ -33,6 +35,11 @@ pub trait Benchmark: Send + Sync {
     /// Get all available queries for this benchmark
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>>;
 
+    /// Adapt a query to a specific storage `format` before execution. Default: unchanged.
+    fn query_for_format(&self, query: &str, _format: Format) -> String {
+        query.to_string()
+    }
+
     /// SQL an `engine` must run before this benchmark's queries (e.g. loading engine
     /// extensions). Runners replay these after every (re)open. Default: none.
     fn engine_init_sql(&self, _engine: Engine) -> Vec<String> {
@@ -46,6 +53,13 @@ pub trait Benchmark: Send + Sync {
     /// Format-specific benchmark binaries (like lance-bench, datafusion-bench, duckdb-bench) should
     /// call this method to ensure base data exists, then perform their own format conversion.
     async fn generate_base_data(&self) -> anyhow::Result<()>;
+
+    /// Prepare benchmark- and format-specific data beyond the Parquet base that
+    /// [`Benchmark::generate_base_data`] produced. Called once per requested format, after the base
+    /// data exists. Default: nothing.
+    async fn prepare_format(&self, _format: Format, _base_path: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     /// Get expected row counts for validation (optional)
     /// If None, no validation will be performed
@@ -79,5 +93,11 @@ pub trait Benchmark: Send + Sync {
         _ = table_name;
         _ = format;
         None
+    }
+
+    /// SQL projection substituted into `SELECT {..} FROM read_<fmt>(..)` when registering
+    /// `table_name` as a DuckDB view. Defaults to `*`.
+    fn view_projection(&self, _table_name: &str, _format: Format) -> String {
+        "*".to_string()
     }
 }
