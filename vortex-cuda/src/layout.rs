@@ -65,6 +65,7 @@ use vortex::scalar::ScalarTruncation;
 use vortex::scalar::lower_bound;
 use vortex::scalar::upper_bound;
 use vortex::session::VortexSession;
+use vortex::session::registry::CachedId;
 use vortex::session::registry::ReadContext;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::utils::aliases::hash_set::HashSet;
@@ -131,7 +132,8 @@ impl VTable for CudaFlat {
     type Metadata = ProstMetadata<CudaFlatLayoutMetadata>;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new("vortex.cuda_flat")
+        static ID: CachedId = CachedId::new("vortex.cuda_flat");
+        *ID
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {

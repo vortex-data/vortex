@@ -13,6 +13,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_session::registry::CachedId;
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -114,7 +115,8 @@ impl ExtVTable for Timestamp {
     type NativeValue<'a> = TimestampValue<'a>;
 
     fn id(&self) -> ExtId {
-        ExtId::new("vortex.timestamp")
+        static ID: CachedId = CachedId::new("vortex.timestamp");
+        *ID
     }
 
     // NOTE(ngates): unfortunately we're stuck with this hand-rolled serialization format for

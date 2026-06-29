@@ -11,6 +11,7 @@ use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_session::registry::CachedId;
 
 /// JSON logical type backed by UTF-8 string storage.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -21,7 +22,8 @@ impl ExtVTable for Json {
     type NativeValue<'a> = &'a str;
 
     fn id(&self) -> ExtId {
-        ExtId::new("vortex.json")
+        static ID: CachedId = CachedId::new("vortex.json");
+        *ID
     }
 
     fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

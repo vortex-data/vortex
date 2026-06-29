@@ -7,6 +7,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
+use vortex_session::registry::CachedId;
 
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -27,7 +28,8 @@ impl ExtVTable for Uuid {
     type NativeValue<'a> = uuid::Uuid;
 
     fn id(&self) -> ExtId {
-        ExtId::new("vortex.uuid")
+        static ID: CachedId = CachedId::new("vortex.uuid");
+        *ID
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
