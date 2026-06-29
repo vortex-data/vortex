@@ -243,8 +243,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
@@ -273,6 +273,7 @@ mod tests {
     /// `zip` of two list views selects whole lists per the mask and keeps the list encoding.
     #[test]
     fn zip_selects_lists() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // [[1, 2], [3], [4, 5, 6]]
         let if_true = list_view(
             buffer![1i32, 2, 3, 4, 5, 6].into_array(),
@@ -289,7 +290,6 @@ mod tests {
         );
         let mask = Mask::from_iter([true, false, true]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -312,6 +312,7 @@ mod tests {
     /// `zip` selects list-level validity from the chosen side and widens nullability.
     #[test]
     fn zip_selects_validity() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // [[1], null, [2]] (list-level nulls)
         let if_true = list_view(
             buffer![1i32, 2].into_array(),
@@ -329,7 +330,6 @@ mod tests {
         // true -> if_true, false -> if_false
         let mask = Mask::from_iter([false, true, true]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -350,6 +350,7 @@ mod tests {
     /// is nullable.
     #[test]
     fn zip_out_of_order_offsets_and_widening() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // [[5, 6], [7], [8, 9]] expressed with out-of-order offsets.
         let if_true = list_view(
             buffer![7i32, 8, 9, 5, 6].into_array(),
@@ -366,7 +367,6 @@ mod tests {
         );
         let mask = Mask::from_iter([true, true, false]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -388,6 +388,7 @@ mod tests {
     /// loop and the trailing remainder, including the `false_shift` applied to `if_false` views.
     #[test]
     fn zip_spans_multiple_mask_chunks() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // 130 single-element lists per side: `if_true[i] = [i]`, `if_false[i] = [1000 + i]`.
         let len = 130usize;
         let true_elements: Vec<i32> = (0..len as i32).collect();
@@ -428,7 +429,6 @@ mod tests {
         let mask_bits: Vec<bool> = (0..len).map(|i| i.is_multiple_of(3) || i == 64).collect();
         let mask = Mask::from_iter(mask_bits.iter().copied());
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
@@ -468,6 +468,7 @@ mod tests {
     /// aligned chunk body and the suffix.
     #[test]
     fn zip_handles_offset_mask() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // 200 single-element lists per side: `if_true[i] = [i]`, `if_false[i] = [1000 + i]`. With a
         // 3-bit lead offset the mask spans more than 16 bytes, so `unaligned_chunks` exposes a
         // non-empty aligned `chunks` body between the prefix and suffix words.
@@ -507,7 +508,6 @@ mod tests {
             .into_array()
             .slice(offset..offset + len)?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mask.zip(if_true, if_false)?.execute::<ArrayRef>(&mut ctx)?;
         assert!(result.is::<ListView>());
 
@@ -530,6 +530,7 @@ mod tests {
     /// than nesting a chunked array inside the concatenated elements.
     #[test]
     fn zip_flattens_chunked_elements() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // elements [1, 2, 3] stored as two chunks; lists [[1, 2], [3]].
         let chunked_elements = ChunkedArray::try_new(
             vec![buffer![1i32, 2].into_array(), buffer![3i32].into_array()],
@@ -551,7 +552,6 @@ mod tests {
         );
         let mask = Mask::from_iter([true, false]);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mask
             .into_array()
             .zip(if_true, if_false)?
