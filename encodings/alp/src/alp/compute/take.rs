@@ -19,9 +19,6 @@ impl TakeExecute for ALP {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_encoded = array.encoded().take(indices.clone())?;
-        // `Patches::take` carries the take indices' nullability into the patch values, so the
-        // taken patches already match `taken_encoded`'s nullability. Construct via `try_new` to
-        // assert that invariant instead of casting the values to force it.
         let taken_patches = array
             .patches()
             .map(|p| p.take(indices, ctx))

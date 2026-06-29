@@ -20,8 +20,6 @@ impl MaskReduce for ALPRD {
             EmptyOptions,
             [array.left_parts().clone(), mask.clone()],
         )?;
-        // The original exceptions are already the non-nullable left-parts dtype, which the
-        // (now nullable) masked array still requires, so they can be reused as-is.
         Ok(Some(
             ALPRD::try_new(
                 array.dtype().as_nullable(),

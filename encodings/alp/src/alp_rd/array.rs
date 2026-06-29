@@ -198,8 +198,6 @@ impl VTable for ALPRD {
         };
         let right_parts = children.get(1, &right_parts_dtype, len)?;
 
-        // Patch values are read as the non-nullable left-parts dtype, which is exactly the dtype
-        // the array invariant requires, so no normalization is needed here.
         let left_parts_patches = metadata
             .patches
             .map(|p| {
