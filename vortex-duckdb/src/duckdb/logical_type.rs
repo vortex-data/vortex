@@ -153,6 +153,14 @@ impl LogicalType {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_BLOB)
     }
 
+    pub fn uint8() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT)
+    }
+
+    pub fn uint16() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT)
+    }
+
     pub fn uint32() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER)
     }
@@ -163,6 +171,14 @@ impl LogicalType {
 
     pub fn uint128() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UHUGEINT)
+    }
+
+    pub fn int8() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_TINYINT)
+    }
+
+    pub fn int16() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT)
     }
 
     pub fn int32() -> Self {
@@ -232,6 +248,21 @@ impl LogicalTypeRef {
 
     pub fn is_decimal(&self) -> bool {
         matches!(self.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL)
+    }
+
+    /// True if this type maps to a Vortex Primitive and isn't a floating point
+    pub fn is_primitive_integer(&self) -> bool {
+        matches!(
+            self.as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TINYINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_INTEGER
+                | DUCKDB_TYPE::DUCKDB_TYPE_BIGINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT
+                | DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER
+                | DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT
+        )
     }
 
     pub fn geometry_crs(&self) -> Option<DDBString> {
