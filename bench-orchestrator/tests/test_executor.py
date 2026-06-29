@@ -33,6 +33,19 @@ def test_build_command_adds_duckdb_cleanup_flag() -> None:
     assert "scale-factor=1.0" in cmd
 
 
+def test_build_command_serializes_vortex_native_format() -> None:
+    executor = BenchmarkExecutor(Path("/tmp/duckdb-bench"), Engine.DUCKDB)
+
+    cmd = executor.build_command(
+        benchmark=Benchmark.SPATIALBENCH,
+        formats=[Format.PARQUET, Format.VORTEX, Format.VORTEX_NATIVE],
+        iterations=1,
+        options={"scale-factor": "1.0"},
+    )
+
+    assert "parquet,vortex,vortex-native" in cmd
+
+
 def test_build_command_omits_formats_for_lance_backend() -> None:
     executor = BenchmarkExecutor(Path("/tmp/lance-bench"), Engine.LANCE)
 
