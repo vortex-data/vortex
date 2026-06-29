@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useState } from 'react';
-import { useVortexFile } from '../../contexts/VortexFileContext';
-import { useSelection } from '../../contexts/SelectionContext';
+import { useVortexFile } from '../../contexts/VortexFileContextCore';
+import { useSelection } from '../../contexts/SelectionContextCore';
 import { LayoutSwimlane } from '../swimlane/LayoutSwimlane';
 
 export function TimelineTab() {

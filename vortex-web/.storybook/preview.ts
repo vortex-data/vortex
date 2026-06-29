@@ -3,7 +3,7 @@
 
 import { createElement } from 'react';
 import type { Preview } from '@storybook/react-vite';
-import { ThemeContext } from '../src/contexts/ThemeContext';
+import { ThemeContext } from '../src/contexts/ThemeContextCore';
 import '../src/index.css';
 
 const preview: Preview = {

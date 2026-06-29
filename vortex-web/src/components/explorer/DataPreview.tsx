@@ -3,8 +3,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { tableFromIPC } from 'apache-arrow';
-import { useSelection } from '../../contexts/SelectionContext';
-import { useVortexFile } from '../../contexts/VortexFileContext';
+import { useSelection } from '../../contexts/SelectionContextCore';
+import { useVortexFile } from '../../contexts/VortexFileContextCore';
 import { parseArrayNodeId } from '../swimlane/utils';
 import { DataTable } from '../DataTable';
 
