@@ -206,30 +206,36 @@ fn with_slot_rewrites_chunk_and_offsets() {
     let mut ctx = SESSION.create_execution_ctx();
     let array = chunked_array().into_array();
 
-    let replacement = buffer![10u64, 11, 12].into_array();
-    let array = array.with_slot(1, replacement).unwrap();
+    let replacement = buffer![1u64, 2, 3].into_array();
+    // SAFETY: the replacement chunk has the same logical values as the original chunk; only the
+    // physical child handle changes.
+    let array = unsafe { array.with_slot(1, replacement) }.unwrap();
     let array = array.as_::<Chunked>();
 
     assert_eq!(array.nchunks(), 3);
     assert_eq!(array.chunk_offsets(), [0, 3, 6, 9]);
     assert_arrays_eq!(
         array.chunk(0).clone(),
-        PrimitiveArray::from_iter([10u64, 11, 12]),
+        PrimitiveArray::from_iter([1u64, 2, 3]),
         &mut ctx
     );
     assert_arrays_eq!(
         array.array().clone(),
-        PrimitiveArray::from_iter([10u64, 11, 12, 4, 5, 6, 7, 8, 9]),
+        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6, 7, 8, 9]),
         &mut ctx
     );
 }
 
 #[test]
 fn with_slot_rejects_len_mismatch() {
-    let err = chunked_array()
-        .into_array()
-        .with_slot(1, buffer![10u64, 11].into_array())
-        .unwrap_err();
+    // SAFETY: this call is expected to fail the checked slot length invariant before any rewritten
+    // array is returned or observed.
+    let err = unsafe {
+        chunked_array()
+            .into_array()
+            .with_slot(1, buffer![10u64, 11].into_array())
+    }
+    .unwrap_err();
 
     assert!(err.to_string().contains("physical rewrite"));
 }

@@ -460,8 +460,18 @@ impl ArrayRef {
     /// This is only valid for physical rewrites: the replacement must have the same logical
     /// `DType` and `len` as the existing slot.
     ///
+    /// # Safety
+    ///
+    /// If this returns `Ok`, the caller must guarantee that the replacement slot represents the
+    /// same logical values as the original slot. Only the physical representation may change.
+    /// Existing parent statistics are preserved and must remain valid.
+    ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
-    pub fn with_slot(self, slot_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
+    pub unsafe fn with_slot(
+        self,
+        slot_idx: usize,
+        replacement: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         let mut slots: ArraySlots = self.slots().iter().cloned().collect();
         let nslots = slots.len();
         vortex_ensure!(
@@ -488,7 +498,8 @@ impl ArrayRef {
             replacement.len()
         );
         slots[slot_idx] = Some(replacement);
-        self.with_slots(slots)
+        // SAFETY: upheld by the caller of this unsafe API.
+        unsafe { self.with_slots(slots) }
     }
 
     /// Take a slot for executor-owned physical rewrites.
@@ -555,7 +566,13 @@ impl ArrayRef {
     ///
     /// This is only valid for physical rewrites: slot count, presence, logical `DType`, and
     /// logical `len` must remain unchanged.
-    pub fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
+    ///
+    /// # Safety
+    ///
+    /// If this returns `Ok`, the caller must guarantee that each replacement slot represents the
+    /// same logical values as the original slot. Only physical representation may change. Existing
+    /// parent statistics are preserved and must remain valid.
+    pub unsafe fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let old_slots = self.slots();
         vortex_ensure!(
             old_slots.len() == slots.len(),
@@ -587,6 +604,47 @@ impl ArrayRef {
             }
         }
         self.0.data.with_slots(&self, slots)
+    }
+
+    /// Returns a new array with the provided top-level buffer handles.
+    ///
+    /// This is only valid for physical rewrites: buffer count, logical `DType`, logical `len`, and
+    /// child slots must remain unchanged. Encoding-specific validation checks buffer shape,
+    /// alignment, and metadata consistency.
+    ///
+    /// # Safety
+    ///
+    /// If this returns `Ok`, the caller must guarantee that the replacement buffers represent the
+    /// same logical values as the original buffers. Only the buffer handle implementation,
+    /// placement, or backing storage may change. Existing statistics are preserved and must remain
+    /// valid.
+    pub unsafe fn with_buffers(
+        self,
+        buffers: impl IntoIterator<Item = BufferHandle>,
+    ) -> VortexResult<ArrayRef> {
+        let buffers = buffers.into_iter().collect::<Vec<_>>();
+        let nbuffers = self.nbuffers();
+        vortex_ensure!(
+            nbuffers == buffers.len(),
+            "buffer count changed from {} to {} during physical rewrite",
+            nbuffers,
+            buffers.len()
+        );
+        for (idx, (old_buffer, new_buffer)) in self
+            .buffer_handles()
+            .into_iter()
+            .zip(buffers.iter())
+            .enumerate()
+        {
+            vortex_ensure!(
+                old_buffer.len() == new_buffer.len(),
+                "buffer {} length changed from {} to {} during physical rewrite",
+                idx,
+                old_buffer.len(),
+                new_buffer.len()
+            );
+        }
+        self.0.data.with_buffers(&self, buffers)
     }
 
     pub fn reduce(&self) -> VortexResult<Option<ArrayRef>> {

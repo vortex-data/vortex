@@ -68,6 +68,7 @@ use crate::array::OperationsVTable;
 use crate::array::TypedArrayRef;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
+use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -345,6 +346,14 @@ impl VTable for Interleave {
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
+    }
+
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
