@@ -18,6 +18,7 @@ mod schema;
 pub mod writer;
 pub mod zone_map;
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 pub(crate) use builder::AggregateStatsAccumulator;
@@ -43,6 +44,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::LayoutBuildContext;
 use crate::LayoutChildType;
@@ -69,7 +71,8 @@ impl VTable for Zoned {
     type Metadata = ZonedMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new("vortex.zoned")
+        static ID: CachedId = CachedId::new("vortex.zoned");
+        *ID
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
@@ -186,7 +189,8 @@ impl VTable for LegacyStats {
     type Metadata = LegacyStatsMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new("vortex.stats")
+        static ID: CachedId = CachedId::new("vortex.stats");
+        *ID
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
@@ -319,11 +323,9 @@ impl ZonedLayout {
     pub fn try_new(
         data: LayoutRef,
         zones: LayoutRef,
-        zone_len: usize,
+        zone_len: NonZeroUsize,
         aggregate_fns: Arc<[AggregateFnRef]>,
     ) -> VortexResult<Self> {
-        vortex_ensure!(zone_len > 0, "Zone length must be greater than 0");
-
         let expected_dtype = aggregate_stats_table_dtype(data.dtype(), &aggregate_fns);
         if zones.dtype() != &expected_dtype {
             vortex_bail!("Invalid zone map layout: zones dtype does not match expected dtype");
@@ -333,7 +335,7 @@ impl ZonedLayout {
         Ok(Self {
             dtype: data.dtype().clone(),
             children: OwnedLayoutChildren::layout_children(vec![data, zones]),
-            zone_len,
+            zone_len: zone_len.get(),
             zone_map_schema: ZoneMapSchema::AggregateFns(aggregate_fns),
             stats_table_dtype: expected_dtype,
         })
@@ -540,7 +542,7 @@ mod tests {
     fn test_metadata_serialization_preserves_aggregate_options() -> VortexResult<()> {
         let aggregate_fn = BoundedMax.bind(BoundedMaxOptions {
             // SAFETY: 128 is non-zero.
-            max_bytes: unsafe { std::num::NonZeroUsize::new_unchecked(128) },
+            max_bytes: unsafe { NonZeroUsize::new_unchecked(128) },
         });
         let metadata = ZonedMetadata {
             zone_len: 314,

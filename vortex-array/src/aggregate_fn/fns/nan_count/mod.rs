@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use self::primitive::accumulate_primitive;
 use crate::ArrayRef;
@@ -84,7 +85,8 @@ impl AggregateFnVTable for NanCount {
     type Partial = u64;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.nan_count")
+        static ID: CachedId = CachedId::new("vortex.nan_count");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

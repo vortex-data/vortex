@@ -6,12 +6,12 @@ use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
-use crate::accessor::ArrayAccessor;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ListArray;
@@ -206,30 +206,36 @@ fn with_slot_rewrites_chunk_and_offsets() {
     let mut ctx = SESSION.create_execution_ctx();
     let array = chunked_array().into_array();
 
-    let replacement = buffer![10u64, 11, 12].into_array();
-    let array = array.with_slot(1, replacement).unwrap();
+    let replacement = buffer![1u64, 2, 3].into_array();
+    // SAFETY: the replacement chunk has the same logical values as the original chunk; only the
+    // physical child handle changes.
+    let array = unsafe { array.with_slot(1, replacement) }.unwrap();
     let array = array.as_::<Chunked>();
 
     assert_eq!(array.nchunks(), 3);
     assert_eq!(array.chunk_offsets(), [0, 3, 6, 9]);
     assert_arrays_eq!(
         array.chunk(0).clone(),
-        PrimitiveArray::from_iter([10u64, 11, 12]),
+        PrimitiveArray::from_iter([1u64, 2, 3]),
         &mut ctx
     );
     assert_arrays_eq!(
         array.array().clone(),
-        PrimitiveArray::from_iter([10u64, 11, 12, 4, 5, 6, 7, 8, 9]),
+        PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6, 7, 8, 9]),
         &mut ctx
     );
 }
 
 #[test]
 fn with_slot_rejects_len_mismatch() {
-    let err = chunked_array()
-        .into_array()
-        .with_slot(1, buffer![10u64, 11].into_array())
-        .unwrap_err();
+    // SAFETY: this call is expected to fail the checked slot length invariant before any rewritten
+    // array is returned or observed.
+    let err = unsafe {
+        chunked_array()
+            .into_array()
+            .with_slot(1, buffer![10u64, 11].into_array())
+    }
+    .unwrap_err();
 
     assert!(err.to_string().contains("physical rewrite"));
 }
@@ -352,24 +358,22 @@ fn scalar_at_empty_children_leading() {
 }
 
 #[test]
-pub fn pack_nested_structs() {
+pub fn pack_nested_structs() -> VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
     let struct_array = StructArray::try_new(
         ["a"].into(),
         vec![VarBinViewArray::from_iter_str(["foo", "bar", "baz", "quak"]).into_array()],
         4,
         Validity::NonNullable,
-    )
-    .unwrap();
+    )?;
     let dtype = struct_array.dtype().clone();
     let chunked = ChunkedArray::try_new(
         vec![
-            ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())
-                .unwrap()
+            ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())?
                 .into_array(),
         ],
         dtype,
-    )
-    .unwrap()
+    )?
     .into_array();
     #[expect(deprecated)]
     let canonical_struct = chunked.to_struct();
@@ -377,11 +381,28 @@ pub fn pack_nested_structs() {
     let canonical_varbin = canonical_struct.unmasked_fields()[0].to_varbinview();
     #[expect(deprecated)]
     let original_varbin = struct_array.unmasked_fields()[0].to_varbinview();
-    let orig_values =
-        original_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
-    let canon_values =
-        canonical_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
+    let orig_mask = original_varbin
+        .validity()?
+        .execute_mask(original_varbin.len(), &mut ctx)?;
+    let orig_values = (0..original_varbin.len())
+        .map(|i| {
+            orig_mask
+                .value(i)
+                .then(|| original_varbin.bytes_at(i).to_vec())
+        })
+        .collect::<Vec<_>>();
+    let canon_mask = canonical_varbin
+        .validity()?
+        .execute_mask(canonical_varbin.len(), &mut ctx)?;
+    let canon_values = (0..canonical_varbin.len())
+        .map(|i| {
+            canon_mask
+                .value(i)
+                .then(|| canonical_varbin.bytes_at(i).to_vec())
+        })
+        .collect::<Vec<_>>();
     assert_eq!(orig_values, canon_values);
+    Ok(())
 }
 
 #[test]

@@ -13,6 +13,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use self::bool::accumulate_bool;
 use self::constant::multiply_constant;
@@ -81,7 +82,8 @@ impl AggregateFnVTable for Sum {
     type Partial = SumPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.sum")
+        static ID: CachedId = CachedId::new("vortex.sum");
+        *ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

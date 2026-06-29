@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -125,7 +126,8 @@ impl AggregateFnVTable for BoundedMax {
     type Partial = BoundedMaxPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.bounded_max")
+        static ID: CachedId = CachedId::new("vortex.bounded_max");
+        *ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

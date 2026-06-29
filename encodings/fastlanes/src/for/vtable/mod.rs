@@ -98,6 +98,14 @@ impl VTable for FoR {
         None
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_array::vtable::with_empty_buffers(self, array, buffers)
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -173,8 +181,8 @@ impl FoR {
     }
 
     /// Encode a primitive array using Frame of Reference encoding.
-    pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
-        FoRData::encode(array)
+    pub fn encode(array: PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<FoRArray> {
+        FoRData::encode(array, ctx)
     }
 }
 

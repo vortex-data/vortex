@@ -5,6 +5,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -59,7 +60,8 @@ impl AggregateFnVTable for NullCount {
     type Partial = u64;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.null_count")
+        static ID: CachedId = CachedId::new("vortex.null_count");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

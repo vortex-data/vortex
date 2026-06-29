@@ -368,7 +368,7 @@ impl ExecutionCtx {
     /// Use the [`format_args!`] macro to create the `msg` argument.
     pub fn log(&mut self, msg: fmt::Arguments<'_>) {
         #[cfg(debug_assertions)]
-        if tracing::enabled!(tracing::Level::DEBUG) {
+        if tracing::enabled!(tracing::Level::TRACE) {
             let formatted = format!(" - {msg}");
             tracing::trace!("exec[{}]: {formatted}", self.id);
             self.ops.push(formatted);
@@ -481,7 +481,9 @@ impl Executable for ArrayRef {
             ExecutionStep::ExecuteSlot(i, _) => {
                 let child = array.slots()[i].clone().vortex_expect("valid slot index");
                 let executed_child = child.execute::<ArrayRef>(ctx)?;
-                array.with_slot(i, executed_child)
+                // SAFETY: execution of a child slot produces a logically equivalent array in a
+                // different physical representation, preserving parent values and statistics.
+                unsafe { array.with_slot(i, executed_child) }
             }
             ExecutionStep::AppendChild(_) => {
                 // Single-step: build the entire parent via the builder path.

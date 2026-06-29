@@ -13,6 +13,7 @@ use std::fmt::Formatter;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_sorted;
 use self::decimal::check_decimal_sorted;
@@ -232,7 +233,8 @@ impl AggregateFnVTable for IsSorted {
     type Partial = IsSortedPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.is_sorted")
+        static ID: CachedId = CachedId::new("vortex.is_sorted");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -487,7 +489,7 @@ impl AggregateFnVTable for IsSorted {
                 let batch_is_sorted = match c {
                     Canonical::Primitive(p) => check_primitive_sorted(p, partial.strict, ctx)?,
                     Canonical::Bool(b) => check_bool_sorted(b, partial.strict, ctx)?,
-                    Canonical::VarBinView(v) => check_varbinview_sorted(v, partial.strict)?,
+                    Canonical::VarBinView(v) => check_varbinview_sorted(v, partial.strict, ctx)?,
                     Canonical::Decimal(d) => check_decimal_sorted(d, partial.strict, ctx)?,
                     Canonical::Extension(e) => check_extension_sorted(e, partial.strict, ctx)?,
                     Canonical::Null(_) => !partial.strict,

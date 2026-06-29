@@ -37,6 +37,7 @@ use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::DuplicateHandling;
@@ -749,4 +750,18 @@ pub fn byte_length(input: Expression) -> Expression {
 /// ```
 pub fn ext_storage(input: Expression) -> Expression {
     ExtStorage.new_expr(EmptyOptions, [input])
+}
+
+// ---- ListLength ----
+
+/// Creates an expression that computes the number of elements in each list
+/// for `List` and `FixedSizeList` inputs. This is akin to ANSI SQL `CARDINALITY()`,
+/// or DuckDB's `len()`/`array_length()`.
+///
+/// ```rust
+/// # use vortex_array::expr::{list_length, root};
+/// let expr = list_length(root());
+/// ```
+pub fn list_length(input: Expression) -> Expression {
+    ListLength.new_expr(EmptyOptions, [input])
 }

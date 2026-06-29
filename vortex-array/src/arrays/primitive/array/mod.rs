@@ -3,7 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::iter;
+use std::iter::repeat;
 
 use smallvec::smallvec;
 use vortex_buffer::Alignment;
@@ -18,11 +18,10 @@ use vortex_error::vortex_panic;
 
 use crate::ArraySlots;
 use crate::ExecutionCtx;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
+use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
@@ -32,7 +31,6 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::validity::Validity;
 
-mod accessor;
 mod cast;
 mod conversion;
 mod patch;
@@ -447,12 +445,18 @@ impl Array<Primitive> {
         ptype: PType,
         validity: Validity,
         n_rows: usize,
+        ctx: &mut ExecutionCtx,
     ) -> Self {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let len = n_rows;
         let slots = PrimitiveData::make_slots(&validity, len);
-        let data =
-            PrimitiveData::from_values_byte_buffer(valid_elems_buffer, ptype, validity, n_rows);
+        let data = PrimitiveData::from_values_byte_buffer(
+            valid_elems_buffer,
+            ptype,
+            validity,
+            n_rows,
+            ctx,
+        );
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
@@ -476,7 +480,7 @@ impl Array<Primitive> {
         }
     }
 
-    pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<Self>
+    pub fn map_each_with_validity<T, R, F>(self, ctx: &mut ExecutionCtx, f: F) -> VortexResult<Self>
     where
         T: NativePType,
         R: NativePType,
@@ -488,14 +492,13 @@ impl Array<Primitive> {
 
         let buffer = match &validity {
             Validity::NonNullable | Validity::AllValid => {
-                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(iter::repeat(true)).map(f))
+                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(repeat(true)).map(f))
             }
             Validity::AllInvalid => {
-                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(iter::repeat(false)).map(f))
+                Buffer::<R>::from_trusted_len_iter(buf_iter.zip(repeat(false)).map(f))
             }
             Validity::Array(val) => {
-                #[expect(deprecated)]
-                let val = val.to_bool().into_bit_buffer();
+                let val = val.clone().execute::<BoolArray>(ctx)?.into_bit_buffer();
                 Buffer::<R>::from_trusted_len_iter(buf_iter.zip(val.iter()).map(f))
             }
         };
@@ -541,6 +544,7 @@ impl PrimitiveData {
         ptype: PType,
         validity: Validity,
         n_rows: usize,
+        ctx: &mut ExecutionCtx,
     ) -> Self {
         let byte_width = ptype.byte_width();
         let alignment = Alignment::new(byte_width);
@@ -548,8 +552,10 @@ impl PrimitiveData {
             Validity::AllValid | Validity::NonNullable => valid_elems_buffer.aligned(alignment),
             Validity::AllInvalid => ByteBuffer::zeroed_aligned(n_rows * byte_width, alignment),
             Validity::Array(is_valid) => {
-                #[expect(deprecated)]
-                let bool_array = is_valid.to_bool();
+                let bool_array = is_valid
+                    .clone()
+                    .execute::<BoolArray>(ctx)
+                    .vortex_expect("must be a bool array");
                 let bool_buffer = bool_array.bit_buffer_view();
                 let mut bytes = ByteBufferMut::zeroed_aligned(n_rows * byte_width, alignment);
                 for (i, valid_i) in bool_buffer.set_indices().enumerate() {

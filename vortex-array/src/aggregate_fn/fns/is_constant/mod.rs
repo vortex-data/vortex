@@ -13,6 +13,7 @@ mod varbin;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_constant;
 use self::decimal::check_decimal_constant;
@@ -258,7 +259,8 @@ impl AggregateFnVTable for IsConstant {
     type Partial = IsConstantPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.is_constant")
+        static ID: CachedId = CachedId::new("vortex.is_constant");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

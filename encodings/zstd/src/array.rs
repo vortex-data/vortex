@@ -22,7 +22,6 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -173,6 +172,33 @@ impl VTable for Zstd {
         } else {
             Some(format!("frame_{idx}"))
         }
+    }
+
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        let mut data = array.data().clone();
+        if data.dictionary.is_some() {
+            let Some((dictionary, frames)) = buffers.split_first() else {
+                vortex_bail!("Expected dictionary buffer");
+            };
+            data.dictionary = Some(dictionary.clone().try_to_host_sync()?);
+            data.frames = frames
+                .iter()
+                .map(|buffer| buffer.clone().try_to_host_sync())
+                .collect::<VortexResult<Vec<_>>>()?;
+        } else {
+            data.frames = buffers
+                .iter()
+                .map(|buffer| buffer.clone().try_to_host_sync())
+                .collect::<VortexResult<Vec<_>>>()?;
+        }
+        Ok(
+            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                .with_slots(array.slots().iter().cloned().collect()),
+        )
     }
 
     fn serialize(
@@ -410,17 +436,28 @@ fn collect_valid_vbv(
                     + mask.true_count() * size_of::<ViewLen>(),
             );
             let mut value_byte_indices = Vec::new();
-            vbv.with_iterator(|iterator| {
-                // by flattening, we should omit nulls
-                for value in iterator.flatten() {
-                    value_byte_indices.push(buffer.len());
-                    // here's where we write the string lengths
-                    buffer
-                        .extend_trusted(ViewLen::try_from(value.len())?.to_le_bytes().into_iter());
-                    buffer.extend_from_slice(value);
+            let views = vbv.views();
+            let buffers = vbv
+                .data_buffers()
+                .iter()
+                .map(|b| b.as_host())
+                .collect::<Vec<_>>();
+            // skip nulls, writing only valid values
+            for (i, view) in views.iter().enumerate() {
+                if !mask.value(i) {
+                    continue;
                 }
-                Ok::<_, VortexError>(())
-            })?;
+                let value = if view.is_inlined() {
+                    view.as_inlined().value()
+                } else {
+                    let view_ref = view.as_view();
+                    &buffers[view_ref.buffer_index as usize][view_ref.as_range()]
+                };
+                value_byte_indices.push(buffer.len());
+                // here's where we write the string lengths
+                buffer.extend_trusted(ViewLen::try_from(value.len())?.to_le_bytes().into_iter());
+                buffer.extend_from_slice(value);
+            }
             (buffer.freeze(), value_byte_indices)
         }
     };
@@ -971,6 +1008,7 @@ impl ZstdData {
                     dtype.as_ptype(),
                     slice_validity,
                     slice_n_rows,
+                    ctx,
                 );
 
                 Ok(primitive.into_array())

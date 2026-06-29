@@ -4,6 +4,7 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -67,7 +68,7 @@ impl MaxPartial {
     }
 
     fn is_poisoned(&self) -> bool {
-        self.max.as_ref().is_some_and(scalar_is_nan)
+        self.element_dtype.is_float() && self.max.as_ref().is_some_and(scalar_is_nan)
     }
 }
 
@@ -76,7 +77,8 @@ impl AggregateFnVTable for Max {
     type Partial = MaxPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.max")
+        static ID: CachedId = CachedId::new("vortex.max");
+        *ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

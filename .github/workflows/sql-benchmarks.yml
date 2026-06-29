@@ -601,6 +601,8 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
+          # Expand session window, otherwise some large scale runs time out.
+          role-duration-seconds: 7200
 
       - name: Upload data
         if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)

@@ -162,9 +162,10 @@ fn scan_scheduler_config_from_env() -> anyhow::Result<ScanSchedulerConfig> {
 }
 
 fn vortex_table_options() -> VortexTableOptions {
-    VortexTableOptions {
-        projection_pushdown: true,
-        predicate_pushdown: true,
-        ..Default::default()
-    }
+    let mut opts = VortexTableOptions::default();
+
+    opts.predicate_pushdown = true;
+    opts.predicate_pushdown = true;
+
+    opts
 }

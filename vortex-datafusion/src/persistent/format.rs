@@ -15,8 +15,9 @@ use datafusion_common::GetExt;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue as DFScalarValue;
 use datafusion_common::Statistics;
+use datafusion_common::config::ConfigExtension;
 use datafusion_common::config::ConfigField;
-use datafusion_common::config_namespace;
+use datafusion_common::extensions_options;
 use datafusion_common::internal_datafusion_err;
 use datafusion_common::not_impl_err;
 use datafusion_common::parsers::CompressionTypeVariant;
@@ -136,28 +137,61 @@ impl Debug for VortexFormat {
     }
 }
 
-config_namespace! {
+extensions_options! {
     /// Options to configure [`VortexFormat`] and [`VortexSource`].
     ///
-    /// These options are usually set on a [`VortexFormatFactory`] and inherited
-    /// by the `VortexFormat` / `VortexSource` instances created for individual
-    /// tables.
+    /// The API follows DataFusion's built-in Parquet and JSON format factories:
+    /// a format factory may carry customized defaults, the session may carry
+    /// format defaults, and `CREATE EXTERNAL TABLE ... OPTIONS(...)` can
+    /// override individual fields for one table.
+    ///
+    /// [`FileFormatFactory::create`] builds the `VortexTableOptions` copied into
+    /// each [`VortexFormat`] as follows:
+    ///
+    /// 1. If the factory has explicit options from
+    ///    [`VortexFormatFactory::with_options`], start from that complete
+    ///    `VortexTableOptions` value. This matches
+    ///    [`ParquetFormatFactory::new_with_options`] and
+    ///    [`JsonFormatFactory::new_with_options`]: factory options replace
+    ///    session defaults; they are not merged with them field-by-field.
+    /// 2. If the factory does not have explicit options, read the session's
+    ///    `vortex` extension at the time `create` is called. This is the value
+    ///    changed by `SET vortex.<option> = ...`.
+    /// 3. If the session has no `vortex` extension, start from
+    ///    `VortexTableOptions::default()`.
+    /// 4. Apply table `OPTIONS(...)` last. Each option overwrites only its
+    ///    matching field, so per-table settings can override either the factory
+    ///    options or the session/default value.
+    ///
+    /// In SQL, session settings use the `vortex.` prefix. Table options use the
+    /// field names directly, the same style as Parquet or JSON table options:
+    ///
+    /// ```text
+    /// SET vortex.predicate_pushdown = false;
+    ///
+    /// CREATE EXTERNAL TABLE t (x BIGINT)
+    /// STORED AS vortex
+    /// LOCATION 's3://bucket/path/'
+    /// OPTIONS(predicate_pushdown 'true');
+    /// ```
     ///
     /// # Example
     ///
     /// ```rust
     /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
     ///
-    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
-    ///     projection_pushdown: true,
-    ///     predicate_pushdown: true,
-    ///     scan_concurrency: Some(8),
-    ///     ..Default::default()
-    /// });
+    /// let mut options = VortexTableOptions::default();
+    /// options.predicate_pushdown = true;
+    /// options.projection_pushdown = true;
+    /// options.scan_concurrency = Some(8);
+    ///
+    /// let factory = VortexFormatFactory::new().with_options(options);
     /// # let _ = factory;
     /// ```
     ///
     /// [`SessionConfig`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionConfig.html
+    /// [`ParquetFormatFactory::new_with_options`]: https://docs.rs/datafusion/latest/datafusion/datasource/file_format/parquet/struct.ParquetFormatFactory.html#method.new_with_options
+    /// [`JsonFormatFactory::new_with_options`]: https://docs.rs/datafusion/latest/datafusion/datasource/file_format/json/struct.JsonFormatFactory.html#method.new_with_options
     pub struct VortexTableOptions {
         /// The number of bytes to read when parsing a file footer.
         ///
@@ -169,23 +203,33 @@ config_namespace! {
         /// When enabled, projection expressions may be partially evaluated during
         /// the scan. When disabled, Vortex reads only the referenced columns and
         /// all expressions are evaluated after the scan.
+        ///
+        /// Disabled by default.
         pub projection_pushdown: bool, default = false
         /// Whether to enable predicate pushdown into the underlying Vortex scan.
         ///
         /// When enabled, supported filters are evaluated during the scan. When
         /// disabled, DataFusion evaluates filters after the scan, while
         /// `VortexSource` can still use the full predicate for file pruning.
+        ///
+        /// Enabled by default.
         pub predicate_pushdown: bool, default = true
         /// The intra-partition scan concurrency, controlling the number of row splits to process
         /// concurrently per-thread within each file.
         ///
         /// This does not affect the overall parallelism
         /// across partitions, which is controlled by DataFusion's execution configuration.
+        ///
+        /// Leave as `None` to use Vortex's scan default. Override per session
+        /// with `SET vortex.scan_concurrency = <n>`, or per table with
+        /// `OPTIONS(scan_concurrency '<n>')`.
         pub scan_concurrency: Option<usize>, default = None
     }
 }
 
-impl Eq for VortexTableOptions {}
+impl ConfigExtension for VortexTableOptions {
+    const PREFIX: &'static str = "vortex";
+}
 
 /// Registration entry point for the file-backed Vortex integration.
 ///
@@ -193,9 +237,12 @@ impl Eq for VortexTableOptions {}
 /// DataFusion session, and DataFusion will create [`VortexFormat`] values for
 /// `CREATE EXTERNAL TABLE`, [`ListingTable`], and URL-table scans.
 ///
-/// The factory stores a [`VortexSession`] and default [`VortexTableOptions`].
-/// Those defaults are copied into the formats and sources created for each
-/// table.
+/// The factory stores a [`VortexSession`] and optional factory-level
+/// [`VortexTableOptions`]. When options are set on the factory they act like
+/// customized format defaults, matching DataFusion's Parquet and JSON factory
+/// APIs. Otherwise, `VortexFormatFactory::create` uses the session's `vortex`
+/// options. In both cases, table `OPTIONS(...)` are applied last for the table
+/// being created.
 ///
 /// # Example
 ///
@@ -207,11 +254,11 @@ impl Eq for VortexTableOptions {}
 /// use datafusion_common::GetExt;
 /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
 ///
-/// let factory = Arc::new(VortexFormatFactory::new().with_options(VortexTableOptions {
-///     projection_pushdown: true,
-///     predicate_pushdown: true,
-///     ..Default::default()
-/// }));
+/// let mut options = VortexTableOptions::default();
+/// options.predicate_pushdown = true;
+/// options.projection_pushdown = true;
+///
+/// let factory = Arc::new(VortexFormatFactory::new().with_options(options));
 ///
 /// let mut state_builder = SessionStateBuilder::new()
 ///     .with_default_features()
@@ -239,7 +286,12 @@ impl GetExt for VortexFormatFactory {
 }
 
 impl VortexFormatFactory {
-    /// Creates a factory with a default [`VortexSession`] and default options.
+    /// Creates a factory with a default [`VortexSession`] and no factory-level
+    /// options.
+    ///
+    /// Formats created by this factory start from the session's `vortex`
+    /// options, or from [`VortexTableOptions::default`] if the session does not
+    /// contain them. Table-level `OPTIONS(...)` are still applied last.
     #[expect(
         clippy::new_without_default,
         reason = "FormatFactory defines `default` method, so having `Default` implementation is confusing"
@@ -257,21 +309,23 @@ impl VortexFormatFactory {
         self
     }
 
-    /// Overrides the default options for this factory.
+    /// Sets factory-level options.
     ///
-    /// This is the usual way to turn on features such as projection pushdown for
-    /// every table created through the factory.
+    /// This is the usual way to customize Vortex defaults for every table
+    /// created through the factory. These options replace, rather than merge
+    /// with, session `SET vortex.*` values. Table-level `OPTIONS(...)` are still
+    /// applied last.
     ///
     /// # Example
     ///
     /// ```rust
     /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
     ///
-    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
-    ///     projection_pushdown: true,
-    ///     predicate_pushdown: true,
-    ///     ..Default::default()
-    /// });
+    /// let mut options = VortexTableOptions::default();
+    /// options.predicate_pushdown = true;
+    /// options.projection_pushdown = true;
+    ///
+    /// let factory = VortexFormatFactory::new().with_options(options);
     /// # let _ = factory;
     /// ```
     pub fn with_options(mut self, options: VortexTableOptions) -> Self {
@@ -284,13 +338,32 @@ impl FileFormatFactory for VortexFormatFactory {
     #[expect(clippy::disallowed_types, reason = "required by trait signature")]
     fn create(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         format_options: &std::collections::HashMap<String, String>,
     ) -> DFResult<Arc<dyn FileFormat>> {
-        let mut opts = self.options.clone().unwrap_or_default();
+        // This mirrors DataFusion's Parquet/JSON file-format factories:
+        //
+        // 1. Factory options are a complete customized default when present.
+        // 2. Without factory options, use the session's `vortex` extension
+        //    (`SET vortex.* = ...`), falling back to built-in defaults.
+        // 3. Table-level `CREATE EXTERNAL TABLE ... OPTIONS(...)` values apply
+        //    last. DataFusion prefixes file-format options with `format.`
+        //    before passing them to this factory; SQL users write the field
+        //    name directly, e.g. `OPTIONS(predicate_pushdown 'false')`.
+        let mut opts = self
+            .options
+            .clone()
+            .or_else(|| {
+                state
+                    .config_options()
+                    .extensions
+                    .get::<VortexTableOptions>()
+                    .cloned()
+            })
+            .unwrap_or_default();
         for (key, value) in format_options {
             if let Some(key) = key.strip_prefix("format.") {
-                opts.set(key, value)?;
+                ConfigField::set(&mut opts, key, value)?;
             } else {
                 tracing::trace!("Ignoring option '{key}'");
             }
@@ -782,7 +855,7 @@ mod tests {
     #[test]
     fn format_plumbs_footer_initial_read_size() {
         let mut opts = VortexTableOptions::default();
-        opts.set("footer_initial_read_size_bytes", "12345").unwrap();
+        ConfigField::set(&mut opts, "footer_initial_read_size_bytes", "12345").unwrap();
 
         let format = VortexFormat::new_with_options(VortexSession::default(), opts);
         assert_eq!(format.options().footer_initial_read_size_bytes, 12345);
@@ -804,7 +877,12 @@ mod tests {
             .downcast_ref::<VortexSource>()
             .ok_or_else(|| anyhow::anyhow!("expected VortexSource"))?;
 
-        assert_eq!(source.options(), &opts);
+        assert_eq!(
+            source.options().projection_pushdown,
+            opts.projection_pushdown
+        );
+        assert_eq!(source.options().predicate_pushdown, opts.predicate_pushdown);
+        assert_eq!(source.options().scan_concurrency, opts.scan_concurrency);
         Ok(())
     }
 }

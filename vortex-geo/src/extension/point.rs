@@ -61,7 +61,8 @@ impl ExtVTable for Point {
     type NativeValue<'a> = Coordinate;
 
     fn id(&self) -> ExtId {
-        ExtId::new_static("vortex.geo.point")
+        static ID: CachedId = CachedId::new("vortex.geo.point");
+        *ID
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

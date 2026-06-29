@@ -225,6 +225,7 @@ impl VortexSource {
         let full_schema = table_schema.table_schema();
         let indices = (0..full_schema.fields().len()).collect::<Vec<_>>();
         let projection = ProjectionExprs::from_indices(&indices, full_schema);
+        let expression_convertor = Arc::new(DefaultExpressionConvertor::new(session.clone()));
 
         Self {
             session,
@@ -237,7 +238,7 @@ impl VortexSource {
             layout_readers: Arc::new(DashMap::default()),
             natural_split_ranges: Arc::new(DashMap::default()),
             vortex_files: Arc::new(DashMap::default()),
-            expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            expression_convertor,
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,

@@ -31,6 +31,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
 use crate::arrays::dict::DictArrayExt;
@@ -114,6 +115,14 @@ impl VTable for Dict {
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
+    }
+
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
     }
 
     fn serialize(

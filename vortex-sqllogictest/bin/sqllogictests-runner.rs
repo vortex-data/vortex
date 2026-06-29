@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 use datafusion::common::GetExt;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
+use datafusion::prelude::SessionConfig;
 use datafusion::prelude::SessionContext;
 use datafusion_sqllogictest::DataFusion;
 use datafusion_sqllogictest::df_value_validator;
@@ -21,6 +22,7 @@ use sqllogictest::harness::Failed;
 use sqllogictest::harness::Trial;
 use sqllogictest::strict_column_validator;
 use vortex_datafusion::VortexFormatFactory;
+use vortex_datafusion::VortexTableOptions;
 use vortex_sqllogictest::duckdb::DuckDB;
 use vortex_sqllogictest::duckdb::duckdb_validator;
 use vortex_sqllogictest::normalize::PathNormalizing;
@@ -61,16 +63,22 @@ fn drive_datafusion(path: &Path, work_dir: &Path, mode: Mode) -> anyhow::Result<
 
     let rt = build_runtime()?;
     rt.block_on(async {
+        let config = SessionConfig::default().with_option_extension(VortexTableOptions::default());
         let factory = Arc::new(VortexFormatFactory::new());
         let session_state_builder = SessionStateBuilder::new()
+            .with_config(config)
             .with_default_features()
             .with_table_factory(
                 factory.get_ext().to_uppercase(),
                 Arc::new(DefaultTableFactory::new()),
             )
             .with_file_formats(vec![factory]);
-        let session =
-            SessionContext::new_with_state(session_state_builder.build()).enable_url_table();
+        // The workspace builds `datafusion` without the `nested_expressions` feature, so array
+        // functions (e.g. `make_array`, `array_length`) are not registered by default. Register
+        // them explicitly so SLT files can construct and query list columns.
+        let mut session_state = session_state_builder.build();
+        datafusion_functions_nested::register_all(&mut session_state)?;
+        let session = SessionContext::new_with_state(session_state).enable_url_table();
 
         let mut runner = Runner::new(|| async {
             Ok(PathNormalizing::new(

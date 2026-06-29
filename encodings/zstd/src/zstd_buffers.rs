@@ -411,6 +411,19 @@ impl VTable for ZstdBuffers {
         Some(format!("compressed_{idx}"))
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        let mut data = array.data().clone();
+        data.compressed_buffers = buffers.to_vec();
+        Ok(
+            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                .with_slots(array.slots().iter().cloned().collect()),
+        )
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         format!("child_{idx}")
     }

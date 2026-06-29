@@ -10,6 +10,8 @@ use std::ptr;
 use crate::cpp;
 use crate::cpp::duckdb_vx_expr_class;
 use crate::duckdb::DDBString;
+use crate::duckdb::LogicalType;
+use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::ScalarFunction;
 use crate::duckdb::ScalarFunctionRef;
 use crate::duckdb::Value;
@@ -31,6 +33,11 @@ impl Display for ExpressionRef {
 impl ExpressionRef {
     pub fn as_class_id(&self) -> duckdb_vx_expr_class {
         unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) }
+    }
+
+    /// The return type of this expression.
+    pub fn return_type(&self) -> &LogicalTypeRef {
+        unsafe { LogicalType::borrow(cpp::duckdb_vx_expr_get_return_type(self.as_ptr())) }
     }
 
     /// Match the subclass of the expression.
