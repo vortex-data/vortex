@@ -4,8 +4,8 @@
 import { useCallback, useMemo } from 'react';
 import type { LayoutTreeNode, SegmentMapEntry } from '../swimlane/types';
 import { collectSubtreeSegments, findPathToNode, getNodeDisplayName } from '../swimlane/utils';
-import { useVortexFile } from '../../contexts/VortexFileContext';
-import { useSelection } from '../../contexts/SelectionContext';
+import { useVortexFile } from '../../contexts/VortexFileContextCore';
+import { useSelection } from '../../contexts/SelectionContextCore';
 import { DataTable, type CellRenderer } from '../DataTable';
 
 interface SegmentsPaneProps {

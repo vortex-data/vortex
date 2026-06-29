@@ -3,8 +3,8 @@
 
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import { collectSubtreeSegments, formatBytes } from '../swimlane/utils';
-import { useVortexFile } from '../../contexts/VortexFileContext';
-import { useSelection } from '../../contexts/SelectionContext';
+import { useVortexFile } from '../../contexts/VortexFileContextCore';
+import { useSelection } from '../../contexts/SelectionContextCore';
 import type { SegmentMapEntry } from '../swimlane/types';
 
 /**

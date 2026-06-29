@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useEffect, useState } from 'react';
-import { useVortexFile } from '../../contexts/VortexFileContext';
+import { useVortexFile } from '../../contexts/VortexFileContextCore';
 import type { LayoutTreeNode, ArrayEncodingNode } from '../swimlane/types';
 import { shortEncoding, formatBytes } from '../swimlane/utils';
 
