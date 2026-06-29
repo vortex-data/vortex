@@ -50,6 +50,8 @@ use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+#[cfg(feature = "unstable_encodings")]
+use vortex_layout::layouts::list::writer::ListLayoutStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
@@ -242,8 +244,25 @@ impl WriteStrategyBuilder {
             Arc::new(FlatLayoutStrategy::default())
         };
 
-        // 7. for each chunk create a flat layout
-        let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
+        // 7. for each chunk create a layout. Under the `unstable_encodings` feature, list-typed
+        // chunks route through `ListLayoutStrategy` (separately-addressable elements/offsets/
+        // validity sub-layouts; non-list chunks fall through its built-in fallback to `flat`).
+        // Nested lists (`list<list<...>>`) recurse, shredding each level into its own
+        // `ListLayout`. Otherwise everything goes through the flat strategy.
+        #[cfg(feature = "unstable_encodings")]
+        let leaf: Arc<dyn LayoutStrategy> = Arc::new(
+            // Thread the configured `flat` (which carries `allow_encodings` / any custom flat
+            // override) through every child; list elements still recurse into a nested ListLayout.
+            ListLayoutStrategy::default()
+                .with_elements(Arc::clone(&flat))
+                .with_offsets(Arc::clone(&flat))
+                .with_validity(Arc::clone(&flat))
+                .with_fallback(Arc::clone(&flat)),
+        );
+        #[cfg(not(feature = "unstable_encodings"))]
+        let leaf: Arc<dyn LayoutStrategy> = Arc::clone(&flat);
+
+        let chunked = ChunkedLayoutStrategy::new(leaf);
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 

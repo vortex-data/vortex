@@ -55,6 +55,7 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
+insta = { workspace = true }
 rstest = { workspace = true }
 temp-env = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
