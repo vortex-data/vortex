@@ -76,8 +76,11 @@ use vortex::session::VortexSession;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-pub static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_tokio());
+pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::default().with_tokio();
+    vortex_geo::initialize(&session);
+    session
+});
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
@@ -146,6 +149,9 @@ pub enum Format {
     #[clap(name = "vortex-compact")]
     #[serde(rename = "vortex-compact")]
     VortexCompact,
+    #[clap(name = "vortex-native")]
+    #[serde(rename = "vortex-native")]
+    VortexNative,
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
     OnDiskDuckDB,
@@ -185,6 +191,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
+            Format::VortexNative => "vortex-native",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }
@@ -197,6 +204,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
+            Format::VortexNative => "vortex",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }
@@ -451,8 +459,16 @@ where
             object_type.to_lowercase()
         );
 
+        let projection = benchmark.view_projection(name, load_format);
+        // SpatialBench's native and WKB lanes both register `trip` from the same db path but with different casts —
+        // so always replace views (cheap, metadata-only). Tables hold materialized data: keep them.
+        let create = if object_type == "VIEW" {
+            format!("CREATE OR REPLACE VIEW {name}")
+        } else {
+            format!("CREATE {object_type} IF NOT EXISTS {name}")
+        };
         sql_statements.push(format!(
-            "CREATE {object_type} IF NOT EXISTS {name} AS SELECT * FROM read_{extension}('{base_dir}/{pattern}');\n",
+            "{create} AS SELECT {projection} FROM read_{extension}('{base_dir}/{pattern}');\n",
         ));
     }
 

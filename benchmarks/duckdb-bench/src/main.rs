@@ -142,6 +142,7 @@ fn main() -> anyhow::Result<()> {
                     // OnDiskDuckDB tables are created during register_tables by loading from Parquet
                     _ => {}
                 }
+                benchmark.prepare_format(format, &base_path).await?;
             }
 
             anyhow::Ok(())
@@ -197,7 +198,8 @@ fn main() -> anyhow::Result<()> {
             if !args.reuse {
                 ctx.reopen()?;
             }
-            ctx.execute_query_result(query)
+            let query = benchmark.query_for_format(query, format);
+            ctx.execute_query_result(&query)
         },
     )?;
 

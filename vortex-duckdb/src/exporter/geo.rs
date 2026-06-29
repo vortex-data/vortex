@@ -4,6 +4,9 @@
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::error::VortexResult;
+use vortex_geo::extension::MultiPolygonData;
+use vortex_geo::extension::PointData;
+use vortex_geo::extension::PolygonData;
 use vortex_geo::extension::WellKnownBinaryData;
 
 use crate::exporter::ColumnExporter;
@@ -15,5 +18,36 @@ pub(crate) fn new_wkb_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let values = array.wkb_values().clone().execute::<VarBinViewArray>(ctx)?;
+    new_exporter(values, ctx)
+}
+
+/// Create an exporter for a native `Point` column. DuckDB `GEOMETRY` vectors carry WKB, so the
+/// points are serialized to WKB via [`PointData::to_wkb`] (only for rows DuckDB materializes —
+/// with predicate pushdown that's just the survivors).
+pub(crate) fn new_point_exporter(
+    point: PointData,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let values = point.to_wkb(ctx)?.execute::<VarBinViewArray>(ctx)?;
+    new_exporter(values, ctx)
+}
+
+/// Create an exporter for a native `Polygon` column. Like [`new_point_exporter`], DuckDB `GEOMETRY`
+/// vectors carry WKB, so the polygons are serialized to WKB via [`PolygonData::to_wkb`].
+pub(crate) fn new_polygon_exporter(
+    polygon: PolygonData,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let values = polygon.to_wkb(ctx)?.execute::<VarBinViewArray>(ctx)?;
+    new_exporter(values, ctx)
+}
+
+/// Create an exporter for a native `MultiPolygon` column, serialized to WKB via
+/// [`MultiPolygonData::to_wkb`] (see [`new_point_exporter`]).
+pub(crate) fn new_multipolygon_exporter(
+    multipolygon: MultiPolygonData,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let values = multipolygon.to_wkb(ctx)?.execute::<VarBinViewArray>(ctx)?;
     new_exporter(values, ctx)
 }

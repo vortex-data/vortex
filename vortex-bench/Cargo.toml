@@ -24,6 +24,7 @@ vortex = { workspace = true, features = [
     "zstd",
 ] }
 vortex-tensor = { workspace = true } # TODO(connor): In the future, this might be inside vortex.
+vortex-geo = { workspace = true }
 
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
@@ -33,6 +34,8 @@ async-trait = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
+geoarrow = { workspace = true }
+geoarrow-cast = { workspace = true }
 get_dir = { workspace = true }
 glob = { workspace = true }
 humansize = { workspace = true }
