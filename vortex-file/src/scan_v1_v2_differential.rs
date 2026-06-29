@@ -28,7 +28,6 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -46,6 +45,7 @@ use vortex_array::expr::merge;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -205,11 +205,14 @@ async fn scan_data_source(source: DataSourceRef, request: ScanRequest) -> Vortex
 fn sorted_i32_values(array: ArrayRef) -> VortexResult<Vec<i32>> {
     let mut ctx = SESSION.create_execution_ctx();
     let primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
-    let mut values = primitive
-        .with_iterator(|iter| iter.map(|value| value.copied()).collect::<Option<Vec<_>>>())
-        .ok_or_else(|| {
-            vortex_error::vortex_err!("unordered differential values must be non-null")
-        })?;
+    let mut values = Vec::with_capacity(primitive.len());
+    for idx in 0..primitive.len() {
+        let scalar = primitive.execute_scalar(idx, &mut ctx)?;
+        let Some(ScalarValue::Primitive(value)) = scalar.value() else {
+            vortex_error::vortex_bail!("unordered differential values must be non-null");
+        };
+        values.push(i32::try_from(*value)?);
+    }
     values.sort_unstable();
     Ok(values)
 }

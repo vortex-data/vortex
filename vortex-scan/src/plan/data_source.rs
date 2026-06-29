@@ -392,6 +392,7 @@ impl ScanPlanDataSource {
             )?);
             let ranges = execution.splits(&row_range)?;
             if !ranges.is_empty() {
+                execution.register_release_ranges(&ranges)?;
                 planned_bindings.push((execution, ranges));
             }
         }
@@ -771,6 +772,7 @@ fn binding_scan_request(
 type QueuedWork = ScanTaskBox<WorkOutput>;
 
 struct LaunchedWorkOutput {
+    morsel_id: usize,
     lane: ScanTaskLane,
     reads: Vec<ScanTaskRead>,
     output: VortexResult<WorkPoll>,
@@ -1092,31 +1094,16 @@ async fn resolve_step_reads(read_store: ReadStoreRef, reads: Vec<ScanRead>) -> V
     Ok(())
 }
 
-fn prefetch_step_reads(handle: &Handle, read_store: ReadStoreRef, reads: Vec<ScanRead>) {
-    if reads.is_empty() {
-        return;
-    }
-    handle
-        .spawn(async move {
-            if let Err(error) = resolve_step_reads(read_store, reads).await {
-                tracing::debug!(
-                    target: "vortex_scan::plan::data_source",
-                    ?error,
-                    "scan2 prefetch read failed"
-                );
-            }
-        })
-        .detach();
-}
-
-async fn run_scan_task_step(
-    work: QueuedWork,
-    read_store: ReadStoreRef,
-    handle: Handle,
-) -> VortexResult<WorkPoll> {
+async fn run_scan_task_step(work: QueuedWork, read_store: ReadStoreRef) -> VortexResult<WorkPoll> {
     let mut step = work.into_step()?;
     let (required_reads, prefetch_reads) = step.take_reads();
-    prefetch_step_reads(&handle, Arc::clone(&read_store), prefetch_reads);
+    if !prefetch_reads.is_empty() {
+        tracing::trace!(
+            target: "vortex_scan::plan::data_source",
+            read_count = prefetch_reads.len(),
+            "scan2 skipped optional prefetch reads"
+        );
+    }
     resolve_step_reads(Arc::clone(&read_store), required_reads).await?;
     match step.continue_with(ReadResults::new(Arc::clone(&read_store)))? {
         ScanStepResult::Ready(output) => Ok(WorkPoll::Ready(output)),
@@ -1146,6 +1133,8 @@ struct MorselState {
     predicate_done: Vec<bool>,
     next_recheck_predicate: usize,
     projection_queued: bool,
+    in_flight_work: usize,
+    finished: bool,
 }
 
 #[derive(Default)]
@@ -1274,15 +1263,31 @@ fn partition_work_stream(
 
             match state.in_flight.next().await {
                 Some(output) => {
+                    let morsel_id = output.morsel_id;
                     state.release_reads(output.lane, &output.reads);
                     match output.output {
                         Ok(WorkPoll::Ready(output)) => match state.complete_work(output) {
-                            Ok(Some(array)) => return Some((Ok(array), state)),
-                            Ok(None) => continue,
+                            Ok(Some(array)) => {
+                                if let Err(error) = state.complete_launched_work(morsel_id) {
+                                    return Some((Err(error), state));
+                                }
+                                return Some((Ok(array), state));
+                            }
+                            Ok(None) => {
+                                if let Err(error) = state.complete_launched_work(morsel_id) {
+                                    return Some((Err(error), state));
+                                }
+                                continue;
+                            }
                             Err(error) => return Some((Err(error), state)),
                         },
                         Ok(WorkPoll::Pending(work)) => {
-                            state.task_queue.push(work);
+                            if state.is_live_morsel(work.morsel_id()) {
+                                state.task_queue.push(work);
+                            }
+                            if let Err(error) = state.complete_launched_work(morsel_id) {
+                                return Some((Err(error), state));
+                            }
                             continue;
                         }
                         Err(error) => return Some((Err(error), state)),
@@ -1332,6 +1337,7 @@ impl PartitionWorkSchedulerState {
                 active_morsels = self.active_morsels,
                 "scan2 skipped empty morsel"
             );
+            morsel.execution.complete_release_range(&range)?;
             return Ok(());
         };
         self.next_morsel_id = self.next_morsel_id.saturating_add(1);
@@ -1370,7 +1376,12 @@ impl PartitionWorkSchedulerState {
         let Some(task) = self.task_queue.pop_next_admissible_with_projection_gate(
             in_flight_empty,
             projection_admissible,
-            |morsel_id| morsels.get(morsel_id).and_then(Option::as_ref).is_some(),
+            |morsel_id| {
+                morsels
+                    .get(morsel_id)
+                    .and_then(Option::as_ref)
+                    .is_some_and(|morsel| !morsel.finished)
+            },
         ) else {
             return false;
         };
@@ -1407,11 +1418,14 @@ impl PartitionWorkSchedulerState {
             active_projection_read_bytes = self.task_queue.active_projection_read_bytes(),
             "scan2 launching work"
         );
+        if let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) {
+            morsel.in_flight_work = morsel.in_flight_work.saturating_add(1);
+        }
         let read_store = Arc::clone(&self.read_store);
-        let handle = self.handle.clone();
         let future = async move {
-            let output = run_scan_task_step(work, read_store, handle).await;
+            let output = run_scan_task_step(work, read_store).await;
             LaunchedWorkOutput {
+                morsel_id,
                 lane,
                 reads,
                 output,
@@ -1445,10 +1459,29 @@ impl PartitionWorkSchedulerState {
     }
 
     fn release_reads(&mut self, lane: ScanTaskLane, reads: &[ScanTaskRead]) {
-        self.task_queue.release_reads(lane, reads);
+        let released_keys = self.task_queue.release_reads(lane, reads);
+        self.read_store.remove_many(released_keys);
         if matches!(lane, ScanTaskLane::Projection) {
             self.in_flight_projection_tasks = self.in_flight_projection_tasks.saturating_sub(1);
         }
+    }
+
+    fn is_live_morsel(&self, morsel_id: usize) -> bool {
+        self.morsels
+            .get(morsel_id)
+            .and_then(Option::as_ref)
+            .is_some_and(|morsel| !morsel.finished)
+    }
+
+    fn complete_launched_work(&mut self, morsel_id: usize) -> VortexResult<()> {
+        let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) else {
+            return Ok(());
+        };
+        morsel.in_flight_work = morsel.in_flight_work.saturating_sub(1);
+        if morsel.finished && morsel.in_flight_work == 0 {
+            self.retire_morsel(morsel_id)?;
+        }
+        Ok(())
     }
 
     fn complete_work(&mut self, output: WorkOutput) -> VortexResult<Option<ArrayRef>> {
@@ -1456,7 +1489,7 @@ impl PartitionWorkSchedulerState {
             WorkOutput::Evidence(output) => self.complete_evidence(output),
             WorkOutput::ScanEvidence(output) => self.complete_scan_evidence(output),
             WorkOutput::Projection(output) => {
-                Ok(self.finish_output_morsel(output.morsel_id, output.array))
+                self.finish_output_morsel(output.morsel_id, output.array)
             }
         }
     }
@@ -1490,7 +1523,9 @@ impl PartitionWorkSchedulerState {
             .filter_map(|(morsel_id, morsel)| {
                 morsel
                     .as_ref()
-                    .filter(|morsel| Arc::ptr_eq(&morsel.execution, &output.execution))
+                    .filter(|morsel| {
+                        !morsel.finished && Arc::ptr_eq(&morsel.execution, &output.execution)
+                    })
                     .map(|_| morsel_id)
             })
             .collect::<Vec<_>>();
@@ -1505,7 +1540,7 @@ impl PartitionWorkSchedulerState {
                 continue;
             }
             if self.refresh_morsel_scan_evidence(morsel_id, output.predicate_idx)? {
-                if let Some(array) = self.finish_empty_morsel(morsel_id) {
+                if let Some(array) = self.finish_empty_morsel(morsel_id)? {
                     return Ok(Some(array));
                 }
             } else {
@@ -1520,6 +1555,7 @@ impl PartitionWorkSchedulerState {
             .morsels
             .get(morsel_id)
             .and_then(Option::as_ref)
+            .filter(|morsel| !morsel.finished)
             .map(|morsel| morsel.execution.predicates.len())
         else {
             return Ok(false);
@@ -1541,6 +1577,9 @@ impl PartitionWorkSchedulerState {
         let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) else {
             return Ok(false);
         };
+        if morsel.finished {
+            return Ok(false);
+        }
         let predicate = &morsel.execution.predicates[predicate_idx];
         let version = predicate.version();
         let (generation, fragments) =
@@ -1581,6 +1620,9 @@ impl PartitionWorkSchedulerState {
     }
 
     fn complete_evidence(&mut self, output: EvidenceWorkOutput) -> VortexResult<Option<ArrayRef>> {
+        if !self.is_live_morsel(output.morsel_id) {
+            return Ok(None);
+        }
         let mut record_predicate = None;
         let finish_empty = {
             let Some(morsel) = self
@@ -1651,7 +1693,7 @@ impl PartitionWorkSchedulerState {
         }
 
         if finish_empty {
-            return Ok(self.finish_empty_morsel(output.morsel_id));
+            return self.finish_empty_morsel(output.morsel_id);
         }
 
         self.enqueue_ready_work(output.morsel_id)?;
@@ -1659,8 +1701,11 @@ impl PartitionWorkSchedulerState {
     }
 
     fn enqueue_ready_work(&mut self, morsel_id: usize) -> VortexResult<()> {
+        if !self.is_live_morsel(morsel_id) {
+            return Ok(());
+        }
         if self.refresh_all_scan_evidence(morsel_id)? {
-            self.finish_empty_morsel(morsel_id);
+            self.finish_empty_morsel(morsel_id)?;
             return Ok(());
         }
 
@@ -1689,7 +1734,8 @@ impl PartitionWorkSchedulerState {
             .get(morsel_id)
             .and_then(Option::as_ref)
             .is_some_and(|morsel| {
-                !morsel.projection_queued
+                !morsel.finished
+                    && !morsel.projection_queued
                     && morsel.pending_evidence.iter().all(|pending| *pending == 0)
                     && morsel
                         .pending_scan_evidence
@@ -1721,7 +1767,7 @@ impl PartitionWorkSchedulerState {
         match projection {
             Some(work) => self.task_queue.push(work),
             None => {
-                self.finish_empty_morsel(morsel_id);
+                self.finish_empty_morsel(morsel_id)?;
             }
         }
         Ok(())
@@ -1735,6 +1781,9 @@ impl PartitionWorkSchedulerState {
             let Some(morsel) = self.morsels.get_mut(morsel_id).and_then(Option::as_mut) else {
                 return Ok(None);
             };
+            if morsel.finished {
+                return Ok(None);
+            }
             if morsel.predicate_queued.iter().any(|queued| *queued) {
                 return Ok(None);
             }
@@ -1836,7 +1885,7 @@ impl PartitionWorkSchedulerState {
                     return Ok(true);
                 }
                 if self.refresh_morsel_scan_evidence(morsel_id, predicate_idx)? {
-                    self.finish_empty_morsel(morsel_id);
+                    self.finish_empty_morsel(morsel_id)?;
                     return Ok(true);
                 }
             }
@@ -1881,36 +1930,56 @@ impl PartitionWorkSchedulerState {
         }
     }
 
-    fn finish_empty_morsel(&mut self, morsel_id: usize) -> Option<ArrayRef> {
-        if self.finish_morsel(morsel_id) && self.ordered {
+    fn finish_empty_morsel(&mut self, morsel_id: usize) -> VortexResult<Option<ArrayRef>> {
+        if self.finish_morsel(morsel_id)? && self.ordered {
             self.completed_morsels
                 .insert(morsel_id, CompletedMorsel::Empty);
-            return self.pop_ready_output();
+            return Ok(self.pop_ready_output());
         }
-        None
+        Ok(None)
     }
 
-    fn finish_output_morsel(&mut self, morsel_id: usize, array: ArrayRef) -> Option<ArrayRef> {
-        if !self.finish_morsel(morsel_id) {
-            return None;
+    fn finish_output_morsel(
+        &mut self,
+        morsel_id: usize,
+        array: ArrayRef,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if !self.finish_morsel(morsel_id)? {
+            return Ok(None);
         }
         if self.ordered {
             self.completed_morsels
                 .insert(morsel_id, CompletedMorsel::Output(array));
-            self.pop_ready_output()
+            Ok(self.pop_ready_output())
         } else {
-            Some(array)
+            Ok(Some(array))
         }
     }
 
-    fn finish_morsel(&mut self, morsel_id: usize) -> bool {
+    fn finish_morsel(&mut self, morsel_id: usize) -> VortexResult<bool> {
         if let Some(slot) = self.morsels.get_mut(morsel_id)
-            && slot.take().is_some()
+            && let Some(morsel) = slot.as_mut()
         {
+            if morsel.finished {
+                return Ok(false);
+            }
+            morsel.finished = true;
             self.active_morsels = self.active_morsels.saturating_sub(1);
-            return true;
+            if morsel.in_flight_work == 0 {
+                self.retire_morsel(morsel_id)?;
+            }
+            return Ok(true);
         }
-        false
+        Ok(false)
+    }
+
+    fn retire_morsel(&mut self, morsel_id: usize) -> VortexResult<()> {
+        if let Some(slot) = self.morsels.get_mut(morsel_id)
+            && let Some(morsel) = slot.take()
+        {
+            morsel.execution.complete_release_range(&morsel.range)?;
+        }
+        Ok(())
     }
 
     fn pop_ready_output(&mut self) -> Option<ArrayRef> {
@@ -1999,6 +2068,7 @@ impl Partition for ScanPlanPartition {
         let ordered = execution.plan.ordered();
         let plan_window = plan_window_for_limit(execution.limit_remaining.is_some());
         let read_byte_budget = read_byte_budget(&scheduler);
+        execution.register_release_ranges(&ranges)?;
         let morsels = ranges
             .into_iter()
             .map(|range| PlannedScanPlanMorsel {
@@ -2129,6 +2199,7 @@ struct ScanExecution {
     predicates: Vec<ExecutionPredicate>,
     predicate_stats: Mutex<Vec<PredicateRuntimeStats>>,
     scan_evidence: Mutex<ScanEvidenceStore>,
+    release_state: Mutex<ExecutionReleaseState>,
 }
 
 struct ExecutionPredicate {
@@ -2138,6 +2209,12 @@ struct ExecutionPredicate {
     dynamic_updates: Option<DynamicExprUpdates>,
     read: PreparedReadRef,
     evidence: Vec<PreparedEvidenceRef>,
+}
+
+#[derive(Default)]
+struct ExecutionReleaseState {
+    incomplete_ranges: BTreeMap<u64, u64>,
+    frontier: u64,
 }
 
 impl ExecutionPredicate {
@@ -2314,11 +2391,74 @@ impl ScanExecution {
             predicates,
             predicate_stats: Mutex::new(predicate_stats),
             scan_evidence: Mutex::new(scan_evidence),
+            release_state: Mutex::new(ExecutionReleaseState::default()),
         })
     }
 
     fn read_context(&self) -> ReadContext {
         ReadContext::new(self.session.clone())
+    }
+
+    fn register_release_ranges(&self, ranges: &[Range<u64>]) -> VortexResult<()> {
+        let mut state = self.release_state.lock();
+        for range in ranges {
+            if range.start == range.end {
+                continue;
+            }
+            let previous = state.incomplete_ranges.insert(range.start, range.end);
+            if let Some(previous_end) = previous
+                && previous_end != range.end
+            {
+                vortex_bail!(
+                    "scan2 release tracker saw duplicate range start {} with ends {} and {}",
+                    range.start,
+                    previous_end,
+                    range.end
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn complete_release_range(&self, range: &Range<u64>) -> VortexResult<()> {
+        if range.start == range.end {
+            return Ok(());
+        }
+
+        let frontier = {
+            let mut state = self.release_state.lock();
+            let Some(end) = state.incomplete_ranges.remove(&range.start) else {
+                return Ok(());
+            };
+            if end != range.end {
+                vortex_bail!(
+                    "scan2 release tracker completed range {:?}, but registered end was {}",
+                    range,
+                    end
+                );
+            }
+
+            let next_frontier = state
+                .incomplete_ranges
+                .first_key_value()
+                .map(|(&start, _)| start)
+                .unwrap_or(self.plan.row_count);
+            if next_frontier <= state.frontier {
+                return Ok(());
+            }
+            state.frontier = next_frontier;
+            next_frontier
+        };
+
+        self.release_frontier(frontier)
+    }
+
+    fn release_frontier(&self, frontier: u64) -> VortexResult<()> {
+        self.projection.release(frontier)?;
+        for predicate in &self.predicates {
+            predicate.read.release(frontier)?;
+        }
+        Ok(())
     }
 
     fn predicate_priority(&self, predicate_idx: usize, demand_rows: usize) -> u64 {
@@ -2407,6 +2547,8 @@ impl ScanExecution {
             predicate_done: vec![false; self.predicates.len()],
             next_recheck_predicate: 0,
             projection_queued: false,
+            in_flight_work: 0,
+            finished: false,
         };
 
         Ok(Some(PlannedMorselWork { state, evidence }))

@@ -164,6 +164,19 @@ impl ReadStore {
     pub fn insert(&self, key: ReadRequestKey, buffer: BufferHandle) {
         self.entries.lock().insert(key, buffer);
     }
+
+    /// Remove a resolved buffer.
+    pub fn remove(&self, key: ReadRequestKey) -> Option<BufferHandle> {
+        self.entries.lock().remove(&key)
+    }
+
+    /// Remove multiple resolved buffers.
+    pub fn remove_many(&self, keys: impl IntoIterator<Item = ReadRequestKey>) {
+        let mut entries = self.entries.lock();
+        for key in keys {
+            entries.remove(&key);
+        }
+    }
 }
 
 /// Shared scan-wide read store.

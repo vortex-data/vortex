@@ -747,10 +747,17 @@ impl<T> ScanTaskQueue<T> {
     }
 
     /// Release reads admitted for a completed launched task.
-    pub fn release_reads(&mut self, lane: ScanTaskLane, reads: &[ScanTaskRead]) {
+    ///
+    /// Returns the logical read keys whose active reference count reached zero.
+    pub fn release_reads(
+        &mut self,
+        lane: ScanTaskLane,
+        reads: &[ScanTaskRead],
+    ) -> Vec<ReadRequestKey> {
         let released_bytes = scan_task_read_bytes(reads);
         self.active_group_read_bytes[lane.group().idx()] =
             self.active_group_read_bytes[lane.group().idx()].saturating_sub(released_bytes);
+        let mut released_keys = Vec::new();
         let mut seen = HashSet::new();
         for read in reads {
             if !seen.insert(read.key) {
@@ -764,6 +771,7 @@ impl<T> ScanTaskQueue<T> {
             } else {
                 let active = entry.remove();
                 self.active_read_bytes = self.active_read_bytes.saturating_sub(active.bytes);
+                released_keys.push(read.key);
             }
         }
         tracing::trace!(
@@ -774,6 +782,7 @@ impl<T> ScanTaskQueue<T> {
             active_read_bytes = self.active_read_bytes,
             "released scan task reads"
         );
+        released_keys
     }
 }
 
@@ -933,6 +942,44 @@ mod tests {
             .expect("task should be admitted");
         assert_eq!(admitted.admitted_reads().len(), 1);
         assert_eq!(queue.active_read_bytes(), 40);
+    }
+
+    #[test]
+    fn queue_releases_shared_read_after_last_active_ref() {
+        let shared = read(1, 40);
+        let mut queue = ScanTaskQueue::new(100);
+        queue.push(task_in_lane(
+            0,
+            ScanIoPhase::PredicateRead,
+            ScanTaskLane::Predicate { predicate_idx: 0 },
+            vec![shared],
+        ));
+        queue.push(task_in_lane(
+            1,
+            ScanIoPhase::PredicateRead,
+            ScanTaskLane::Predicate { predicate_idx: 1 },
+            vec![shared],
+        ));
+
+        let first = queue
+            .pop_next_admissible(true, |_| true)
+            .expect("first task should be admitted");
+        let second = queue
+            .pop_next_admissible(false, |_| true)
+            .expect("second task should reuse the active read");
+        assert_eq!(queue.active_read_bytes(), 40);
+
+        assert!(
+            queue
+                .release_reads(first.lane(), first.admitted_reads())
+                .is_empty()
+        );
+        assert_eq!(queue.active_read_bytes(), 40);
+        assert_eq!(
+            queue.release_reads(second.lane(), second.admitted_reads()),
+            vec![shared.key]
+        );
+        assert_eq!(queue.active_read_bytes(), 0);
     }
 
     #[test]
