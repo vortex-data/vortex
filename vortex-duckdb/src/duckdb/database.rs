@@ -90,4 +90,14 @@ impl DatabaseRef {
         );
         Ok(())
     }
+
+    /// Register `vortex_dwithin`, a non-throwing alias of the `spatial` extension's `ST_DWithin`, so
+    /// the radius predicate pushes into the Vortex scan.
+    pub fn register_geo_aliases(&self) -> VortexResult<()> {
+        duckdb_try!(
+            unsafe { cpp::duckdb_vx_register_geo_aliases(self.as_ptr()) },
+            "Failed to register geo aliases"
+        );
+        Ok(())
+    }
 }

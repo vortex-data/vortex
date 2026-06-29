@@ -78,12 +78,12 @@ impl Benchmark for SpatialBenchBenchmark {
             .collect())
     }
 
-    /// On the `vortex-native` lane, geometry columns surface as `GEOMETRY`, so drop the
-    /// `ST_GeomFromWKB(..)` wrappers and let DuckDB's `spatial` extension evaluate the `ST_*`
-    /// predicates directly on the native geometry.
+    /// Adapt a query to the storage format. The `vortex-native` lane surfaces geometry as `GEOMETRY`,
+    /// so it drops the `ST_GeomFromWKB(..)` wrappers and routes pushable `ST_DWithin` filters.
     fn query_for_format(&self, query: &str, format: Format) -> String {
         match format {
-            Format::VortexNative => strip_wkb_wrappers(query),
+            // Native geometry is `GEOMETRY`: drop `ST_GeomFromWKB(..)`, route pushable `ST_DWithin`.
+            Format::VortexNative => route_pushable_dwithin(&strip_wkb_wrappers(query)),
             _ => query.to_string(),
         }
     }
@@ -226,6 +226,50 @@ fn strip_wkb_wrappers(sql: &str) -> String {
             }
             // Unbalanced wrapper: emit it verbatim and stop rewriting.
             None => {
+                out.push_str(OPEN);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Rewrite `ST_DWithin(..)` calls with a geometry literal operand (`ST_GeomFromText`) to the
+/// `vortex_dwithin` alias; leave the rest as `ST_DWithin`. `vortex_dwithin` is only correct when it
+/// pushes (its bind is cleared), and only single-table filters against a literal push — a join (two
+/// columns) does not, so it must keep `ST_DWithin`.
+fn route_pushable_dwithin(sql: &str) -> String {
+    const OPEN: &str = "ST_DWithin(";
+    let mut out = String::with_capacity(sql.len());
+    let mut rest = sql;
+    while let Some(pos) = rest.find(OPEN) {
+        out.push_str(&rest[..pos]);
+        let after = &rest[pos + OPEN.len()..];
+        // Find this call's matching close paren, tracking nested parens (`ST_GeomFromText(..)`).
+        let mut depth = 1usize;
+        let mut end = None;
+        for (i, c) in after.char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        match end {
+            Some(close) if after[..close].contains("ST_GeomFromText") => {
+                out.push_str("vortex_dwithin(");
+                out.push_str(&after[..=close]);
+                rest = &after[close + 1..];
+            }
+            // No literal operand (a join) or unbalanced: keep `ST_DWithin` for DuckDB to evaluate.
+            _ => {
                 out.push_str(OPEN);
                 rest = after;
             }
