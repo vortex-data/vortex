@@ -66,7 +66,7 @@ impl Scheme for ALPRDScheme {
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        let alp_rd = encoder.encode(primitive_array, exec_ctx);
+        let alp_rd = encoder.encode(primitive_array);
         let dtype = alp_rd.dtype().clone();
         let right_bit_width = alp_rd.right_bit_width();
         let mut parts = ALPRDArrayOwnedExt::into_data_parts(alp_rd);
@@ -82,7 +82,6 @@ impl Scheme for ALPRDScheme {
             parts.right_parts,
             right_bit_width,
             parts.left_parts_patches,
-            exec_ctx,
         )?
         .into_array())
     }

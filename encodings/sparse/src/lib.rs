@@ -385,6 +385,12 @@ impl Sparse {
         fill_value: Scalar,
     ) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
+        vortex_ensure!(
+            values.dtype() == &dtype,
+            "sparse values dtype {} must match fill value dtype {}",
+            values.dtype(),
+            dtype,
+        );
         let patches = Patches::new(len, 0, indices, values, None)?;
         let slots = SparseData::make_slots(&patches);
         let data = SparseData::from_patches(&patches, fill_value)?;
@@ -424,25 +430,6 @@ impl Sparse {
 }
 
 impl SparseData {
-    fn normalize_patches_dtype(patches: Patches, fill_value: &Scalar) -> VortexResult<Patches> {
-        let fill_dtype = fill_value.dtype();
-        let values_dtype = patches.values().dtype();
-
-        vortex_ensure!(
-            values_dtype.eq_ignore_nullability(fill_dtype),
-            "fill value, {:?}, should be instance of values dtype, {} but was {}.",
-            fill_value,
-            values_dtype,
-            fill_dtype,
-        );
-
-        if values_dtype == fill_dtype {
-            Ok(patches)
-        } else {
-            patches.cast_values(fill_dtype)
-        }
-    }
-
     pub fn validate(
         patches: &Patches,
         fill_value: &Scalar,
@@ -482,16 +469,23 @@ impl SparseData {
             .vortex_expect("SparseArray patch slots must be present")
     }
 
-    /// Build a new SparseData from an existing set of patches, normalizing dtypes.
+    /// Build a new SparseData from an existing set of patches.
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
-        let patches = Self::normalize_patches_dtype(patches, &fill_value)?;
-        Ok(Self::from_patches_unchecked(&patches, fill_value))
+        Self::from_patches(&patches, fill_value)
     }
 
-    /// Extract metadata from patches to create SparseData, with dtype normalization.
+    /// Extract metadata from patches to create SparseData.
+    ///
+    /// Patch values must already match the fill dtype; callers are expected to construct patches
+    /// with the correct dtype rather than relying on this to normalize them.
     fn from_patches(patches: &Patches, fill_value: Scalar) -> VortexResult<Self> {
-        let patches = Self::normalize_patches_dtype(patches.clone(), &fill_value)?;
-        Ok(Self::from_patches_unchecked(&patches, fill_value))
+        vortex_ensure!(
+            patches.values().dtype() == fill_value.dtype(),
+            "patch values dtype {} must match fill dtype {}",
+            patches.values().dtype(),
+            fill_value.dtype(),
+        );
+        Ok(Self::from_patches_unchecked(patches, fill_value))
     }
 
     /// Extract metadata from patches to create SparseData, without validation.
