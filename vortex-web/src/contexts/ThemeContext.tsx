@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { ThemeContext } from './ThemeContextCore';
 
 export type ThemeChoice = 'light' | 'dark' | 'system';
 
-interface ThemeContextValue {
+export interface ThemeContextValue {
   theme: ThemeChoice;
   setTheme: (theme: ThemeChoice) => void;
 }
-
-const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const STORAGE_KEY = 'vortex-theme';
 
@@ -54,10 +53,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>;
-}
-
-export function useTheme(): ThemeContextValue {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error('useTheme must be used within a ThemeProvider');
-  return ctx;
 }

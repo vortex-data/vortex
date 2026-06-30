@@ -156,7 +156,9 @@ fn try_optimize_recursive(
     }
 
     if any_slot_optimized {
-        current_array = current_array.with_slots(new_slots)?;
+        // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so
+        // parent logical values and statistics remain valid.
+        current_array = unsafe { current_array.with_slots(new_slots) }?;
         any_optimizations = true;
     }
 

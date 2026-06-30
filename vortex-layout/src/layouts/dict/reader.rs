@@ -419,6 +419,7 @@ mod tests {
         (layout, segments)
     }
 
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
     #[test]
     fn reading_nested_packs_works() {
         block_on(|handle| async move {
@@ -570,6 +571,7 @@ mod tests {
         })
     }
 
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
     #[test]
     fn reading_is_null_works() {
         block_on(|handle| async move {
@@ -644,6 +646,7 @@ mod tests {
         })
     }
 
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
     #[test]
     fn reading_byte_length_pushdown_works() {
         let array = VarBinArray::from_iter(

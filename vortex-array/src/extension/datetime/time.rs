@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_session::registry::CachedId;
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -80,7 +81,8 @@ impl ExtVTable for Time {
     type NativeValue<'a> = TimeValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new("vortex.time")
+        static ID: CachedId = CachedId::new("vortex.time");
+        *ID
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

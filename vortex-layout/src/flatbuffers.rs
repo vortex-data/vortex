@@ -232,6 +232,7 @@ mod tests {
     use crate::LayoutEncodingId;
     use crate::session::LayoutSession;
 
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
     #[test]
     fn unknown_layout_encoding_allow_unknown() {
         let mut fbb = FlatBufferBuilder::new();

@@ -23,17 +23,9 @@ impl TakeExecute for ALP {
             .patches()
             .map(|p| p.take(indices, ctx))
             .transpose()?
-            .flatten()
-            .map(|patches| {
-                patches.cast_values(
-                    &array
-                        .dtype()
-                        .with_nullability(taken_encoded.dtype().nullability()),
-                )
-            })
-            .transpose()?;
+            .flatten();
         Ok(Some(
-            ALP::new(taken_encoded, array.exponents(), taken_patches).into_array(),
+            ALP::try_new(taken_encoded, array.exponents(), taken_patches)?.into_array(),
         ))
     }
 }

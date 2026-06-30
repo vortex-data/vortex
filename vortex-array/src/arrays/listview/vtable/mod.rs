@@ -16,6 +16,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EqMode;
 use crate::ExecutionCtx;
@@ -24,6 +25,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::with_empty_buffers;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewData;
 use crate::arrays::listview::array::ELEMENTS_SLOT;
@@ -95,6 +97,14 @@ impl VTable for ListView {
         vortex_panic!("ListViewArray buffer_name index {idx} out of bounds")
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -157,7 +167,7 @@ impl VTable for ListView {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ListViewMetadata::decode(metadata)?;
         vortex_ensure!(
             buffers.is_empty(),
@@ -204,7 +214,7 @@ impl VTable for ListView {
         ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
         let data = ListViewData::try_new()?;
         let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
-        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

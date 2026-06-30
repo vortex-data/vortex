@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useMemo, useState } from 'react';
-import { useVortexFile } from '../../contexts/VortexFileContext';
-import { useSelection } from '../../contexts/SelectionContext';
+import { useVortexFile } from '../../contexts/VortexFileContextCore';
+import { useSelection } from '../../contexts/SelectionContextCore';
 import {
   getNodeDisplayName,
   findPathToNode,
@@ -15,7 +15,7 @@ import { SummaryPane } from './SummaryPane';
 import { ArraySummaryPane } from './ArraySummaryPane';
 import { EncodingPane } from './EncodingPane';
 import { SegmentsPane } from './SegmentsPane';
-import { TreemapPane } from './TreemapPane';
+import { BlockTreemap } from '../explorer/BlockTreemap';
 import { BuffersPane } from './BuffersPane';
 
 type TabId = 'encoding' | 'segments' | 'treemap' | 'buffers';
@@ -155,11 +155,15 @@ export function DetailPanel() {
             <SegmentsPane node={selection.selectedNode} segments={file.segments} />
           )}
           {currentTab === 'treemap' && selection.selectedNode && (
-            <TreemapPane
-              node={selection.selectedNode}
+            <BlockTreemap
+              root={file.layoutTree}
               segments={file.segments}
+              fileSize={file.fileSize}
+              selectedNodeId={selection.selectedNodeId}
+              hoveredNodeId={selection.hoveredNodeId}
               onSelectNode={selectNode}
               onHoverNode={hoverNode}
+              onExpand={file.expandArrayTree}
             />
           )}
           {currentTab === 'buffers' && selection.selectedNode && (

@@ -41,6 +41,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::LayoutBuildContext;
 use crate::LayoutChildType;
@@ -70,7 +71,8 @@ impl VTable for Zoned {
     type Metadata = ZonedMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new("vortex.zoned")
+        static ID: CachedId = CachedId::new("vortex.zoned");
+        *ID
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
@@ -187,7 +189,8 @@ impl VTable for LegacyStats {
     type Metadata = LegacyStatsMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new("vortex.stats")
+        static ID: CachedId = CachedId::new("vortex.stats");
+        *ID
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {

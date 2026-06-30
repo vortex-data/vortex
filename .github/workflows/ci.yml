@@ -132,6 +132,39 @@ jobs:
           uv run --all-packages make html
         working-directory: docs/
 
+  python-cuda-test:
+    name: "Python CUDA (test)"
+    if: github.repository == 'vortex-data/vortex'
+    runs-on: >-
+      ${{ format('runs-on={0}/runner=gpu/tag=python-cuda-test', github.run_id) }}
+    timeout-minutes: 30
+    env:
+      RUST_LOG: "info,maturin=off,uv=debug"
+      MATURIN_PEP517_ARGS: "--profile ci"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          components: cargo
+      - name: Pin rustup proxy to repository toolchain
+        run: |
+          TOOLCHAIN="$(grep '^channel' rust-toolchain.toml | cut -d '"' -f 2)"
+          echo "RUSTUP_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+
+      - name: Pytest - PyVortex CUDA bridge
+        run: |
+          uv run --extra cuda \
+            pytest --benchmark-disable ../vortex-python-cuda/test/test_native_bridge.py
+        working-directory: vortex-python/
+
   rust-docs:
     name: "Rust (docs)"
     needs: duckdb-ready

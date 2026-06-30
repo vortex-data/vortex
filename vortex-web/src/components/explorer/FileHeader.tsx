@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useVortexFile } from '../../contexts/VortexFileContext';
+import { useVortexFile } from '../../contexts/VortexFileContextCore';
 import { ThemePicker } from '../ThemePicker';
 
 interface FileHeaderProps {

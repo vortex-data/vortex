@@ -90,7 +90,7 @@ mod test {
     fn test_slice<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(encoded, array, &mut ctx);
@@ -106,7 +106,7 @@ mod test {
     ) {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(encoded, array, &mut ctx);
     }
@@ -118,7 +118,7 @@ mod test {
         let b = 0.2f64;
         let outlier = 3e100f64;
         let array = PrimitiveArray::from_option_iter([Some(a), Some(b), Some(outlier)]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
         assert!(encoded.left_parts_patches().is_some());
         assert_arrays_eq!(
             encoded,

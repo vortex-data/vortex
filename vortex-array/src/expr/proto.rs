@@ -39,6 +39,7 @@ impl ExprSerializeProtoExt for Expression {
 
 impl Expression {
     pub fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Expression> {
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let expr_id = ScalarFnId::new(expr.id.as_str());
         let children = expr
             .children

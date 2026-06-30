@@ -15,6 +15,7 @@ use vortex_session::registry::CachedId;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::EqMode;
 use crate::ExecutionCtx;
@@ -24,6 +25,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::unsupported_buffer_replacement;
 use crate::arrays::constant::ConstantData;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
@@ -109,6 +111,14 @@ impl VTable for Constant {
         }
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        unsupported_buffer_replacement(array, buffers)
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
@@ -131,7 +141,7 @@ impl VTable for Constant {
         buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.len() == 1,
             "Expected 1 buffer, got {}",
@@ -144,7 +154,7 @@ impl VTable for Constant {
         let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
         let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        Ok(crate::array::ArrayParts::new(
+        Ok(ArrayParts::new(
             self.clone(),
             dtype.clone(),
             len,
@@ -300,6 +310,23 @@ mod tests {
     #[test]
     fn test_null_constant_append() -> VortexResult<()> {
         assert_append_matches_canonical(ConstantArray::new(Scalar::null(DType::Null), 5))
+    }
+
+    #[test]
+    fn test_with_buffers_rejects_serialized_scalar_buffer() {
+        let array =
+            ConstantArray::new(Scalar::primitive(42i32, Nullability::NonNullable), 3).into_array();
+        let buffers = array.buffer_handles();
+
+        // SAFETY: the replacement buffers are the array's existing buffers, so the logical values
+        // would be unchanged if the encoding supported buffer replacement.
+        let Err(err) = (unsafe { array.with_buffers(buffers) }) else {
+            panic!("ConstantArray should reject replacing its serialized scalar buffer");
+        };
+        assert!(
+            err.to_string()
+                .contains("does not support in-memory buffer replacement")
+        );
     }
 
     #[rstest]
