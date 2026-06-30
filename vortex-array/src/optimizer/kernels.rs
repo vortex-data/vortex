@@ -10,10 +10,11 @@
 //! extension encoding or take precedence over a built-in rule. When several functions are
 //! registered for the same key and kind, they are tried in registration order until one applies.
 //!
-//! Kernel entries are addressed by `(outer_id, child_id)`. For parent-reduce and execute-parent
-//! kernels, `outer_id` is the id returned by the parent array's `encoding_id()` and `child_id` is
-//! the child array's `encoding_id()`. For [`ScalarFn`](crate::arrays::ScalarFn) parents, the
-//! parent id is the scalar function id.
+//! Parent-reduce and exact execute-parent kernels are addressed by `(outer_id, child_id)`, where
+//! `outer_id` is the id returned by the parent array's `encoding_id()` and `child_id` is the child
+//! array's `encoding_id()`. Execute-parent kernels may also be registered under any parent using a
+//! separate `child_id` map. For [`ScalarFn`](crate::arrays::ScalarFn) parents, the parent id is the
+//! scalar function id.
 //!
 //! Because registered functions have different signatures for each kernel kind, the registry
 //! maintains one storage map per function type rather than a single type-erased map.
@@ -109,7 +110,23 @@ pub trait DynExecuteParentKernel: Debug + Send + Sync + 'static {
 
 pub(crate) type ExecuteParentKernelRef = Arc<dyn DynExecuteParentKernel>;
 
-pub(crate) type ParentExecutionKernels = HashMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>;
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ParentExecutionKernels {
+    exact: Arc<HashMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>>,
+    any_parent: Arc<HashMap<Id, Arc<[ExecuteParentKernelRef]>>>,
+}
+
+impl ParentExecutionKernels {
+    /// Look up execute-parent kernels registered for an exact `(parent, child)` pair.
+    pub(crate) fn exact(&self, parent: Id, child: Id) -> Option<&Arc<[ExecuteParentKernelRef]>> {
+        self.exact.get(&execute_parent_key(parent, child))
+    }
+
+    /// Look up execute-parent kernels registered for `child` under any parent.
+    pub(crate) fn any_parent(&self, child: Id) -> Option<&Arc<[ExecuteParentKernelRef]>> {
+        self.any_parent.get(&child)
+    }
+}
 
 #[derive(Debug)]
 struct ExecuteParentFnKernel(ExecuteParentFn);
@@ -173,12 +190,13 @@ impl Borrow<u64> for ExecuteParentFnId {
 
 /// Session-scoped registry of optimizer kernel functions.
 ///
-/// Each kernel kind has its own storage map, keyed by `(outer_id, child_id)`. Registering
-/// functions for an existing key appends them to that key's ordered list.
+/// Each kernel kind has its own storage map. Registering functions for an existing key appends
+/// them to that key's ordered list.
 #[derive(Clone, Debug)]
 pub struct ArrayKernels {
     reduce_parent: ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentFn]>>,
     execute_parent: ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>,
+    execute_parent_any_parent: ArcSwapMap<Id, Arc<[ExecuteParentKernelRef]>>,
 }
 
 impl Default for ArrayKernels {
@@ -195,6 +213,7 @@ impl ArrayKernels {
         Self {
             reduce_parent: ArcSwapMap::default(),
             execute_parent: ArcSwapMap::default(),
+            execute_parent_any_parent: ArcSwapMap::default(),
         }
     }
 
@@ -243,7 +262,24 @@ impl ArrayKernels {
             .map(|f| Arc::new(ExecuteParentFnKernel(*f)) as ExecuteParentKernelRef)
             .collect();
         self.execute_parent
-            .extend(hash_fn_id(parent, child).into(), kernels.as_slice());
+            .extend(execute_parent_key(parent, child).into(), kernels.as_slice());
+    }
+
+    /// Register [`ExecuteParentFn`]s for `child` under any parent encoding.
+    ///
+    /// The executor invokes exact `(parent, child)` kernels before these wildcard-parent kernels.
+    /// This is intended for transparent wrapper encodings that can delegate based on the actual
+    /// parent at execution time.
+    ///
+    /// If functions have already been registered for this wildcard pair, these functions are
+    /// appended after them.
+    pub fn register_execute_parent_for_any_parent(&self, child: Id, fns: &[ExecuteParentFn]) {
+        let kernels: Vec<ExecuteParentKernelRef> = fns
+            .iter()
+            .map(|f| Arc::new(ExecuteParentFnKernel(*f)) as ExecuteParentKernelRef)
+            .collect();
+        self.execute_parent_any_parent
+            .extend(child, kernels.as_slice());
     }
 
     /// Register a typed [`ExecuteParentKernel`] for `(parent, child.id())`.
@@ -261,7 +297,7 @@ impl ArrayKernels {
     {
         let child_id = child.id();
         self.execute_parent.push(
-            hash_fn_id(parent, child_id).into(),
+            execute_parent_key(parent, child_id).into(),
             Arc::new(RegisteredExecuteParentKernel {
                 _child: child,
                 kernel,
@@ -272,13 +308,22 @@ impl ArrayKernels {
     /// Returns true when one or more execute-parent kernels are registered for `(parent, child)`.
     pub fn has_execute_parent(&self, parent: Id, child: Id) -> bool {
         self.execute_parent
-            .get(&hash_fn_id(parent, child))
+            .get(&execute_parent_key(parent, child))
             .is_some()
+    }
+
+    /// Returns true when one or more execute-parent kernels are registered for any parent with
+    /// `child`.
+    pub fn has_execute_parent_for_any_parent(&self, child: Id) -> bool {
+        self.execute_parent_any_parent.get(&child).is_some()
     }
 
     /// Return the currently published execute-parent kernel snapshot.
     pub(crate) fn execute_parent_snapshot(&self) -> Arc<ParentExecutionKernels> {
-        self.execute_parent.snapshot()
+        Arc::new(ParentExecutionKernels {
+            exact: self.execute_parent.snapshot(),
+            any_parent: self.execute_parent_any_parent.snapshot(),
+        })
     }
 }
 
@@ -367,6 +412,7 @@ mod tests {
     use super::KernelSession;
     use crate::ArrayVTable;
     use crate::arrays::Bool;
+    use crate::arrays::Shared;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::binary::Binary;
 
@@ -386,6 +432,25 @@ mod tests {
         crate::initialize(&session);
 
         assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
+    }
+
+    #[test]
+    fn initialize_registers_shared_for_any_parent() {
+        let session = VortexSession::empty().with_some(KernelSession::empty());
+
+        assert!(
+            !session
+                .kernels()
+                .has_execute_parent_for_any_parent(Shared.id())
+        );
+
+        crate::initialize(&session);
+
+        assert!(
+            session
+                .kernels()
+                .has_execute_parent_for_any_parent(Shared.id())
+        );
     }
 
     #[test]
