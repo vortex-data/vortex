@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
 use futures::TryFutureExt;
@@ -120,6 +122,54 @@ impl SegmentRequest {
 
 type SharedSegmentFuture = BoxFuture<'static, SharedVortexResult<BufferHandle>>;
 
+/// Snapshot of [`SegmentFutureCache`] activity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SegmentFutureCacheStats {
+    /// Number of requests passed to [`SegmentFutureCache::register`].
+    pub registered_reads: u64,
+    /// Number of same-batch duplicate requests skipped by [`SegmentFutureCache::register`].
+    pub register_duplicates: u64,
+    /// Number of calls to [`SegmentFutureCache::request_segment`].
+    pub request_segment_reads: u64,
+    /// Number of reads satisfied from an in-flight shared future.
+    pub in_flight_hits: u64,
+    /// Number of cache entries whose weak future had already expired.
+    pub stale_in_flight: u64,
+    /// Number of read futures submitted to the underlying [`SegmentSource`].
+    pub submitted_reads: u64,
+}
+
+#[derive(Default)]
+struct SegmentFutureCacheCounters {
+    registered_reads: AtomicU64,
+    register_duplicates: AtomicU64,
+    request_segment_reads: AtomicU64,
+    in_flight_hits: AtomicU64,
+    stale_in_flight: AtomicU64,
+    submitted_reads: AtomicU64,
+}
+
+impl SegmentFutureCacheCounters {
+    fn snapshot(&self) -> SegmentFutureCacheStats {
+        SegmentFutureCacheStats {
+            registered_reads: self.registered_reads.load(Ordering::Relaxed),
+            register_duplicates: self.register_duplicates.load(Ordering::Relaxed),
+            request_segment_reads: self.request_segment_reads.load(Ordering::Relaxed),
+            in_flight_hits: self.in_flight_hits.load(Ordering::Relaxed),
+            stale_in_flight: self.stale_in_flight.load(Ordering::Relaxed),
+            submitted_reads: self.submitted_reads.load(Ordering::Relaxed),
+        }
+    }
+
+    fn increment(counter: &AtomicU64) {
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn add(counter: &AtomicU64, value: usize) {
+        counter.fetch_add(u64::try_from(value).unwrap_or(u64::MAX), Ordering::Relaxed);
+    }
+}
+
 /// Scan-local cache of in-flight segment futures keyed by logical segment request.
 ///
 /// The cache only stores weak references. Scheduled morsel futures and read calls hold the strong
@@ -128,6 +178,7 @@ type SharedSegmentFuture = BoxFuture<'static, SharedVortexResult<BufferHandle>>;
 #[derive(Default)]
 pub struct SegmentFutureCache {
     in_flight: DashMap<SegmentRequestKey, WeakShared<SharedSegmentFuture>>,
+    counters: SegmentFutureCacheCounters,
 }
 
 impl SegmentFutureCache {
@@ -136,21 +187,27 @@ impl SegmentFutureCache {
         Self::default()
     }
 
+    /// Return a snapshot of cache activity counters.
+    pub fn stats(&self) -> SegmentFutureCacheStats {
+        self.counters.snapshot()
+    }
+
     /// Request one segment from a scheduled source, reusing an in-flight future when present.
     pub fn request_segment(&self, source: &dyn SegmentSource, request: SegmentRequest) -> ScanRead {
-        if let Some(handle) = self.cached_handle(request) {
-            return handle;
-        }
+        SegmentFutureCacheCounters::increment(&self.counters.request_segment_reads);
 
         loop {
             match self.in_flight.entry(SegmentRequestKey::from(&request)) {
                 Entry::Occupied(entry) => {
                     if let Some(future) = entry.get().upgrade() {
+                        SegmentFutureCacheCounters::increment(&self.counters.in_flight_hits);
                         return shared_segment_handle(request, future);
                     }
+                    SegmentFutureCacheCounters::increment(&self.counters.stale_in_flight);
                     entry.remove();
                 }
                 Entry::Vacant(entry) => {
+                    SegmentFutureCacheCounters::increment(&self.counters.submitted_reads);
                     let shared = source
                         .request(request.segment)
                         .map_err(Arc::new)
@@ -177,7 +234,9 @@ impl SegmentFutureCache {
         let mut handles = Vec::new();
         let mut misses = Vec::new();
         for request in requests {
+            SegmentFutureCacheCounters::increment(&self.counters.registered_reads);
             if !seen.insert(SegmentRequestKey::from(&request)) {
+                SegmentFutureCacheCounters::increment(&self.counters.register_duplicates);
                 continue;
             }
             if let Some(handle) = self.cached_handle(request) {
@@ -193,7 +252,12 @@ impl SegmentFutureCache {
 
     fn cached_handle(&self, request: SegmentRequest) -> Option<ScanRead> {
         let key = SegmentRequestKey::from(&request);
-        let future = self.in_flight.get(&key)?.upgrade()?;
+        let entry = self.in_flight.get(&key)?;
+        let Some(future) = entry.upgrade() else {
+            SegmentFutureCacheCounters::increment(&self.counters.stale_in_flight);
+            return None;
+        };
+        SegmentFutureCacheCounters::increment(&self.counters.in_flight_hits);
         Some(shared_segment_handle(request, future))
     }
 
@@ -202,6 +266,7 @@ impl SegmentFutureCache {
         source: &dyn SegmentSource,
         misses: Vec<SegmentRequest>,
     ) -> Vec<ScanRead> {
+        SegmentFutureCacheCounters::add(&self.counters.submitted_reads, misses.len());
         self.insert_submitted(misses.into_iter().map(|request| {
             let future = source.request(request.segment);
             (request, future)
@@ -316,11 +381,21 @@ mod tests {
             source.segment_info(segment)?,
             ScanIoPhase::ProjectionRead,
         );
+        let cache = SegmentFutureCache::new();
 
-        let reads = SegmentFutureCache::new().register(source.as_ref(), vec![request, request]);
+        let reads = cache.register(source.as_ref(), vec![request, request]);
 
         assert_eq!(reads.len(), 1);
         assert_eq!(source.submit_count(), 1);
+        assert_eq!(
+            cache.stats(),
+            SegmentFutureCacheStats {
+                registered_reads: 2,
+                register_duplicates: 1,
+                submitted_reads: 1,
+                ..Default::default()
+            }
+        );
 
         Ok(())
     }
@@ -338,11 +413,20 @@ mod tests {
                 ))
             })
             .collect::<VortexResult<Vec<_>>>()?;
+        let cache = SegmentFutureCache::new();
 
-        let reads = SegmentFutureCache::new().register(source.as_ref(), requests);
+        let reads = cache.register(source.as_ref(), requests);
 
         assert_eq!(reads.len(), 5);
         assert_eq!(source.batches(), vec![1, 1, 1, 1, 1]);
+        assert_eq!(
+            cache.stats(),
+            SegmentFutureCacheStats {
+                registered_reads: 5,
+                submitted_reads: 5,
+                ..Default::default()
+            }
+        );
 
         Ok(())
     }
@@ -365,6 +449,47 @@ mod tests {
         assert_eq!(source.submit_count(), 1);
         assert_eq!(block_on(read.future)?.as_host().len(), 1);
         assert_eq!(source.submit_count(), 1);
+        assert_eq!(
+            cache.stats(),
+            SegmentFutureCacheStats {
+                registered_reads: 1,
+                request_segment_reads: 1,
+                in_flight_hits: 1,
+                submitted_reads: 1,
+                ..Default::default()
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn segment_future_cache_counts_stale_entries() -> VortexResult<()> {
+        let source = Arc::new(CountingSegmentSource::new(SegmentInfo::new(8)));
+        let segment = SegmentId::from(0);
+        let request = SegmentRequest::new(
+            segment,
+            source.segment_info(segment)?,
+            ScanIoPhase::ProjectionRead,
+        );
+        let cache = SegmentFutureCache::new();
+
+        let reads = cache.register(source.as_ref(), vec![request]);
+        drop(reads);
+
+        let reads = cache.register(source.as_ref(), vec![request]);
+
+        assert_eq!(reads.len(), 1);
+        assert_eq!(source.submit_count(), 2);
+        assert_eq!(
+            cache.stats(),
+            SegmentFutureCacheStats {
+                registered_reads: 2,
+                stale_in_flight: 1,
+                submitted_reads: 2,
+                ..Default::default()
+            }
+        );
 
         Ok(())
     }
