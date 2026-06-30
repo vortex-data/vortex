@@ -49,6 +49,8 @@ use vortex_layout::layouts::collect::CollectStrategy;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
 use vortex_layout::layouts::dict::writer::DictStrategy;
+#[cfg(feature = "unstable_encodings")]
+use vortex_layout::layouts::fixed_size_list::writer::FixedSizeListLayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
 use vortex_layout::layouts::repartition::RepartitionWriterOptions;
@@ -242,8 +244,20 @@ impl WriteStrategyBuilder {
             Arc::new(FlatLayoutStrategy::default())
         };
 
-        // 7. for each chunk create a flat layout
-        let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
+        // 7. for each chunk create a leaf layout. Under the `unstable_encodings` feature,
+        // fixed-size-list chunks route through `FixedSizeListLayoutStrategy`, which stores
+        // elements and list validity as separately-addressable child layouts. Other chunks fall
+        // through to the flat strategy.
+        #[cfg(feature = "unstable_encodings")]
+        let leaf: Arc<dyn LayoutStrategy> = Arc::new(
+            FixedSizeListLayoutStrategy::default()
+                .with_elements(Arc::clone(&flat))
+                .with_validity(Arc::clone(&flat))
+                .with_fallback(Arc::clone(&flat)),
+        );
+        #[cfg(not(feature = "unstable_encodings"))]
+        let leaf: Arc<dyn LayoutStrategy> = Arc::clone(&flat);
+        let chunked = ChunkedLayoutStrategy::new(leaf);
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
