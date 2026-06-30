@@ -13,9 +13,7 @@ use vortex_session::VortexSession;
 use crate::FoR;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    let Some(kernels) = session.kernels() else {
-        return;
-    };
+    let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Binary.id(), FoR, CompareExecuteAdaptor(FoR));
     kernels.register_execute_parent_kernel(Dict.id(), FoR, TakeExecuteAdaptor(FoR));
 }

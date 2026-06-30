@@ -33,9 +33,7 @@ use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::variant_get::VariantPathElement;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    let Some(kernels) = session.kernels() else {
-        return;
-    };
+    let kernels = session.kernels();
     kernels.register_execute_parent_kernel(VariantGet.id(), Variant, VariantGetKernel);
 }
 

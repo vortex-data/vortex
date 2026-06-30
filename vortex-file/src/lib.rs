@@ -208,21 +208,11 @@ mod default_encoding_tests {
         let session = array_session();
 
         assert!(session.arrays().registry().find(&FSST.id()).is_none());
-        assert!(
-            !session
-                .kernels()
-                .expect("session has a KernelSession")
-                .has_execute_parent(Filter.id(), FSST.id())
-        );
+        assert!(!session.kernels().has_execute_parent(Filter.id(), FSST.id()));
 
         register_default_encodings(&session);
 
         assert!(session.arrays().registry().find(&FSST.id()).is_some());
-        assert!(
-            session
-                .kernels()
-                .expect("session has a KernelSession")
-                .has_execute_parent(Filter.id(), FSST.id())
-        );
+        assert!(session.kernels().has_execute_parent(Filter.id(), FSST.id()));
     }
 }

@@ -21,9 +21,7 @@ use vortex_session::VortexSession;
 use crate::Sparse;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    let Some(kernels) = session.kernels() else {
-        return;
-    };
+    let kernels = session.kernels();
     kernels.register_execute_parent_kernel(Between.id(), Sparse, BetweenExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(Binary.id(), Sparse, CompareExecuteAdaptor(Sparse));
     kernels.register_execute_parent_kernel(FillNull.id(), Sparse, FillNullExecuteAdaptor(Sparse));

@@ -59,9 +59,7 @@ use crate::ParquetVariantArrayExt;
 use crate::compute::AllNonDistinctParquetVariant;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    let Some(kernels) = session.kernels() else {
-        return;
-    };
+    let kernels = session.kernels();
     kernels.register_execute_parent_kernel(
         Filter.id(),
         ParquetVariant,

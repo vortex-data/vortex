@@ -333,10 +333,7 @@ impl ExecutionCtx {
     /// registered after this context is created are not visible to it; create a new
     /// [`ExecutionCtx`] after registration to use newly registered kernels.
     pub fn new(session: VortexSession) -> Self {
-        let execute_parent_kernels = session
-            .kernels()
-            .map(|kernels| kernels.execute_parent_snapshot())
-            .unwrap_or_default();
+        let execute_parent_kernels = session.kernels().execute_parent_snapshot();
         Self {
             session,
             execute_parent_kernels,
@@ -888,7 +885,7 @@ mod tests {
                 .contains_key(&key)
         );
 
-        let kernels = session.kernels().expect("session has a KernelSession");
+        let kernels = session.kernels();
         kernels.register_execute_parent(
             Bool.id(),
             Primitive.id(),

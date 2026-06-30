@@ -355,15 +355,16 @@ impl SessionVar for KernelSession {
 
 /// Extension trait for accessing the optimizer kernel registry from a [`VortexSession`].
 pub trait ArrayKernelsExt: SessionExt {
-    /// Returns the session's [`KernelSession`] if it has one, or `None` otherwise.
+    /// Returns the session's [`KernelSession`], inserting a default one (with the built-in
+    /// kernels) if it does not exist.
     ///
     /// The returned [`SessionGuard`] borrows the session snapshot it was read from (so the registry
     /// stays alive even if the session is concurrently mutated) and derefs through [`KernelSession`]
     /// to the [`ArrayKernels`] registry, so it can be used wherever an `&ArrayKernels` is expected.
     /// The registry shares its storage with the session, so kernels registered through it remain
     /// visible to the session.
-    fn kernels(&self) -> Option<SessionGuard<'_, KernelSession>> {
-        self.get_opt::<KernelSession>()
+    fn kernels(&self) -> SessionGuard<'_, KernelSession> {
+        self.get::<KernelSession>()
     }
 }
 
@@ -384,39 +385,26 @@ mod tests {
     fn kernel_session_default_registers_builtin_kernels() {
         let session = VortexSession::empty().with::<KernelSession>();
 
-        assert!(
-            session
-                .kernels()
-                .expect("session has a KernelSession")
-                .has_execute_parent(Binary.id(), Bool.id())
-        );
+        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
     }
 
     #[test]
     fn initialize_registers_builtin_kernels_into_empty_kernel_session() {
         let session = VortexSession::empty().with_some(KernelSession::empty());
 
-        assert!(
-            !session
-                .kernels()
-                .expect("session has a KernelSession")
-                .has_execute_parent(Binary.id(), Bool.id())
-        );
+        assert!(!session.kernels().has_execute_parent(Binary.id(), Bool.id()));
 
         crate::initialize(&session);
 
-        assert!(
-            session
-                .kernels()
-                .expect("session has a KernelSession")
-                .has_execute_parent(Binary.id(), Bool.id())
-        );
+        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
     }
 
     #[test]
-    fn kernels_is_none_without_kernel_session() {
+    fn kernels_inserts_default_kernel_session() {
         let session = VortexSession::empty();
 
-        assert!(session.kernels().is_none());
+        // `kernels()` uses `get`, so it inserts a default `KernelSession` (with the built-in
+        // kernels) rather than returning `None`.
+        assert!(session.kernels().has_execute_parent(Binary.id(), Bool.id()));
     }
 }

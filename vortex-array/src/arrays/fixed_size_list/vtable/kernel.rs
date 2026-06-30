@@ -13,9 +13,7 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    let Some(kernels) = session.kernels() else {
-        return;
-    };
+    let kernels = session.kernels();
     kernels.register_execute_parent_kernel(
         Cast.id(),
         FixedSizeList,
