@@ -123,6 +123,14 @@ impl VTable for Shared {
             .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
             .map(ExecutionResult::done)
     }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        array.current_array_ref().reduce_parent(parent, child_idx)
+    }
 }
 impl OperationsVTable<Shared> for Shared {
     fn scalar_at(
