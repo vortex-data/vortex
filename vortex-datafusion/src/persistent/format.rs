@@ -71,7 +71,7 @@ use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
 use crate::convert::TryToDataFusion;
-use crate::convert::stats::aggregate_stats_to_df;
+use crate::convert::stats::aggregate_stats_to_df_as;
 use crate::convert::stats::column_statistics_aggregate_fns;
 use crate::convert::stats::is_constant_to_distinct_count;
 
@@ -755,10 +755,22 @@ async fn infer_scan_plan_stats(table_schema: &SchemaRef, vxf: &VortexFile) -> DF
     let mut column_statistics = vec![ColumnStatistics::default(); table_schema.fields().len()];
     let mut requested_columns = Vec::new();
     let mut requested_exprs = Vec::new();
+    let mut requested_dtypes = Vec::new();
 
     for (idx, field) in table_schema.fields().iter().enumerate() {
         if struct_dtype.find(field.name()).is_some() {
+            let target_dtype = vxf
+                .session()
+                .arrow()
+                .from_arrow_field(field.as_ref())
+                .map_err(|e| {
+                    DataFusionError::Execution(format!(
+                        "Failed to derive Vortex DType for field {}: {e}",
+                        field.name()
+                    ))
+                })?;
             requested_columns.push(idx);
+            requested_dtypes.push(target_dtype);
             requested_exprs.push(vortex::expr::get_item(
                 field.name().as_str(),
                 vortex::expr::root(),
@@ -770,10 +782,15 @@ async fn infer_scan_plan_stats(table_schema: &SchemaRef, vxf: &VortexFile) -> DF
         .scan_plan_statistics_many(&requested_exprs, &funcs)
         .await
         .map_err(|e| DataFusionError::Execution(format!("Failed to infer scan2 stats: {e}")))?;
-    for (column_idx, stats) in requested_columns.into_iter().zip(stats) {
-        column_statistics[column_idx] = aggregate_stats_to_df(&stats).map_err(|e| {
-            DataFusionError::Execution(format!("Failed to convert scan2 stats: {e}"))
-        })?;
+    for ((column_idx, target_dtype), stats) in requested_columns
+        .into_iter()
+        .zip(requested_dtypes)
+        .zip(stats)
+    {
+        column_statistics[column_idx] =
+            aggregate_stats_to_df_as(&stats, &target_dtype).map_err(|e| {
+                DataFusionError::Execution(format!("Failed to convert scan2 stats: {e}"))
+            })?;
     }
 
     let total_byte_size = column_statistics

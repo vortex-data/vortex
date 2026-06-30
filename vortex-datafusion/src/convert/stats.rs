@@ -64,6 +64,30 @@ pub(crate) fn aggregate_stats_to_df(
     })
 }
 
+pub(crate) fn aggregate_stats_to_df_as(
+    stats: &[VortexPrecision<Scalar>],
+    target_dtype: &DType,
+) -> VortexResult<ColumnStatistics> {
+    if stats.len() != BYTE_SIZE_INDEX + 1 {
+        return Err(vortex_err!(
+            "expected {} aggregate statistics, got {}",
+            BYTE_SIZE_INDEX + 1,
+            stats.len()
+        ));
+    }
+
+    Ok(ColumnStatistics {
+        null_count: scalar_u64_to_df_usize(&stats[NULL_COUNT_INDEX])?,
+        min_value: scalar_to_df_as(&stats[MIN_INDEX], target_dtype)?,
+        max_value: scalar_to_df_as(&stats[MAX_INDEX], target_dtype)?,
+        // Match the V1 file-statistics path: min/max/null count/size are useful for pruning,
+        // while sum has narrower type expectations in DataFusion and is not used for pruning.
+        sum_value: Precision::Absent,
+        distinct_count: Precision::Absent,
+        byte_size: scalar_u64_to_df_usize(&stats[BYTE_SIZE_INDEX])?,
+    })
+}
+
 /// Convert a stats set for an array with the given dtype.
 #[allow(dead_code)]
 pub(crate) fn stats_set_to_df(
@@ -143,6 +167,22 @@ fn scalar_to_df(stat: &VortexPrecision<Scalar>) -> VortexResult<Precision<Scalar
         VortexPrecision::Inexact(scalar) => Ok(Precision::Inexact(scalar.try_to_df()?)),
         VortexPrecision::Absent => Ok(Precision::Absent),
     }
+}
+
+fn scalar_to_df_as(
+    stat: &VortexPrecision<Scalar>,
+    target_dtype: &DType,
+) -> VortexResult<Precision<ScalarValue>> {
+    let cast = |scalar: &Scalar| scalar.cast(target_dtype).and_then(|s| s.try_to_df()).ok();
+    Ok(match stat {
+        VortexPrecision::Exact(scalar) => cast(scalar)
+            .map(Precision::Exact)
+            .unwrap_or(Precision::Absent),
+        VortexPrecision::Inexact(scalar) => cast(scalar)
+            .map(Precision::Inexact)
+            .unwrap_or(Precision::Absent),
+        VortexPrecision::Absent => Precision::Absent,
+    })
 }
 
 fn scalar_u64_to_df_usize(stat: &VortexPrecision<Scalar>) -> VortexResult<Precision<usize>> {

@@ -29,6 +29,7 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::forms::conjuncts;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
+use vortex_array::expr::transform::coerce_expression;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -360,7 +361,8 @@ impl ScanPlanDataSource {
         scan_request: DataSourceScanRequest,
         target_partitions: usize,
     ) -> VortexResult<DataSourceScanRef> {
-        let dtype = scan_request.projection.return_dtype(&self.dtype)?;
+        let dtype = normalize_scan_expr(scan_request.projection.clone(), &self.dtype)?
+            .return_dtype(&self.dtype)?;
 
         let meta = ScanMeta {
             label: Some("scan2".to_string()),
@@ -483,7 +485,8 @@ impl DataSource for ScanPlanDataSource {
         let provider = self.session.scan_scheduler_provider();
         let scheduler = provider.scheduler_for_scan(&meta);
 
-        let dtype = scan_request.projection.return_dtype(&self.dtype)?;
+        let dtype = normalize_scan_expr(scan_request.projection.clone(), &self.dtype)?
+            .return_dtype(&self.dtype)?;
         let limit_remaining = scan_request.limit.map(AtomicU64::new).map(Arc::new);
 
         Ok(Arc::new(ScanPlanDataSourceScan {
@@ -706,7 +709,8 @@ fn scan_plan_binding_stream(
     session: VortexSession,
     request: DataSourceScanRequest,
 ) -> VortexResult<SendableArrayStream> {
-    let output_dtype = request.projection.return_dtype(binding.root().dtype())?;
+    let output_dtype = normalize_scan_expr(request.projection.clone(), binding.root().dtype())?
+        .return_dtype(binding.root().dtype())?;
     let meta = ScanMeta {
         label: Some("scan2".to_string()),
     };
@@ -2245,12 +2249,12 @@ impl PreparedScanPlan {
         request: &DataSourceScanRequest,
     ) -> VortexResult<Self> {
         let dtype = binding.root().dtype();
-        let return_dtype = request.projection.return_dtype(dtype)?;
-        let projection = request.projection.optimize_recursive(dtype)?;
+        let projection = normalize_scan_expr(request.projection.clone(), dtype)?;
+        let return_dtype = projection.return_dtype(dtype)?;
         let filter = request
             .filter
             .clone()
-            .map(|filter| filter.optimize_recursive(dtype))
+            .map(|filter| normalize_scan_expr(filter, dtype))
             .transpose()?;
 
         let root = binding.root();
@@ -3000,6 +3004,10 @@ fn push_expr(
     Arc::clone(root)
         .try_push_expr(expr, &mut PushCtx::new(session.clone()))?
         .ok_or_else(|| vortex_err!("scan2 could not push expression {expr}"))
+}
+
+fn normalize_scan_expr(expr: Expression, dtype: &DType) -> VortexResult<Expression> {
+    coerce_expression(expr, dtype)?.optimize_recursive(dtype)
 }
 
 fn validate_temporal_comparisons(expr: &Expression, scope: &DType) -> VortexResult<()> {
