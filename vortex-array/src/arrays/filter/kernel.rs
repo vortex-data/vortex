@@ -26,11 +26,14 @@ use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::like::Like;
+use crate::scalar_fn::fns::like::LikeFilterExecuteAdaptor;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(Dict.id(), Filter, TakeExecuteAdaptor(Filter));
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(Dict.id(), Filter, TakeExecuteAdaptor(Filter));
+    kernels.register_execute_parent_kernel(Like.id(), Filter, LikeFilterExecuteAdaptor);
 }
 
 pub trait FilterReduce: VTable {
