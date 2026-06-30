@@ -461,7 +461,7 @@ pub(crate) fn build_file_scan_plan_root(file: &VortexFile) -> VortexResult<ScanP
     let mut plan_request = ScanRequest::empty();
     let layout = file
         .footer()
-        .layout2()
+        .layout2(file.session())?
         .ok_or_else(|| vortex_err!("scan2 requires a v2 footer layout"))?;
     let ctx = LayoutScanPlanCtx::new(
         file.session().clone(),

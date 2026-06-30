@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![expect(clippy::cast_possible_truncation)]
+use std::any::Any;
 use std::iter;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -12,7 +14,9 @@ use futures::TryStreamExt;
 use futures::pin_mut;
 use rstest::rstest;
 use vortex_array::ArrayRef;
+use vortex_array::EmptyMetadata;
 use vortex_array::IntoArray;
+use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
@@ -28,12 +32,14 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
 use vortex_array::expr::col;
@@ -64,16 +70,38 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_io::session::RuntimeSession;
+use vortex_layout::IntoLayout;
 use vortex_layout::Layout;
+use vortex_layout::LayoutBuildContext;
+use vortex_layout::LayoutChildType;
+use vortex_layout::LayoutChildren;
+use vortex_layout::LayoutEncodingRef;
+use vortex_layout::LayoutId;
+use vortex_layout::LayoutReader;
+use vortex_layout::LayoutReaderContext;
+use vortex_layout::LayoutReaderRef;
+use vortex_layout::LayoutRef;
+use vortex_layout::RowSplits;
+use vortex_layout::SplitRange;
+use vortex_layout::VTable;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
+use vortex_layout::segments::SegmentId;
+use vortex_layout::segments::SegmentSource;
 use vortex_layout::session::LayoutSession;
+use vortex_layout::session::LayoutSessionExt;
+use vortex_mask::Mask;
 use vortex_scan::ScanSchedulerSession;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
+use vortex_session::registry::ReadContext;
 
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
@@ -96,6 +124,212 @@ pub(crate) fn new_test_session() -> VortexSession {
     crate::register_default_encodings(&session);
 
     session
+}
+
+vortex_layout::vtable!(V1Only);
+
+#[derive(Clone, Debug)]
+pub struct V1OnlyLayout {
+    dtype: DType,
+    row_count: u64,
+}
+
+#[derive(Debug)]
+pub struct V1OnlyLayoutEncoding;
+
+impl VTable for V1Only {
+    type Layout = V1OnlyLayout;
+    type Encoding = V1OnlyLayoutEncoding;
+    type Metadata = EmptyMetadata;
+
+    fn id(_encoding: &Self::Encoding) -> LayoutId {
+        static ID: CachedId = CachedId::new("vortex.test.v1-only");
+        *ID
+    }
+
+    fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
+        LayoutEncodingRef::new_ref(V1OnlyLayoutEncoding.as_ref())
+    }
+
+    fn row_count(layout: &Self::Layout) -> u64 {
+        layout.row_count
+    }
+
+    fn dtype(layout: &Self::Layout) -> &DType {
+        &layout.dtype
+    }
+
+    fn metadata(_layout: &Self::Layout) -> Self::Metadata {
+        EmptyMetadata
+    }
+
+    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
+        Vec::new()
+    }
+
+    fn nchildren(_layout: &Self::Layout) -> usize {
+        0
+    }
+
+    fn child(_layout: &Self::Layout, _idx: usize) -> VortexResult<LayoutRef> {
+        vortex_bail!("V1-only test layout has no children");
+    }
+
+    fn child_type(_layout: &Self::Layout, _idx: usize) -> LayoutChildType {
+        vortex_panic!("V1-only test layout has no children");
+    }
+
+    fn new_reader(
+        layout: &Self::Layout,
+        name: Arc<str>,
+        _segment_source: Arc<dyn SegmentSource>,
+        _session: &VortexSession,
+        _ctx: &LayoutReaderContext,
+    ) -> VortexResult<LayoutReaderRef> {
+        Ok(Arc::new(V1OnlyReader {
+            name,
+            dtype: layout.dtype.clone(),
+            row_count: layout.row_count,
+        }))
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        dtype: &DType,
+        row_count: u64,
+        _metadata: &EmptyMetadata,
+        segment_ids: Vec<SegmentId>,
+        children: &dyn LayoutChildren,
+        _build_ctx: &LayoutBuildContext<'_>,
+    ) -> VortexResult<Self::Layout> {
+        if !segment_ids.is_empty() {
+            vortex_bail!(
+                "V1-only test layout expects no segments, got {}",
+                segment_ids.len()
+            );
+        }
+        if children.nchildren() != 0 {
+            vortex_bail!(
+                "V1-only test layout expects no children, got {}",
+                children.nchildren()
+            );
+        }
+        Ok(V1OnlyLayout {
+            dtype: dtype.clone(),
+            row_count,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct V1OnlyReader {
+    name: Arc<str>,
+    dtype: DType,
+    row_count: u64,
+}
+
+impl LayoutReader for V1OnlyReader {
+    fn name(&self) -> &Arc<str> {
+        &self.name
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
+    fn register_splits(
+        &self,
+        _field_mask: &[vortex_array::dtype::FieldMask],
+        split_range: &SplitRange,
+        splits: &mut RowSplits,
+    ) -> VortexResult<()> {
+        split_range.check_bounds(self.row_count)?;
+        splits.push(split_range.root_row_range().end);
+        Ok(())
+    }
+
+    fn pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        _expr: &Expression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        let row_count = usize::try_from(row_range.end - row_range.start)
+            .map_err(|_| vortex_err!("V1-only test row range does not fit in usize"))?;
+        if row_count != mask.len() {
+            vortex_bail!(
+                "V1-only pruning mask length mismatch: {} != {}",
+                row_count,
+                mask.len()
+            );
+        }
+        Ok(MaskFuture::ready(mask))
+    }
+
+    fn filter_evaluation(
+        &self,
+        _row_range: &Range<u64>,
+        _expr: &Expression,
+        mask: MaskFuture,
+    ) -> VortexResult<MaskFuture> {
+        Ok(mask)
+    }
+
+    fn projection_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        _expr: &Expression,
+        mask: MaskFuture,
+    ) -> VortexResult<vortex_layout::ArrayFuture> {
+        let values = row_range
+            .clone()
+            .map(|value| {
+                i32::try_from(value)
+                    .map_err(|_| vortex_err!("V1-only test row {value} does not fit in i32"))
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Ok(Box::pin(async move {
+            let array = Buffer::from_iter(values).into_array();
+            let mask = mask.await?;
+            array.mask(mask.into_array())
+        }))
+    }
+}
+
+fn v1_only_session() -> VortexSession {
+    let session = new_test_session();
+    session
+        .layouts()
+        .register(LayoutEncodingRef::new_ref(V1OnlyLayoutEncoding.as_ref()));
+    session
+}
+
+fn v1_only_file_bytes(row_count: u64) -> VortexResult<ByteBuffer> {
+    let footer = crate::footer::Footer::new(
+        V1OnlyLayout {
+            dtype: DType::Primitive(I32, Nullability::Nullable),
+            row_count,
+        }
+        .into_layout(),
+        Arc::from(Vec::<SegmentSpec>::new()),
+        None,
+        ReadContext::new(Vec::new()),
+    );
+
+    let mut file_bytes = ByteBufferMut::empty();
+    for buffer in footer.into_serializer().serialize()? {
+        file_bytes.extend_from_slice(buffer.as_ref());
+    }
+    Ok(file_bytes.freeze())
 }
 
 fn exact_u32_stat(stat: &Precision<Scalar>) -> Option<u32> {
@@ -301,6 +535,24 @@ async fn test_eof_values() {
     // when we change the footer
     assert_eq!(VERSION, 1);
     assert_eq!(V1_FOOTER_FBS_SIZE, 32);
+}
+
+#[tokio::test]
+async fn v1_scan_fallback_does_not_deserialize_v2_layout_at_open() -> VortexResult<()> {
+    let session = v1_only_session();
+    let file = session.open_options().open_buffer(v1_only_file_bytes(3)?)?;
+
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    let expected = PrimitiveArray::from_option_iter([Some(0i32), Some(1), Some(2)]).into_array();
+    assert_arrays_eq!(result, expected, &mut session.create_execution_ctx());
+
+    assert!(
+        file.scan_plan_stream(vortex_scan::ScanRequest::default())
+            .is_err(),
+        "V2 scan should fail only when the V2 path is explicitly requested"
+    );
+
+    Ok(())
 }
 
 #[tokio::test]
