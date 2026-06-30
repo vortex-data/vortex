@@ -120,6 +120,7 @@ mod tests {
         type Metadata = EmptyMetadata;
         type NativeValue<'a> = &'a str;
 
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
         fn id(&self) -> ExtId {
             ExtId::new("test_ext")
         }
@@ -244,6 +245,7 @@ mod tests {
             type Metadata = EmptyMetadata;
             type NativeValue<'a> = &'a str;
 
+            #[expect(clippy::disallowed_methods, reason = "test-only id")]
             fn id(&self) -> ExtId {
                 ExtId::new("test_ext_2")
             }
