@@ -9,6 +9,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_scan::plan::ScanPlanRef;
 use vortex_scan::plan::request::ScanRequest;
+use vortex_session::registry::CachedId;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
@@ -42,7 +43,8 @@ impl VTable for Dict {
     type LayoutData = DictData;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.dict")
+        static ID: CachedId = CachedId::new("vortex.dict");
+        *ID
     }
 
     fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {

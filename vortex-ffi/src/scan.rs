@@ -28,7 +28,7 @@ use vortex::error::vortex_ensure;
 use vortex::expr::root;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
-use vortex::scan::DataSourceScan;
+use vortex::scan::DataSourceScanRef;
 use vortex::scan::Partition;
 use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
@@ -45,7 +45,7 @@ use crate::expression::vx_expression;
 use crate::session::vx_session;
 
 pub enum VxScan {
-    Pending(Box<dyn DataSourceScan>),
+    Pending(DataSourceScanRef),
     Started(PartitionStream),
     Finished,
 }
@@ -204,6 +204,7 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
         limit,
         partition_selection: Selection::All,
         partition_range: None,
+        partitioning: Default::default(),
     })
 }
 

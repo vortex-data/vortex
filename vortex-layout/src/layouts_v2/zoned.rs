@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_scan::plan::ScanPlanRef;
 use vortex_scan::plan::request::ScanRequest;
+use vortex_session::registry::CachedId;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
@@ -71,7 +72,8 @@ impl VTable for Zoned {
     type LayoutData = ZonedData;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.zoned")
+        static ID: CachedId = CachedId::new("vortex.zoned");
+        *ID
     }
 
     fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
@@ -113,7 +115,8 @@ impl VTable for LegacyStats {
     type LayoutData = ZonedData;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.stats")
+        static ID: CachedId = CachedId::new("vortex.stats");
+        *ID
     }
 
     fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {

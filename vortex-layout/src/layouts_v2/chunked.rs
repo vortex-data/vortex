@@ -10,6 +10,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_scan::plan::ScanPlanRef;
 use vortex_scan::plan::request::ScanRequest;
+use vortex_session::registry::CachedId;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
@@ -40,7 +41,8 @@ impl VTable for Chunked {
     type LayoutData = ChunkedData;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.chunked")
+        static ID: CachedId = CachedId::new("vortex.chunked");
+        *ID
     }
 
     fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {

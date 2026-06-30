@@ -8,6 +8,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scan::plan::ScanPlanRef;
 use vortex_scan::plan::request::ScanRequest;
+use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
 use crate::LayoutChildType;
@@ -53,7 +54,8 @@ impl VTable for Flat {
     type LayoutData = FlatData;
 
     fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.flat")
+        static ID: CachedId = CachedId::new("vortex.flat");
+        *ID
     }
 
     fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {

@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_scan::plan::ScanPlanRef;
 use vortex_scan::plan::request::ScanRequest;
+use vortex_session::registry::CachedId;
 
 use crate::LayoutChildType;
 use crate::LayoutId;
@@ -26,7 +27,8 @@ impl VTable for Struct {
     type LayoutData = ();
 
     fn id(&self) -> LayoutId {
-        LayoutId::new("vortex.struct")
+        static ID: CachedId = CachedId::new("vortex.struct");
+        *ID
     }
 
     fn deserialize(&self, args: &LayoutDeserializeArgs<'_>) -> VortexResult<Self::LayoutData> {
