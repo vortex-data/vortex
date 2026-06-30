@@ -10657,7 +10657,7 @@ version = "0.1.0"
 name = "vortex-python-cuda"
 version = "0.1.0"
 dependencies = [
- "arrow-schema",
+ "arrow-schema 58.3.0",
  "bytes",
  "pyo3",
  "vortex",

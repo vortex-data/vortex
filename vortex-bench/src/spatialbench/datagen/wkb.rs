@@ -24,7 +24,6 @@ use spatialbench_parquet::file::properties::WriterProperties;
 use tokio::fs::File as TokioFile;
 use tracing::info;
 
-use super::table::TABLES;
 use super::table::Table;
 use crate::Format;
 use crate::utils::file::idempotent_async;
@@ -32,29 +31,30 @@ use crate::utils::file::idempotent_async;
 /// Batch size matching the TPC-H generator's streaming batches.
 const BATCH_SIZE: usize = 8192 * 64;
 
-/// Batch iterator for one partition of `table`, from the arrow-56 `spatialbench` crates.
-fn iterator(
-    table: Table,
-    scale_factor: f64,
-    part: i32,
-    part_count: i32,
-) -> Box<dyn RecordBatchIterator> {
-    match table {
-        Table::Trip => Box::new(
-            TripArrow::new(TripGenerator::new(scale_factor, part, part_count))
-                .with_batch_size(BATCH_SIZE),
-        ),
-        Table::Building => Box::new(
-            BuildingArrow::new(BuildingGenerator::new(scale_factor, part, part_count))
-                .with_batch_size(BATCH_SIZE),
-        ),
-        Table::Customer => Box::new(
-            CustomerArrow::new(CustomerGenerator::new(scale_factor, part, part_count))
-                .with_batch_size(BATCH_SIZE),
-        ),
-        // Zone is sourced externally (the published `spatialbench` crate has no generator); it is
-        // never emitted by `generate_tables`, which only iterates `TABLES`.
-        Table::Zone => unreachable!("zone is sourced externally, not generated in-process"),
+impl Table {
+    /// Batch iterator for one partition of this table, from the arrow-56 `spatialbench` crates. Only
+    /// called for generated tables (see [`Table::is_generated`]).
+    fn batch_iterator(
+        self,
+        scale_factor: f64,
+        part: i32,
+        part_count: i32,
+    ) -> Box<dyn RecordBatchIterator> {
+        match self {
+            Table::Trip => Box::new(
+                TripArrow::new(TripGenerator::new(scale_factor, part, part_count))
+                    .with_batch_size(BATCH_SIZE),
+            ),
+            Table::Building => Box::new(
+                BuildingArrow::new(BuildingGenerator::new(scale_factor, part, part_count))
+                    .with_batch_size(BATCH_SIZE),
+            ),
+            Table::Customer => Box::new(
+                CustomerArrow::new(CustomerGenerator::new(scale_factor, part, part_count))
+                    .with_batch_size(BATCH_SIZE),
+            ),
+            Table::Zone => unreachable!("zone is sourced externally, not generated in-process"),
+        }
     }
 }
 
@@ -70,7 +70,7 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
     let num_parts = (scale_factor.ceil() as usize).max(1);
     let part_count = i32::try_from(num_parts)?;
 
-    for &table in TABLES {
+    for table in Table::ALL.into_iter().filter(|table| table.is_generated()) {
         for part_idx in 0..num_parts {
             let output_file = parquet_dir.join(format!("{}_{part_idx}.parquet", table.name()));
             let part = i32::try_from(part_idx + 1)?;
@@ -84,7 +84,7 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
                     "Generating SpatialBench table"
                 );
 
-                let iter = iterator(table, scale_factor, part, part_count);
+                let iter = table.batch_iterator(scale_factor, part, part_count);
                 let schema = Arc::clone(iter.schema());
 
                 let file = TokioFile::create(&path).await?;

@@ -174,7 +174,7 @@ impl BenchmarkDataset {
             ],
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::ClickBenchSorted => &["hits"],
             BenchmarkDataset::PublicBi { .. } => todo!(),
-            BenchmarkDataset::SpatialBench { .. } => &["trip", "building", "zone"],
+            BenchmarkDataset::SpatialBench { .. } => &["trip", "building", "customer", "zone"],
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
             BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],
             BenchmarkDataset::Fineweb => &["fineweb"],

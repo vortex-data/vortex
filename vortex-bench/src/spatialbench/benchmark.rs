@@ -13,6 +13,7 @@ use crate::Engine;
 use crate::Format;
 use crate::TableSpec;
 use crate::spatialbench::datagen;
+use crate::spatialbench::datagen::Table;
 use crate::utils::file::resolve_data_url;
 use crate::workspace_root;
 
@@ -102,21 +103,17 @@ impl Benchmark for SpatialBenchBenchmark {
     }
 
     fn table_specs(&self) -> Vec<TableSpec> {
-        let mut specs = vec![
-            TableSpec::new("trip", None),
-            TableSpec::new("building", None),
-            TableSpec::new("customer", None),
-        ];
         // `zone` is externally sourced and optional; register it only when present so queries that
         // don't need it don't fail on the missing glob.
         let zone_present = match self.data_url.to_file_path() {
             Ok(base) => zone_parquet_present(&base.join(Format::Parquet.name())),
             Err(()) => true,
         };
-        if zone_present {
-            specs.push(TableSpec::new("zone", None));
-        }
-        specs
+        Table::ALL
+            .into_iter()
+            .filter(|table| !matches!(table, Table::Zone) || zone_present)
+            .map(|table| TableSpec::new(table.name(), None))
+            .collect()
     }
 
     /// Scope each table to its own `{table}_*.{ext}` files; the default globs every file in the
