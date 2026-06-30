@@ -133,10 +133,9 @@ pub trait ExecuteParentKernel<V: VTable> {
 }
 
 pub fn initialize(session: &VortexSession) {
-    let Some(kernels) = session.kernels() else {
-        return;
-    };
-    kernels.register_execute_parent_kernel(parent_id, Child, Kernel);
+    session
+        .kernels()
+        .register_execute_parent_kernel(parent_id, Child, Kernel);
 }
 ```
 
