@@ -56,7 +56,6 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar::ScalarValue;
-    use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -167,7 +166,7 @@ mod tests {
         let sequence = casted
             .as_typed::<Sequence>()
             .expect("integer sequence cast should preserve SequenceArray");
-        assert_eq!(sequence.ptype(), PType::I64);
+        assert_eq!(sequence.calculation_ptype(), PType::I64);
         assert_eq!(
             sequence.dtype(),
             &DType::Primitive(PType::U8, Nullability::NonNullable)

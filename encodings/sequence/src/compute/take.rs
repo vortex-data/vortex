@@ -77,7 +77,7 @@ fn take_with_typed_indices<T: IntegerPType>(
     indices_mask: Mask,
     result_nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    match_each_integer_ptype!(array.ptype(), |C| {
+    match_each_integer_ptype!(array.calculation_ptype(), |C| {
         let mul = array.multiplier().cast::<C>()?;
         let base = array.base().cast::<C>()?;
 

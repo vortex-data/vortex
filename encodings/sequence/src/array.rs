@@ -199,7 +199,7 @@ impl SequenceData {
         Self { base, multiplier }
     }
 
-    pub fn ptype(&self) -> PType {
+    pub(crate) fn calculation_ptype(&self) -> PType {
         self.base.ptype()
     }
 
@@ -244,7 +244,7 @@ impl SequenceData {
     }
 
     pub(crate) fn index_value(&self, idx: usize) -> PValue {
-        match_each_integer_ptype!(self.ptype(), |P| {
+        match_each_integer_ptype!(self.calculation_ptype(), |P| {
             let base = self.base.cast::<P>().vortex_expect("must be able to cast");
             let multiplier = self
                 .multiplier

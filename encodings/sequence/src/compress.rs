@@ -81,7 +81,7 @@ pub fn sequence_decompress(array: &SequenceArray) -> VortexResult<ArrayRef> {
         PrimitiveArray::new(values, Validity::from(nullability))
     }
 
-    let prim = match_each_integer_ptype!(array.ptype(), |C| {
+    let prim = match_each_integer_ptype!(array.calculation_ptype(), |C| {
         let base = array.base().cast::<C>()?;
         let multiplier = array.multiplier().cast::<C>()?;
         match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
