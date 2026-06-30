@@ -71,6 +71,8 @@ pub enum BenchmarkDataset {
     ClickBenchSorted,
     #[serde(rename = "public-bi")]
     PublicBi { name: String },
+    #[serde(rename = "spatialbench")]
+    SpatialBench { scale_factor: String },
     #[serde(rename = "statpopgen")]
     StatPopGen { n_rows: u64 },
     #[serde(rename = "polarsignals")]
@@ -90,6 +92,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::ClickBench { .. } => "clickbench",
             BenchmarkDataset::ClickBenchSorted => "clickbench-sorted",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
+            BenchmarkDataset::SpatialBench { .. } => "spatialbench",
             BenchmarkDataset::StatPopGen { .. } => "statpopgen",
             BenchmarkDataset::PolarSignals { .. } => "polarsignals",
             BenchmarkDataset::Fineweb => "fineweb",
@@ -110,6 +113,9 @@ impl Display for BenchmarkDataset {
             },
             BenchmarkDataset::ClickBenchSorted => write!(f, "clickbench-sorted"),
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
+            BenchmarkDataset::SpatialBench { scale_factor } => {
+                write!(f, "spatialbench(sf={scale_factor})")
+            }
             BenchmarkDataset::StatPopGen { n_rows } => write!(f, "statpopgen(n_rows={n_rows})"),
             BenchmarkDataset::PolarSignals { n_rows } => {
                 write!(f, "polarsignals(n_rows={n_rows})")
@@ -168,6 +174,7 @@ impl BenchmarkDataset {
             ],
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::ClickBenchSorted => &["hits"],
             BenchmarkDataset::PublicBi { .. } => todo!(),
+            BenchmarkDataset::SpatialBench { .. } => &["trip", "building", "customer", "zone"],
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
             BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],
             BenchmarkDataset::Fineweb => &["fineweb"],

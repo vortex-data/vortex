@@ -23,6 +23,7 @@ vortex = { workspace = true, features = [
     "tokio",
     "zstd",
 ] }
+vortex-geo = { workspace = true }
 vortex-tensor = { workspace = true } # TODO(connor): In the future, this might be inside vortex.
 
 anyhow = { workspace = true }
@@ -48,6 +49,9 @@ regex = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+spatialbench = { workspace = true }
+spatialbench-arrow = { workspace = true }
+spatialbench-parquet = { workspace = true }
 sysinfo = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 target-lexicon = { workspace = true }

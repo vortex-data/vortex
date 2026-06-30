@@ -8,6 +8,7 @@ use glob::Pattern;
 use url::Url;
 
 use crate::BenchmarkDataset;
+use crate::Engine;
 use crate::Format;
 
 /// Specification for a table in a benchmark dataset.
@@ -31,6 +32,12 @@ impl TableSpec {
 pub trait Benchmark: Send + Sync {
     /// Get all available queries for this benchmark
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>>;
+
+    /// SQL an `engine` must run before this benchmark's queries (e.g. loading engine
+    /// extensions). Runners replay these after every (re)open. Default: none.
+    fn engine_init_sql(&self, _engine: Engine) -> Vec<String> {
+        Vec::new()
+    }
 
     /// Generate or prepare base data for the benchmark (typically Parquet format).
     /// This is the canonical source data that can be converted to other formats.

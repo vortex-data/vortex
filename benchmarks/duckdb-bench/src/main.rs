@@ -171,12 +171,13 @@ fn main() -> anyhow::Result<()> {
         &filtered_queries,
         mode,
         |format| {
-            let ctx = DuckClient::new(
+            let mut ctx = DuckClient::new(
                 &*benchmark,
                 format,
                 args.delete_duckdb_database,
                 args.threads,
             )?;
+            ctx.set_init_sql(benchmark.engine_init_sql(Engine::DuckDB))?;
             ctx.register_tables(&*benchmark, format)?;
 
             // Duckdb doesn't support octet_length for strings but we need this
