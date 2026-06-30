@@ -132,6 +132,7 @@ pub(crate) fn initialize(session: &vortex_session::VortexSession) {
     listview::initialize(session);
     patched::initialize(session);
     primitive::initialize(session);
+    shared::initialize(session);
     struct_::initialize(session);
     varbin::initialize(session);
     varbinview::initialize(session);

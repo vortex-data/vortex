@@ -34,8 +34,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayId;
-use crate::arrays::Shared;
-use crate::arrays::shared::SharedArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
@@ -44,8 +42,8 @@ use crate::memory::HostAllocatorRef;
 use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
+use crate::optimizer::kernels::ExecuteParentKernelRef;
 use crate::optimizer::kernels::ParentExecutionKernels;
-use crate::optimizer::kernels::execute_parent_key;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 
@@ -362,6 +360,10 @@ impl ExecutionCtx {
         self.session.allocator()
     }
 
+    pub(crate) fn execute_parent_kernels(&self) -> Arc<ParentExecutionKernels> {
+        Arc::clone(&self.execute_parent_kernels)
+    }
+
     /// Log an execution step at the current depth.
     ///
     /// Steps are accumulated and dumped as a single trace on Drop at DEBUG level.
@@ -564,58 +566,50 @@ fn finalize_done(
     Ok((output, None))
 }
 
-fn execute_parent_for_child(
+pub(crate) fn execute_parent_for_child(
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
     kernels: &ParentExecutionKernels,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    if let Some(result) = execute_parent_for_exact_child(parent, child, slot_idx, kernels, ctx)? {
+    if let Some(plugins) = kernels.exact(parent.encoding_id(), child.encoding_id())
+        && let Some(result) =
+            execute_parent_with_plugins(plugins.as_ref(), parent, child, slot_idx, ctx)?
+    {
         return Ok(Some(result));
     }
 
-    // Shared is a transparent cache wrapper. Try kernels against the wrapped source/current array
-    // before forcing Shared to canonicalize and populate its cache.
-    let mut current = child.clone();
-    while let Some(source) = current
-        .as_opt::<Shared>()
-        .map(|shared| shared.current_array_ref().clone())
+    if let Some(plugins) = kernels.any_parent(child.encoding_id())
+        && let Some(result) =
+            execute_parent_with_plugins(plugins.as_ref(), parent, child, slot_idx, ctx)?
     {
-        if let Some(result) =
-            execute_parent_for_exact_child(parent, &source, slot_idx, kernels, ctx)?
-        {
-            return Ok(Some(result));
-        }
-        current = source;
+        return Ok(Some(result));
     }
 
     Ok(None)
 }
 
-fn execute_parent_for_exact_child(
+fn execute_parent_with_plugins(
+    plugins: &[ExecuteParentKernelRef],
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
-    kernels: &ParentExecutionKernels,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let key = execute_parent_key(parent.encoding_id(), child.encoding_id());
-    if let Some(plugins) = kernels.get(&key) {
-        for plugin in plugins.as_ref() {
-            if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
-                if cfg!(debug_assertions) {
-                    vortex_ensure!(
-                        result.len() == parent.len(),
-                        "Executed parent canonical length mismatch"
-                    );
-                    vortex_ensure!(
-                        result.dtype() == parent.dtype(),
-                        "Executed parent canonical dtype mismatch"
-                    );
-                }
-                return Ok(Some(result));
+    for plugin in plugins {
+        if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
+            if cfg!(debug_assertions) {
+                vortex_ensure!(
+                    result.len() == parent.len(),
+                    "Executed parent canonical length mismatch"
+                );
+                vortex_ensure!(
+                    result.dtype() == parent.dtype(),
+                    "Executed parent canonical dtype mismatch"
+                );
             }
+            return Ok(Some(result));
         }
     }
 
@@ -891,10 +885,13 @@ mod tests {
     use crate::VTable as _;
     use crate::VortexSessionExecute;
     use crate::arrays::Bool;
+    use crate::arrays::BoolArray;
     use crate::arrays::Primitive;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::SharedArray;
+    use crate::arrays::shared;
     use crate::optimizer::kernels::ExecuteParentFn;
     use crate::optimizer::kernels::KernelSession;
-    use crate::optimizer::kernels::execute_parent_key;
 
     fn noop_execute_parent(
         _child: &ArrayRef,
@@ -908,13 +905,13 @@ mod tests {
     #[test]
     fn execution_ctx_snapshots_execute_parent_kernels_at_creation() {
         let session = VortexSession::empty().with_some(KernelSession::empty());
-        let key = execute_parent_key(Bool.id(), Primitive.id());
 
         let before_registration = session.create_execution_ctx();
         assert!(
-            !before_registration
+            before_registration
                 .execute_parent_kernels
-                .contains_key(&key)
+                .exact(Bool.id(), Primitive.id())
+                .is_none()
         );
 
         session.kernels().register_execute_parent(
@@ -924,12 +921,53 @@ mod tests {
         );
 
         assert!(
-            !before_registration
+            before_registration
                 .execute_parent_kernels
-                .contains_key(&key)
+                .exact(Bool.id(), Primitive.id())
+                .is_none()
         );
 
         let after_registration = session.create_execution_ctx();
-        assert!(after_registration.execute_parent_kernels.contains_key(&key));
+        assert!(
+            after_registration
+                .execute_parent_kernels
+                .exact(Bool.id(), Primitive.id())
+                .is_some()
+        );
+    }
+
+    fn primitive_execute_parent(
+        child: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        assert!(child.as_opt::<Primitive>().is_some());
+        assert!(parent.as_opt::<Bool>().is_some());
+        assert_eq!(child_idx, 1);
+        Ok(Some(parent.clone()))
+    }
+
+    #[test]
+    fn shared_child_uses_any_parent_execute_kernel() -> VortexResult<()> {
+        let session = VortexSession::empty().with_some(KernelSession::empty());
+        session.kernels().register_execute_parent(
+            Bool.id(),
+            Primitive.id(),
+            &[primitive_execute_parent as ExecuteParentFn],
+        );
+        shared::initialize(&session);
+
+        let mut ctx = session.create_execution_ctx();
+        let kernels = ctx.execute_parent_kernels();
+        let parent = BoolArray::from_iter([true, false]).into_array();
+        let child =
+            SharedArray::new(PrimitiveArray::from_iter([1i32, 2]).into_array()).into_array();
+
+        let result = execute_parent_for_child(&parent, &child, 1, kernels.as_ref(), &mut ctx)?
+            .expect("shared child should dispatch to wrapped primitive kernel");
+
+        assert_eq!(result.encoding_id(), Bool.id());
+        Ok(())
     }
 }
