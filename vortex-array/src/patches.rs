@@ -440,20 +440,6 @@ impl Patches {
         ))
     }
 
-    pub fn cast_values(self, values_dtype: &DType) -> VortexResult<Self> {
-        // SAFETY: casting does not affect the relationship between the indices and values
-        unsafe {
-            Ok(Self::new_unchecked(
-                self.array_len,
-                self.offset,
-                self.indices,
-                self.values.cast(values_dtype.clone())?,
-                self.chunk_offsets,
-                self.offset_within_chunk,
-            ))
-        }
-    }
-
     /// Get the patched value at a given index if it exists.
     pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
         self.search_index(index)?
@@ -693,6 +679,10 @@ impl Patches {
     /// Mask the patches, REMOVING the patches where the mask is true.
     /// Unlike filter, this preserves the patch indices.
     /// Unlike mask on a single array, this does not set masked values to null.
+    ///
+    /// Masking an array always yields a nullable result (see [`crate::scalar_fn::fns::mask`]),
+    /// so the surviving patch values are widened to nullable to match the masked parent. Callers
+    /// therefore receive patches with the correct dtype and do not need to re-cast them.
     // TODO(joe): make this lazy and remove the ctx.
     pub fn mask(&self, mask: &Mask, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
         if mask.len() != self.array_len {
@@ -705,7 +695,7 @@ impl Patches {
 
         let filter_mask = match mask.bit_buffer() {
             AllOr::All => return Ok(None),
-            AllOr::None => return Ok(Some(self.clone())),
+            AllOr::None => return self.clone().into_nullable_values().map(Some),
             AllOr::Some(masked) => {
                 let patch_indices = self.indices().clone().execute::<PrimitiveArray>(ctx)?;
                 match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
@@ -727,7 +717,7 @@ impl Patches {
         let filtered_indices = self.indices.filter(filter_mask.clone())?;
         let filtered_values = self.values.filter(filter_mask)?;
 
-        Ok(Some(Self {
+        Self {
             array_len: self.array_len,
             offset: self.offset,
             indices: filtered_indices,
@@ -735,7 +725,21 @@ impl Patches {
             // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
-        }))
+        }
+        .into_nullable_values()
+        .map(Some)
+    }
+
+    /// Widen the patch values to their nullable dtype, leaving indices and offsets untouched.
+    ///
+    /// The values stay logically unchanged (all currently-valid entries remain valid); only the
+    /// dtype's nullability flag is set. Used by [`Self::mask`], whose result must be nullable.
+    fn into_nullable_values(self) -> VortexResult<Self> {
+        if self.values.dtype().is_nullable() {
+            return Ok(self);
+        }
+        let nullable = self.values.dtype().as_nullable();
+        self.map_values(|values| values.cast(nullable))
     }
 
     /// Slice the patches by a range of the patched array.
@@ -1519,10 +1523,11 @@ mod test {
         let mask = Mask::new_false(10);
         let masked = patches.mask(&mask, &mut ctx).unwrap().unwrap();
 
-        // No patch values should be masked
+        // Masking widens the surviving (still valid) values to nullable.
+        assert!(masked.values().dtype().is_nullable());
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([100i32, 200, 300]),
+            PrimitiveArray::from_option_iter([Some(100i32), Some(200), Some(300)]),
             &mut ctx
         );
         assert!(masked.values().is_valid(0, &mut ctx).unwrap());
@@ -1559,7 +1564,7 @@ mod test {
         assert_eq!(masked.values().len(), 1);
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([200i32]),
+            PrimitiveArray::from_option_iter([Some(200i32)]),
             &mut ctx
         );
 
@@ -1598,7 +1603,7 @@ mod test {
         );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([200i32, 300]),
+            PrimitiveArray::from_option_iter([Some(200i32), Some(300)]),
             &mut ctx
         );
     }
@@ -1905,7 +1910,7 @@ mod test {
         );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([200i32]),
+            PrimitiveArray::from_option_iter([Some(200i32)]),
             &mut ctx
         );
     }
@@ -1957,7 +1962,7 @@ mod test {
         );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([100i32, 200, 300]),
+            PrimitiveArray::from_option_iter([Some(100i32), Some(200), Some(300)]),
             &mut ctx
         );
     }
@@ -2016,7 +2021,7 @@ mod test {
         );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([100i32, 400]),
+            PrimitiveArray::from_option_iter([Some(100i32), Some(400)]),
             &mut ctx
         );
     }
@@ -2048,7 +2053,7 @@ mod test {
         );
         assert_arrays_eq!(
             masked.values(),
-            PrimitiveArray::from_iter([100i32, 300]),
+            PrimitiveArray::from_option_iter([Some(100i32), Some(300)]),
             &mut ctx
         );
     }

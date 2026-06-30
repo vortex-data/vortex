@@ -144,6 +144,7 @@ impl Footer {
 
         // Create a LayoutContext from the registry.
         let layout_specs = fb_footer.layout_specs();
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let layout_ids: Arc<[_]> = layout_specs
             .iter()
             .flat_map(|e| e.iter())
@@ -153,6 +154,7 @@ impl Footer {
 
         // Create an ArrayContext from the registry.
         let array_specs = fb_footer.array_specs();
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let array_ids: Arc<[_]> = array_specs
             .iter()
             .flat_map(|e| e.iter())

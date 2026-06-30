@@ -329,28 +329,26 @@ export function DataTable({
           <span className="text-vortex-grey-dark tabular-nums">{info.row.index}</span>
         ),
       },
-      ...columns.map(
-        (col): ColumnDef<Record<string, unknown>> => ({
-          accessorKey: col,
-          header: () => (
-            <ColumnHeader name={col} stats={columnStats[col]} approximate={approximate} />
-          ),
-          cell: (info) => {
-            const renderer = cellRenderers?.[col];
-            if (renderer) {
-              return renderer(info.getValue(), info.row.original);
-            }
-            const val = info.getValue();
-            if (val == null) {
-              return <span className="text-vortex-grey-dark italic">null</span>;
-            }
-            return formatCell(val);
-          },
-          sortingFn: 'auto',
-        }),
-      ),
+      ...columns.map((col): ColumnDef<Record<string, unknown>> => ({
+        accessorKey: col,
+        header: () => (
+          <ColumnHeader name={col} stats={columnStats[col]} approximate={approximate} />
+        ),
+        cell: (info) => {
+          const renderer = cellRenderers?.[col];
+          if (renderer) {
+            return renderer(info.getValue(), info.row.original);
+          }
+          const val = info.getValue();
+          if (val == null) {
+            return <span className="text-vortex-grey-dark italic">null</span>;
+          }
+          return formatCell(val);
+        },
+        sortingFn: 'auto',
+      })),
     ],
-    [columns, columnStats],
+    [approximate, cellRenderers, columns, columnStats],
   );
 
   const table = useReactTable({

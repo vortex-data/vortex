@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { createContext, useContext } from 'react';
+import type { ReactNode } from 'react';
 import type {
   LayoutTreeNode,
   SegmentMapEntry,
   FileStructureInfo,
   ArrayEncodingNode,
 } from '../components/swimlane/types';
+import { VortexFileContext } from './VortexFileContextCore';
 
 export interface VortexFileState {
   fileName: string;
@@ -39,22 +40,12 @@ export interface VortexFileContextValue extends VortexFileState {
   ) => Promise<Uint8Array>;
 }
 
-const VortexFileContext = createContext<VortexFileContextValue | null>(null);
-
 export function VortexFileProvider({
   value,
   children,
 }: {
   value: VortexFileContextValue;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return <VortexFileContext.Provider value={value}>{children}</VortexFileContext.Provider>;
 }
-
-export function useVortexFile(): VortexFileContextValue {
-  const ctx = useContext(VortexFileContext);
-  if (!ctx) throw new Error('useVortexFile must be used within VortexFileProvider');
-  return ctx;
-}
-
-export { VortexFileContext };

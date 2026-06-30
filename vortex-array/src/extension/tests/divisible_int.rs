@@ -34,6 +34,7 @@ impl ExtVTable for DivisibleInt {
     type Metadata = Divisor;
     type NativeValue<'a> = u64;
 
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
     fn id(&self) -> ExtId {
         ExtId::new("test.divisible_int")
     }

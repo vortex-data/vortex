@@ -35,7 +35,6 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::flatbuffers::FlatBuffer;
@@ -49,11 +48,114 @@ use vortex_cuda::arrow::ArrowDeviceArrayWithSchema;
 use vortex_cuda::arrow::DeviceArrayExt;
 use vortex_cuda::arrow::release_device_array;
 use vortex_cuda::arrow::release_schema;
+use vortex_python_abi::BUFFER_EXPORT_CAPSULE_NAME;
+use vortex_python_abi::VORTEX_BUFFER_EXPORT_VERSION;
+use vortex_python_abi::VORTEX_BUFFER_HOST;
+use vortex_python_abi::VortexBufferExport;
 
 const ARROW_SCHEMA_CAPSULE_NAME: &CStr = c_str!("arrow_schema");
 const USED_ARROW_SCHEMA_CAPSULE_NAME: &CStr = c_str!("used_arrow_schema");
 const ARROW_DEVICE_ARRAY_CAPSULE_NAME: &CStr = c_str!("arrow_device_array");
 const USED_ARROW_DEVICE_ARRAY_CAPSULE_NAME: &CStr = c_str!("used_arrow_device_array");
+
+struct BufferExportGuard {
+    export: NonNull<VortexBufferExport>,
+}
+
+impl BufferExportGuard {
+    fn export(&self) -> &VortexBufferExport {
+        unsafe { self.export.as_ref() }
+    }
+}
+
+impl AsRef<[u8]> for BufferExportGuard {
+    fn as_ref(&self) -> &[u8] {
+        let export = self.export();
+        if export.len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(export.ptr, export.len) }
+        }
+    }
+}
+
+impl Drop for BufferExportGuard {
+    fn drop(&mut self) {
+        // The producer's release callback owns cleanup of both private data and the descriptor.
+        let export = unsafe { self.export.as_ref() };
+        if let Some(release) = export.release {
+            unsafe { release(self.export.as_ptr()) };
+        }
+    }
+}
+
+// The guard is moved into `Bytes::from_owner`, which requires `Send + Sync`. After import we disable
+// the source capsule destructor and own the C export until this guard is dropped.
+unsafe impl Send for BufferExportGuard {}
+unsafe impl Sync for BufferExportGuard {}
+
+fn import_buffer_from_capsule(capsule: &Bound<'_, PyCapsule>) -> PyResult<BufferHandle> {
+    let export_ptr = capsule
+        .pointer_checked(Some(BUFFER_EXPORT_CAPSULE_NAME))?
+        .cast::<VortexBufferExport>();
+    let export = unsafe { export_ptr.as_ref() };
+
+    if export.version != VORTEX_BUFFER_EXPORT_VERSION {
+        return Err(PyValueError::new_err(format!(
+            "unsupported VortexBufferExport version {}",
+            export.version
+        )));
+    }
+    if export.kind != VORTEX_BUFFER_HOST {
+        return Err(PyValueError::new_err(format!(
+            "unsupported buffer kind {} (only host buffers are supported in metadata bridge)",
+            export.kind
+        )));
+    }
+
+    if export.len != 0 && export.ptr.is_null() {
+        return Err(PyValueError::new_err(
+            "non-empty VortexBufferExport has null data pointer",
+        ));
+    }
+    if export.release.is_none() {
+        return Err(PyValueError::new_err(
+            "VortexBufferExport is missing a release callback",
+        ));
+    }
+
+    let len = export.len;
+    let alignment = vortex::buffer::Alignment::try_from(
+        u32::try_from(export.alignment)
+            .map_err(|_| PyValueError::new_err("buffer alignment exceeds u32"))?,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    if len != 0 && !alignment.is_ptr_aligned(export.ptr) {
+        return Err(PyValueError::new_err(format!(
+            "buffer pointer is not aligned to requested alignment {alignment}"
+        )));
+    }
+
+    // Transfer ownership of the boxed VortexBufferExport from the producer capsule into the Bytes
+    // owner below. Otherwise the producer capsule could be dropped before the reconstructed
+    // BufferHandle, leaving the Bytes owner with a dangling export pointer.
+    unsafe { ffi::PyCapsule_SetDestructor(capsule.as_ptr(), None) };
+    if PyErr::occurred(capsule.py()) {
+        return Err(PyErr::fetch(capsule.py()));
+    }
+
+    let guard = BufferExportGuard { export: export_ptr };
+
+    let byte_buffer = if len == 0 {
+        drop(guard);
+        ByteBuffer::empty_aligned(alignment)
+    } else {
+        ByteBuffer::from(bytes::Bytes::from_owner(guard)).aligned(alignment)
+    };
+
+    Ok(BufferHandle::new_host(byte_buffer))
+}
 
 struct ExportedDeviceArray(ArrowDeviceArrayWithSchema);
 
@@ -101,7 +203,7 @@ struct ArrayMetadata {
     dtype: Vec<u8>,
     len: usize,
     metadata: Vec<u8>,
-    buffer_count: usize,
+    buffers: Vec<BufferHandle>,
     children: Vec<ArrayMetadata>,
 }
 
@@ -147,6 +249,16 @@ fn parse_array_metadata(value: &Bound<'_, PyAny>) -> PyResult<ArrayMetadata> {
         )));
     }
 
+    let buffers = tuple
+        .get_item(4)?
+        .cast::<PyList>()?
+        .iter()
+        .map(|item| {
+            let capsule: Bound<'_, PyCapsule> = item.extract()?;
+            import_buffer_from_capsule(&capsule)
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+
     let children = tuple
         .get_item(5)?
         .cast::<PyList>()?
@@ -159,7 +271,7 @@ fn parse_array_metadata(value: &Bound<'_, PyAny>) -> PyResult<ArrayMetadata> {
         dtype: tuple.get_item(1)?.extract()?,
         len: tuple.get_item(2)?.extract()?,
         metadata: tuple.get_item(3)?.extract()?,
-        buffer_count: tuple.get_item(4)?.extract()?,
+        buffers,
         children,
     })
 }
@@ -173,14 +285,6 @@ fn deserialize_metadata_tree(
     metadata: &ArrayMetadata,
     session: &VortexSession,
 ) -> VortexResult<ArrayRef> {
-    if metadata.buffer_count != 0 {
-        vortex_bail!(
-            "metadata-only bridge cannot deserialize array {} with {} buffers yet",
-            metadata.encoding_id,
-            metadata.buffer_count
-        );
-    }
-
     let dtype = dtype_from_metadata(metadata, session)?;
     let children = metadata
         .children
@@ -188,18 +292,18 @@ fn deserialize_metadata_tree(
         .map(|child| deserialize_metadata_tree(child, session))
         .collect::<VortexResult<Vec<_>>>()?;
     let children = MetadataChildren(children);
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     let encoding_id = ArrayId::new(&metadata.encoding_id);
     let plugin = session
         .arrays()
         .registry()
         .find(&encoding_id)
         .ok_or_else(|| vortex_err!("Unknown array encoding: {}", metadata.encoding_id))?;
-    let buffers: &[BufferHandle] = &[];
     let decoded = plugin.deserialize(
         &dtype,
         metadata.len,
         &metadata.metadata,
-        buffers,
+        &metadata.buffers,
         &children,
         session,
     )?;
@@ -244,6 +348,14 @@ fn _debug_array_metadata_dtype(array: Bound<'_, PyAny>) -> PyResult<String> {
     let metadata = extract_array_metadata(&array)?;
     let array = deserialize_metadata_tree(&metadata, &METADATA_SESSION).map_err(to_py_err)?;
     Ok(array.dtype().to_string())
+}
+
+/// Return array values after crossing the private vtable-metadata bridge.
+#[pyfunction]
+fn _debug_array_metadata_display_values(array: Bound<'_, PyAny>) -> PyResult<String> {
+    let metadata = extract_array_metadata(&array)?;
+    let array = deserialize_metadata_tree(&metadata, &METADATA_SESSION).map_err(to_py_err)?;
+    Ok(array.display_values().to_string())
 }
 
 /// Export a PyVortex array as Arrow C Device schema and array PyCapsules.
@@ -461,6 +573,7 @@ unsafe extern "C" fn release_device_array_capsule(capsule: *mut ffi::PyObject) {
 fn _lib(m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cuda_available, m)?)?;
     m.add_function(wrap_pyfunction!(_debug_array_metadata_dtype, m)?)?;
+    m.add_function(wrap_pyfunction!(_debug_array_metadata_display_values, m)?)?;
     m.add_function(wrap_pyfunction!(export_device_array, m)?)?;
     Ok(())
 }

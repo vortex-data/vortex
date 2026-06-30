@@ -146,8 +146,8 @@ fn compress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f64)
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
 
     bencher
-        .with_inputs(|| (&primitive, &encoder, SESSION.create_execution_ctx()))
-        .bench_refs(|(primitive, encoder, ctx)| encoder.encode(primitive.as_view(), ctx))
+        .with_inputs(|| (&primitive, &encoder))
+        .bench_refs(|(primitive, encoder)| encoder.encode(primitive.as_view()))
 }
 
 #[divan::bench(types = [f32, f64], args = RD_BENCH_ARGS)]
@@ -155,7 +155,7 @@ fn decompress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f6
     let (n, fraction_patch) = args;
     let primitive = make_rd_array::<T>(n, fraction_patch);
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
-    let encoded = encoder.encode(primitive.as_view(), &mut SESSION.create_execution_ctx());
+    let encoded = encoder.encode(primitive.as_view());
 
     bencher
         .with_inputs(|| (&encoded, SESSION.create_execution_ctx()))

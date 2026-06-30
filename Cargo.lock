@@ -10336,17 +10336,24 @@ dependencies = [
  "url",
  "vortex",
  "vortex-array",
+ "vortex-python-abi",
  "vortex-tui",
 ]
+
+[[package]]
+name = "vortex-python-abi"
+version = "0.1.0"
 
 [[package]]
 name = "vortex-python-cuda"
 version = "0.1.0"
 dependencies = [
  "arrow-schema",
+ "bytes",
  "pyo3",
  "vortex",
  "vortex-cuda",
+ "vortex-python-abi",
 ]
 
 [[package]]

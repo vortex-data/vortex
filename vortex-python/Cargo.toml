@@ -52,6 +52,7 @@ pyo3-object_store = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store"] }
+vortex-python-abi = { path = "../vortex-python-abi" }
 vortex-tui = { workspace = true, optional = true }
 
 [dev-dependencies]

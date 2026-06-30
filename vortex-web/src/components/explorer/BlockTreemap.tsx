@@ -16,7 +16,7 @@ import {
   formatBytes,
   DTYPE_COLORS,
 } from '../swimlane/utils';
-import { useTheme } from '../../contexts/ThemeContext';
+import { useTheme } from '../../contexts/ThemeContextCore';
 import {
   nodePhysicalStats,
   arraySubtreeBytes,

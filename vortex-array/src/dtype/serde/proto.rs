@@ -89,6 +89,7 @@ impl DType {
             DtypeType::Union(u) => Ok(Self::Union(u.nullable.into())),
             DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
             DtypeType::Extension(e) => {
+                #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
                 let id = ExtId::new(e.id.as_str());
                 let storage_dtype = DType::from_proto(
                     e.storage_dtype
