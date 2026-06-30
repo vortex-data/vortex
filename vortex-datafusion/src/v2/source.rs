@@ -484,10 +484,13 @@ impl DataSource for VortexDataSource {
 
         let use_target_partitioning = self.should_target_partitioning();
         let partitioning = if use_target_partitioning {
-            ScanPartitioning::Target(
-                NonZeroUsize::new(scan_partition_count)
-                    .expect("scan partition count is always non-zero"),
-            )
+            let target_partition_count =
+                NonZeroUsize::new(scan_partition_count).ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "VortexScanSource: scan partition count is zero".into(),
+                    )
+                })?;
+            ScanPartitioning::Target(target_partition_count)
         } else {
             ScanPartitioning::SourceDefault
         };

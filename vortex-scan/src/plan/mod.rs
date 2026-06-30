@@ -1389,8 +1389,7 @@ impl ScanPlan for ApplyScanPlan {
     }
 
     fn release(&self, frontier: u64, state: &ScanState) -> VortexResult<()> {
-        let state = downcast_state::<ScanStateRef>(state)?;
-        self.input.release(frontier, state.as_ref())
+        self.input.release(frontier, state)
     }
 
     fn split_hints(&self) -> Option<&[u64]> {

@@ -175,7 +175,7 @@ impl PreparedRead for FlatPreparedRead {
     }
 
     fn release(&self, frontier: u64) -> VortexResult<()> {
-        self.node.release(frontier, &self.state)
+        self.node.release(frontier, self.state.as_ref())
     }
 
     fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

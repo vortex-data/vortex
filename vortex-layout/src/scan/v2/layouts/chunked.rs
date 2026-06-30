@@ -749,7 +749,7 @@ impl PreparedRead for ChunkedPreparedRead {
     }
 
     fn release(&self, frontier: u64) -> VortexResult<()> {
-        self.node.release(frontier, &self.state)
+        self.node.release(frontier, self.state.as_ref())
     }
 
     fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -959,7 +959,7 @@ impl PreparedRead for ChunkedExprPreparedRead {
     }
 
     fn release(&self, frontier: u64) -> VortexResult<()> {
-        self.node.release(frontier, &self.state)
+        self.node.release(frontier, self.state.as_ref())
     }
 
     fn fmt_prepared(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
