@@ -39,10 +39,7 @@ impl SpatialBenchBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for SpatialBenchBenchmark {
-    /// All SpatialBench queries, numbered Q1.. in `spatialbench.sql` file order (1-based, matching
-    /// canonical SpatialBench). Geometry is stored as WKB and read back as a DuckDB `BLOB` (via
-    /// `ST_GeomFromWKB`), so the `spatial` extension evaluates every `ST_*` predicate — no native
-    /// geometry support is needed on the Vortex side.
+    /// All SpatialBench queries, numbered started at Q1 in `spatialbench.sql` file order.
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
         // `;`-separated; a `;` must not appear in a comment, or it would split a statement in two.
         let queries_file = workspace_root()
@@ -67,7 +64,18 @@ impl Benchmark for SpatialBenchBenchmark {
             .data_url
             .to_file_path()
             .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", self.data_url.as_str()))?;
-        datagen::generate_tables(&self.scale_factor, base_data_dir).await?;
+        datagen::generate_tables(&self.scale_factor, base_data_dir.clone()).await?;
+
+        // `zone` is externally sourced (SpatialBench directly generate it), so
+        // re-tag its parquet with the geo metadata.
+        if let Some(geo) = datagen::wkb::geo_parquet_metadata(Table::Zone) {
+            let zone_glob = base_data_dir
+                .join(Format::Parquet.name())
+                .join("zone_*.parquet");
+            for zone_file in glob::glob(&zone_glob.to_string_lossy())?.flatten() {
+                crate::conversions::add_geoparquet_metadata(&zone_file, &geo).await?;
+            }
+        }
         Ok(())
     }
 

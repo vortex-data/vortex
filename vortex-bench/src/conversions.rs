@@ -7,8 +7,11 @@ use std::path::PathBuf;
 
 use futures::StreamExt;
 use futures::TryStreamExt;
+use parquet::arrow::AsyncArrowWriter;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::async_reader::ParquetRecordBatchStream;
+use parquet::file::metadata::KeyValue;
+use parquet::file::metadata::ParquetMetaData;
 use sysinfo::System;
 use tokio::fs::File;
 use tokio::fs::OpenOptions;
@@ -22,16 +25,26 @@ use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::ExtensionArray;
+use vortex::array::arrays::Struct;
+use vortex::array::arrays::StructArray;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::builders::builder_with_capacity;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::dtype::DType;
+use vortex::dtype::StructFields;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::extension::ExtDType;
+use vortex::dtype::extension::ExtDTypeRef;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::session::VortexSession;
+use vortex::utils::aliases::hash_set::HashSet;
+use vortex_geo::extension::GeoMetadata;
+use vortex_geo::extension::WellKnownBinary;
 
 use crate::CompactionStrategy;
 use crate::Format;
@@ -115,9 +128,12 @@ pub async fn convert_parquet_file_to_vortex(
 ) -> anyhow::Result<()> {
     let file = File::open(parquet_path).await?;
     let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
-    let dtype = DType::from_arrow(builder.schema().as_ref());
 
-    let stream = parquet_to_vortex_stream(builder.build()?);
+    // GeoParquet geometry tagging.
+    let geo_columns = geoparquet_columns(builder.metadata());
+    let dtype = tag_geo_dtype(DType::from_arrow(builder.schema().as_ref()), &geo_columns)?;
+    let stream = parquet_to_vortex_stream(builder.build()?)
+        .map(move |chunk| chunk.and_then(|chunk| tag_geo_array(chunk, &geo_columns)));
 
     let mut output_file = OpenOptions::new()
         .write(true)
@@ -221,4 +237,105 @@ pub async fn write_parquet_as_vortex(
         Ok(())
     })
     .await
+}
+
+/// Add GeoParquet `geo` file metadata to externally-sourced parquet we don't generate (e.g. SpatialBench `zone`).
+pub async fn add_geoparquet_metadata(parquet_path: &Path, geo_json: &str) -> anyhow::Result<()> {
+    let builder = ParquetRecordBatchStreamBuilder::new(File::open(parquet_path).await?).await?;
+    let already_tagged = builder
+        .metadata()
+        .file_metadata()
+        .key_value_metadata()
+        .is_some_and(|kvs| kvs.iter().any(|kv| kv.key == "geo"));
+    if already_tagged {
+        return Ok(());
+    }
+
+    let schema = std::sync::Arc::clone(builder.schema());
+    let mut reader = builder.build()?;
+
+    let tmp_path = parquet_path.with_extension("parquet.tmp");
+    let mut writer = AsyncArrowWriter::try_new(File::create(&tmp_path).await?, schema, None)?;
+    while let Some(batch) = reader.try_next().await? {
+        writer.write(&batch).await?;
+    }
+    writer.append_key_value_metadata(KeyValue::new("geo".to_string(), Some(geo_json.to_string())));
+    writer.close().await?;
+    tokio::fs::rename(&tmp_path, parquet_path).await?;
+    Ok(())
+}
+
+/// Column names a parquet file's GeoParquet `geo` metadata marks as geometry.
+fn geoparquet_columns(metadata: &ParquetMetaData) -> HashSet<String> {
+    metadata
+        .file_metadata()
+        .key_value_metadata()
+        .and_then(|kvs| kvs.iter().find(|kv| kv.key == "geo"))
+        .and_then(|kv| kv.value.as_deref())
+        .and_then(|geo| serde_json::from_str::<serde_json::Value>(geo).ok())
+        .and_then(|value| {
+            value
+                .get("columns")
+                .and_then(serde_json::Value::as_object)
+                .map(|columns| columns.keys().cloned().collect())
+        })
+        .unwrap_or_default()
+}
+
+/// The erased `vortex.geo.wkb` extension dtype over a binary `storage` dtype.
+fn wkb_ext_dtype(storage: &DType) -> VortexResult<ExtDTypeRef> {
+    Ok(ExtDType::<WellKnownBinary>::try_new(GeoMetadata { crs: None }, storage.clone())?.erased())
+}
+
+/// Re-type the named binary columns of a struct `dtype` as `vortex.geo.wkb`, so the column
+/// self-describes as geometry.
+fn tag_geo_dtype(dtype: DType, geo_columns: &HashSet<String>) -> VortexResult<DType> {
+    if geo_columns.is_empty() {
+        return Ok(dtype);
+    }
+    let DType::Struct(fields, nullability) = &dtype else {
+        return Ok(dtype);
+    };
+    let names = fields.names().clone();
+    let tagged = names
+        .iter()
+        .zip(fields.fields())
+        .map(|(name, field)| {
+            if geo_columns.contains(name.as_ref()) && field.is_binary() {
+                Ok(DType::Extension(wkb_ext_dtype(&field)?))
+            } else {
+                Ok(field)
+            }
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    Ok(DType::Struct(
+        StructFields::new(names, tagged),
+        *nullability,
+    ))
+}
+
+/// Wrap the named binary columns of a struct `chunk` as `vortex.geo.wkb` extension arrays.
+fn tag_geo_array(chunk: ArrayRef, geo_columns: &HashSet<String>) -> VortexResult<ArrayRef> {
+    if geo_columns.is_empty() {
+        return Ok(chunk);
+    }
+    let Some(struct_array) = chunk.as_opt::<Struct>() else {
+        return Ok(chunk);
+    };
+    let names = struct_array.names().clone();
+    let validity = struct_array.struct_validity();
+    let len = struct_array.len();
+    let tagged = names
+        .iter()
+        .zip(struct_array.iter_unmasked_fields())
+        .map(|(name, field)| {
+            if geo_columns.contains(name.as_ref()) && field.dtype().is_binary() {
+                let ext = wkb_ext_dtype(field.dtype())?;
+                Ok(ExtensionArray::try_new(ext, field.clone())?.into_array())
+            } else {
+                Ok(field.clone())
+            }
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+    Ok(StructArray::try_new(names, tagged, len, validity)?.into_array())
 }

@@ -6,20 +6,20 @@
 -- Q1: trips starting within 50km of Sedona city center, ordered by distance.
 SELECT
     t.t_tripkey,
-    ST_X(ST_GeomFromWKB(t.t_pickuploc)) AS pickup_lon,
-    ST_Y(ST_GeomFromWKB(t.t_pickuploc)) AS pickup_lat,
+    ST_X(t.t_pickuploc) AS pickup_lon,
+    ST_Y(t.t_pickuploc) AS pickup_lat,
     t.t_pickuptime,
-    ST_Distance(ST_GeomFromWKB(t.t_pickuploc), ST_GeomFromText('POINT (-111.7610 34.8697)')) AS distance_to_center
+    ST_Distance(t.t_pickuploc, ST_GeomFromText('POINT (-111.7610 34.8697)')) AS distance_to_center
 FROM trip t
-WHERE ST_DWithin(ST_GeomFromWKB(t.t_pickuploc), ST_GeomFromText('POINT (-111.7610 34.8697)'), 0.45)
+WHERE ST_DWithin(t.t_pickuploc, ST_GeomFromText('POINT (-111.7610 34.8697)'), 0.45)
 ORDER BY distance_to_center ASC, t.t_tripkey ASC;
 
 -- Q2: count trips starting within the Coconino County (Arizona) zone.
 SELECT COUNT(*) AS trip_count_in_coconino_county
 FROM trip t
 WHERE ST_Intersects(
-    ST_GeomFromWKB(t.t_pickuploc),
-    (SELECT ST_GeomFromWKB(z.z_boundary) FROM zone z WHERE z.z_name = 'Coconino County' LIMIT 1)
+    t.t_pickuploc,
+    (SELECT z.z_boundary FROM zone z WHERE z.z_name = 'Coconino County' LIMIT 1)
 );
 
 -- Q3: monthly trip statistics within 15km of Sedona city center (10km bbox + 5km buffer).
@@ -31,7 +31,7 @@ SELECT
     AVG(t.t_fare) AS avg_fare
 FROM trip t
 WHERE ST_DWithin(
-    ST_GeomFromWKB(t.t_pickuploc),
+    t.t_pickuploc,
     ST_GeomFromText('POLYGON((-111.9060 34.7347, -111.6160 34.7347, -111.6160 35.0047, -111.9060 35.0047, -111.9060 34.7347))'),
     0.045
 )
@@ -46,7 +46,7 @@ JOIN (
     FROM trip t
     ORDER BY t.t_tip DESC, t.t_tripkey ASC
     LIMIT 1000
-) top_trips ON ST_Within(ST_GeomFromWKB(top_trips.t_pickuploc), ST_GeomFromWKB(z.z_boundary))
+) top_trips ON ST_Within(top_trips.t_pickuploc, z.z_boundary)
 GROUP BY z.z_zonekey, z.z_name
 ORDER BY trip_count DESC, z.z_zonekey ASC;
 
@@ -55,7 +55,7 @@ SELECT
     c.c_custkey,
     c.c_name AS customer_name,
     DATE_TRUNC('month', t.t_pickuptime) AS pickup_month,
-    ST_Area(ST_ConvexHull(ST_Collect(ARRAY_AGG(ST_GeomFromWKB(t.t_dropoffloc))))) AS monthly_travel_hull_area,
+    ST_Area(ST_ConvexHull(ST_Collect(ARRAY_AGG(t.t_dropoffloc)))) AS monthly_travel_hull_area,
     COUNT(*) AS dropoff_count
 FROM trip t
 JOIN customer c ON t.t_custkey = c.c_custkey
@@ -73,9 +73,9 @@ SELECT
 FROM trip t, zone z
 WHERE ST_Intersects(
     ST_GeomFromText('POLYGON((-112.2110 34.4197, -111.3110 34.4197, -111.3110 35.3197, -112.2110 35.3197, -112.2110 34.4197))'),
-    ST_GeomFromWKB(z.z_boundary)
+    z.z_boundary
 )
-AND ST_Within(ST_GeomFromWKB(t.t_pickuploc), ST_GeomFromWKB(z.z_boundary))
+AND ST_Within(t.t_pickuploc, z.z_boundary)
 GROUP BY z.z_zonekey, z.z_name
 ORDER BY total_pickups DESC, z.z_zonekey ASC;
 
@@ -84,7 +84,7 @@ WITH trip_lengths AS (
     SELECT
         t.t_tripkey,
         t.t_distance AS reported_distance_m,
-        ST_Length(ST_MakeLine(ST_GeomFromWKB(t.t_pickuploc), ST_GeomFromWKB(t.t_dropoffloc))) / 0.000009 AS line_distance_m
+        ST_Length(ST_MakeLine(t.t_pickuploc, t.t_dropoffloc)) / 0.000009 AS line_distance_m
     FROM trip t
 )
 SELECT
@@ -98,16 +98,16 @@ ORDER BY detour_ratio DESC NULLS LAST, reported_distance_m DESC, t_tripkey ASC;
 -- Q8: count nearby pickups for each building within ~500m.
 SELECT b.b_buildingkey, b.b_name, COUNT(*) AS nearby_pickup_count
 FROM trip t
-JOIN building b ON ST_DWithin(ST_GeomFromWKB(t.t_pickuploc), ST_GeomFromWKB(b.b_boundary), 0.0045)
+JOIN building b ON ST_DWithin(t.t_pickuploc, b.b_boundary, 0.0045)
 GROUP BY b.b_buildingkey, b.b_name
 ORDER BY nearby_pickup_count DESC, b.b_buildingkey ASC;
 
 -- Q9: building conflation (duplicate/overlap detection via IoU).
 WITH b1 AS (
-    SELECT b_buildingkey AS id, ST_GeomFromWKB(b_boundary) AS geom FROM building
+    SELECT b_buildingkey AS id, b_boundary AS geom FROM building
 ),
 b2 AS (
-    SELECT b_buildingkey AS id, ST_GeomFromWKB(b_boundary) AS geom FROM building
+    SELECT b_buildingkey AS id, b_boundary AS geom FROM building
 ),
 pairs AS (
     SELECT
@@ -141,15 +141,15 @@ SELECT
     AVG(t.t_distance) AS avg_distance,
     COUNT(t.t_tripkey) AS num_trips
 FROM zone z
-LEFT JOIN trip t ON ST_Within(ST_GeomFromWKB(t.t_pickuploc), ST_GeomFromWKB(z.z_boundary))
+LEFT JOIN trip t ON ST_Within(t.t_pickuploc, z.z_boundary)
 GROUP BY z.z_zonekey, z.z_name
 ORDER BY avg_duration DESC NULLS LAST, z.z_zonekey ASC;
 
 -- Q11: count trips that cross between different zones.
 SELECT COUNT(*) AS cross_zone_trip_count
 FROM trip t
-JOIN zone pickup_zone ON ST_Within(ST_GeomFromWKB(t.t_pickuploc), ST_GeomFromWKB(pickup_zone.z_boundary))
-JOIN zone dropoff_zone ON ST_Within(ST_GeomFromWKB(t.t_dropoffloc), ST_GeomFromWKB(dropoff_zone.z_boundary))
+JOIN zone pickup_zone ON ST_Within(t.t_pickuploc, pickup_zone.z_boundary)
+JOIN zone dropoff_zone ON ST_Within(t.t_dropoffloc, dropoff_zone.z_boundary)
 WHERE pickup_zone.z_zonekey != dropoff_zone.z_zonekey;
 
 -- Q12: five nearest buildings per trip pickup (CROSS JOIN LATERAL, since DuckDB spatial has no ST_KNN).
@@ -164,7 +164,7 @@ CROSS JOIN LATERAL (
     SELECT
         b.b_buildingkey,
         b.b_name AS building_name,
-        ST_Distance(ST_GeomFromWKB(t.t_pickuploc), ST_GeomFromWKB(b.b_boundary)) AS distance_to_building
+        ST_Distance(t.t_pickuploc, b.b_boundary) AS distance_to_building
     FROM building b
     ORDER BY distance_to_building
     LIMIT 5

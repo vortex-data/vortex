@@ -23,6 +23,7 @@ vortex = { workspace = true, features = [
     "tokio",
     "zstd",
 ] }
+vortex-geo = { workspace = true }
 vortex-tensor = { workspace = true } # TODO(connor): In the future, this might be inside vortex.
 
 anyhow = { workspace = true }

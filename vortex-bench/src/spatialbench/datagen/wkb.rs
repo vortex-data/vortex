@@ -21,6 +21,7 @@ use spatialbench_arrow::TripArrow;
 use spatialbench_parquet::arrow::AsyncArrowWriter;
 use spatialbench_parquet::basic::Compression;
 use spatialbench_parquet::file::properties::WriterProperties;
+use spatialbench_parquet::format::KeyValue;
 use tokio::fs::File as TokioFile;
 use tracing::info;
 
@@ -95,6 +96,11 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
                 for batch in iter {
                     writer.write(&batch).await?;
                 }
+                // Tag geometry columns with GeoParquet `geo` metadata so DuckDB's `read_parquet`
+                // surfaces them as `GEOMETRY` directly.
+                if let Some(geo) = geo_parquet_metadata(table) {
+                    writer.append_key_value_metadata(KeyValue::new("geo".to_string(), Some(geo)));
+                }
                 writer.close().await?;
 
                 Ok::<(), anyhow::Error>(())
@@ -104,4 +110,27 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
     }
 
     Ok(())
+}
+
+/// GeoParquet metadata for WKB geometry columns, or `None` when it has none.
+pub(crate) fn geo_parquet_metadata(table: Table) -> Option<String> {
+    let geometry_columns = table.geometry_columns();
+    let primary = geometry_columns.first()?;
+    let columns: serde_json::Map<String, serde_json::Value> = geometry_columns
+        .iter()
+        .map(|&column| {
+            (
+                column.to_string(),
+                serde_json::json!({ "encoding": "WKB", "geometry_types": [] }),
+            )
+        })
+        .collect();
+    Some(
+        serde_json::json!({
+            "version": "1.0.0",
+            "primary_column": primary,
+            "columns": columns,
+        })
+        .to_string(),
+    )
 }

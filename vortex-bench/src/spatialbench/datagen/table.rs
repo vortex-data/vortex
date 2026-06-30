@@ -31,4 +31,14 @@ impl Table {
     pub(crate) fn is_generated(self) -> bool {
         !matches!(self, Table::Zone)
     }
+
+    /// Geometry columns SpatialBench tables.
+    pub(crate) fn geometry_columns(self) -> &'static [&'static str] {
+        match self {
+            Table::Trip => &["t_pickuploc", "t_dropoffloc"],
+            Table::Building => &["b_boundary"],
+            Table::Zone => &["z_boundary"],
+            Table::Customer => &[],
+        }
+    }
 }

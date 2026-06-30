@@ -9917,6 +9917,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-geo",
  "vortex-tensor",
 ]
 
