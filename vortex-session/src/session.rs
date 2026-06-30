@@ -449,6 +449,40 @@ mod tests {
     }
 
     #[test]
+    fn inserting_a_default_while_holding_a_guard_succeeds() {
+        let session = VortexSession::empty().with_some(Counter { count: 5 });
+
+        // Hold a read guard for one variable...
+        let counter = session.get::<Counter>();
+
+        // ...then read a *missing* variable, which inserts its default copy-on-write via `rcu`
+        // while `counter` is still alive. A `SessionGuard` is a lock-free snapshot, not a lock, so
+        // the write proceeds without waiting on the outstanding guard rather than deadlocking.
+        let other = session.get::<Other>();
+
+        // The held guard still observes the snapshot it was read from (which arc-swap keeps alive
+        // for the guard's lifetime), and the freshly read guard sees the just-inserted default.
+        assert_eq!(counter.count, 5);
+        let _: &Other = &other;
+
+        // The inserted default is also observable through a subsequent independent read.
+        assert!(session.get_opt::<Other>().is_some());
+    }
+
+    #[test]
+    fn a_held_guard_keeps_observing_its_own_snapshot_after_a_write() {
+        let session = VortexSession::empty().with_some(Counter { count: 1 });
+
+        let held = session.get::<Counter>();
+        session.register(Counter { count: 2 });
+
+        // The held guard pins the snapshot it was read from, so it still sees the old value, while
+        // a fresh read sees the newly published one.
+        assert_eq!(held.count, 1);
+        assert_eq!(session.get::<Counter>().count, 2);
+    }
+
+    #[test]
     fn default_insertion_may_reenter_the_session_without_deadlocking() {
         let session = VortexSession::empty();
         REENTRANT_SESSION.with(|s| *s.borrow_mut() = Some(session.clone()));
