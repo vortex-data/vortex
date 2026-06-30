@@ -14,6 +14,7 @@ pub mod collect;
 pub mod compressed;
 pub mod dict;
 pub mod file_stats;
+pub mod fixed_size_list;
 pub mod flat;
 pub(crate) mod foreign;
 pub(crate) mod partitioned;
