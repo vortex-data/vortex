@@ -209,3 +209,59 @@ async fn test_write_empty_nullable_struct_column() {
     }
     assert_eq!(rows, 0);
 }
+
+/// Regression test: a nullable struct field nested directly inside another single-field struct
+/// used to come back non-nullable on a file round-trip (`{c0={a={b=i32}?}?}` read back as
+/// `{c0={a={b=i32}}?}`), silently dropping the inner `?`.
+#[tokio::test]
+async fn test_nested_nullable_struct_roundtrip() {
+    let mut ctx = SESSION.create_execution_ctx();
+
+    // {c0 = {a = {b = i32}?}?}: c0 is null at row 1, a is null at row 0.
+    let b = PrimitiveArray::from_iter([0i32, 0]).into_array();
+    let a = StructArray::new(
+        FieldNames::from(["b"]),
+        vec![b],
+        2,
+        Validity::Array(BoolArray::from_iter([false, true]).into_array()),
+    )
+    .into_array();
+    let c0 = StructArray::new(
+        FieldNames::from(["a"]),
+        vec![a],
+        2,
+        Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+    )
+    .into_array();
+    let data =
+        StructArray::new(FieldNames::from(["c0"]), vec![c0], 2, Validity::NonNullable).into_array();
+
+    let mut bytes = Vec::new();
+    SESSION
+        .write_options()
+        .write(&mut bytes, data.to_array_stream())
+        .await
+        .expect("write");
+
+    let bytes = ByteBuffer::from(bytes);
+    let vxf = SESSION.open_options().open_buffer(bytes).expect("open");
+    let stream = vxf
+        .scan()
+        .expect("scan")
+        .into_stream()
+        .expect("into_stream");
+    pin_mut!(stream);
+
+    let chunk = stream
+        .next()
+        .await
+        .unwrap()
+        .expect("read back should succeed");
+    assert_eq!(
+        chunk.dtype(),
+        data.dtype(),
+        "nested struct field nullability must round-trip"
+    );
+    vortex_array::assert_arrays_eq!(data, chunk, &mut ctx);
+    assert!(stream.next().await.is_none(), "expected a single chunk");
+}

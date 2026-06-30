@@ -27,6 +27,8 @@ use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeRewriter;
 use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
+use crate::scalar_fn::fns::merge::Merge;
+use crate::scalar_fn::fns::pack::Pack;
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -183,8 +185,11 @@ where
 
     fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
         match self.annotations.get(&node) {
-            // If this expression only accesses a single field, then we can skip the children
-            Some(annotations) if annotations.len() == 1 => {
+            // Single-field expressions can skip their children, except reconstruction nodes
+            // (`pack`/`merge`): collapsing those applies nested-struct validity at the wrong level.
+            Some(annotations)
+                if annotations.len() == 1 && !node.is::<Pack>() && !node.is::<Merge>() =>
+            {
                 let annotation = annotations
                     .iter()
                     .next()
@@ -336,11 +341,13 @@ mod tests {
         let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
 
         let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
+        // The `pack` operand stays in the root (reconstruction nodes are not collapsed), so `b` is
+        // referenced as `$.b.b_0` over a bare `col("b")` partition, equivalent to the old `$.b.b_0.b`.
         let expected = pack(
             [
                 ("x", get_item("x", get_item("a_0", col("a")))),
                 ("y", get_item("y", get_item("a_0", col("a")))),
-                ("b", get_item("b", get_item("b_0", col("b")))),
+                ("b", get_item("b_0", col("b"))),
             ],
             NonNullable,
         );
@@ -357,7 +364,7 @@ mod tests {
         assert_eq!(part_a, &expected_a, "{part_a} {expected_a}");
 
         let part_b = partitioned.find_partition(&"b".into()).unwrap();
-        let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
+        let expected_b = pack([("b_0", col("b"))], NonNullable);
         assert_eq!(part_b, &expected_b, "{part_b} {expected_b}");
     }
 }
