@@ -149,8 +149,8 @@ pub enum Format {
     #[clap(name = "vortex-compact")]
     #[serde(rename = "vortex-compact")]
     VortexCompact,
-    #[clap(name = "vortex-native")]
-    #[serde(rename = "vortex-native")]
+    #[clap(name = "vortex-geo-native")]
+    #[serde(rename = "vortex-geo-native")]
     VortexNative,
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
@@ -191,7 +191,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
-            Format::VortexNative => "vortex-native",
+            Format::VortexNative => "vortex-geo-native",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }

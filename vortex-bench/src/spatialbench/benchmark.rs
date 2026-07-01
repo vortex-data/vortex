@@ -18,8 +18,8 @@ use crate::spatialbench::datagen::Table;
 use crate::utils::file::resolve_data_url;
 use crate::workspace_root;
 
-/// Data-dir subfolder for the native-geometry Vortex files (the `vortex-native` lane).
-pub const NATIVE_DIR: &str = "vortex-native";
+/// Data-dir subfolder for the native-geometry Vortex files (the `vortex-geo-native` lane).
+pub const NATIVE_DIR: &str = "vortex-geo-native";
 
 /// SpatialBench geospatial benchmark (Apache Sedona): a `trip` point table, `building` polygons, and
 /// a `customer` attribute table, queried with spatial filters and joins. `zone` polygons are sourced
@@ -98,8 +98,8 @@ impl Benchmark for SpatialBenchBenchmark {
         Ok(())
     }
 
-    /// The `vortex-native` lane decodes each table's WKB geometry to native GeoArrow once, into the
-    /// `vortex-native` dir, so its queries read DuckDB `GEOMETRY` directly. Idempotent.
+    /// The `vortex-geo-native` lane decodes each table's WKB geometry to native GeoArrow once, into the
+    /// `vortex-geo-native` dir, so its queries read DuckDB `GEOMETRY` directly. Idempotent.
     async fn prepare_format(&self, format: Format, base_path: &Path) -> anyhow::Result<()> {
         if format == Format::VortexNative {
             let parquet_dir = base_path.join(Format::Parquet.name());
@@ -115,7 +115,7 @@ impl Benchmark for SpatialBenchBenchmark {
         &self.data_url
     }
 
-    /// The `vortex-native` lane reads the native-geometry Vortex dir; every other format reads its
+    /// The `vortex-geo-native` lane reads the native-geometry Vortex dir; every other format reads its
     /// own `{format}` subfolder.
     fn format_path(&self, format: Format, base_url: &Url) -> anyhow::Result<Url> {
         let dir = match format {
@@ -153,7 +153,7 @@ impl Benchmark for SpatialBenchBenchmark {
     }
 
     /// Both lanes register the same tables (WKB reads `parquet`/`vortex`, native reads
-    /// `vortex-native`); `zone` is externally sourced and optional, registered only when present.
+    /// `vortex-geo-native`); `zone` is externally sourced and optional, registered only when present.
     fn table_specs(&self) -> Vec<TableSpec> {
         self.base_tables()
             .iter()

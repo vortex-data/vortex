@@ -27,20 +27,20 @@ def test_parse_formats_json_accepts_ci_format_arrays() -> None:
 
 
 def test_parse_formats_json_accepts_vortex_native() -> None:
-    formats = parse_formats_json('["parquet","vortex","vortex-native"]')
+    formats = parse_formats_json('["parquet","vortex","vortex-geo-native"]')
 
     assert formats == [Format.PARQUET, Format.VORTEX, Format.VORTEX_NATIVE]
 
 
 def test_resolve_axis_targets_offers_vortex_native_on_duckdb_only() -> None:
-    # vortex-native is a DuckDB-only lane; the DataFusion axis is dropped as unsupported.
+    # vortex-geo-native is a DuckDB-only lane; the DataFusion axis is dropped as unsupported.
     targets, warnings = resolve_axis_targets(
         [Engine.DATAFUSION, Engine.DUCKDB],
         [Format.VORTEX_NATIVE],
     )
 
     assert targets == [BenchmarkTarget(engine=Engine.DUCKDB, format=Format.VORTEX_NATIVE)]
-    assert warnings == ["Format vortex-native is not supported by engine datafusion"]
+    assert warnings == ["Format vortex-geo-native is not supported by engine datafusion"]
 
 
 def test_resolve_axis_targets_filters_unsupported_combinations() -> None:

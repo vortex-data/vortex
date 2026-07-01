@@ -35,7 +35,7 @@ class Format(Enum):
     PARQUET = "parquet"
     VORTEX = "vortex"
     VORTEX_COMPACT = "vortex-compact"
-    VORTEX_NATIVE = "vortex-native"
+    VORTEX_NATIVE = "vortex-geo-native"
     DUCKDB = "duckdb"
     LANCE = "lance"
 

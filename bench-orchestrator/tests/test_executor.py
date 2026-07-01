@@ -43,7 +43,7 @@ def test_build_command_serializes_vortex_native_format() -> None:
         options={"scale-factor": "1.0"},
     )
 
-    assert "parquet,vortex,vortex-native" in cmd
+    assert "parquet,vortex,vortex-geo-native" in cmd
 
 
 def test_build_command_omits_formats_for_lance_backend() -> None:
