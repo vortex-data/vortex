@@ -402,45 +402,6 @@ fn convert_result(array: ArrayRef, mut ctx: &mut ExecutionCtx) -> VortexResult<S
     })
 }
 
-// Converts an aggregate result scalar into a DuckDB value.
-impl TryFrom<Scalar> for Value {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-        let Some(value) = scalar.value() else {
-            let logical_type = LogicalType::try_from(scalar.dtype())?;
-            return Ok(Value::null(&logical_type));
-        };
-        Ok(match value {
-            ScalarValue::Bool(b) => Value::from(*b),
-            ScalarValue::Primitive(pvalue) => match pvalue {
-                PValue::U8(v) => Value::from(*v),
-                PValue::U16(v) => Value::from(*v),
-                PValue::U32(v) => Value::from(*v),
-                PValue::U64(v) => Value::from(*v),
-                PValue::I8(v) => Value::from(*v),
-                PValue::I16(v) => Value::from(*v),
-                PValue::I32(v) => Value::from(*v),
-                PValue::I64(v) => Value::from(*v),
-                PValue::F16(v) => Value::from(v.to_f32()),
-                PValue::F32(v) => Value::from(*v),
-                PValue::F64(v) => Value::from(*v),
-            },
-            ScalarValue::Decimal(decimal_value) => {
-                let DType::Decimal(decimal_dtype, _) = scalar.dtype() else {
-                    vortex_bail!("decimal scalar has non-decimal dtype {}", scalar.dtype());
-                };
-                let int_value = decimal_value
-                    .cast::<i128>()
-                    .ok_or_else(|| vortex_err!("decimal value does not fit in an i128"))?;
-                Value::new_decimal(decimal_dtype.precision(), decimal_dtype.scale(), int_value)
-            }
-            ScalarValue::Utf8(buffer_string) => Value::from(buffer_string.as_str()),
-            other => vortex_bail!("Can't convert scalar value {other} to a DuckDB value"),
-        })
-    }
-}
-
 fn scan_aggregate(
     local_state: &mut TableFunctionLocal,
     global_state: &TableFunctionGlobal,
