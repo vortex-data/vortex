@@ -38,6 +38,7 @@ use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
 
+use crate::convert::dtype::FromLogicalType;
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb;
@@ -45,6 +46,7 @@ use crate::duckdb::BoundFunction;
 use crate::duckdb::BoundOperator;
 use crate::duckdb::ExpressionClass;
 use crate::duckdb::ExpressionClass::BoundBetween;
+use crate::duckdb::ExpressionClass::BoundCast;
 use crate::duckdb::ExpressionClass::BoundColumnRef;
 use crate::duckdb::ExpressionClass::BoundComparison;
 use crate::duckdb::ExpressionClass::BoundConjunction;
@@ -87,8 +89,7 @@ fn try_from_bound_function(
             let col = byte_length(col);
             // byte_length returns u64, strlen expects i64.
             // At this point we don't know column's dtype so we ultimately
-            // set it to be nullable. For non-nullable column the nullability
-            // will be AllValid so it's a marginal cost.
+            // set it to be nullable.
             let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
             cast(col, dtype)
         }
@@ -141,7 +142,7 @@ fn try_from_bound_function(
                 return Ok(None);
             };
 
-            // We don't know the column's nullability here, so we set it to nullable.
+            // We don't know the column's nullability here
             build_list_length(col, Nullability::Nullable)
         }
         // len/length semantics depend on the return type of underlying expr.
@@ -155,7 +156,7 @@ fn try_from_bound_function(
                     return Ok(None);
                 };
 
-                // Same nullability rationale as in "array_length" branch.
+                // We don't know the column's nullability here
                 let list_len_expr = build_list_length(col, Nullability::Nullable);
                 return Ok(Some(list_len_expr));
             } else {
@@ -189,6 +190,17 @@ fn is_supported_length_alias(func: &BoundFunction) -> bool {
     children.len() == 1 && returns_a_list(children[0])
 }
 
+// We limit casting to Primitive types, because some conversions yield an error
+// like vortex.date[days](i32) -> vortex.timestamp[µs](i64?). However, when we
+// push down the cast, we don't have access to column's dtype, so we need to
+// be overly restrictive.
+fn can_push_cast(cast: &duckdb::BoundCast<'_>, target: &duckdb::LogicalTypeRef) -> bool {
+    !cast.is_try
+        && !target.contains_128bit()
+        && target.is_primitive_numeric()
+        && cast.child.return_type().is_primitive_numeric()
+}
+
 // Called before pushdown_complex_filter or a table filter expression call.
 // As we support complex filter pushdown, Duckdb pushes expressions to Vortex.
 // However, it doesn't know what type of expressions we can handle. Here we list
@@ -199,15 +211,19 @@ fn is_supported_length_alias(func: &BoundFunction) -> bool {
 //
 // Example: we don't support substr() expression so we tell Duckdb we can't
 // push it.
+// Example: we support CAST but not TRY_CAST.
 // Example: optional filters may fail to parse on our side (we return
 // Ok(None)), so we don't allow pushing these.
 pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
-    let Some(value) = value.as_class() else {
+    let Some(class) = value.as_class() else {
         return false;
     };
-    match value {
+    match class {
         BoundColumnRef(_) => true,
         BoundConstant(_) => true,
+        BoundCast(cast) => {
+            can_push_cast(&cast, value.return_type()) && can_push_expression(cast.child)
+        }
         BoundRef => true,
         BoundComparison(comp) => can_push_expression(comp.left) && can_push_expression(comp.right),
         BoundBetween(between) => {
@@ -255,27 +271,41 @@ pub fn try_from_projection_expression(
     value: &duckdb::ExpressionRef,
     field: &DuckdbField,
 ) -> VortexResult<Option<Expression>> {
-    let Some(value) = value.as_class() else {
+    let Some(class) = value.as_class() else {
         return Ok(None);
     };
-    let ExpressionClass::BoundFunction(func) = value else {
-        return Ok(None);
-    };
-    Ok(match func.scalar_function.name() {
-        "strlen" => {
-            let col = byte_length(get_item(field.name.as_str(), root()));
-            // byte_length returns u64, strlen expects i64
-            let dtype = DType::Primitive(PType::I64, field.dtype.nullability());
-            let col = cast(col, dtype);
-            Some(col)
+    Ok(match class {
+        ExpressionClass::BoundFunction(func) => {
+            match func.scalar_function.name() {
+                "strlen" => {
+                    let col = byte_length(get_item(field.name.as_str(), root()));
+                    // byte_length returns u64, strlen expects i64
+                    let dtype = DType::Primitive(PType::I64, field.dtype.nullability());
+                    let col = cast(col, dtype);
+                    Some(col)
+                }
+                "array_length" => {
+                    // Only accept array_length(expr) rather than array_length(expr, dim).
+                    (func.children().count() == 1).then(|| list_length_on_field(field))
+                }
+                // len/length have different semantics depending on field dtype.
+                "len" | "length" => {
+                    matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..))
+                        .then(|| list_length_on_field(field))
+                }
+                _ => None,
+            }
         }
-        "array_length" => {
-            // Only accept array_length(expr) rather than array_length(expr, dim).
-            (func.children().count() == 1).then(|| list_length_on_field(field))
+        BoundCast(c) => {
+            let target = value.return_type();
+            if !can_push_cast(&c, target) {
+                None
+            } else {
+                let dtype = DType::from_logical_type(target, field.dtype.nullability())?;
+                let col = get_item(field.name.as_str(), root());
+                Some(cast(col, dtype))
+            }
         }
-        // len/length have different semantics depending on field dtype.
-        "len" | "length" => matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..))
-            .then(|| list_length_on_field(field)),
         _ => None,
     })
 }
@@ -286,14 +316,14 @@ fn try_from_expression_inner(
     value: &duckdb::ExpressionRef,
     col_sub: Option<&Expression>,
 ) -> VortexResult<Option<Expression>> {
-    let Some(value) = value.as_class() else {
+    let Some(class) = value.as_class() else {
         debug!(
             class_id = ?value.as_class_id(),
             "unknown expression class id"
         );
         return Ok(None);
     };
-    Ok(Some(match value {
+    Ok(Some(match class {
         BoundRef => {
             let Some(col) = col_sub else {
                 vortex_bail!("BoundRef requested but no column supplied");
@@ -371,6 +401,18 @@ fn try_from_expression_inner(
         },
         ExpressionClass::BoundFunction(func) => {
             return try_from_bound_function(&func, col_sub);
+        }
+        BoundCast(cast_inner) => {
+            let target = value.return_type();
+            if !can_push_cast(&cast_inner, target) {
+                return Ok(None);
+            }
+            let Some(child) = try_from_expression_inner(cast_inner.child, col_sub)? else {
+                return Ok(None);
+            };
+            // We don't know the column's nullability here
+            let dtype = DType::from_logical_type(target, Nullability::Nullable)?;
+            cast(child, dtype)
         }
         BoundConjunction(conj) => {
             let Some(children) = conj

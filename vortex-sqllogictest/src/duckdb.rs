@@ -63,11 +63,15 @@ impl DuckDB {
     fn normalize_column_type(logical_type: &LogicalTypeRef) -> DFColumnType {
         let type_id = logical_type.as_type_id();
 
-        if type_id == LogicalType::int32().as_type_id()
+        if type_id == LogicalType::int8().as_type_id()
+            || type_id == LogicalType::int16().as_type_id()
+            || type_id == LogicalType::int32().as_type_id()
             || type_id == LogicalType::int64().as_type_id()
+            || type_id == LogicalType::int128().as_type_id()
+            || type_id == LogicalType::uint8().as_type_id()
+            || type_id == LogicalType::uint16().as_type_id()
             || type_id == LogicalType::uint32().as_type_id()
             || type_id == LogicalType::uint64().as_type_id()
-            || type_id == LogicalType::int128().as_type_id()
             || type_id == LogicalType::uint128().as_type_id()
         {
             DFColumnType::Integer

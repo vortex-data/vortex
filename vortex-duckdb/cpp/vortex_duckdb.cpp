@@ -4,6 +4,7 @@
 #include "data.hpp"
 #include "error.hpp"
 #include "scalar_fn_pushdown.hpp"
+#include "cast_pushdown.hpp"
 #include "vortex_duckdb.h"
 
 #include "duckdb/catalog/catalog.hpp"
@@ -268,7 +269,8 @@ extern "C" duckdb_blob duckdb_vx_value_get_geometry(duckdb_value value) {
 }
 
 static void VortexOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
-    plan = TryPushdownScalarFunctions(input.context, std::move(plan));
+    plan = TryPushdown<CastCollect, CastReplace>(input.context, std::move(plan));
+    plan = TryPushdown<ScalarFnCollect, ScalarFnReplace>(input.context, std::move(plan));
 }
 
 struct VortexOptimizerExtension final : OptimizerExtension {

@@ -1,0 +1,349 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT '2020-01-01 02:20:30' ts) TO '$__TEST_DIR__/cast_pushdown-date.vortex';
+
+# Date cast is not pushed down
+query TT
+EXPLAIN SELECT * FROM '$__TEST_DIR__/cast_pushdown-date.vortex'
+WHERE ts::DATE = '2020-01-01';
+----
+<REGEX>:.*FILTER.*
+
+query T
+SELECT ts FROM '$__TEST_DIR__/cast_pushdown-date.vortex'
+WHERE ts::DATE = '2020-01-01';
+----
+2020-01-01 02:20:30
+
+statement ok
+COPY (SELECT * FROM (
+    VALUES (1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(1, 0),(2, 0),(3, 0),(3, 0),(3, 257)
+) AS t(column00, column01))
+TO '$__TEST_DIR__/cast_pushdown.vortex';
+
+# Column is used uncasted
+query TT
+EXPLAIN SELECT * FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<!REGEX>:.*PROJECTION.*
+
+query I
+SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1;
+----
+1
+1
+1
+1
+1
+1
+2
+3
+3
+3
+
+# Column is used casted
+query TT
+EXPLAIN SELECT column00::UTINYINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<!REGEX>:.*PROJECTION.*
+
+query I
+SELECT column00::UTINYINT FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1;
+----
+1
+1
+1
+1
+1
+1
+2
+3
+3
+3
+
+# Column is used casted and uncasted
+query TT
+EXPLAIN SELECT column00, column00::UTINYINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query II
+SELECT column00, column00::UTINYINT FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1, 2;
+----
+1 1
+1 1
+1 1
+1 1
+1 1
+1 1
+2 2
+3 3
+3 3
+3 3
+
+# Column is used uncasted with filter
+query TT
+EXPLAIN SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE column00 > 0;
+----
+<!REGEX>:.*PROJECTION.*
+
+query I
+SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE column00 > 0 ORDER BY 1;
+----
+1
+1
+1
+1
+1
+1
+2
+3
+3
+3
+
+# Column is used uncasted with filter on casted.
+# Cast is pushed in WHERE separately
+query TT
+EXPLAIN SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE column00::UTINYINT > 0;
+----
+<!REGEX>:.*FILTER.*
+
+query I
+SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE column00::UTINYINT > 0 ORDER BY 1;
+----
+1
+1
+1
+1
+1
+1
+2
+3
+3
+3
+
+# Same cast in SELECT and ORDER BY: no conflict
+query TT
+EXPLAIN SELECT column00::UTINYINT
+FROM '$__TEST_DIR__/cast_pushdown.vortex'
+ORDER BY column00::UTINYINT;
+----
+<!REGEX>:.*PROJECTION.*
+
+query I
+SELECT column00::UTINYINT
+FROM '$__TEST_DIR__/cast_pushdown.vortex'
+ORDER BY column00::UTINYINT;
+----
+1
+1
+1
+1
+1
+1
+2
+3
+3
+3
+
+# Two different casts of the same column: conflict
+query TT
+EXPLAIN SELECT column00::UTINYINT, column00::USMALLINT
+FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query II
+SELECT column00::UTINYINT, column00::USMALLINT
+FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1, 2;
+----
+1 1
+1 1
+1 1
+1 1
+1 1
+1 1
+2 2
+3 3
+3 3
+3 3
+
+# TRY_CAST is not pushed down
+query TT
+EXPLAIN SELECT TRY_CAST(column00 AS UTINYINT) FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query I
+SELECT TRY_CAST(column00 AS UTINYINT) FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1;
+----
+1
+1
+1
+1
+1
+1
+2
+3
+3
+3
+
+query I
+SELECT TRY_CAST(column01 AS UTINYINT) FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1 NULLS LAST;
+----
+0
+0
+0
+0
+0
+0
+0
+0
+0
+NULL
+
+# TRY_CAST is not pushed in WHERE -> conflict
+query TT
+EXPLAIN SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE TRY_CAST(column00 AS UTINYINT) > 0;
+----
+<REGEX>:.*FILTER.*
+
+query I
+SELECT column00 FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE TRY_CAST(column00 AS UTINYINT) > 0 ORDER BY 1;
+----
+1
+1
+1
+1
+1
+1
+2
+3
+3
+3
+
+# Same TRY_CAST in SELECT and WHERE: CAST stays in the plan.
+query TT
+EXPLAIN SELECT TRY_CAST(column00 AS UTINYINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE TRY_CAST(column00 AS UTINYINT) > 0;
+----
+<REGEX>:.*CAST.*
+
+query I
+SELECT TRY_CAST(column00 AS UTINYINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE TRY_CAST(column00 AS UTINYINT) > 0 ORDER BY 1;
+----
+1
+1
+1
+1
+1
+1
+2
+3
+3
+3
+
+query TT
+EXPLAIN SELECT column00::UTINYINT, TRY_CAST(column00 AS UTINYINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*CAST.*
+
+query II
+SELECT column00::UTINYINT, TRY_CAST(column00 AS UTINYINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1, 2;
+----
+1 1
+1 1
+1 1
+1 1
+1 1
+1 1
+2 2
+3 3
+3 3
+3 3
+
+# CAST and TRY_CAST of different target types: conflict, pushdown blocked
+query TT
+EXPLAIN SELECT column00::UTINYINT, TRY_CAST(column00 AS USMALLINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query II
+SELECT column00::UTINYINT, TRY_CAST(column00 AS USMALLINT)
+FROM '$__TEST_DIR__/cast_pushdown.vortex' ORDER BY 1, 2;
+----
+1 1
+1 1
+1 1
+1 1
+1 1
+1 1
+2 2
+3 3
+3 3
+3 3
+
+# i128 and u128 casts are not allowed as Vortex doesn't support these types
+
+query TT
+EXPLAIN SELECT column00::HUGEINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query TT
+EXPLAIN SELECT column00::UHUGEINT FROM '$__TEST_DIR__/cast_pushdown.vortex';
+----
+<REGEX>:.*PROJECTION.*
+
+query TT
+EXPLAIN SELECT column00
+FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE column01::HUGEINT >= column00;
+----
+<REGEX>:.*FILTER.*
+
+query TT
+EXPLAIN SELECT column01
+FROM '$__TEST_DIR__/cast_pushdown.vortex'
+WHERE column00::UHUGEINT >= column01
+----
+<REGEX>:.*FILTER.*
+
+# TPC-H q4 like regression check
+
+statement ok
+COPY (SELECT * FROM (
+    VALUES ('1993-07-15'::DATE), ('1993-08-20'::DATE), ('1993-10-15'::DATE)
+) AS t(d))
+TO '$__TEST_DIR__/cast_pushdown-date-filter.vortex';
+
+query D
+SELECT d FROM '$__TEST_DIR__/cast_pushdown-date-filter.vortex'
+WHERE d >= DATE '1993-07-01'
+  AND d < DATE '1993-07-01' + INTERVAL '3' MONTH
+ORDER BY d;
+----
+1993-07-15
+1993-08-20
+
+query TT
+EXPLAIN SELECT d FROM '$__TEST_DIR__/cast_pushdown-date-filter.vortex'
+WHERE d < DATE '1993-07-01' + INTERVAL '3' MONTH;
+----
+<REGEX>:.*FILTER.*
