@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import type { LayoutTreeNode, FlattenedRow } from './types';
-import { flattenTree, filterTreeBySearch } from './utils';
+import type { LayoutTreeNode, FlattenedRow, SegmentMapEntry, PhysicalSegment } from './types';
+import { flattenTree, filterTreeBySearch, buildSegmentIndex } from './utils';
 import { ROW_HEIGHT, TREE_WIDTH, DEFAULT_SWIMLANE_MIN_WIDTH } from './styles';
 import { TreeRow } from './TreeRow';
 import { TreeSearch } from './TreeSearch';
@@ -14,8 +14,10 @@ import { Tooltip } from './Tooltip';
 export interface LayoutSwimlaneProps {
   /** The root layout tree node to visualize */
   layout: LayoutTreeNode;
-  /** Total number of rows in the dataset */
-  totalRows: number;
+  /** Physical segment map for the file (byte offsets and lengths). */
+  segments: SegmentMapEntry[];
+  /** Total byte span of the file — the x-axis maximum. */
+  totalBytes: number;
   /** Initially expanded node IDs */
   defaultExpanded?: string[];
   /** Currently selected node ID (controlled) */
@@ -32,7 +34,8 @@ export interface LayoutSwimlaneProps {
 
 export function LayoutSwimlane({
   layout,
-  totalRows,
+  segments,
+  totalBytes,
   defaultExpanded = [],
   selectedNodeId = null,
   onNodeSelect,
@@ -46,7 +49,7 @@ export function LayoutSwimlane({
     node: LayoutTreeNode;
     position: { x: number; y: number };
   } | null>(null);
-  const [rulerPosition, setRulerPosition] = useState<{ x: number; row: number } | null>(null);
+  const [rulerPosition, setRulerPosition] = useState<{ x: number; byte: number } | null>(null);
 
   const treeScrollRef = useRef<HTMLDivElement>(null);
   const swimlaneScrollRef = useRef<HTMLDivElement>(null);
@@ -63,6 +66,10 @@ export function LayoutSwimlane({
     () => filterTreeBySearch(allRows, searchQuery, layout),
     [allRows, searchQuery, layout],
   );
+
+  // Resolve each segment to its physical byte placement so bars can be plotted
+  // by file offset rather than by row.
+  const segmentIndex = useMemo(() => buildSegmentIndex(layout, segments), [layout, segments]);
 
   const toggleExpanded = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -133,11 +140,11 @@ export function LayoutSwimlane({
       const x = e.clientX - rect.left;
       const panelWidth = panel.offsetWidth;
       if (x >= 0 && x <= panelWidth) {
-        const rowNum = (x / panelWidth) * totalRows;
-        setRulerPosition({ x, row: Math.max(0, Math.min(totalRows, rowNum)) });
+        const byte = (x / panelWidth) * totalBytes;
+        setRulerPosition({ x, byte: Math.max(0, Math.min(totalBytes, byte)) });
       }
     },
-    [totalRows],
+    [totalBytes],
   );
 
   const handleSwimlaneMouseLeave = useCallback(() => setRulerPosition(null), []);
@@ -146,11 +153,19 @@ export function LayoutSwimlane({
 
   return (
     <div className="flex flex-col" style={height ? { height } : { flex: 1, minHeight: 0 }}>
+      {/* Filter header — sits above the tree column only, so the tree rows and
+          swimlane bars below it start at the same vertical offset and stay aligned. */}
+      <div className="flex flex-shrink-0">
+        <div className="flex-shrink-0" style={{ width: TREE_WIDTH }}>
+          <TreeSearch onSearch={setSearchQuery} />
+        </div>
+        <div className="flex-1" />
+      </div>
+
       {/* Tree + Swimlane */}
       <div className="flex flex-1 min-h-0">
         {/* Tree panel */}
         <div className="flex-shrink-0 flex flex-col min-h-0" style={{ width: TREE_WIDTH }}>
-          <TreeSearch onSearch={setSearchQuery} />
           <div ref={treeScrollRef} className="flex-1 overflow-y-auto overflow-x-hidden">
             <div style={{ height: contentHeight }}>
               {visibleRows.map((row) => (
@@ -168,20 +183,31 @@ export function LayoutSwimlane({
           </div>
         </div>
 
-        {/* Swimlane panel */}
+        {/* Swimlane panel. scrollbar-gutter reserves space for the vertical
+            scrollbar so bars never overflow underneath it, and the inner panel is
+            the positioning context so bar widths track the content (not the
+            scrollbar) and stay aligned with the axis. */}
         <div
           ref={swimlaneScrollRef}
           className="flex-1 overflow-auto relative"
+          style={{ scrollbarGutter: 'stable' }}
           onMouseMove={handleSwimlaneMouseMove}
           onMouseLeave={handleSwimlaneMouseLeave}
         >
-          <div ref={swimlanePanelRef} style={{ minWidth: swimlaneMinWidth, height: contentHeight }}>
+          <div
+            ref={swimlanePanelRef}
+            className="relative"
+            style={{ minWidth: swimlaneMinWidth, height: contentHeight }}
+          >
             {visibleRows.map((row) => (
               <SwimlaneRow
                 key={row.node.id}
                 row={row}
-                totalRows={totalRows}
+                totalBytes={totalBytes}
+                segmentIndex={segmentIndex}
                 onHover={handleTooltip}
+                onSelect={() => handleNodeClick(row.node.id)}
+                isSelected={selectedNodeId === row.node.id}
               />
             ))}
 
@@ -199,7 +225,7 @@ export function LayoutSwimlane({
       <div className="flex flex-shrink-0">
         <div className="flex-shrink-0" style={{ width: TREE_WIDTH }} />
         <AxisBar
-          totalRows={totalRows}
+          totalBytes={totalBytes}
           swimlaneMinWidth={swimlaneMinWidth}
           rulerPosition={rulerPosition}
           scrollLeft={swimlaneScrollRef.current?.scrollLeft ?? 0}
@@ -216,17 +242,30 @@ export function LayoutSwimlane({
 /** A single swimlane row — just height + bar positioning, no decoration */
 function SwimlaneRow({
   row,
-  totalRows,
+  totalBytes,
+  segmentIndex,
   onHover,
+  onSelect,
+  isSelected,
 }: {
   row: FlattenedRow;
-  totalRows: number;
+  totalBytes: number;
+  segmentIndex: Map<number, PhysicalSegment>;
   onHover: (node: LayoutTreeNode | null, position: { x: number; y: number }) => void;
+  onSelect: () => void;
+  isSelected: boolean;
 }) {
   return (
     <div className="relative" style={{ height: ROW_HEIGHT }}>
       {row.displayKind !== 'hiddenIndicator' && (
-        <SwimlaneBar row={row} totalRows={totalRows} onHover={onHover} />
+        <SwimlaneBar
+          row={row}
+          totalBytes={totalBytes}
+          segmentIndex={segmentIndex}
+          onHover={onHover}
+          onSelect={onSelect}
+          isSelected={isSelected}
+        />
       )}
     </div>
   );

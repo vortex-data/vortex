@@ -61,6 +61,13 @@ export interface SegmentMapEntry {
   layoutPath: string;
 }
 
+/** A segment resolved to its physical byte placement and the dtype that owns it. */
+export interface PhysicalSegment {
+  byteOffset: number;
+  byteLength: number;
+  dtype: string;
+}
+
 export interface FileStructureInfo {
   fileSize: number;
   version: number;

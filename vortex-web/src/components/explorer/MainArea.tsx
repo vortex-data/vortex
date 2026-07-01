@@ -3,19 +3,24 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { TreePanel } from './TreePanel';
-import { FileMap } from './FileMap';
+import { SwimlaneOverview } from '../swimlane/SwimlaneOverview';
 import { DataPreview } from './DataPreview';
 import { DetailPanel } from '../detail/DetailPanel';
+import { SummarySidebar } from '../detail/SummarySidebar';
 
 const MIN_PANEL_HEIGHT = 120;
 const DEFAULT_PREVIEW_HEIGHT = 200;
 
+export type MainView = 'details' | 'swimlane';
+
 /**
- * Main explorer area: tree panel (left) | detail + filemap + preview (right).
+ * Main explorer area: tree panel (left) | the active main view (details or
+ * swimlane, chosen in the top header) over a resizable data preview (right). The
+ * tree stays put as column navigation while the header tabs switch the view.
  *
  * The preview panel at the bottom is vertically resizable via a drag handle.
  */
-export function MainArea() {
+export function MainArea({ view }: { view: MainView }) {
   const [previewHeight, setPreviewHeight] = useState(DEFAULT_PREVIEW_HEIGHT);
   const dragging = useRef(false);
   const startY = useRef(0);
@@ -48,19 +53,29 @@ export function MainArea() {
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
-      {/* Left: tree panel — full height, fixed width */}
-      <div className="w-[260px] flex-shrink-0 h-full overflow-hidden">
-        <TreePanel />
-      </div>
+      {/* Left: tree panel — column navigation paired with the details view. The
+          swimlane view hides it so the byte-bars get the full width. */}
+      {view === 'details' && (
+        <div className="w-[260px] flex-shrink-0 h-full overflow-hidden">
+          <TreePanel />
+        </div>
+      )}
 
-      {/* Right: detail pane, file map, data preview — stacked vertically */}
+      {/* Right: active main view over the resizable data preview */}
       <div ref={containerRef} className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        {/* Detail pane — fills available vertical space, scrolls internally */}
-        <DetailPanel />
-
-        {/* File map strip */}
-        <div className="flex-shrink-0">
-          <FileMap />
+        {/* Active view — fills available vertical space, scrolls internally. The
+            swimlane keeps the summary sidebar alongside it, like the details view. */}
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          {view === 'details' ? (
+            <DetailPanel />
+          ) : (
+            <>
+              <div className="flex-1 min-w-0 flex flex-col">
+                <SwimlaneOverview />
+              </div>
+              <SummarySidebar />
+            </>
+          )}
         </div>
 
         {/* Resize handle */}
