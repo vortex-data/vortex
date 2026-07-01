@@ -44,6 +44,7 @@ use vortex::scan::PartitionRef;
 use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
+use vortex::scan::selection::StrictSortedBuffer;
 
 use crate::POOL;
 use crate::RUNTIME;
@@ -95,8 +96,12 @@ fn build_scan_request(
 
     let selection = match selection_include {
         0 => Selection::All,
-        1 => Selection::IncludeByIndex(Buffer::copy_from(selection_idx)),
-        2 => Selection::ExcludeByIndex(Buffer::copy_from(selection_idx)),
+        1 => Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::copy_from(
+            selection_idx,
+        ))?),
+        2 => Selection::ExcludeByIndex(StrictSortedBuffer::try_new(Buffer::copy_from(
+            selection_idx,
+        ))?),
         3 => Selection::IncludeRoaring(deserialize_roaring_selection(selection_roaring_bitmap)?),
         4 => Selection::ExcludeRoaring(deserialize_roaring_selection(selection_roaring_bitmap)?),
         other => vortex_bail!("unknown selection include code: {other}"),

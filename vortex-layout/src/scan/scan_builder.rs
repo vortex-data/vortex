@@ -24,7 +24,6 @@ use vortex_array::iter::ArrayIteratorAdapter;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
-use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -34,6 +33,7 @@ use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_metrics::MetricsRegistry;
 use vortex_scan::selection::Selection;
+use vortex_scan::selection::StrictSortedBuffer;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -172,8 +172,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// Select rows by absolute indices relative to the scan input.
-    pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
+    /// Select rows by strictly sorted absolute indices relative to the scan input.
+    pub fn with_row_indices(mut self, row_indices: StrictSortedBuffer<u64>) -> Self {
         self.selection = Selection::IncludeByIndex(row_indices);
         self
     }

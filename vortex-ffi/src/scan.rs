@@ -33,6 +33,7 @@ use vortex::scan::Partition;
 use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
+use vortex::scan::selection::StrictSortedBuffer;
 
 use crate::RUNTIME;
 use crate::array::vx_array;
@@ -177,13 +178,13 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
             vortex_ensure!(!selection.idx.is_null());
             let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
             let buf = Buffer::copy_from(buf);
-            Selection::IncludeByIndex(buf)
+            Selection::IncludeByIndex(StrictSortedBuffer::try_new(buf)?)
         }
         vx_scan_selection_include::VX_SELECTION_EXCLUDE_RANGE => {
             vortex_ensure!(!selection.idx.is_null());
             let buf = unsafe { slice::from_raw_parts(selection.idx, selection.idx_len) };
             let buf = Buffer::copy_from(buf);
-            Selection::ExcludeByIndex(buf)
+            Selection::ExcludeByIndex(StrictSortedBuffer::try_new(buf)?)
         }
     };
 

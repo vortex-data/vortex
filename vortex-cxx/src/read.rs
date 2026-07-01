@@ -24,6 +24,7 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::scan::selection::Selection;
+use vortex::scan::selection::StrictSortedBuffer;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -91,9 +92,12 @@ impl VortexScanBuilder {
         });
     }
 
-    pub(crate) fn with_include_by_index(&mut self, include_by_index: &[u64]) {
-        let selection = Selection::IncludeByIndex(Buffer::copy_from(include_by_index));
+    pub(crate) fn with_include_by_index(&mut self, include_by_index: &[u64]) -> Result<()> {
+        let selection = Selection::IncludeByIndex(StrictSortedBuffer::try_new(Buffer::copy_from(
+            include_by_index,
+        ))?);
         take_mut::take(&mut self.inner, |inner| inner.with_selection(selection));
+        Ok(())
     }
 
     pub(crate) fn with_limit(&mut self, limit: usize) {
