@@ -67,7 +67,8 @@ impl ExtVTable for MultiPolygon {
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new_static("vortex.geo.multipolygon")
+        static ID: CachedId = CachedId::new("vortex.geo.multipolygon");
+        *ID
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -238,7 +239,6 @@ impl ArrowExportVTable for MultiPolygon {
             .arrow()
             .execute_arrow(storage, Some(&storage_field), ctx)?;
 
-        // Round-trip through GeoArrow's multipolygon array; `into_arrow` is concrete, so wrap in `Arc`.
         let multipolygons =
             MultiPolygonArray::try_from((arrow_storage.as_ref(), multipolygon_meta))
                 .map_err(|e| vortex_err!("failed to construct MultiPolygonArray: {e}"))?;
