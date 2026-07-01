@@ -11,8 +11,12 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use geo_types::Geometry;
+use geoarrow::array::GeoArrowArray;
 use geoarrow::datatypes::Crs;
+use geoarrow::datatypes::GeoArrowType;
 use geoarrow::datatypes::Metadata;
+use geoarrow::datatypes::WkbType;
+use geoarrow_cast::cast::cast;
 pub use multipolygon::*;
 pub use point::*;
 pub use polygon::*;
@@ -22,6 +26,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrow::FromArrowArray;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -97,6 +102,15 @@ pub(crate) fn geoarrow_metadata(geo_metadata: &GeoMetadata) -> Arc<Metadata> {
             .unwrap_or_default(),
         None,
     ))
+}
+
+/// Serialize a native geometry array to WKB (a `WkbView` array) via geoarrow's cast.
+/// Shared by the `to_wkb` methods on the geometry extension types.
+pub(crate) fn geoarrow_to_wkb(geo_array: &dyn GeoArrowArray) -> VortexResult<ArrayRef> {
+    let wkb_type = GeoArrowType::WkbView(WkbType::new(geoarrow_metadata(&GeoMetadata::default())));
+    let wkb = cast(geo_array, &wkb_type)
+        .map_err(|e| vortex_err!("failed to cast geometry to WKB: {e}"))?;
+    ArrayRef::from_arrow(wkb.to_array_ref().as_ref(), false)
 }
 
 /// Recover [`GeoMetadata`] from GeoArrow metadata.

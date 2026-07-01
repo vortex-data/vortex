@@ -13,15 +13,11 @@ use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::Geometry;
-use geoarrow::array::GeoArrowArray;
 use geoarrow::array::GeoArrowArrayAccessor;
 use geoarrow::array::IntoArrow;
 use geoarrow::array::PolygonArray;
 use geoarrow::datatypes::CoordType;
-use geoarrow::datatypes::GeoArrowType;
 use geoarrow::datatypes::PolygonType;
-use geoarrow::datatypes::WkbType;
-use geoarrow_cast::cast::cast;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -56,6 +52,7 @@ use super::coordinate::coordinate_dimension;
 use super::coordinate::coordinate_storage_dtype;
 use super::geo_metadata_from_arrow;
 use super::geoarrow_metadata;
+use super::geoarrow_to_wkb;
 
 /// A polygon: `geoarrow.polygon`, stored as `List<List<Struct<x, y[, z][, m]>>>` (rings of vertices).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
@@ -159,14 +156,9 @@ impl TryFrom<ExtensionArray> for PolygonData {
 }
 
 impl PolygonData {
-    /// Serialize polygons to WKB (a view array) via geoarrow's cast — the form DuckDB `GEOMETRY` takes.
+    /// Serialize polygons to WKB (a view array) — the form DuckDB `GEOMETRY` takes.
     pub fn to_wkb(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let polygons = polygon_array(&self.0.storage_array().clone(), ctx)?;
-        let wkb_type =
-            GeoArrowType::WkbView(WkbType::new(geoarrow_metadata(&GeoMetadata::default())));
-        let wkb = cast(&polygons, &wkb_type)
-            .map_err(|e| vortex_err!("failed to cast polygons to WKB: {e}"))?;
-        ArrayRef::from_arrow(wkb.to_array_ref().as_ref(), false)
+        geoarrow_to_wkb(&polygon_array(self.0.storage_array(), ctx)?)
     }
 }
 
