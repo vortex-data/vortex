@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::NumCast;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::dtype::NativePType;
-use vortex_array::match_each_native_ptype;
+use vortex_array::dtype::IntegerPType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -24,22 +25,30 @@ impl FilterKernel for Sequence {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = Validity::from(array.dtype().nullability());
-        match_each_native_ptype!(array.ptype(), |P| {
-            let mul = array.multiplier().cast::<P>()?;
-            let base = array.base().cast::<P>()?;
-            Ok(Some(filter_impl(mul, base, mask, validity)))
+        match_each_integer_ptype!(array.calculation_ptype(), |C| {
+            let mul = array.multiplier().cast::<C>()?;
+            let base = array.base().cast::<C>()?;
+            match_each_integer_ptype!(array.dtype().as_ptype(), |O| {
+                Ok(Some(filter_impl::<C, O>(mul, base, mask, validity)))
+            })
         })
     }
 }
 
-fn filter_impl<T: NativePType>(mul: T, base: T, mask: &Mask, validity: Validity) -> ArrayRef {
+fn filter_impl<C: IntegerPType, O: IntegerPType>(
+    mul: C,
+    base: C,
+    mask: &Mask,
+    validity: Validity,
+) -> ArrayRef {
     let mask_values = mask
         .values()
         .vortex_expect("FilterKernel precondition: mask is Mask::Values");
-    let mut buffer = BufferMut::<T>::with_capacity(mask_values.true_count());
+    let mut buffer = BufferMut::<O>::with_capacity(mask_values.true_count());
     buffer.extend(mask_values.indices().iter().map(|&idx| {
-        let i = T::from_usize(idx).vortex_expect("all valid indices fit");
-        base + i * mul
+        let i = C::from_usize(idx).vortex_expect("all valid indices fit");
+        <O as NumCast>::from(base + i * mul)
+            .vortex_expect("valid sequence values must fit output ptype")
     }));
     PrimitiveArray::new(buffer.freeze(), validity).into_array()
 }

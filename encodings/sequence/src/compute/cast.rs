@@ -5,12 +5,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use crate::Sequence;
 impl CastReduce for Sequence {
@@ -26,62 +22,21 @@ impl CastReduce for Sequence {
             return Ok(None);
         }
 
-        // Check if this is just a nullability change
-        if array.ptype() == *target_ptype && array.dtype().nullability() != *target_nullability {
-            // For SequenceArray, we can just create a new one with the same parameters
-            // but different nullability
-            return Ok(Some(
-                Sequence::try_new(
-                    array.base(),
-                    array.multiplier(),
-                    *target_ptype,
-                    *target_nullability,
-                    array.len(),
-                )?
-                .into_array(),
-            ));
+        if array.dtype() == dtype {
+            return Ok(None);
         }
 
-        // For type changes, we need to cast the base and multiplier
-        if array.ptype() != *target_ptype {
-            // Create scalars from PValues and cast them
-            let base_scalar = Scalar::try_new(
-                DType::Primitive(array.ptype(), Nullability::NonNullable),
-                Some(ScalarValue::Primitive(array.base())),
-            )?;
-            let multiplier_scalar = Scalar::try_new(
-                DType::Primitive(array.ptype(), Nullability::NonNullable),
-                Some(ScalarValue::Primitive(array.multiplier())),
-            )?;
-
-            let new_base_scalar =
-                base_scalar.cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
-            let new_multiplier_scalar = multiplier_scalar
-                .cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;
-
-            // Extract PValues from the casted scalars
-            let new_base = new_base_scalar
-                .as_primitive()
-                .pvalue()
-                .ok_or_else(|| vortex_err!("Cast resulted in null base value"))?;
-            let new_multiplier = new_multiplier_scalar
-                .as_primitive()
-                .pvalue()
-                .ok_or_else(|| vortex_err!("Cast resulted in null multiplier value"))?;
-
-            return Ok(Some(
-                Sequence::try_new(
-                    new_base,
-                    new_multiplier,
-                    *target_ptype,
-                    *target_nullability,
-                    array.len(),
-                )?
-                .into_array(),
-            ));
-        }
-
-        Ok(None)
+        // try_new also validates that the produced values fit the target ptype.
+        Ok(Some(
+            Sequence::try_new(
+                array.base(),
+                array.multiplier(),
+                *target_ptype,
+                *target_nullability,
+                array.len(),
+            )?
+            .into_array(),
+        ))
     }
 }
 
@@ -99,6 +54,9 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::Sequence;
@@ -197,14 +155,40 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_cast_sequence_keeps_arithmetic_ptype_but_scalar_uses_output_dtype() -> VortexResult<()>
+    {
+        // Cast the public dtype to u8
+        let casted = Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable, 5)?
+            .into_array()
+            .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?;
+
+        let sequence = casted
+            .as_typed::<Sequence>()
+            .expect("integer sequence cast should preserve SequenceArray");
+        assert_eq!(sequence.calculation_ptype(), PType::I64);
+        assert_eq!(
+            sequence.dtype(),
+            &DType::Primitive(PType::U8, Nullability::NonNullable)
+        );
+
+        let scalar = casted.execute_scalar(1, &mut SESSION.create_execution_ctx())?;
+        assert_eq!(
+            scalar,
+            Scalar::try_new(
+                DType::Primitive(PType::U8, Nullability::NonNullable),
+                Some(ScalarValue::from(90u8)),
+            )?
+        );
+
+        Ok(())
+    }
+
     #[rstest]
     #[case::i32(Sequence::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap())]
     #[case::u64(Sequence::try_new_typed(1000u64, 100u64, Nullability::NonNullable, 4).unwrap())]
-    // TODO(DK): SequenceArray does not actually conform. You cannot cast this array to u8 even
-    // though all its values are representable therein.
-    //
-    // #[case::negative_step(Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable,
-    // 5).unwrap())]
+    #[case::negative_step(Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable,
+    5).unwrap())]
     #[case::single(Sequence::try_new_typed(42i64, 0i64, Nullability::NonNullable, 1).unwrap())]
     #[case::constant(Sequence::try_new_typed(
         100i32,
