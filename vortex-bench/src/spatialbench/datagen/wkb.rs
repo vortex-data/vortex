@@ -119,50 +119,45 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
     Ok(())
 }
 
-/// Generate the externally-sourced `zone` table by shelling out to the upstream `spatialbench-cli`.
+/// Generate the externally-sourced `zone` table by shelling out to the upstream
+/// `spatialbench-cli`.
 async fn generate_zone(scale_factor: f64, parquet_dir: &Path) -> Result<()> {
-    if parquet_dir.join("zone_0.parquet").exists() {
-        return Ok(());
-    }
     let cli = std::env::var("SPATIALBENCH_CLI").unwrap_or_else(|_| "spatialbench-cli".to_string());
-
-    // Generate into a scratch dir so the CLI's `zone.parquet` name can't collide with the base
-    // tables, then move the produced parts into place as `zone_{part}.parquet`.
-    // Start from an empty scratch dir (clear any leftover from an interrupted run).
-    let scratch = parquet_dir.join(".zone-scratch");
-    fs::remove_dir_all(&scratch).ok();
-    fs::create_dir_all(&scratch)?;
-
-    info!(
-        scale_factor,
-        cli, "Generating SpatialBench zone table via spatialbench-cli"
-    );
-    let status = Command::new(&cli)
-        .arg("-s")
-        .arg(scale_factor.to_string())
-        .args(["-T", "zone", "-f", "parquet", "-o"])
-        .arg(&scratch)
-        .status()
-        .await
-        .with_context(|| format!("failed to spawn `{cli}` (is it installed / on PATH?)"))?;
-    anyhow::ensure!(
-        status.success(),
-        "`{cli}` exited with {status} while generating zone"
-    );
-
-    // The CLI writes `zone.parquet` (single part) or `zone/zone.N.parquet`.
-    let mut produced: Vec<PathBuf> = glob::glob(&scratch.join("**/*.parquet").to_string_lossy())?
-        .collect::<std::result::Result<_, _>>()?;
-    produced.sort();
-    anyhow::ensure!(
-        !produced.is_empty(),
-        "`{cli}` produced no zone parquet under {}",
-        scratch.display()
-    );
-    for (part_idx, src) in produced.iter().enumerate() {
-        fs::rename(src, parquet_dir.join(format!("zone_{part_idx}.parquet")))?;
-    }
-    fs::remove_dir_all(&scratch).ok();
+    idempotent_async(parquet_dir.join("zone_0.parquet"), |zone_path| async move {
+        info!(
+            scale_factor,
+            cli, "Generating SpatialBench zone table via spatialbench-cli"
+        );
+        // The CLI writes a fixed `zone.parquet` name into an output directory, so
+        // generate into a scratch dir and move the produced parquet onto `zone_path`.
+        let scratch = zone_path.with_extension("zone-scratch");
+        fs::create_dir_all(&scratch)?;
+        let status = Command::new(&cli)
+            .arg("-s")
+            .arg(scale_factor.to_string())
+            .args(["-T", "zone", "-f", "parquet", "-o"])
+            .arg(&scratch)
+            .status()
+            .await
+            .with_context(|| format!("failed to spawn `{cli}` (is it installed / on PATH?)"))?;
+        anyhow::ensure!(
+            status.success(),
+            "`{cli}` exited with {status} while generating zone"
+        );
+        let produced = glob::glob(&scratch.join("**/*.parquet").to_string_lossy())?
+            .flatten()
+            .next()
+            .with_context(|| {
+                format!(
+                    "`{cli}` produced no zone parquet under {}",
+                    scratch.display()
+                )
+            })?;
+        fs::rename(&produced, &zone_path)?;
+        fs::remove_dir_all(&scratch).ok();
+        Ok(())
+    })
+    .await?;
     Ok(())
 }
 
