@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod reader;
+pub mod writer;
 
 use std::sync::Arc;
 
@@ -21,6 +22,7 @@ use vortex_error::vortex_err;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+pub use writer::StructStrategy;
 
 use crate::LayoutBuildContext;
 use crate::LayoutChildType;
