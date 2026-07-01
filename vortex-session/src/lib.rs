@@ -48,8 +48,7 @@ pub trait SessionExt: Sized + private::Sealed {
     ///
     /// The handle starts as a clone of the current value; mutating it through `DerefMut` and
     /// dropping it publishes the result back into the session copy-on-write — the ergonomic
-    /// equivalent of reading the variable, modifying a clone, and re-registering it with
-    /// [`VortexSession::register`].
+    /// equivalent of reading the variable, modifying a clone, and re-inserting it into the session.
     fn get_mut<V: VortexSessionVar + Default + Clone>(&self) -> SessionMut<'_, V>;
 }
 

@@ -11,7 +11,7 @@
 //!   read never takes a lock, it can never deadlock, and because it never holds a lock across the
 //!   returned reference there is no reader/writer contention.
 //!
-//! * **Writes** ([`VortexSession::register`], [`SessionExt::get`] on a missing default) are
+//! * **Writes** ([`VortexSession::with_some`], [`SessionExt::get`] on a missing default) are
 //!   copy-on-write: the map is cloned, the change applied to the private copy, and the new map
 //!   atomically published via [`ArcSwap::rcu`]. The closure passed to `rcu` only clones the map and
 //!   inserts an already-constructed value, so no user code (in particular, no `Default::default`
@@ -19,7 +19,7 @@
 //!   `DashMap`-backed session, where `entry().or_insert_with(f)` ran `f` while holding the shard's
 //!   write lock and could deadlock if `f` re-entered the session.
 //!
-//! A modified session is produced by mutating it **in place**: [`VortexSession::register`] — and
+//! A modified session is produced by mutating it **in place**: [`VortexSession::with_some`] — and
 //! the configuration `with_*` helpers built on it — apply their change copy-on-write to the shared
 //! backing cell. Clones of a session share that cell, so a variable registered through one clone
 //! (or one `with_*` call) is visible to all of them. This is what late plugin/encoding registration
@@ -58,7 +58,7 @@ use crate::UnknownPluginPolicy;
 /// bound lives on the blanket impl rather than the trait.
 ///
 /// Requiring [`Clone`] lets the configuration `with_*` helpers read a variable, modify a copy, and
-/// re-[`register`](VortexSession::register) the result.
+/// re-insert the result.
 pub trait VortexSessionVar: SessionVar {}
 
 impl<V: SessionVar + Clone> VortexSessionVar for V {}
@@ -104,7 +104,7 @@ impl<V: VortexSessionVar> Debug for SessionGuard<'_, V> {
 /// [`SessionExt::get_mut`].
 ///
 /// It holds a private clone of the variable and exposes it through [`DerefMut`]. When the handle is
-/// dropped, the (possibly mutated) value is re-[`register`](VortexSession::register)ed into the
+/// dropped, the (possibly mutated) value is re-inserted into the
 /// session, replacing the previous one. Because the session stores each variable behind a shared
 /// [`Arc`] observed by every clone, handing out a plain `&mut` to the stored value would be unsound;
 /// this guard provides mutable access by cloning on read and publishing on drop instead.
@@ -152,7 +152,7 @@ impl<V: VortexSessionVar> Debug for SessionMut<'_, V> {
 /// It is also the entry-point passed to dynamic libraries to initialize Vortex plugins.
 ///
 /// Cloning a session is cheap and shares the backing store: a variable registered through one
-/// clone (via [`VortexSession::register`], or one of the `with_*` helpers) is observed by all
+/// clone (via [`VortexSession::with_some`] or one of the `with_*` helpers) is observed by all
 /// clones. To build an *independent* session, start from [`VortexSession::empty`].
 #[derive(Clone)]
 pub struct VortexSession(Arc<ArcSwap<SessionVars>>);
@@ -189,11 +189,13 @@ impl VortexSession {
         });
     }
 
-    /// Register a session variable of type `V`, replacing any existing variable of that type.
+    /// Inserts a session variable of type `V`, replacing any existing variable of that type.
     ///
-    /// The mutation is applied in place to the shared backing store, so it is visible through every
-    /// clone of this session.
-    pub fn register<V: VortexSessionVar>(&self, var: V) {
+    /// This is the internal copy-on-write insert primitive behind [`with_some`](Self::with_some) and
+    /// [`get_mut`](SessionExt::get_mut); it is not public, so a variable can only enter the type-map
+    /// through those (or through a default inserted by [`get`](SessionExt::get)). The mutation is
+    /// applied in place to the shared backing store, so it is visible through every clone.
+    fn register<V: VortexSessionVar>(&self, var: V) {
         let var: Arc<dyn VortexSessionVar> = Arc::new(var);
         self.0.rcu(|current| {
             let mut next = SessionVars::clone(current);
@@ -205,8 +207,8 @@ impl VortexSession {
     /// Inserts a new session variable of type `V` with its default value, mutating this session in
     /// place and returning it for chaining.
     ///
-    /// Like [`register`](Self::register), the change is applied to the shared backing store, so it
-    /// is observed through every clone of this session.
+    /// The change is applied copy-on-write to the shared backing store, so it is observed through
+    /// every clone of this session.
     ///
     /// # Panics
     ///
@@ -218,8 +220,8 @@ impl VortexSession {
     /// Inserts a new session variable of type `V`, mutating this session in place and returning it
     /// for chaining.
     ///
-    /// Like [`register`](Self::register), the change is applied to the shared backing store, so it
-    /// is observed through every clone of this session.
+    /// The change is applied copy-on-write to the shared backing store, so it is observed through
+    /// every clone of this session.
     ///
     /// # Panics
     ///
@@ -245,9 +247,7 @@ impl VortexSession {
     ///
     /// Mutates this session in place and returns it for chaining.
     pub fn allow_unknown(self) -> Self {
-        let mut policy = *self.get::<UnknownPluginPolicy>();
-        policy.allow_unknown = true;
-        self.register(policy);
+        self.get_mut::<UnknownPluginPolicy>().allow_unknown = true;
         self
     }
 }

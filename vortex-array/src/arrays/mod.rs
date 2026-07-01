@@ -119,8 +119,9 @@ pub use varbinview::VarBinViewArray;
 pub mod variant;
 pub use variant::Variant;
 pub use variant::VariantArray;
+use vortex_session::VortexSession;
 
-pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+pub(crate) fn initialize(session: &VortexSession) {
     bool::initialize(session);
     chunked::initialize(session);
     decimal::initialize(session);

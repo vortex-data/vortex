@@ -40,11 +40,8 @@ const VX_CUDA_ERR: c_int = 1;
 /// If `session` already has CUDA support, this returns a clone of it. Otherwise it
 /// returns a new session cloned from `session` with a default [`CudaSession`] attached.
 fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
-    if session.get_opt::<CudaSession>().is_some() {
-        return Ok(session.clone());
-    }
-
-    Ok(session.clone().with_some(CudaSession::try_default()?))
+    session.get::<CudaSession>();
+    Ok(session.clone())
 }
 
 /// Create a CUDA Vortex session.
