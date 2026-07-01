@@ -9919,6 +9919,7 @@ dependencies = [
  "vortex",
  "vortex-geo",
  "vortex-tensor",
+ "wkb",
 ]
 
 [[package]]

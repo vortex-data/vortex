@@ -5,9 +5,11 @@
 //! Geometry is emitted as WKB, which DuckDB reads directly as `GEOMETRY` via `ST_GeomFromWKB`.
 
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
 use anyhow::Result;
 // spatialbench emits arrow-56 batches, so they must be written with its matching arrow-56
 // parquet crate, not the workspace's arrow-58 one. The parquet file itself is version-neutral.
@@ -23,6 +25,7 @@ use spatialbench_parquet::basic::Compression;
 use spatialbench_parquet::file::properties::WriterProperties;
 use spatialbench_parquet::format::KeyValue;
 use tokio::fs::File as TokioFile;
+use tokio::process::Command;
 use tracing::info;
 
 use super::table::Table;
@@ -109,6 +112,52 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
         }
     }
 
+    // `zone` isn't generated in-process (`Table::is_generated` is false); it comes from the upstream
+    // `spatialbench-cli` (install it, or set `SPATIALBENCH_CLI` to its binary).
+    generate_zone(scale_factor, &parquet_dir).await?;
+
+    Ok(())
+}
+
+/// Generate the externally-sourced `zone` table by shelling out to the upstream
+/// `spatialbench-cli`.
+async fn generate_zone(scale_factor: f64, parquet_dir: &Path) -> Result<()> {
+    let cli = std::env::var("SPATIALBENCH_CLI").unwrap_or_else(|_| "spatialbench-cli".to_string());
+    idempotent_async(parquet_dir.join("zone_0.parquet"), |zone_path| async move {
+        info!(
+            scale_factor,
+            cli, "Generating SpatialBench zone table via spatialbench-cli"
+        );
+        // The CLI writes a fixed `zone.parquet` name into an output directory, so
+        // generate into a scratch dir and move the produced parquet onto `zone_path`.
+        let scratch = zone_path.with_extension("zone-scratch");
+        fs::create_dir_all(&scratch)?;
+        let status = Command::new(&cli)
+            .arg("-s")
+            .arg(scale_factor.to_string())
+            .args(["-T", "zone", "-f", "parquet", "-o"])
+            .arg(&scratch)
+            .status()
+            .await
+            .with_context(|| format!("failed to spawn `{cli}` (is it installed / on PATH?)"))?;
+        anyhow::ensure!(
+            status.success(),
+            "`{cli}` exited with {status} while generating zone"
+        );
+        let produced = glob::glob(&scratch.join("**/*.parquet").to_string_lossy())?
+            .flatten()
+            .next()
+            .with_context(|| {
+                format!(
+                    "`{cli}` produced no zone parquet under {}",
+                    scratch.display()
+                )
+            })?;
+        fs::rename(&produced, &zone_path)?;
+        fs::remove_dir_all(&scratch).ok();
+        Ok(())
+    })
+    .await?;
     Ok(())
 }
 
