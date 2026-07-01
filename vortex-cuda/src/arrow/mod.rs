@@ -952,7 +952,7 @@ mod tests {
     #[cuda_test]
     fn test_export_device_array_stream_schema_next_eos_release() -> VortexResult<()> {
         let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let session = VortexSession::default().with::<CudaSession>();
         let array = PrimitiveArray::from_iter(0u32..5).into_array();
         let stream = array.to_array_stream().boxed();
         let mut device_stream = stream.export_device_array_stream(&session, &runtime)?;
@@ -1004,7 +1004,7 @@ mod tests {
     #[cuda_test]
     fn test_export_device_array_stream_empty_stream_schema_and_eos() -> VortexResult<()> {
         let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let session = VortexSession::default().with::<CudaSession>();
         let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
         let stream =
             ArrayStreamAdapter::new(dtype, stream::empty::<VortexResult<ArrayRef>>()).boxed();
@@ -1045,7 +1045,7 @@ mod tests {
     #[cuda_test]
     fn test_export_device_array_stream_null_outputs_report_error() -> VortexResult<()> {
         let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let session = VortexSession::default().with::<CudaSession>();
         let array = PrimitiveArray::from_iter(0u32..5).into_array();
         let stream = array.to_array_stream().boxed();
         let mut device_stream = stream.export_device_array_stream(&session, &runtime)?;
