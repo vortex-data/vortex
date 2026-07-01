@@ -277,8 +277,6 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
@@ -300,21 +298,27 @@ mod tests {
     use crate::scalar_fn::fns::pack::Pack;
 
     fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+        let mut ctx = array_session().create_execution_ctx();
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
             vortex_bail!("empty field path");
         };
 
-        #[expect(deprecated)]
-        let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
+        let mut array = array
+            .clone()
+            .execute::<StructArray>(&mut ctx)?
+            .unmasked_field_by_name(field)?
+            .clone();
         for field in field_path {
-            #[expect(deprecated)]
-            let next = array.to_struct().unmasked_field_by_name(field)?.clone();
+            let next = array
+                .clone()
+                .execute::<StructArray>(&mut ctx)?
+                .unmasked_field_by_name(field)?
+                .clone();
             array = next;
         }
-        #[expect(deprecated)]
-        let result = array.to_primitive();
+        let result = array.execute::<PrimitiveArray>(&mut ctx)?;
         Ok(result)
     }
 
@@ -491,14 +495,19 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        #[expect(deprecated)]
-        let actual_array = test_array.apply(&expr).unwrap().to_struct();
+        let mut ctx = array_session().create_execution_ctx();
+        let actual_array = test_array
+            .apply(&expr)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
 
-        #[expect(deprecated)]
         let inner_struct = actual_array
             .unmasked_field_by_name("a")
             .unwrap()
-            .to_struct();
+            .clone()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
             inner_struct
                 .names()
@@ -511,6 +520,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_order() {
+        let mut ctx = array_session().create_execution_ctx();
         let expr = merge(vec![get_item("0", root()), get_item("1", root())]);
 
         let test_array = StructArray::from_fields(&[
@@ -535,8 +545,11 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        #[expect(deprecated)]
-        let actual_array = test_array.apply(&expr).unwrap().to_struct();
+        let actual_array = test_array
+            .apply(&expr)
+            .unwrap()
+            .execute::<StructArray>(&mut ctx)
+            .unwrap();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }

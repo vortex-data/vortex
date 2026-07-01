@@ -33,7 +33,10 @@ use crate::validity::Validity;
 #[case::single_element(create_single_element_fsl())]
 #[case::empty(create_empty_fsl())]
 fn test_take_fsl_conformance(#[case] fsl: FixedSizeListArray) {
-    test_take_conformance(&fsl.into_array());
+    test_take_conformance(
+        &fsl.into_array(),
+        &mut array_session().create_execution_ctx(),
+    );
 }
 
 // FSL-specific edge case tests that aren't covered by conformance.
@@ -88,7 +91,10 @@ fn test_take_degenerate_lists(
     let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
     let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, 5);
 
-    test_take_conformance(&fsl.clone().into_array());
+    test_take_conformance(
+        &fsl.clone().into_array(),
+        &mut array_session().create_execution_ctx(),
+    );
 
     // Also test the specific behavior.
     let indices_array = PrimitiveArray::from_option_iter(indices);

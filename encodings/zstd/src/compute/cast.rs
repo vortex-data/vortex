@@ -200,6 +200,6 @@ mod tests {
     fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {
         let zstd =
             Zstd::from_primitive(&values, 0, 0, &mut SESSION.create_execution_ctx()).unwrap();
-        test_cast_conformance(&zstd.into_array());
+        test_cast_conformance(&zstd.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

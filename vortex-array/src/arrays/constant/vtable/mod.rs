@@ -246,7 +246,7 @@ impl VTable for Constant {
                     .clone()
                     .execute::<Canonical>(ctx)?
                     .into_array();
-                builder.extend_from_array(&canonical);
+                canonical.append_to_builder(builder, ctx)?;
             }
         }
 

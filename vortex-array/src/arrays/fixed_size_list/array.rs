@@ -12,8 +12,6 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -238,14 +236,6 @@ pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
             index,
             self.as_ref().len(),
         );
-        #[expect(clippy::debug_assert_with_mut_call)]
-        {
-            debug_assert!(
-                self.fixed_size_list_validity()
-                    .execute_is_valid(index, &mut LEGACY_SESSION.create_execution_ctx())
-                    .unwrap_or(false)
-            );
-        }
 
         let start = self.list_size() as usize * index;
         let end = self.list_size() as usize * (index + 1);

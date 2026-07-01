@@ -73,8 +73,6 @@ mod tests {
     use vortex_mask::AllOr;
 
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::ConstantArray;
@@ -104,8 +102,7 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
-            #[expect(deprecated)]
-            taken.to_primitive(),
+            taken.clone().execute::<PrimitiveArray>(&mut ctx).unwrap(),
             PrimitiveArray::new(
                 buffer![42i32, 42, 42],
                 Validity::from_iter([false, true, false])
@@ -116,7 +113,7 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .execute_mask(taken.len(), &mut array_session().create_execution_ctx())
+                .execute_mask(taken.len(), &mut ctx)
                 .unwrap()
                 .indices(),
             AllOr::Some(valid_indices)
@@ -135,8 +132,7 @@ mod tests {
             taken.dtype()
         );
         assert_arrays_eq!(
-            #[expect(deprecated)]
-            taken.to_primitive(),
+            taken.clone().execute::<PrimitiveArray>(&mut ctx).unwrap(),
             PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid),
             &mut ctx
         );
@@ -144,7 +140,7 @@ mod tests {
             taken
                 .validity()
                 .unwrap()
-                .execute_mask(taken.len(), &mut array_session().create_execution_ctx())
+                .execute_mask(taken.len(), &mut ctx)
                 .unwrap()
                 .indices(),
             AllOr::All
@@ -158,6 +154,9 @@ mod tests {
     #[case(ConstantArray::new(Scalar::null_native::<i64>(), 5))]
     #[case(ConstantArray::new(true, 1))]
     fn test_take_constant_conformance(#[case] array: ConstantArray) {
-        test_take_conformance(&array.into_array());
+        test_take_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

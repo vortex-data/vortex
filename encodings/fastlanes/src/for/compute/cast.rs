@@ -118,6 +118,6 @@ mod tests {
         Scalar::from(-100i32)
     ))]
     fn test_cast_for_conformance(#[case] array: FoRArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

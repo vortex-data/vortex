@@ -6,13 +6,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::RecursiveCanonical;
-use crate::VortexSessionExecute;
 use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::min_max;
-use crate::array_session;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -20,10 +19,14 @@ use crate::dtype::PType;
 use crate::scalar::Scalar;
 
 /// Cast and force execution via `to_canonical`, returning the canonical array.
-fn cast_and_execute(array: &ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
+fn cast_and_execute(
+    array: &ArrayRef,
+    dtype: DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     Ok(array
         .cast(dtype)?
-        .execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())?
+        .execute::<RecursiveCanonical>(ctx)?
         .0
         .into_array())
 }
@@ -37,18 +40,18 @@ fn cast_and_execute(array: &ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
 /// - Casting with nullability changes
 /// - Casting between string types (Utf8/Binary)
 /// - Edge cases like overflow behavior
-pub fn test_cast_conformance(array: &ArrayRef) {
+pub fn test_cast_conformance(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let dtype = array.dtype();
 
     // Always test identity cast and nullability changes
-    test_cast_identity(array);
+    test_cast_identity(array, ctx);
 
-    test_cast_to_non_nullable(array);
-    test_cast_to_nullable(array);
+    test_cast_to_non_nullable(array, ctx);
+    test_cast_to_nullable(array, ctx);
 
     // Test based on the specific DType
     match dtype {
-        DType::Null => test_cast_from_null(array),
+        DType::Null => test_cast_from_null(array, ctx),
         DType::Primitive(ptype, ..) => match ptype {
             PType::U8
             | PType::U16
@@ -57,16 +60,16 @@ pub fn test_cast_conformance(array: &ArrayRef) {
             | PType::I8
             | PType::I16
             | PType::I32
-            | PType::I64 => test_cast_to_integral_types(array),
-            PType::F16 | PType::F32 | PType::F64 => test_cast_from_floating_point_types(array),
+            | PType::I64 => test_cast_to_integral_types(array, ctx),
+            PType::F16 | PType::F32 | PType::F64 => test_cast_from_floating_point_types(array, ctx),
         },
         _ => {}
     }
 }
 
-fn test_cast_identity(array: &ArrayRef) {
+fn test_cast_identity(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     // Casting to the same type should be a no-op
-    let result = cast_and_execute(&array.clone(), array.dtype().clone())
+    let result = cast_and_execute(&array.clone(), array.dtype().clone(), ctx)
         .vortex_expect("cast should succeed in conformance test");
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), array.dtype());
@@ -75,18 +78,18 @@ fn test_cast_identity(array: &ArrayRef) {
     for i in 0..array.len().min(10) {
         assert_eq!(
             array
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             result
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
 }
 
-fn test_cast_from_null(array: &ArrayRef) {
+fn test_cast_from_null(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     // Null can be cast to itself
-    let result = cast_and_execute(&array.clone(), DType::Null)
+    let result = cast_and_execute(&array.clone(), DType::Null, ctx)
         .vortex_expect("cast should succeed in conformance test");
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), &DType::Null);
@@ -101,7 +104,7 @@ fn test_cast_from_null(array: &ArrayRef) {
     ];
 
     for dtype in nullable_types {
-        let result = cast_and_execute(&array.clone(), dtype.clone())
+        let result = cast_and_execute(&array.clone(), dtype.clone(), ctx)
             .vortex_expect("cast should succeed in conformance test");
         assert_eq!(result.len(), array.len());
         assert_eq!(result.dtype(), &dtype);
@@ -110,7 +113,7 @@ fn test_cast_from_null(array: &ArrayRef) {
         for i in 0..array.len().min(10) {
             assert!(
                 result
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test")
                     .is_null()
             );
@@ -124,17 +127,17 @@ fn test_cast_from_null(array: &ArrayRef) {
     ];
 
     for dtype in non_nullable_types {
-        assert!(cast_and_execute(&array.clone(), dtype.clone()).is_err());
+        assert!(cast_and_execute(&array.clone(), dtype.clone(), ctx).is_err());
     }
 }
 
-fn test_cast_to_non_nullable(array: &ArrayRef) {
+fn test_cast_to_non_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     if array
-        .invalid_count(&mut array_session().create_execution_ctx())
+        .invalid_count(ctx)
         .vortex_expect("invalid_count should succeed in conformance test")
         == 0
     {
-        let non_nullable = cast_and_execute(&array.clone(), array.dtype().as_nonnullable())
+        let non_nullable = cast_and_execute(&array.clone(), array.dtype().as_nonnullable(), ctx)
             .vortex_expect("arrays without nulls can cast to non-nullable");
         assert_eq!(non_nullable.dtype(), &array.dtype().as_nonnullable());
         assert_eq!(non_nullable.len(), array.len());
@@ -142,15 +145,15 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
         for i in 0..array.len().min(10) {
             assert_eq!(
                 array
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 non_nullable
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test")
             );
         }
 
-        let back_to_nullable = cast_and_execute(&non_nullable, array.dtype().clone())
+        let back_to_nullable = cast_and_execute(&non_nullable, array.dtype().clone(), ctx)
             .vortex_expect("non-nullable arrays can cast to nullable");
         assert_eq!(back_to_nullable.dtype(), array.dtype());
         assert_eq!(back_to_nullable.len(), array.len());
@@ -158,10 +161,10 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
         for i in 0..array.len().min(10) {
             assert_eq!(
                 array
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test"),
                 back_to_nullable
-                    .execute_scalar(i, &mut array_session().create_execution_ctx())
+                    .execute_scalar(i, ctx)
                     .vortex_expect("scalar_at should succeed in conformance test")
             );
         }
@@ -171,7 +174,7 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
             // array can be casted to DType::Null.
             return;
         }
-        cast_and_execute(&array.clone(), array.dtype().as_nonnullable())
+        cast_and_execute(&array.clone(), array.dtype().as_nonnullable(), ctx)
             .err()
             .unwrap_or_else(|| {
                 vortex_panic!(
@@ -182,8 +185,8 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
     }
 }
 
-fn test_cast_to_nullable(array: &ArrayRef) {
-    let nullable = cast_and_execute(&array.clone(), array.dtype().as_nullable())
+fn test_cast_to_nullable(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    let nullable = cast_and_execute(&array.clone(), array.dtype().as_nullable(), ctx)
         .vortex_expect("arrays without nulls can cast to nullable");
     assert_eq!(nullable.dtype(), &array.dtype().as_nullable());
     assert_eq!(nullable.len(), array.len());
@@ -191,15 +194,15 @@ fn test_cast_to_nullable(array: &ArrayRef) {
     for i in 0..array.len().min(10) {
         assert_eq!(
             array
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
             nullable
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
 
-    let back = cast_and_execute(&nullable, array.dtype().clone())
+    let back = cast_and_execute(&nullable, array.dtype().clone(), ctx)
         .vortex_expect("casting to nullable and back should be a no-op");
     assert_eq!(back.dtype(), array.dtype());
     assert_eq!(back.len(), array.len());
@@ -207,38 +210,43 @@ fn test_cast_to_nullable(array: &ArrayRef) {
     for i in 0..array.len().min(10) {
         assert_eq!(
             array
-                .execute_scalar(i, &mut array_session().create_execution_ctx())
+                .execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test"),
-            back.execute_scalar(i, &mut array_session().create_execution_ctx())
+            back.execute_scalar(i, ctx)
                 .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
 }
 
-fn test_cast_from_floating_point_types(array: &ArrayRef) {
+fn test_cast_from_floating_point_types(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     let ptype = array.as_primitive_typed().ptype();
-    test_cast_to_primitive(array, PType::I8, false);
-    test_cast_to_primitive(array, PType::U8, false);
-    test_cast_to_primitive(array, PType::I16, false);
-    test_cast_to_primitive(array, PType::U16, false);
-    test_cast_to_primitive(array, PType::I32, false);
-    test_cast_to_primitive(array, PType::U32, false);
-    test_cast_to_primitive(array, PType::I64, false);
-    test_cast_to_primitive(array, PType::U64, false);
-    test_cast_to_primitive(array, PType::F16, matches!(ptype, PType::F16));
-    test_cast_to_primitive(array, PType::F32, matches!(ptype, PType::F16 | PType::F32));
-    test_cast_to_primitive(array, PType::F64, true);
+    test_cast_to_primitive(array, PType::I8, false, ctx);
+    test_cast_to_primitive(array, PType::U8, false, ctx);
+    test_cast_to_primitive(array, PType::I16, false, ctx);
+    test_cast_to_primitive(array, PType::U16, false, ctx);
+    test_cast_to_primitive(array, PType::I32, false, ctx);
+    test_cast_to_primitive(array, PType::U32, false, ctx);
+    test_cast_to_primitive(array, PType::I64, false, ctx);
+    test_cast_to_primitive(array, PType::U64, false, ctx);
+    test_cast_to_primitive(array, PType::F16, matches!(ptype, PType::F16), ctx);
+    test_cast_to_primitive(
+        array,
+        PType::F32,
+        matches!(ptype, PType::F16 | PType::F32),
+        ctx,
+    );
+    test_cast_to_primitive(array, PType::F64, true, ctx);
 }
 
-fn test_cast_to_integral_types(array: &ArrayRef) {
-    test_cast_to_primitive(array, PType::I8, true);
-    test_cast_to_primitive(array, PType::U8, true);
-    test_cast_to_primitive(array, PType::I16, true);
-    test_cast_to_primitive(array, PType::U16, true);
-    test_cast_to_primitive(array, PType::I32, true);
-    test_cast_to_primitive(array, PType::U32, true);
-    test_cast_to_primitive(array, PType::I64, true);
-    test_cast_to_primitive(array, PType::U64, true);
+fn test_cast_to_integral_types(array: &ArrayRef, ctx: &mut ExecutionCtx) {
+    test_cast_to_primitive(array, PType::I8, true, ctx);
+    test_cast_to_primitive(array, PType::U8, true, ctx);
+    test_cast_to_primitive(array, PType::I16, true, ctx);
+    test_cast_to_primitive(array, PType::U16, true, ctx);
+    test_cast_to_primitive(array, PType::I32, true, ctx);
+    test_cast_to_primitive(array, PType::U32, true, ctx);
+    test_cast_to_primitive(array, PType::I64, true, ctx);
+    test_cast_to_primitive(array, PType::U64, true, ctx);
 }
 
 /// Does this scalar fit in this type?
@@ -247,9 +255,13 @@ fn fits(value: &Scalar, ptype: PType) -> bool {
     value.cast(&dtype).is_ok()
 }
 
-fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip: bool) {
-    let mut ctx = array_session().create_execution_ctx();
-    let maybe_min_max = min_max(array, &mut ctx, NumericalAggregateOpts::default())
+fn test_cast_to_primitive(
+    array: &ArrayRef,
+    target_ptype: PType,
+    test_round_trip: bool,
+    ctx: &mut ExecutionCtx,
+) {
+    let maybe_min_max = min_max(array, ctx, NumericalAggregateOpts::default())
         .vortex_expect("cast should succeed in conformance test");
 
     if let Some(MinMaxResult { min, max }) = maybe_min_max
@@ -258,6 +270,7 @@ fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip
         cast_and_execute(
             &array.clone(),
             DType::Primitive(target_ptype, array.dtype().nullability()),
+            ctx,
         )
         .err()
         .unwrap_or_else(|| {
@@ -277,6 +290,7 @@ fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip
     let casted = cast_and_execute(
         &array.clone(),
         DType::Primitive(target_ptype, array.dtype().nullability()),
+        ctx,
     )
     .unwrap_or_else(|e| {
         vortex_panic!(
@@ -289,20 +303,20 @@ fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip
         array
             .validity()
             .vortex_expect("validity_mask should succeed in conformance test")
-            .execute_mask(array.len(), &mut array_session().create_execution_ctx())
+            .execute_mask(array.len(), ctx)
             .vortex_expect("Failed to compute validity mask"),
         casted
             .validity()
             .vortex_expect("validity_mask should succeed in conformance test")
-            .execute_mask(casted.len(), &mut array_session().create_execution_ctx())
+            .execute_mask(casted.len(), ctx)
             .vortex_expect("Failed to compute validity mask")
     );
     for i in 0..array.len().min(10) {
         let original = array
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(i, ctx)
             .vortex_expect("scalar_at should succeed in conformance test");
         let casted = casted
-            .execute_scalar(i, &mut array_session().create_execution_ctx())
+            .execute_scalar(i, ctx)
             .vortex_expect("scalar_at should succeed in conformance test");
         assert_eq!(
             original
@@ -325,10 +339,15 @@ fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::NullArray;
@@ -339,40 +358,42 @@ mod tests {
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
+
     #[test]
     fn test_cast_conformance_u32() {
         let array = buffer![0u32, 100, 200, 65535, 1000000].into_array();
-        test_cast_conformance(&array);
+        test_cast_conformance(&array, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn test_cast_conformance_i32() {
         let array = buffer![-100i32, -1, 0, 1, 100].into_array();
-        test_cast_conformance(&array);
+        test_cast_conformance(&array, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn test_cast_conformance_f32() {
         let array = buffer![0.0f32, 1.5, -2.5, 100.0, 1e6].into_array();
-        test_cast_conformance(&array);
+        test_cast_conformance(&array, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn test_cast_conformance_nullable() {
         let array = PrimitiveArray::from_option_iter([Some(1u8), None, Some(255), Some(0), None]);
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn test_cast_conformance_bool() {
         let array = BoolArray::from_iter(vec![true, false, true, false]);
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
     fn test_cast_conformance_null() {
         let array = NullArray::new(5);
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -381,7 +402,7 @@ mod tests {
             vec![Some("hello"), None, Some("world")],
             DType::Utf8(Nullability::Nullable),
         );
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -390,7 +411,7 @@ mod tests {
             vec![Some(b"data".as_slice()), None, Some(b"bytes".as_slice())],
             DType::Binary(Nullability::Nullable),
         );
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -407,7 +428,7 @@ mod tests {
         let array =
             StructArray::try_new(names, vec![a, b], 3, crate::validity::Validity::NonNullable)
                 .unwrap();
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -417,6 +438,6 @@ mod tests {
 
         let array =
             ListArray::try_new(data, offsets, crate::validity::Validity::NonNullable).unwrap();
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

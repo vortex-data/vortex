@@ -158,7 +158,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Execute the array by taking a single encoding-specific execution step.
     ///
     /// This is the checked entry point. If the encoding reports
-    /// [`ExecutionStep::Done`](crate::ExecutionStep::Done), implementations must validate that the
+    /// [`ExecutionStep::Done`](ExecutionStep::Done), implementations must validate that the
     /// returned array preserves this array's logical `len` and `dtype`, and must transfer this
     /// array's statistics to the returned array.
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;

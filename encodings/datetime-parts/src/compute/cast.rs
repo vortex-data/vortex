@@ -140,6 +140,9 @@ mod tests {
     ), &mut array_session().create_execution_ctx()).unwrap())]
     fn test_cast_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
         use vortex_array::compute::conformance::cast::test_cast_conformance;
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

@@ -5,7 +5,6 @@ use std::any::Any;
 use std::mem;
 
 use vortex_buffer::BitBufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -13,16 +12,12 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
@@ -127,13 +122,6 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let bool_array = array.to_bool();
-        self.append_bool_array(&bool_array, &mut LEGACY_SESSION.create_execution_ctx())
-            .vortex_expect("Failed to append bool array");
-    }
-
     fn reserve_exact(&mut self, additional: usize) {
         self.inner.reserve(additional);
         self.nulls.reserve_exact(additional);
@@ -147,7 +135,7 @@ impl ArrayBuilder for BoolBuilder {
         self.finish_into_bool().into_array()
     }
 
-    fn finish_into_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
         Canonical::Bool(self.finish_into_bool())
     }
 }
@@ -170,8 +158,6 @@ mod tests {
     use crate::builders::BoolBuilder;
     use crate::builders::bool::BoolArray;
     use crate::builders::builder_with_capacity;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
@@ -205,10 +191,8 @@ mod tests {
             .clone()
             .append_to_builder(builder.as_mut(), &mut ctx)?;
 
-        #[expect(deprecated)]
-        let canon_into = builder.finish().to_bool();
-        #[expect(deprecated)]
-        let into_canon = chunk.to_bool();
+        let canon_into = builder.finish().execute::<BoolArray>(&mut ctx)?;
+        let into_canon = chunk.clone().execute::<BoolArray>(&mut ctx)?;
 
         assert!(canon_into.validity()?.mask_eq(
             &into_canon.validity()?,

@@ -304,14 +304,12 @@ impl VTable for FSST {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            builder.extend_from_array(
-                &array
-                    .array()
-                    .clone()
-                    .execute::<Canonical>(ctx)?
-                    .into_array(),
-            );
-            return Ok(());
+            return array
+                .array()
+                .clone()
+                .execute::<Canonical>(ctx)?
+                .into_array()
+                .append_to_builder(builder, ctx);
         };
 
         // Decompress the whole block of data into a new buffer, and create some views

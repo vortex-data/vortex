@@ -12,11 +12,8 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
-use crate::VortexSessionExecute;
 use crate::arrays::DecimalArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -129,6 +126,28 @@ impl DecimalBuilder {
         self.nulls.append_n_non_nulls(n);
     }
 
+    /// Appends the values of a canonical [`DecimalArray`] to the builder, coercing the physical
+    /// storage type to the builder's type as needed.
+    pub(crate) fn append_decimal_array(
+        &mut self,
+        array: &DecimalArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        match_each_decimal_value_type!(array.values_type(), |D| {
+            // Extends the values buffer from another buffer of type D where D can be coerced to the
+            // builder type.
+            self.values.extend(array.buffer::<D>().iter().copied());
+        });
+
+        self.nulls.append_validity_mask(
+            &array
+                .as_ref()
+                .validity()?
+                .execute_mask(array.as_ref().len(), ctx)?,
+        );
+        Ok(())
+    }
+
     /// Finishes the builder directly into a [`DecimalArray`].
     pub fn finish_into_decimal(&mut self) -> DecimalArray {
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
@@ -195,30 +214,6 @@ impl ArrayBuilder for DecimalBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let decimal_array = array.to_decimal();
-
-        match_each_decimal_value_type!(decimal_array.values_type(), |D| {
-            // Extends the values buffer from another buffer of type D where D can be coerced to the
-            // builder type.
-            self.values
-                .extend(decimal_array.buffer::<D>().iter().copied());
-        });
-
-        self.nulls.append_validity_mask(
-            &decimal_array
-                .as_ref()
-                .validity()
-                .vortex_expect("validity_mask")
-                .execute_mask(
-                    decimal_array.as_ref().len(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )
-                .vortex_expect("Failed to compute validity mask"),
-        );
-    }
-
     fn reserve_exact(&mut self, additional: usize) {
         self.values.reserve(additional);
         self.nulls.reserve_exact(additional);
@@ -232,7 +227,7 @@ impl ArrayBuilder for DecimalBuilder {
         self.finish_into_decimal().into_array()
     }
 
-    fn finish_into_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
         Canonical::Decimal(self.finish_into_decimal())
     }
 }
@@ -328,7 +323,8 @@ mod tests {
         let i8s = i8s.finish();
 
         let mut i128s = DecimalBuilder::new::<i128>(DecimalDType::new(2, 1), false.into());
-        i128s.extend_from_array(&i8s);
+        i8s.append_to_builder(&mut i128s, &mut array_session().create_execution_ctx())
+            .unwrap();
         let i128s = i128s.finish();
 
         for i in 0..i8s.len() {

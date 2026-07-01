@@ -110,8 +110,8 @@ impl ScalarFnVTable for Not {
 #[cfg(test)]
 mod tests {
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::bool::BoolArrayExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -124,10 +124,15 @@ mod tests {
 
     #[test]
     fn invert_booleans() {
+        let mut ctx = array_session().create_execution_ctx();
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
-        #[expect(deprecated)]
-        let result = bools.into_array().apply(&not_expr).unwrap().to_bool();
+        let result = bools
+            .into_array()
+            .apply(&not_expr)
+            .unwrap()
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
             result.to_bit_buffer().iter().collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]

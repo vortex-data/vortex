@@ -47,7 +47,7 @@ impl DynAggregateKernel for DictIsConstantKernel {
         let result = if dict.has_all_values_referenced() {
             is_constant(dict.values(), ctx)?
         } else {
-            let referenced_mask = dict.compute_referenced_values_mask(true)?;
+            let referenced_mask = dict.compute_referenced_values_mask(true, ctx)?;
             let mask = Mask::from(referenced_mask);
             let filtered_values = dict.values().filter(mask)?;
             is_constant(&filtered_values, ctx)?

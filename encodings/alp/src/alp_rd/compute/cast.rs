@@ -28,8 +28,6 @@ impl CastReduce for ALPRD {
                 .with_nullability(dtype.nullability()),
         )?;
 
-        // NOTE: `CastReduce::cast` has a fixed trait signature without `ExecutionCtx`, so we
-        // construct a legacy ctx locally at this trait boundary.
         Ok(Some(
             unsafe {
                 ALPRD::new_unchecked(
@@ -149,6 +147,9 @@ mod tests {
         encoder.encode(arr.as_view())
     })]
     fn test_cast_alprd_conformance(#[case] alprd: crate::alp_rd::ALPRDArray) {
-        test_cast_conformance(&alprd.into_array());
+        test_cast_conformance(
+            &alprd.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

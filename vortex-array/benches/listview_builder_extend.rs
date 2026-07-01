@@ -3,14 +3,16 @@
 
 #![expect(clippy::cast_possible_truncation)]
 #![expect(clippy::cast_possible_wrap)]
+#![expect(clippy::unwrap_used)]
 
 use std::sync::Arc;
 
 use divan::Bencher;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::ListViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
@@ -63,13 +65,14 @@ fn extend_from_array_zctl(bencher: Bencher, (num_lists, list_size): (usize, usiz
     let source = source.into_array();
 
     bencher.with_inputs(|| &source).bench_refs(|source| {
-        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = ListViewBuilder::<u64, u64>::with_capacity(
             Arc::new(DType::Primitive(I32, NonNullable)),
             NonNullable,
             num_lists * list_size,
             num_lists,
         );
-        builder.extend_from_array(source);
+        source.append_to_builder(&mut builder, &mut ctx).unwrap();
         divan::black_box(builder.finish_into_listview())
     });
 }
@@ -85,13 +88,14 @@ fn extend_from_array_non_zctl_overlapping(
     let source = source.into_array();
 
     bencher.with_inputs(|| &source).bench_refs(|source| {
-        let mut builder = ListViewBuilder::<u32, u8>::with_capacity(
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = ListViewBuilder::<u64, u64>::with_capacity(
             Arc::new(DType::Primitive(I32, NonNullable)),
             Nullable,
             num_lists * list_size,
             num_lists,
         );
-        builder.extend_from_array(source);
+        source.append_to_builder(&mut builder, &mut ctx).unwrap();
         divan::black_box(builder.finish_into_listview())
     });
 }

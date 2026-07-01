@@ -253,7 +253,7 @@ impl ListViewArray {
     }
 
     /// Rebuilds elements list-by-list: canonicalize elements upfront, then for each list `slice`
-    /// the relevant range and `extend_from_array` into a typed builder.
+    /// the relevant range and `append_to_builder` into a typed builder.
     fn rebuild_list_by_list<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
         ctx: &mut ExecutionCtx,
@@ -317,7 +317,9 @@ impl ListViewArray {
 
             new_offsets.push(n_elements);
             new_sizes.push(size);
-            new_elements_builder.extend_from_array(&elements_canonical.slice(start..stop)?);
+            elements_canonical
+                .slice(start..stop)?
+                .append_to_builder(new_elements_builder.as_mut(), ctx)?;
 
             n_elements += num_traits::cast(size).vortex_expect("Cast failed");
         }

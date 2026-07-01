@@ -8,8 +8,6 @@ use vortex_error::VortexResult;
 
 use crate::EqMode;
 use crate::IntoArray;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::PrimitiveArray;
@@ -202,8 +200,11 @@ fn test_validity_preservation(#[case] validity: Validity) {
     let temporal_array =
         TemporalData::new_timestamp(milliseconds, TimeUnit::Milliseconds, Some("UTC".into()));
 
-    #[expect(deprecated)]
-    let prim = temporal_array.temporal_values().to_primitive();
+    let prim = temporal_array
+        .temporal_values()
+        .clone()
+        .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())
+        .unwrap();
     assert!(
         prim.validity()
             .vortex_expect("temporal validity should be derivable")

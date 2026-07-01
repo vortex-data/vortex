@@ -521,7 +521,7 @@ mod test {
 
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        primitive_builder.extend_from_array(&chunked);
+        chunked.append_to_builder(&mut primitive_builder, &mut ctx)?;
         let ca_into = primitive_builder.finish();
 
         assert_arrays_eq!(into_ca, ca_into, &mut ctx);

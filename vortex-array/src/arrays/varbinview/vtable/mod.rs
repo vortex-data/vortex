@@ -245,12 +245,10 @@ impl VTable for VarBinView {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
-            return builder.append_varbinview_array(&array.into_owned(), ctx);
-        }
-
-        builder.extend_from_array(array.as_ref());
-        Ok(())
+        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
+            vortex_bail!("append_to_builder for VarBinView requires a VarBinViewBuilder");
+        };
+        builder.append_varbinview_array(&array.into_owned(), ctx)
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

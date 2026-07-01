@@ -188,6 +188,6 @@ mod tests {
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
         let mut ctx = SESSION.create_execution_ctx();
         let pco = Pco::from_primitive(values.as_view(), 0, 128, &mut ctx).unwrap();
-        test_cast_conformance(&pco.into_array());
+        test_cast_conformance(&pco.into_array(), &mut ctx);
     }
 }

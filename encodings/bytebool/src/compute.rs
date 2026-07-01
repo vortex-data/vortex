@@ -297,17 +297,25 @@ mod tests {
 
     #[test]
     fn test_mask_byte_bool() {
-        test_mask_conformance(&bb(vec![true, false, true, true, false]).into_array());
+        test_mask_conformance(
+            &bb(vec![true, false, true, true, false]).into_array(),
+            &mut SESSION.create_execution_ctx(),
+        );
         test_mask_conformance(
             &bb_opt(vec![Some(true), Some(true), None, Some(false), None]).into_array(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
     #[test]
     fn test_filter_byte_bool() {
-        test_filter_conformance(&bb(vec![true, false, true, true, false]).into_array());
+        test_filter_conformance(
+            &bb(vec![true, false, true, true, false]).into_array(),
+            &mut SESSION.create_execution_ctx(),
+        );
         test_filter_conformance(
             &bb_opt(vec![Some(true), Some(true), None, Some(false), None]).into_array(),
+            &mut SESSION.create_execution_ctx(),
         );
     }
 
@@ -317,7 +325,7 @@ mod tests {
     #[case(bb(vec![true, false]))]
     #[case(bb(vec![true]))]
     fn test_take_byte_bool_conformance(#[case] array: ByteBoolArray) {
-        test_take_conformance(&array.into_array());
+        test_take_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -338,7 +346,7 @@ mod tests {
     #[case(bb(vec![true]))]
     #[case(bb_opt(vec![Some(true), None]))]
     fn test_cast_bytebool_conformance(#[case] array: ByteBoolArray) {
-        test_cast_conformance(&array.into_array());
+        test_cast_conformance(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 
     #[rstest]

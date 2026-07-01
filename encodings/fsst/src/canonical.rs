@@ -180,7 +180,7 @@ mod tests {
             .append_to_builder(&mut builder, &mut ctx)?;
 
         {
-            let arr = builder.finish_into_canonical().into_varbinview();
+            let arr = builder.finish_into_canonical(&mut ctx).into_varbinview();
             let mask = arr.validity()?.execute_mask(arr.len(), &mut ctx)?;
             let res1 = (0..arr.len())
                 .map(|i| mask.value(i).then(|| arr.bytes_at(i).to_vec()))

@@ -6,6 +6,7 @@ mod extractors;
 mod tree_display;
 
 use std::fmt::Display;
+use std::iter::repeat_n;
 
 pub use extractor::IndentedFormatter;
 pub use extractor::TreeContext;
@@ -544,10 +545,7 @@ impl ArrayRef {
                     "{opening_brace}{}{closing_brace}",
                     (0..limit.saturating_sub(3))
                         .map(fmt_scalar)
-                        .chain(std::iter::repeat_n(
-                            "...".to_string(),
-                            is_truncated as usize
-                        ))
+                        .chain(repeat_n("...".to_string(), is_truncated as usize))
                         .chain((self.len().saturating_sub(3)..self.len()).map(fmt_scalar))
                         .format(sep)
                 )

@@ -159,10 +159,9 @@ mod test {
     use vortex_buffer::ByteBuffer;
 
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
@@ -175,11 +174,11 @@ mod test {
 
     #[test]
     fn test_binary_compare() {
+        let mut ctx = array_session().create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
-        #[expect(deprecated)]
         let result = array
             .into_array()
             .binary(
@@ -191,17 +190,15 @@ mod test {
                 Operator::Eq,
             )
             .unwrap()
-            .to_bool();
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
 
         assert_eq!(
             &result
                 .as_ref()
                 .validity()
                 .unwrap()
-                .execute_mask(
-                    result.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
-                )
+                .execute_mask(result.as_ref().len(), &mut ctx)
                 .unwrap()
                 .to_bit_buffer(),
             &BitBuffer::from_iter([true, false, true])
@@ -214,6 +211,7 @@ mod test {
 
     #[test]
     fn varbinview_compare() {
+        let mut ctx = array_session().create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
@@ -222,22 +220,19 @@ mod test {
             [None, None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
-        #[expect(deprecated)]
         let result = array
             .into_array()
             .binary(vbv.into_array(), Operator::Eq)
             .unwrap()
-            .to_bool();
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
 
         assert_eq!(
             result
                 .as_ref()
                 .validity()
                 .unwrap()
-                .execute_mask(
-                    result.as_ref().len(),
-                    &mut array_session().create_execution_ctx()
-                )
+                .execute_mask(result.as_ref().len(), &mut ctx)
                 .unwrap()
                 .to_bit_buffer(),
             BitBuffer::from_iter([false, false, true])

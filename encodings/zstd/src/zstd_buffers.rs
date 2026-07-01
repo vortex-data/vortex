@@ -20,11 +20,13 @@ use vortex_array::ArrayView;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::session::ArraySessionExt;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -512,26 +514,20 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
         // canonical
-        let inner_array = ZstdBuffers::decompress_and_build_inner(
-            &array.into_owned(),
-            &vortex_array::LEGACY_SESSION,
-        )?;
+        let inner_array =
+            ZstdBuffers::decompress_and_build_inner(&array.into_owned(), ctx.session())?;
         inner_array.execute_scalar(index, ctx)
     }
 }
 
 impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
-    fn validity(
-        array: ArrayView<'_, ZstdBuffers>,
-    ) -> VortexResult<vortex_array::validity::Validity> {
+    fn validity(array: ArrayView<'_, ZstdBuffers>) -> VortexResult<Validity> {
         if !array.dtype().is_nullable() {
-            return Ok(vortex_array::validity::Validity::NonNullable);
+            return Ok(Validity::NonNullable);
         }
 
-        let inner_array = ZstdBuffers::decompress_and_build_inner(
-            &array.into_owned(),
-            &vortex_array::LEGACY_SESSION,
-        )?;
+        let inner_array =
+            ZstdBuffers::decompress_and_build_inner(&array.into_owned(), &LEGACY_SESSION)?;
         inner_array.validity()
     }
 }

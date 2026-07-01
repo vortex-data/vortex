@@ -117,6 +117,7 @@ mod tests {
             &StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
                 .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 
@@ -151,6 +152,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 
@@ -270,6 +272,7 @@ mod tests {
             &StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
                 .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 
@@ -286,6 +289,7 @@ mod tests {
             &StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 5, Validity::NonNullable)
                 .unwrap()
                 .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 
@@ -307,6 +311,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 
@@ -335,6 +340,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 
@@ -347,6 +353,7 @@ mod tests {
             &StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 1, Validity::NonNullable)
                 .unwrap()
                 .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 
@@ -370,6 +377,7 @@ mod tests {
             )
             .unwrap()
             .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 
