@@ -10773,7 +10773,6 @@ dependencies = [
  "async-trait",
  "bigdecimal",
  "datafusion 54.0.0",
- "datafusion-functions-nested 54.0.0",
  "datafusion-sqllogictest",
  "indicatif",
  "regex",
