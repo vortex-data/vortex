@@ -42,13 +42,15 @@ the [runtime documentation](../internals/async-runtime.md) for more on this trad
 DuckDB's planner pushes filter predicates into the scan via the `pushdown_complex_filter`
 callback. These are converted from DuckDB's bound expression representation into Vortex
 expressions and stored alongside any table filter expressions. During scanning, the combined
-filter is applied to the `ScanBuilder` for each file.
+filter is pushed into the Vortex file scan for each file.
 
 Files can be pruned entirely before opening if their statistics prove that no rows can match
-the filter.
+the filter. For opened files, layout-level evidence can prune row ranges before residual
+predicate reads materialize row data.
 
 Projection pushdown maps DuckDB's requested column indices to Vortex field names and passes
-them as a projection expression to the scan.
+them as projection expressions to the scan. Struct layouts route those expressions to field
+children, so unrelated columns are not read.
 
 ## Data Export
 
@@ -61,9 +63,8 @@ canonical (Arrow-compatible) conversion before export.
 Results are exported in chunks matching DuckDB's standard vector size to align with its
 vectorized execution model.
 
-## Future Work
+## Scan Runtime
 
-The current integration builds directly on the `ScanBuilder`, layout reader, and file APIs.
-Future work will migrate it to use the [Scan API](/concepts/scanning) `Source` trait, unifying
-file discovery, multi-file coordination, and pushdown behind a single interface shared across
-all engine integrations.
+DuckDB workers consume chunks from a shared scan stream. Vortex opens files, expands layouts into
+ScanPlan trees, prepares evidence and projection reads, and exports produced arrays into DuckDB's
+native vector format.

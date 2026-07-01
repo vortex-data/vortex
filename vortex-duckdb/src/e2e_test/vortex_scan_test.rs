@@ -238,6 +238,32 @@ fn test_vortex_scan_integers() {
 }
 
 #[test]
+fn test_vortex_scan_impl_flip_flop_env() {
+    let file = RUNTIME.block_on(async {
+        let numbers = buffer![1i32, 42, 100, -5, 0];
+        write_single_column_vortex_file("number", numbers).await
+    });
+    let file_path = file.path().to_string_lossy();
+    let query = format!("SELECT SUM(number) FROM '{file_path}' WHERE number >= 0 LIMIT 3");
+
+    let scan = |scan_impl| {
+        temp_env::with_var("VORTEX_SCAN_IMPL", Some(scan_impl), || {
+            let conn = database_connection();
+            let result = conn.query(&query).unwrap();
+            let mut chunk = result.into_iter().next().unwrap();
+            let len = chunk.len().as_();
+            let vec = chunk.get_vector_mut(0);
+            i64::from_duckdb_value(&mut unsafe { vec.as_slice_mut::<i64>(len) }[0])
+        })
+    };
+
+    let v1 = scan("v1");
+    let v2 = scan("v2");
+    assert_eq!(v1, v2);
+    assert_eq!(v1, 143);
+}
+
+#[test]
 fn test_vortex_scan_integers_in_list() {
     let file = RUNTIME.block_on(async {
         let numbers = buffer![1i32, 42, 100, -5, 0];

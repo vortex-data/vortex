@@ -12,20 +12,28 @@ use std::sync::OnceLock;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
+use vortex_array::expr::stats::Precision;
+use vortex_array::scalar::Scalar;
+use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
+use vortex_layout::segments::SegmentFutureCache;
 use vortex_layout::segments::SegmentSource;
 use vortex_scan::DataSourceRef;
+use vortex_scan::ScanRequest;
+use vortex_scan::plan::ScanPlanRef;
 use vortex_session::VortexSession;
 
 use crate::FileStatistics;
 use crate::footer::Footer;
+use crate::multi::scan_v2;
 use crate::pruning::can_prune_file_stats;
 use crate::v2::FileStatsLayoutReader;
 
@@ -44,6 +52,10 @@ pub struct VortexFile {
     session: VortexSession,
     /// None id LayoutReader caching is turned off
     layout_reader_cache: Option<OnceLock<Arc<dyn LayoutReader>>>,
+    /// Shared cache for the v2 physical scan plan root.
+    scan_plan_root_cache: Arc<OnceLock<ScanPlanRef>>,
+    /// Shared cache for v2 in-flight segment futures across row-range scans of this file.
+    scan_plan_segment_future_cache: Arc<SegmentFutureCache>,
 }
 
 fn layout_reader(
@@ -79,6 +91,8 @@ impl VortexFile {
             segment_source,
             session,
             layout_reader_cache: None,
+            scan_plan_root_cache: Arc::new(OnceLock::new()),
+            scan_plan_segment_future_cache: Arc::new(SegmentFutureCache::new()),
         }
     }
 
@@ -92,6 +106,8 @@ impl VortexFile {
             segment_source: self.segment_source,
             session: self.session,
             layout_reader_cache: Some(OnceLock::new()),
+            scan_plan_root_cache: self.scan_plan_root_cache,
+            scan_plan_segment_future_cache: self.scan_plan_segment_future_cache,
         }
     }
 
@@ -160,6 +176,24 @@ impl VortexFile {
         }
     }
 
+    pub(crate) fn scan_plan_root(&self) -> VortexResult<ScanPlanRef> {
+        if let Some(root) = self.scan_plan_root_cache.get() {
+            return Ok(Arc::clone(root));
+        }
+
+        let root = scan_v2::build_file_scan_plan_root(self)?;
+        if self.scan_plan_root_cache.set(Arc::clone(&root)).is_err()
+            && let Some(root) = self.scan_plan_root_cache.get()
+        {
+            return Ok(Arc::clone(root));
+        }
+        Ok(root)
+    }
+
+    pub(crate) fn scan_plan_segment_future_cache(&self) -> Arc<SegmentFutureCache> {
+        Arc::clone(&self.scan_plan_segment_future_cache)
+    }
+
     /// Create a [`DataSource`](vortex_scan::DataSource) from this file for scanning.
     ///
     /// Wraps the file's layout reader with [`FileStatsLayoutReader`] (when file-level
@@ -180,6 +214,39 @@ impl VortexFile {
             self.session.clone(),
             self.layout_reader()?,
         ))
+    }
+
+    /// Execute a ScanPlan-backed scan for this file.
+    pub fn scan_plan_stream(&self, request: ScanRequest) -> VortexResult<SendableArrayStream> {
+        scan_v2::scan_plan_file_stream(self.clone(), request)
+    }
+
+    /// Return ScanPlan-backed aggregate-function statistics for this file.
+    pub async fn scan_plan_statistics(
+        &self,
+        expr: &Expression,
+        funcs: &[AggregateFnRef],
+    ) -> VortexResult<Vec<Precision<Scalar>>> {
+        scan_v2::scan_plan_file_statistics(self.clone(), expr, funcs).await
+    }
+
+    /// Return ScanPlan-backed aggregate-function statistics for several expressions in this file.
+    pub async fn scan_plan_statistics_many(
+        &self,
+        exprs: &[Expression],
+        funcs: &[AggregateFnRef],
+    ) -> VortexResult<Vec<Vec<Precision<Scalar>>>> {
+        scan_v2::scan_plan_file_statistics_many(self.clone(), exprs, funcs).await
+    }
+
+    /// Return ScanPlan natural row split ranges for this file.
+    pub fn scan_plan_splits(&self) -> VortexResult<Vec<Range<u64>>> {
+        scan_v2::scan_plan_file_splits(self)
+    }
+
+    /// Plan ScanPlan natural row split ranges for a projected scan of this file.
+    pub async fn plan_splits(&self, projection: &Expression) -> VortexResult<Vec<Range<u64>>> {
+        scan_v2::scan_plan_file_plan_splits(self.clone(), projection).await
     }
 
     /// Returns `true` if file-level statistics prove the expression cannot

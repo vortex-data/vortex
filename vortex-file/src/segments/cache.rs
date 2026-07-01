@@ -8,6 +8,7 @@ use parking_lot::RwLock;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::segments::SegmentCache;
+use vortex_layout::segments::SegmentCacheKey;
 use vortex_layout::segments::SegmentId;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -21,14 +22,14 @@ pub struct InitialReadSegmentCache {
 
 #[async_trait]
 impl SegmentCache for InitialReadSegmentCache {
-    async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
-        if let Some(buffer) = self.initial.read().get(&id) {
+    async fn get(&self, key: SegmentCacheKey) -> VortexResult<Option<ByteBuffer>> {
+        if let Some(buffer) = self.initial.read().get(&key.segment_id) {
             return Ok(Some(buffer.clone()));
         }
-        self.fallback.get(id).await
+        self.fallback.get(key).await
     }
 
-    async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
-        self.fallback.put(id, buffer).await
+    async fn put(&self, key: SegmentCacheKey, buffer: ByteBuffer) -> VortexResult<()> {
+        self.fallback.put(key, buffer).await
     }
 }

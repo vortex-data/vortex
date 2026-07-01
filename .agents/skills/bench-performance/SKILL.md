@@ -45,6 +45,14 @@ Do not wait for a deep code read before showing benchmark comparisons or first s
    - engine/format target(s), for example `datafusion:vortex` versus `datafusion:parquet`;
    - runtime environment toggles, if the branch exposes any.
 
+   If the checkout is an agent worktree, keep benchmark data in the canonical checkout cache rather
+   than downloading or generating it inside the worktree. Prefer a `file://` data URL that points at
+   `/Users/ngates/git/vortex/vortex-bench/data/...` (or the user's main checkout equivalent), for
+   example `--opt remote-data-dir=file:///Users/ngates/git/vortex/vortex-bench/data/clickbench_partitioned/`
+   when the benchmark supports `remote-data-dir`. For local-only suites such as `statpopgen`, run
+   from the main checkout or arrange the suite's `vortex-bench/data/<suite>/...` path to reuse that
+   canonical cache before generating data.
+
 3. Run a small comparable benchmark through `vx-bench`:
 
    ```bash

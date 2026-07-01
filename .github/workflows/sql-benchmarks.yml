@@ -10,6 +10,11 @@ on:
         required: false
         type: string
         default: i7i.metal-24xl
+      vortex_scan_impl:
+        required: false
+        type: string
+        default: ""
+        description: "Optional VORTEX_SCAN_IMPL override for Vortex file scans, e.g. v1 for legacy scans"
       benchmark_matrix:
         required: false
         type: string
@@ -511,6 +516,7 @@ jobs:
   bench:
     timeout-minutes: 120
     env:
+      VORTEX_SCAN_IMPL: ${{ inputs.vortex_scan_impl }}
       VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
       FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
       # Makes python output nicer

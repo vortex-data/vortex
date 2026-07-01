@@ -24,7 +24,9 @@ pub(crate) fn new_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    if flatten {
+    if flatten || array.ptype().is_unsigned_int() {
+        // DuckDB's native SequenceVector helper does not support unsigned vectors such as the
+        // `file_row_number` UBIGINT virtual column, so export those through the primitive path.
         return canonical::new_exporter(array.clone().into_array(), cache, ctx);
     }
     Ok(Box::new(SequenceExporter {

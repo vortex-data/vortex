@@ -5,27 +5,34 @@ use std::cmp::max;
 use std::fmt::Formatter;
 use std::fmt::{self};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
+use futures::stream;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use static_assertions::assert_impl_all;
 use tracing::debug;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
+use vortex::array::validity::Validity;
+use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::expr::Expression;
+use vortex::expr::col;
 use vortex::expr::stats::Precision;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::kanal_ext::KanalExt as _;
@@ -37,14 +44,16 @@ use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::pack::Pack;
-use vortex::scan::DataSource;
+use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
+use vortex::scan::selection::Selection;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::column_statistics::ColumnStatistics;
 use crate::column_statistics::ColumnStatisticsAggregate;
+use crate::column_statistics::column_statistics_aggregate_fns;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_projection_expression;
 use crate::duckdb::BindInputRef;
@@ -54,6 +63,7 @@ use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::Value;
+use crate::duckdb::duckdb_vector_size;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 use crate::multi_file::bind_multi_file_scan;
@@ -63,9 +73,11 @@ use crate::projection::Projection;
 use crate::projection::extract_schema_from_dtype;
 
 pub struct TableFunctionBind {
-    data_source: Arc<MultiLayoutDataSource>,
+    data_source: DataSourceRef,
+    statistics_source: Option<Arc<MultiLayoutDataSource>>,
     filter_exprs: Vec<Expression>,
     column_fields: Vec<DuckdbField>,
+    column_statistics: Arc<Vec<OnceLock<Option<ColumnStatisticsAggregate>>>>,
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
     has_non_optional_filter: AtomicBool,
@@ -76,9 +88,11 @@ impl Clone for TableFunctionBind {
     fn clone(&self) -> Self {
         Self {
             data_source: Arc::clone(&self.data_source),
+            statistics_source: self.statistics_source.clone(),
             // filter_exprs are consumed once in `init_global`.
             filter_exprs: vec![],
             column_fields: self.column_fields.clone(),
+            column_statistics: Arc::clone(&self.column_statistics),
             has_non_optional_filter: AtomicBool::new(
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
@@ -146,13 +160,19 @@ pub enum Cardinality {
 
 pub fn bind(input: &BindInputRef, result: &mut BindResultRef) -> VortexResult<TableFunctionBind> {
     let data_source = bind_multi_file_scan(input)?;
-    let column_fields = extract_schema_from_dtype(data_source.dtype())?;
+    let column_fields = extract_schema_from_dtype(data_source.data_source.dtype())?;
     for fields in &column_fields {
         result.add_result_column(&fields.name, &fields.logical_type);
     }
     Ok(TableFunctionBind {
-        data_source: Arc::new(data_source),
+        data_source: data_source.data_source,
+        statistics_source: data_source.statistics_source,
         filter_exprs: vec![],
+        column_statistics: Arc::new(
+            (0..column_fields.len())
+                .map(|_| OnceLock::new())
+                .collect::<Vec<_>>(),
+        ),
         column_fields,
         has_non_optional_filter: AtomicBool::new(false),
     })
@@ -169,6 +189,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         projection,
         file_index_column_pos,
         file_row_number_column_pos,
+        is_zero_column,
     } = Projection::new(projection_ids, column_ids, &bind_data.column_fields);
 
     let Filter {
@@ -205,6 +226,18 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         "table function scan input"
     );
 
+    if is_zero_column
+        && filter.is_none()
+        && matches!(&row_selection, Selection::All)
+        && row_range.is_none()
+        && matches!(&file_selection, Selection::All)
+        && file_range.is_none()
+        && let Precision::Exact(row_count) = bind_data.data_source.row_count()
+    {
+        debug!(row_count, "using zero-column exact-cardinality scan");
+        return Ok(zero_column_global(row_count));
+    }
+
     let request = ScanRequest {
         projection,
         filter,
@@ -214,6 +247,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         partition_selection: file_selection,
         partition_range: file_range,
         limit: None,
+        partitioning: Default::default(),
     };
 
     let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;
@@ -281,6 +315,44 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         file_index_column_pos,
         file_row_number_column_pos,
     })
+}
+
+fn zero_column_global(row_count: u64) -> TableFunctionGlobal {
+    TableFunctionGlobal {
+        iterator: zero_column_iterator(row_count),
+        batch_id: AtomicU64::new(0),
+        bytes_total: Arc::new(AtomicU64::new(row_count)),
+        bytes_read: AtomicU64::new(0),
+        file_index_column_pos: None,
+        file_row_number_column_pos: None,
+    }
+}
+
+fn zero_column_iterator(row_count: u64) -> DataSourceIterator {
+    let vector_size = u64::try_from(duckdb_vector_size())
+        .unwrap_or(u64::MAX)
+        .max(1);
+    RUNTIME.block_on_stream_thread_safe(move |_handle| {
+        let cache = Arc::new(ConversionCache::default());
+        stream::unfold((row_count, cache), move |(remaining, cache)| async move {
+            if remaining == 0 {
+                return None;
+            }
+            let batch_len = remaining.min(vector_size);
+            let item = usize::try_from(batch_len)
+                .map_err(|_| vortex_err!("zero-column batch length exceeds usize"))
+                .and_then(zero_column_array)
+                .map(|array| (array, Arc::clone(&cache)));
+            Some((item, (remaining - batch_len, cache)))
+        })
+    })
+}
+
+fn zero_column_array(len: usize) -> VortexResult<ArrayRef> {
+    Ok(
+        StructArray::try_new(FieldNames::empty(), Vec::new(), len, Validity::NonNullable)?
+            .into_array(),
+    )
 }
 
 pub fn init_local(global: &TableFunctionGlobal) -> TableFunctionLocal {
@@ -449,24 +521,48 @@ pub fn pushdown_projection_expression(
 
 /// Get column-wise statistics. Available only if we're reading a single file.
 pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<ColumnStatistics> {
-    let children = bind_data.data_source.children();
-    // Otherwise we'd have to open all files eagerly which is a performance
-    // regression. Duckdb's Parquet reader only gets metadata for multiple
-    // files with a UNION BY NAME and we don't support it (yet)
-    // See duckdb/common/multi_file/multi_file_function.hpp#L691
-    if children.len() != 1 {
-        return None;
-    }
-    let MultiLayoutChild::Opened { reader, .. } = &children[0] else {
-        return None;
-    };
-    let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
-        Some(inner) => inner.file_stats().stats_sets(),
-        None => return None,
-    };
-    let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
     let dtype = bind_data.column_fields[column_index].dtype.clone();
-    Some(ColumnStatistics::from(&stats_aggregate, dtype))
+    let stats_aggregate = bind_data
+        .column_statistics
+        .get(column_index)?
+        .get_or_init(|| column_statistics_aggregate(bind_data, column_index))
+        .as_ref()?;
+    Some(ColumnStatistics::from(stats_aggregate, dtype))
+}
+
+fn column_statistics_aggregate(
+    bind_data: &TableFunctionBind,
+    column_index: usize,
+) -> Option<ColumnStatisticsAggregate> {
+    if let Some(statistics_source) = bind_data.statistics_source.as_ref() {
+        let children = statistics_source.children();
+        // Otherwise we'd have to open all files eagerly which is a performance
+        // regression. Duckdb's Parquet reader only gets metadata for multiple
+        // files with a UNION BY NAME and we don't support it (yet)
+        // See duckdb/common/multi_file/multi_file_function.hpp#L691
+        if children.len() != 1 {
+            return None;
+        }
+        let MultiLayoutChild::Opened { reader, .. } = &children[0] else {
+            return None;
+        };
+        let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
+            Some(inner) => inner.file_stats().stats_sets(),
+            None => return None,
+        };
+        return Some(ColumnStatisticsAggregate::new(&stats_sets[column_index]));
+    }
+
+    let name = &bind_data.column_fields[column_index].name;
+    let funcs = column_statistics_aggregate_fns();
+    let stats = RUNTIME
+        .block_on(
+            bind_data
+                .data_source
+                .statistics(&col(name.as_str()), &funcs),
+        )
+        .ok()?;
+    Some(ColumnStatisticsAggregate::from_aggregate_stats(&stats))
 }
 
 /// Duckdb requires post-filter cardinality estimates, otherwise join planner

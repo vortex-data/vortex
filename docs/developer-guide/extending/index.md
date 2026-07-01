@@ -13,8 +13,8 @@ The following topics are planned for this section:
   and Arrow interoperability.
 - **Writing an Encoding** -- implementing a custom array encoding with compression and
   decompression logic.
-- **Writing a Layout** -- implementing the LayoutReader and LayoutWriter traits for custom
-  on-disk data organizations.
+- **Writing a Layout** -- implementing a layout vtable, lazy child contracts, and ScanPlan
+  expansion for custom on-disk data organizations.
 - **Writing a Compute Function** -- the dispatch model, implementing kernels, vtable
   registration, and testing.
 

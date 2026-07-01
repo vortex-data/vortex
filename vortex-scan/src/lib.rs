@@ -22,21 +22,39 @@
 //! * We should add a way for the client to negotiate capabilities with the data source, for
 //!   example which encodings it knows about.
 
+pub mod plan;
+pub mod read;
 pub mod row_mask;
+pub mod scheduler;
 pub mod selection;
+pub mod task;
 
 use std::any::Any;
+use std::num::NonZeroUsize;
 use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream;
 use futures::stream::BoxStream;
+pub use scheduler::ScanMeta;
+pub use scheduler::ScanScheduler;
+pub use scheduler::ScanSchedulerConfig;
+pub use scheduler::ScanSchedulerProvider;
+pub use scheduler::ScanSchedulerSession;
+pub use scheduler::ScanSchedulerSessionExt;
 use selection::Selection;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::get_item::GetItem;
+use vortex_array::scalar_fn::fns::root::Root;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
@@ -117,8 +135,65 @@ pub trait DataSource: 'static + Send + Sync {
     /// Returns a scan over the source.
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
 
+    /// Returns metadata aggregate statistics for `expr` over the unfiltered source.
+    ///
+    /// The returned vector is positional against `funcs`. Each value is exact, inexact, or absent
+    /// for the requested aggregate function. The default implementation bridges simple top-level
+    /// field expressions through [`Self::field_statistics`] for compatibility with older sources.
+    async fn statistics(
+        &self,
+        expr: &Expression,
+        funcs: &[AggregateFnRef],
+    ) -> VortexResult<Vec<Precision<Scalar>>> {
+        let Some(field_path) = root_field_path(expr) else {
+            return Ok(absent_statistics(funcs));
+        };
+        let Some(field_dtype) = field_path.resolve(self.dtype().clone()) else {
+            return Ok(absent_statistics(funcs));
+        };
+        let stats = self.field_statistics(&field_path).await?;
+
+        funcs
+            .iter()
+            .map(|func| {
+                let Some(stat) = Stat::from_aggregate_fn(func) else {
+                    return Ok(Precision::Absent);
+                };
+                let Some(dtype) = stat.dtype(&field_dtype) else {
+                    return Ok(Precision::Absent);
+                };
+                Ok(stats.get(stat).into_scalar(dtype))
+            })
+            .collect()
+    }
+
     /// Returns the statistics for a given field.
     async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet>;
+}
+
+fn absent_statistics(funcs: &[AggregateFnRef]) -> Vec<Precision<Scalar>> {
+    funcs.iter().map(|_| Precision::Absent).collect()
+}
+
+fn root_field_path(expr: &Expression) -> Option<FieldPath> {
+    if expr.is::<Root>() {
+        return Some(FieldPath::root());
+    }
+    let field = expr.as_opt::<GetItem>()?;
+    expr.child(0)
+        .is::<Root>()
+        .then(|| FieldPath::from_name(field.clone()))
+}
+
+/// Requested physical partitioning for a scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScanPartitioning {
+    /// Use the data source's natural partitioning for this scan.
+    #[default]
+    SourceDefault,
+    /// Ask the data source to expose this many output partitions when it can preserve the scan
+    /// semantics. Sources may fall back to their natural partitioning for constrained scans.
+    Target(NonZeroUsize),
 }
 
 /// A request to scan a data source.
@@ -144,6 +219,8 @@ pub struct ScanRequest {
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
     pub limit: Option<u64>,
+    /// Requested physical partitioning for the scan.
+    pub partitioning: ScanPartitioning,
 }
 
 impl Default for ScanRequest {
@@ -157,23 +234,39 @@ impl Default for ScanRequest {
             ordered: false,
             limit: None,
             partition_range: None,
+            partitioning: ScanPartitioning::SourceDefault,
         }
     }
 }
 
-/// A boxed data source scan.
-pub type DataSourceScanRef = Box<dyn DataSourceScan>;
+/// A reference-counted data source scan.
+pub type DataSourceScanRef = Arc<dyn DataSourceScan>;
 
 /// A data source scan produces partitions that can be executed to read data from the source.
-pub trait DataSourceScan: 'static + Send {
+pub trait DataSourceScan: 'static + Send + Sync {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
 
     /// Returns an estimate of the total number of partitions the scan will produce.
     fn partition_count(&self) -> Precision<usize>;
 
+    /// Returns a partition by index, or `None` when the partition slot has no work.
+    fn partition(self: Arc<Self>, partition: usize) -> VortexResult<Option<PartitionRef>>;
+
     /// Returns a stream of partitions to be processed.
-    fn partitions(self: Box<Self>) -> PartitionStream;
+    fn partitions(self: Arc<Self>) -> PartitionStream {
+        let partition_count = match self.partition_count() {
+            Precision::Exact(count) | Precision::Inexact(count) => count,
+            Precision::Absent => 0,
+        };
+
+        stream::iter(0..partition_count)
+            .filter_map(move |partition| {
+                let scan = Arc::clone(&self);
+                async move { scan.partition(partition).transpose() }
+            })
+            .boxed()
+    }
 }
 
 /// A reference-counted partition.

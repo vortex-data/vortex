@@ -26,6 +26,8 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
+use vortex::expr::root;
+use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::VortexWrite;
@@ -444,8 +446,10 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
         .iter()
         .map(|range| range.end - range.start)
         .collect::<Vec<_>>();
+    let scan2_split_ranges = vxf.plan_splits(&select(["value"], root())).await?;
 
     assert!(split_ranges.len() > 1);
+    assert_eq!(scan2_split_ranges, split_ranges);
     assert!(
         split_lengths
             .windows(2)

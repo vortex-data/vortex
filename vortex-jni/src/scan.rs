@@ -39,7 +39,7 @@ use vortex::expr::root;
 use vortex::expr::stats::Precision;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
-use vortex::scan::DataSourceScan;
+use vortex::scan::DataSourceScanRef;
 use vortex::scan::PartitionRef;
 use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
@@ -56,7 +56,7 @@ use crate::session::session_ref;
 /// realized as a stream), actively streaming partitions, or finished.
 #[allow(dead_code)]
 pub(crate) enum NativeScan {
-    Pending(Box<dyn DataSourceScan>),
+    Pending(DataSourceScanRef),
     Started(PartitionStream),
     Finished,
 }
@@ -118,6 +118,7 @@ fn build_scan_request(
         limit,
         partition_selection: Selection::All,
         partition_range: None,
+        partitioning: Default::default(),
     })
 }
 

@@ -87,7 +87,7 @@ impl ZoneMap {
         Ok(unsafe { Self::new_unchecked(column_dtype, array, aggregate_fns, zone_len, row_count) })
     }
 
-    pub(super) unsafe fn new_unchecked(
+    pub(crate) unsafe fn new_unchecked(
         column_dtype: DType,
         array: StructArray,
         aggregate_fns: Arc<[AggregateFnRef]>,

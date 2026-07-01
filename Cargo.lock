@@ -10214,6 +10214,7 @@ dependencies = [
  "reqwest 0.13.4",
  "rstest",
  "static_assertions",
+ "temp-env",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -10712,13 +10713,17 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
+ "parking_lot",
  "roaring",
+ "rustc-hash",
  "tracing",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-io",
  "vortex-mask",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]

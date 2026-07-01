@@ -9,6 +9,7 @@
 //! scans.
 
 mod cache;
+mod scheduled;
 mod shared;
 mod sink;
 mod source;
@@ -20,12 +21,17 @@ use std::fmt::Display;
 use std::ops::Deref;
 
 pub use cache::*;
+pub use scheduled::*;
 pub use shared::*;
 pub use sink::*;
 pub use source::*;
 #[cfg(any(test, feature = "_test-harness"))]
 pub use test::*;
 use vortex_error::VortexError;
+pub use vortex_scan::read::CancelGroup;
+pub use vortex_scan::read::ScanIoPhase;
+pub use vortex_scan::read::ScanPriority;
+pub use vortex_scan::read::ScanRead;
 
 /// Identifier for a single physical segment referenced by a layout.
 ///

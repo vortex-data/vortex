@@ -88,8 +88,9 @@ The postscript locates four regions by offset and length:
   configs.
 
 The layout FlatBuffer is a tree of `Layout` nodes, each containing an encoding ID, row count,
-metadata, child layouts, and segment indices. This tree is deserialized and bound to a segment
-source to create a `LayoutReader` that can lazily fetch data on demand.
+metadata, child layouts, and segment indices. This tree is deserialized into lazy `LayoutRef`
+nodes. During a scan, layout vtables expand those nodes into a `ScanPlan` tree that requests
+segments from the bound segment source on demand.
 
 ## FlatBuffers
 

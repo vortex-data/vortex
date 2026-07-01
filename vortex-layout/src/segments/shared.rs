@@ -16,6 +16,7 @@ use vortex_utils::aliases::dash_map::Entry;
 
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
+use crate::segments::SegmentInfo;
 use crate::segments::SegmentSource;
 
 /// A [`SegmentSource`] that allows multiple requesters to await the same underlying segment
@@ -38,6 +39,10 @@ impl<S: SegmentSource> SharedSegmentSource<S> {
 }
 
 impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
+    fn segment_info(&self, id: SegmentId) -> vortex_error::VortexResult<SegmentInfo> {
+        self.inner.segment_info(id)
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         loop {
             match self.in_flight.entry(id) {
@@ -83,6 +88,10 @@ mod tests {
     }
 
     impl SegmentSource for CountingSegmentSource {
+        fn segment_info(&self, id: SegmentId) -> vortex_error::VortexResult<SegmentInfo> {
+            self.segments.segment_info(id)
+        }
+
         fn request(&self, id: SegmentId) -> SegmentFuture {
             self.request_count.fetch_add(1, Ordering::SeqCst);
             self.segments.request(id)

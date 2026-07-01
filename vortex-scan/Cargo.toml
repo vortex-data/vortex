@@ -20,13 +20,20 @@ all-features = true
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true, features = ["dashmap"] }
 
 async-trait = { workspace = true }
 futures = { workspace = true }
+parking_lot = { workspace = true }
 roaring = { workspace = true }
+rustc-hash = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true, features = ["executor"] }
 
 [lints]
 workspace = true

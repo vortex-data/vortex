@@ -19,12 +19,19 @@ use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
+use vortex::layout::scan::v2::scan2_enabled;
+use vortex::scan::DataSourceRef;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::ExtractedValue;
+
+pub struct BoundMultiFileScan {
+    pub data_source: DataSourceRef,
+    pub statistics_source: Option<Arc<MultiLayoutDataSource>>,
+}
 
 /// Parse a glob string into a [`Url`].
 ///
@@ -78,7 +85,7 @@ fn resolve_filesystem(base_url: &Url) -> VortexResult<FileSystemRef> {
 }
 
 /// Shared bind logic for both single-glob and multi-glob variants.
-pub fn bind_multi_file_scan(input: &BindInputRef) -> VortexResult<MultiLayoutDataSource> {
+pub fn bind_multi_file_scan(input: &BindInputRef) -> VortexResult<BoundMultiFileScan> {
     let glob_url_parameter = input
         .get_parameter(0)
         .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
@@ -131,7 +138,20 @@ pub fn bind_multi_file_scan(input: &BindInputRef) -> VortexResult<MultiLayoutDat
             builder = builder.with_glob(glob_url.path(), Some(fs));
         }
 
-        builder.build().await
+        if scan2_enabled()? {
+            Ok(BoundMultiFileScan {
+                data_source: builder.build_data_source().await?,
+                statistics_source: None,
+            })
+        } else {
+            let statistics_source = Arc::new(builder.build().await?);
+            let data_source: DataSourceRef =
+                Arc::<MultiLayoutDataSource>::clone(&statistics_source);
+            Ok(BoundMultiFileScan {
+                data_source,
+                statistics_source: Some(statistics_source),
+            })
+        }
     })
 }
 

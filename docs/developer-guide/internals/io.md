@@ -78,6 +78,12 @@ A `SharedSegmentSource` deduplicates concurrent requests for the same segment us
 shared futures, ensuring that only one underlying I/O request is issued regardless of how many
 callers request the same segment simultaneously.
 
+`SegmentId` is scoped to one file's footer segment map. A shared cache used across several opened
+files must include file/source identity in its effective key to avoid collisions between, for
+example, `SegmentId(0)` in two different files. The `SegmentSource` adapter is installed per opened
+file, and scheduler-aware segment requests carry source identity when scan work is coordinated
+across sources.
+
 ## Backend Adaptation
 
 Each `VortexReadAt` implementation provides its own concurrency and coalescing parameters,
@@ -91,3 +97,16 @@ allowing the I/O scheduler to adapt automatically:
 Local file reads are dispatched via `spawn_blocking` to avoid blocking the async executor.
 Object store reads are natively async and wrapped with `async_compat` for runtime
 compatibility.
+
+## Scan Scheduler Integration
+
+The ScanPlan scheduler keeps `VortexReadAt` as the common adapter for positional byte sources, but
+makes segment requests visible to scan planning. A prepared `VortexFile` binds layout `SegmentId`s
+to a segment source, and morsel tasks can report the segment requests they need before execution.
+The scheduler sees the source ID, segment ID, byte size, and priority metadata, but not physical
+byte locations. Cacheable segment reads carry a source-scoped segment cache key.
+
+Prepared reads and evidence tasks request segments through the segment source. The source remains
+responsible for segment-cache lookup, backend-specific physical coalescing, in-flight
+deduplication, and submission. See [Scan Scheduler](scan-scheduler.md) for scheduler resource
+coordination.

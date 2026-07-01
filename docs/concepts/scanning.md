@@ -1,93 +1,131 @@
-# Scan API
+# Scanning
 
-:::{note}
-The Scan API is on the roadmap and under active development. The core `Source` trait and scan pipeline
-are functional, but the full API surface is not yet fully defined or implemented.
-:::
+Vortex scans are built around the layout tree stored in a file footer. A scan opens the file,
+deserializes the root layout, expands that layout into a `ScanPlan` tree, and prepares executable
+runtime handles for predicates, projections, statistics, and aggregates.
 
-The Vortex Scan API defines a standard interface between data storage and query engines. It solves the
-N x M problem of having N different storage backends and M different query engines by providing a common
-interface that both sides can implement against.
+The query engine sees a standard scan request: a projection, an optional filter, ordering
+requirements, limits, and split preferences. The layout and scan layers decide how to satisfy that
+request with the least data movement.
 
+```text
+footer layout bytes
+        |
+        v
+LayoutRef / Layout<V>
+        |
+        v
+ScanPlan tree
+        |
+        +-- push expressions into layout-local row domains
+        +-- prepare predicate evidence
+        +-- prepare residual predicate reads
+        +-- prepare projection reads
+        +-- prepare statistics and aggregate answers
+        |
+        v
+morsel execution -> array batches
 ```
-    Storage                                  Query Engines
-    ───────                                  ─────────────
 
-    Vortex Files   ──► ┌──────────────┐ ──►  DuckDB
-    Parquet Files  ──► │   Scan API   │ ──►  DataFusion
-    Iceberg Tables ──► └──────────────┘ ──►  Spark
-```
+## Layout Expansion
 
-Storage backends implement the `Source` trait for reads. Query engines issue a scan request
-describing the filter and projection to push down, and the source returns a stream of
-independently-executable splits that can be run concurrently to produce result arrays. An
-equivalent `Sink` trait exists for the write path, accepting an array stream and writing it to
-the underlying storage.
+Each layout encoding has a layout vtable. The serialized form stores common fields such as dtype,
+row count, child layouts, and segment IDs. Deserialization hoists those common fields into
+`Layout<V>` and leaves only layout-specific metadata in `V::LayoutData`.
 
-## Motivation
+The layout vtable's scan hook expands a `Layout<V>` into a `ScanPlan`. This keeps serialized layout
+concerns separate from runtime execution: layouts describe the physical organization of data,
+whereas `ScanPlan`s expose what that organization can do during a scan.
 
-Traditional data integrations require each storage backend and query engine to agree on a common
-interchange format, typically Apache Arrow. This means the storage backend must fully decompress its
-data into Arrow arrays, even if the query engine could operate on the compressed representation
-directly.
+Layout children are lazy. Accessing a child validates the dtype expected by the parent and
+materializes that child from the same footer FlatBuffer only when a scan route actually needs it.
+For example, a struct layout does not need to deserialize every column child when the query reads
+only a few fields.
 
-The Vortex Scan API avoids this by allowing data to flow between storage and query engines in its
-native compressed encoding. For example, the DuckDB integration can receive FSST-encoded string
-arrays directly from a Vortex file and pass them into DuckDB's own internal FSST format without
-any decompression step.
+## Scan Plans
 
-## Source
+A `ScanPlan` is an immutable runtime view of a layout. It can:
 
-A **Source** represents any scannable tabular data. It accepts a scan request (filter, projection,
-limit) and returns a stream of independently-executable splits. An equivalent **Sink** interface
-exists for the write path, allowing query engines to both read from and write to any storage
-backend through a single pair of interfaces.
+- push an expression into the plan's row domain;
+- prepare value reads for the plan's root value;
+- prepare predicate evidence;
+- provide natural split hints;
+- answer statistics or partial aggregates from metadata; and
+- release cached state behind a completed row frontier.
 
-### Splits
+Pushing an expression returns another `ScanPlan` whose `root()` value is that expression. A struct
+plan can route `field("a")` to the child for column `a`; a dictionary plan can apply some
+expressions once over dictionary values and reuse the result with per-row codes; a generic apply
+plan handles expressions that cannot be pushed into a specialized layout.
 
-A source produces splits, each representing an independent unit of work that can be executed in
-parallel. A split typically corresponds to a range of rows in a layout, such as a chunk or a set
-of row-group partitions.
+## Prepared Runtime Handles
 
-Each split carries size and row count estimates that query engines use for scheduling decisions.
-Splits can also be serialized for distributed execution across remote workers.
+Planning a scan creates prepared handles from the `ScanPlan` tree:
 
-### Remote Sources
+- `PreparedEvidence` produces evidence fragments for one predicate expression.
+- `PreparedRead` reads one pushed projection or residual predicate expression.
+- `PreparedStats` and `PreparedAggregate` answer metadata-backed statistics and aggregates.
+- `PreparedSplit` reports row ranges that are natural units of scan work.
 
-A source may front remote storage rather than local files. In this case, the split's execution
-issues a remote call and receives the result over the network. The
-[Vortex IPC format](../specs/ipc-format.md) can be used as the wire protocol for these calls, allowing
-compressed arrays to be transferred without decompression. This gives remote sources the same
-zero-decompression benefits as local scans -- the data stays in its compressed encoding end-to-end,
-from remote storage through the network and into the query engine.
+Prepared handles are scan-level runtime objects. They can hold child prepared handles and shared
+state, but they do not choose the next row range themselves. The scan driver chooses explicit
+morsel ranges and asks prepared handles to work on those ranges.
 
-## Filter Pushdown
+Each morsel carries a `RowScope`:
 
-Filter expressions are decomposed into individual conjuncts (AND-separated terms) and evaluated
-independently. The scan tracks the selectivity of each conjunct using a probabilistic sketch
-and dynamically reorders them so that the most selective predicates are evaluated first. This
-means that as a scan progresses, it learns the most efficient evaluation order for the filter.
+- `selection` says which rows in the requested range remain live.
+- `demand` says which selected rows need meaningful values from this operation.
 
-Filters are evaluated in two stages. First, pruning evaluation uses statistics stored in a
-`ZonedLayout` auxiliary `zones` child to eliminate entire row zones without reading the underlying
-data child. These pruning predicates are falsification checks derived from the original filter, for
-example by comparing a zone's min/max values against the requested predicate. Second, filter
-evaluation materializes only the filter-referenced columns and computes a row mask of matching
-rows.
+This lets a projection skip data that no longer affects output, while still preserving output
+cardinality for selected rows.
+
+## Predicate Evidence
+
+Predicates are decomposed into independent expressions. Before reading row data for a predicate,
+the scan asks available prepared evidence handles whether metadata can prove something about the
+requested rows.
+
+Evidence is a statement over the row domain. A zone map can prove that a range cannot match a
+predicate; file or layout statistics can prove that a predicate is already satisfied; other
+evidence sources can leave a range unknown. Unknown rows continue to residual predicate reads,
+which materialize only the columns needed to compute the predicate exactly.
+
+Prepared evidence handles are expected to be cheap relative to projection reads. They should use
+layout metadata, statistics, indexes, or already-prepared shared state rather than speculatively
+reading large data columns. Cheap evidence can also opt into a final `recheck_before_projection`
+pass, which is useful when dynamic filters change while a morsel is in flight.
 
 ## Projection Pushdown
 
-Projection expressions describe the output schema of the scan. The scan analyzes the projection
-and filter expressions to compute two field masks: which columns are needed for filtering, and
-which are needed for the final output. Only the union of these columns is read from storage.
+Projection pushdown is expression pushdown through the `ScanPlan` tree. The scan prepares reads only
+for the requested output expressions, and each layout decides how much of its child tree those reads
+need.
 
-Columns needed exclusively for filtering are discarded after the filter mask is computed, so they
-never appear in the output stream. This separation ensures minimal data movement throughout the
-pipeline.
+For a struct layout, field access routes to the named child and avoids unrelated columns. For a
+chunked layout, the read is sliced by chunk and only overlapping chunks with demanded rows are
+visited. For a dictionary layout, values can be shared across row ranges while codes are read for
+the requested rows.
+
+## State and Caches
+
+The scan path uses several layers of state:
+
+- The segment source owns physical I/O, coalescing, segment caching, and in-flight segment
+  deduplication.
+- The expanded `ScanPlan` tree is immutable and safe to share.
+- `PrepareCtx` owns a prepared-state cache for scan/file-level state shared by prepared reads,
+  evidence, aggregate, and stats handles.
+- A layout plan can create child-local prepared-state caches so repeated pushes into the same child
+  share decoded dictionaries, zone tables, or other expensive setup without leaking state across
+  unrelated row domains.
+- Morsel tasks own only the row range and masks needed for that operation.
+
+When ordered scans advance, prepared reads and scan plans receive a release frontier. Layouts use
+that frontier to drop caches that only cover rows that cannot be read again.
 
 ## Query Engine Integration
 
-Query engines integrate with the Scan API by translating their internal plan representations into
-scan requests and consuming the resulting array stream in their preferred format. Integrations
-exist for DuckDB, DataFusion, Spark, and Trino, with each engine converting its native filter
-and projection representations into Vortex [expressions](expressions.md).
+Query engines translate their native expressions into Vortex expressions and submit a scan request.
+Vortex handles layout expansion, evidence, residual predicates, projection reads, and array
+production. Integrations then export the produced Vortex arrays to the engine's preferred batch
+format, such as Arrow `RecordBatch`es for DataFusion or DuckDB `DataChunk`s for DuckDB.

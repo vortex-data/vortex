@@ -26,6 +26,9 @@ pub(crate) use builder::aggregate_partials;
 use prost::Message;
 pub use schema::MAX_IS_TRUNCATED;
 pub use schema::MIN_IS_TRUNCATED;
+pub(crate) use schema::aggregate_fns_from_specs;
+pub(crate) use schema::aggregate_stats_table_dtype;
+pub(crate) use schema::legacy_stats_table_dtype;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -54,10 +57,7 @@ use crate::children::LayoutChildren;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::schema::AggregateSpecProto;
-use crate::layouts::zoned::schema::aggregate_fns_from_specs;
 use crate::layouts::zoned::schema::aggregate_specs_from_fns;
-use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
-use crate::layouts::zoned::schema::legacy_stats_table_dtype;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::vtable;
@@ -395,14 +395,14 @@ impl ZonedLayout {
 /// aggregate functions stored in the auxiliary stats-table child.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ZonedMetadata {
-    pub(super) zone_len: u32,
-    pub(super) aggregate_specs: Arc<[AggregateSpecProto]>,
+    pub(crate) zone_len: u32,
+    pub(crate) aggregate_specs: Arc<[AggregateSpecProto]>,
 }
 
 /// Serialized metadata for legacy `vortex.stats` layouts.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LegacyStatsMetadata {
-    pub(super) zone_len: u32,
+    pub(crate) zone_len: u32,
     pub(crate) zone_map_schema: ZoneMapSchema,
 }
 

@@ -299,7 +299,8 @@ impl VortexSessionDefault for VortexSession {
             .with::<AggregateFnSession>()
             .with::<ArrowSession>()
             .with::<MemorySession>()
-            .with::<RuntimeSession>();
+            .with::<RuntimeSession>()
+            .with::<vortex_scan::ScanSchedulerSession>();
 
         // `MultiFileSession` holds a `moka` cache whose clock reads `std::time::Instant::now()`
         // when constructed. `Instant` is unsupported on `wasm32` and panics with "time not

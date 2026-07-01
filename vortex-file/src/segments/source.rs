@@ -12,6 +12,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use futures::future;
+use tracing::Instrument;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -23,6 +24,7 @@ use vortex_io::VortexReadAt;
 use vortex_io::runtime::Handle;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
+use vortex_layout::segments::SegmentInfo;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
@@ -121,8 +123,15 @@ impl FileSegmentSource {
                 .map(move |req| {
                     let reader = reader.clone();
                     async move {
+                        let offset = req.offset();
+                        let len = req.len();
                         let result = reader
-                            .read_at(req.offset(), req.len(), req.alignment())
+                            .read_at(offset, len, req.alignment())
+                            .instrument(tracing::trace_span!(
+                                "vortex_segment_read",
+                                offset,
+                                len,
+                            ))
                             .await;
                         let result = result.and_then(|buffer| {
                             if req.len() != buffer.len() {
@@ -155,6 +164,13 @@ impl FileSegmentSource {
 }
 
 impl SegmentSource for FileSegmentSource {
+    fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
+        self.segments
+            .get(*id as usize)
+            .map(|spec| SegmentInfo::new(u64::from(spec.length)))
+            .ok_or_else(|| vortex_err!("Missing segment: {}", id))
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         // We eagerly register the read request here assuming the behaviour of [`FileSegmentSource`], where
         // coalescing becomes effective prior to the future being polled.
@@ -296,6 +312,13 @@ impl BufferSegmentSource {
 }
 
 impl SegmentSource for BufferSegmentSource {
+    fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
+        self.segments
+            .get(*id as usize)
+            .map(|spec| SegmentInfo::new(u64::from(spec.length)))
+            .ok_or_else(|| vortex_err!("Missing segment: {}", id))
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let spec = match self.segments.get(*id as usize) {
             Some(spec) => spec,

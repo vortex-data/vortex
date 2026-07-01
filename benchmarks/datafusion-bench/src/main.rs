@@ -27,8 +27,6 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
-use vortex::io::filesystem::FileSystemRef;
-use vortex::scan::DataSourceRef;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;
@@ -36,7 +34,6 @@ use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
-use vortex_bench::SESSION;
 use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
@@ -190,7 +187,7 @@ async fn main() -> anyhow::Result<()> {
                 async move {
                     let session = datafusion_bench::get_session_context();
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format).await?;
+                    register_benchmark_tables(&session, benchmark, format, show_metrics).await?;
                     Ok((session, format))
                 }
             },
@@ -246,99 +243,42 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn use_scan_api() -> bool {
-    std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1")
-}
-
 async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
+    _show_metrics: bool,
 ) -> anyhow::Result<()> {
-    match format {
-        Format::Arrow => register_arrow_tables(session, benchmark).await,
-        _ if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) => {
-            register_v2_tables(session, benchmark, format).await
-        }
-        _ => {
-            let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-            let file_format = format_to_df_format(format);
-
-            for table in benchmark.table_specs().iter() {
-                let pattern = benchmark.pattern(table.name, format);
-                let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?;
-
-                let listing_options = ListingOptions::new(Arc::clone(&file_format))
-                    .with_session_config_options(session.state().config());
-                let mut config =
-                    ListingTableConfig::new(table_url).with_listing_options(listing_options);
-
-                config = match table.schema.as_ref() {
-                    Some(schema) => config.with_schema(Arc::new(schema.clone())),
-                    None => config.infer_schema(&session.state()).await?,
-                };
-
-                let listing_table = Arc::new(
-                    ListingTable::try_new(config)?.with_cache(
-                        session
-                            .runtime_env()
-                            .cache_manager
-                            .get_file_statistic_cache(),
-                    ),
-                );
-
-                session.register_table(table.name, listing_table)?;
-            }
-
-            Ok(())
-        }
+    if matches!(format, Format::Arrow) {
+        return register_arrow_tables(session, benchmark).await;
     }
-}
-
-/// Register tables using the V2 `VortexTable` + `MultiFileDataSource` path.
-async fn register_v2_tables<B: Benchmark + ?Sized>(
-    session: &SessionContext,
-    benchmark: &B,
-    format: Format,
-) -> anyhow::Result<()> {
-    use vortex::file::multi::MultiFileDataSource;
-    use vortex::io::object_store::ObjectStoreFileSystem;
-    use vortex::io::session::RuntimeSessionExt;
-    use vortex::scan::DataSource as _;
-    use vortex_datafusion::v2::VortexTable;
 
     let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
+    let file_format = format_to_df_format(format)?;
 
     for table in benchmark.table_specs().iter() {
         let pattern = benchmark.pattern(table.name, format);
-        let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern.clone())?;
-        let store = session
-            .state()
-            .runtime_env()
-            .object_store(table_url.object_store())?;
+        let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?;
 
-        let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
-            Arc::clone(&store),
-            SESSION.handle(),
-        ));
-        let base_prefix = benchmark_base.path().trim_start_matches('/').to_string();
-        let fs = fs.with_prefix(base_prefix);
+        let listing_options = ListingOptions::new(Arc::clone(&file_format))
+            .with_session_config_options(session.state().config());
+        let mut config = ListingTableConfig::new(table_url).with_listing_options(listing_options);
 
-        let glob_pattern = match &pattern {
-            Some(p) => p.as_str().to_string(),
-            None => format!("*.{}", format.ext()),
+        config = match table.schema.as_ref() {
+            Some(schema) => config.with_schema(Arc::new(schema.clone())),
+            None => config.infer_schema(&session.state()).await?,
         };
 
-        let multi_ds = MultiFileDataSource::new(SESSION.clone())
-            .with_glob(glob_pattern, Some(fs))
-            .build()
-            .await?;
+        let listing_table = Arc::new(
+            ListingTable::try_new(config)?.with_cache(
+                session
+                    .runtime_env()
+                    .cache_manager
+                    .get_file_statistic_cache(),
+            ),
+        );
 
-        let arrow_schema = Arc::new(multi_ds.dtype().to_arrow_schema()?);
-        let data_source: DataSourceRef = Arc::new(multi_ds);
-
-        let table_provider = Arc::new(VortexTable::new(data_source, SESSION.clone(), arrow_schema));
-        session.register_table(table.name, table_provider)?;
+        session.register_table(table.name, listing_table)?;
     }
 
     Ok(())
@@ -439,7 +379,21 @@ pub async fn execute_query(
 
 /// Print Vortex metrics from execution plans.
 fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
+    // VORTEX_BENCH_FULL_PLAN=1 dumps the full per-operator annotated plan (DataFusion
+    // EXPLAIN ANALYZE-style: elapsed_compute / output_rows per operator), to localize where
+    // wall time goes (scan vs HashJoin build/probe vs aggregate).
+    let full_plan = std::env::var_os("VORTEX_BENCH_FULL_PLAN").is_some();
     for (query_idx, format, plan) in plans {
+        if full_plan {
+            eprintln!("=== annotated plan query={query_idx}, {format} ===");
+            eprintln!(
+                "{}",
+                datafusion_physical_plan::display::DisplayableExecutionPlan::with_metrics(
+                    plan.as_ref()
+                )
+                .indent(true)
+            );
+        }
         let metric_sets = VortexMetricsFinder::find_all(plan.as_ref());
         if metric_sets.is_empty() {
             continue;

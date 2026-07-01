@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::config::ConfigOptions;
 use datafusion_datasource::TableSchema;
@@ -31,7 +32,9 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexExpect;
 use vortex::file::VORTEX_FILE_EXTENSION;
+use vortex::file::VortexFile;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan::v2::scan2_enabled;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -198,6 +201,8 @@ pub struct VortexSource {
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Shared full-file natural split ranges keyed by path.
     natural_split_ranges: Arc<DashMap<Path, Arc<[Range<u64>]>>>,
+    /// Shared V2 file handles keyed by path.
+    vortex_files: Arc<DashMap<Path, Arc<VortexFile>>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     pub(crate) ordered: bool,
@@ -232,6 +237,7 @@ impl VortexSource {
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             natural_split_ranges: Arc::new(DashMap::default()),
+            vortex_files: Arc::new(DashMap::default()),
             expression_convertor,
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
@@ -348,11 +354,14 @@ impl VortexSource {
             .vortex_reader_factory
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(object_store)));
+        let scan_v2 =
+            scan2_enabled().map_err(|error| DataFusionError::External(Box::new(error)))?;
 
         let opener = VortexOpener {
             partition,
             session: self.session.clone(),
             vortex_reader_factory,
+            scan_v2,
             projection: self.projection.clone(),
             filter: self.vortex_predicate.clone(),
             file_pruning_predicate: self.full_predicate.clone(),
@@ -363,6 +372,7 @@ impl VortexSource {
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
             layout_readers: Arc::clone(&self.layout_readers),
             natural_split_ranges: Arc::clone(&self.natural_split_ranges),
+            vortex_files: Arc::clone(&self.vortex_files),
             has_output_ordering: !base_config.output_ordering.is_empty() || self.ordered,
             expression_convertor: Arc::clone(&self.expression_convertor),
             file_metadata_cache: self.file_metadata_cache.clone(),

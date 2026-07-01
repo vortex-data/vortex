@@ -104,6 +104,8 @@ pub mod multi;
 mod open;
 mod pruning;
 mod read;
+#[cfg(test)]
+mod scan_v1_v2_differential;
 /// Segment sources, caches, and sinks used by file readers and writers.
 pub mod segments;
 mod strategy;

@@ -15,6 +15,7 @@ use vortex_error::vortex_err;
 
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
+use crate::segments::SegmentInfo;
 use crate::segments::SegmentSink;
 use crate::segments::SegmentSource;
 use crate::sequence::SequenceId;
@@ -26,6 +27,14 @@ pub struct TestSegments {
 }
 
 impl SegmentSource for TestSegments {
+    fn segment_info(&self, id: SegmentId) -> VortexResult<SegmentInfo> {
+        self.segments
+            .lock()
+            .get(*id as usize)
+            .map(|segment| SegmentInfo::new(segment.len() as u64))
+            .ok_or_else(|| vortex_err!("Segment not found"))
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let buffer = self.segments.lock().get(*id as usize).cloned();
         async move {

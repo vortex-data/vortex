@@ -5,6 +5,7 @@
 
 use std::ffi::c_char;
 use std::ffi::c_void;
+use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::OnceLock;
 
@@ -14,6 +15,9 @@ use vortex::error::VortexResult;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::scan::ScanScheduler;
+use vortex::scan::ScanSchedulerConfig;
+use vortex::scan::ScanSchedulerSessionExt;
 use vortex::session::VortexSession;
 
 use crate::duckdb::Database;
@@ -41,8 +45,12 @@ mod e2e_test;
 
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+static SCAN_SCHEDULER: LazyLock<Arc<ScanScheduler>> =
+    LazyLock::new(|| Arc::new(ScanScheduler::new(ScanSchedulerConfig::duckdb_default())));
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = VortexSession::default().with_handle(RUNTIME.handle());
+    let session = VortexSession::default()
+        .with_handle(RUNTIME.handle())
+        .with_scan_scheduler(Arc::clone(&SCAN_SCHEDULER));
     vortex_geo::initialize(&session);
     session
 });

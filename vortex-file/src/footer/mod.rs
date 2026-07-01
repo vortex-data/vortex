@@ -13,7 +13,9 @@ mod file_statistics;
 mod postscript;
 mod segment;
 
+use std::fmt;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 mod serializer;
 pub use serializer::*;
@@ -34,6 +36,8 @@ use vortex_flatbuffers::footer as fb;
 use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
 use vortex_layout::layout_from_flatbuffer_with_options;
+use vortex_layout::layout_v2;
+use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
@@ -41,12 +45,68 @@ use vortex_session::registry::ReadContext;
 #[derive(Debug, Clone)]
 pub struct Footer {
     root_layout: LayoutRef,
+    root_layout2: Option<LazyLayout2>,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
     approx_byte_size: Option<usize>,
+}
+
+#[derive(Clone)]
+struct LazyLayout2 {
+    layout_bytes: FlatBuffer,
+    layout_read_ctx: ReadContext,
+    array_read_ctx: ReadContext,
+    root: Arc<OnceLock<layout_v2::LayoutRef>>,
+}
+
+impl LazyLayout2 {
+    fn new(
+        layout_bytes: FlatBuffer,
+        layout_read_ctx: ReadContext,
+        array_read_ctx: ReadContext,
+    ) -> Self {
+        Self {
+            layout_bytes,
+            layout_read_ctx,
+            array_read_ctx,
+            root: Arc::new(OnceLock::new()),
+        }
+    }
+
+    fn get(&self, dtype: &DType, session: &VortexSession) -> VortexResult<layout_v2::LayoutRef> {
+        if let Some(root) = self.root.get() {
+            return Ok(root.clone());
+        }
+
+        let root = layout_v2::layout_from_flatbuffer(
+            self.layout_bytes.clone(),
+            dtype,
+            &self.layout_read_ctx,
+            &self.array_read_ctx,
+            session.layouts().v2_registry(),
+            session,
+        )?;
+        if self.root.set(root.clone()).is_err()
+            && let Some(root) = self.root.get()
+        {
+            return Ok(root.clone());
+        }
+        Ok(root)
+    }
+}
+
+impl fmt::Debug for LazyLayout2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LazyLayout2")
+            .field("layout_bytes", &self.layout_bytes.len())
+            .field("layout_read_ctx", &self.layout_read_ctx)
+            .field("array_read_ctx", &self.array_read_ctx)
+            .field("initialized", &self.root.get().is_some())
+            .finish()
+    }
 }
 
 impl Footer {
@@ -58,6 +118,7 @@ impl Footer {
     ) -> Self {
         Self {
             root_layout,
+            root_layout2: None,
             segments,
             statistics,
             array_read_ctx,
@@ -102,13 +163,18 @@ impl Footer {
         let array_read_ctx = ReadContext::new(array_ids);
 
         let root_layout = layout_from_flatbuffer_with_options(
-            layout_bytes,
+            layout_bytes.clone(),
             &dtype,
             &layout_read_ctx,
             &array_read_ctx,
             session,
             session.allows_unknown(),
         )?;
+        let root_layout2 = LazyLayout2::new(
+            layout_bytes,
+            layout_read_ctx.clone(),
+            array_read_ctx.clone(),
+        );
 
         let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()
@@ -124,6 +190,7 @@ impl Footer {
 
         Ok(Self {
             root_layout,
+            root_layout2: Some(root_layout2),
             segments,
             statistics,
             array_read_ctx,
@@ -134,6 +201,14 @@ impl Footer {
     /// Returns the root [`LayoutRef`] of the file.
     pub fn layout(&self) -> &LayoutRef {
         &self.root_layout
+    }
+
+    /// Returns the lazily deserialized root v2 layout of the file, when available.
+    pub fn layout2(&self, session: &VortexSession) -> VortexResult<Option<layout_v2::LayoutRef>> {
+        self.root_layout2
+            .as_ref()
+            .map(|layout| layout.get(self.dtype(), session))
+            .transpose()
     }
 
     /// Returns the segment map of the file.
