@@ -190,6 +190,11 @@ impl PyDType {
         self.0.python_repr().to_string()
     }
 
+    /// Return whether this data type allows null values.
+    fn is_nullable(&self) -> bool {
+        self.0.is_nullable()
+    }
+
     /// Construct a Vortex data type from an Arrow data type.
     #[classmethod]
     #[pyo3(signature = (arrow_dtype, *, non_nullable = false))]
