@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { DetailPanel } from './DetailPanel';
+import { SwimlaneOverview } from './SwimlaneOverview';
 import { withMockFileContext, withMockSelection } from '../../storybook/decorators';
 import { ordersMock } from '../../mocks/layouts';
 import { generateSegments } from '../../mocks/segments';
@@ -18,31 +18,30 @@ const mockFileState: VortexFileState = {
   fileSize: 12_400_000,
   rowCount: 100_000,
   version: 1,
-  dtype: '{order_id=i64, ...}',
+  dtype:
+    '{order_id=i64, is_active=bool, customer={id=i64, name=utf8}, items=list<struct>, amount=f64, metadata=struct, status=utf8}',
   layoutTree: layout,
   segments,
   fileStructure,
 };
 
-const meta: Meta<typeof DetailPanel> = {
-  component: DetailPanel,
+const meta: Meta<typeof SwimlaneOverview> = {
+  component: SwimlaneOverview,
+  parameters: { layout: 'padded' },
   decorators: [
     withMockFileContext(mockFileState),
     withMockSelection(layout),
-    // DetailPanel fills its parent's height; give it a bounded flex container.
+    // The overview fills its parent's height; give it a bounded box like the panel
+    // it occupies in the app.
     (Story) => (
-      <div className="flex" style={{ height: 520 }}>
+      <div style={{ height: 240 }}>
         <Story />
       </div>
     ),
   ],
-  parameters: {
-    layout: 'padded',
-  },
 };
 export default meta;
 
-type Story = StoryObj<typeof DetailPanel>;
+type Story = StoryObj<typeof SwimlaneOverview>;
 
-/** No node selected — the panel shows its empty state. */
-export const NoSelection: Story = {};
+export const Default: Story = {};

@@ -195,10 +195,9 @@ mod tests {
 
     #[test]
     fn unknown_aggregate_fn_id_allow_unknown() {
-        let session = VortexSession::builder()
+        let session = VortexSession::empty()
             .with::<AggregateFnSession>()
-            .allow_unknown()
-            .build();
+            .allow_unknown();
 
         let proto = pb::AggregateFn {
             id: "vortex.test.foreign_aggregate".to_string(),

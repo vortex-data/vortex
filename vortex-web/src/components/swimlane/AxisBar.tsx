@@ -2,19 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useMemo } from 'react';
-import { formatRowCount } from './utils';
+import { formatBytes } from './utils';
 
 interface AxisBarProps {
-  totalRows: number;
+  totalBytes: number;
   swimlaneMinWidth: number;
-  rulerPosition: { x: number; row: number } | null;
+  rulerPosition: { x: number; byte: number } | null;
   scrollLeft: number;
   containerWidth: number;
   axisRef: React.RefObject<HTMLDivElement | null>;
 }
 
 export function AxisBar({
-  totalRows,
+  totalBytes,
   swimlaneMinWidth,
   rulerPosition,
   scrollLeft,
@@ -23,26 +23,28 @@ export function AxisBar({
 }: AxisBarProps) {
   const axisTicks = useMemo(() => {
     const ticks = [];
-    const step = totalRows / 5;
+    const step = totalBytes / 5;
     for (let i = 0; i <= 5; i++) {
       ticks.push(Math.round(i * step));
     }
     return ticks;
-  }, [totalRows]);
+  }, [totalBytes]);
 
   return (
-    <div className="flex-1 overflow-hidden relative">
+    // Reserve the same scrollbar gutter as the swimlane panel so the ticks stay
+    // aligned with the bars whether or not the vertical scrollbar is present.
+    <div className="flex-1 overflow-hidden relative" style={{ scrollbarGutter: 'stable' }}>
       <div ref={axisRef} className="relative h-[26px]" style={{ minWidth: swimlaneMinWidth }}>
         {axisTicks.map((tick) => (
           <div
             key={tick}
             className="absolute text-[9px] text-vortex-grey-dark top-1.5"
             style={{
-              left: `${(tick / totalRows) * 100}%`,
+              left: `${(tick / totalBytes) * 100}%`,
               transform: 'translateX(-50%)',
             }}
           >
-            {formatRowCount(tick)}
+            {formatBytes(tick)}
           </div>
         ))}
       </div>
@@ -54,7 +56,7 @@ export function AxisBar({
             left: Math.max(0, Math.min(rulerPosition.x - scrollLeft - 20, containerWidth - 50)),
           }}
         >
-          {formatRowCount(rulerPosition.row)}
+          {formatBytes(rulerPosition.byte)}
         </div>
       )}
     </div>

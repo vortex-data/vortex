@@ -64,7 +64,8 @@ pub fn layout_from_flatbuffer_with_options(
     session: &VortexSession,
     allow_unknown: bool,
 ) -> VortexResult<LayoutRef> {
-    let layouts = session.layouts().registry();
+    let layout_session = session.layouts();
+    let layouts = layout_session.registry();
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
     let encoding_id = layout_ctx
         .resolve(fb_layout.encoding())

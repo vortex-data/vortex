@@ -26,11 +26,10 @@ mod test {
     use vortex_session::VortexSession;
 
     pub(crate) static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        VortexSession::builder()
+        VortexSession::empty()
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<KernelSession>()
             .with::<AggregateFnSession>()
-            .build()
     });
 }

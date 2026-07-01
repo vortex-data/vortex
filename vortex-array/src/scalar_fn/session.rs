@@ -5,6 +5,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
@@ -95,7 +96,7 @@ impl SessionVar for ScalarFnSession {
 /// Extension trait for accessing scalar function session data.
 pub trait ScalarFnSessionExt: SessionExt {
     /// Returns the scalar function vtable registry.
-    fn scalar_fns(&self) -> &ScalarFnSession {
+    fn scalar_fns(&self) -> SessionGuard<'_, ScalarFnSession> {
         self.get::<ScalarFnSession>()
     }
 }

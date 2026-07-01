@@ -5,6 +5,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 
 use crate::aggregate_fn::AggregateFnId;
@@ -221,7 +222,7 @@ impl AggregateFnSession {
 /// Extension trait for accessing aggregate function session data.
 pub trait AggregateFnSessionExt: SessionExt {
     /// Returns the aggregate function session data.
-    fn aggregate_fns(&self) -> &AggregateFnSession {
+    fn aggregate_fns(&self) -> SessionGuard<'_, AggregateFnSession> {
         self.get::<AggregateFnSession>()
     }
 }
