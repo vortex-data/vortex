@@ -434,13 +434,8 @@ impl BitBuffer {
     /// (whose per-`next` iterator state does not inline as well).
     #[inline]
     pub fn for_each_set_index<F: FnMut(usize)>(&self, mut f: F) {
-        let chunks = self.chunks();
-        // `remainder_bits` zero-pads above the logical length, so every set bit it
-        // reports is in-bounds and it is never all-ones (so the all-set fast path
-        // below is only ever taken for genuine full words).
-        let remainder = chunks.remainder_bits();
         let mut base = 0usize;
-        for word in chunks.iter().chain(std::iter::once(remainder)) {
+        for word in self.chunks().iter_padded() {
             if word == u64::MAX {
                 for k in 0..64 {
                     f(base + k);
