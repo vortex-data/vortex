@@ -628,23 +628,24 @@ impl Mask {
     /// Given monotonically increasing `indices` in [0, n_rows], returns the
     /// count of valid elements up to each index.
     ///
-    /// This is O(n_rows).
+    /// This is O(n_rows), but the per-gap counts are computed with a SIMD
+    /// popcount over the underlying bit buffer rather than walking bit-by-bit.
     pub fn valid_counts_for_indices(&self, indices: &[usize]) -> Vec<usize> {
         match self {
             Self::AllTrue(_) => indices.to_vec(),
             Self::AllFalse(_) => vec![0; indices.len()],
             Self::Values(values) => {
-                let mut bool_iter = values.bit_buffer().iter();
+                let buffer = values.bit_buffer();
                 let mut valid_counts = Vec::with_capacity(indices.len());
                 let mut valid_count = 0;
-                let mut idx = 0;
+                let mut prev = 0;
                 for &next_idx in indices {
-                    while idx < next_idx {
-                        idx += 1;
-                        valid_count += bool_iter
-                            .next()
-                            .unwrap_or_else(|| vortex_panic!("Row indices exceed array length"))
-                            as usize;
+                    assert!(next_idx <= buffer.len(), "Row indices exceed array length");
+                    // `indices` is monotonically increasing, so each gap is counted once;
+                    // the total work across all gaps scans the prefix `[0, last_idx)` once.
+                    if next_idx > prev {
+                        valid_count += buffer.count_range(prev, next_idx);
+                        prev = next_idx;
                     }
                     valid_counts.push(valid_count);
                 }
@@ -779,7 +780,10 @@ impl MaskValues {
             }
 
             let mut indices = Vec::with_capacity(self.true_count);
-            indices.extend(self.buffer.set_indices());
+            // Word-at-a-time set-bit walk; faster than collecting `set_indices()`,
+            // whose per-`next` iterator state inlines less well (see
+            // `vortex-mask/benches/mask_iteration.rs`).
+            self.buffer.for_each_set_index(|i| indices.push(i));
             debug_assert!(indices.is_sorted());
             assert_eq!(indices.len(), self.true_count);
             indices
