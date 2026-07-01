@@ -27,7 +27,6 @@ use spatialbench_parquet::format::KeyValue;
 use tokio::fs::File as TokioFile;
 use tokio::process::Command;
 use tracing::info;
-use tracing::warn;
 
 use super::table::Table;
 use crate::Format;
@@ -114,16 +113,8 @@ pub async fn generate_tables(scale_factor: &str, output_dir: PathBuf) -> Result<
     }
 
     // `zone` isn't generated in-process (`Table::is_generated` is false); it comes from the upstream
-    // CLI. Best-effort: a missing/failed CLI shouldn't block the zone-free queries, so warn and
-    // carry on.
-    if let Err(e) = generate_zone(scale_factor, &parquet_dir).await {
-        warn!(
-            error = %e,
-            "zone table not generated — SpatialBench queries Q2/Q4/Q6/Q10/Q11 need it. Install the \
-             upstream generator (`cargo install --path <sedona-spatialbench>/spatialbench-cli`) or \
-             set SPATIALBENCH_CLI to its binary, then re-run."
-        );
-    }
+    // `spatialbench-cli` (install it, or set `SPATIALBENCH_CLI` to its binary).
+    generate_zone(scale_factor, &parquet_dir).await?;
 
     Ok(())
 }
