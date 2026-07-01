@@ -37,6 +37,7 @@ use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -51,6 +52,7 @@ use super::coordinate::coordinate_from_struct;
 use super::coordinate::coordinate_storage_dtype;
 use super::geo_metadata_from_arrow;
 use super::geoarrow_metadata;
+use super::geoarrow_to_wkb;
 
 /// A single location: `geoarrow.point`, stored as `Struct<x, y[, z][, m]>` of non-nullable `f64`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
@@ -97,20 +99,46 @@ fn point_type(geo_metadata: &GeoMetadata, dimension: Dimension) -> PointType {
     PointType::new(dimension.into(), geoarrow_metadata(geo_metadata))
 }
 
-/// Decode `Point` storage to `geo_types` points, for the geo scalar functions.
-pub(crate) fn point_geometries(
-    storage: &ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Vec<Geometry<f64>>> {
+pub struct PointData(ExtensionArray);
+
+impl TryFrom<ExtensionArray> for PointData {
+    type Error = VortexError;
+
+    fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
+        vortex_ensure!(
+            ext.ext_dtype().is::<Point>(),
+            "expected a Point extension array"
+        );
+        Ok(PointData(ext))
+    }
+}
+
+impl PointData {
+    /// Serialize points to WKB (a view array) — the form DuckDB `GEOMETRY` takes.
+    pub fn to_wkb(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        geoarrow_to_wkb(&point_array(self.0.storage_array(), ctx)?)
+    }
+}
+
+/// Build a geoarrow `PointArray` from a `Point`'s `Struct<x, y[, ..]>` storage, shared by WKB export
+/// and `geo_types` decoding.
+fn point_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PointArray> {
     let point_type = point_type(
         &GeoMetadata::default(),
         coordinate_dimension(storage.dtype())?,
     );
     let session = ctx.session().clone();
     let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
-    let points = PointArray::try_from((arrow.as_ref(), point_type))
-        .map_err(|e| vortex_err!("failed to construct PointArray: {e}"))?;
-    points
+    PointArray::try_from((arrow.as_ref(), point_type))
+        .map_err(|e| vortex_err!("failed to construct PointArray: {e}"))
+}
+
+/// Decode `Point` storage to `geo_types` points, for the geo scalar functions.
+pub(crate) fn point_geometries(
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<Geometry<f64>>> {
+    point_array(storage, ctx)?
         .iter()
         .map(|geometry| -> VortexResult<Geometry<f64>> {
             Ok(geometry

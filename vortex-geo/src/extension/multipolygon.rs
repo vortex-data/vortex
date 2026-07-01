@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`Polygon`] geometry extension type (`vortex.geo.polygon`): rings of the
-//! [`Point`](super::Point) coordinate struct, stored as `List<List<Struct<x, y[, z][, m]>>>` and tagged with
-//! [`GeoMetadata`] (CRS). The first ring is the exterior boundary; the rest are holes.
+//! The [`MultiPolygon`] extension type (`vortex.geo.multipolygon`), stored as
+//! `List<List<List<Struct<x, y[, z][, m]>>>>` (polygons → rings → coordinates) and tagged with
+//! [`GeoMetadata`]. A single `Polygon` is a one-element multipolygon.
 
 use std::sync::Arc;
 
@@ -15,9 +15,9 @@ use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::Geometry;
 use geoarrow::array::GeoArrowArrayAccessor;
 use geoarrow::array::IntoArrow;
-use geoarrow::array::PolygonArray;
+use geoarrow::array::MultiPolygonArray;
 use geoarrow::datatypes::CoordType;
-use geoarrow::datatypes::PolygonType;
+use geoarrow::datatypes::MultiPolygonType;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -54,17 +54,17 @@ use super::geo_metadata_from_arrow;
 use super::geoarrow_metadata;
 use super::geoarrow_to_wkb;
 
-/// A polygon: `geoarrow.polygon`, stored as `List<List<Struct<x, y[, z][, m]>>>` (rings of vertices).
+/// A multipolygon (`geoarrow.multipolygon`); a single `Polygon` is a one-element multipolygon.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub struct Polygon;
+pub struct MultiPolygon;
 
-impl ExtVTable for Polygon {
+impl ExtVTable for MultiPolygon {
     type Metadata = GeoMetadata;
     // No cheap owned value like Point's `Coordinate`; expose the raw storage scalar.
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        static ID: CachedId = CachedId::new("vortex.geo.polygon");
+        static ID: CachedId = CachedId::new("vortex.geo.multipolygon");
         *ID
     }
 
@@ -77,7 +77,7 @@ impl ExtVTable for Polygon {
     }
 
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        polygon_dimension(ext_dtype.storage_dtype()).map(|_| ())
+        multipolygon_dimension(ext_dtype.storage_dtype()).map(|_| ())
     }
 
     fn unpack_native<'a>(
@@ -88,39 +88,41 @@ impl ExtVTable for Polygon {
     }
 }
 
-/// Canonical polygon storage: an outer list of rings, each a list of the coordinate `Struct`.
-pub(crate) fn polygon_storage_dtype(dim: Dimension, nullability: Nullability) -> DType {
+/// Storage `List<List<List<Struct>>>`: polygons → rings → coordinates.
+pub(crate) fn multipolygon_storage_dtype(dim: Dimension, nullability: Nullability) -> DType {
     let coords = coordinate_storage_dtype(dim, Nullability::NonNullable);
     let ring = DType::List(Arc::new(coords), Nullability::NonNullable);
-    DType::List(Arc::new(ring), nullability)
+    let polygon = DType::List(Arc::new(ring), Nullability::NonNullable);
+    DType::List(Arc::new(polygon), nullability)
 }
 
-/// Validate `dtype` is `List<List<coordinate-struct>>` and return its [`Dimension`].
-pub(crate) fn polygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
-    let DType::List(ring, _) = dtype else {
-        vortex_bail!("polygon storage must be a List of rings, was {dtype}");
+/// Validate `dtype` is `List<List<List<coordinate-struct>>>` and return its [`Dimension`].
+pub(crate) fn multipolygon_dimension(dtype: &DType) -> VortexResult<Dimension> {
+    let DType::List(polygon, _) = dtype else {
+        vortex_bail!("multipolygon storage must be a List of polygons, was {dtype}");
+    };
+    let DType::List(ring, _) = polygon.as_ref() else {
+        vortex_bail!("multipolygon polygon storage must be a List of rings, was {polygon}");
     };
     let DType::List(coords, _) = ring.as_ref() else {
-        vortex_bail!("polygon ring storage must be a List of coordinates, was {ring}");
+        vortex_bail!("multipolygon ring storage must be a List of coordinates, was {ring}");
     };
     coordinate_dimension(coords)
 }
 
-static ARROW_POLYGON: CachedId = CachedId::new(PolygonType::NAME);
+static ARROW_MULTIPOLYGON: CachedId = CachedId::new(MultiPolygonType::NAME);
 
-/// The `geoarrow.polygon` extension type for `dimension`, with separated (struct) coordinates
-/// matching `Polygon` storage.
-fn polygon_type(geo_metadata: &GeoMetadata, dimension: Dimension) -> PolygonType {
-    PolygonType::new(dimension.into(), geoarrow_metadata(geo_metadata))
+/// The `geoarrow.multipolygon` type for `dimension`, with separated (struct) coordinates.
+fn multipolygon_type(geo_metadata: &GeoMetadata, dimension: Dimension) -> MultiPolygonType {
+    MultiPolygonType::new(dimension.into(), geoarrow_metadata(geo_metadata))
 }
 
-/// Decode `Polygon` storage (`List<List<coordinate>>`) to `geo_types` polygons, for the geo scalar
-/// functions. CRS does not affect planar geometry ops, so default metadata is used.
-pub(crate) fn polygon_geometries(
+/// Decode storage to `geo_types` for the geo scalar functions (CRS is irrelevant to planar ops).
+pub(crate) fn multipolygon_geometries(
     storage: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Vec<Geometry<f64>>> {
-    polygon_array(storage, ctx)?
+    multipolygon_array(storage, ctx)?
         .iter()
         .map(|geometry| -> VortexResult<Geometry<f64>> {
             Ok(geometry
@@ -131,40 +133,46 @@ pub(crate) fn polygon_geometries(
         .collect()
 }
 
-/// Build a geoarrow `PolygonArray` from a `Polygon`'s `List<List<coordinate>>` storage.
-fn polygon_array(storage: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PolygonArray> {
-    let polygon_type = polygon_type(&GeoMetadata::default(), polygon_dimension(storage.dtype())?);
+/// Build a geoarrow `MultiPolygonArray` from the `MultiPolygon` storage.
+fn multipolygon_array(
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<MultiPolygonArray> {
+    let multipolygon_type = multipolygon_type(
+        &GeoMetadata::default(),
+        multipolygon_dimension(storage.dtype())?,
+    );
     let session = ctx.session().clone();
     let arrow = session.arrow().execute_arrow(storage.clone(), None, ctx)?;
-    PolygonArray::try_from((arrow.as_ref(), polygon_type))
-        .map_err(|e| vortex_err!("failed to construct PolygonArray: {e}"))
+    MultiPolygonArray::try_from((arrow.as_ref(), multipolygon_type))
+        .map_err(|e| vortex_err!("failed to construct MultiPolygonArray: {e}"))
 }
 
-/// A validated `Polygon` array (`try_from` checks the extension type).
-pub struct PolygonData(ExtensionArray);
+/// A validated `MultiPolygon` array (`try_from` checks the extension type).
+pub struct MultiPolygonData(ExtensionArray);
 
-impl TryFrom<ExtensionArray> for PolygonData {
+impl TryFrom<ExtensionArray> for MultiPolygonData {
     type Error = VortexError;
 
     fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
         vortex_ensure!(
-            ext.ext_dtype().is::<Polygon>(),
-            "expected a Polygon extension array"
+            ext.ext_dtype().is::<MultiPolygon>(),
+            "expected a MultiPolygon extension array"
         );
-        Ok(PolygonData(ext))
+        Ok(MultiPolygonData(ext))
     }
 }
 
-impl PolygonData {
-    /// Serialize polygons to WKB (a view array) — the form DuckDB `GEOMETRY` takes.
+impl MultiPolygonData {
+    /// Serialize multipolygons to WKB (a view array) — the form DuckDB `GEOMETRY` takes.
     pub fn to_wkb(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        geoarrow_to_wkb(&polygon_array(self.0.storage_array(), ctx)?)
+        geoarrow_to_wkb(&multipolygon_array(self.0.storage_array(), ctx)?)
     }
 }
 
-impl ArrowExportVTable for Polygon {
+impl ArrowExportVTable for MultiPolygon {
     fn arrow_ext_id(&self) -> Id {
-        *ARROW_POLYGON
+        *ARROW_MULTIPOLYGON
     }
 
     fn vortex_id(&self) -> Id {
@@ -178,11 +186,11 @@ impl ArrowExportVTable for Polygon {
         session: &ArrowSession,
     ) -> VortexResult<Option<Field>> {
         let ext_type = dtype.as_extension();
-        let geo_metadata = ext_type.metadata::<Polygon>();
-        let dimension = polygon_dimension(ext_type.storage_dtype())?;
+        let geo_metadata = ext_type.metadata::<MultiPolygon>();
+        let dimension = multipolygon_dimension(ext_type.storage_dtype())?;
 
         let mut field = session.to_arrow_field(name, ext_type.storage_dtype())?;
-        field.try_with_extension_type(polygon_type(geo_metadata, dimension))?;
+        field.try_with_extension_type(multipolygon_type(geo_metadata, dimension))?;
 
         Ok(Some(field))
     }
@@ -193,19 +201,19 @@ impl ArrowExportVTable for Polygon {
         target: &Field,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowExport> {
-        let is_polygon = array
+        let is_multipolygon = array
             .dtype()
             .as_extension_opt()
-            .map(|ext| ext.is::<Polygon>())
+            .map(|ext| ext.is::<MultiPolygon>())
             .unwrap_or(false);
-        if !is_polygon {
+        if !is_multipolygon {
             return Ok(ArrowExport::Unsupported(array));
         }
 
-        let Ok(polygon_meta) = target.try_extension_type::<PolygonType>() else {
+        let Ok(multipolygon_meta) = target.try_extension_type::<MultiPolygonType>() else {
             return Ok(ArrowExport::Unsupported(array));
         };
-        if polygon_meta.coord_type() != CoordType::Separated {
+        if multipolygon_meta.coord_type() != CoordType::Separated {
             return Ok(ArrowExport::Unsupported(array));
         }
 
@@ -222,43 +230,43 @@ impl ArrowExportVTable for Polygon {
             .arrow()
             .execute_arrow(storage, Some(&storage_field), ctx)?;
 
-        // Round-trip through GeoArrow's polygon array; `into_arrow` is concrete, so wrap in `Arc`.
-        let polygons = PolygonArray::try_from((arrow_storage.as_ref(), polygon_meta))
-            .map_err(|e| vortex_err!("failed to construct PolygonArray: {e}"))?;
+        let multipolygons =
+            MultiPolygonArray::try_from((arrow_storage.as_ref(), multipolygon_meta))
+                .map_err(|e| vortex_err!("failed to construct MultiPolygonArray: {e}"))?;
 
-        Ok(ArrowExport::Exported(Arc::new(polygons.into_arrow())))
+        Ok(ArrowExport::Exported(Arc::new(multipolygons.into_arrow())))
     }
 }
 
-impl ArrowImportVTable for Polygon {
+impl ArrowImportVTable for MultiPolygon {
     fn arrow_ext_id(&self) -> Id {
-        *ARROW_POLYGON
+        *ARROW_MULTIPOLYGON
     }
 
-    /// Import a `geoarrow.polygon` field as the [`Polygon`] dtype. Keyed off the standard GeoArrow
-    /// name, so any producer (DataFusion, DuckDB, geoarrow-rs, …) resolves here. Accepts the full
-    /// `PolygonType` extension, or — for a metadata-less geometry literal — the name alone, inferring
-    /// the dimension from the coordinate field names.
+    /// Import a `geoarrow.multipolygon` field (matched by GeoArrow name). Accepts the full
+    /// `MultiPolygonType`, or a metadata-less literal (name only), inferring the dimension.
     fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
         let (dimension, metadata) =
-            if let Ok(polygon_meta) = field.try_extension_type::<PolygonType>() {
+            if let Ok(multipolygon_meta) = field.try_extension_type::<MultiPolygonType>() {
                 vortex_ensure!(
-                    polygon_meta.coord_type() == CoordType::Separated,
-                    "geoarrow.polygon with interleaved coordinates is not supported; \
+                    multipolygon_meta.coord_type() == CoordType::Separated,
+                    "geoarrow.multipolygon with interleaved coordinates is not supported; \
                  re-encode with separated (struct) coordinates"
                 );
                 (
-                    polygon_meta.dimension().into(),
-                    geo_metadata_from_arrow(polygon_meta.metadata()),
+                    multipolygon_meta.dimension().into(),
+                    geo_metadata_from_arrow(multipolygon_meta.metadata()),
                 )
             } else {
-                // Infer the dimension from the field names, not the canonical storage check: a literal's
-                // coordinate fields may be nullable, which that check rejects. Peel the two `List` layers
-                // (polygon → rings → coordinates) to reach the struct.
-                if field.extension_type_name() != Some(PolygonType::NAME) {
+                // Literal: peel the three `List` layers to the coordinate struct and read its
+                // dimension from the field names (the canonical check rejects nullable coordinates).
+                if field.extension_type_name() != Some(MultiPolygonType::NAME) {
                     return Ok(None);
                 }
-                let DType::List(ring, _) = DType::from_arrow(field) else {
+                let DType::List(polygon, _) = DType::from_arrow(field) else {
+                    return Ok(None);
+                };
+                let DType::List(ring, _) = polygon.as_ref() else {
                     return Ok(None);
                 };
                 let DType::List(coords, _) = ring.as_ref() else {
@@ -273,9 +281,9 @@ impl ArrowImportVTable for Polygon {
                 (dimension, GeoMetadata::default())
             };
 
-        let storage_dtype = polygon_storage_dtype(dimension, field.is_nullable().into());
+        let storage_dtype = multipolygon_storage_dtype(dimension, field.is_nullable().into());
         Ok(Some(DType::Extension(
-            ExtDType::try_with_vtable(Polygon, metadata, storage_dtype)?.erased(),
+            ExtDType::try_with_vtable(MultiPolygon, metadata, storage_dtype)?.erased(),
         )))
     }
 
@@ -288,8 +296,8 @@ impl ArrowImportVTable for Polygon {
         let Some(ext_dtype) = dtype.as_extension_opt() else {
             return Ok(ArrowImport::Unsupported(array));
         };
-        if !ext_dtype.is::<Polygon>()
-            || field.try_extension_type::<PolygonType>().is_err()
+        if !ext_dtype.is::<MultiPolygon>()
+            || field.try_extension_type::<MultiPolygonType>().is_err()
             || !matches!(array.data_type(), DataType::List(_))
         {
             return Ok(ArrowImport::Unsupported(array));
@@ -313,8 +321,8 @@ mod tests {
     use vortex_array::dtype::extension::ExtDType;
     use vortex_error::VortexResult;
 
-    use super::Polygon;
-    use super::polygon_storage_dtype;
+    use super::MultiPolygon;
+    use super::multipolygon_storage_dtype;
     use crate::extension::GeoMetadata;
     use crate::extension::coordinate::Dimension;
     use crate::extension::coordinate::coordinate_storage_dtype;
@@ -325,29 +333,31 @@ mod tests {
         }
     }
 
-    /// `Polygon` accepts the canonical `List<List<coordinate-struct>>` storage of every dimension.
+    /// `MultiPolygon` accepts the canonical `List<List<List<coordinate-struct>>>` storage of every
+    /// dimension.
     #[rstest]
     #[case::xy(Dimension::Xy)]
     #[case::xyz(Dimension::Xyz)]
     #[case::xym(Dimension::Xym)]
     #[case::xyzm(Dimension::Xyzm)]
-    fn polygon_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
-        let storage = polygon_storage_dtype(dim, Nullability::NonNullable);
-        ExtDType::<Polygon>::try_new(geo_meta(), storage)?;
+    fn multipolygon_validates_every_dimension(#[case] dim: Dimension) -> VortexResult<()> {
+        let storage = multipolygon_storage_dtype(dim, Nullability::NonNullable);
+        ExtDType::<MultiPolygon>::try_new(geo_meta(), storage)?;
         Ok(())
     }
 
-    /// Non-polygon storage is rejected at dtype construction: a bare struct (point) and a single
-    /// list (linestring) both fail.
+    /// Non-multipolygon storage is rejected at dtype construction: a bare struct (point) and a
+    /// double list (polygon) both fail.
     #[test]
-    fn polygon_rejects_invalid_storage() -> VortexResult<()> {
+    fn multipolygon_rejects_invalid_storage() -> VortexResult<()> {
         let primitive = DType::Primitive(PType::F64, Nullability::NonNullable);
-        assert!(ExtDType::<Polygon>::try_new(geo_meta(), primitive).is_err());
+        assert!(ExtDType::<MultiPolygon>::try_new(geo_meta(), primitive).is_err());
 
-        // A single list of coordinates is a LineString, not a Polygon.
+        // A double list (polygon) is not a multipolygon.
         let coords = coordinate_storage_dtype(Dimension::Xy, Nullability::NonNullable);
-        let line = DType::List(Arc::new(coords), Nullability::NonNullable);
-        assert!(ExtDType::<Polygon>::try_new(geo_meta(), line).is_err());
+        let ring = DType::List(Arc::new(coords), Nullability::NonNullable);
+        let polygon = DType::List(Arc::new(ring), Nullability::NonNullable);
+        assert!(ExtDType::<MultiPolygon>::try_new(geo_meta(), polygon).is_err());
         Ok(())
     }
 }
