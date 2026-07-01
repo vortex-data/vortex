@@ -10169,6 +10169,7 @@ dependencies = [
  "num-traits",
  "prost 0.14.4",
  "rstest",
+ "seq-macro",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
