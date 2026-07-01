@@ -48,47 +48,32 @@ impl fmt::Display for FilterBenchArgs {
 
 const FILTER_ARGS: &[FilterBenchArgs] = &[
     FilterBenchArgs {
-        length: 16_384,
+        length: 4_096,
         run_length: 16,
         density: 0.1,
     },
     FilterBenchArgs {
-        length: 16_384,
+        length: 4_096,
         run_length: 16,
         density: 0.5,
     },
     FilterBenchArgs {
-        length: 16_384,
+        length: 4_096,
         run_length: 16,
         density: 0.9,
     },
     FilterBenchArgs {
-        length: 262_144,
+        length: 16_384,
         run_length: 16,
         density: 0.1,
     },
     FilterBenchArgs {
-        length: 262_144,
+        length: 16_384,
         run_length: 16,
         density: 0.5,
     },
     FilterBenchArgs {
-        length: 262_144,
-        run_length: 16,
-        density: 0.9,
-    },
-    FilterBenchArgs {
-        length: 1_048_576,
-        run_length: 16,
-        density: 0.1,
-    },
-    FilterBenchArgs {
-        length: 1_048_576,
-        run_length: 16,
-        density: 0.5,
-    },
-    FilterBenchArgs {
-        length: 1_048_576,
+        length: 16_384,
         run_length: 16,
         density: 0.9,
     },

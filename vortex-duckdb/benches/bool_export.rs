@@ -19,7 +19,7 @@ fn main() {
     divan::main();
 }
 
-const SIZES: &[usize] = &[1024, 16_384, 262_144];
+const SIZES: &[usize] = &[1024, 16_384];
 
 /// Bit densities (true ratio), expressed as `(numerator, denominator)`.
 const DENSITIES: &[(usize, usize)] = &[(1, 2), (1, 10), (9, 10)];
