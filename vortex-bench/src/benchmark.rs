@@ -43,8 +43,8 @@ pub trait Benchmark: Send + Sync {
     /// This is the canonical source data that can be converted to other formats.
     /// This should be idempotent - safe to call multiple times.
     ///
-    /// Format-specific benchmark binaries (like lance-bench, datafusion-bench, duckdb-bench) should
-    /// call this method to ensure base data exists, then perform their own format conversion.
+    /// The `data-gen` binary calls this method before creating requested derived formats.
+    /// Engine-specific benchmark binaries should only run against prepared data.
     async fn generate_base_data(&self) -> anyhow::Result<()>;
 
     /// Get expected row counts for validation (optional)

@@ -31,16 +31,15 @@ use vortex::io::filesystem::FileSystemRef;
 use vortex::scan::DataSourceRef;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
-use vortex_bench::CompactionStrategy;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
 use vortex_bench::SESSION;
-use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
+use vortex_bench::require_prepared_data;
 use vortex_bench::runner::BenchmarkMode;
 use vortex_bench::runner::BenchmarkQueryResult;
 use vortex_bench::runner::SqlBenchmarkRunner;
@@ -131,29 +130,7 @@ async fn main() -> anyhow::Result<()> {
         args.exclude_queries.as_ref(),
     );
 
-    // Generate Vortex files from Parquet for any Vortex formats requested
-    if benchmark.data_url().scheme() == "file" {
-        benchmark.generate_base_data().await?;
-
-        let base_path = benchmark
-            .data_url()
-            .to_file_path()
-            .map_err(|_| anyhow::anyhow!("Invalid file URL: {}", benchmark.data_url()))?;
-
-        for format in args.formats.iter() {
-            match format {
-                Format::OnDiskVortex => {
-                    convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Default)
-                        .await?;
-                }
-                Format::VortexCompact => {
-                    convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact)
-                        .await?;
-                }
-                _ => {}
-            }
-        }
-    }
+    require_prepared_data(&*benchmark, &args.formats)?;
 
     let benchmark_name = benchmark.dataset().to_string();
 
