@@ -19,7 +19,7 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::{legacy_session, ArrayRef};
+use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -35,6 +35,7 @@ use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
+use crate::legacy_session;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
@@ -987,7 +988,10 @@ impl Patches {
 /// # Returns
 /// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
 /// with the insertion point if not found.
-fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
+fn search_index_binary_search(
+    indices: &ArrayRef,
+    needle: usize,
+) -> VortexResult<SearchResult> {
     if let Some(primitive) = indices.as_opt::<Primitive>() {
         match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
             let Ok(needle) = T::try_from(needle) else {
@@ -1006,6 +1010,7 @@ fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult
     search_index_binary_search_scalar(indices, needle)
 }
 
+#[allow(clippy::disallowed_methods)]
 fn search_index_binary_search_scalar(
     indices: &ArrayRef,
     needle: usize,
