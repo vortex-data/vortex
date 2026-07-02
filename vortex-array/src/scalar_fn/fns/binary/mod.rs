@@ -3,6 +3,10 @@
 
 use std::fmt::Formatter;
 
+#[expect(deprecated)]
+pub use boolean::and_kleene;
+#[expect(deprecated)]
+pub use boolean::or_kleene;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
