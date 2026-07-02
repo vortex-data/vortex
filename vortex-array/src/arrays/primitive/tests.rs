@@ -20,8 +20,8 @@ use crate::compute::conformance::search_sorted::*;
 use crate::executor::VortexSessionExecute;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
+use crate::search_sorted::SearchSortedPrimitiveArray;
 use crate::search_sorted::SearchSortedSide;
-use crate::search_sorted::TypedPrimitiveArray;
 use crate::validity::Validity;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
@@ -33,7 +33,7 @@ fn test_search_sorted_primitive(
     #[case] side: SearchSortedSide,
     #[case] expected: SearchResult,
 ) {
-    let res = TypedPrimitiveArray::<i32>::new(&array, &mut SESSION.create_execution_ctx())
+    let res = SearchSortedPrimitiveArray::<i32>::new(&array, &mut SESSION.create_execution_ctx())
         .search_sorted(&value, side)
         .vortex_expect("Failed to search sorted");
     assert_eq!(res, expected);

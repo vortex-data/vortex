@@ -39,8 +39,8 @@ use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
+use crate::search_sorted::SearchSortedPrimitiveArray;
 use crate::search_sorted::SearchSortedSide;
-use crate::search_sorted::TypedPrimitiveArray;
 use crate::validity::Validity;
 
 /// One patch index offset is stored for each chunk.
@@ -1012,7 +1012,7 @@ fn search_index_binary_search_scalar(
     needle: usize,
 ) -> VortexResult<SearchResult> {
     match_each_unsigned_integer_ptype!(indices.dtype().as_ptype(), |T| {
-            TypedPrimitiveArray::<T>::new(indices, &mut LEGACY_SESSION.create_execution_ctx())
+            SearchSortedPrimitiveArray::<T>::new(indices, &mut LEGACY_SESSION.create_execution_ctx())
                 .search_sorted(&needle, SearchSortedSide::Left)
                 .map_err(|_| vortex_err!("indices must be a primitive array"))
         })

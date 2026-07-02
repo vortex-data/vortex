@@ -8,8 +8,8 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
+use vortex_array::search_sorted::SearchSortedPrimitiveArray;
 use vortex_array::search_sorted::SearchSortedSide;
-use vortex_array::search_sorted::TypedPrimitiveArray;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
@@ -38,7 +38,7 @@ pub(crate) fn find_slice_end_index(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<usize> {
     let result = match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
-        TypedPrimitiveArray::<T>::new(array, ctx).search_sorted(&index, SearchSortedSide::Right)?
+        SearchSortedPrimitiveArray::<T>::new(array, ctx).search_sorted(&index, SearchSortedSide::Right)?
     });
     Ok(match result {
         SearchResult::Found(i) => i,
@@ -58,7 +58,7 @@ pub(crate) fn find_physical_index(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<usize> {
     match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
-        Ok(TypedPrimitiveArray::<T>::new(array, ctx)
+        Ok(SearchSortedPrimitiveArray::<T>::new(array, ctx)
             .search_sorted(&index, SearchSortedSide::Right)?
             .to_ends_index(array.len()))
     })
