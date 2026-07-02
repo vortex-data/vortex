@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #include "duckdb/catalog/catalog.hpp"
+#include "duckdb/catalog/catalog_entry/scalar_function_catalog_entry.hpp"
+#include "duckdb/common/string_util.hpp"
+#include "duckdb/function/function_binder.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
 #include "scalar_fn_pushdown.hpp"
 #include "table_function.hpp"
@@ -230,4 +233,48 @@ ScalarFnReplace::ScalarFnReplace(Analyses &analyses, const Projections &projecti
 
 TableColumnStorageIndex GetAnalysis::StorageIndex(TableColumnScanIndex idx) const {
     return get.GetColumnIds()[idx].GetPrimaryIndex();
+}
+
+namespace {
+
+// See RestoreStDWithin: rebinding through spatial's own entry lets spatial build its own bind
+// data, so nothing here depends on its internals.
+class StDWithinRestore final : public LogicalOperatorVisitor {
+public:
+    explicit StDWithinRestore(ClientContext &context) : context(context) {
+    }
+
+    ExpressionPtr VisitReplace(BoundFunctionExpression &expr, ExpressionPtr *) override {
+        if (expr.children.size() != 3 || !StringUtil::CIEquals(expr.function.name, "st_dwithin")) {
+            return nullptr; // Not the override's shape: keep it and descend into its children.
+        }
+        // The system catalog holds spatial's original; the user-catalog override cannot shadow
+        // this lookup.
+        auto original = Catalog::GetSystemCatalog(context).GetEntry<ScalarFunctionCatalogEntry>(
+            context, DEFAULT_SCHEMA, "st_dwithin", OnEntryNotFound::RETURN_NULL);
+        if (!original) {
+            return nullptr;
+        }
+        vector<ExpressionPtr> children;
+        children.reserve(expr.children.size());
+        for (const auto &child : expr.children) {
+            children.push_back(child->Copy());
+        }
+        ErrorData error;
+        FunctionBinder binder(context);
+        auto bound = binder.BindScalarFunction(*original, std::move(children), error);
+        if (!bound) {
+            return nullptr; // No matching overload: keep the executable 3-argument form.
+        }
+        return bound;
+    }
+
+private:
+    ClientContext &context;
+};
+
+} // namespace
+
+void RestoreStDWithin(ClientContext &context, LogicalOperator &plan) {
+    StDWithinRestore(context).VisitOperator(plan);
 }

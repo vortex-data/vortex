@@ -77,6 +77,14 @@ using Projections = unordered_map<TableIndex, LogicalProjection &>;
 
 LogicalOperatorPtr TryPushdownScalarFunctions(ClientContext &context, LogicalOperatorPtr plan);
 
+/*
+ * Rebind remaining 3-argument `st_dwithin` calls (bound via the Vortex override; see expr.h)
+ * back through spatial's original entry, whose folded 2-argument form its spatial-join
+ * optimization requires. Runs after DuckDB's optimizers, when pushable filters are already
+ * absorbed into Vortex scans.
+ */
+void RestoreStDWithin(ClientContext &context, LogicalOperator &plan);
+
 /**
  * Collect fn(col) expressions i.e. expressions where a single function (not
  * a function chain) wraps a single bound column. If "col" is used without

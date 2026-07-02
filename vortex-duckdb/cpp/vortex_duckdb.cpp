@@ -269,6 +269,9 @@ extern "C" duckdb_blob duckdb_vx_value_get_geometry(duckdb_value value) {
 
 static void VortexOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
     plan = TryPushdownScalarFunctions(input.context, std::move(plan));
+    // Runs before spatial's own optimizer pass: this extension registers at database open,
+    // spatial's at LOAD, and DuckDB invokes optimizer extensions in registration order.
+    RestoreStDWithin(input.context, *plan);
 }
 
 struct VortexOptimizerExtension final : OptimizerExtension {

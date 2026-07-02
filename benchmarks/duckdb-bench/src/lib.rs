@@ -78,6 +78,11 @@ impl DuckClient {
         for stmt in &statements {
             self.connection().query(stmt)?;
         }
+        // After `LOAD spatial`, shadow `ST_DWithin` so radius filters push. No-op without it.
+        self.db
+            .as_ref()
+            .vortex_expect("DuckClient database accessed after close")
+            .register_st_dwithin_override()?;
         self.init_sql = statements;
         Ok(())
     }
@@ -127,6 +132,11 @@ impl DuckClient {
                 .vortex_expect("connection just opened")
                 .query(stmt)?;
         }
+        // Re-shadow `ST_DWithin` against the fresh instance.
+        self.db
+            .as_ref()
+            .vortex_expect("database just opened")
+            .register_st_dwithin_override()?;
 
         Ok(())
     }
