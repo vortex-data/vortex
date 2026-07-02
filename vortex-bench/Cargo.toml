@@ -34,6 +34,8 @@ async-trait = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
+geo = { workspace = true }
+geo-traits = { workspace = true }
 geoarrow = { workspace = true }
 geoarrow-cast = { workspace = true }
 get_dir = { workspace = true }
