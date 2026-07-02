@@ -988,10 +988,7 @@ impl Patches {
 /// # Returns
 /// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
 /// with the insertion point if not found.
-fn search_index_binary_search(
-    indices: &ArrayRef,
-    needle: usize,
-) -> VortexResult<SearchResult> {
+fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
     if let Some(primitive) = indices.as_opt::<Primitive>() {
         match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
             let Ok(needle) = T::try_from(needle) else {
