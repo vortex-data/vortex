@@ -4,7 +4,6 @@
 use std::sync::LazyLock;
 
 use vortex_buffer::buffer;
-use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -32,11 +31,11 @@ fn test_search_sorted_primitive(
     #[case] value: i32,
     #[case] side: SearchSortedSide,
     #[case] expected: SearchResult,
-) {
+) -> vortex_error::VortexResult<()> {
     let res = SearchSortedPrimitiveArray::<i32>::new(&array, &mut SESSION.create_execution_ctx())
-        .search_sorted(&value, side)
-        .vortex_expect("Failed to search sorted");
+        .search_sorted(&value, side)?;
     assert_eq!(res, expected);
+    Ok(())
 }
 
 #[test]

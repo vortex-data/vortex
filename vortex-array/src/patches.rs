@@ -1014,7 +1014,6 @@ fn search_index_binary_search_scalar(
     match_each_unsigned_integer_ptype!(indices.dtype().as_ptype(), |T| {
         SearchSortedPrimitiveArray::<T>::new(indices, &mut LEGACY_SESSION.create_execution_ctx())
             .search_sorted(&needle, SearchSortedSide::Left)
-            .map_err(|_| vortex_err!("indices must be a primitive array"))
     })
 }
 
