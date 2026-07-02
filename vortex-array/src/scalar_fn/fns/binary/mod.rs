@@ -3,10 +3,6 @@
 
 use std::fmt::Formatter;
 
-#[expect(deprecated)]
-pub use boolean::and_kleene;
-#[expect(deprecated)]
-pub use boolean::or_kleene;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -155,8 +151,8 @@ impl ScalarFnVTable for Binary {
             Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte, ctx),
             Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt, ctx),
             Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte, ctx),
-            Operator::And => execute_boolean(&lhs, &rhs, Operator::And, ctx),
-            Operator::Or => execute_boolean(&lhs, &rhs, Operator::Or, ctx),
+            Operator::And => execute_boolean(lhs, rhs, Operator::And, ctx),
+            Operator::Or => execute_boolean(lhs, rhs, Operator::Or, ctx),
             Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add, ctx),
             Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub, ctx),
             Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul, ctx),

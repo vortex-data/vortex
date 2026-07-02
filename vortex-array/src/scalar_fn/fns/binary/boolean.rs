@@ -116,34 +116,32 @@ pub fn or_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
 /// This is the entry point for boolean operations from the binary expression.
 /// Handles constants and canonical boolean arrays directly, otherwise falls back to Arrow.
 pub(crate) fn execute_boolean(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
+    lhs: ArrayRef,
+    rhs: ArrayRef,
     op: Operator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let nullable = boolean_nullability(lhs, rhs);
+    let nullable = boolean_nullability(&lhs, &rhs);
 
     if lhs.is_empty() {
         return Ok(Canonical::empty(&DType::Bool(nullable)).into_array());
     }
 
-    if let Some(result) = constant_boolean(lhs, rhs, op)? {
+    if let Some(result) = constant_boolean(&lhs, &rhs, op)? {
         return Ok(result);
     }
 
-    if let Some(lhs) = lhs.as_opt::<Bool>()
-        && let Some(result) = <Bool as BooleanKernel>::boolean(lhs, rhs, op, ctx)?
-    {
+    let lhs = lhs.execute::<BoolArray>(ctx)?;
+    if let Some(result) = <Bool as BooleanKernel>::boolean(lhs.as_view(), &rhs, op, ctx)? {
         return Ok(result);
     }
 
-    if let Some(rhs) = rhs.as_opt::<Bool>()
-        && let Some(result) = <Bool as BooleanKernel>::boolean(rhs, lhs, op, ctx)?
-    {
-        return Ok(result);
-    }
-
-    arrow_execute_boolean(lhs.clone(), rhs.clone(), op, ctx)
+    let rhs = rhs.execute::<BoolArray>(ctx)?;
+    let Some(result) = <Bool as BooleanKernel>::boolean(rhs.as_view(), &lhs.into_array(), op, ctx)?
+    else {
+        vortex_bail!("No boolean kernel for two BoolArrays");
+    };
+    Ok(result)
 }
 
 /// Arrow implementation for Kleene boolean operations using [`Operator`].
