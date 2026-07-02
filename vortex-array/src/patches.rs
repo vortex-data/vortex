@@ -23,7 +23,6 @@ use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -36,6 +35,7 @@ use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
+use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::PValue;
@@ -238,6 +238,7 @@ pub struct Patches {
 }
 
 impl Patches {
+    #[allow(clippy::disallowed_methods)]
     pub fn new(
         array_len: usize,
         offset: usize,
@@ -266,7 +267,7 @@ impl Patches {
         if indices.is_host() && values.is_host() {
             let max = usize::try_from(&indices.execute_scalar(
                 indices.len() - 1,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut legacy_session().create_execution_ctx(),
             )?)
             .map_err(|_| vortex_err!("indices must be a number"))?;
             vortex_ensure!(
@@ -278,7 +279,7 @@ impl Patches {
             {
                 use crate::VortexSessionExecute;
                 use crate::aggregate_fn::fns::is_sorted::is_sorted;
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let mut ctx = legacy_session().create_execution_ctx();
                 assert!(
                     is_sorted(&indices, &mut ctx).unwrap_or(false),
                     "Patch indices must be sorted"
@@ -381,13 +382,14 @@ impl Patches {
     }
 
     #[inline]
+    #[allow(clippy::disallowed_methods)]
     pub fn chunk_offset_at(&self, idx: usize) -> VortexResult<usize> {
         let Some(chunk_offsets) = &self.chunk_offsets else {
             vortex_bail!("chunk_offsets must be set to retrieve offset at index")
         };
 
         chunk_offsets
-            .execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?
+            .execute_scalar(idx, &mut legacy_session().create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))
@@ -441,12 +443,13 @@ impl Patches {
     }
 
     /// Get the patched value at a given index if it exists.
+    #[allow(clippy::disallowed_methods)]
     pub fn get_patched(&self, index: usize) -> VortexResult<Option<Scalar>> {
         self.search_index(index)?
             .to_found()
             .map(|patch_idx| {
                 self.values()
-                    .execute_scalar(patch_idx, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(patch_idx, &mut legacy_session().create_execution_ctx())
             })
             .transpose()
     }
@@ -625,10 +628,11 @@ impl Patches {
     }
 
     /// Returns the minimum patch index
+    #[allow(clippy::disallowed_methods)]
     pub fn min_index(&self) -> VortexResult<usize> {
         let first = self
             .indices
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+            .execute_scalar(0, &mut legacy_session().create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
@@ -636,12 +640,13 @@ impl Patches {
     }
 
     /// Returns the maximum patch index
+    #[allow(clippy::disallowed_methods)]
     pub fn max_index(&self) -> VortexResult<usize> {
         let last = self
             .indices
             .execute_scalar(
                 self.indices.len() - 1,
-                &mut LEGACY_SESSION.create_execution_ctx(),
+                &mut legacy_session().create_execution_ctx(),
             )?
             .as_primitive()
             .as_::<usize>()
@@ -743,6 +748,7 @@ impl Patches {
     }
 
     /// Slice the patches by a range of the patched array.
+    #[allow(clippy::disallowed_methods)]
     pub fn slice(&self, range: Range<usize>) -> VortexResult<Option<Self>> {
         let slice_start_idx = self.search_index(range.start)?.to_index();
         let slice_end_idx = self.search_index(range.end)?.to_index();
@@ -769,7 +775,7 @@ impl Patches {
             .as_ref()
             .map(|new_chunk_offsets| -> VortexResult<usize> {
                 let new_chunk_base = new_chunk_offsets
-                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+                    .execute_scalar(0, &mut legacy_session().create_execution_ctx())?
                     .as_primitive()
                     .as_::<usize>()
                     .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;

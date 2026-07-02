@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::array::ValidityVTable;
@@ -15,6 +14,7 @@ use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFn;
 use crate::expr::Expression;
 use crate::expr::lit;
+use crate::legacy_session;
 use crate::scalar_fn::TypedScalarFnInstance;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::literal::Literal;
@@ -24,8 +24,9 @@ use crate::validity::Validity;
 /// Execute an expression tree recursively.
 ///
 /// This assumes all leaf expressions are either ArrayExpr (wrapping actual arrays) or Literals.
+#[allow(clippy::disallowed_methods)]
 fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = legacy_session().create_execution_ctx();
 
     // Handle Root expression - this should not happen in validity expressions
     if expr.is::<Root>() {

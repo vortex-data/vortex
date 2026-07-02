@@ -25,7 +25,6 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::builtins::ArrayBuiltins;
@@ -33,6 +32,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
+    use crate::legacy_session;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
@@ -48,6 +48,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn test_cast_constant_i64_to_decimal() {
         let target_dtype = DType::Decimal(DecimalDType::new(21, 2), Nullability::NonNullable);
         let casted = ConstantArray::new(Scalar::from(42i64), 5)
@@ -57,7 +58,7 @@ mod tests {
 
         assert_eq!(casted.dtype(), &target_dtype);
         let scalar = casted
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut legacy_session().create_execution_ctx())
             .unwrap();
         assert_eq!(
             scalar.as_decimal().decimal_value(),

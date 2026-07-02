@@ -23,7 +23,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -42,6 +41,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
+use crate::legacy_session;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -122,6 +122,7 @@ impl VTable for Masked {
         Ok(Some(vec![]))
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -160,7 +161,7 @@ impl VTable for Masked {
         let validity_slot = validity_to_child(&validity, len);
         let data = MaskedData::try_new(
             len,
-            child.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
+            child.all_valid(&mut legacy_session().create_execution_ctx())?,
             validity,
         )?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data)

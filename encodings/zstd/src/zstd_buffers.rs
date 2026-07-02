@@ -504,6 +504,7 @@ impl VTable for ZstdBuffers {
 }
 
 impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
+    #[allow(clippy::disallowed_methods)]
     fn scalar_at(
         array: ArrayView<'_, ZstdBuffers>,
         index: usize,
@@ -514,13 +515,14 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
         // canonical
         let inner_array = ZstdBuffers::decompress_and_build_inner(
             &array.into_owned(),
-            &vortex_array::LEGACY_SESSION,
+            vortex_array::legacy_session(),
         )?;
         inner_array.execute_scalar(index, ctx)
     }
 }
 
 impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
+    #[allow(clippy::disallowed_methods)]
     fn validity(
         array: ArrayView<'_, ZstdBuffers>,
     ) -> VortexResult<vortex_array::validity::Validity> {
@@ -530,7 +532,7 @@ impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
 
         let inner_array = ZstdBuffers::decompress_and_build_inner(
             &array.into_owned(),
-            &vortex_array::LEGACY_SESSION,
+            vortex_array::legacy_session(),
         )?;
         inner_array.validity()
     }

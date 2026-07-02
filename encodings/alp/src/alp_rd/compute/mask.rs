@@ -14,6 +14,7 @@ use crate::ALPRD;
 use crate::ALPRDArrayExt;
 
 impl MaskReduce for ALPRD {
+    #[allow(clippy::disallowed_methods)]
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_left_parts = MaskExpr.try_new_array(
             array.left_parts().len(),

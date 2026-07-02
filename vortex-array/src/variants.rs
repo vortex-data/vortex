@@ -12,7 +12,6 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::arrays::BoolArray;
@@ -22,6 +21,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDTypeRef;
+use crate::legacy_session;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::search_sorted::IndexOrd;
@@ -113,10 +113,11 @@ pub struct BoolTyped<'a>(&'a ArrayRef);
 
 impl BoolTyped<'_> {
     #[deprecated(
-        note = "Relies on the hidden global `LEGACY_SESSION`; use `sum(array, ctx)` with an explicit `ExecutionCtx` instead"
+        note = "Relies on the hidden global `legacy_session()`; use `sum(array, ctx)` with an explicit `ExecutionCtx` instead"
     )]
+    #[allow(clippy::disallowed_methods)]
     pub fn true_count(&self) -> VortexResult<usize> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
         let true_count = sum(self.0, &mut ctx)?;
         Ok(true_count
             .as_primitive()
@@ -137,24 +138,26 @@ impl PrimitiveTyped<'_> {
 
     /// Return the primitive value at the given index.
     #[deprecated(
-        note = "Relies on the hidden global `LEGACY_SESSION`; use `is_valid`/`execute_scalar` with an explicit `ExecutionCtx` instead"
+        note = "Relies on the hidden global `legacy_session()`; use `is_valid`/`execute_scalar` with an explicit `ExecutionCtx` instead"
     )]
     #[allow(deprecated)]
+    #[allow(clippy::disallowed_methods)]
     pub fn value(&self, idx: usize) -> VortexResult<Option<PValue>> {
         self.0
-            .is_valid(idx, &mut LEGACY_SESSION.create_execution_ctx())?
+            .is_valid(idx, &mut legacy_session().create_execution_ctx())?
             .then(|| self.value_unchecked(idx))
             .transpose()
     }
 
     /// Return the primitive value at the given index, ignoring nullability.
     #[deprecated(
-        note = "Relies on the hidden global `LEGACY_SESSION`; use `execute_scalar` with an explicit `ExecutionCtx` instead"
+        note = "Relies on the hidden global `legacy_session()`; use `execute_scalar` with an explicit `ExecutionCtx` instead"
     )]
+    #[allow(clippy::disallowed_methods)]
     pub fn value_unchecked(&self, idx: usize) -> VortexResult<PValue> {
         Ok(self
             .0
-            .execute_scalar(idx, &mut LEGACY_SESSION.create_execution_ctx())?
+            .execute_scalar(idx, &mut legacy_session().create_execution_ctx())?
             .as_primitive()
             .pvalue()
             .unwrap_or_else(|| PValue::zero(&self.ptype())))
@@ -176,10 +179,11 @@ impl IndexOrd<Option<PValue>> for PrimitiveTyped<'_> {
 // TODO(ngates): add generics to the `value` function and implement this over T.
 impl IndexOrd<PValue> for PrimitiveTyped<'_> {
     #[allow(deprecated)]
+    #[allow(clippy::disallowed_methods)]
     fn index_cmp(&self, idx: usize, elem: &PValue) -> VortexResult<Option<Ordering>> {
         assert!(
             self.0
-                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?
+                .all_valid(&mut legacy_session().create_execution_ctx())?
         );
         let value = self.value_unchecked(idx)?;
         Ok(value.partial_cmp(elem))
