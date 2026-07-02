@@ -26,8 +26,6 @@ use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
-use crate::arrow::ArrowSessionExt;
-use crate::arrow::FromArrowArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
