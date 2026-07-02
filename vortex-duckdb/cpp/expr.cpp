@@ -42,8 +42,7 @@ extern "C" duckdb_state duckdb_vx_register_st_dwithin_override(duckdb_database f
         ClientContext &context = *conn.context;
         context.RunFunctionInTransaction([&]() {
             auto &system = Catalog::GetSystemCatalog(context);
-            auto &entry =
-                system.GetEntry<ScalarFunctionCatalogEntry>(context, DEFAULT_SCHEMA, "st_dwithin");
+            auto &entry = system.GetEntry<ScalarFunctionCatalogEntry>(context, DEFAULT_SCHEMA, "st_dwithin");
             ScalarFunctionSet set("st_dwithin");
             for (const auto &overload : entry.functions.functions) {
                 ScalarFunction copy = overload;
@@ -57,12 +56,10 @@ extern "C" duckdb_state duckdb_vx_register_st_dwithin_override(duckdb_database f
             info.internal = false;
             // The user catalog binds ahead of the system catalog, shadowing spatial's entry;
             // `RestoreStDWithin` rebinds unpushed calls through the original.
-            auto &catalog =
-                Catalog::GetCatalog(context, DatabaseManager::GetDefaultDatabase(context));
+            auto &catalog = Catalog::GetCatalog(context, DatabaseManager::GetDefaultDatabase(context));
             // Durable catalogs require the modified mark; scalar function entries are never
             // persisted, so this is metadata-only.
-            MetaTransaction::Get(context).ModifyDatabase(catalog.GetAttached(),
-                                                         DatabaseModificationType());
+            MetaTransaction::Get(context).ModifyDatabase(catalog.GetAttached(), DatabaseModificationType());
             catalog.CreateFunction(context, info);
         });
     } catch (const std::exception &) {

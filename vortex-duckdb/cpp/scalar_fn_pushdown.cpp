@@ -243,7 +243,7 @@ public:
     explicit StDWithinRestore(ClientContext &context) : context(context) {
     }
 
-    // Restore join conditions, filters must keep the radius visible so 
+    // Restore join conditions, filters must keep the radius visible so
     // DuckDB's filter pushdown can offer them to Vortex scans.
     void VisitOperator(LogicalOperator &op) override {
         using enum LogicalOperatorType;
@@ -267,7 +267,10 @@ public:
         // The system catalog holds spatial's original; the user-catalog override cannot shadow
         // this lookup.
         auto original = Catalog::GetSystemCatalog(context).GetEntry<ScalarFunctionCatalogEntry>(
-            context, DEFAULT_SCHEMA, "st_dwithin", OnEntryNotFound::RETURN_NULL);
+            context,
+            DEFAULT_SCHEMA,
+            "st_dwithin",
+            OnEntryNotFound::RETURN_NULL);
         if (!original) {
             return nullptr;
         }

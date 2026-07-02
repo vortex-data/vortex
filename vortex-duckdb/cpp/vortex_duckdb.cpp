@@ -271,8 +271,7 @@ static void VortexOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<Lo
     plan = TryPushdownScalarFunctions(input.context, std::move(plan));
 }
 
-static void VortexPreOptimizeFunction(OptimizerExtensionInput &input,
-                                      unique_ptr<LogicalOperator> &plan) {
+static void VortexPreOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
     RestoreStDWithin(input.context, *plan);
 }
 
