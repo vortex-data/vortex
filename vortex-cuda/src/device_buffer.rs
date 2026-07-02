@@ -24,10 +24,15 @@ use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 
 use crate::stream::await_stream_callback;
+
+/// cuDF may read Arrow validity masks through a 64-byte padded extent, so keep
+/// exported masks logically sliced but zero-pad their backing allocation.
+pub(crate) const CUDF_VALIDITY_BUFFER_PADDING: usize = 64;
 
 /// A [`DeviceBuffer`] wrapping a CUDA GPU allocation.
 ///
@@ -43,6 +48,12 @@ pub struct CudaDeviceBuffer {
     device_ptr: u64,
     /// Minimum required alignment of the buffer.
     alignment: Alignment,
+    /// Allocation-relative byte offset where zeroed tail padding begins.
+    ///
+    /// `None` means the tail contents are not tracked. Arrow validity export uses this to decide
+    /// whether a sliced logical bitmap can safely reuse this allocation for cuDF's padded mask
+    /// reads without copying or repacking.
+    zeroed_tail_start: Option<usize>,
 }
 
 mod private {
@@ -101,7 +112,23 @@ impl CudaDeviceBuffer {
             len,
             device_ptr,
             alignment: Alignment::of::<T>(),
+            zeroed_tail_start: None,
         }
+    }
+
+    /// Wraps a CUDA allocation and records that bytes from `zeroed_tail_start` are already zeroed.
+    pub(crate) fn new_with_zeroed_tail<T: DeviceRepr + Debug + Send + Sync + 'static>(
+        cuda_slice: CudaSlice<T>,
+        zeroed_tail_start: usize,
+    ) -> VortexResult<Self> {
+        let mut buffer = Self::new(cuda_slice);
+        vortex_ensure!(
+            zeroed_tail_start <= buffer.len,
+            "zeroed tail start {zeroed_tail_start} exceeds CUDA allocation length {}",
+            buffer.len
+        );
+        buffer.zeroed_tail_start = Some(zeroed_tail_start);
+        Ok(buffer)
     }
 
     /// Returns the byte offset within the allocated buffer.
@@ -149,6 +176,7 @@ pub(crate) fn cuda_backing_allocation(handle: &BufferHandle) -> VortexResult<Buf
         len,
         device_ptr: cuda_buf.device_ptr,
         alignment: cuda_buf.alignment,
+        zeroed_tail_start: cuda_buf.zeroed_tail_start,
     })))
 }
 
@@ -170,6 +198,13 @@ pub trait CudaBufferExt {
     ///
     /// Returns an error if the buffer is not a CUDA buffer.
     fn cuda_device_ptr(&self) -> VortexResult<sys::CUdeviceptr>;
+
+    /// Returns whether this buffer has zeroed tail padding for the requested extent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer is not a CUDA buffer.
+    fn has_zeroed_tail_padding(&self, logical_len: usize, padded_len: usize) -> VortexResult<bool>;
 }
 
 impl CudaBufferExt for BufferHandle {
@@ -197,6 +232,40 @@ impl CudaBufferExt for BufferHandle {
 
         Ok(ptr)
     }
+
+    fn has_zeroed_tail_padding(&self, logical_len: usize, padded_len: usize) -> VortexResult<bool> {
+        let device_buffer = self
+            .as_device_opt()
+            .ok_or_else(|| vortex_err!("Buffer is not on device"))?;
+
+        let cuda_buf = device_buffer
+            .as_any()
+            .downcast_ref::<CudaDeviceBuffer>()
+            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
+
+        if logical_len > padded_len || logical_len > cuda_buf.len {
+            return Ok(false);
+        }
+
+        let Some(required_end) = cuda_buf.offset.checked_add(padded_len) else {
+            return Ok(false);
+        };
+        if required_end > cuda_buf.allocation.as_bytes_view().len() {
+            return Ok(false);
+        }
+
+        if logical_len == padded_len {
+            return Ok(true);
+        }
+
+        let Some(zeroed_tail_start) = cuda_buf.zeroed_tail_start else {
+            return Ok(false);
+        };
+        let Some(logical_end) = cuda_buf.offset.checked_add(logical_len) else {
+            return Ok(false);
+        };
+        Ok(zeroed_tail_start <= logical_end)
+    }
 }
 
 impl Debug for CudaDeviceBuffer {
@@ -206,6 +275,7 @@ impl Debug for CudaDeviceBuffer {
             .field("device_ptr", &self.device_ptr)
             .field("offset", &self.offset)
             .field("len", &self.len)
+            .field("zeroed_tail_start", &self.zeroed_tail_start)
             .finish()
     }
 }
@@ -345,6 +415,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
             len: new_len,
             device_ptr: self.device_ptr,
             alignment: self.alignment,
+            zeroed_tail_start: self.zeroed_tail_start,
         })
     }
 
@@ -361,6 +432,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
                 len: self.len,
                 device_ptr: self.device_ptr,
                 alignment,
+                zeroed_tail_start: self.zeroed_tail_start,
             }))
         } else if alignment > Alignment::new(256) {
             vortex_panic!("we do not support alignment greater than 256")
