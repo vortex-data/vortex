@@ -34,10 +34,14 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::arrays::List;
+use crate::arrays::ListView;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::match_each_decimal_value_type;
@@ -191,6 +195,39 @@ pub trait ArrayBuilder: Send {
     /// then converts it to canonical form. Specific builders can override this with optimized
     /// implementations that avoid the intermediate [`ArrayRef`] creation.
     fn finish_into_canonical(&mut self, ctx: &mut ExecutionCtx) -> Canonical;
+
+    /// Appends the values of a [`List`]-encoded `array` to this builder.
+    ///
+    /// Only list-typed builders support this; the default implementation returns an error. List
+    /// encodings dispatch through this method because the concrete list builders are generic over
+    /// their offset/size integer types, which cannot be named through a `dyn ArrayBuilder`.
+    fn append_list_array(
+        &mut self,
+        array: ArrayView<'_, List>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_bail!(
+            "cannot append a List array of dtype {} to a {} builder",
+            array.dtype(),
+            self.dtype()
+        )
+    }
+
+    /// Appends the values of a [`ListView`]-encoded `array` to this builder.
+    ///
+    /// See [`append_list_array`](Self::append_list_array); this is the same hook for the canonical
+    /// [`ListViewArray`](crate::arrays::ListViewArray) encoding.
+    fn append_listview_array(
+        &mut self,
+        array: ArrayView<'_, ListView>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_bail!(
+            "cannot append a ListView array of dtype {} to a {} builder",
+            array.dtype(),
+            self.dtype()
+        )
+    }
 }
 
 /// Construct a new canonical builder for the given [`DType`].
@@ -284,60 +321,3 @@ pub fn builder_with_capacity_in(
     let _allocator = allocator;
     builder_with_capacity(dtype, capacity)
 }
-
-/// Append a list-typed `$array` into `$builder` if it is a [`ListBuilder`], enumerating the possible
-/// offset integer types and trying each downcast. On a match it `return`s the append result from the
-/// enclosing function; otherwise it falls through.
-///
-/// [`ListBuilder`] is never produced by [`builder_with_capacity`] (the canonical list builder is
-/// [`ListViewBuilder`]), so its offset type cannot be assumed — hence the enumeration. List offsets
-/// are always unsigned integers.
-macro_rules! match_each_list_builder {
-    ($array:expr, $builder:expr, $ctx:expr) => {{
-        $crate::builders::match_each_list_builder!(@types $array, $builder, $ctx, [u8, u16, u32, u64]);
-    }};
-    (@types $array:expr, $builder:expr, $ctx:expr, [$($O:ty),*]) => {{
-        $(
-            if let Some(builder) = $builder
-                .as_any_mut()
-                .downcast_mut::<$crate::builders::ListBuilder<$O>>()
-            {
-                return builder.append_list_array($array, $ctx);
-            }
-        )*
-    }};
-}
-pub(crate) use match_each_list_builder;
-
-/// Append a list-typed `$array` into `$builder` if it is a [`ListViewBuilder`], enumerating the
-/// possible offset and size integer types and trying each downcast. On a match it `return`s the
-/// append result from the enclosing function; otherwise it falls through.
-///
-/// [`builder_with_capacity`] produces a `ListViewBuilder<u64, u64>` for [`DType::List`], but a
-/// caller may supply different offset/size types, so the concrete type cannot be assumed — hence the
-/// enumeration. List offsets and sizes are always unsigned integers.
-macro_rules! match_each_listview_builder {
-    ($array:expr, $builder:expr, $ctx:expr) => {{
-        $crate::builders::match_each_listview_builder!(
-            @offsets $array, $builder, $ctx, [u8, u16, u32, u64], [u8, u16, u32, u64]
-        );
-    }};
-    // For each offset type `O`, expand over every size type `S` (cartesian product).
-    (@offsets $array:expr, $builder:expr, $ctx:expr, [$($O:ty),*], $sizes:tt) => {{
-        $(
-            $crate::builders::match_each_listview_builder!(@sizes $array, $builder, $ctx, $O, $sizes);
-        )*
-    }};
-    (@sizes $array:expr, $builder:expr, $ctx:expr, $O:ty, [$($S:ty),*]) => {{
-        $(
-            if let Some(builder) = $builder
-                .as_any_mut()
-                .downcast_mut::<$crate::builders::ListViewBuilder<$O, $S>>()
-            {
-                let listview = $array.clone().execute::<$crate::arrays::ListViewArray>($ctx)?;
-                return builder.append_listview_array(&listview, $ctx);
-            }
-        )*
-    }};
-}
-pub(crate) use match_each_listview_builder;

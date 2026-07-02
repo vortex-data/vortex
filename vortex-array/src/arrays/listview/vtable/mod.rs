@@ -21,7 +21,6 @@ use crate::ArrayRef;
 use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -37,7 +36,6 @@ use crate::arrays::listview::array::SLOT_NAMES;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
-use crate::builders::match_each_listview_builder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -233,12 +231,7 @@ impl VTable for ListView {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let array = array.into_owned().into_array();
-        match_each_listview_builder!(&array, builder, ctx);
-        vortex_bail!(
-            "append_to_builder for ListView requires a ListViewBuilder, got a builder for {}",
-            builder.dtype()
-        )
+        builder.append_listview_array(array, ctx)
     }
 
     fn reduce_parent(
