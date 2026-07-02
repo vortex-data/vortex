@@ -3,22 +3,27 @@
 
 #![expect(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 // Smaller than the value-path benches: listview zip cost is dominated by element concatenation and
 // per-list canonicalization. A few thousand lists already exercise the select while keeping each
@@ -50,7 +55,7 @@ fn run(bencher: Bencher, if_true: ArrayRef, if_false: ArrayRef) {
                 if_true.clone(),
                 if_false.clone(),
                 mask.clone().into_array(),
-                LEGACY_SESSION.create_execution_ctx(),
+                SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(t, f, m, ctx)| {
