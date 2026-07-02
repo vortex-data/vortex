@@ -11,7 +11,6 @@ use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::legacy_session;
-use vortex_array::search_sorted::SearchSorted;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;

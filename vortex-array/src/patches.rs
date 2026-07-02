@@ -19,7 +19,7 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::ArrayRef;
+use crate::{legacy_session, ArrayRef};
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -275,7 +275,6 @@ impl Patches {
 
             #[cfg(debug_assertions)]
             {
-                use crate::VortexSessionExecute;
                 use crate::aggregate_fn::fns::is_sorted::is_sorted;
                 let mut ctx = legacy_session().create_execution_ctx();
                 assert!(
@@ -1012,7 +1011,7 @@ fn search_index_binary_search_scalar(
     needle: usize,
 ) -> VortexResult<SearchResult> {
     match_each_unsigned_integer_ptype!(indices.dtype().as_ptype(), |T| {
-        SearchSortedPrimitiveArray::<T>::new(indices, &mut LEGACY_SESSION.create_execution_ctx())
+        SearchSortedPrimitiveArray::<T>::new(indices, &mut legacy_session().create_execution_ctx())
             .search_sorted(&needle, SearchSortedSide::Left)
     })
 }
