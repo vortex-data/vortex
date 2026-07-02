@@ -38,7 +38,8 @@ pub(crate) fn find_slice_end_index(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<usize> {
     let result = match_each_unsigned_integer_ptype!(array.dtype().as_ptype(), |T| {
-        SearchSortedPrimitiveArray::<T>::new(array, ctx).search_sorted(&index, SearchSortedSide::Right)?
+        SearchSortedPrimitiveArray::<T>::new(array, ctx)
+            .search_sorted(&index, SearchSortedSide::Right)?
     });
     Ok(match result {
         SearchResult::Found(i) => i,

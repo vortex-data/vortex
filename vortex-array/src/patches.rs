@@ -991,17 +991,17 @@ impl Patches {
 fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
     if let Some(primitive) = indices.as_opt::<Primitive>() {
         match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
-                let Ok(needle) = T::try_from(needle) else {
-                    // If the needle is not of type T, then it cannot possibly be in this array.
-                    //
-                    // The needle is a non-negative integer (a usize); therefore, it must be larger
-                    // than all values in this array.
-                    return Ok(SearchResult::NotFound(primitive.len()));
-                };
-                return primitive
-                    .as_slice::<T>()
-                    .search_sorted(&needle, SearchSortedSide::Left);
-            });
+            let Ok(needle) = T::try_from(needle) else {
+                // If the needle is not of type T, then it cannot possibly be in this array.
+                //
+                // The needle is a non-negative integer (a usize); therefore, it must be larger
+                // than all values in this array.
+                return Ok(SearchResult::NotFound(primitive.len()));
+            };
+            return primitive
+                .as_slice::<T>()
+                .search_sorted(&needle, SearchSortedSide::Left);
+        });
     }
 
     search_index_binary_search_scalar(indices, needle)
@@ -1012,12 +1012,11 @@ fn search_index_binary_search_scalar(
     needle: usize,
 ) -> VortexResult<SearchResult> {
     match_each_unsigned_integer_ptype!(indices.dtype().as_ptype(), |T| {
-            SearchSortedPrimitiveArray::<T>::new(indices, &mut LEGACY_SESSION.create_execution_ctx())
-                .search_sorted(&needle, SearchSortedSide::Left)
-                .map_err(|_| vortex_err!("indices must be a primitive array"))
-        })
+        SearchSortedPrimitiveArray::<T>::new(indices, &mut LEGACY_SESSION.create_execution_ctx())
+            .search_sorted(&needle, SearchSortedSide::Left)
+            .map_err(|_| vortex_err!("indices must be a primitive array"))
+    })
 }
-
 
 #[expect(clippy::too_many_arguments)] // private function, can clean up one day
 fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
