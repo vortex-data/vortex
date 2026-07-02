@@ -3,7 +3,6 @@
 
 use std::iter::repeat_n;
 
-use arrow_array::cast::AsArray;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::read_u64_le;
@@ -142,39 +141,6 @@ pub(crate) fn execute_boolean(
         vortex_bail!("No boolean kernel for two BoolArrays");
     };
     Ok(result)
-}
-
-/// Arrow implementation for Kleene boolean operations using [`Operator`].
-fn arrow_execute_boolean(
-    lhs: ArrayRef,
-    rhs: ArrayRef,
-    op: Operator,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let nullable = boolean_nullability(&lhs, &rhs);
-    let session = ctx.session().clone();
-
-    let lhs = session
-        .arrow()
-        .execute_arrow(lhs, None, ctx)?
-        .as_boolean_opt()
-        .ok_or_else(|| vortex_err!("expected lhs to be boolean"))?
-        .clone();
-
-    let rhs = session
-        .arrow()
-        .execute_arrow(rhs, None, ctx)?
-        .as_boolean_opt()
-        .ok_or_else(|| vortex_err!("expected rhs to be boolean"))?
-        .clone();
-
-    let array = match op {
-        Operator::And => arrow_arith::boolean::and_kleene(&lhs, &rhs)?,
-        Operator::Or => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
-        other => vortex_bail!("Not a boolean operator: {other}"),
-    };
-
-    ArrayRef::from_arrow(&array, nullable == Nullability::Nullable)
 }
 
 /// Handles boolean operations where at least one operand is a constant array.
