@@ -22,7 +22,7 @@ impl OperationsVTable<RunEnd> for RunEnd {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let physical_index = find_physical_index(array.ends(), index + array.offset(), ctx)?;
+        let physical_index = array.find_physical_index(index, ctx)?;
         array.values().execute_scalar(physical_index, ctx)
     }
 }

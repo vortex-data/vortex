@@ -46,6 +46,7 @@ use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
 use crate::decompress_bool::runend_decode_bools;
 use crate::ops::find_physical_index;
+use crate::ops::find_slice_end_index;
 use crate::rules::RULES;
 
 /// A [`RunEnd`]-encoded Vortex array.
@@ -228,12 +229,12 @@ pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
         self.values().dtype()
     }
 
-    fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        find_physical_index(
-            self.ends(),
-            index + self.offset(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )
+    fn find_physical_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+        find_physical_index(self.ends(), index + self.offset(), ctx)
+    }
+
+    fn find_slice_end_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+        find_slice_end_index(self.ends(), index + self.offset(), ctx)
     }
 }
 
