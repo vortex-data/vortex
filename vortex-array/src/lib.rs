@@ -189,7 +189,7 @@ pub fn array_session() -> VortexSession {
 #[inline]
 pub fn legacy_session() -> &'static VortexSession {
     static LEGACY_SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
-    LazyLock::force(&LEGACY_SESSION)
+    &LEGACY_SESSION
 }
 
 pub type ArrayContext = Context<ArrayPluginRef>;
