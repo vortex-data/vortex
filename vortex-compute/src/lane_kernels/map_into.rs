@@ -156,6 +156,67 @@ pub trait IndexedSourceExt: IndexedSource + Sized {
         }
     }
 
+    /// Apply the predicate `f(value)` lane-by-lane and bit-pack the results into
+    /// `words`, LSB-first, 64 lanes per `u64`.
+    ///
+    /// This is the kernel shape behind comparison operators: each lane read is an
+    /// independent indexed load (drive two columns via [`LaneZip`]) and the 64
+    /// per-lane booleans of a chunk reduce into a single word with `OR + shift`,
+    /// which the autovectorizer lowers to a vector compare plus movemask.
+    ///
+    /// Words are written with `=` (not `|=`), so `words` need not be
+    /// zero-initialised. Bits at positions `>= self.len()` in the last word are
+    /// written as zero.
+    ///
+    /// Like [`map_into`], this kernel has no validity awareness; pair the packed
+    /// bits with a separately computed validity mask.
+    ///
+    /// [`LaneZip`]: crate::lane_kernels::LaneZip
+    /// [`map_into`]: IndexedSourceExt::map_into
+    ///
+    /// # Panics
+    ///
+    /// Panics if `words.len() < self.len().div_ceil(64)`.
+    #[inline]
+    fn map_bits_into<F>(self, words: &mut [u64], mut f: F)
+    where
+        F: FnMut(Self::Item) -> bool,
+    {
+        #[inline(always)]
+        fn chunk<S, F>(values: &S, f: &mut F, base: usize, count: usize) -> u64
+        where
+            S: IndexedSource,
+            F: FnMut(S::Item) -> bool,
+        {
+            let mut packed: u64 = 0;
+            for bit_idx in 0..count {
+                // SAFETY: caller guarantees base + count <= len.
+                let val = unsafe { values.get_unchecked(base + bit_idx) };
+                packed |= (f(val) as u64) << bit_idx;
+            }
+            packed
+        }
+
+        let values = self;
+        let len = values.len();
+        let num_words = len.div_ceil(64);
+        assert!(
+            words.len() >= num_words,
+            "words slice has {} entries, need at least {num_words}",
+            words.len(),
+        );
+
+        let full = len / 64;
+        let remainder = len % 64;
+
+        for word_idx in 0..full {
+            words[word_idx] = chunk(&values, &mut f, word_idx * 64, 64);
+        }
+        if remainder != 0 {
+            words[full] = chunk(&values, &mut f, full * 64, remainder);
+        }
+    }
+
     /// Fallible map with **no validity awareness at all** — every `None` returned
     /// by the closure is treated as a failure, even at null lanes.
     ///
@@ -483,6 +544,43 @@ mod tests {
             (v <= u32::MAX as u64).then_some(v as u32)
         });
         assert!(res.is_ok(), "null lane should bypass the range check");
+    }
+
+    #[test]
+    fn map_bits_into_packs_full_and_remainder_words() {
+        let values: Vec<u32> = (0..130).collect();
+        let mut words = vec![u64::MAX; 3];
+        values.as_slice().map_bits_into(&mut words, |v| v % 2 == 0);
+
+        for idx in 0..130 {
+            let bit = (words[idx / 64] >> (idx % 64)) & 1;
+            assert_eq!(bit == 1, idx % 2 == 0, "lane {idx}");
+        }
+        // Bits past `len` in the remainder word must be written as zero.
+        assert_eq!(words[2] >> 2, 0);
+    }
+
+    #[test]
+    fn map_bits_into_lane_zip_compare() {
+        use crate::lane_kernels::LaneZip;
+
+        let lhs: Vec<i64> = (0..100).collect();
+        let rhs: Vec<i64> = (0..100).rev().collect();
+        let mut words = vec![0u64; 2];
+        LaneZip::new(lhs.as_slice(), rhs.as_slice()).map_bits_into(&mut words, |(a, b)| a >= b);
+
+        for idx in 0..100 {
+            let bit = (words[idx / 64] >> (idx % 64)) & 1;
+            assert_eq!(bit == 1, lhs[idx] >= rhs[idx], "lane {idx}");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "words slice has 1 entries")]
+    fn map_bits_into_words_too_short_panics() {
+        let values: Vec<u32> = (0..65).collect();
+        let mut words = vec![0u64; 1];
+        values.as_slice().map_bits_into(&mut words, |v| v > 0);
     }
 
     #[test]
