@@ -6,7 +6,7 @@
 //! This example demonstrates a real-world use case: implementing a `tracing` subscriber
 //! that writes all log events and spans to Vortex files.
 //!
-//! Run with: cargo run --example tracing_vortex --features tokio
+//! Run with: cargo run --example tracing_vortex --features files,tokio
 
 #![expect(
     clippy::disallowed_types,
