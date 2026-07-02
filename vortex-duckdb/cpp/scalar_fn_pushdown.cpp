@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/scalar_function_catalog_entry.hpp"
-#include "duckdb/common/string_util.hpp"
 #include "duckdb/function/function_binder.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
 #include "scalar_fn_pushdown.hpp"
@@ -244,8 +243,25 @@ public:
     explicit StDWithinRestore(ClientContext &context) : context(context) {
     }
 
+    // Restore join conditions, filters must keep the radius visible so 
+    // DuckDB's filter pushdown can offer them to Vortex scans.
+    void VisitOperator(LogicalOperator &op) override {
+        using enum LogicalOperatorType;
+        switch (op.type) {
+        case LOGICAL_COMPARISON_JOIN:
+        case LOGICAL_ANY_JOIN:
+        case LOGICAL_DELIM_JOIN:
+        case LOGICAL_ASOF_JOIN:
+            VisitOperatorExpressions(op);
+            break;
+        default:
+            break;
+        }
+        VisitOperatorChildren(op);
+    }
+
     ExpressionPtr VisitReplace(BoundFunctionExpression &expr, ExpressionPtr *) override {
-        if (expr.children.size() != 3 || !StringUtil::CIEquals(expr.function.name, "st_dwithin")) {
+        if (expr.children.size() != 3 || expr.function.name != "st_dwithin") {
             return nullptr; // Not the override's shape: keep it and descend into its children.
         }
         // The system catalog holds spatial's original; the user-catalog override cannot shadow

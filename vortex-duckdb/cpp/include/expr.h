@@ -13,11 +13,8 @@ typedef struct duckdb_vx_sfunc_ *duckdb_vx_sfunc;
 
 const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func);
 
-/// Shadow the spatial extension's `ST_DWithin` in the user catalog with a copy whose bind keeps
-/// the radius as the third argument (spatial's bind folds it into private bind data), so radius
-/// predicates can push into Vortex scans. Unpushed occurrences still execute via spatial's own
-/// 3-column code path, and the Vortex optimizer pass rebinds them (e.g. join conditions) back to
-/// spatial's folded form, which its spatial-join optimization requires. No-op without `spatial`.
+/// Shadow `ST_DWithin` with a copy that keeps the radius as the third argument, so
+/// radius filters can push into Vortex scans.
 duckdb_state duckdb_vx_register_st_dwithin_override(duckdb_database ffi_db);
 
 typedef struct duckdb_vx_expr_ *duckdb_vx_expr;

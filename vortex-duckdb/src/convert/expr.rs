@@ -148,7 +148,6 @@ fn try_from_geo_function(
 ) -> VortexResult<Option<Expression>> {
     // Catch-all for every bound function: reject non-geo names before touching the children.
     if !is_geo_function(name) {
-        debug!("bound function {name}");
         return Ok(None);
     }
     let children: Vec<_> = func.children().collect();
