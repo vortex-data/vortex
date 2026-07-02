@@ -216,7 +216,7 @@ fn test_cast_to_nullable(array: &ArrayRef) {
 }
 
 fn test_cast_from_floating_point_types(array: &ArrayRef) {
-    let ptype = array.as_primitive_typed().ptype();
+    let ptype = array.dtype().as_ptype();
     test_cast_to_primitive(array, PType::I8, false);
     test_cast_to_primitive(array, PType::U8, false);
     test_cast_to_primitive(array, PType::I16, false);

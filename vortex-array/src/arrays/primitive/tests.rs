@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::compute::conformance::filter::test_filter_conformance;
@@ -12,11 +17,14 @@ use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::conformance::search_sorted::rstest_reuse::apply;
 use crate::compute::conformance::search_sorted::search_sorted_conformance;
 use crate::compute::conformance::search_sorted::*;
-use crate::scalar::PValue;
+use crate::executor::VortexSessionExecute;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
+use crate::search_sorted::TypedPrimitiveArray;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 #[apply(search_sorted_conformance)]
 fn test_search_sorted_primitive(
@@ -24,12 +32,11 @@ fn test_search_sorted_primitive(
     #[case] value: i32,
     #[case] side: SearchSortedSide,
     #[case] expected: SearchResult,
-) -> vortex_error::VortexResult<()> {
-    let res = array
-        .as_primitive_typed()
-        .search_sorted(&Some(PValue::from(value)), side)?;
+) {
+    let res = TypedPrimitiveArray::<i32>::new(&array, &mut SESSION.create_execution_ctx())
+        .search_sorted(&value, side)
+        .vortex_expect("Failed to search sorted");
     assert_eq!(res, expected);
-    Ok(())
 }
 
 #[test]

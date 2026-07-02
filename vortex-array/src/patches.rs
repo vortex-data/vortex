@@ -35,14 +35,12 @@ use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
-use crate::legacy_session;
-use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
-use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
+use crate::search_sorted::TypedPrimitiveArray;
 use crate::validity::Validity;
 
 /// One patch index offset is stored for each chunk.
@@ -476,32 +474,7 @@ impl Patches {
             return self.search_index_chunked(index);
         }
 
-        Self::search_index_binary_search(&self.indices, index + self.offset)
-    }
-
-    /// Binary searches for `needle` in the indices array.
-    ///
-    /// # Returns
-    /// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
-    /// with the insertion point if not found.
-    fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
-        if let Some(primitive) = indices.as_opt::<Primitive>() {
-            match_each_integer_ptype!(primitive.ptype(), |T| {
-                let Ok(needle) = T::try_from(needle) else {
-                    // If the needle is not of type T, then it cannot possibly be in this array.
-                    //
-                    // The needle is a non-negative integer (a usize); therefore, it must be larger
-                    // than all values in this array.
-                    return Ok(SearchResult::NotFound(primitive.len()));
-                };
-                return primitive
-                    .as_slice::<T>()
-                    .search_sorted(&needle, SearchSortedSide::Left);
-            });
-        }
-        indices
-            .as_primitive_typed()
-            .search_sorted(&PValue::U64(needle as u64), SearchSortedSide::Left)
+        search_index_binary_search(&self.indices, index + self.offset)
     }
 
     /// Constant time searches for `index` in the indices array.
@@ -549,7 +522,7 @@ impl Patches {
         };
 
         let chunk_indices = self.indices.slice(patches_start_idx..patches_end_idx)?;
-        let result = Self::search_index_binary_search(&chunk_indices, index + self.offset)?;
+        let result = search_index_binary_search(&chunk_indices, index + self.offset)?;
 
         Ok(match result {
             SearchResult::Found(idx) => SearchResult::Found(patches_start_idx + idx),
@@ -1009,6 +982,42 @@ impl Patches {
         })
     }
 }
+
+/// Binary searches for `needle` in the indices array.
+///
+/// # Returns
+/// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
+/// with the insertion point if not found.
+fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
+    if let Some(primitive) = indices.as_opt::<Primitive>() {
+        match_each_unsigned_integer_ptype!(primitive.ptype(), |T| {
+                let Ok(needle) = T::try_from(needle) else {
+                    // If the needle is not of type T, then it cannot possibly be in this array.
+                    //
+                    // The needle is a non-negative integer (a usize); therefore, it must be larger
+                    // than all values in this array.
+                    return Ok(SearchResult::NotFound(primitive.len()));
+                };
+                return primitive
+                    .as_slice::<T>()
+                    .search_sorted(&needle, SearchSortedSide::Left);
+            });
+    }
+
+    search_index_binary_search_scalar(indices, needle)
+}
+
+fn search_index_binary_search_scalar(
+    indices: &ArrayRef,
+    needle: usize,
+) -> VortexResult<SearchResult> {
+    match_each_unsigned_integer_ptype!(indices.dtype().as_ptype(), |T| {
+            TypedPrimitiveArray::<T>::new(indices, &mut LEGACY_SESSION.create_execution_ctx())
+                .search_sorted(&needle, SearchSortedSide::Left)
+                .map_err(|_| vortex_err!("indices must be a primitive array"))
+        })
+}
+
 
 #[expect(clippy::too_many_arguments)] // private function, can clean up one day
 fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(

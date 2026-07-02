@@ -57,7 +57,7 @@ impl ZipKernel for VarBinView {
         let true_validity = if_true.varbinview_validity().execute_mask(len, ctx)?;
         let false_validity = if_false.varbinview_validity().execute_mask(len, ctx)?;
 
-        let mask = mask.try_to_mask_fill_null_false(ctx)?;
+        let mask = mask.clone().null_as_false().execute(ctx)?;
         let if_false_view = if_false;
         match mask.slices() {
             AllOr::All => push_range(
