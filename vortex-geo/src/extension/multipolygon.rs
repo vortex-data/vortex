@@ -20,10 +20,13 @@ use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::MultiPolygonType;
 use prost::Message;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrow::ArrowExport;
 use vortex_array::arrow::ArrowExportVTable;
 use vortex_array::arrow::ArrowImport;
@@ -53,6 +56,7 @@ use super::coordinate::coordinate_storage_dtype;
 use super::geo_metadata_from_arrow;
 use super::geoarrow_metadata;
 use super::geoarrow_to_wkb;
+use super::polygon_coordinates;
 
 /// A multipolygon (`geoarrow.multipolygon`); a single `Polygon` is a one-element multipolygon.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
@@ -115,6 +119,21 @@ static ARROW_MULTIPOLYGON: CachedId = CachedId::new(MultiPolygonType::NAME);
 /// The `geoarrow.multipolygon` type for `dimension`, with separated (struct) coordinates.
 fn multipolygon_type(geo_metadata: &GeoMetadata, dimension: Dimension) -> MultiPolygonType {
     MultiPolygonType::new(dimension.into(), geoarrow_metadata(geo_metadata))
+}
+
+/// The coordinate `Struct<x, y, ...>` of `MultiPolygon` storage, flattening all three `List`
+/// levels to every vertex of every ring of every polygon.
+pub(crate) fn multipolygon_coordinates(
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<StructArray> {
+    let polygons = storage
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_listview()
+        .elements()
+        .clone();
+    polygon_coordinates(&polygons, ctx)
 }
 
 /// Decode storage to `geo_types` for the geo scalar functions (CRS is irrelevant to planar ops).

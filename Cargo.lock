@@ -9897,6 +9897,8 @@ dependencies = [
  "bzip2",
  "clap",
  "futures",
+ "geo",
+ "geo-traits",
  "geoarrow",
  "geoarrow-cast",
  "get_dir",
@@ -10417,6 +10419,7 @@ dependencies = [
  "rstest",
  "vortex-array",
  "vortex-error",
+ "vortex-layout",
  "vortex-session",
  "wkb",
 ]

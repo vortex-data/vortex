@@ -22,6 +22,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrow::ArrowExport;
 use vortex_array::arrow::ArrowExportVTable;
@@ -118,6 +119,14 @@ impl PointData {
     pub fn to_wkb(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         geoarrow_to_wkb(&point_array(self.0.storage_array(), ctx)?)
     }
+}
+
+/// The coordinate `Struct<x, y, ...>` of `Point` storage.
+pub(crate) fn point_coordinates(
+    storage: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<StructArray> {
+    storage.clone().execute::<StructArray>(ctx)
 }
 
 /// Build a geoarrow `PointArray` from a `Point`'s `Struct<x, y[, ..]>` storage, shared by WKB export

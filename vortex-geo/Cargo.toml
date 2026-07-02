@@ -29,6 +29,7 @@ wkb = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+vortex-layout = { workspace = true }
 
 [lints]
 workspace = true
