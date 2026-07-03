@@ -13,9 +13,9 @@ use jni::objects::JString;
 use jni::sys::jlong;
 use jni::sys::jobject;
 use object_store::path::Path;
-use url::Url;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::file::multi::parse_uri_or_path;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -58,10 +58,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_listFiles(
     try_or_throw(&mut env, |env| {
         let session = unsafe { session_ref(session_ptr) };
         let root_path: String = path.try_to_string(env)?;
-
-        let Ok(url) = Url::parse(&root_path) else {
-            throw_runtime!("invalid URL: {root_path}");
-        };
+        let url = parse_uri_or_path(&root_path)?;
 
         let properties = extract_properties(env, &options)?;
 
@@ -122,7 +119,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_delete(
             return Ok(());
         }
 
-        let store_url = Url::parse(&delete_uris[0]).map_err(|e| vortex_err!(External: e))?;
+        let store_url = parse_uri_or_path(&delete_uris[0])?;
 
         let properties = extract_properties(env, &options)?;
 
@@ -130,7 +127,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_delete(
 
         RUNTIME.block_on(async {
             for uri in delete_uris {
-                let url = Url::parse(&uri).map_err(|e| vortex_err!(External: e))?;
+                let url = parse_uri_or_path(&uri)?;
                 fs.delete(url.path()).await?;
             }
             VortexResult::Ok(())

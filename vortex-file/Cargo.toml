@@ -30,6 +30,7 @@ parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
+url = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }

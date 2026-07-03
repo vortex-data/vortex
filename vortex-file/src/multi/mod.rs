@@ -4,6 +4,7 @@
 //! Builder for constructing a [`MultiLayoutDataSource`] from multiple Vortex files.
 
 mod session;
+mod uri;
 
 use std::sync::Arc;
 
@@ -14,6 +15,7 @@ use futures::stream;
 pub use session::MultiFileSession;
 use session::MultiFileSessionExt;
 use tracing::debug;
+pub use uri::parse_uri_or_path;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;

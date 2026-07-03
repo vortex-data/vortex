@@ -27,7 +27,6 @@ use jni::sys::jboolean;
 use jni::sys::jlong;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
-use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::VTable;
 use vortex::array::arrow::ArrowSessionExt;
@@ -40,6 +39,7 @@ use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
+use vortex::file::multi::parse_uri_or_path;
 use vortex::io::VortexWrite;
 use vortex::io::compat::Compat;
 use vortex::io::object_store::ObjectStoreWrite;
@@ -71,20 +71,17 @@ fn resolve_store(
     url_or_path: &str,
     properties: &HashMap<String, String>,
 ) -> VortexResult<ResolvedStore> {
-    match Url::parse(url_or_path) {
-        Ok(url) if url.scheme() == "file" => {
-            let path = url
-                .to_file_path()
-                .map_err(|_| vortex_err!("invalid file URL: {url_or_path}"))?;
-            Ok(ResolvedStore::Path(path))
-        }
-        Ok(url) => {
-            let path = ObjectStorePath::from_url_path(url.path())
-                .map_err(|_| vortex_err!("invalid object_store path: {}", url.path()))?;
-            let store = make_object_store(&url, properties)?;
-            Ok(ResolvedStore::ObjectStore(store, path))
-        }
-        Err(_) => Ok(ResolvedStore::Path(PathBuf::from(url_or_path))),
+    let url = parse_uri_or_path(url_or_path)?;
+    if url.scheme() == "file" {
+        let path = url
+            .to_file_path()
+            .map_err(|_| vortex_err!("invalid file URL: {url_or_path}"))?;
+        Ok(ResolvedStore::Path(path))
+    } else {
+        let path = ObjectStorePath::from_url_path(url.path())
+            .map_err(|_| vortex_err!("invalid object_store path: {}", url.path()))?;
+        let store = make_object_store(&url, properties)?;
+        Ok(ResolvedStore::ObjectStore(store, path))
     }
 }
 
