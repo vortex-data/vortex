@@ -93,7 +93,7 @@ fn from_bound_f64(value: &duckdb::ExpressionRef) -> VortexResult<Option<f64>> {
 struct ConvertCtx<'a> {
     /// Substituted for `BoundRef` references when converting scan-scoped table filters.
     col_sub: Option<&'a Expression>,
-    /// The scan's fields, when known; geo lowering requires them to verify a geometry column.
+    /// The scan's fields, when known.
     fields: Option<&'a [DuckdbField]>,
 }
 
