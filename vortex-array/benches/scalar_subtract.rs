@@ -5,7 +5,6 @@
 
 use std::sync::LazyLock;
 
-use arrow_array::Scalar;
 use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
@@ -18,6 +17,7 @@ use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;

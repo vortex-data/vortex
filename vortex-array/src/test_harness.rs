@@ -7,13 +7,10 @@ use goldenfile::Mint;
 use goldenfile::differs::binary_diff;
 use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_session::SessionExt;
 
 use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
-use crate::optimizer::kernels::ArrayKernels;
-use crate::optimizer::kernels::KernelSession;
 
 /// Check that a named metadata matches its previous versioning.
 ///

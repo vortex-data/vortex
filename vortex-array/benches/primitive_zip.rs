@@ -9,8 +9,8 @@
 
 use std::sync::LazyLock;
 
-use arrow_array::ArrayRef;
 use divan::Bencher;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;

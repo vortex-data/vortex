@@ -34,7 +34,6 @@ use vortex_array::array_session;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::test_harness::WarmSession;
 use vortex_row::RowEncoder;
 use vortex_session::VortexSession;
 
