@@ -34,7 +34,7 @@ impl ZipKernel for Bool {
         };
 
         // Null mask entries select `if_false`, matching `Zip`'s SQL ELSE semantics.
-        let mask = mask.try_to_mask_fill_null_false(ctx)?;
+        let mask = mask.clone().null_as_false().execute(ctx)?;
         let mask_values = match &mask {
             // Defer trivial masks to the generic zip, which just casts the surviving side.
             Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),

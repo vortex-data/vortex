@@ -28,9 +28,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::legacy_session;
-use vortex_array::scalar::PValue;
-use vortex_array::search_sorted::SearchSorted;
-use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
@@ -48,6 +45,8 @@ use crate::compress::runend_decode_primitive;
 use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
 use crate::decompress_bool::runend_decode_bools;
+use crate::ops::find_physical_index;
+use crate::ops::find_slice_end_index;
 use crate::rules::RULES;
 
 /// A [`RunEnd`]-encoded Vortex array.
@@ -230,17 +229,15 @@ pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
         self.values().dtype()
     }
 
-    fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        Ok(self
-            .ends()
-            .as_primitive_typed()
-            .search_sorted(
-                &PValue::from(index + self.offset()),
-                SearchSortedSide::Right,
-            )?
-            .to_ends_index(self.ends().len()))
+    fn find_physical_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+        find_physical_index(self.ends(), index + self.offset(), ctx)
+    }
+
+    fn find_slice_end_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+        find_slice_end_index(self.ends(), index + self.offset(), ctx)
     }
 }
+
 impl<T: TypedArrayRef<RunEnd>> RunEndArrayExt for T {}
 
 #[derive(Clone, Debug)]

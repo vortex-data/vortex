@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod primitive;
+
 use std::cmp::Ordering;
 use std::cmp::Ordering::Equal;
 use std::cmp::Ordering::Greater;
@@ -10,6 +12,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hint;
 
+pub use primitive::*;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;

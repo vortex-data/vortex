@@ -47,10 +47,7 @@ impl CompareKernel for DecimalByteParts {
             .decimal_value()
             .vortex_expect("checked for null in entry func");
 
-        match decimal_value_wrapper_to_primitive(
-            rhs_decimal,
-            lhs.msp().as_primitive_typed().ptype(),
-        ) {
+        match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp().dtype().as_ptype()) {
             Ok(value) => {
                 let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
                 let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
