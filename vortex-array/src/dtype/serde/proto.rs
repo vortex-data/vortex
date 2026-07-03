@@ -229,7 +229,7 @@ impl TryFrom<&pb::FieldPath> for FieldPath {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-
+    use crate::array_session;
     use super::*;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -502,7 +502,8 @@ mod tests {
 
     #[test]
     fn test_unknown_extension_allow_unknown() {
-        let session = crate::array_session().allow_unknown();
+        let session = array_session();
+        session.allow_unknown();
         let proto = pb::DType {
             dtype_type: Some(DtypeType::Extension(Box::new(pb::Extension {
                 id: "vortex.test.foreign_ext".to_string(),

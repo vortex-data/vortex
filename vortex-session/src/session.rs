@@ -191,11 +191,11 @@ impl VortexSession {
 
     /// Inserts a session variable of type `V`, replacing any existing variable of that type.
     ///
-    /// This is the internal copy-on-write insert primitive behind [`with_some`](Self::with_some) and
+    /// This is the copy-on-write insert primitive behind [`with_some`](Self::with_some) and
     /// [`get_mut`](SessionExt::get_mut); it is not public, so a variable can only enter the type-map
     /// through those (or through a default inserted by [`get`](SessionExt::get)). The mutation is
     /// applied in place to the shared backing store, so it is visible through every clone.
-    fn register<V: VortexSessionVar>(&self, var: V) {
+    pub fn register<V: VortexSessionVar>(&self, var: V) {
         let var: Arc<dyn VortexSessionVar> = Arc::new(var);
         self.0.rcu(|current| {
             let mut next = SessionVars::clone(current);
@@ -246,9 +246,8 @@ impl VortexSession {
     /// Allow deserializing unknown plugin IDs as non-executable foreign placeholders.
     ///
     /// Mutates this session in place and returns it for chaining.
-    pub fn allow_unknown(self) -> Self {
+    pub fn allow_unknown(&self) {
         self.get_mut::<UnknownPluginPolicy>().allow_unknown = true;
-        self
     }
 }
 
@@ -435,7 +434,7 @@ mod tests {
         let session = VortexSession::empty();
         assert!(!session.allows_unknown());
 
-        let session = session.allow_unknown();
+        session.allow_unknown();
         assert!(session.allows_unknown());
     }
 

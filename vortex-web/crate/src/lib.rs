@@ -17,7 +17,7 @@ use vortex::session::VortexSession;
 mod wasm;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    VortexSession::default()
-        .with_handle(WasmRuntime::handle())
-        .allow_unknown()
+    let session = VortexSession::default().with_handle(WasmRuntime::handle());
+    session.allow_unknown();
+    session
 });
