@@ -229,8 +229,9 @@ impl TryFrom<&pb::FieldPath> for FieldPath {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use crate::array_session;
+
     use super::*;
+    use crate::array_session;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::Field;
