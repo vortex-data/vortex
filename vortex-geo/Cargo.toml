@@ -20,6 +20,7 @@ geo = { workspace = true }
 geo-traits = { workspace = true }
 geo-types = { workspace = true }
 geoarrow = { workspace = true }
+geoarrow-cast = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-error = { workspace = true }

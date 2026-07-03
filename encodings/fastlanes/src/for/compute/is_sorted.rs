@@ -75,7 +75,7 @@ mod test {
         let mut ctx = array_session().create_execution_ctx();
 
         let a = PrimitiveArray::new(buffer![-1, 0, i8::MAX], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx).unwrap();
         assert!(
             is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -83,7 +83,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![i8::MIN, 0, i8::MAX], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx).unwrap();
         assert!(
             is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -91,7 +91,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![i8::MIN, 0, 30, 127], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx).unwrap();
         assert!(
             is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -99,7 +99,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![i8::MIN, -3, -1], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx).unwrap();
         assert!(
             is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -107,7 +107,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![-10, -3, -1], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx).unwrap();
         assert!(
             is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -115,7 +115,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![-10, -11, -1], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx).unwrap();
         assert!(
             !is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",
@@ -123,7 +123,7 @@ mod test {
         );
 
         let a = PrimitiveArray::new(buffer![-10, i8::MIN, -1], Validity::NonNullable);
-        let b = FoRData::encode(a).unwrap();
+        let b = FoRData::encode(a, &mut ctx).unwrap();
         assert!(
             !is_sorted(&b.clone().into_array(), &mut ctx).unwrap(),
             "{}",

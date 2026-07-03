@@ -19,7 +19,6 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
@@ -28,9 +27,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::scalar::PValue;
-use vortex_array::search_sorted::SearchSorted;
-use vortex_array::search_sorted::SearchSortedSide;
+use vortex_array::legacy_session;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
@@ -48,6 +45,8 @@ use crate::compress::runend_decode_primitive;
 use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
 use crate::decompress_bool::runend_decode_bools;
+use crate::ops::find_physical_index;
+use crate::ops::find_slice_end_index;
 use crate::rules::RULES;
 
 /// A [`RunEnd`]-encoded Vortex array.
@@ -86,6 +85,7 @@ impl VTable for RunEnd {
         *ID
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn validate(
         &self,
         data: &Self::TypedArrayData,
@@ -100,7 +100,7 @@ impl VTable for RunEnd {
             .as_ref()
             .vortex_expect("RunEndArray values slot");
         // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = legacy_session().create_execution_ctx();
         RunEndData::validate_parts(ends, values, data.offset, len, &mut ctx)?;
         vortex_ensure!(
             values.dtype() == dtype,
@@ -121,6 +121,14 @@ impl VTable for RunEnd {
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("RunEndArray buffer_name index {idx} out of bounds")
+    }
+
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_array::vtable::with_empty_buffers(self, array, buffers)
     }
 
     fn serialize(
@@ -221,17 +229,15 @@ pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
         self.values().dtype()
     }
 
-    fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        Ok(self
-            .ends()
-            .as_primitive_typed()
-            .search_sorted(
-                &PValue::from(index + self.offset()),
-                SearchSortedSide::Right,
-            )?
-            .to_ends_index(self.ends().len()))
+    fn find_physical_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+        find_physical_index(self.ends(), index + self.offset(), ctx)
+    }
+
+    fn find_slice_end_index(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
+        find_slice_end_index(self.ends(), index + self.offset(), ctx)
     }
 }
+
 impl<T: TypedArrayRef<RunEnd>> RunEndArrayExt for T {}
 
 #[derive(Clone, Debug)]

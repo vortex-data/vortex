@@ -11,12 +11,12 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::Ref;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
+use crate::legacy_session;
 
 const DEFAULT_COMPACTION_THRESHOLD: f64 = 0.5;
 const MIN_RETAINED_BYTES_PER_ROW_TO_CHECK_COMPACTION: u64 = 128;
@@ -69,13 +69,14 @@ impl VarBinViewArray {
     /// Iterates over all valid, non-inlined views, calling the provided
     /// closure for each one.
     #[inline(always)]
+    #[allow(clippy::disallowed_methods)]
     fn iter_valid_views<F>(&self, mut f: F) -> VortexResult<()>
     where
         F: FnMut(&Ref),
     {
         match self.as_ref().validity()?.execute_mask(
             self.as_ref().len(),
-            &mut LEGACY_SESSION.create_execution_ctx(),
+            &mut legacy_session().create_execution_ctx(),
         )? {
             Mask::AllTrue(_) => {
                 for &view in self.views().iter() {

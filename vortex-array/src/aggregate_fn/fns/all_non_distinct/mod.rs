@@ -19,6 +19,7 @@ use std::sync::LazyLock;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_identical;
 use self::decimal::check_decimal_identical;
@@ -121,7 +122,8 @@ impl AggregateFnVTable for AllNonDistinct {
     type Partial = AllNonDistinctPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.all_non_distinct")
+        static ID: CachedId = CachedId::new("vortex.all_non_distinct");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

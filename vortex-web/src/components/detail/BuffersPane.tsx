@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LayoutTreeNode } from '../swimlane/types';
 import { formatBytes, parseArrayNodeId } from '../swimlane/utils';
-import { useVortexFile } from '../../contexts/VortexFileContext';
+import { useVortexFile } from '../../contexts/VortexFileContextCore';
 
 interface BuffersPaneProps {
   node: LayoutTreeNode;

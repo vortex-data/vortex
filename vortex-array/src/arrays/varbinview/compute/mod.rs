@@ -11,14 +11,14 @@ mod zip;
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
     #[expect(deprecated)]
     use crate::canonical::ToCanonical as _;
     #[test]
-    fn take_nullable() {
+    fn take_nullable() -> VortexResult<()> {
         let arr = VarBinViewArray::from_iter_nullable_str([
             Some("one"),
             None,
@@ -28,15 +28,21 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = arr.take(buffer![0, 3].into_array()).unwrap();
+        let taken = arr.take(buffer![0, 3].into_array())?;
 
         assert!(taken.dtype().is_nullable());
+        let mut ctx = array_session().create_execution_ctx();
         #[expect(deprecated)]
-        let result = taken.to_varbinview().with_iterator(|it| {
-            it.map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                .collect::<Vec<_>>()
-        });
+        let taken = taken.to_varbinview();
+        let mask = taken.validity()?.execute_mask(taken.len(), &mut ctx)?;
+        let result = (0..taken.len())
+            .map(|i| {
+                mask.value(i)
+                    .then(|| unsafe { String::from_utf8_unchecked(taken.bytes_at(i).to_vec()) })
+            })
+            .collect::<Vec<_>>();
         assert_eq!(result, [Some("one".to_string()), Some("four".to_string())]);
+        Ok(())
     }
     // Consistency tests
     use rstest::rstest;

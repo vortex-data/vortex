@@ -26,7 +26,6 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VTable;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::sum::sum;
@@ -50,6 +49,7 @@ use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
+use crate::legacy_session;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
@@ -269,8 +269,9 @@ impl ArrayRef {
         note = "Use `execute_scalar` instead, which allows passing an execution context for more \
         efficient execution when fetching multiple scalars from the same array."
     )]
+    #[allow(clippy::disallowed_methods)]
     pub fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        self.execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+        self.execute_scalar(index, &mut legacy_session().create_execution_ctx())
     }
 
     /// Execute the array to extract a scalar at the given index.
@@ -360,8 +361,9 @@ impl ArrayRef {
 
     /// Returns the canonical representation of the array.
     #[deprecated(note = "use `array.execute::<Canonical>(ctx)` instead")]
+    #[allow(clippy::disallowed_methods)]
     pub fn into_canonical(self) -> VortexResult<Canonical> {
-        self.execute(&mut LEGACY_SESSION.create_execution_ctx())
+        self.execute(&mut legacy_session().create_execution_ctx())
     }
 
     /// Returns the canonical representation of the array.
@@ -460,8 +462,18 @@ impl ArrayRef {
     /// This is only valid for physical rewrites: the replacement must have the same logical
     /// `DType` and `len` as the existing slot.
     ///
+    /// # Safety
+    ///
+    /// If this returns `Ok`, the caller must guarantee that the replacement slot represents the
+    /// same logical values as the original slot. Only the physical representation may change.
+    /// Existing parent statistics are preserved and must remain valid.
+    ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
-    pub fn with_slot(self, slot_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
+    pub unsafe fn with_slot(
+        self,
+        slot_idx: usize,
+        replacement: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
         let mut slots: ArraySlots = self.slots().iter().cloned().collect();
         let nslots = slots.len();
         vortex_ensure!(
@@ -488,7 +500,8 @@ impl ArrayRef {
             replacement.len()
         );
         slots[slot_idx] = Some(replacement);
-        self.with_slots(slots)
+        // SAFETY: upheld by the caller of this unsafe API.
+        unsafe { self.with_slots(slots) }
     }
 
     /// Take a slot for executor-owned physical rewrites.
@@ -555,7 +568,13 @@ impl ArrayRef {
     ///
     /// This is only valid for physical rewrites: slot count, presence, logical `DType`, and
     /// logical `len` must remain unchanged.
-    pub fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
+    ///
+    /// # Safety
+    ///
+    /// If this returns `Ok`, the caller must guarantee that each replacement slot represents the
+    /// same logical values as the original slot. Only physical representation may change. Existing
+    /// parent statistics are preserved and must remain valid.
+    pub unsafe fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let old_slots = self.slots();
         vortex_ensure!(
             old_slots.len() == slots.len(),
@@ -587,6 +606,47 @@ impl ArrayRef {
             }
         }
         self.0.data.with_slots(&self, slots)
+    }
+
+    /// Returns a new array with the provided top-level buffer handles.
+    ///
+    /// This is only valid for physical rewrites: buffer count, logical `DType`, logical `len`, and
+    /// child slots must remain unchanged. Encoding-specific validation checks buffer shape,
+    /// alignment, and metadata consistency.
+    ///
+    /// # Safety
+    ///
+    /// If this returns `Ok`, the caller must guarantee that the replacement buffers represent the
+    /// same logical values as the original buffers. Only the buffer handle implementation,
+    /// placement, or backing storage may change. Existing statistics are preserved and must remain
+    /// valid.
+    pub unsafe fn with_buffers(
+        self,
+        buffers: impl IntoIterator<Item = BufferHandle>,
+    ) -> VortexResult<ArrayRef> {
+        let buffers = buffers.into_iter().collect::<Vec<_>>();
+        let nbuffers = self.nbuffers();
+        vortex_ensure!(
+            nbuffers == buffers.len(),
+            "buffer count changed from {} to {} during physical rewrite",
+            nbuffers,
+            buffers.len()
+        );
+        for (idx, (old_buffer, new_buffer)) in self
+            .buffer_handles()
+            .into_iter()
+            .zip(buffers.iter())
+            .enumerate()
+        {
+            vortex_ensure!(
+                old_buffer.len() == new_buffer.len(),
+                "buffer {} length changed from {} to {} during physical rewrite",
+                idx,
+                old_buffer.len(),
+                new_buffer.len()
+            );
+        }
+        self.0.data.with_buffers(&self, buffers)
     }
 
     pub fn reduce(&self) -> VortexResult<Option<ArrayRef>> {

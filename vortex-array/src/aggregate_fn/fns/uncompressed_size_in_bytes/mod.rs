@@ -28,6 +28,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -101,7 +102,8 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
     type Partial = u64;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.uncompressed_size_in_bytes")
+        static ID: CachedId = CachedId::new("vortex.uncompressed_size_in_bytes");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

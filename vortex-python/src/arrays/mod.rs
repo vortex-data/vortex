@@ -9,19 +9,28 @@ mod native;
 pub(crate) mod py;
 mod range_to_sequence;
 
+use std::ffi::c_void;
+use std::ptr;
+use std::ptr::NonNull;
+
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyIndexError;
+use pyo3::exceptions::PyNotImplementedError;
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
+use pyo3::types::PyCapsule;
 use pyo3::types::PyDict;
 use pyo3::types::PyList;
 use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
-use pyo3_bytes::PyBytes;
+use pyo3::types::PyTuple;
+use pyo3_bytes::PyBytes as PyBufferBytes;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -31,14 +40,22 @@ use vortex::array::arrays::Chunked;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrow::ArrowSessionExt;
+use vortex::array::buffer::BufferHandle;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;
+use vortex::array::session::ArraySessionExt;
+use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::flatbuffers::WriteFlatBufferExt;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex_python_abi::BUFFER_EXPORT_CAPSULE_NAME;
+use vortex_python_abi::VORTEX_BUFFER_EXPORT_VERSION;
+use vortex_python_abi::VORTEX_BUFFER_HOST;
+use vortex_python_abi::VortexBufferExport;
 
 use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;
@@ -55,6 +72,113 @@ use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
 use crate::serde::context::PyArrayContext;
 use crate::session::session;
+
+fn export_buffer<'py>(py: Python<'py>, handle: &BufferHandle) -> PyResult<Bound<'py, PyCapsule>> {
+    let Some(byte_buffer) = handle.as_host_opt() else {
+        return Err(PyNotImplementedError::new_err(
+            "Vortex Python CUDA buffer handoff only supports host buffers for now",
+        ));
+    };
+    let byte_buffer = byte_buffer.clone();
+    let ptr = byte_buffer.as_slice().as_ptr();
+    let len = byte_buffer.as_slice().len();
+    let alignment = usize::from(byte_buffer.alignment());
+    let private_data = Box::into_raw(Box::new(byte_buffer)).cast::<c_void>();
+
+    let export = VortexBufferExport {
+        version: VORTEX_BUFFER_EXPORT_VERSION,
+        kind: VORTEX_BUFFER_HOST,
+        ptr,
+        len,
+        alignment,
+        device_id: -1,
+        sync_event: ptr::null_mut(),
+        private_data,
+        release: Some(release_buffer_export),
+    };
+
+    let capsule_ptr = Box::into_raw(Box::new(export)).cast::<c_void>();
+    let capsule_ptr = NonNull::new(capsule_ptr)
+        .ok_or_else(|| PyRuntimeError::new_err("failed to allocate buffer export capsule"))?;
+    let capsule = unsafe {
+        PyCapsule::new_with_pointer_and_destructor(
+            py,
+            capsule_ptr,
+            BUFFER_EXPORT_CAPSULE_NAME,
+            Some(release_buffer_export_capsule),
+        )
+    };
+    match capsule {
+        Ok(capsule) => Ok(capsule),
+        Err(err) => {
+            let export = capsule_ptr.as_ptr().cast::<VortexBufferExport>();
+            unsafe { release_buffer_export(export) };
+            Err(err)
+        }
+    }
+}
+
+unsafe extern "C" fn release_buffer_export(export: *mut VortexBufferExport) {
+    if export.is_null() {
+        return;
+    }
+    let mut export = unsafe { Box::from_raw(export) };
+    let private = export.private_data;
+    if !private.is_null() {
+        drop(unsafe { Box::from_raw(private.cast::<ByteBuffer>()) });
+        export.private_data = ptr::null_mut();
+    }
+}
+
+unsafe extern "C" fn release_buffer_export_capsule(capsule: *mut pyo3::ffi::PyObject) {
+    let ptr =
+        unsafe { pyo3::ffi::PyCapsule_GetPointer(capsule, BUFFER_EXPORT_CAPSULE_NAME.as_ptr()) };
+    if ptr.is_null() {
+        unsafe { pyo3::ffi::PyErr_Clear() };
+        return;
+    }
+    unsafe { release_buffer_export(ptr.cast::<VortexBufferExport>()) };
+}
+
+fn array_metadata_tuple<'py>(
+    py: Python<'py>,
+    array: &ArrayRef,
+) -> PyVortexResult<Bound<'py, PyTuple>> {
+    let metadata = session().array_serialize(array)?.ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "Array {} does not support metadata serialization",
+            array.encoding_id()
+        ))
+    })?;
+    let dtype = array.dtype().write_flatbuffer_bytes()?;
+
+    let buffers = array
+        .buffer_handles()
+        .iter()
+        .map(|handle| export_buffer(py, handle).map(|cap| cap.into_any()))
+        .collect::<PyResult<Vec<_>>>()?;
+    let buffers = PyList::new(py, buffers)?;
+
+    let children = array
+        .children()
+        .iter()
+        .map(|child| array_metadata_tuple(py, child).map(|tuple| tuple.into_any()))
+        .collect::<PyVortexResult<Vec<_>>>()?;
+    let children = PyList::new(py, children)?;
+
+    PyTuple::new(
+        py,
+        [
+            array.encoding_id().to_string().into_py_any(py)?,
+            PyBytes::new(py, dtype.as_slice()).into_any().into(),
+            array.len().into_py_any(py)?,
+            PyBytes::new(py, metadata.as_slice()).into_any().into(),
+            buffers.into_any().into(),
+            children.into_any().into(),
+        ],
+    )
+    .map_err(Into::into)
+}
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "arrays")?;
@@ -372,6 +496,17 @@ impl PyArray {
                 .to_pyarrow(py)?
                 .into_bound(py))
         }
+    }
+
+    /// Export this array's vtable metadata tree for optional native extensions.
+    ///
+    /// The returned private tuple includes vtable metadata plus private buffer-export capsules.
+    /// The capsule ABI is version-pinned between the `vortex-data` and `vortex-data-cuda` wheels.
+    fn __vortex_array_metadata__<'py>(
+        self_: &'py Bound<'py, Self>,
+    ) -> PyVortexResult<Bound<'py, PyTuple>> {
+        let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
+        array_metadata_tuple(self_.py(), &array)
     }
 
     fn __len__(&self) -> PyResult<usize> {
@@ -801,14 +936,14 @@ impl PyArray {
         for buf in array_buffers.into_iter() {
             // PyBytes wraps bytes::Bytes and implements the buffer protocol
             // This allows PickleBuffer to reference the data without copying
-            let py_bytes = PyBytes::new(buf).into_py_any(py)?;
+            let py_bytes = PyBufferBytes::new(buf).into_py_any(py)?;
             let pickle_buffer = pickle_buffer_class.call1((py_bytes,))?;
             pickle_buffers.push(pickle_buffer);
         }
 
         let mut dtype_pickle_buffers = Vec::new();
         for buf in dtype_buffers.into_iter() {
-            let py_bytes = PyBytes::new(buf).into_py_any(py)?;
+            let py_bytes = PyBufferBytes::new(buf).into_py_any(py)?;
             let pickle_buffer = pickle_buffer_class.call1((py_bytes,))?;
             dtype_pickle_buffers.push(pickle_buffer);
         }

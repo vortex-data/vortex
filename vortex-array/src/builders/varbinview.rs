@@ -22,7 +22,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::VarBinViewArrayExt;
@@ -34,6 +33,7 @@ use crate::canonical::Canonical;
 #[expect(deprecated)]
 use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
+use crate::legacy_session;
 use crate::scalar::Scalar;
 
 /// The builder for building a [`VarBinViewArray`].
@@ -372,10 +372,11 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
+    #[allow(clippy::disallowed_methods)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         #[expect(deprecated)]
         let array = array.to_varbinview();
-        self.append_varbinview_array(&array, &mut LEGACY_SESSION.create_execution_ctx())
+        self.append_varbinview_array(&array, &mut legacy_session().create_execution_ctx())
             .vortex_expect("Failed to append varbinview array");
     }
 

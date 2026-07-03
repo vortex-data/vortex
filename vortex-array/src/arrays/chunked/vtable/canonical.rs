@@ -299,7 +299,6 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::accessor::ArrayAccessor;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::FixedSizeListArray;
@@ -550,10 +549,30 @@ mod tests {
             .clone()
             .execute::<VarBinViewArray>(&mut ctx)
             .unwrap();
-        let orig_values = original_varbin
-            .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
-        let canon_values = canonical_varbin
-            .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
+        let orig_mask = original_varbin
+            .validity()
+            .unwrap()
+            .execute_mask(original_varbin.len(), &mut ctx)
+            .unwrap();
+        let orig_values = (0..original_varbin.len())
+            .map(|i| {
+                orig_mask
+                    .value(i)
+                    .then(|| original_varbin.bytes_at(i).to_vec())
+            })
+            .collect::<Vec<_>>();
+        let canon_mask = canonical_varbin
+            .validity()
+            .unwrap()
+            .execute_mask(canonical_varbin.len(), &mut ctx)
+            .unwrap();
+        let canon_values = (0..canonical_varbin.len())
+            .map(|i| {
+                canon_mask
+                    .value(i)
+                    .then(|| canonical_varbin.bytes_at(i).to_vec())
+            })
+            .collect::<Vec<_>>();
         assert_eq!(orig_values, canon_values);
     }
 

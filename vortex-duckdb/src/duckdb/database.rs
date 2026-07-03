@@ -90,4 +90,14 @@ impl DatabaseRef {
         );
         Ok(())
     }
+
+    /// Shadow `ST_DWithin` with a radius-visible copy so its filters push into the Vortex scan
+    /// (see `duckdb_vx_register_st_dwithin_override`). No-op when `spatial` is not loaded.
+    pub fn register_st_dwithin_override(&self) -> VortexResult<()> {
+        duckdb_try!(
+            unsafe { cpp::duckdb_vx_register_st_dwithin_override(self.as_ptr()) },
+            "Failed to register the ST_DWithin override"
+        );
+        Ok(())
+    }
 }

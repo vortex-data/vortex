@@ -295,6 +295,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `GhArchive`                 | `gharchive`    | `None`              | `None`                                              | |
 /// | `Appian`                    | `appian`       | `None`              | `None`                                              | Static dataset; no scale factor. |
 /// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
+/// | `SpatialBench { scale_factor }` | `spatialbench` | `None`         | SF as string | Same canonicalization as TPC-H; no historical v2 records to merge with. |
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
     match d {
         BenchmarkDataset::TpcH { scale_factor } => (
@@ -320,6 +321,11 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         // live). Drop it to keep live ingests merging into the migrated
         // group. The dataset-level `n_rows` is recoverable from the bench
         // matrix if ever needed.
+        BenchmarkDataset::SpatialBench { scale_factor } => (
+            "spatialbench".to_string(),
+            None,
+            Some(canonical_tpc_scale_factor(scale_factor)),
+        ),
         BenchmarkDataset::StatPopGen { .. } => ("statpopgen".to_string(), None, None),
         BenchmarkDataset::PolarSignals { .. } => ("polarsignals".to_string(), None, None),
         BenchmarkDataset::Fineweb => ("fineweb".to_string(), None, None),

@@ -73,7 +73,7 @@ impl Scheme for OnPairScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let utf8 = data.array_as_varbinview().into_owned();
-        let onpair_array = onpair_compress(&utf8, utf8.len(), utf8.dtype(), DEFAULT_DICT12_CONFIG)?;
+        let onpair_array = onpair_compress(utf8.as_array(), DEFAULT_DICT12_CONFIG, exec_ctx)?;
 
         let dict_offsets = compress_offsets_child(
             compressor,

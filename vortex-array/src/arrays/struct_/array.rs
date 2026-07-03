@@ -22,6 +22,7 @@ use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::ChunkedArray;
 use crate::arrays::Struct;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
@@ -524,5 +525,39 @@ impl Array<Struct> {
         // 3. Each Array<Struct> has a valid validity, so the concatenation of those validities has
         // the correct length and dtype harmony.
         Ok(unsafe { Array::<Struct>::new_unchecked(field_arrays, struct_fields, len, validity) })
+    }
+
+    /// Push the struct's top-level validity into each field, so a row null at the struct level
+    /// becomes null in every field.
+    ///
+    /// If `remove_struct_validity` is set the result is non-nullable; otherwise it keeps its
+    /// top-level validity.
+    pub fn push_validity_into_children(&self, remove_struct_validity: bool) -> VortexResult<Self> {
+        let struct_validity = self.struct_validity();
+
+        let new_validity = if remove_struct_validity {
+            Validity::NonNullable
+        } else {
+            struct_validity.clone()
+        };
+
+        // Nothing to push down.
+        if struct_validity.definitely_no_nulls() {
+            return Self::try_new(
+                self.names().clone(),
+                self.unmasked_fields(),
+                self.len(),
+                new_validity,
+            );
+        }
+
+        // Null each field where the struct row is null.
+        let mask = struct_validity.to_array(self.len());
+        let fields = self
+            .iter_unmasked_fields()
+            .map(|field| field.clone().mask(mask.clone()))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Self::try_new(self.names().clone(), fields, self.len(), new_validity)
     }
 }

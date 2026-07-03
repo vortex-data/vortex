@@ -26,9 +26,8 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(Cast.id(), Struct, StructCastKernel);
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(Cast.id(), Struct, StructCastKernel);
 }
 
 #[derive(Debug)]
@@ -215,7 +214,8 @@ mod tests {
             .unwrap();
         let parent_id = cast.encoding_id();
         let session = VortexSession::empty().with_some(KernelSession::empty());
-        session.kernels().register_execute_parent(
+        let kernels = session.kernels();
+        kernels.register_execute_parent(
             parent_id,
             child_id,
             &[null_struct_cast_execute_parent as ExecuteParentFn],

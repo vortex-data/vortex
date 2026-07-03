@@ -57,12 +57,12 @@ mod test {
     use std::sync::LazyLock;
 
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
-    use crate::accessor::ArrayAccessor;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
@@ -148,29 +148,37 @@ mod test {
     }
 
     #[test]
-    fn canonicalise_nullable_varbin() {
+    fn canonicalise_nullable_varbin() -> VortexResult<()> {
         let reference = VarBinViewArray::from_iter(
             vec![Some("a"), Some("b"), None, Some("a"), None, Some("b")],
             DType::Utf8(Nullability::Nullable),
         );
         assert_eq!(reference.len(), 6);
-        let dict = dict_encode(
-            &reference.clone().into_array(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-        let flattened_dict = dict
-            .into_array()
-            .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())
-            .unwrap();
-        assert_eq!(
-            flattened_dict.with_iterator(|iter| iter
-                .map(|slice| slice.map(|s| s.to_vec()))
-                .collect::<Vec<_>>()),
-            reference.with_iterator(|iter| iter
-                .map(|slice| slice.map(|s| s.to_vec()))
-                .collect::<Vec<_>>()),
-        );
+        let mut ctx = SESSION.create_execution_ctx();
+        let dict = dict_encode(&reference.clone().into_array(), &mut ctx)?;
+        let flattened_dict = dict.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+        let flattened_mask = flattened_dict
+            .validity()?
+            .execute_mask(flattened_dict.len(), &mut ctx)?;
+        let flattened_values = (0..flattened_dict.len())
+            .map(|i| {
+                flattened_mask
+                    .value(i)
+                    .then(|| flattened_dict.bytes_at(i).to_vec())
+            })
+            .collect::<Vec<_>>();
+        let reference_mask = reference
+            .validity()?
+            .execute_mask(reference.len(), &mut ctx)?;
+        let reference_values = (0..reference.len())
+            .map(|i| {
+                reference_mask
+                    .value(i)
+                    .then(|| reference.bytes_at(i).to_vec())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(flattened_values, reference_values);
+        Ok(())
     }
 
     fn sliced_dict_array() -> ArrayRef {

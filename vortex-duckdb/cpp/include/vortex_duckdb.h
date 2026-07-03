@@ -43,6 +43,8 @@ duckdb_logical_type duckdb_vx_create_geometry(const char *crs);
 
 duckdb_state duckdb_vx_register_scan_replacement(duckdb_database duckdb_database);
 
+duckdb_state duckdb_vx_optimizer_extension_register(duckdb_database ffi_db);
+
 /// Creates a new reusable dictionary from a logical type and size.
 duckdb_vx_reusable_dict duckdb_vx_reusable_dict_create(duckdb_logical_type logical_type, idx_t size);
 

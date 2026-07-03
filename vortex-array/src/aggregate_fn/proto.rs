@@ -35,6 +35,7 @@ impl AggregateFnRef {
     ///
     /// Note: the serialization format is not stable and may change between versions.
     pub fn from_proto(proto: &pb::AggregateFn, session: &VortexSession) -> VortexResult<Self> {
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let agg_fn_id: AggregateFnId = AggregateFnId::new(proto.id.as_str());
         let agg_fn = if let Some(plugin) = session.aggregate_fns().find_plugin(&agg_fn_id) {
             plugin.deserialize(proto.metadata(), session)?
@@ -88,6 +89,7 @@ mod tests {
         type Options = EmptyOptions;
         type Partial = ();
 
+        #[expect(clippy::disallowed_methods, reason = "test-only id")]
         fn id(&self) -> AggregateFnId {
             AggregateFnId::new("vortex.test.proto")
         }
@@ -193,10 +195,9 @@ mod tests {
 
     #[test]
     fn unknown_aggregate_fn_id_allow_unknown() {
-        let session = VortexSession::builder()
+        let session = VortexSession::empty()
             .with::<AggregateFnSession>()
-            .allow_unknown()
-            .build();
+            .allow_unknown();
 
         let proto = pb::AggregateFn {
             id: "vortex.test.foreign_aggregate".to_string(),

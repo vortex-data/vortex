@@ -255,6 +255,14 @@ impl TryFrom<Value> for Scalar {
     }
 }
 
+impl TryFrom<Scalar> for Value {
+    type Error = VortexError;
+
+    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
+        scalar.try_to_duckdb_scalar()
+    }
+}
+
 impl<'a> TryFrom<&'a ValueRef> for Scalar {
     type Error = VortexError;
 
@@ -375,15 +383,21 @@ mod tests {
     use rstest::rstest;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
     use vortex::dtype::extension::ExtDType;
+    use vortex::extension::datetime::Date;
+    use vortex::extension::datetime::Time;
+    use vortex::extension::datetime::TimeUnit;
     use vortex::extension::datetime::Timestamp;
     use vortex::extension::datetime::TimestampOptions;
     use vortex::scalar::Scalar;
+    use vortex::scalar::ScalarValue;
     use vortex_geo::extension::GeoMetadata;
     use vortex_geo::extension::WellKnownBinary;
 
     use crate::convert::ToDuckDBScalar;
     use crate::cpp::DUCKDB_TYPE;
+    use crate::duckdb::ExtractedValue;
     use crate::duckdb::Value;
 
     #[test]
@@ -409,13 +423,6 @@ mod tests {
 
     #[test]
     fn test_timestamp_roundtrip() {
-        use vortex::dtype::DType;
-        use vortex::dtype::Nullability;
-        use vortex::dtype::PType;
-        use vortex::extension::datetime::TimeUnit;
-        use vortex::scalar::Scalar;
-        use vortex::scalar::ScalarValue;
-
         #[rustfmt::skip]
         let test_cases = [
             (TimeUnit::Seconds, 1703980800i64),                 // 2023-12-30 16:00:00 UTC
@@ -521,5 +528,114 @@ mod tests {
 
         assert!(roundtrip.is_null());
         assert_eq!(roundtrip.dtype(), original.dtype());
+    }
+
+    fn timestamp_scalar(unit: TimeUnit, v: i64) -> Scalar {
+        Scalar::extension::<Timestamp>(
+            TimestampOptions { unit, tz: None },
+            Scalar::try_new(
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+                Some(ScalarValue::from(v)),
+            )
+            .unwrap(),
+        )
+    }
+
+    #[rstest]
+    #[case::seconds(TimeUnit::Seconds, 1_372_723_200, DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S)]
+    #[case::millis(
+        TimeUnit::Milliseconds,
+        1_372_723_200_123,
+        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS
+    )]
+    #[case::micros(
+        TimeUnit::Microseconds,
+        1_372_723_200_000_000,
+        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP
+    )]
+    #[case::nanos(
+        TimeUnit::Nanoseconds,
+        1_372_723_200_000_000_123,
+        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS
+    )]
+    fn try_from_timestamp_scalar(
+        #[case] unit: TimeUnit,
+        #[case] raw: i64,
+        #[case] expected: DUCKDB_TYPE,
+    ) {
+        let value = Value::try_from(timestamp_scalar(unit, raw)).unwrap();
+        assert_eq!(value.logical_type().as_type_id(), expected);
+        let extracted = match value.extract() {
+            ExtractedValue::TimestampS(v)
+            | ExtractedValue::TimestampMs(v)
+            | ExtractedValue::Timestamp(v)
+            | ExtractedValue::TimestampNs(v) => v,
+            other => panic!("unexpected extracted value: {other:?}"),
+        };
+        assert_eq!(extracted, raw);
+    }
+
+    #[test]
+    fn try_from_date_scalar() {
+        let scalar = Scalar::extension::<Date>(
+            TimeUnit::Days,
+            Scalar::try_new(
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                Some(ScalarValue::from(19000i32)),
+            )
+            .unwrap(),
+        );
+        let value = Value::try_from(scalar).unwrap();
+        assert_eq!(
+            value.logical_type().as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_DATE
+        );
+        let ExtractedValue::Date(days) = value.extract() else {
+            panic!("expected date");
+        };
+        assert_eq!(days, 19000);
+    }
+
+    #[test]
+    fn try_from_time_scalar() {
+        let scalar = Scalar::extension::<Time>(
+            TimeUnit::Microseconds,
+            Scalar::try_new(
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+                Some(ScalarValue::from(42_000_000i64)),
+            )
+            .unwrap(),
+        );
+        let value = Value::try_from(scalar).unwrap();
+        assert_eq!(
+            value.logical_type().as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME
+        );
+        let ExtractedValue::Time(micros) = value.extract() else {
+            panic!("expected time");
+        };
+        assert_eq!(micros, 42_000_000);
+    }
+
+    #[test]
+    fn try_from_primitive_i64() {
+        let value = Value::try_from(Scalar::from(1_372_723_200_000_000i64)).unwrap();
+        assert_eq!(
+            value.logical_type().as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_BIGINT
+        );
+    }
+
+    #[test]
+    fn try_from_null_timestamp() {
+        let dtype = timestamp_scalar(TimeUnit::Microseconds, 0)
+            .dtype()
+            .as_nullable();
+        let value = Value::try_from(Scalar::null(dtype)).unwrap();
+        assert_eq!(
+            value.logical_type().as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP
+        );
+        assert!(matches!(value.extract(), ExtractedValue::Null));
     }
 }

@@ -1385,7 +1385,8 @@ mod test {
     #[test]
     fn test_sparse_fixed_size_list_non_null_fill() -> VortexResult<()> {
         let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
-        let fsl = FixedSizeListArray::try_new(elements, 2, Validity::AllValid, 3)?.into_array();
+        // Non-nullable values to match the non-nullable fill below.
+        let fsl = FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 3)?.into_array();
 
         let indices = buffer![0u8, 2u8, 4u8].into_array();
         let fill_value = Scalar::fixed_size_list(
@@ -1462,7 +1463,8 @@ mod test {
 
         // Create patch values: only 3 distinct lists out of 100 total positions.
         let elements = buffer![10i32, 11, 20, 21, 30, 31].into_array();
-        let fsl = FixedSizeListArray::try_new(elements, 2, Validity::AllValid, 3)?.into_array();
+        // Non-nullable values to match the non-nullable fill below.
+        let fsl = FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 3)?.into_array();
 
         // Patches at positions 5, 50, and 95 out of 100.
         let indices = buffer![5u32, 50, 95].into_array();
@@ -1520,7 +1522,8 @@ mod test {
     fn test_sparse_fixed_size_list_single_element() -> VortexResult<()> {
         // Test with a single element FSL array.
         let elements = buffer![42i32, 43].into_array();
-        let fsl = FixedSizeListArray::try_new(elements, 2, Validity::AllValid, 1)?.into_array();
+        // Non-nullable values to match the non-nullable fill below.
+        let fsl = FixedSizeListArray::try_new(elements, 2, Validity::NonNullable, 1)?.into_array();
 
         let indices = buffer![0u32].into_array();
         let fill_value = Scalar::fixed_size_list(

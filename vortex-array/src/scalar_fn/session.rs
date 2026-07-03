@@ -5,6 +5,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
@@ -20,6 +21,7 @@ use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::merge::Merge;
 use crate::scalar_fn::fns::not::Not;
@@ -67,6 +69,7 @@ impl Default for ScalarFnSession {
         this.register(IsNull);
         this.register(Like);
         this.register(ListContains);
+        this.register(ListLength);
         this.register(Literal);
         this.register(Merge);
         this.register(Not);
@@ -93,7 +96,7 @@ impl SessionVar for ScalarFnSession {
 /// Extension trait for accessing scalar function session data.
 pub trait ScalarFnSessionExt: SessionExt {
     /// Returns the scalar function vtable registry.
-    fn scalar_fns(&self) -> &ScalarFnSession {
+    fn scalar_fns(&self) -> SessionGuard<'_, ScalarFnSession> {
         self.get::<ScalarFnSession>()
     }
 }

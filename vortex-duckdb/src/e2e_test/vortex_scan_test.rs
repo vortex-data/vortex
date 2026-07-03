@@ -1014,3 +1014,101 @@ fn test_geometry() {
     let area = vec.as_slice_with_len::<f64>(chunk.len().as_())[0];
     assert_eq!(area, 1000.0);
 }
+
+/// `SELECT array_length(list)` / `len(list)` / `length(list)` should push the list-length
+/// computation into the Vortex scan (computed from offsets, without materializing the list
+/// elements) and return the per-row element counts.
+#[test]
+fn test_vortex_scan_list_length_projection() {
+    let file = RUNTIME.block_on(async {
+        let integers = PrimitiveArray::from_iter([
+            10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
+        ]);
+        // Variable-length lists with 3, 4, 1, 5, 2 elements respectively.
+        let offsets = buffer![0i32, 3, 7, 8, 13, 15];
+        let list_array = ListArray::try_new(
+            integers.into_array(),
+            offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        write_single_column_vortex_file("int_list", list_array).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+
+    // `len`/`length` bind to the same DuckDB function set as `array_length` for list arguments.
+    for func in ["array_length", "len", "length"] {
+        let result = conn
+            .query(&format!("SELECT {func}(int_list) FROM '{file_path}'"))
+            .unwrap();
+
+        let mut lengths = Vec::new();
+        for chunk in result {
+            let len = chunk.len().as_();
+            let vec = chunk.get_vector(0);
+            lengths.extend_from_slice(vec.as_slice_with_len::<i64>(len));
+        }
+
+        assert_eq!(lengths, vec![3, 4, 1, 5, 2], "{func}(int_list) mismatch");
+    }
+}
+
+/// `WHERE array_length(list) >= k` should push down as a complex filter.
+#[test]
+fn test_vortex_scan_list_length_filter() {
+    let file = RUNTIME.block_on(async {
+        let integers = PrimitiveArray::from_iter([
+            10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
+        ]);
+        // Variable-length lists with 3, 4, 1, 5, 2 elements respectively.
+        let offsets = buffer![0i32, 3, 7, 8, 13, 15];
+        let list_array = ListArray::try_new(
+            integers.into_array(),
+            offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        write_single_column_vortex_file("int_list", list_array).await
+    });
+
+    // Lists with length >= 4: the 4-element and 5-element lists => 2 rows.
+    let count = scan_vortex_file_single_row::<i64, i64>(
+        file,
+        "SELECT COUNT(*) FROM ? WHERE array_length(int_list) >= 4",
+        0,
+    );
+    assert_eq!(count, 2);
+}
+
+/// `array_length`/`len`/`length` over a FixedSizeList column. The length is the fixed list size.
+#[test]
+fn test_vortex_scan_fixed_size_list_length_projection() {
+    let file = RUNTIME.block_on(async {
+        // 6 fixed-size lists of 4 i32 elements each.
+        let elements = (0..24i32).collect::<PrimitiveArray>();
+        let fsl = FixedSizeListArray::new(elements.into_array(), 4, Validity::AllValid, 6);
+        write_single_column_vortex_file("int_lists", fsl).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+
+    for func in ["array_length", "len", "length"] {
+        let result = conn
+            .query(&format!("SELECT {func}(int_lists) FROM '{file_path}'"))
+            .unwrap();
+
+        let mut lengths = Vec::new();
+        for chunk in result {
+            let len = chunk.len().as_();
+            let vec = chunk.get_vector(0);
+            lengths.extend_from_slice(vec.as_slice_with_len::<i64>(len));
+        }
+
+        assert_eq!(lengths, vec![4i64; 6], "{func}(int_lists) mismatch");
+    }
+}

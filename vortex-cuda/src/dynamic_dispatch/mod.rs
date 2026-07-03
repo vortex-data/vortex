@@ -967,7 +967,10 @@ mod tests {
 
         let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut ctx)?;
         assert!(alp.patches().is_none());
-        let for_arr = FoR::encode(alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?)?;
+        let for_arr = FoR::encode(
+            alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?,
+            &mut ctx,
+        )?;
         let bp = BitPacked::encode(for_arr.encoded(), 6, &mut ctx)?;
 
         let tree = ALP::new(
@@ -1897,7 +1900,10 @@ mod tests {
 
         let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut ctx)?;
         assert!(alp.patches().is_none());
-        let for_arr = FoR::encode(alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?)?;
+        let for_arr = FoR::encode(
+            alp.encoded().clone().execute::<PrimitiveArray>(&mut ctx)?,
+            &mut ctx,
+        )?;
         let bp = BitPacked::encode(for_arr.encoded(), 6, &mut ctx)?;
 
         let tree = ALP::new(

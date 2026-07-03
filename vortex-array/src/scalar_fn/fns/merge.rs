@@ -364,7 +364,7 @@ mod tests {
         let actual_array = test_array.apply(&expr).unwrap();
 
         assert_eq!(
-            actual_array.as_struct_typed().names(),
+            actual_array.dtype().as_struct_fields().names(),
             ["a", "b", "c", "d", "e"]
         );
 
@@ -450,7 +450,7 @@ mod tests {
             .into_array();
         let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(actual_array.as_struct_typed().nfields(), 0);
+        assert_eq!(actual_array.nchildren(), 0);
     }
 
     #[test]

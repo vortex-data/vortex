@@ -5,6 +5,7 @@ mod grouped;
 pub(crate) use grouped::CountGroupedKernel;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -41,7 +42,8 @@ impl AggregateFnVTable for Count {
     type Partial = CountPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.count")
+        static ID: CachedId = CachedId::new("vortex.count");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

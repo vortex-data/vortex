@@ -56,7 +56,7 @@ mod native_runtime {
         if vortex_cuda::cuda_available() {
             use vortex_cuda::CudaSessionExt;
             session = session.with::<vortex_cuda::CudaSession>();
-            vortex_cuda::initialize_cuda(session.cuda_session());
+            vortex_cuda::initialize_cuda(&session.cuda_session());
         }
         session
     });

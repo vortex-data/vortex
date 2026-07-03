@@ -17,7 +17,6 @@ use std::time::Instant;
 
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
@@ -63,7 +62,7 @@ fn corpus(n: usize) -> Vec<String> {
 
 #[test]
 #[cfg_attr(miri, ignore)]
-fn smoke_100k_rows() {
+fn smoke_100k_rows() -> vortex_error::VortexResult<()> {
     let n = 100_000;
     let strings = corpus(n);
     let raw_bytes: usize = strings.iter().map(|s| s.len()).sum();
@@ -73,9 +72,9 @@ fn smoke_100k_rows() {
         DType::Utf8(Nullability::NonNullable),
     );
 
+    let mut ctx = SESSION.create_execution_ctx();
     let t0 = Instant::now();
-    let arr = onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG)
-        .expect("compress");
+    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
     let compress_elapsed = t0.elapsed();
     let bits = arr.bits();
     eprintln!(
@@ -84,26 +83,19 @@ fn smoke_100k_rows() {
     );
 
     let arr_ref = arr.into_array();
-    let mut ctx = SESSION.create_execution_ctx();
 
     // Full canonical round-trip via the pure-Rust decoder.
     let t0 = Instant::now();
-    let decoded = arr_ref
-        .clone()
-        .execute::<VarBinViewArray>(&mut ctx)
-        .expect("canonicalize");
+    let decoded = arr_ref.clone().execute::<VarBinViewArray>(&mut ctx)?;
     eprintln!("canonicalized in {:?}", t0.elapsed());
 
     assert_eq!(decoded.len(), n);
-    decoded
-        .with_iterator(|iter| {
-            for (i, got) in iter.enumerate() {
-                let want = strings[i].as_bytes();
-                assert_eq!(got, Some(want), "row {} mismatch", i);
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })
-        .unwrap();
+    let mask = decoded.validity()?.execute_mask(decoded.len(), &mut ctx)?;
+    for i in 0..decoded.len() {
+        let got = mask.value(i).then(|| decoded.bytes_at(i));
+        let want = strings[i].as_bytes();
+        assert_eq!(got.as_deref(), Some(want), "row {} mismatch", i);
+    }
     eprintln!("roundtrip OK on all {} rows", n);
 
     // Equality pushdown: pick a specific row's value and ensure the kernel
@@ -115,16 +107,11 @@ fn smoke_100k_rows() {
         .binary(
             ConstantArray::new(needle.as_str(), n).into_array(),
             Operator::Eq,
-        )
-        .unwrap()
-        .execute::<vortex_array::Canonical>(&mut ctx)
-        .unwrap()
+        )?
+        .execute::<vortex_array::Canonical>(&mut ctx)?
         .into_array();
-    let eq_count = sum(&eq, &mut ctx)
-        .unwrap()
-        .as_primitive()
-        .as_::<usize>()
-        .unwrap();
+    let eq_count = sum(&eq, &mut ctx)?.as_primitive().as_::<usize>().unwrap();
     assert_eq!(eq_count, want_eq);
     eprintln!("eq pushdown matches reference count ({})", want_eq);
+    Ok(())
 }

@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useMemo, useState } from 'react';
-import { useVortexFile } from '../../contexts/VortexFileContext';
-import { useSelection } from '../../contexts/SelectionContext';
+import { useVortexFile } from '../../contexts/VortexFileContextCore';
+import { useSelection } from '../../contexts/SelectionContextCore';
 import {
   getNodeDisplayName,
   findPathToNode,
@@ -11,11 +11,10 @@ import {
   shortEncoding,
   DTYPE_COLORS,
 } from '../swimlane/utils';
-import { SummaryPane } from './SummaryPane';
-import { ArraySummaryPane } from './ArraySummaryPane';
+import { SummarySidebar } from './SummarySidebar';
 import { EncodingPane } from './EncodingPane';
 import { SegmentsPane } from './SegmentsPane';
-import { TreemapPane } from './TreemapPane';
+import { BlockTreemap } from '../explorer/BlockTreemap';
 import { BuffersPane } from './BuffersPane';
 
 type TabId = 'encoding' | 'segments' | 'treemap' | 'buffers';
@@ -66,7 +65,8 @@ export function DetailPanel() {
   const selectedIdSet = useMemo(() => new Set(selectedPath.map((n) => n.id)), [selectedPath]);
   const isHoverBreadcrumb = hoveredPath.length > 0;
 
-  const currentTab = tabs.find((t) => t.id === activeTab) ? activeTab : tabs[0]?.id;
+  // Prefer the active tab; otherwise fall back to the first available tab.
+  const currentTab = tabs.find((t) => t.id === activeTab)?.id ?? tabs[0]?.id;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 h-full bg-vortex-white dark:bg-vortex-black">
@@ -144,7 +144,6 @@ export function DetailPanel() {
 
       {/* Main content: tab content (left) + summary sidebar (right) */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Tab content */}
         <div className="flex-1 overflow-auto min-w-0">
           {currentTab === 'encoding' && selection.selectedNode && (
             <div className="p-2.5">
@@ -155,17 +154,21 @@ export function DetailPanel() {
             <SegmentsPane node={selection.selectedNode} segments={file.segments} />
           )}
           {currentTab === 'treemap' && selection.selectedNode && (
-            <TreemapPane
-              node={selection.selectedNode}
+            <BlockTreemap
+              root={file.layoutTree}
               segments={file.segments}
+              fileSize={file.fileSize}
+              selectedNodeId={selection.selectedNodeId}
+              hoveredNodeId={selection.hoveredNodeId}
               onSelectNode={selectNode}
               onHoverNode={hoverNode}
+              onExpand={file.expandArrayTree}
             />
           )}
           {currentTab === 'buffers' && selection.selectedNode && (
             <BuffersPane node={selection.selectedNode} />
           )}
-          {!currentTab && !selection.selectedNode && (
+          {!selection.selectedNode && (
             <div className="p-2.5 text-xs text-vortex-grey-dark">
               Select a node to view details.
             </div>
@@ -173,13 +176,7 @@ export function DetailPanel() {
         </div>
 
         {/* Summary sidebar — always visible */}
-        <div className="w-[180px] flex-shrink-0 overflow-y-auto border-l border-vortex-grey-light/40 dark:border-white/[0.06] p-2.5">
-          {isArrayNode && selection.selectedNode ? (
-            <ArraySummaryPane node={selection.selectedNode} />
-          ) : (
-            <SummaryPane node={selection.selectedNode} file={file} />
-          )}
-        </div>
+        <SummarySidebar />
       </div>
     </div>
   );

@@ -144,7 +144,9 @@ mod tests {
         // zero fill, and keeps the result in the Sparse encoding.
         let sparse = Sparse::try_new(
             buffer![0u64, 1, 2, 3, 4].into_array(),
-            buffer![10u64, 20, 30, 40, 50].into_array(),
+            // Nullable values to match the null (nullable) fill.
+            PrimitiveArray::from_option_iter([Some(10u64), Some(20), Some(30), Some(40), Some(50)])
+                .into_array(),
             5,
             Scalar::null_native::<u64>(),
         )?;
@@ -171,7 +173,8 @@ mod tests {
         // non-nullable, which must not panic.
         let sparse = Sparse::try_new(
             buffer![1u64, 3].into_array(),
-            buffer![10u64, 20].into_array(),
+            // Nullable values to match the null (nullable) fill.
+            PrimitiveArray::from_option_iter([Some(10u64), Some(20)]).into_array(),
             5,
             Scalar::null_native::<u64>(),
         )?;

@@ -123,7 +123,7 @@ impl Scheme for FoRScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
-        let for_array = FoR::encode(primitive)?;
+        let for_array = FoR::encode(primitive, exec_ctx)?;
         let biased = for_array
             .encoded()
             .clone()

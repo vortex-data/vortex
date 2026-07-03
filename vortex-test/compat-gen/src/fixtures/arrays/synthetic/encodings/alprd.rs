@@ -46,7 +46,7 @@ impl FlatLayoutFixture for AlprdFixture {
         vec![ALPRD.id()]
     }
 
-    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let sensor: PrimitiveArray = (0..N)
             .map(|i| {
                 let noise = ((i * 7 + 13) % 100) as f64 / 1000.0;
@@ -151,31 +151,21 @@ impl FlatLayoutFixture for AlprdFixture {
                 "nullable_specials",
             ]),
             vec![
-                sensor_enc.encode(sensor.as_view(), ctx).into_array(),
-                drift_enc.encode(drift.as_view(), ctx).into_array(),
-                constant_enc
-                    .encode(constant_series.as_view(), ctx)
-                    .into_array(),
-                decreasing_enc
-                    .encode(decreasing.as_view(), ctx)
-                    .into_array(),
-                oscillating_enc
-                    .encode(oscillating.as_view(), ctx)
-                    .into_array(),
+                sensor_enc.encode(sensor.as_view()).into_array(),
+                drift_enc.encode(drift.as_view()).into_array(),
+                constant_enc.encode(constant_series.as_view()).into_array(),
+                decreasing_enc.encode(decreasing.as_view()).into_array(),
+                oscillating_enc.encode(oscillating.as_view()).into_array(),
                 periodic_resets_enc
-                    .encode(periodic_resets.as_view(), ctx)
+                    .encode(periodic_resets.as_view())
                     .into_array(),
-                nullable_enc
-                    .encode(sensor_nullable.as_view(), ctx)
-                    .into_array(),
-                special_enc
-                    .encode(special_values.as_view(), ctx)
-                    .into_array(),
+                nullable_enc.encode(sensor_nullable.as_view()).into_array(),
+                special_enc.encode(special_values.as_view()).into_array(),
                 boundary_enc
-                    .encode(boundary_specials.as_view(), ctx)
+                    .encode(boundary_specials.as_view())
                     .into_array(),
                 nullable_special_enc
-                    .encode(nullable_specials.as_view(), ctx)
+                    .encode(nullable_specials.as_view())
                     .into_array(),
             ],
             N,

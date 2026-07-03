@@ -72,6 +72,7 @@ impl Deref for PyReadContext {
 #[pymethods]
 impl PyReadContext {
     #[new]
+    #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
     fn new(ids: Vec<String>) -> Self {
         Self(ReadContext::new(
             ids.into_iter().map(|i| Id::new(&i)).collect::<Arc<_>>(),

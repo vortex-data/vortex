@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { TreemapPane } from './TreemapPane';
+import { SwimlaneOverview } from './SwimlaneOverview';
 import { withMockFileContext, withMockSelection } from '../../storybook/decorators';
 import { ordersMock } from '../../mocks/layouts';
 import { generateSegments } from '../../mocks/segments';
@@ -18,35 +18,30 @@ const mockFileState: VortexFileState = {
   fileSize: 12_400_000,
   rowCount: 100_000,
   version: 1,
-  dtype: '{order_id=i64, ...}',
+  dtype:
+    '{order_id=i64, is_active=bool, customer={id=i64, name=utf8}, items=list<struct>, amount=f64, metadata=struct, status=utf8}',
   layoutTree: layout,
   segments,
   fileStructure,
 };
 
-const meta: Meta<typeof TreemapPane> = {
-  component: TreemapPane,
-  decorators: [withMockFileContext(mockFileState), withMockSelection(layout)],
-  parameters: {
-    layout: 'fullscreen',
-  },
-};
-export default meta;
-
-type Story = StoryObj<typeof TreemapPane>;
-
-export const RootNode: Story = {
-  args: {
-    node: layout,
-    segments,
-    onSelectNode: (id: string) => console.log('select', id),
-    onHoverNode: (id: string | null) => console.log('hover', id),
-  },
+const meta: Meta<typeof SwimlaneOverview> = {
+  component: SwimlaneOverview,
+  parameters: { layout: 'padded' },
   decorators: [
+    withMockFileContext(mockFileState),
+    withMockSelection(layout),
+    // The overview fills its parent's height; give it a bounded box like the panel
+    // it occupies in the app.
     (Story) => (
-      <div style={{ width: '100%', height: '400px' }}>
+      <div style={{ height: 240 }}>
         <Story />
       </div>
     ),
   ],
 };
+export default meta;
+
+type Story = StoryObj<typeof SwimlaneOverview>;
+
+export const Default: Story = {};

@@ -333,10 +333,7 @@ impl ExecutionCtx {
     /// registered after this context is created are not visible to it; create a new
     /// [`ExecutionCtx`] after registration to use newly registered kernels.
     pub fn new(session: VortexSession) -> Self {
-        let execute_parent_kernels = session
-            .kernels_opt()
-            .map(|kernels| kernels.execute_parent_snapshot())
-            .unwrap_or_default();
+        let execute_parent_kernels = session.kernels().execute_parent_snapshot();
         Self {
             session,
             execute_parent_kernels,
@@ -368,7 +365,7 @@ impl ExecutionCtx {
     /// Use the [`format_args!`] macro to create the `msg` argument.
     pub fn log(&mut self, msg: fmt::Arguments<'_>) {
         #[cfg(debug_assertions)]
-        if tracing::enabled!(tracing::Level::DEBUG) {
+        if tracing::enabled!(tracing::Level::TRACE) {
             let formatted = format!(" - {msg}");
             tracing::trace!("exec[{}]: {formatted}", self.id);
             self.ops.push(formatted);
@@ -481,7 +478,9 @@ impl Executable for ArrayRef {
             ExecutionStep::ExecuteSlot(i, _) => {
                 let child = array.slots()[i].clone().vortex_expect("valid slot index");
                 let executed_child = child.execute::<ArrayRef>(ctx)?;
-                array.with_slot(i, executed_child)
+                // SAFETY: execution of a child slot produces a logically equivalent array in a
+                // different physical representation, preserving parent values and statistics.
+                unsafe { array.with_slot(i, executed_child) }
             }
             ExecutionStep::AppendChild(_) => {
                 // Single-step: build the entire parent via the builder path.
@@ -886,7 +885,8 @@ mod tests {
                 .contains_key(&key)
         );
 
-        session.kernels().register_execute_parent(
+        let kernels = session.kernels();
+        kernels.register_execute_parent(
             Bool.id(),
             Primitive.id(),
             &[noop_execute_parent as ExecuteParentFn],

@@ -177,14 +177,16 @@ where
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::Physical>()?;
 
+    let output_len = offset + len;
+
     // Allocate output buffer
-    let output_slice = ctx.device_alloc::<A>(len.next_multiple_of(1024))?;
+    let output_slice = ctx.device_alloc::<A>(output_len.next_multiple_of(1024))?;
     let output_buf = CudaDeviceBuffer::new(output_slice);
     let output_view = output_buf.as_view::<A>();
 
     let output_width = size_of::<A>() * 8;
     let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, ctx)?;
-    let config = bitpacked_cuda_launch_config(output_width, len)?;
+    let config = bitpacked_cuda_launch_config(output_width, output_len)?;
 
     // We hold this here to keep the device buffers alive.
     let device_patches = if let Some(patches) = patches {
@@ -199,7 +201,7 @@ where
 
     let patches_arg = build_gpu_patches(device_patches.as_ref())?;
 
-    ctx.launch_kernel_config(&cuda_function, config, len, |args| {
+    ctx.launch_kernel_config(&cuda_function, config, output_len, |args| {
         args.arg(&input_view)
             .arg(&output_view)
             .arg(&reference)
@@ -552,8 +554,14 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case(67, 3969)]
+    #[case(1, 1025)]
     #[crate::test]
-    fn test_cuda_bitunpack_sliced() -> VortexResult<()> {
+    fn test_cuda_bitunpack_sliced(
+        #[case] slice_start: usize,
+        #[case] slice_end: usize,
+    ) -> VortexResult<()> {
         let mut ctx = vortex_array::array_session().create_execution_ctx();
         let bit_width = 32;
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
@@ -570,7 +578,7 @@ mod tests {
 
         let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width, &mut ctx)
             .vortex_expect("operation should succeed in test");
-        let sliced_array = bitpacked_array.into_array().slice(67..3969)?;
+        let sliced_array = bitpacked_array.into_array().slice(slice_start..slice_end)?;
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(sliced_array.clone(), &mut cuda_ctx)

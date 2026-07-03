@@ -23,12 +23,12 @@ use crate::ArrayRef;
 use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
+use crate::legacy_session;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
@@ -195,6 +195,12 @@ impl<V: VTable> Debug for ArrayData<V> {
 ///
 /// `Array<V>` holds an [`ArrayRef`] (shared, heap-allocated) and provides typed access
 /// to the encoding-specific data via [`Deref`] to `V::TypedArrayData`.
+///
+/// Buffers are intentionally not stored in the common `ArrayInner` or [`ArrayParts`] state.
+/// Encodings may expose buffers only when writing or serializing, and those buffers need not be the
+/// same representation they keep in memory. For example, an encoding may hold a deserialized
+/// in-memory data structure and synthesize serialized buffers at write time; hoisting buffers here
+/// would force it to retain both forms or make the serialized layout dictate the runtime layout.
 ///
 /// This is the primary type for working with typed arrays. Convert to [`ArrayRef`]
 /// via [`into_array()`](IntoArray::into_array) or [`AsRef<ArrayRef>`].
@@ -376,9 +382,10 @@ impl<V: VTable> Array<V> {
         note = "Use `execute_scalar` instead, which allows passing an execution context for more \
         efficient execution when fetching multiple scalars from the same array."
     )]
+    #[allow(clippy::disallowed_methods)]
     pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
         self.inner
-            .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(index, &mut legacy_session().create_execution_ctx())
     }
 
     /// Execute the array to extract a scalar at the given index.

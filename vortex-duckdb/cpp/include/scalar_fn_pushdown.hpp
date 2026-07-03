@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
 #pragma once
+#include "duckdb.h"
 
 #include "duckdb/optimizer/optimizer_extension.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
@@ -9,7 +9,6 @@
 #include "duckdb/planner/operator/logical_get.hpp"
 #include <optional>
 
-// Only one consumer of this header file, so "using" is fine
 using namespace duckdb;
 
 using ExpressionPtr = unique_ptr<Expression>;
@@ -50,6 +49,8 @@ struct GetAnalysis {
      * or without function application in the query plan.
      */
     unordered_map<TableColumnScanIndex, const BoundFunctionExpression *> col_to_fn;
+
+    TableColumnStorageIndex StorageIndex(TableColumnScanIndex idx) const;
 };
 
 using Analyses = unordered_map<TableIndex, GetAnalysis>;
@@ -73,6 +74,23 @@ using Analyses = unordered_map<TableIndex, GetAnalysis>;
  * Storing a reference is fine because the plan outlives the optimizer pass.
  */
 using Projections = unordered_map<TableIndex, LogicalProjection &>;
+
+LogicalOperatorPtr TryPushdownScalarFunctions(ClientContext &context, LogicalOperatorPtr plan);
+
+/*
+ * We override spatial's `ST_DWithin` with a copy that keeps the radius as a plain third
+ * argument (see expr.h); the original folds it into bind data at bind time. We need the
+ * radius visible to push the filter into a Vortex scan, but spatial's join optimizer only
+ * recognizes the folded 2-argument form. So this pass rebinds join conditions through
+ * spatial's original function and leaves filters alone:
+ *
+ *   FILTER st_dwithin(t.geom, 'POINT(0 0)', 10.0)   -- untouched, pushed into the scan
+ *   JOIN ON st_dwithin(a.geom, b.geom, 10.0)        -- rebound: st_dwithin(a.geom, b.geom)
+ *                                                      with the radius in bind data
+ *
+ * Runs in the pre-optimize hook, before any extension's optimizer pass.
+ */
+void RestoreStDWithin(ClientContext &context, LogicalOperator &plan);
 
 /**
  * Collect fn(col) expressions i.e. expressions where a single function (not
@@ -104,14 +122,6 @@ struct ScalarFnReplace final : LogicalOperatorVisitor {
 };
 
 void FindGetsAndProjections(LogicalOperator &op, Analyses &analyses, Projections &aliases);
-
-LogicalOperatorPtr TryPushdownScalarFunctions(ClientContext &context, LogicalOperatorPtr plan);
-void VortexOptimizeFunction(OptimizerExtensionInput &input, LogicalOperatorPtr &plan);
-
-struct VortexOptimizerExtension final : OptimizerExtension {
-    inline VortexOptimizerExtension() : OptimizerExtension(VortexOptimizeFunction, nullptr, {}) {
-    }
-};
 
 struct GetBinding {
     GetAnalysis &analysis;

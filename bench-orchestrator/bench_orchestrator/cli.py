@@ -85,9 +85,11 @@ def run_ref_auto_complete() -> list[str]:
     return list(map(lambda x: x.run_id, ResultStore().list_runs(limit=None)))
 
 
-def targets_from_axes(engine: str, format: str) -> tuple[list[BenchmarkTarget], list[str]]:
+def targets_from_axes(
+    engine: str, format: str, benchmark: Benchmark | None = None
+) -> tuple[list[BenchmarkTarget], list[str]]:
     """Resolve legacy engine/format axes into explicit benchmark targets."""
-    return resolve_axis_targets(parse_engines(engine), parse_formats(format))
+    return resolve_axis_targets(parse_engines(engine), parse_formats(format), benchmark)
 
 
 def backends_for_engines(engines: list[Engine]) -> list[Engine]:
@@ -260,7 +262,7 @@ def run(
             targets = parse_targets_json(targets_json)
             warnings: list[str] = []
         else:
-            targets, warnings = targets_from_axes(engine, format)
+            targets, warnings = targets_from_axes(engine, format, benchmark)
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc

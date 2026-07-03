@@ -4,7 +4,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -20,6 +19,7 @@ use vortex_array::scalar_fn::fns::binary::scalar_cmp;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
@@ -134,32 +134,45 @@ pub fn compare_canonical_array(
                 .clone()
                 .execute::<VarBinViewArray>(ctx)
                 .vortex_expect("to varbinview");
-            varbinview.with_iterator(|iter| {
-                let utf8_value = value.as_utf8();
-                compare_to(
-                    iter.map(|v| v.map(|b| unsafe { str::from_utf8_unchecked(b) })),
-                    utf8_value.value().vortex_expect("nulls handled before"),
-                    operator,
-                    result_nullability,
-                )
-            })
+            let mask = varbinview
+                .validity()
+                .vortex_expect("validity")
+                .execute_mask(varbinview.len(), ctx)
+                .vortex_expect("varbinview mask");
+            let values: Vec<Option<ByteBuffer>> = (0..varbinview.len())
+                .map(|i| mask.value(i).then(|| varbinview.bytes_at(i)))
+                .collect();
+            let utf8_value = value.as_utf8();
+            compare_to(
+                values.iter().map(|v| {
+                    v.as_ref()
+                        .map(|b| unsafe { str::from_utf8_unchecked(b.as_slice()) })
+                }),
+                utf8_value.value().vortex_expect("nulls handled before"),
+                operator,
+                result_nullability,
+            )
         }
         DType::Binary(_) => {
             let varbinview = array
                 .clone()
                 .execute::<VarBinViewArray>(ctx)
                 .vortex_expect("to varbinview");
-            varbinview.with_iterator(|iter| {
-                let binary_value = value.as_binary();
-                compare_to(
-                    // Don't understand the lifetime problem here but identity map makes it go away
-                    #[expect(clippy::map_identity)]
-                    iter.map(|v| v),
-                    binary_value.value().vortex_expect("nulls handled before"),
-                    operator,
-                    result_nullability,
-                )
-            })
+            let mask = varbinview
+                .validity()
+                .vortex_expect("validity")
+                .execute_mask(varbinview.len(), ctx)
+                .vortex_expect("varbinview mask");
+            let values: Vec<Option<ByteBuffer>> = (0..varbinview.len())
+                .map(|i| mask.value(i).then(|| varbinview.bytes_at(i)))
+                .collect();
+            let binary_value = value.as_binary();
+            compare_to(
+                values.iter().map(|v| v.as_deref()),
+                binary_value.value().vortex_expect("nulls handled before"),
+                operator,
+                result_nullability,
+            )
         }
         DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => {
             let scalar_vals: Vec<Scalar> = (0..array.len())

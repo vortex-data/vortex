@@ -583,7 +583,9 @@ impl CascadingCompressor {
             })
             .collect::<VortexResult<ArraySlots>>()?;
 
-        array.clone().with_slots(slots)
+        // SAFETY: compression rewrites each child slot to an equivalent physical representation,
+        // preserving the parent array's logical values and statistics.
+        unsafe { array.clone().with_slots(slots) }
     }
 }
 

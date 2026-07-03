@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import type React from 'react';
-import { useTheme, type ThemeChoice } from '../contexts/ThemeContext';
+import { useTheme, type ThemeChoice } from '../contexts/ThemeContextCore';
 
 const cycle: ThemeChoice[] = ['dark', 'light', 'system'];
 

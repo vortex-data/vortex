@@ -6,7 +6,6 @@ use std::sync::LazyLock;
 use prost::Message;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -62,74 +61,65 @@ fn test_onpair_metadata_golden() {
 
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_onpair_roundtrip() {
+fn test_onpair_roundtrip() -> vortex_error::VortexResult<()> {
     let input = sample_input();
-    let len = input.len();
-    let dtype = input.dtype().clone();
-
-    let compressed = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).expect("compress");
-    assert!(compressed.clone().into_array().is::<OnPair>());
 
     let mut ctx = SESSION.create_execution_ctx();
+    let compressed = onpair_compress(&input.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    assert!(compressed.clone().into_array().is::<OnPair>());
+
     let decoded = compressed
         .into_array()
-        .execute::<VarBinViewArray>(&mut ctx)
-        .expect("canonicalize");
+        .execute::<VarBinViewArray>(&mut ctx)?;
 
-    decoded
-        .with_iterator(|iter| {
-            let got: Vec<Option<Vec<u8>>> = iter.map(|b| b.map(|s| s.to_vec())).collect();
-            assert_eq!(got.len(), 5);
-            assert_eq!(
-                got[0].as_deref(),
-                Some(b"https://www.example.com/page".as_ref())
-            );
-            assert_eq!(
-                got[3].as_deref(),
-                Some(b"ftp://files.example.com/x".as_ref())
-            );
-            Ok::<_, vortex_error::VortexError>(())
-        })
-        .unwrap();
+    let mask = decoded.validity()?.execute_mask(decoded.len(), &mut ctx)?;
+    let got: Vec<Option<Vec<u8>>> = (0..decoded.len())
+        .map(|i| mask.value(i).then(|| decoded.bytes_at(i).to_vec()))
+        .collect();
+    assert_eq!(got.len(), 5);
+    assert_eq!(
+        got[0].as_deref(),
+        Some(b"https://www.example.com/page".as_ref())
+    );
+    assert_eq!(
+        got[3].as_deref(),
+        Some(b"ftp://files.example.com/x".as_ref())
+    );
+    Ok(())
 }
 
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_onpair_nullable_canonicalize() {
+fn test_onpair_nullable_canonicalize() -> vortex_error::VortexResult<()> {
     let input = VarBinArray::from_iter(
         [Some("a"), None, Some("bbb"), None, Some("ccccc")],
         DType::Utf8(Nullability::Nullable),
     );
-    let len = input.len();
-    let dtype = input.dtype().clone();
-    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap();
     let mut ctx = SESSION.create_execution_ctx();
-    let canonical = arr
-        .into_array()
-        .execute::<VarBinViewArray>(&mut ctx)
-        .unwrap();
-    canonical
-        .with_iterator(|iter| {
-            let got: Vec<Option<Vec<u8>>> = iter.map(|b| b.map(|s| s.to_vec())).collect();
-            assert_eq!(got[1], None);
-            assert_eq!(got[3], None);
-            assert_eq!(got[4].as_deref(), Some(b"ccccc".as_ref()));
-            Ok::<_, vortex_error::VortexError>(())
-        })
-        .unwrap();
+    let arr = onpair_compress(&input.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    let canonical = arr.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+    let mask = canonical
+        .validity()?
+        .execute_mask(canonical.len(), &mut ctx)?;
+    let got: Vec<Option<Vec<u8>>> = (0..canonical.len())
+        .map(|i| mask.value(i).then(|| canonical.bytes_at(i).to_vec()))
+        .collect();
+    assert_eq!(got[1], None);
+    assert_eq!(got[3], None);
+    assert_eq!(got[4].as_deref(), Some(b"ccccc".as_ref()));
+    Ok(())
 }
 
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_onpair_scalar_at() {
+fn test_onpair_scalar_at() -> vortex_error::VortexResult<()> {
     let input = sample_input();
-    let len = input.len();
-    let dtype = input.dtype().clone();
-    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap();
     let mut ctx = SESSION.create_execution_ctx();
-    let s = arr.into_array().execute_scalar(2, &mut ctx).unwrap();
+    let arr = onpair_compress(&input.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    let s = arr.into_array().execute_scalar(2, &mut ctx)?;
     let v = s.as_utf8().value().unwrap();
     assert_eq!(v.as_bytes(), b"https://www.test.org/page");
+    Ok(())
 }
 
 /// `scalar_at` must decode only the requested row's code window — fetching
@@ -149,10 +139,9 @@ fn test_onpair_scalar_at_window() -> vortex_error::VortexResult<()> {
         strings.iter().map(|s| Some(s.as_bytes())),
         DType::Utf8(Nullability::NonNullable),
     );
-    let arr =
-        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG)?.into_array();
-
     let mut ctx = SESSION.create_execution_ctx();
+    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?.into_array();
+
     for &i in &[0usize, 1, 999, 1000, n - 1] {
         let got = arr.execute_scalar(i, &mut ctx)?;
         assert_eq!(
@@ -192,51 +181,43 @@ fn test_onpair_scalar_at_window() -> vortex_error::VortexResult<()> {
 #[case::n_7(7)]
 #[case::n_8(8)]
 #[case::n_9(9)]
-fn test_onpair_unroll_tail_boundaries(#[case] n: usize) {
+fn test_onpair_unroll_tail_boundaries(#[case] n: usize) -> vortex_error::VortexResult<()> {
     let words: &[&str] = &["a", "bb", "ccc", "https://www.example.com/x"];
     let strings: Vec<&str> = (0..n).map(|i| words[i % words.len()]).collect();
     let input = VarBinArray::from_iter(
         strings.iter().map(|s| Some(*s)),
         DType::Utf8(Nullability::NonNullable),
     );
-    let len = input.len();
-    let dtype = input.dtype().clone();
-    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap();
     let mut ctx = SESSION.create_execution_ctx();
-    let canonical = arr
-        .into_array()
-        .execute::<VarBinViewArray>(&mut ctx)
-        .unwrap();
-    canonical
-        .with_iterator(|iter| {
-            let got: Vec<Option<Vec<u8>>> = iter.map(|b| b.map(|s| s.to_vec())).collect();
-            assert_eq!(got.len(), n);
-            for (i, expected) in strings.iter().enumerate() {
-                assert_eq!(got[i].as_deref(), Some(expected.as_bytes()), "n={n}, i={i}");
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })
-        .unwrap();
+    let arr = onpair_compress(&input.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    let canonical = arr.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+    let mask = canonical
+        .validity()?
+        .execute_mask(canonical.len(), &mut ctx)?;
+    let got: Vec<Option<Vec<u8>>> = (0..canonical.len())
+        .map(|i| mask.value(i).then(|| canonical.bytes_at(i).to_vec()))
+        .collect();
+    assert_eq!(got.len(), n);
+    for (i, expected) in strings.iter().enumerate() {
+        assert_eq!(got[i].as_deref(), Some(expected.as_bytes()), "n={n}, i={i}");
+    }
+    Ok(())
 }
 
 /// Empty array — the unroll path must short-circuit cleanly.
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_onpair_empty() {
+fn test_onpair_empty() -> vortex_error::VortexResult<()> {
     let input = VarBinArray::from_iter(
         std::iter::empty::<Option<&str>>(),
         DType::Utf8(Nullability::NonNullable),
     );
-    let len = input.len();
-    let dtype = input.dtype().clone();
-    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap();
-    assert_eq!(arr.len(), 0);
     let mut ctx = SESSION.create_execution_ctx();
-    let canonical = arr
-        .into_array()
-        .execute::<VarBinViewArray>(&mut ctx)
-        .unwrap();
+    let arr = onpair_compress(&input.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    assert_eq!(arr.len(), 0);
+    let canonical = arr.into_array().execute::<VarBinViewArray>(&mut ctx)?;
     assert_eq!(canonical.len(), 0);
+    Ok(())
 }
 
 /// Filter must share the dictionary — never recompress (this is the
@@ -244,7 +225,7 @@ fn test_onpair_empty() {
 /// and check that the result is bit-exact and still an OnPairArray.
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_onpair_filter_shares_dict() {
+fn test_onpair_filter_shares_dict() -> vortex_error::VortexResult<()> {
     let n = 5_000usize;
     let strings: Vec<String> = (0..n)
         .map(|i| format!("https://www.example.com/items/{i:08}"))
@@ -253,8 +234,8 @@ fn test_onpair_filter_shares_dict() {
         strings.iter().map(|s| Some(s.as_bytes())),
         DType::Utf8(Nullability::NonNullable),
     );
-    let arr =
-        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG).unwrap();
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
     let dict_bytes_before = arr.dict_bytes().clone();
     let dict_offsets_len_before = arr.dict_offsets().len();
 
@@ -268,35 +249,33 @@ fn test_onpair_filter_shares_dict() {
         .collect();
 
     let mut filter_ctx = SESSION.create_execution_ctx();
-    let filtered = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut filter_ctx)
-        .unwrap()
+    let filtered = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut filter_ctx)?
         .expect("OnPair filter must return Some");
     assert!(
         filtered.is::<OnPair>(),
         "filter dropped OnPair encoding: got {}",
         filtered.encoding_id()
     );
-    let typed = filtered.try_downcast::<OnPair>().expect("OnPair");
+    let typed = filtered
+        .try_downcast::<OnPair>()
+        .map_err(|_| vortex_error::vortex_err!("filter result was not OnPair"))?;
     // Dict must be byte-identical with the input — no retrain, no copy.
     assert_eq!(typed.dict_bytes().as_slice(), dict_bytes_before.as_slice());
     assert_eq!(typed.dict_offsets().len(), dict_offsets_len_before);
     assert_eq!(typed.len(), expected.len());
 
-    let mut ctx = SESSION.create_execution_ctx();
-    let canonical = typed
-        .into_array()
-        .execute::<VarBinViewArray>(&mut ctx)
-        .unwrap();
-    canonical
-        .with_iterator(|iter| {
-            let got: Vec<Option<Vec<u8>>> = iter.map(|b| b.map(|s| s.to_vec())).collect();
-            assert_eq!(got.len(), expected.len());
-            for (i, want) in expected.iter().enumerate() {
-                assert_eq!(got[i].as_deref(), Some(want.as_bytes()), "row {i}");
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })
-        .unwrap();
+    let canonical = typed.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+    let mask = canonical
+        .validity()?
+        .execute_mask(canonical.len(), &mut ctx)?;
+    let got: Vec<Option<Vec<u8>>> = (0..canonical.len())
+        .map(|i| mask.value(i).then(|| canonical.bytes_at(i).to_vec()))
+        .collect();
+    assert_eq!(got.len(), expected.len());
+    for (i, want) in expected.iter().enumerate() {
+        assert_eq!(got[i].as_deref(), Some(want.as_bytes()), "row {i}");
+    }
+    Ok(())
 }
 
 /// Rebuild an OnPair array, swapping `codes_offsets` for a narrowed
@@ -348,7 +327,7 @@ fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPai
 /// of type u16`. The fix dispatches via `match_each_integer_ptype!`.
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_onpair_filter_with_narrowed_codes_offsets_u16() {
+fn test_onpair_filter_with_narrowed_codes_offsets_u16() -> vortex_error::VortexResult<()> {
     let n = 200usize;
     // Short rows so per-row token counts stay small and codes_offsets
     // values fit in u16. (We narrow manually below regardless — this
@@ -359,8 +338,8 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u16() {
         strings.iter().map(|s| Some(s.as_bytes())),
         DType::Utf8(Nullability::NonNullable),
     );
-    let arr =
-        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG).unwrap();
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
 
     // Force `codes_offsets` to u16 so the panicking pre-fix
     // `as_slice::<u32>()` would fire.
@@ -382,27 +361,25 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u16() {
     let mut filter_ctx = SESSION.create_execution_ctx();
     // Pre-fix: this call panics with "Attempted to get slice of type
     // u32 from array of type u16". Post-fix: succeeds.
-    let filtered = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut filter_ctx)
-        .unwrap()
+    let filtered = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut filter_ctx)?
         .expect("OnPair filter must return Some");
-    let typed = filtered.try_downcast::<OnPair>().expect("OnPair");
+    let typed = filtered
+        .try_downcast::<OnPair>()
+        .map_err(|_| vortex_error::vortex_err!("filter result was not OnPair"))?;
     assert_eq!(typed.len(), expected.len());
 
-    let mut ctx = SESSION.create_execution_ctx();
-    let canonical = typed
-        .into_array()
-        .execute::<VarBinViewArray>(&mut ctx)
-        .unwrap();
-    canonical
-        .with_iterator(|iter| {
-            let got: Vec<Option<Vec<u8>>> = iter.map(|b| b.map(|s| s.to_vec())).collect();
-            assert_eq!(got.len(), expected.len());
-            for (i, want) in expected.iter().enumerate() {
-                assert_eq!(got[i].as_deref(), Some(want.as_bytes()), "row {i}");
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })
-        .unwrap();
+    let canonical = typed.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+    let mask = canonical
+        .validity()?
+        .execute_mask(canonical.len(), &mut ctx)?;
+    let got: Vec<Option<Vec<u8>>> = (0..canonical.len())
+        .map(|i| mask.value(i).then(|| canonical.bytes_at(i).to_vec()))
+        .collect();
+    assert_eq!(got.len(), expected.len());
+    for (i, want) in expected.iter().enumerate() {
+        assert_eq!(got[i].as_deref(), Some(want.as_bytes()), "row {i}");
+    }
+    Ok(())
 }
 
 /// Same regression, narrowed to u8 (smallest possible ptype) — extra
@@ -410,25 +387,25 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u16() {
 /// cascading compressor might pick.
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_onpair_filter_with_narrowed_codes_offsets_u8() {
+fn test_onpair_filter_with_narrowed_codes_offsets_u8() -> vortex_error::VortexResult<()> {
     let n = 100usize;
     let strings: Vec<String> = (0..n).map(|i| format!("{i}")).collect();
     let varbin = VarBinArray::from_iter(
         strings.iter().map(|s| Some(s.as_bytes())),
         DType::Utf8(Nullability::NonNullable),
     );
-    let arr =
-        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG).unwrap();
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
     let arr = narrow_codes_offsets(&arr, PType::U8);
     assert_eq!(arr.as_view().codes_offsets().dtype().as_ptype(), PType::U8);
 
     let mask = vortex_mask::Mask::from_iter((0..n).map(|i| i % 2 == 0));
 
     let mut filter_ctx = SESSION.create_execution_ctx();
-    let filtered = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut filter_ctx)
-        .unwrap()
+    let filtered = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut filter_ctx)?
         .expect("OnPair filter must return Some");
     assert_eq!(filtered.len(), n / 2);
+    Ok(())
 }
 
 /// Regression: canonicalising a *sliced* OnPair array. `slice` keeps the full
@@ -450,8 +427,8 @@ fn test_onpair_slice_canonicalize() -> vortex_error::VortexResult<()> {
         strings.iter().map(|s| Some(s.as_bytes())),
         DType::Utf8(Nullability::NonNullable),
     );
-    let arr =
-        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG)?.into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?.into_array();
 
     // interior (start>0, end<n), LIMIT-like (start=0, end<n), tail (start>0,
     // end=n), and a near-full window.
@@ -464,20 +441,21 @@ fn test_onpair_slice_canonicalize() -> vortex_error::VortexResult<()> {
             sliced.encoding_id()
         );
 
-        let mut ctx = SESSION.create_execution_ctx();
         let canonical = sliced.execute::<VarBinViewArray>(&mut ctx)?;
-        canonical.with_iterator(|iter| {
-            let got: Vec<Option<Vec<u8>>> = iter.map(|b| b.map(|s| s.to_vec())).collect();
-            assert_eq!(got.len(), end - start, "window {start}..{end} length");
-            for (i, want) in strings[start..end].iter().enumerate() {
-                assert_eq!(
-                    got[i].as_deref(),
-                    Some(want.as_bytes()),
-                    "window {start}..{end} row {i}"
-                );
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })?;
+        let mask = canonical
+            .validity()?
+            .execute_mask(canonical.len(), &mut ctx)?;
+        let got: Vec<Option<Vec<u8>>> = (0..canonical.len())
+            .map(|i| mask.value(i).then(|| canonical.bytes_at(i).to_vec()))
+            .collect();
+        assert_eq!(got.len(), end - start, "window {start}..{end} length");
+        for (i, want) in strings[start..end].iter().enumerate() {
+            assert_eq!(
+                got[i].as_deref(),
+                Some(want.as_bytes()),
+                "window {start}..{end} row {i}"
+            );
+        }
     }
     Ok(())
 }

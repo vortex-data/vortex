@@ -13,6 +13,11 @@ typedef struct duckdb_vx_sfunc_ *duckdb_vx_sfunc;
 
 const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func);
 
+/// Shadow `ST_DWithin` with a copy that keeps the radius as the third argument, so
+/// radius filters can push into Vortex scans. See `RestoreStDWithin` in
+/// scalar_fn_pushdown.hpp for the override/restore example.
+duckdb_state duckdb_vx_register_st_dwithin_override(duckdb_database ffi_db);
+
 typedef struct duckdb_vx_expr_ *duckdb_vx_expr;
 
 /// Return the string representation of the expression. Must be freed with `duckdb_free`.
@@ -212,6 +217,10 @@ typedef enum DUCKDB_VX_EXPR_TYPE {
 } duckdb_vx_expr_type;
 
 duckdb_vx_expr_class duckdb_vx_expr_get_class(duckdb_vx_expr expr);
+
+/// Return the (bound) return type of the expression. The logical type is borrowed from the
+/// expression and must not be freed.
+duckdb_logical_type duckdb_vx_expr_get_return_type(duckdb_vx_expr expr);
 
 const char *duckdb_vx_expr_get_bound_column_ref_get_name(duckdb_vx_expr expr);
 

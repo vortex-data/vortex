@@ -359,6 +359,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_dynanmic_dispatch(c: &mut Criterion) {
                 .clone()
                 .execute::<PrimitiveArray>(&mut ctx)
                 .vortex_expect("to primitive"),
+            &mut ctx,
         )
         .vortex_expect("for encode");
         let bp = BitPackedData::encode(for_arr.encoded(), values_bit_width, &mut ctx)
@@ -673,7 +674,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .vortex_expect("to primitive");
-        let for_arr = FoRData::encode(alp_encoded.clone()).vortex_expect("for encode");
+        let for_arr = FoRData::encode(alp_encoded.clone(), &mut ctx).vortex_expect("for encode");
         let bp = BitPackedData::encode(for_arr.encoded(), values_bit_width, &mut ctx)
             .vortex_expect("bitpack values");
         let values_bp = bp;
@@ -713,7 +714,7 @@ fn bench_dict_bp_codes_alp_for_bp_values_composed_standalone(c: &mut Criterion) 
                         exponents,
                         codes_bp,
                         *len,
-                        cuda_session,
+                        &cuda_session,
                         &mut cuda_ctx,
                     );
 
@@ -759,6 +760,7 @@ fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
                 .clone()
                 .execute::<PrimitiveArray>(&mut ctx)
                 .vortex_expect("to primitive"),
+            &mut ctx,
         )
         .vortex_expect("for encode");
         let bp = BitPackedData::encode(for_arr.encoded(), bit_width, &mut ctx)
@@ -881,6 +883,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
                 .clone()
                 .execute::<PrimitiveArray>(&mut ctx)
                 .vortex_expect("to primitive"),
+            &mut ctx,
         )
         .vortex_expect("for encode");
         let bp = BitPackedData::encode(for_arr.encoded(), bit_width, &mut ctx)

@@ -301,7 +301,11 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<RuntimeSession>();
 
-        #[cfg(feature = "files")]
+        // `MultiFileSession` holds a `moka` cache whose clock reads `std::time::Instant::now()`
+        // when constructed. `Instant` is unsupported on `wasm32` and panics with "time not
+        // implemented on this platform". Multi-file scanning is not available on wasm anyway, so
+        // only register this session variable on non-wasm targets.
+        #[cfg(all(feature = "files", not(target_arch = "wasm32")))]
         let session = {
             let session = session.with::<file::multi::MultiFileSession>();
             file::register_default_encodings(&session);

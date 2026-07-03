@@ -191,14 +191,14 @@ fn bench_for_compress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
-        .with_inputs(|| int_array.clone())
-        .bench_values(|a| FoR::encode(a).unwrap());
+        .with_inputs(|| (int_array.clone(), SESSION.create_execution_ctx()))
+        .bench_values(|(a, mut ctx)| FoR::encode(a, &mut ctx).unwrap());
 }
 
 #[divan::bench(name = "for_decompress_i32")]
 fn bench_for_decompress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
-    let compressed = FoR::encode(int_array).unwrap();
+    let compressed = FoR::encode(int_array, &mut SESSION.create_execution_ctx()).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))
@@ -299,10 +299,10 @@ fn bench_alp_rd_compress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
-        .with_inputs(|| (&float_array, SESSION.create_execution_ctx()))
-        .bench_refs(|(a, ctx)| {
+        .with_inputs(|| &float_array)
+        .bench_refs(|a| {
             let encoder = RDEncoder::new(a.as_slice::<f64>());
-            encoder.encode(a.as_view(), ctx)
+            encoder.encode(a.as_view())
         });
 }
 
@@ -310,7 +310,7 @@ fn bench_alp_rd_compress_f64(bencher: Bencher) {
 fn bench_alp_rd_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
     let encoder = RDEncoder::new(float_array.as_slice::<f64>());
-    let compressed = encoder.encode(float_array.as_view(), &mut SESSION.create_execution_ctx());
+    let compressed = encoder.encode(float_array.as_view());
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| (&compressed, SESSION.create_execution_ctx()))

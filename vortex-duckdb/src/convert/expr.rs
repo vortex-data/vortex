@@ -22,11 +22,13 @@ use vortex::expr::get_item;
 use vortex::expr::is_not_null;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
+use vortex::expr::list_length;
 use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::root;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::Between;
 use vortex::scalar_fn::fns::between::BetweenOptions;
@@ -36,7 +38,14 @@ use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex_geo::extension::MultiPolygon;
+use vortex_geo::extension::Point;
+use vortex_geo::extension::Polygon;
+use vortex_geo::extension::WellKnownBinary;
+use vortex_geo::extension::native_geometry_scalar_from_wkb;
+use vortex_geo::scalar_fn::distance::GeoDistance;
 
+use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb;
 use crate::duckdb::BoundFunction;
@@ -57,15 +66,147 @@ fn from_bound_str(value: &duckdb::ExpressionRef) -> VortexResult<String> {
     }
 }
 
+/// Whether the expression's return type is a `LIST` or fixed-size `ARRAY`.
+fn returns_a_list(expr: &duckdb::ExpressionRef) -> bool {
+    matches!(
+        expr.return_type().as_type_id(),
+        DUCKDB_TYPE::DUCKDB_TYPE_LIST | DUCKDB_TYPE::DUCKDB_TYPE_ARRAY
+    )
+}
+
+/// Wrap `expr` in `list_length`. Since vortex `list_length` returns u64 but duckdb equivalents
+/// return i64, we must cast as well.
+fn build_list_length(expr: Expression, nullability: Nullability) -> Expression {
+    cast(list_length(expr), DType::Primitive(PType::I64, nullability))
+}
+
+/// Read an `f64` from a constant expression (the `ST_DWithin` radius); `None` for non-constants.
+fn from_bound_f64(value: &duckdb::ExpressionRef) -> VortexResult<Option<f64>> {
+    match value.as_class().vortex_expect("unknown class") {
+        BoundConstant(constant) => Ok(Some(f64::try_from(&Scalar::try_from(constant.value)?)?)),
+        _ => Ok(None),
+    }
+}
+
+/// Context threaded through expression conversion.
+#[derive(Clone, Copy)]
+struct ConvertCtx<'a> {
+    /// Substituted for `BoundRef` references when converting scan-scoped table filters.
+    col_sub: Option<&'a Expression>,
+    /// The scan's fields, when known.
+    fields: Option<&'a [DuckdbField]>,
+}
+
+/// Whether `name` is a native geometry column of the scan. The pushed `GeoDistance` cannot
+/// evaluate `vortex.geo.wkb` columns, which also surface to DuckDB as `GEOMETRY`.
+fn is_native_geo_column(fields: Option<&[DuckdbField]>, name: &str) -> bool {
+    fields
+        .into_iter()
+        .flatten()
+        .filter(|field| field.name == name)
+        .any(|field| match field.dtype.as_extension_opt() {
+            Some(ext) => ext.is::<Point>() || ext.is::<Polygon>() || ext.is::<MultiPolygon>(),
+            None => false,
+        })
+}
+
+/// Lower a geo operand: a `GEOMETRY` literal arrives as WKB, decoded once to its native type so the
+/// pushed `GeoDistance` stays native; a column must be native geometry. `None` skips the push.
+fn geo_operand(
+    value: &duckdb::ExpressionRef,
+    ctx: ConvertCtx<'_>,
+) -> VortexResult<Option<Expression>> {
+    match value.as_class() {
+        Some(BoundConstant(constant)) => {
+            let scalar = Scalar::try_from(constant.value)?;
+            let DType::Extension(ext_dtype) = scalar.dtype() else {
+                return Ok(None);
+            };
+            if !ext_dtype.is::<WellKnownBinary>() {
+                return Ok(None);
+            }
+            let storage = scalar.as_extension().to_storage_scalar();
+            let Some(buf) = storage.as_binary_opt().and_then(|b| b.value()) else {
+                return Ok(None);
+            };
+            Ok(native_geometry_scalar_from_wkb(buf.as_slice())?.map(lit))
+        }
+        Some(BoundColumnRef(col_ref))
+            if is_native_geo_column(ctx.fields, col_ref.name.as_ref()) =>
+        {
+            try_from_expression_inner(value, ctx)
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Lower geo UDFs to native Vortex geo ops so the work runs in the scan. `None` otherwise.
+fn try_from_geo_function(
+    name: &str,
+    func: &BoundFunction,
+    ctx: ConvertCtx<'_>,
+) -> VortexResult<Option<Expression>> {
+    // Catch-all for every bound function: reject non-geo names before touching the children.
+    if !is_geo_function(name) {
+        return Ok(None);
+    }
+    let children: Vec<_> = func.children().collect();
+    let expr = match name.to_ascii_lowercase().as_str() {
+        // The Vortex override keeps the radius as `children[2]`; see
+        // `duckdb_vx_register_st_dwithin_override`.
+        "st_dwithin" => {
+            if children.len() != 3 {
+                return Ok(None);
+            }
+            let Some(a) = geo_operand(children[0], ctx)? else {
+                return Ok(None);
+            };
+            let Some(b) = geo_operand(children[1], ctx)? else {
+                return Ok(None);
+            };
+            // A non-constant radius is left for DuckDB to evaluate.
+            let Some(distance) = from_bound_f64(children[2])? else {
+                return Ok(None);
+            };
+            let geo_distance = GeoDistance.new_expr(EmptyOptions, [a, b]);
+            Binary.new_expr(Operator::Lte, [geo_distance, lit(distance)])
+        }
+        "st_distance" => {
+            if children.len() != 2 {
+                return Ok(None);
+            }
+            let Some(a) = geo_operand(children[0], ctx)? else {
+                return Ok(None);
+            };
+            let Some(b) = geo_operand(children[1], ctx)? else {
+                return Ok(None);
+            };
+            GeoDistance.new_expr(EmptyOptions, [a, b])
+        }
+        _ => return Ok(None),
+    };
+
+    Ok(Some(expr))
+}
+
+/// Geo UDFs that `try_from_geo_function` lowers - shared with `can_push_expression` so the pushable
+/// and lowered sets can't drift.
+fn is_geo_function(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "st_distance" | "st_dwithin"
+    )
+}
+
 fn try_from_bound_function(
     func: &BoundFunction,
-    col_sub: Option<&Expression>,
+    ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Expression>> {
     let expr = match func.scalar_function.name() {
         "strlen" => {
             let children: Vec<_> = func.children().collect();
             vortex_ensure!(children.len() == 1);
-            let Some(col) = try_from_expression_inner(children[0], col_sub)? else {
+            let Some(col) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
             let col = byte_length(col);
@@ -79,7 +220,7 @@ fn try_from_bound_function(
         "struct_extract" => {
             let children: Vec<_> = func.children().collect();
             vortex_ensure!(children.len() == 2);
-            let Some(child) = try_from_expression_inner(children[0], col_sub)? else {
+            let Some(child) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
             let field = from_bound_str(children[1])?;
@@ -88,10 +229,10 @@ fn try_from_bound_function(
         like @ ("~~" | "!~~") => {
             let children: Vec<_> = func.children().collect();
             vortex_ensure!(children.len() == 2);
-            let Some(string) = try_from_expression_inner(children[0], col_sub)? else {
+            let Some(string) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
-            let Some(target) = try_from_expression_inner(children[1], col_sub)? else {
+            let Some(target) = try_from_expression_inner(children[1], ctx)? else {
                 return Ok(None);
             };
             let opts = LikeOptions {
@@ -103,7 +244,7 @@ fn try_from_bound_function(
         matchers @ ("contains" | "prefix" | "suffix") => {
             let children: Vec<_> = func.children().collect();
             vortex_ensure!(children.len() == 2);
-            let Some(value) = try_from_expression_inner(children[0], col_sub)? else {
+            let Some(value) = try_from_expression_inner(children[0], ctx)? else {
                 return Ok(None);
             };
             let pattern = from_bound_str(children[1])?;
@@ -115,10 +256,39 @@ fn try_from_bound_function(
             };
             Like.new_expr(LikeOptions::default(), [value, lit(pattern)])
         }
-        _ => {
-            debug!("bound function {}", func.scalar_function.name());
-            return Ok(None);
+        "array_length" => {
+            let children = func.children().collect::<Vec<_>>();
+            // Only accept array_length(expr) rather than array_length(expr, dim).
+            if children.len() != 1 {
+                return Ok(None);
+            }
+            let Some(col) = try_from_expression_inner(children[0], ctx)? else {
+                return Ok(None);
+            };
+
+            // We don't know the column's nullability here, so we set it to nullable.
+            build_list_length(col, Nullability::Nullable)
         }
+        // len/length semantics depend on the return type of underlying expr.
+        "len" | "length" => {
+            let children: Vec<_> = func.children().collect();
+            vortex_ensure!(children.len() == 1);
+            let child = children[0];
+
+            if returns_a_list(child) {
+                let Some(col) = try_from_expression_inner(child, ctx)? else {
+                    return Ok(None);
+                };
+
+                // Same nullability rationale as in "array_length" branch.
+                let list_len_expr = build_list_length(col, Nullability::Nullable);
+                return Ok(Some(list_len_expr));
+            } else {
+                return Ok(None);
+            }
+        }
+        // Geo UDFs are handled here; non-geo names return `None` inside.
+        name => return try_from_geo_function(name, func, ctx),
     };
 
     Ok(Some(expr))
@@ -126,15 +296,35 @@ fn try_from_bound_function(
 
 pub fn try_from_bound_expression(
     value: &duckdb::ExpressionRef,
+    fields: &[DuckdbField],
 ) -> VortexResult<Option<Expression>> {
-    try_from_expression_inner(value, None)
+    try_from_expression_inner(
+        value,
+        ConvertCtx {
+            col_sub: None,
+            fields: Some(fields),
+        },
+    )
 }
 
 pub(super) fn try_from_bound_expression_with_col_sub(
     value: &duckdb::ExpressionRef,
     col_sub: &Expression,
 ) -> VortexResult<Option<Expression>> {
-    try_from_expression_inner(value, Some(col_sub))
+    // No fields: scan-time table filters never carry geo functions, because
+    // `can_push_expression` refuses them.
+    try_from_expression_inner(
+        value,
+        ConvertCtx {
+            col_sub: Some(col_sub),
+            fields: None,
+        },
+    )
+}
+
+fn is_supported_length_alias(func: &BoundFunction) -> bool {
+    let children: Vec<_> = func.children().collect();
+    children.len() == 1 && returns_a_list(children[0])
 }
 
 // Called before pushdown_complex_filter or a table filter expression call.
@@ -173,6 +363,11 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
                 || name == "~~"
                 || name == "!~~"
                 || name == "strlen"
+                || name == "array_length"
+                || (matches!(name, "len" | "length") && is_supported_length_alias(&func))
+            // Geo functions are absent on purpose: they push only via
+            // `pushdown_complex_filter`, which has the scan's fields to verify the geometry
+            // columns are native.
         }
         ExpressionClass::BoundOperator(op) => {
             if !matches!(
@@ -188,6 +383,13 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
             op.children().all(can_push_expression)
         }
     }
+}
+
+/// Applies `list_length` expression to a duckdb field
+fn list_length_on_field(field: &DuckdbField) -> Expression {
+    let col = get_item(field.name.as_str(), root());
+
+    build_list_length(col, field.dtype.nullability())
 }
 
 pub fn try_from_projection_expression(
@@ -208,6 +410,13 @@ pub fn try_from_projection_expression(
             let col = cast(col, dtype);
             Some(col)
         }
+        "array_length" => {
+            // Only accept array_length(expr) rather than array_length(expr, dim).
+            (func.children().count() == 1).then(|| list_length_on_field(field))
+        }
+        // len/length have different semantics depending on field dtype.
+        "len" | "length" => matches!(field.dtype, DType::List(..) | DType::FixedSizeList(..))
+            .then(|| list_length_on_field(field)),
         _ => None,
     })
 }
@@ -216,7 +425,7 @@ pub fn try_from_projection_expression(
 // can_push_expression
 fn try_from_expression_inner(
     value: &duckdb::ExpressionRef,
-    col_sub: Option<&Expression>,
+    ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Expression>> {
     let Some(value) = value.as_class() else {
         debug!(
@@ -227,7 +436,7 @@ fn try_from_expression_inner(
     };
     Ok(Some(match value {
         BoundRef => {
-            let Some(col) = col_sub else {
+            let Some(col) = ctx.col_sub else {
                 vortex_bail!("BoundRef requested but no column supplied");
             };
             col.clone()
@@ -237,23 +446,23 @@ fn try_from_expression_inner(
         BoundComparison(compare) => {
             let operator: Operator = compare.op.try_into()?;
 
-            let Some(left) = try_from_expression_inner(compare.left, col_sub)? else {
+            let Some(left) = try_from_expression_inner(compare.left, ctx)? else {
                 return Ok(None);
             };
-            let Some(right) = try_from_expression_inner(compare.right, col_sub)? else {
+            let Some(right) = try_from_expression_inner(compare.right, ctx)? else {
                 return Ok(None);
             };
 
             Binary.new_expr(operator, [left, right])
         }
         BoundBetween(between) => {
-            let Some(array) = try_from_expression_inner(between.input, col_sub)? else {
+            let Some(array) = try_from_expression_inner(between.input, ctx)? else {
                 return Ok(None);
             };
-            let Some(lower) = try_from_expression_inner(between.lower, col_sub)? else {
+            let Some(lower) = try_from_expression_inner(between.lower, ctx)? else {
                 return Ok(None);
             };
-            let Some(upper) = try_from_expression_inner(between.upper, col_sub)? else {
+            let Some(upper) = try_from_expression_inner(between.upper, ctx)? else {
                 return Ok(None);
             };
             Between.new_expr(
@@ -278,7 +487,7 @@ fn try_from_expression_inner(
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
                 let children: Vec<_> = operator.children().collect();
                 vortex_ensure!(children.len() == 1);
-                let Some(child) = try_from_expression_inner(children[0], col_sub)? else {
+                let Some(child) = try_from_expression_inner(children[0], ctx)? else {
                     return Ok(None);
                 };
                 match operator.op {
@@ -291,10 +500,10 @@ fn try_from_expression_inner(
                 }
             }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
-                return try_from_compare_in(operator, col_sub, false);
+                return try_from_compare_in(operator, ctx, false);
             }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOT_IN => {
-                return try_from_compare_in(operator, col_sub, true);
+                return try_from_compare_in(operator, ctx, true);
             }
             _ => {
                 debug!(op=?operator.op, "cannot push down operator");
@@ -302,12 +511,12 @@ fn try_from_expression_inner(
             }
         },
         ExpressionClass::BoundFunction(func) => {
-            return try_from_bound_function(&func, col_sub);
+            return try_from_bound_function(&func, ctx);
         }
         BoundConjunction(conj) => {
             let Some(children) = conj
                 .children()
-                .map(|c| try_from_expression_inner(c, col_sub))
+                .map(|c| try_from_expression_inner(c, ctx))
                 .collect::<VortexResult<Option<Vec<_>>>>()?
             else {
                 return Ok(None);
@@ -327,13 +536,13 @@ fn try_from_expression_inner(
 
 fn try_from_compare_in(
     operator: BoundOperator,
-    col_sub: Option<&Expression>,
+    ctx: ConvertCtx<'_>,
     not_in: bool,
 ) -> VortexResult<Option<Expression>> {
     // First child is element, rest form the list.
     let children: Vec<_> = operator.children().collect();
     assert!(children.len() >= 2);
-    let Some(element) = try_from_expression_inner(children[0], col_sub)? else {
+    let Some(element) = try_from_expression_inner(children[0], ctx)? else {
         return Ok(None);
     };
 
@@ -341,7 +550,7 @@ fn try_from_compare_in(
         .iter()
         .skip(1)
         .map(|c| {
-            let Some(value) = try_from_expression_inner(c, col_sub)? else {
+            let Some(value) = try_from_expression_inner(c, ctx)? else {
                 return Ok(None);
             };
             Ok(Some(

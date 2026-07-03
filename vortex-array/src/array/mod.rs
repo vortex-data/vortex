@@ -127,6 +127,9 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns a new array with the given slots.
     fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef>;
 
+    /// Returns a new array with the given buffers.
+    fn with_buffers(&self, this: &ArrayRef, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef>;
+
     /// Returns a new array with the given slots, bypassing encoding-level validation.
     ///
     /// Used by the executor to temporarily carry an array that has had one of its child slots
@@ -361,6 +364,16 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         )?
         .with_stats_set(stats)
         .into_array())
+    }
+
+    fn with_buffers(&self, this: &ArrayRef, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef> {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        let stats = this.statistics().to_owned();
+        Ok(
+            Array::<V>::try_from_parts(V::with_buffers(&self.vtable, view, &buffers)?)?
+                .with_stats_set(stats)
+                .into_array(),
+        )
     }
 
     unsafe fn with_slots_unchecked(&self, this: &ArrayRef, slots: ArraySlots) -> ArrayRef {

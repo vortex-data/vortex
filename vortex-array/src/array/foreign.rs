@@ -120,6 +120,20 @@ impl VTable for ForeignArray {
         Some(format!("buffer[{idx}]"))
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        Ok(ArrayParts::new(
+            self.clone(),
+            array.dtype().clone(),
+            array.len(),
+            ForeignArrayData::new(array.metadata.clone(), buffers.to_vec()),
+        )
+        .with_slots(array.slots().iter().cloned().collect()))
+    }
+
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,

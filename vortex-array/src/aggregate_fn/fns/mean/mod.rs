@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -62,7 +63,8 @@ impl BinaryCombined for Mean {
     type Right = Count;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.mean")
+        static ID: CachedId = CachedId::new("vortex.mean");
+        *ID
     }
 
     fn left(&self) -> Sum {

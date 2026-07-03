@@ -121,6 +121,7 @@ impl MessageDecoder {
                                 .header_as_array_message()
                                 .vortex_expect("header is array");
 
+                            #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
                             let encoding_ids: Arc<_> = header
                                 .encodings()
                                 .iter()

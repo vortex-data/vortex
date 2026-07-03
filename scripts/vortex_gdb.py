@@ -132,15 +132,46 @@ def _str_to_python(s: gdb.Value) -> str | None:
         return None
 
 
+class _PinnedThread:
+    """Make a pretty-printer's call safe with multiple threads"""
+
+    def __enter__(self):
+        try:
+            self._frame = gdb.selected_frame()
+        except gdb.error:
+            self._frame = None
+        try:
+            self._prev_lock = gdb.parameter("scheduler-locking")
+            # only this thread will run during infcall
+            gdb.execute("set scheduler-locking on", to_string=True)
+        except gdb.error:
+            self._prev_lock = None
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._prev_lock is not None:
+            try:
+                gdb.execute(f"set scheduler-locking {self._prev_lock}", to_string=True)
+            except gdb.error:
+                pass
+        if self._frame is not None:
+            try:
+                self._frame.select()
+            except gdb.error:
+                pass
+
+
 def _id_to_string(id_addr: int) -> str | None:
     sym = gdb.lookup_global_symbol(_AS_STR_NAME) or gdb.lookup_static_symbol(_AS_STR_NAME)
     if sym is None:
         return None
     try:
         id_ptr = gdb.Value(id_addr).cast(gdb.lookup_type(_ID_FQN).pointer())
-        return _str_to_python(sym.value()(id_ptr))
+        with _PinnedThread():
+            str_val = sym.value()(id_ptr)
     except gdb.error:
         return None
+    return _str_to_python(str_val)
 
 
 def _format_dtype(dtype_val: gdb.Value) -> str:

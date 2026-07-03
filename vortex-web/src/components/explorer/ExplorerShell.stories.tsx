@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { FileHeader } from './FileHeader';
-import { MainArea } from './MainArea';
+import { MainArea, type MainView } from './MainArea';
 import { StatusBar } from './StatusBar';
 import { withMockFileContext, withMockSelection } from '../../storybook/decorators';
 import { ordersMock } from '../../mocks/layouts';
@@ -29,10 +30,11 @@ const mockFileState: VortexFileState = {
 
 /** Full page layout — mirrors App.tsx when a file is loaded */
 function ExplorerPage() {
+  const [view, setView] = useState<MainView>('details');
   return (
     <div className="flex flex-col h-screen bg-vortex-white dark:bg-vortex-black">
-      <FileHeader onClose={() => {}} />
-      <MainArea />
+      <FileHeader onClose={() => {}} view={view} onViewChange={setView} />
+      <MainArea view={view} />
       <StatusBar />
     </div>
   );
