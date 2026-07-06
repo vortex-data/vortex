@@ -3,6 +3,7 @@
 
 use std::sync::LazyLock;
 
+use onpair::CompactDictionaryView;
 use prost::Message;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -41,6 +42,31 @@ fn sample_input() -> VarBinArray {
     )
 }
 
+#[test]
+fn test_onpair_rejects_100k_token_dictionary() -> vortex_error::VortexResult<()> {
+    let num_tokens = 100_000usize;
+    let mut tokens = Vec::with_capacity(num_tokens);
+    tokens.extend((u8::MIN..=u8::MAX).map(|byte| vec![byte]));
+    let additional_tokens = u32::try_from(num_tokens - tokens.len())?;
+    tokens.extend((0..additional_tokens).map(|value| {
+        let bytes = value.to_be_bytes();
+        bytes[1..].to_vec()
+    }));
+    tokens.sort_unstable();
+
+    let mut dict_bytes = Vec::new();
+    let mut dict_offsets = Vec::with_capacity(num_tokens + 1);
+    dict_offsets.push(0u32);
+    for token in tokens {
+        dict_bytes.extend_from_slice(&token);
+        dict_offsets.push(u32::try_from(dict_bytes.len())?);
+    }
+    dict_bytes.resize(dict_bytes.len() + onpair::MAX_TOKEN_SIZE, 0);
+
+    assert!(CompactDictionaryView::validate(&dict_bytes, &dict_offsets).is_err());
+    Ok(())
+}
+
 #[cfg_attr(miri, ignore)]
 #[test]
 fn test_onpair_metadata_golden() {
@@ -48,7 +74,6 @@ fn test_onpair_metadata_golden() {
         "onpair.metadata",
         &OnPairMetadata {
             uncompressed_lengths_ptype: PType::I32 as i32,
-            bits: 12,
             dict_size: 4096,
             total_tokens: 128_000,
             dict_offsets_ptype: PType::U32 as i32,
@@ -315,7 +340,6 @@ fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPai
             narrowed_array,
             view.uncompressed_lengths().clone(),
             view.array_validity(),
-            view.bits(),
         )
     }
 }

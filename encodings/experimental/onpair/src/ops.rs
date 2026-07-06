@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use onpair::Parts;
+use onpair::CompactDictionaryView;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::varbin::varbin_scalar;
@@ -9,12 +9,14 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
 use crate::decode::code_boundary_at;
 use crate::decode::collect_widened;
+use crate::decode::validate_codes;
 
 impl OperationsVTable<OnPair> for OnPair {
     fn scalar_at(
@@ -33,12 +35,12 @@ impl OperationsVTable<OnPair> for OnPair {
 
         let codes = collect_widened::<u16>(&array.codes().slice(row_start..row_end)?, ctx)?;
         let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
-        let parts = Parts {
-            dict_bytes: array.dict_bytes().as_slice(),
-            dict_offsets: dict_offsets.as_slice(),
-            bits: array.bits(),
-            codes: codes.as_slice(),
-        };
+        // The codes child is file-borne: reject out-of-range codes here so the
+        // decoder's panicking bounds check never fires on corrupt data.
+        validate_codes(codes.as_slice(), dict_offsets.len().saturating_sub(1))?;
+        let dict =
+            CompactDictionaryView::validate(array.dict_bytes().as_slice(), dict_offsets.as_slice())
+                .map_err(|e| vortex_err!(InvalidArgument: "Invalid OnPair dictionary: {e}"))?;
 
         // The per-row decoded length is recorded in the `uncompressed_lengths`
         // child, so read it directly instead of asking the decoder to compute it.
@@ -48,10 +50,22 @@ impl OperationsVTable<OnPair> for OnPair {
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("OnPair uncompressed_lengths[{index}] is null"))?;
-        let mut buf: Vec<u8> = Vec::with_capacity(len);
-        let written = onpair::decompress_into(parts, buf.spare_capacity_mut());
-        debug_assert_eq!(written, len);
-        // SAFETY: `decompress_into` initialised `written` bytes of the spare
+        // `try_decode_into` derives its write bound from the buffer itself, so
+        // it is sound even when the file-borne `uncompressed_lengths` child
+        // understates the row's real decoded size; the extra DECODE_PADDING
+        // merely keeps it on the all-over-copy fast path.
+        let mut buf: Vec<u8> = Vec::with_capacity(len + onpair::DECODE_PADDING);
+        let written = onpair::try_decode_into(codes.as_slice(), dict, buf.spare_capacity_mut())
+            .map_err(|_| {
+                vortex_err!(
+                    "OnPair row {index} decodes to more bytes than uncompressed_lengths records"
+                )
+            })?;
+        vortex_ensure!(
+            written == len,
+            "OnPair row {index} decoded to {written} bytes but uncompressed_lengths records {len}"
+        );
+        // SAFETY: `try_decode_into` initialised `written` bytes of the spare
         // capacity reserved above.
         unsafe { buf.set_len(written) };
         Ok(varbin_scalar(ByteBuffer::from(buf), array.dtype()))

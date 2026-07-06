@@ -34,7 +34,6 @@ impl SliceReduce for OnPair {
                     codes_offsets,
                     uncompressed_lengths,
                     validity,
-                    array.bits(),
                 )
             }
             .into_array(),

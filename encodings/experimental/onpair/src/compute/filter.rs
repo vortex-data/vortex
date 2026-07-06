@@ -69,7 +69,6 @@ impl FilterKernel for OnPair {
                     filtered_codes.offsets().clone(),
                     uncompressed_lengths,
                     validity,
-                    array.bits(),
                 )
             }
             .into_array(),

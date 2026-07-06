@@ -52,9 +52,8 @@ pub type OnPairArray = Array<OnPair>;
 ///
 /// On disk the layout is FSST-shape:
 ///
-/// * Buffer 0 — `dict_bytes`: the dictionary blob built by the OnPair trainer,
-///   padded with `onpair::MAX_TOKEN_SIZE` trailing zero
-///   bytes so the over-copy decoder can read 16 bytes past the last token.
+/// * Buffer 0 — `dict_bytes`: the read-padded dictionary blob built by the
+///   OnPair trainer.
 /// * Slots — see [`OnPairSlots`].
 ///
 /// The four integer slot children flow through the standard `compress_child`
@@ -66,12 +65,8 @@ pub struct OnPairMetadata {
     /// Width of the per-row primitive `uncompressed_lengths` child.
     #[prost(enumeration = "PType", tag = "1")]
     pub uncompressed_lengths_ptype: i32,
-    /// Bits-per-token the column was compressed with (9..=16). Every value
-    /// in the `codes` child only uses its low `bits` bits.
-    #[prost(uint32, tag = "2")]
-    pub bits: u32,
     /// Number of dictionary tokens. `dict_offsets` has length `dict_size + 1`.
-    /// Bounded by `2^bits ≤ 2^16 = 65_536`, so `u32` is comfortably wide.
+    /// Bounded by 65_536, so `u32` is comfortably wide.
     #[prost(uint32, tag = "3")]
     pub dict_size: u32,
     /// Total number of tokens across all rows. `codes` has this length;
@@ -83,7 +78,7 @@ pub struct OnPairMetadata {
     #[prost(enumeration = "PType", tag = "5")]
     pub dict_offsets_ptype: i32,
     /// PType of the `codes` slot child (typically U16, may be narrowed to U8
-    /// when `bits <= 8`).
+    /// when the dictionary has at most 256 tokens).
     #[prost(enumeration = "PType", tag = "6")]
     pub codes_ptype: i32,
     /// PType of the `codes_offsets` slot child.
@@ -92,6 +87,7 @@ pub struct OnPairMetadata {
 }
 
 impl OnPairMetadata {
+    /// Decode the recorded [`PType`] of the `uncompressed_lengths` slot child.
     pub fn get_uncompressed_lengths_ptype(&self) -> VortexResult<PType> {
         PType::try_from(self.uncompressed_lengths_ptype)
             .map_err(|_| vortex_err!("Invalid PType {}", self.uncompressed_lengths_ptype))
@@ -103,9 +99,8 @@ pub struct OnPairSlots {
     /// `PrimitiveArray<u32>`, length `dict_size + 1`. Cascading compressor may
     /// narrow the ptype to U16/U8.
     pub dict_offsets: ArrayRef,
-    /// `PrimitiveArray<u16>`. Each value only uses its low `bits` bits;
-    /// downstream `FastLanes::BitPacking` losslessly shrinks the child to
-    /// exactly `bits`-bit codes on disk.
+    /// Primitive integer token codes. Downstream integer compression may
+    /// narrow or bit-pack this child independently of the OnPair metadata.
     pub codes: ArrayRef,
     /// `PrimitiveArray<u32>`, length `num_rows + 1`. FoR / RunEnd / etc. apply
     /// naturally via the cascading compressor.
@@ -127,46 +122,45 @@ pub struct OnPairSlots {
 pub struct OnPairData {
     /// The dictionary blob (buffer 0).
     ///
-    /// INVARIANT: this buffer must be over-padded past its logical end
-    /// (`dict_offsets.last()`) by the decoder's fixed token read width,
-    /// `onpair::MAX_TOKEN_SIZE`. The over-copy decoder reads
-    /// every dictionary entry with one fixed-width load and then advances the
-    /// cursor by the token's true length, so the load for the final, shortest
-    /// token over-reads past the logical end of the dictionary. This is the
-    /// same over-read the decoder accounts for on the final few codes; the
-    /// trailing padding absorbs it so that any entry can be read in bounds.
-    /// `onpair_compress` establishes this padding (see `parts_to_children`);
-    /// the over-copy decoder lives in the `onpair` crate.
+    /// INVARIANT: this buffer is an OnPair compact dictionary byte buffer,
+    /// including its trailing read padding.
     dict_bytes: BufferHandle,
-    bits: u32,
+    dict_size: u32,
     len: usize,
 }
 
 impl OnPairData {
-    pub fn new(dict_bytes: BufferHandle, bits: u32, len: usize) -> Self {
+    /// Build [`OnPairData`] from the dictionary blob, its token count, and the
+    /// number of rows.
+    pub fn new(dict_bytes: BufferHandle, dict_size: u32, len: usize) -> Self {
         Self {
             dict_bytes,
-            bits,
+            dict_size,
             len,
         }
     }
 
+    /// Number of rows in the array.
     pub fn len(&self) -> usize {
         self.len
     }
 
+    /// Whether the array has zero rows.
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
+    /// Bits per token code, derived from the dictionary size (not stored).
     pub fn bits(&self) -> u32 {
-        self.bits
+        u32::from(onpair::code_bits_for_num_tokens(self.dict_size as usize))
     }
 
+    /// The dictionary blob as a host byte buffer.
     pub fn dict_bytes(&self) -> &ByteBuffer {
         self.dict_bytes.as_host()
     }
 
+    /// The [`BufferHandle`] holding the dictionary blob (buffer 0).
     pub fn dict_bytes_handle(&self) -> &BufferHandle {
         &self.dict_bytes
     }
@@ -176,9 +170,10 @@ impl Display for OnPairData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "len: {}, bits: {}, dict_bytes_len: {}",
+            "len: {}, dict_size: {}, bits: {}, dict_bytes_len: {}",
             self.len,
-            self.bits,
+            self.dict_size,
+            self.bits(),
             self.dict_bytes.len()
         )
     }
@@ -188,7 +183,8 @@ impl Debug for OnPairData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OnPairData")
             .field("len", &self.len)
-            .field("bits", &self.bits)
+            .field("dict_size", &self.dict_size)
+            .field("bits", &self.bits())
             .field("dict_bytes_len", &self.dict_bytes.len())
             .finish()
     }
@@ -197,13 +193,13 @@ impl Debug for OnPairData {
 impl ArrayHash for OnPairData {
     fn array_hash<H: Hasher>(&self, state: &mut H, accuracy: EqMode) {
         self.dict_bytes.as_host().array_hash(state, accuracy);
-        state.write_u32(self.bits);
+        state.write_u32(self.dict_size);
     }
 }
 
 impl ArrayEq for OnPairData {
     fn array_eq(&self, other: &Self, accuracy: EqMode) -> bool {
-        self.bits == other.bits
+        self.dict_size == other.dict_size
             && self
                 .dict_bytes
                 .as_host()
@@ -217,7 +213,6 @@ pub struct OnPair;
 
 impl OnPair {
     /// Build an [`OnPairArray`] from already-materialised parts.
-    #[expect(clippy::too_many_arguments, reason = "every child is a real input")]
     pub fn try_new(
         dtype: DType,
         dict_bytes: BufferHandle,
@@ -226,18 +221,16 @@ impl OnPair {
         codes_offsets: ArrayRef,
         uncompressed_lengths: ArrayRef,
         validity: Validity,
-        bits: u32,
     ) -> VortexResult<OnPairArray> {
-        validate_parts(
+        let dict_size = validate_parts(
             &dtype,
             &dict_offsets,
             &codes,
             &codes_offsets,
             &uncompressed_lengths,
-            bits,
         )?;
         let len = uncompressed_lengths.len();
-        let data = OnPairData::new(dict_bytes, bits, len);
+        let data = OnPairData::new(dict_bytes, dict_size, len);
         let slots = OnPairSlots {
             dict_offsets,
             codes,
@@ -251,7 +244,6 @@ impl OnPair {
         })
     }
 
-    #[expect(clippy::too_many_arguments, reason = "every child is a real input")]
     pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         dict_bytes: BufferHandle,
@@ -260,10 +252,13 @@ impl OnPair {
         codes_offsets: ArrayRef,
         uncompressed_lengths: ArrayRef,
         validity: Validity,
-        bits: u32,
     ) -> OnPairArray {
         let len = uncompressed_lengths.len();
-        let data = OnPairData::new(dict_bytes, bits, len);
+        let dict_size = match u32::try_from(dict_offsets.len().saturating_sub(1)) {
+            Ok(dict_size) => dict_size,
+            Err(_) => vortex_panic!("OnPair dict_size exceeds u32"),
+        };
+        let data = OnPairData::new(dict_bytes, dict_size, len);
         let slots = OnPairSlots {
             dict_offsets,
             codes,
@@ -284,13 +279,11 @@ fn validate_parts(
     codes: &ArrayRef,
     codes_offsets: &ArrayRef,
     uncompressed_lengths: &ArrayRef,
-    bits: u32,
-) -> VortexResult<()> {
+) -> VortexResult<u32> {
     vortex_ensure!(
         matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
         "OnPair arrays must be Binary or Utf8, found {dtype}"
     );
-    vortex_ensure!((9..=16).contains(&bits), "bits {bits} out of range [9, 16]");
 
     if !dict_offsets.dtype().is_int() || dict_offsets.dtype().is_nullable() {
         vortex_bail!(InvalidArgument: "dict_offsets must be non-nullable integer");
@@ -304,6 +297,7 @@ fn validate_parts(
     if !uncompressed_lengths.dtype().is_int() || uncompressed_lengths.dtype().is_nullable() {
         vortex_bail!(InvalidArgument: "uncompressed_lengths must be non-nullable integer");
     }
+    let dict_size = dictionary_size_from_offsets(dict_offsets.len())?;
     if codes_offsets.len() != uncompressed_lengths.len() + 1 {
         vortex_bail!(InvalidArgument:
             "codes_offsets.len ({}) != uncompressed_lengths.len + 1 ({})",
@@ -311,7 +305,15 @@ fn validate_parts(
             uncompressed_lengths.len() + 1
         );
     }
-    Ok(())
+    Ok(dict_size)
+}
+
+fn dictionary_size_from_offsets(dict_offsets_len: usize) -> VortexResult<u32> {
+    let dict_size = dict_offsets_len
+        .checked_sub(1)
+        .ok_or_else(|| vortex_err!(InvalidArgument: "OnPair dict_offsets must not be empty"))?;
+    u32::try_from(dict_size)
+        .map_err(|_| vortex_err!(InvalidArgument: "OnPair dictionary size exceeds u32"))
 }
 
 impl VTable for OnPair {
@@ -332,14 +334,19 @@ impl VTable for OnPair {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let s = OnPairSlotsView::from_slots(slots);
-        validate_parts(
+        let dict_size = validate_parts(
             dtype,
             s.dict_offsets,
             s.codes,
             s.codes_offsets,
             s.uncompressed_lengths,
-            data.bits,
         )?;
+        if data.dict_size != dict_size {
+            vortex_bail!(InvalidArgument:
+                "OnPairData dict_size {} does not match dict_offsets size {dict_size}",
+                data.dict_size
+            );
+        }
         if s.uncompressed_lengths.len() != len {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have same len as outer array");
         }
@@ -395,7 +402,6 @@ impl VTable for OnPair {
         Ok(Some(
             OnPairMetadata {
                 uncompressed_lengths_ptype: array.uncompressed_lengths().dtype().as_ptype().into(),
-                bits: array.bits(),
                 dict_size,
                 total_tokens,
                 dict_offsets_ptype: array.dict_offsets().dtype().as_ptype().into(),
@@ -467,7 +473,7 @@ impl VTable for OnPair {
             other => vortex_bail!(InvalidArgument: "Expected 4 or 5 children, got {other}"),
         };
 
-        let data = OnPairData::new(buffers[0].clone(), metadata.bits, len);
+        let data = OnPairData::new(buffers[0].clone(), metadata.dict_size, len);
         let slots = OnPairSlots {
             dict_offsets,
             codes,
@@ -534,6 +540,8 @@ impl ValidityVTable<OnPair> for OnPair {
 
 /// Convenience methods on top of the macro-generated [`OnPairArraySlotsExt`].
 pub trait OnPairArrayExt: OnPairArraySlotsExt {
+    /// The array's [`Validity`], derived from the optional validity child and
+    /// the outer dtype's nullability.
     fn array_validity(&self) -> Validity {
         child_to_validity(
             self.as_ref().slots()[OnPairSlots::VALIDITY].as_ref(),

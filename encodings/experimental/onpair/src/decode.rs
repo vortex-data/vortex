@@ -5,6 +5,7 @@
 //! `onpair` decoder consumes.
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
@@ -12,7 +13,11 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+
+use crate::OnPair;
+use crate::OnPairArraySlotsExt;
 
 /// Canonicalise a slot child to the decoder's native primitive width.
 pub(crate) fn collect_widened<T: NativePType>(
@@ -40,4 +45,84 @@ pub(crate) fn code_boundary_at(
         .as_primitive()
         .as_::<usize>()
         .ok_or_else(|| vortex_err!("OnPair codes_offsets[{index}] is null"))
+}
+
+/// Ensure every code indexes the dictionary (`code < num_tokens`).
+///
+/// The slot children are file-borne, so a malformed `codes` child is a
+/// recoverable error, not a bug: checking up front keeps the upstream
+/// decoder/search primitives — which back their bounds checks with panics —
+/// off file-borne data they would panic on.
+pub(crate) fn validate_codes(codes: &[u16], num_tokens: usize) -> VortexResult<()> {
+    // `fold(max)` instead of `Iterator::max`: the latter's last-max-wins
+    // semantics defeat autovectorization, turning this scan scalar.
+    let max = codes.iter().fold(0u16, |acc, &c| acc.max(c));
+    vortex_ensure!(
+        codes.is_empty() || (max as usize) < num_tokens,
+        "OnPair code {max} out of range for dictionary of {num_tokens} tokens"
+    );
+    Ok(())
+}
+
+/// A validated, materialised window over an array's `codes`: the widened
+/// per-row `codes_offsets` boundaries plus the codes they bound.
+///
+/// `slice` keeps the full `codes` child and only narrows `codes_offsets`, so
+/// for a sliced array the window starts at `offsets[0] > 0`; [`row`] resolves
+/// row indices relative to that start. Built once per query by the
+/// compressed-domain compare kernel.
+///
+/// [`row`]: CodesWindow::row
+pub(crate) struct CodesWindow {
+    offsets: Buffer<u32>,
+    codes: Buffer<u16>,
+    code_start: usize,
+}
+
+impl CodesWindow {
+    /// The codes for row `i`.
+    pub(crate) fn row(&self, i: usize) -> &[u16] {
+        let start = self.offsets[i] as usize - self.code_start;
+        let end = self.offsets[i + 1] as usize - self.code_start;
+        &self.codes[start..end]
+    }
+}
+
+/// Materialise and validate the [`CodesWindow`] for every row of `array`:
+/// offsets must be nondecreasing and end within the `codes` child, and every
+/// code must index the dictionary (see [`validate_codes`]).
+pub(crate) fn collect_codes_window(
+    array: ArrayView<'_, OnPair>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<CodesWindow> {
+    let len = array.len();
+    let offsets = collect_widened::<u32>(array.codes_offsets(), ctx)?;
+    vortex_ensure!(
+        offsets.len() == len + 1,
+        "OnPair codes_offsets has {} entries, expected len + 1 = {}",
+        offsets.len(),
+        len + 1
+    );
+    vortex_ensure!(
+        offsets.is_sorted(),
+        "OnPair codes_offsets must be nondecreasing"
+    );
+    let code_start = offsets[0] as usize;
+    let code_end = offsets[len] as usize;
+    vortex_ensure!(
+        code_end <= array.codes().len(),
+        "OnPair codes_offsets end {} exceeds codes len {}",
+        code_end,
+        array.codes().len()
+    );
+    let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
+    validate_codes(
+        codes.as_slice(),
+        array.dict_offsets().len().saturating_sub(1),
+    )?;
+    Ok(CodesWindow {
+        offsets,
+        codes,
+        code_start,
+    })
 }

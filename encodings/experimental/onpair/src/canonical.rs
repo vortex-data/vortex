@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
 //! Convert an [`OnPairArray`] to its canonical `VarBinViewArray` by handing
-//! the materialised parts to `onpair::decompress_into`.
+//! the materialised parts to `onpair::try_decode_into`.
 //!
 //! [`OnPairArray`]: crate::OnPairArray
 
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use onpair::Parts;
+use onpair::CompactDictionaryView;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -25,11 +25,13 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
 use crate::decode::code_boundary_at;
 use crate::decode::collect_widened;
+use crate::decode::validate_codes;
 
 pub(super) fn canonicalize_onpair(
     array: ArrayView<'_, OnPair>,
@@ -90,19 +92,27 @@ pub(crate) fn onpair_decode_views(
     // boundaries, so an empty boundary slice is sound.
     let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
     let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
+    // The codes child is file-borne: reject out-of-range codes here so the
+    // decoder's panicking bounds check never fires on corrupt data.
+    validate_codes(codes.as_slice(), dict_offsets.len().saturating_sub(1))?;
+    let dict =
+        CompactDictionaryView::validate(array.dict_bytes().as_slice(), dict_offsets.as_slice())
+            .map_err(|e| vortex_err!(InvalidArgument: "Invalid OnPair dictionary: {e}"))?;
 
-    let mut out_bytes = ByteBufferMut::with_capacity(total_size);
-    let written = onpair::decompress_into(
-        Parts {
-            dict_bytes: array.dict_bytes().as_slice(),
-            dict_offsets: dict_offsets.as_slice(),
-            bits: array.bits(),
-            codes: codes.as_slice(),
-        },
-        out_bytes.spare_capacity_mut(),
+    // `try_decode_into` derives its write bound from the buffer itself, so it
+    // is sound even when the file-borne `uncompressed_lengths` understate the
+    // real decoded size; the extra DECODE_PADDING merely keeps it on the
+    // all-over-copy fast path.
+    let mut out_bytes = ByteBufferMut::with_capacity(total_size + onpair::DECODE_PADDING);
+    let written = onpair::try_decode_into(codes.as_slice(), dict, out_bytes.spare_capacity_mut())
+        .map_err(|_| {
+        vortex_err!("OnPair codes decode to more bytes than uncompressed_lengths records")
+    })?;
+    vortex_ensure!(
+        written == total_size,
+        "OnPair codes decoded to {written} bytes but uncompressed_lengths records {total_size}"
     );
-    debug_assert_eq!(written, total_size);
-    // SAFETY: `decompress_into` initialised exactly `written` bytes of the
+    // SAFETY: `try_decode_into` initialised exactly `written` bytes of the
     // spare capacity reserved above.
     unsafe { out_bytes.set_len(written) };
 
