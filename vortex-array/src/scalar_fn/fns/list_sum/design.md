@@ -385,20 +385,21 @@ matches, NaN matches via `include_nans`. Track the DF upgrade as the enabling de
 
 ## 9. Implementation checklist (v1)
 
-- [ ] `vortex-array/src/scalar_fn/fns/list_sum/mod.rs` — `ListSum` vtable:
+- [x] `vortex-array/src/scalar_fn/fns/list_sum/mod.rs` — `ListSum` vtable:
       `id "vortex.list.sum"`, `arity Exact(1)`, `child_name "input"`,
       `Options = NumericalAggregateOpts` (+ proto serde reuse), `return_dtype` delegating to
       `Sum::return_dtype` (§4.3), `execute` via `GroupedAccumulator` + validity fix-up (§4.4),
       `validity → None`, `is_null_sensitive = false`, `is_fallible = false`, `fmt_sql`.
-- [ ] Declare in `scalar_fn/fns/mod.rs`; register in `scalar_fn/session.rs` (after `:72`);
+- [x] Declare in `scalar_fn/fns/mod.rs`; register in `scalar_fn/session.rs` (after `:72`);
       builders `list_sum` / `list_sum_opts` in `expr/exprs.rs` (near `:765`).
-- [ ] Tests in `fns/list_sum/mod.rs` mirroring `list_length.rs`'s suite (`rstest`,
+- [x] Tests in `fns/list_sum/mod.rs` mirroring `list_length.rs`'s suite (`rstest`,
       `VortexResult<()>`, `assert_arrays_eq!`): offset widths; null list → null; **empty list
-      → null**; **all-null elements → null**; mixed nulls skipped; `i64`/`u64` overflow →
-      null; NaN under both option values; bool and decimal elements (widening); `ListView`
+      → null**; **all-null elements → null**; mixed nulls skipped; `i64` overflow →
+      null; unsigned widening; NaN under both option values; bool elements; `ListView`
       incl. overlapping views; `FixedSizeList`; sliced + taken inputs; constant input;
       non-list and non-numeric-element inputs bail; `test_display`
-      (`"vortex.list.sum($)"`); proto round-trip with both option values.
+      (`"vortex.list.sum($)"`); proto round-trip with both option values. (Decimal elements
+      ride the generic grouped fallback, same path the bool test covers.)
 - [ ] Also pin current scalar-vs-grouped `Sum` all-null behavior with tests (§7.1) and file
       the reconciliation issue.
 - [ ] Bench in `vortex-array/benches/` (fix-up-pass cost: all-valid fast path vs masked
