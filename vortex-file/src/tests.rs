@@ -10,10 +10,11 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
+use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::accessor::ArrayAccessor;
+use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
@@ -66,9 +67,11 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::Layout;
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
+use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 
@@ -78,9 +81,8 @@ use crate::VERSION;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
 use crate::footer::SegmentSpec;
-
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let session = vortex_array::array_session()
+    let session = array_session()
         .with::<LayoutSession>()
         .with::<RuntimeSession>();
 
@@ -315,7 +317,7 @@ async fn test_read_projection() {
         .unmasked_field(0)
         .clone();
     let expected = VarBinArray::from(strings_expected.to_vec()).into_array();
-    assert_arrays_eq!(actual, expected);
+    assert_arrays_eq!(actual, expected, &mut ctx);
 
     let array = file
         .scan()
@@ -341,7 +343,7 @@ async fn test_read_projection() {
         .unmasked_field(0)
         .clone();
     let expected = Buffer::copy_from(numbers_expected).into_array();
-    assert_arrays_eq!(actual, expected);
+    assert_arrays_eq!(actual, expected, &mut ctx);
 }
 
 #[tokio::test]
@@ -513,7 +515,8 @@ async fn issue_5385_filter_casted_column() {
 
     assert_arrays_eq!(
         result,
-        StructArray::try_from_iter([("x", buffer![1u8])]).unwrap()
+        StructArray::try_from_iter([("x", buffer![1u8])]).unwrap(),
+        &mut SESSION.create_execution_ctx()
     );
 }
 
@@ -566,7 +569,7 @@ async fn filter_string() {
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
-    assert_arrays_eq!(names_actual, names_expected);
+    assert_arrays_eq!(names_actual, names_expected, &mut ctx);
 
     let ages_actual = result[0]
         .clone()
@@ -575,7 +578,7 @@ async fn filter_string() {
         .unmasked_field(1)
         .clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
-    assert_arrays_eq!(ages_actual, ages_expected);
+    assert_arrays_eq!(ages_actual, ages_expected, &mut ctx);
 }
 
 #[tokio::test]
@@ -634,7 +637,7 @@ async fn filter_or() {
         DType::Utf8(Nullability::Nullable),
     )
     .into_array();
-    assert_arrays_eq!(names_actual, names_expected);
+    assert_arrays_eq!(names_actual, names_expected, &mut ctx);
 
     let ages_actual = result[0]
         .clone()
@@ -643,7 +646,7 @@ async fn filter_or() {
         .unmasked_field(1)
         .clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), None]).into_array();
-    assert_arrays_eq!(ages_actual, ages_expected);
+    assert_arrays_eq!(ages_actual, ages_expected, &mut ctx);
 }
 
 #[tokio::test]
@@ -699,7 +702,7 @@ async fn filter_and() {
         DType::Utf8(Nullability::Nullable),
     )
     .into_array();
-    assert_arrays_eq!(names_actual, names_expected);
+    assert_arrays_eq!(names_actual, names_expected, &mut ctx);
 
     let ages_actual = result[0]
         .clone()
@@ -708,7 +711,7 @@ async fn filter_and() {
         .unmasked_field(1)
         .clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), Some(31i32)]).into_array();
-    assert_arrays_eq!(ages_actual, ages_expected);
+    assert_arrays_eq!(ages_actual, ages_expected, &mut ctx);
 }
 
 #[tokio::test]
@@ -778,7 +781,7 @@ async fn test_with_indices_simple() {
         .map(|&x| expected_numbers[x as usize])
         .collect();
     let expected_array = Buffer::copy_from(&expected_kept_numbers).into_array();
-    assert_arrays_eq!(actual_kept_numbers_array, expected_array);
+    assert_arrays_eq!(actual_kept_numbers_array, expected_array, &mut ctx);
 
     // test all indices
     let actual_array = file
@@ -794,7 +797,7 @@ async fn test_with_indices_simple() {
         .unwrap();
     let actual_numbers_array = actual_array.unmasked_field(0).clone();
     let expected_array = Buffer::copy_from(&expected_numbers).into_array();
-    assert_arrays_eq!(actual_numbers_array, expected_array);
+    assert_arrays_eq!(actual_numbers_array, expected_array, &mut ctx);
 }
 
 #[tokio::test]
@@ -844,7 +847,7 @@ async fn test_with_indices_on_two_columns() {
         .map(|&x| strings_expected[x as usize])
         .collect();
     let strings_expected_array = VarBinArray::from(strings_expected_vec).into_array();
-    assert_arrays_eq!(strings_actual, strings_expected_array);
+    assert_arrays_eq!(strings_actual, strings_expected_array, &mut ctx);
 
     let numbers_actual = array.unmasked_field(1).clone();
     let numbers_expected_vec: Vec<u32> = kept_indices
@@ -852,7 +855,7 @@ async fn test_with_indices_on_two_columns() {
         .map(|&x| numbers_expected[x as usize])
         .collect();
     let numbers_expected_array = Buffer::copy_from(&numbers_expected_vec).into_array();
-    assert_arrays_eq!(numbers_actual, numbers_expected_array);
+    assert_arrays_eq!(numbers_actual, numbers_expected_array, &mut ctx);
 }
 
 #[tokio::test]
@@ -925,7 +928,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .filter(|&x| x > 50)
         .collect();
     let expected_array = expected_kept_numbers.into_array();
-    assert_arrays_eq!(actual_kept_numbers_array, expected_array);
+    assert_arrays_eq!(actual_kept_numbers_array, expected_array, &mut ctx);
 
     // test all indices
     let actual_array = file
@@ -948,7 +951,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .cloned()
         .collect();
     let expected_numbers_array = expected_filtered.into_array();
-    assert_arrays_eq!(actual_numbers_array, expected_numbers_array);
+    assert_arrays_eq!(actual_numbers_array, expected_numbers_array, &mut ctx);
 }
 
 #[tokio::test]
@@ -1007,11 +1010,11 @@ async fn filter_string_chunked() {
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
-    assert_arrays_eq!(names_actual, names_expected);
+    assert_arrays_eq!(names_actual, names_expected, &mut ctx);
 
     let ages_actual = actual_array.unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
-    assert_arrays_eq!(ages_actual, ages_expected);
+    assert_arrays_eq!(ages_actual, ages_expected, &mut ctx);
 }
 
 #[tokio::test]
@@ -1110,7 +1113,7 @@ async fn test_pruning_with_or() {
         Some("P".to_owned()),
     ])
     .into_array();
-    assert_arrays_eq!(letters_actual, letters_expected);
+    assert_arrays_eq!(letters_actual, letters_expected, &mut ctx);
 
     let numbers_actual = actual_array.unmasked_field(1).clone();
     let numbers_expected = PrimitiveArray::from_option_iter([
@@ -1126,7 +1129,7 @@ async fn test_pruning_with_or() {
         Some(22),
     ])
     .into_array();
-    assert_arrays_eq!(numbers_actual, numbers_expected);
+    assert_arrays_eq!(numbers_actual, numbers_expected, &mut ctx);
 }
 
 #[tokio::test]
@@ -1167,7 +1170,7 @@ async fn test_repeated_projection() {
         .execute::<StructArray>(&mut ctx)
         .unwrap();
 
-    assert_arrays_eq!(actual, expected);
+    assert_arrays_eq!(actual, expected, &mut ctx);
 }
 
 async fn chunked_file() -> VortexResult<VortexFile> {
@@ -1193,7 +1196,7 @@ async fn basic_file_roundtrip() -> VortexResult<()> {
     let result = vxf.scan()?.into_array_stream()?.read_all().await?;
 
     let expected = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8].into_array();
-    assert_arrays_eq!(result, expected);
+    assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
     Ok(())
 }
@@ -1241,7 +1244,7 @@ async fn file_take() -> VortexResult<()> {
         .await?;
 
     let expected = buffer![0i32, 1, 8].into_array();
-    assert_arrays_eq!(result, expected);
+    assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
     Ok(())
 }
@@ -1463,7 +1466,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
-    assert_arrays_eq!(numbers, expected);
+    assert_arrays_eq!(numbers, expected, &mut ctx);
 
     Ok(())
 }
@@ -1498,7 +1501,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
-    assert_arrays_eq!(numbers, expected);
+    assert_arrays_eq!(numbers, expected, &mut ctx);
 
     Ok(())
 }
@@ -1563,7 +1566,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2].into_array();
-    assert_arrays_eq!(numbers, expected);
+    assert_arrays_eq!(numbers, expected, &mut ctx);
 
     Ok(())
 }
@@ -1602,7 +1605,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
-    assert_arrays_eq!(numbers, expected);
+    assert_arrays_eq!(numbers, expected, &mut ctx);
 
     Ok(())
 }
@@ -1644,12 +1647,16 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
         .execute::<StructArray>(&mut ctx)?
         .unmasked_field_by_name("strings")
         .cloned()?;
-    let strings = strings_field
-        .execute::<VarBinViewArray>(&mut ctx)?
-        .with_iterator(|iter| {
-            iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
-                .collect::<Vec<_>>()
-        });
+    let strings_view = strings_field.execute::<VarBinViewArray>(&mut ctx)?;
+    let mask = strings_view
+        .validity()?
+        .execute_mask(strings_view.len(), &mut ctx)?;
+    let strings = (0..strings_view.len())
+        .map(|i| {
+            mask.value(i)
+                .then(|| unsafe { String::from_utf8_unchecked(strings_view.bytes_at(i).to_vec()) })
+        })
+        .collect::<Vec<_>>();
     assert_eq!(
         strings,
         vec![
@@ -1822,6 +1829,143 @@ fn layout_has_dict(layout: &dyn Layout) -> bool {
             .unwrap()
             .iter()
             .any(|child| layout_has_dict(child.as_ref()))
+
+/// Mirrors the (private) `IDEAL_SPLIT_SIZE` that `SplitBy::Layout` uses to sub-divide wide
+/// chunk-boundary spans: layout splits are never wider than this many rows.
+const MAX_SPLIT_ROWS: u64 = 100_000;
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_large_flat_chunk_scan_subdivides_splits() -> VortexResult<()> {
+    // A single flat (unchunked) 250k-row layout spans the 100k sub-split threshold, so the scan
+    // must decode it as multiple row-range splits.
+    let mut ctx = SESSION.create_execution_ctx();
+    const N_ROWS: u64 = 250_000;
+    let values =
+        Buffer::from_iter((0..N_ROWS as i32).map(|i| if i % 2 == 0 { i } else { -i })).into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .write(&mut buf, values.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    // Sub-division caps each split at MAX_SPLIT_ROWS while tiling the file exactly.
+    let splits = file.splits()?;
+    assert!(splits.len() > 1, "expected sub-divided splits: {splits:?}");
+    assert!(splits.iter().all(|r| r.end - r.start <= MAX_SPLIT_ROWS));
+    assert_eq!(splits.first().map(|r| r.start), Some(0));
+    assert_eq!(splits.last().map(|r| r.end), Some(N_ROWS));
+    assert!(splits.windows(2).all(|w| w[0].end == w[1].start));
+
+    // A full scan across the sub-splits returns the original rows.
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(result, values, &mut ctx);
+
+    // A filtered scan crossing sub-split boundaries selects exactly the matching rows.
+    let result = file
+        .scan()?
+        .with_filter(gt(root(), lit(0i32)))
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let expected =
+        Buffer::from_iter((0..N_ROWS as i32).filter(|i| i % 2 == 0 && *i > 0)).into_array();
+    assert_arrays_eq!(result, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[rstest]
+#[case::unaligned(33_333)]
+#[case::exceeds_file(300_000)]
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_flat_chunk_scan_with_row_count_splits(
+    #[case] rows_per_split: usize,
+) -> VortexResult<()> {
+    // Fixed-size splits ignore chunk boundaries entirely, so scans must produce identical
+    // results whether the split size straddles the chunk arbitrarily or exceeds the file's
+    // row count (a single split).
+    let mut ctx = SESSION.create_execution_ctx();
+    const N_ROWS: u64 = 250_000;
+    let values =
+        Buffer::from_iter((0..N_ROWS as i32).map(|i| if i % 2 == 0 { i } else { -i })).into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+        .write(&mut buf, values.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let result = file
+        .scan()?
+        .with_split_by(SplitBy::RowCount(rows_per_split))
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    assert_arrays_eq!(result, values, &mut ctx);
+
+    let result = file
+        .scan()?
+        .with_split_by(SplitBy::RowCount(rows_per_split))
+        .with_filter(gt(root(), lit(0i32)))
+        .into_array_stream()?
+        .read_all()
+        .await?;
+    let expected =
+        Buffer::from_iter((0..N_ROWS as i32).filter(|i| i % 2 == 0 && *i > 0)).into_array();
+    assert_arrays_eq!(result, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_string_chunks_stay_fine_grained_under_split_cap() -> VortexResult<()> {
+    // Default writing targets ~1MiB uncompressed blocks, so ~120-byte strings chunk at a few
+    // thousand rows (~8k with today's defaults). These natural boundaries sit far below the
+    // sub-split cap, and SplitBy::Layout must pass them through untouched.
+    let mut ctx = SESSION.create_execution_ctx();
+    const N_ROWS: usize = 40_000;
+    let strings = VarBinArray::from_iter(
+        (0..N_ROWS).map(|i| Some(format!("{i:0>120}"))),
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let st = StructArray::from_fields(&[("s", strings)])?.into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    let splits = file.splits()?;
+    assert!(
+        splits.len() > 1,
+        "expected multiple natural chunks: {splits:?}"
+    );
+    assert!(
+        splits.iter().all(|r| r.end - r.start < MAX_SPLIT_ROWS / 4),
+        "string chunks should stay fine-grained, nowhere near the split cap: {splits:?}"
+    );
+    assert_eq!(splits.first().map(|r| r.start), Some(0));
+    assert_eq!(splits.last().map(|r| r.end), Some(N_ROWS as u64));
+    assert!(splits.windows(2).all(|w| w[0].end == w[1].start));
+
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_arrays_eq!(result, st, &mut ctx);
+
+    Ok(())
 }
 
 #[tokio::test]

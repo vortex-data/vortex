@@ -30,9 +30,12 @@ impl CastReduce for FoR {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -43,9 +46,16 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_session::VortexSession;
 
     use crate::FoR;
     use crate::FoRArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     fn for_arr(encoded: ArrayRef, reference: Scalar) -> FoRArray {
         FoR::try_new(encoded, reference).vortex_expect("FoR array construction should succeed")
@@ -70,7 +80,8 @@ mod tests {
         // Verify the values after decoding
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::from_iter([100i64, 110, 120, 130, 140])
+            PrimitiveArray::from_iter([100i64, 110, 120, 130, 140]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 

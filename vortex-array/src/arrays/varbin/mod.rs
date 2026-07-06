@@ -18,8 +18,6 @@ pub(crate) fn initialize(session: &vortex_session::VortexSession) {
 
 pub mod builder;
 
-mod accessor;
-
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;

@@ -71,7 +71,7 @@ fn try_optimize(
 ) -> VortexResult<Option<ArrayRef>> {
     let mut current_array = array.clone();
     let mut any_optimizations = false;
-    let array_ref = session.and_then(|s| s.kernels_opt());
+    let array_ref = session.map(|s| s.kernels());
 
     // Apply reduction rules to the current array until no more rules apply.
     let mut loop_counter = 0;
@@ -156,7 +156,9 @@ fn try_optimize_recursive(
     }
 
     if any_slot_optimized {
-        current_array = current_array.with_slots(new_slots)?;
+        // SAFETY: optimizer rules only replace child slots with logically equivalent arrays, so
+        // parent logical values and statistics remain valid.
+        current_array = unsafe { current_array.with_slots(new_slots) }?;
         any_optimizations = true;
     }
 

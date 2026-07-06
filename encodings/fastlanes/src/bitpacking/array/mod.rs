@@ -333,7 +333,11 @@ mod test {
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_encode() {
@@ -355,7 +359,7 @@ mod test {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
-        assert_arrays_eq!(packed_primitive, expected);
+        assert_arrays_eq!(packed_primitive, expected, &mut ctx);
     }
 
     #[test]
@@ -384,7 +388,8 @@ mod test {
             .unwrap();
         assert_arrays_eq!(
             packed_primitive,
-            PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)
+            PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable),
+            &mut ctx
         );
     }
 }

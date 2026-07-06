@@ -251,11 +251,15 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPT
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
     use rstest::rstest;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::compute::take::PrimitiveArray;
@@ -304,7 +308,8 @@ mod tests {
 
     #[test]
     fn test_take_overflow() {
-        let scream = std::iter::once("a").cycle().take(128).collect::<String>();
+        let mut ctx = array_session().create_execution_ctx();
+        let scream = iter::once("a").cycle().take(128).collect::<String>();
         let bytes = ByteBuffer::copy_from(scream.as_bytes());
         let offsets = buffer![0u8, 128u8].into_array();
 
@@ -322,6 +327,6 @@ mod tests {
             [Some(scream.clone()), Some(scream.clone()), Some(scream)],
             DType::Utf8(Nullability::NonNullable),
         );
-        assert_arrays_eq!(expected, taken);
+        assert_arrays_eq!(expected, taken, &mut ctx);
     }
 }

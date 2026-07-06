@@ -104,7 +104,11 @@ mod tests {
     use crate::Sequence;
     use crate::SequenceArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_sequence_nullability() {
@@ -137,7 +141,11 @@ mod tests {
 
         // Verify the values
         let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([100i64, 110, 120, 130]));
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([100i64, 110, 120, 130]),
+            &mut ctx
+        );
     }
 
     #[test]
@@ -159,7 +167,8 @@ mod tests {
         let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             decoded,
-            PrimitiveArray::from_option_iter([Some(5i32), Some(8), Some(11)])
+            PrimitiveArray::from_option_iter([Some(5i32), Some(8), Some(11)]),
+            &mut ctx
         );
     }
 
@@ -183,7 +192,8 @@ mod tests {
         let decoded = casted.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             decoded,
-            PrimitiveArray::from_iter([0.0f32, 1.0, 2.0, 3.0, 4.0])
+            PrimitiveArray::from_iter([0.0f32, 1.0, 2.0, 3.0, 4.0]),
+            &mut ctx
         );
     }
 

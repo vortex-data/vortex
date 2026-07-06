@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 use vortex_session::registry::ReadContext;
 
 use crate::LayoutBuildContext;
@@ -46,7 +47,8 @@ impl VTable for Flat {
     type Metadata = ProstMetadata<FlatLayoutMetadata>;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new("vortex.flat")
+        static ID: CachedId = CachedId::new("vortex.flat");
+        *ID
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {

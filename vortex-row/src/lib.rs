@@ -26,6 +26,9 @@
 //! 128 bits, UTF-8 and binary values, structs, and fixed-size lists. Extension, variant,
 //! union, and variable-size list arrays are rejected because this crate does not define an
 //! ordering for them.
+//!
+//! The byte-level format is documented in the row encoding spec:
+//! <https://docs.vortex.dev/specs/row-encoding.html>.
 
 mod codec;
 mod encode;

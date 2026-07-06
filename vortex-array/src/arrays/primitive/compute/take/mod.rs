@@ -152,8 +152,8 @@ mod test {
     use vortex_error::VortexExpect;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
@@ -181,21 +181,21 @@ mod test {
         let actual = values.take(indices.into_array()).unwrap();
         assert_eq!(
             actual
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .vortex_expect("no fail"),
             Scalar::from(Some(1))
         );
         // position 3 is null
         assert_eq!(
             actual
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut array_session().create_execution_ctx())
                 .vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );
         // the third index is null
         assert_eq!(
             actual
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut array_session().create_execution_ctx())
                 .vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );
@@ -222,6 +222,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -229,6 +231,7 @@ mod tests {
 
     #[test]
     fn take_null_index_skips_out_of_bounds_value() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = PrimitiveArray::from_iter([10i32, 20, 30]);
         let indices = PrimitiveArray::new(
             buffer![1u64, 3],
@@ -239,7 +242,8 @@ mod tests {
 
         assert_arrays_eq!(
             taken,
-            PrimitiveArray::from_option_iter([Some(20i32), None]).into_array()
+            PrimitiveArray::from_option_iter([Some(20i32), None]).into_array(),
+            &mut ctx
         );
     }
 }

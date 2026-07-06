@@ -99,9 +99,11 @@ pub fn decode_to_temporal(
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
-    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::assert_arrays_eq;
@@ -109,11 +111,18 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::DateTimeParts;
     use crate::array::DateTimePartsArraySlotsExt;
     use crate::array::DateTimePartsParts;
     use crate::canonical::decode_to_temporal;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case(Validity::NonNullable)]
@@ -132,7 +141,7 @@ mod test {
             ],
             validity.clone(),
         );
-        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
+        let mut ctx = SESSION.create_execution_ctx();
         let date_times = DateTimeParts::try_from_temporal(
             TemporalArray::new_timestamp(
                 milliseconds.clone().into_array(),
@@ -160,7 +169,7 @@ mod test {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
 
-        assert_arrays_eq!(primitive_values, milliseconds);
+        assert_arrays_eq!(primitive_values, milliseconds, &mut ctx);
         Ok(())
     }
 }

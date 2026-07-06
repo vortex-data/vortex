@@ -543,14 +543,14 @@ fn released_device_array(device_id: i64) -> ArrowDeviceArray {
 }
 
 /// Release an Arrow C schema if it is live.
-fn release_schema(schema: &mut FFI_ArrowSchema) {
+pub fn release_schema(schema: &mut FFI_ArrowSchema) {
     if let Some(release) = schema.release {
         unsafe { release(schema) };
     }
 }
 
 /// Release an Arrow device array if it is live.
-fn release_device_array(array: &mut ArrowDeviceArray) {
+pub fn release_device_array(array: &mut ArrowDeviceArray) {
     if let Some(release) = array.array.release {
         unsafe { release(&raw mut array.array) };
     }
@@ -952,7 +952,7 @@ mod tests {
     #[cuda_test]
     fn test_export_device_array_stream_schema_next_eos_release() -> VortexResult<()> {
         let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let session = VortexSession::default().with::<CudaSession>();
         let array = PrimitiveArray::from_iter(0u32..5).into_array();
         let stream = array.to_array_stream().boxed();
         let mut device_stream = stream.export_device_array_stream(&session, &runtime)?;
@@ -1004,7 +1004,7 @@ mod tests {
     #[cuda_test]
     fn test_export_device_array_stream_empty_stream_schema_and_eos() -> VortexResult<()> {
         let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let session = VortexSession::default().with::<CudaSession>();
         let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
         let stream =
             ArrayStreamAdapter::new(dtype, stream::empty::<VortexResult<ArrayRef>>()).boxed();
@@ -1045,7 +1045,7 @@ mod tests {
     #[cuda_test]
     fn test_export_device_array_stream_null_outputs_report_error() -> VortexResult<()> {
         let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_some(CudaSession::try_default()?);
+        let session = VortexSession::default().with::<CudaSession>();
         let array = PrimitiveArray::from_iter(0u32..5).into_array();
         let stream = array.to_array_stream().boxed();
         let mut device_stream = stream.export_device_array_stream(&session, &runtime)?;

@@ -3,6 +3,7 @@
 
 use core::mem::MaybeUninit;
 use std::any::type_name;
+use std::cmp::max;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::io::Write;
@@ -38,7 +39,33 @@ impl<T> BufferMut<T> {
     }
 
     /// Create a new `BufferMut` with the requested alignment and capacity.
+    ///
+    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
+    /// `alignment`. Use [`with_capacity_preferred_aligned`] to control the over-alignment.
+    ///
+    /// [`with_capacity_preferred_aligned`]: Self::with_capacity_preferred_aligned
     pub fn with_capacity_aligned(capacity: usize, alignment: Alignment) -> Self {
+        Self::with_capacity_preferred_aligned(
+            capacity,
+            alignment,
+            Some(Alignment::DEFAULT_ALIGNMENT),
+        )
+    }
+
+    /// Create a new `BufferMut` with the requested alignment and capacity.
+    ///
+    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
+    /// of `alignment` and `preferred_alignment`.
+    pub fn with_capacity_preferred_aligned(
+        capacity: usize,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+    ) -> Self {
+        let actual = max(
+            alignment,
+            preferred_alignment.unwrap_or(Alignment::of::<u8>()),
+        );
+
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!(
                 "Alignment {} must align to the scalar type's alignment {}",
@@ -47,8 +74,8 @@ impl<T> BufferMut<T> {
             );
         }
 
-        let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + *alignment);
-        bytes.align_empty(alignment);
+        let mut bytes = BytesMut::with_capacity((capacity * size_of::<T>()) + *actual);
+        bytes.align_empty(actual);
 
         Self {
             bytes,
@@ -63,10 +90,29 @@ impl<T> BufferMut<T> {
         Self::zeroed_aligned(len, Alignment::of::<T>())
     }
 
-    /// Create a new zeroed `BufferMut`.
+    /// Create a new zeroed `BufferMut` with the requested alignment.
+    ///
+    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
+    /// `alignment`. Use [`zeroed_preferred_aligned`] to control the over-alignment.
+    ///
+    /// [`zeroed_preferred_aligned`]: Self::zeroed_preferred_aligned
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
-        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment);
-        bytes.advance(bytes.as_ptr().align_offset(*alignment));
+        Self::zeroed_preferred_aligned(len, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+    }
+
+    /// Create a new zeroed `BufferMut` with the requested alignment.
+    ///
+    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
+    /// of `alignment` and `preferred_alignment`.
+    pub fn zeroed_preferred_aligned(
+        len: usize,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+    ) -> Self {
+        let preferred_alignment = preferred_alignment.unwrap_or(Alignment::of::<u8>());
+        let actual_alignment = max(preferred_alignment, alignment);
+        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *actual_alignment);
+        bytes.advance(bytes.as_ptr().align_offset(*actual_alignment));
         unsafe { bytes.set_len(len * size_of::<T>()) };
         let actual_len = bytes.len().checked_div(size_of::<T>()).unwrap_or(0);
         Self {
@@ -83,8 +129,24 @@ impl<T> BufferMut<T> {
     }
 
     /// Create a new empty `BufferMut` with the provided alignment.
+    ///
+    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
+    /// `alignment`. Use [`empty_preferred_aligned`] to control the over-alignment.
+    ///
+    /// [`empty_preferred_aligned`]: Self::empty_preferred_aligned
     pub fn empty_aligned(alignment: Alignment) -> Self {
-        BufferMut::with_capacity_aligned(0, alignment)
+        Self::empty_preferred_aligned(alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+    }
+
+    /// Create a new empty `BufferMut` with the provided alignment.
+    ///
+    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
+    /// of `alignment` and `preferred_alignment`.
+    pub fn empty_preferred_aligned(
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+    ) -> Self {
+        BufferMut::with_capacity_preferred_aligned(0, alignment, preferred_alignment)
     }
 
     /// Create a new full `BufferMut` with the given value.
@@ -104,15 +166,37 @@ impl<T> BufferMut<T> {
 
     /// Create a mutable scalar buffer with the alignment by copying the contents of the slice.
     ///
+    /// The allocation is over-aligned to [`Alignment::DEFAULT_ALIGNMENT`] when that is larger than
+    /// `alignment`. Use [`copy_from_preferred_aligned`] to control the over-alignment.
+    ///
+    /// [`copy_from_preferred_aligned`]: Self::copy_from_preferred_aligned
+    ///
     /// ## Panics
     ///
     /// Panics when the requested alignment isn't itself aligned to type T.
     pub fn copy_from_aligned(other: impl AsRef<[T]>, alignment: Alignment) -> Self {
+        Self::copy_from_preferred_aligned(other, alignment, Some(Alignment::DEFAULT_ALIGNMENT))
+    }
+
+    /// Create a mutable scalar buffer with the alignment by copying the contents of the slice.
+    ///
+    /// The buffer reports `alignment`, but the underlying allocation is over-aligned to the larger
+    /// of `alignment` and `preferred_alignment`.
+    ///
+    /// ## Panics
+    ///
+    /// Panics when the requested alignment isn't itself aligned to type T.
+    pub fn copy_from_preferred_aligned(
+        other: impl AsRef<[T]>,
+        alignment: Alignment,
+        preferred_alignment: Option<Alignment>,
+    ) -> Self {
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Given alignment is not aligned to type T")
         }
         let other = other.as_ref();
-        let mut buffer = Self::with_capacity_aligned(other.len(), alignment);
+        let mut buffer =
+            Self::with_capacity_preferred_aligned(other.len(), alignment, preferred_alignment);
         buffer.extend_from_slice(other);
         debug_assert_eq!(buffer.alignment(), alignment);
         buffer
@@ -213,6 +297,10 @@ impl<T> BufferMut<T> {
     /// The returned slice can be used to fill the buffer with data (e.g. by
     /// reading from a file) before marking the data as initialized using the
     /// [`set_len`] method.
+    ///
+    /// Note that the returned slice may be larger than the capacity requested at
+    /// construction, since the underlying allocation can be rounded up (e.g. to
+    /// satisfy alignment requirements).
     ///
     /// [`set_len`]: BufferMut::set_len
     /// [`Vec::spare_capacity_mut`]: Vec::spare_capacity_mut

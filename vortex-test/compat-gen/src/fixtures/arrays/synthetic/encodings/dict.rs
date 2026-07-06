@@ -5,8 +5,6 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
@@ -15,6 +13,7 @@ use vortex::array::builders::dict::dict_encode;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -34,7 +33,7 @@ impl FlatLayoutFixture for DictFixture {
         vec![Dict.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let categories = ["red", "green", "blue", "yellow", "purple"];
         let str_values: Vec<&str> = (0..N).map(|i| categories[i % categories.len()]).collect();
         let str_col = VarBinArray::from_strs(str_values);
@@ -102,66 +101,18 @@ impl FlatLayoutFixture for DictFixture {
                 "insertion_ordered",
             ]),
             vec![
-                dict_encode(
-                    &str_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &int_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &nullable_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &single_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &bool_cat_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &all_null_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &single_non_null_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &threshold_255_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &threshold_256_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &threshold_257_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &long_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-                dict_encode(
-                    &insertion_ordered_col.into_array(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
+                dict_encode(&str_col.into_array(), ctx)?.into_array(),
+                dict_encode(&int_col.into_array(), ctx)?.into_array(),
+                dict_encode(&nullable_col.into_array(), ctx)?.into_array(),
+                dict_encode(&single_col.into_array(), ctx)?.into_array(),
+                dict_encode(&bool_cat_col.into_array(), ctx)?.into_array(),
+                dict_encode(&all_null_col.into_array(), ctx)?.into_array(),
+                dict_encode(&single_non_null_col.into_array(), ctx)?.into_array(),
+                dict_encode(&threshold_255_col.into_array(), ctx)?.into_array(),
+                dict_encode(&threshold_256_col.into_array(), ctx)?.into_array(),
+                dict_encode(&threshold_257_col.into_array(), ctx)?.into_array(),
+                dict_encode(&long_col.into_array(), ctx)?.into_array(),
+                dict_encode(&insertion_ordered_col.into_array(), ctx)?.into_array(),
             ],
             N,
             Validity::NonNullable,

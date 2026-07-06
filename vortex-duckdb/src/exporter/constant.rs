@@ -13,6 +13,7 @@ use crate::duckdb::Value;
 use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
+use crate::exporter::canonical;
 use crate::exporter::new_array_exporter;
 use crate::exporter::validity;
 
@@ -46,7 +47,19 @@ pub fn new_exporter_with_mask(
     new_exporter(array)
 }
 
-pub(crate) fn new_exporter(array: ConstantArray) -> VortexResult<Box<dyn ColumnExporter>> {
+pub(crate) fn new_exporter_with_flatten(
+    array: ConstantArray,
+    cache: &ConversionCache,
+    ctx: &mut ExecutionCtx,
+    flatten: bool,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    if flatten {
+        return canonical::new_exporter(array.into_array(), cache, ctx);
+    }
+    new_exporter(array)
+}
+
+fn new_exporter(array: ConstantArray) -> VortexResult<Box<dyn ColumnExporter>> {
     let value = if array.scalar().is_null() {
         // If the scalar is null and _not_ of type Null, then we cannot assign a null DuckDB value
         // to a constant vector since DuckDB will complain about a type-mismatch. In these cases,

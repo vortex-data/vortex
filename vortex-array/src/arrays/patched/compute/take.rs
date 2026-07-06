@@ -136,8 +136,9 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
-    use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -159,7 +160,7 @@ mod tests {
         )?;
 
         let session = VortexSession::empty();
-        let mut ctx = ExecutionCtx::new(session);
+        let mut ctx = session.create_execution_ctx();
 
         Patched::from_array_and_patches(values, &patches, &mut ctx)?
             .into_array()
@@ -168,6 +169,7 @@ mod tests {
 
     #[test]
     fn test_take_basic() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
         let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30], 0..5)?;
 
@@ -177,13 +179,14 @@ mod tests {
         let result = array.take(indices)?.to_canonical()?.into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 10, 0, 30, 0]).into_array();
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
 
         Ok(())
     }
 
     #[test]
     fn test_take_sliced() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let array = make_patched_array(&[0; 10], &[1, 3], &[100, 200], 2..10)?;
 
         let indices = buffer![0u32, 1, 2, 3, 7].into_array();
@@ -191,13 +194,14 @@ mod tests {
         let result = array.take(indices)?.to_canonical()?.into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 200, 0, 0, 0]).into_array();
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
 
         Ok(())
     }
 
     #[test]
     fn test_take_out_of_order() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // Array with base values [0, 0, 0, 0, 0] patched at indices [1, 3] with values [10, 30]
         let array = make_patched_array(&[0; 5], &[1, 3], &[10, 30], 0..5)?;
 
@@ -207,13 +211,14 @@ mod tests {
         let result = array.take(indices)?.to_canonical()?.into_array();
 
         let expected = PrimitiveArray::from_iter([0u16, 30, 0, 10, 0]).into_array();
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
 
         Ok(())
     }
 
     #[test]
     fn test_take_duplicates() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // Array with base values [0, 0, 0, 0, 0] patched at index [2] with value [99]
         let array = make_patched_array(&[0; 5], &[2], &[99], 0..5)?;
 
@@ -227,13 +232,14 @@ mod tests {
         let _canonical = result.to_canonical()?.into_primitive();
 
         let expected = PrimitiveArray::from_iter([99u16, 99, 0, 99]).into_array();
-        assert_arrays_eq!(expected, result);
+        assert_arrays_eq!(expected, result, &mut ctx);
 
         Ok(())
     }
 
     #[test]
     fn test_take_with_null_indices() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         use crate::arrays::BoolArray;
         use crate::validity::Validity;
 
@@ -271,7 +277,7 @@ mod tests {
                 .into_array(),
             ),
         );
-        assert_arrays_eq!(expected.into_array(), result);
+        assert_arrays_eq!(expected.into_array(), result, &mut ctx);
 
         Ok(())
     }

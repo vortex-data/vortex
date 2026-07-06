@@ -8,6 +8,7 @@ use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
+use vortex_session::registry::CachedId;
 
 use crate::types::vector::Vector;
 use crate::types::vector::validate_vector_storage_dtype;
@@ -19,7 +20,8 @@ impl ExtVTable for Vector {
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new("vortex.tensor.vector")
+        static ID: CachedId = CachedId::new("vortex.tensor.vector");
+        *ID
     }
 
     fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

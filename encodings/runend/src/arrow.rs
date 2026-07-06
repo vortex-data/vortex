@@ -5,26 +5,25 @@ use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::NativePType;
-use vortex_array::scalar::PValue;
-use vortex_array::search_sorted::SearchSorted;
-use vortex_array::search_sorted::SearchSortedSide;
+use vortex_array::legacy_session;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::RunEndData;
+use crate::ops::find_physical_index;
 use crate::ops::find_slice_end_index;
 
 impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
 where
     R::Native: NativePType,
 {
+    #[allow(clippy::disallowed_methods)]
     fn from_arrow(array: &RunArray<R>, nullable: bool) -> VortexResult<Self> {
         let offset = array.run_ends().offset();
         let len = array.run_ends().len();
@@ -40,14 +39,13 @@ where
             ends.validity()?,
         )
         .into_array();
+        let mut ctx = legacy_session().create_execution_ctx();
+
         let (ends_slice, values_slice) = if offset == 0 && len == array.run_ends().max_value() {
             (ends_array, values)
         } else {
-            let slice_begin = ends_array
-                .as_primitive_typed()
-                .search_sorted(&PValue::from(offset), SearchSortedSide::Right)?
-                .to_ends_index(ends_array.len());
-            let slice_end = find_slice_end_index(&ends_array, offset + len)?;
+            let slice_begin = find_physical_index(&ends_array, offset, &mut ctx)?;
+            let slice_end = find_slice_end_index(&ends_array, offset + len, &mut ctx)?;
 
             (
                 ends_array.slice(slice_begin..slice_end)?,
@@ -56,8 +54,6 @@ where
         };
 
         // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees.
-        // TODO(ctx): trait fixes - FromArrowArray::from_arrow has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         RunEndData::validate_parts(&ends_slice, &values_slice, offset, len, &mut ctx)?;
         Ok(unsafe { RunEndData::new_unchecked(offset) })
     }
@@ -81,7 +77,6 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray as _;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
@@ -92,10 +87,6 @@ mod tests {
     use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::scalar::PValue;
-    use vortex_array::search_sorted::SearchSorted;
-    use vortex_array::search_sorted::SearchSortedSide;
-    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -103,18 +94,20 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::RunEnd;
+    use crate::RunEndArray;
+    use crate::ops::find_physical_index;
     use crate::ops::find_slice_end_index;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
-        session.arrays().register(RunEnd);
+        crate::initialize(&session);
         session
     });
 
     fn decode_run_array<R: RunEndIndexType>(
         array: &RunArray<R>,
         nullable: bool,
-    ) -> VortexResult<crate::RunEndArray>
+    ) -> VortexResult<RunEndArray>
     where
         R::Native: NativePType,
     {
@@ -132,14 +125,12 @@ mod tests {
             ends.validity()?,
         )
         .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
         let (ends_slice, values_slice) = if offset == 0 && len == array.run_ends().max_value() {
             (ends_array, values)
         } else {
-            let slice_begin = ends_array
-                .as_primitive_typed()
-                .search_sorted(&PValue::from(offset), SearchSortedSide::Right)?
-                .to_ends_index(ends_array.len());
-            let slice_end = find_slice_end_index(&ends_array, offset + len)?;
+            let slice_begin = find_physical_index(&ends_array, offset, &mut ctx)?;
+            let slice_end = find_slice_end_index(&ends_array, offset + len, &mut ctx)?;
 
             (
                 ends_array.slice(slice_begin..slice_end)?,
@@ -147,13 +138,7 @@ mod tests {
             )
         };
 
-        RunEnd::try_new_offset_length(
-            ends_slice,
-            values_slice,
-            offset,
-            array.len(),
-            &mut SESSION.create_execution_ctx(),
-        )
+        RunEnd::try_new_offset_length(ends_slice, values_slice, offset, array.len(), &mut ctx)
     }
 
     #[test]
@@ -170,7 +155,8 @@ mod tests {
 
         assert_arrays_eq!(
             vortex_array.into_array(),
-            buffer![10i32, 10, 10, 20, 20, 30, 30, 30].into_array()
+            buffer![10i32, 10, 10, 20, 20, 30, 30, 30].into_array(),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -194,7 +180,8 @@ mod tests {
                 None,
                 Some(300i32),
                 Some(300i32)
-            ])
+            ]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -209,7 +196,11 @@ mod tests {
         // Convert to Vortex
         let vortex_array = decode_run_array(&arrow_run_array, false)?;
 
-        assert_arrays_eq!(vortex_array, buffer![1.5f64, 2.5, 2.5, 3.5].into_array());
+        assert_arrays_eq!(
+            vortex_array,
+            buffer![1.5f64, 2.5, 2.5, 3.5].into_array(),
+            &mut SESSION.create_execution_ctx()
+        );
         Ok(())
     }
 
@@ -230,7 +221,8 @@ mod tests {
         let vortex_array = decode_run_array(&sliced_array, false)?;
         assert_arrays_eq!(
             vortex_array,
-            buffer![100, 200, 200, 200, 300, 300].into_array()
+            buffer![100, 200, 200, 200, 300, 300].into_array(),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -261,7 +253,8 @@ mod tests {
                 Some(30),
                 Some(30),
                 Some(40),
-            ])
+            ]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -345,7 +338,7 @@ mod tests {
         #[case] expected_ends: &[i32],
         #[case] expected_values: &[i32],
     ) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = RunEnd::encode(
             PrimitiveArray::from_iter(input.iter().copied()).into_array(),
             &mut ctx,

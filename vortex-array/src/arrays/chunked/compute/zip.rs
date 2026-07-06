@@ -51,10 +51,10 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::chunked::ChunkedArrayExt;
@@ -94,7 +94,7 @@ mod tests {
         // One step of execution will push down the zip.
         let zipped = zipped
             .clone()
-            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<ArrayRef>(&mut array_session().create_execution_ctx())
             .unwrap();
         let zipped = zipped
             .as_opt::<Chunked>()

@@ -11,6 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -79,7 +80,8 @@ impl AggregateFnVTable for BoundedMin {
     type Partial = BoundedMinPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.bounded_min")
+        static ID: CachedId = CachedId::new("vortex.bounded_min");
+        *ID
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -238,7 +240,6 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnSatisfaction;
@@ -250,6 +251,7 @@ mod tests {
     use crate::aggregate_fn::fns::bounded_min::BoundedMinOptions;
     use crate::aggregate_fn::fns::max::Max;
     use crate::aggregate_fn::fns::min::Min;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::dtype::Nullability;
@@ -261,12 +263,12 @@ mod tests {
     }
 
     fn fresh_session() -> VortexSession {
-        crate::array_session()
+        array_session()
     }
 
     #[test]
     fn bounded_min_truncates_utf8_to_lower_bound() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array =
             VarBinViewArray::from_iter_str(["snowman⛄️snowman", "untruncated"]).into_array();
         let mut acc = Accumulator::try_new(
@@ -288,7 +290,7 @@ mod tests {
 
     #[test]
     fn bounded_min_keeps_fixed_width_values_exact() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = PrimitiveArray::new(buffer![10i32, 20, 5], Validity::NonNullable).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMin,

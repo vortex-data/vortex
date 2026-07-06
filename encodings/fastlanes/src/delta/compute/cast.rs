@@ -56,7 +56,11 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::Delta;
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_cast_delta_unsigned_widening_wraps() {
@@ -75,7 +79,11 @@ mod tests {
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
             .unwrap();
 
-        assert_arrays_eq!(casted, PrimitiveArray::from_iter([200u32, 50, 75, 10, 255]));
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_iter([200u32, 50, 75, 10, 255]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]
@@ -95,7 +103,8 @@ mod tests {
 
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::from_iter([10f32, 20.0, 30.0, 40.0, 50.0])
+            PrimitiveArray::from_iter([10f32, 20.0, 30.0, 40.0, 50.0]),
+            &mut SESSION.create_execution_ctx()
         );
     }
 
@@ -115,7 +124,8 @@ mod tests {
         );
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::from_option_iter([Some(10u32), Some(20), Some(5), Some(30), Some(15)])
+            PrimitiveArray::from_option_iter([Some(10u32), Some(20), Some(5), Some(30), Some(15)]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -134,7 +144,8 @@ mod tests {
 
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::from_option_iter([Some(10u32), None, Some(30), Some(15), None])
+            PrimitiveArray::from_option_iter([Some(10u32), None, Some(30), Some(15), None]),
+            &mut SESSION.create_execution_ctx()
         );
         Ok(())
     }
@@ -177,7 +188,11 @@ mod tests {
         );
 
         // Verify by decoding
-        assert_arrays_eq!(casted, PrimitiveArray::from_iter([10u32, 20, 30, 40, 50]));
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_iter([10u32, 20, 30, 40, 50]),
+            &mut SESSION.create_execution_ctx()
+        );
     }
 
     #[test]

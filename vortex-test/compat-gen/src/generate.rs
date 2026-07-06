@@ -7,6 +7,9 @@ use base16ct::HexDisplay;
 use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
+use vortex_array::ExecutionCtx;
+use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -25,7 +28,11 @@ pub struct FixtureInfo {
 }
 
 /// Write all fixture files into `output_dir`, returning name, description, and sha256 for each.
-pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec<FixtureInfo>> {
+pub fn write_fixtures(
+    output_dir: &Path,
+    exclude: &[String],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Vec<FixtureInfo>> {
     let fixtures = all_fixtures();
     let fixtures: Vec<_> = fixtures
         .into_iter()
@@ -46,7 +53,7 @@ pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec
 
     let mut infos = Vec::new();
     for fixture in &fixtures {
-        let entries = fixture.write(output_dir)?;
+        let entries = fixture.write(output_dir, ctx)?;
         for entry in entries {
             let path = output_dir.join(&entry.name);
             let file_bytes = std::fs::read(&path)
@@ -83,6 +90,7 @@ pub fn write_manifest(output_dir: &Path, infos: Vec<FixtureInfo>) -> VortexResul
 
 /// Generate all fixtures into `output_dir` and write the manifest.
 pub fn generate(output_dir: &Path, exclude: &[String]) -> VortexResult<()> {
-    let infos = write_fixtures(output_dir, exclude)?;
+    let mut ctx = array_session().create_execution_ctx();
+    let infos = write_fixtures(output_dir, exclude, &mut ctx)?;
     write_manifest(output_dir, infos)
 }

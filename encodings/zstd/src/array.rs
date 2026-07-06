@@ -22,7 +22,6 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -175,6 +174,33 @@ impl VTable for Zstd {
         }
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        let mut data = array.data().clone();
+        if data.dictionary.is_some() {
+            let Some((dictionary, frames)) = buffers.split_first() else {
+                vortex_bail!("Expected dictionary buffer");
+            };
+            data.dictionary = Some(dictionary.clone().try_to_host_sync()?);
+            data.frames = frames
+                .iter()
+                .map(|buffer| buffer.clone().try_to_host_sync())
+                .collect::<VortexResult<Vec<_>>>()?;
+        } else {
+            data.frames = buffers
+                .iter()
+                .map(|buffer| buffer.clone().try_to_host_sync())
+                .collect::<VortexResult<Vec<_>>>()?;
+        }
+        Ok(
+            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                .with_slots(array.slots().iter().cloned().collect()),
+        )
+    }
+
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -252,9 +278,11 @@ impl VTable for Zstd {
 }
 
 #[derive(Clone, Debug)]
+/// Zstd array encoding marker.
 pub struct Zstd;
 
 impl Zstd {
+    /// Construct a [`ZstdArray`] from validated compressed data and validity.
     pub fn try_new(dtype: DType, data: ZstdData, validity: Validity) -> VortexResult<ZstdArray> {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;
@@ -309,6 +337,7 @@ impl Zstd {
         )
     }
 
+    /// Decompress a [`ZstdArray`] into its canonical Vortex representation.
     pub fn decompress(array: &ZstdArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let unsliced_validity = child_to_validity(
             array.as_ref().slots()[0].as_ref(),
@@ -325,6 +354,7 @@ pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 #[derive(Clone, Debug)]
+/// Encoding-specific data for a [`ZstdArray`].
 pub struct ZstdData {
     pub(crate) dictionary: Option<ByteBuffer>,
     pub(crate) frames: Vec<ByteBuffer>,
@@ -344,13 +374,21 @@ impl Display for ZstdData {
     }
 }
 
+/// Movable parts of a [`ZstdData`] value plus its validity.
 pub struct ZstdDataParts {
+    /// Optional zstd dictionary shared by all frames.
     pub dictionary: Option<ByteBuffer>,
+    /// Compressed zstd frames.
     pub frames: Vec<ByteBuffer>,
+    /// Serialized frame and dictionary metadata.
     pub metadata: ZstdMetadata,
+    /// Unsliced validity for the array.
     pub validity: Validity,
+    /// Unsliced row count.
     pub n_rows: usize,
+    /// Start of this logical slice in unsliced row coordinates.
     pub slice_start: usize,
+    /// End of this logical slice in unsliced row coordinates.
     pub slice_stop: usize,
 }
 
@@ -398,17 +436,28 @@ fn collect_valid_vbv(
                     + mask.true_count() * size_of::<ViewLen>(),
             );
             let mut value_byte_indices = Vec::new();
-            vbv.with_iterator(|iterator| {
-                // by flattening, we should omit nulls
-                for value in iterator.flatten() {
-                    value_byte_indices.push(buffer.len());
-                    // here's where we write the string lengths
-                    buffer
-                        .extend_trusted(ViewLen::try_from(value.len())?.to_le_bytes().into_iter());
-                    buffer.extend_from_slice(value);
+            let views = vbv.views();
+            let buffers = vbv
+                .data_buffers()
+                .iter()
+                .map(|b| b.as_host())
+                .collect::<Vec<_>>();
+            // skip nulls, writing only valid values
+            for (i, view) in views.iter().enumerate() {
+                if !mask.value(i) {
+                    continue;
                 }
-                Ok::<_, VortexError>(())
-            })?;
+                let value = if view.is_inlined() {
+                    view.as_inlined().value()
+                } else {
+                    let view_ref = view.as_view();
+                    &buffers[view_ref.buffer_index as usize][view_ref.as_range()]
+                };
+                value_byte_indices.push(buffer.len());
+                // here's where we write the string lengths
+                buffer.extend_trusted(ViewLen::try_from(value.len())?.to_le_bytes().into_iter());
+                buffer.extend_from_slice(value);
+            }
             (buffer.freeze(), value_byte_indices)
         }
     };
@@ -466,6 +515,7 @@ pub fn reconstruct_views(
 }
 
 impl ZstdData {
+    /// Construct unsliced zstd data from raw frames and metadata.
     pub fn new(
         dictionary: Option<ByteBuffer>,
         frames: Vec<ByteBuffer>,
@@ -482,6 +532,7 @@ impl ZstdData {
         }
     }
 
+    /// Validate dtype, slice, validity, frame, and dictionary invariants.
     pub fn validate(&self, dtype: &DType, len: usize, validity: &Validity) -> VortexResult<()> {
         vortex_ensure!(
             matches!(
@@ -796,6 +847,9 @@ impl ZstdData {
         Ok(ZstdData::new(dictionary, frames, metadata, vbv.len()))
     }
 
+    /// Compress a supported canonical array into zstd data.
+    ///
+    /// Returns `Ok(None)` for canonical variants that this encoding does not support.
     pub fn from_canonical(
         canonical: &Canonical,
         level: i32,
@@ -819,6 +873,11 @@ impl ZstdData {
         }
     }
 
+    /// Canonicalize and compress an array into zstd data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the array's canonical form is unsupported or compression fails.
     pub fn from_array(
         array: ArrayRef,
         level: i32,
@@ -949,6 +1008,7 @@ impl ZstdData {
                     dtype.as_ptype(),
                     slice_validity,
                     slice_n_rows,
+                    ctx,
                 );
 
                 Ok(primitive.into_array())
@@ -1019,6 +1079,7 @@ impl ZstdData {
         self.slice_stop == self.slice_start
     }
 
+    /// Split this data into movable parts, attaching the supplied validity.
     pub fn into_parts(self, validity: Validity) -> ZstdDataParts {
         ZstdDataParts {
             dictionary: self.dictionary,

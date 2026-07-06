@@ -4,6 +4,7 @@
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::Struct;
@@ -31,7 +32,7 @@ impl FlatLayoutFixture for StructNestedFixture {
         vec![Struct.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let inner = StructArray::try_new(
             FieldNames::from(["a", "b"]),
             vec![

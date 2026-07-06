@@ -9,12 +9,15 @@ otherwise to the number of available CPU cores minus one. Use
 .. autosummary::
    :nosignatures:
 
+   ~vortex.cuda_extension_installed
    ~vortex.set_worker_threads
    ~vortex.worker_threads
 
 .. raw:: html
 
    <hr>
+
+.. autofunction:: vortex.cuda_extension_installed
 
 .. autofunction:: vortex.set_worker_threads
 

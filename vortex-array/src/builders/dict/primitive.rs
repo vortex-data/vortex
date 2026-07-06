@@ -1,23 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cell::OnceCell;
 use std::hash::Hash;
 use std::mem;
 
 use rustc_hash::FxBuildHasher;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::DictConstraints;
 use super::DictEncoder;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
-use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::NativeValue;
 use crate::dtype::NativePType;
@@ -72,6 +74,7 @@ where
             .min(constraints.max_bytes / T::PTYPE.byte_width());
         Self {
             lookup: HashMap::with_hasher(FxBuildHasher),
+            null_code: OnceCell::new(),
             values: BufferMut::<T>::empty(),
             values_nulls: BitBufferMut::empty(),
             nullability,
@@ -79,8 +82,10 @@ where
         }
     }
 
-    fn encode_value(&mut self, v: Option<T>) -> Option<Code> {
-        match self.lookup.entry(v.map(NativeValue)) {
+    /// Returns `None` when assigning a code would exceed the dictionary constraints,
+    /// and callers should stop encoding after the current prefix.
+    fn encode_value(&mut self, v: T) -> Option<Code> {
+        match self.lookup.entry(NativeValue(v)) {
             Entry::Occupied(o) => Some(*o.get()),
             Entry::Vacant(vac) => {
                 if self.values.len() >= self.max_dict_len {
@@ -89,20 +94,34 @@ where
                 let next_code = Code::from_usize(self.values.len()).unwrap_or_else(|| {
                     vortex_panic!("{} has to fit into {}", self.values.len(), Code::PTYPE)
                 });
-                vac.insert(next_code);
-                match v {
-                    None => {
-                        self.values.push(T::default());
-                        self.values_nulls.append_false();
-                    }
-                    Some(v) => {
-                        self.values.push(v);
-                        self.values_nulls.append_true();
-                    }
-                }
-                Some(next_code)
+                self.values.push(v);
+                self.values_nulls.append_true();
+                Some(*vac.insert(next_code))
             }
         }
+    }
+
+    /// Returns `None` when assigning the null code would exceed the dictionary constraints,
+    /// and callers should stop encoding after the current prefix.
+    fn encode_null(&mut self) -> Option<Code> {
+        if let Some(code) = self.null_code.get() {
+            return Some(*code);
+        }
+
+        if self.values.len() >= self.max_dict_len {
+            return None;
+        }
+
+        let code = Code::from_usize(self.values.len()).unwrap_or_else(|| {
+            vortex_panic!("{} has to fit into {}", self.values.len(), Code::PTYPE)
+        });
+        self.values.push(T::default());
+        self.values_nulls.append_false();
+        self.null_code
+            .set(code)
+            .ok()
+            .vortex_expect("null code is initialized once");
+        Some(code)
     }
 }
 
@@ -110,7 +129,8 @@ where
 ///
 /// Null values are stored in the values of the dictionary such that codes are always non-null.
 pub struct PrimitiveDictBuilder<T, Code> {
-    lookup: HashMap<Option<NativeValue<T>>, Code, FxBuildHasher>,
+    lookup: HashMap<NativeValue<T>, Code, FxBuildHasher>,
+    null_code: OnceCell<Code>,
     values: BufferMut<T>,
     values_nulls: BitBufferMut,
     nullability: Nullability,
@@ -123,21 +143,43 @@ where
     NativeValue<T>: Hash + Eq,
     Code: UnsignedPType,
 {
-    fn encode(&mut self, array: &ArrayRef) -> ArrayRef {
+    fn encode(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
         let mut codes = BufferMut::<Code>::with_capacity(array.len());
 
-        #[expect(deprecated)]
-        let prim = array.to_primitive();
-        prim.with_iterator(|it| {
-            for value in it {
-                let Some(code) = self.encode_value(value.copied()) else {
-                    break;
-                };
-                unsafe { codes.push_unchecked(code) }
+        let prim = array.clone().execute::<PrimitiveArray>(ctx)?;
+        match prim.validity()?.execute_mask(array.len(), ctx)? {
+            Mask::AllTrue(_) => {
+                for &value in prim.as_slice::<T>() {
+                    let Some(code) = self.encode_value(value) else {
+                        break;
+                    };
+                    unsafe { codes.push_unchecked(code) }
+                }
             }
-        });
+            Mask::AllFalse(_) => {
+                if let Some(code) = self.encode_null() {
+                    unsafe { codes.push_n_unchecked(code, array.len()) }
+                }
+            }
+            Mask::Values(v) => {
+                let bit_buff = v.bit_buffer();
+                for (&value, valid) in prim.as_slice::<T>().iter().zip(bit_buff) {
+                    if !valid {
+                        let Some(code) = self.encode_null() else {
+                            break;
+                        };
+                        unsafe { codes.push_unchecked(code) }
+                    } else {
+                        let Some(code) = self.encode_value(value) else {
+                            break;
+                        };
+                        unsafe { codes.push_unchecked(code) }
+                    }
+                }
+            }
+        }
 
-        PrimitiveArray::new(codes, Validity::NonNullable).into_array()
+        Ok(PrimitiveArray::new(codes, Validity::NonNullable))
     }
 
     fn reset(&mut self) -> ArrayRef {
@@ -157,8 +199,6 @@ where
 mod test {
     use std::sync::LazyLock;
 
-    #[expect(unused_imports)]
-    use itertools::Itertools;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
@@ -173,18 +213,20 @@ mod test {
 
     #[test]
     fn encode_primitive() {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = buffer![1, 1, 3, 3, 3].into_array();
         let dict = dict_encode(&arr, &mut SESSION.create_execution_ctx()).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 1, 1].into_array();
-        assert_arrays_eq!(dict.codes(), expected_codes);
+        assert_arrays_eq!(dict.codes(), expected_codes, &mut ctx);
 
         let expected_values = buffer![1i32, 3].into_array();
-        assert_arrays_eq!(dict.values(), expected_values);
+        assert_arrays_eq!(dict.values(), expected_values, &mut ctx);
     }
 
     #[test]
     fn encode_primitive_nulls() {
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = PrimitiveArray::from_option_iter([
             Some(1),
             Some(1),
@@ -194,14 +236,15 @@ mod test {
             None,
             Some(3),
             None,
-        ]);
-        let dict = dict_encode(&arr.into_array(), &mut SESSION.create_execution_ctx()).unwrap();
+        ])
+        .into_array();
+        let dict = dict_encode(&arr, &mut SESSION.create_execution_ctx()).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 2, 2, 1, 2, 1].into_array();
-        assert_arrays_eq!(dict.codes(), expected_codes);
+        assert_arrays_eq!(dict.codes(), expected_codes, &mut ctx);
 
         let expected_values =
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array();
-        assert_arrays_eq!(dict.values(), expected_values);
+        assert_arrays_eq!(dict.values(), expected_values, &mut ctx);
     }
 }

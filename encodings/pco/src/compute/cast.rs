@@ -90,7 +90,8 @@ mod tests {
 
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0])
+            PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0]),
+            &mut ctx
         );
     }
 
@@ -107,7 +108,8 @@ mod tests {
             .unwrap();
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::new(buffer![10u32, 20, 30, 40], Validity::AllValid,)
+            PrimitiveArray::new(buffer![10u32, 20, 30, 40], Validity::AllValid,),
+            &mut ctx
         );
     }
 
@@ -128,7 +130,11 @@ mod tests {
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
         // Verify the values are correct
-        assert_arrays_eq!(casted, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_iter([20u32, 30, 40, 50]),
+            &mut ctx
+        );
     }
 
     #[test]
@@ -151,7 +157,11 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
-        assert_arrays_eq!(casted, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::from_iter([20u32, 30, 40, 50]),
+            &mut ctx
+        );
     }
 
     #[rstest]

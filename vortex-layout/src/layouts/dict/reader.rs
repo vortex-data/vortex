@@ -337,9 +337,9 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
     use vortex_array::IntoArray as _;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::MaskFuture;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
@@ -387,7 +387,7 @@ mod tests {
     // FIXME(ngates): Deprecate the global `runtime::single::block_on` helper and require tests
     // to call `block_on` on an explicit runtime instance.
     fn session_with_handle(handle: Handle) -> VortexSession {
-        vortex_array::array_session()
+        array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
@@ -421,10 +421,12 @@ mod tests {
         (layout, segments)
     }
 
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
     #[test]
     fn reading_nested_packs_works() {
         block_on(|handle| async move {
             let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -449,12 +451,12 @@ mod tests {
             )
             .into_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContext::empty();
+            let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
-                    ctx,
+                    array_ctx,
                     Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -503,7 +505,7 @@ mod tests {
             )
             .unwrap()
             .into_array();
-            assert_arrays_eq!(actual, expected);
+            assert_arrays_eq!(actual, expected, &mut ctx);
         })
     }
 
@@ -525,6 +527,7 @@ mod tests {
     ) {
         block_on(|handle| async move {
             let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -535,12 +538,12 @@ mod tests {
 
             let array =
                 VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).into_array();
-            let ctx = ArrayContext::empty();
+            let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
-                    ctx,
+                    array_ctx,
                     Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -568,15 +571,16 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_arrays_eq!(mask.into_array(), BoolArray::from_iter(expected));
+            assert_arrays_eq!(mask.into_array(), BoolArray::from_iter(expected), &mut ctx);
         })
     }
 
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
     #[test]
     fn reading_is_null_works() {
         block_on(|handle| async move {
-            let mut ctx_exec = LEGACY_SESSION.create_execution_ctx();
             let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -601,13 +605,13 @@ mod tests {
             )
             .into_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContext::empty();
+            let array_ctx = ArrayContext::empty();
 
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
-                    ctx,
+                    array_ctx,
                     Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -636,17 +640,18 @@ mod tests {
             let expected = array
                 .validity()
                 .unwrap()
-                .execute_mask(array.len(), &mut ctx_exec)
+                .execute_mask(array.len(), &mut ctx)
                 .unwrap()
                 .into_array();
             let actual_canonical = actual
-                .execute::<Canonical>(&mut ctx_exec)
+                .execute::<Canonical>(&mut ctx)
                 .vortex_expect("to_canonical failed")
                 .into_array();
-            assert_arrays_eq!(actual_canonical, expected);
+            assert_arrays_eq!(actual_canonical, expected, &mut ctx);
         })
     }
 
+    #[expect(clippy::disallowed_methods, reason = "test-only id")]
     #[test]
     fn reading_byte_length_pushdown_works() {
         let array = VarBinArray::from_iter(
@@ -673,6 +678,7 @@ mod tests {
 
         block_on(|handle| async move {
             let session = session_with_handle(handle);
+            let mut ctx = session.create_execution_ctx();
             let (layout, segments) = write_dict_layout(array, &session).await;
             assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
             let actual = layout
@@ -687,7 +693,7 @@ mod tests {
                 .await
                 .unwrap()
                 .into_array();
-            assert_arrays_eq!(actual, expected);
+            assert_arrays_eq!(actual, expected, &mut ctx);
         })
     }
 
@@ -706,6 +712,7 @@ mod tests {
     }
 
     fn test_apply(original: Expression, outer: Expression, inner: Expression) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let array = VarBinArray::from_iter(
             [Some("abc"), Some("def"), None],
             DType::Utf8(Nullability::Nullable),
@@ -718,7 +725,7 @@ mod tests {
         ))?;
         let actual = pushed.apply(&outer)?;
         let expected = array.apply(&original)?;
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
         Ok(())
     }
 

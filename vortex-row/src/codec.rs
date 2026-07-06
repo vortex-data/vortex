@@ -703,7 +703,7 @@ fn encode_varbinview(
     // Cache the data-buffer slices once. Inlined views (len <= 12) carry their bytes inline,
     // so they never touch `buffers`; referenced views index into the pre-validated buffer at
     // `offset..offset + len`. Walking views directly avoids the per-row bounds and branch work
-    // of `with_iterator`.
+    // of a generic per-element iterator.
     let buffers: smallvec::SmallVec<[&[u8]; 4]> = (0..arr.data_buffers().len())
         .map(|i| arr.buffer(i).as_slice())
         .collect();

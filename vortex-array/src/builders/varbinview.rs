@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
@@ -21,7 +22,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::VarBinViewArrayExt;
@@ -33,6 +33,7 @@ use crate::canonical::Canonical;
 #[expect(deprecated)]
 use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
+use crate::legacy_session;
 use crate::scalar::Scalar;
 
 /// The builder for building a [`VarBinViewArray`].
@@ -41,7 +42,7 @@ pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,
     nulls: LazyBitBufferBuilder,
     completed: CompletedBuffers,
-    in_progress: ByteBufferMut,
+    in_progress: Option<ByteBufferMut>,
     growth_strategy: BufferGrowthStrategy,
     compaction_threshold: f64,
 }
@@ -83,10 +84,14 @@ impl VarBinViewBuilder {
             "VarBinViewBuilder DType must be Utf8 or Binary."
         );
         Self {
-            views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
+            views_builder: BufferMut::with_capacity_preferred_aligned(
+                capacity,
+                Alignment::of::<BinaryView>(),
+                None,
+            ),
             nulls: LazyBitBufferBuilder::new(capacity),
             completed,
-            in_progress: ByteBufferMut::empty(),
+            in_progress: None,
             dtype,
             growth_strategy,
             compaction_threshold,
@@ -129,20 +134,29 @@ impl VarBinViewBuilder {
     }
 
     fn flush_in_progress(&mut self) {
-        if self.in_progress.is_empty() {
+        let Some(block) = self.in_progress.take() else {
             return;
-        }
-        let block = std::mem::take(&mut self.in_progress).freeze();
+        };
 
         assert!(block.len() < u32::MAX as usize, "Block too large");
 
         let initial_len = self.completed.len();
-        self.completed.push(block);
+        self.completed.push(block.freeze());
         assert_eq!(
             self.completed.len(),
             initial_len + 1,
             "Invalid state, just completed block already exists"
         );
+    }
+
+    fn init_in_progress(&mut self, min_len: usize) {
+        let next_buffer_size = self.growth_strategy.next_size() as usize;
+        let to_reserve = next_buffer_size.max(min_len);
+        self.in_progress = Some(ByteBufferMut::with_capacity_preferred_aligned(
+            to_reserve,
+            Alignment::of::<u8>(),
+            None,
+        ));
     }
 
     /// append a non inlined value to self.in_progress.
@@ -151,17 +165,25 @@ impl VarBinViewBuilder {
             value.len() > BinaryView::MAX_INLINED_SIZE,
             "must inline small strings"
         );
-        let required_cap = self.in_progress.len() + value.len();
-        if self.in_progress.capacity() < required_cap {
-            self.flush_in_progress();
-            let next_buffer_size = self.growth_strategy.next_size() as usize;
-            let to_reserve = next_buffer_size.max(value.len());
-            self.in_progress.reserve(to_reserve);
-        }
+
+        if let Some(in_progress) = &mut self.in_progress {
+            let required_cap = in_progress.len() + value.len();
+            if in_progress.capacity() < required_cap {
+                self.flush_in_progress();
+                self.init_in_progress(value.len());
+            }
+        } else {
+            self.init_in_progress(value.len())
+        };
+
+        let in_progress = self
+            .in_progress
+            .as_mut()
+            .vortex_expect("in_progress just set");
 
         let buffer_idx = self.completed.len();
-        let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
-        self.in_progress.extend_from_slice(value);
+        let offset = u32::try_from(in_progress.len()).vortex_expect("too many buffers");
+        in_progress.extend_from_slice(value);
 
         (buffer_idx, offset)
     }
@@ -173,7 +195,7 @@ impl VarBinViewBuilder {
     /// Returns true if a non-empty in-progress buffer is staged (and would
     /// become a completed buffer on the next flush), false otherwise.
     pub fn in_progress(&self) -> bool {
-        !self.in_progress.is_empty()
+        self.in_progress.is_some()
     }
 
     /// Pushes buffers and pre-adjusted views into the builder.
@@ -350,10 +372,11 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
+    #[allow(clippy::disallowed_methods)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         #[expect(deprecated)]
         let array = array.to_varbinview();
-        self.append_varbinview_array(&array, &mut LEGACY_SESSION.create_execution_ctx())
+        self.append_varbinview_array(&array, &mut legacy_session().create_execution_ctx())
             .vortex_expect("Failed to append varbinview array");
     }
 
@@ -851,8 +874,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::VarBinViewBuilder;
@@ -862,6 +885,7 @@ mod tests {
 
     #[test]
     fn test_utf8_builder() {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
 
         builder.append_value("Hello");
@@ -884,11 +908,12 @@ mod tests {
             Some(""),
             Some("test"),
         ]);
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
     #[test]
     fn test_utf8_builder_with_extend() {
+        let mut ctx = array_session().create_execution_ctx();
         let array = {
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
@@ -912,7 +937,7 @@ mod tests {
             None,
             Some("Hello3"),
         ]);
-        assert_arrays_eq!(actual.into_array(), expected.into_array());
+        assert_arrays_eq!(actual.into_array(), expected.into_array(), &mut ctx);
     }
 
     #[test]
@@ -929,7 +954,7 @@ mod tests {
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         array.append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 1);
@@ -964,6 +989,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let mut ctx = array_session().create_execution_ctx();
         use crate::scalar::Scalar;
 
         // Test with Utf8 builder.
@@ -985,7 +1011,7 @@ mod tests {
         let array = utf8_builder.finish();
         let expected =
             <VarBinViewArray as FromIterator<_>>::from_iter([Some("hello"), Some("world"), None]);
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test with Binary builder.
         let mut binary_builder =
@@ -1000,7 +1026,7 @@ mod tests {
         let binary_array = binary_builder.finish();
         let expected =
             <VarBinViewArray as FromIterator<_>>::from_iter([Some(vec![1u8, 2, 3]), None]);
-        assert_arrays_eq!(&binary_array, &expected);
+        assert_arrays_eq!(&binary_array, &expected, &mut ctx);
 
         // Test wrong dtype error.
         let mut builder =
@@ -1056,7 +1082,7 @@ mod tests {
 
         // Verify the value was stored correctly
         let retrieved = array
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_binary()
             .value()

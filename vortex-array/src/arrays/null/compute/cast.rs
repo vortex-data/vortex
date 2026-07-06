@@ -32,8 +32,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::NullArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -68,7 +68,7 @@ mod tests {
         for i in 0..5 {
             assert!(
                 result
-                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .execute_scalar(i, &mut array_session().create_execution_ctx())
                     .unwrap()
                     .is_null()
             );

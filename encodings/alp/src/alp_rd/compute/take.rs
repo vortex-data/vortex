@@ -20,19 +20,21 @@ impl TakeExecute for ALPRD {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_left_parts = array.left_parts().take(indices.clone())?;
+        // With nullable take indices, `Patches::take` widens the (still all-valid) exception
+        // values to nullable, but ALPRD stores exceptions as the non-nullable left-parts dtype.
+        // Narrow them back so the patches satisfy the invariant `validate_parts` enforces. This is
+        // a no-op when the take indices are non-nullable and the values already match.
+        let exceptions_dtype = taken_left_parts.dtype().as_nonnullable();
         let left_parts_exceptions = array
             .left_parts_patches()
-            .map(|patches| patches.take(indices, ctx))
-            .transpose()?
-            .flatten()
-            .map(|p| {
-                let values_dtype = p
-                    .values()
-                    .dtype()
-                    .with_nullability(taken_left_parts.dtype().nullability());
-                p.cast_values(&values_dtype)
+            .map(|patches| {
+                patches
+                    .take(indices, ctx)?
+                    .map(|taken| taken.map_values(|values| values.cast(exceptions_dtype.clone())))
+                    .transpose()
             })
-            .transpose()?;
+            .transpose()?
+            .flatten();
         let right_parts = array
             .right_parts()
             .take(indices.clone())?
@@ -48,7 +50,6 @@ impl TakeExecute for ALPRD {
                 right_parts,
                 array.right_bit_width(),
                 left_parts_exceptions,
-                ctx,
             )?
             .into_array(),
         ))
@@ -57,17 +58,26 @@ impl TakeExecute for ALPRD {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_session::VortexSession;
 
     use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
@@ -76,9 +86,9 @@ mod test {
         use vortex_array::IntoArray as _;
         use vortex_buffer::buffer;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert!(
@@ -95,16 +105,16 @@ mod test {
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
-        assert_arrays_eq!(taken, PrimitiveArray::from_iter([a, outlier]));
+        assert_arrays_eq!(taken, PrimitiveArray::from_iter([a, outlier]), &mut ctx);
     }
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn take_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
-        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view(), &mut ctx);
+        let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
 
         assert!(encoded.left_parts_patches().is_some());
         assert!(
@@ -123,7 +133,8 @@ mod test {
 
         assert_arrays_eq!(
             taken,
-            PrimitiveArray::from_option_iter([Some(a), Some(outlier), None])
+            PrimitiveArray::from_option_iter([Some(a), Some(outlier), None]),
+            &mut ctx
         );
     }
 
@@ -131,13 +142,9 @@ mod test {
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn test_take_conformance_alprd<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         test_take_conformance(
             &RDEncoder::new(&[a, b])
-                .encode(
-                    PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view(),
-                    &mut ctx,
-                )
+                .encode(PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view())
                 .into_array(),
         );
     }
@@ -146,13 +153,11 @@ mod test {
     #[case(0.1f32, 3e25f32)]
     #[case(0.5f64, 1e100f64)]
     fn test_take_with_nulls_conformance<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         test_take_conformance(
             &RDEncoder::new(&[a])
                 .encode(
                     PrimitiveArray::from_option_iter([Some(a), None, Some(outlier), Some(a), None])
                         .as_view(),
-                    &mut ctx,
                 )
                 .into_array(),
         );

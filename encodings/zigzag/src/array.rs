@@ -90,6 +90,14 @@ impl VTable for ZigZag {
         vortex_panic!("ZigZagArray buffer_name index {idx} out of bounds")
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_array::vtable::with_empty_buffers(self, array, buffers)
+    }
+
     fn serialize(
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -261,8 +269,8 @@ impl ValidityChild<ZigZag> for ZigZag {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
@@ -272,7 +280,7 @@ mod test {
 
     #[test]
     fn test_compute_statistics() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .into_array()
             .execute::<PrimitiveArray>(&mut ctx)?;

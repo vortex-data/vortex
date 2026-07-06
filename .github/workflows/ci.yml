@@ -25,6 +25,25 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
+  duckdb-mirror:
+    name: "Mirror DuckDB to R2"
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/duckdb-r2.yml
+    secrets: inherit
+
+  duckdb-ready:
+    name: "DuckDB libraries available in R2"
+    needs: duckdb-mirror
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify DuckDB mirror
+        if: ${{ needs.duckdb-mirror.result == 'failure' }}
+        run: |
+          echo "DuckDB mirror failed; downstream builds would 404"
+          exit 1
+
   lint-toml:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -113,8 +132,42 @@ jobs:
           uv run --all-packages make html
         working-directory: docs/
 
+  python-cuda-test:
+    name: "Python CUDA (test)"
+    if: github.repository == 'vortex-data/vortex'
+    runs-on: >-
+      ${{ format('runs-on={0}/runner=gpu/tag=python-cuda-test', github.run_id) }}
+    timeout-minutes: 30
+    env:
+      RUST_LOG: "info,maturin=off,uv=debug"
+      MATURIN_PEP517_ARGS: "--profile ci"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          components: cargo
+      - name: Pin rustup proxy to repository toolchain
+        run: |
+          TOOLCHAIN="$(grep '^channel' rust-toolchain.toml | cut -d '"' -f 2)"
+          echo "RUSTUP_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+
+      - name: Pytest - PyVortex CUDA bridge
+        run: |
+          uv run --extra cuda \
+            pytest --benchmark-disable ../vortex-python-cuda/test/test_native_bridge.py
+        working-directory: vortex-python/
+
   rust-docs:
     name: "Rust (docs)"
+    needs: duckdb-ready
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -134,9 +187,9 @@ jobs:
         run: |
           # Build docs for the whole workspace (aside from vortex-python that is having hard time with the python-docs syntax),
           # including all private docs.
-          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python
+          cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
           # nextest doesn't support doc tests, so we run it here
-          cargo test --profile ci --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
+          cargo test --profile ci --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -167,7 +220,7 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"unsupported\"'"
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-sqllogictest --exclude vortex-parquet-variant"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda --exclude vortex-sqllogictest --exclude vortex-parquet-variant"
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -204,6 +257,7 @@ jobs:
 
   rust-lint:
     name: "Rust (lint)"
+    needs: duckdb-ready
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -301,6 +355,7 @@ jobs:
 
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
+    needs: duckdb-ready
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -333,7 +388,7 @@ jobs:
             --exclude vortex-bench `
             --exclude vortex-python --exclude vortex-duckdb `
             --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-cuda-ffi `
-            --exclude vortex-nvcomp --exclude vortex-cub --exclude vortex-test-e2e-cuda `
+            --exclude vortex-nvcomp --exclude vortex-cub --exclude vortex-test-e2e-cuda --exclude vortex-python-cuda `
             --exclude duckdb-bench `
             --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
@@ -422,6 +477,7 @@ jobs:
 
   sqllogic-test:
     name: "SQL logic tests"
+    needs: duckdb-ready
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=sql-logic-test', github.run_id)
@@ -437,10 +493,11 @@ jobs:
       - name: Run sqllogictest tests
         run: |
           ./vortex-sqllogictest/slt/tpch/generate_data.sh
-          cargo test --profile ci -p vortex-sqllogictest --test sqllogictests
+          cargo nextest run --cargo-profile ci -p vortex-sqllogictest
       - uses: ./.github/actions/check-rebuild
         with:
-          command: "cargo test --profile ci -p vortex-sqllogictest --test sqllogictests --no-run"
+          command: "cargo nextest run --cargo-profile ci -p vortex-sqllogictest --no-run"
+          message-format-flag: "--cargo-message-format"
 
   wasm-integration:
     name: "WASM integration smoke test"

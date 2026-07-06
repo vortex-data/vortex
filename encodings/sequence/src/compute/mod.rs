@@ -14,6 +14,8 @@ mod take;
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::dtype::Nullability;
 
@@ -84,6 +86,9 @@ mod tests {
     ).unwrap())] // Results in [1000, 1100, 1200, ..., 150900]
 
     fn test_sequence_consistency(#[case] array: SequenceArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

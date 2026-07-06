@@ -127,6 +127,7 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Schema;
     use vortex_array::ArrayRef;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrow::FromArrowArray;
     use vortex_error::VortexResult;
 

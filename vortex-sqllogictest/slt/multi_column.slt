@@ -13,13 +13,13 @@ COPY (SELECT * FROM (VALUES
     (true, 2, 102),
     (true, 3, 103),
     (false, 4, 104)
-) AS t(f1, f2, f3)) TO '$__TEST_DIR__/multi_column.vortex';
+) AS t(f1, f2, f3)) TO '${WORK_DIR}/multi_column.vortex';
 ----
 5
 
 # Test multi-column filtering (f1 = true AND f2 >= 2)
 query I
-SELECT f2 FROM '$__TEST_DIR__/multi_column.vortex' WHERE f1 = true AND f2 >= 2 ORDER BY f2;
+SELECT f2 FROM '${WORK_DIR}/multi_column.vortex' WHERE f1 = true AND f2 >= 2 ORDER BY f2;
 ----
 2
 3

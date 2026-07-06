@@ -577,6 +577,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, ExtDTypeRef> {
                 }
 
                 let id = id.ok_or_else(|| de::Error::missing_field("id"))?;
+                #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
                 let id = ExtId::new(&id);
                 let storage_dtype =
                     storage_dtype.ok_or_else(|| de::Error::missing_field("storage_dtype"))?;

@@ -12,6 +12,7 @@ use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::bytebool::ByteBool;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -31,7 +32,7 @@ impl FlatLayoutFixture for ByteBoolFixture {
         vec![ByteBool.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let alternating: Vec<bool> = (0..N).map(|i| i % 2 == 0).collect();
         let mostly_true: Vec<bool> = (0..N).map(|i| i % 100 != 0).collect();
         let mixed: Vec<bool> = (0..N).map(|i| (i * 7 + 3) % 5 > 1).collect();

@@ -12,6 +12,7 @@ use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -31,7 +32,7 @@ impl FlatLayoutFixture for DecimalBytePartsFixture {
         vec![DecimalByteParts.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let decimal_dtype = DecimalDType::new(10, 2);
         let values: PrimitiveArray = (0..N as i64).map(|i| i * 100 + (i % 100)).collect();
         let msp_arr = values.into_array();

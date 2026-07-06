@@ -16,6 +16,10 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
 /// A lightweight, `Copy`-able typed view into an [`ArrayRef`].
+///
+/// Vtable methods receive `ArrayView<V>` so they can inspect common array metadata and
+/// encoding-specific data without cloning or downcasting an [`ArrayRef`]. The view is only valid for
+/// the lifetime of the borrowed array.
 pub struct ArrayView<'a, V: VTable> {
     array: &'a ArrayRef,
     data: &'a V::TypedArrayData,
@@ -37,42 +41,52 @@ impl<'a, V: VTable> ArrayView<'a, V> {
         Self { array, data }
     }
 
+    /// Returns the erased array handle that owns this view.
     pub fn array(&self) -> &'a ArrayRef {
         self.array
     }
 
+    /// Returns the encoding-specific data stored by this array.
     pub fn data(&self) -> &'a V::TypedArrayData {
         self.data
     }
 
+    /// Returns this array's child slots.
     pub fn slots(&self) -> &'a [Option<ArrayRef>] {
         self.array.slots()
     }
 
+    /// Returns the logical dtype.
     pub fn dtype(&self) -> &DType {
         self.array.dtype()
     }
 
+    /// Returns the number of rows.
     pub fn len(&self) -> usize {
         self.array.len()
     }
 
+    /// Returns `true` when the array has no rows.
     pub fn is_empty(&self) -> bool {
         self.array.len() == 0
     }
 
+    /// Returns the encoding ID.
     pub fn encoding_id(&self) -> ArrayId {
         self.array.encoding_id()
     }
 
+    /// Returns the array's statistics set.
     pub fn statistics(&self) -> StatsSetRef<'_> {
         self.array.statistics()
     }
 
+    /// Returns the array's validity representation.
     pub fn validity(&self) -> VortexResult<Validity> {
         self.array.validity()
     }
 
+    /// Clone the underlying [`ArrayRef`] and return it as an owned typed handle.
     pub fn into_owned(self) -> Array<V> {
         // SAFETY: we are ourselves type checked as 'V'
         unsafe { Array::<V>::from_array_ref_unchecked(self.array.clone()) }

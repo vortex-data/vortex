@@ -38,7 +38,13 @@ jobs:
           filters: |
             cuda:
               - "vortex-cuda/**"
+              - "vortex-python/python/vortex/__init__.py"
+              - "vortex-python/pyproject.toml"
+              - "vortex-python/test/test_cuda.py"
+              - "vortex-python-cuda/**"
               - "vortex-test/**"
+              - "pyproject.toml"
+              - "uv.lock"
               - ".github/workflows/**"
 
   cuda-build-lint:
@@ -62,7 +68,7 @@ jobs:
           command: >-
             cargo build --profile ci --locked --all-features --all-targets
             -p vortex-cuda -p vortex-cuda-ffi -p vortex-cub -p vortex-nvcomp
-            -p gpu-scan-cli -p vortex-test-e2e-cuda
+            -p gpu-scan-cli -p vortex-test-e2e-cuda -p vortex-python-cuda
       - name: Clippy CUDA crates
         run: |
           cargo clippy --profile ci --locked --all-features --all-targets \
@@ -72,6 +78,7 @@ jobs:
             -p vortex-nvcomp \
             -p gpu-scan-cli \
             -p vortex-test-e2e-cuda \
+            -p vortex-python-cuda \
             -- -D warnings
 
   cuda-test:
@@ -95,6 +102,10 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
       - name: Install nextest
         uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9  # v2
         with:
@@ -112,10 +123,19 @@ jobs:
             -p vortex-cub \
             -p vortex-nvcomp \
             -p vortex-test-e2e-cuda \
+            -p vortex-python-cuda \
             --all-features \
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
             --verbose
+      - name: Python CUDA extension checks
+        env:
+          MATURIN_PEP517_ARGS: "--profile ci"
+        run: |
+          # --all-packages installs the shared dev tooling (basedpyright) from the
+          # root `dev` group; --extra cuda adds the vortex-data-cuda extension.
+          uv run --all-packages --extra cuda basedpyright vortex-python vortex-python-cuda
+          uv run --all-packages --extra cuda pytest --benchmark-disable vortex-python/test/test_cuda.py vortex-python-cuda/test
 
   cuda-test-sanitizer:
     needs: [changes]

@@ -4,8 +4,10 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use indicatif::ProgressStyle;
-
+/// Recursively collects every `.slt` file under `path`.
+///
+/// `.slt.no` include fragments are intentionally skipped; they are pulled in by
+/// `include` directives rather than run as standalone files.
 pub fn list_files(path: impl AsRef<Path>) -> anyhow::Result<Vec<PathBuf>> {
     let mut file_paths = vec![];
 
@@ -32,13 +34,4 @@ fn list_files_impl(file_paths: &mut Vec<PathBuf>, path: impl AsRef<Path>) -> any
     }
 
     Ok(())
-}
-
-#[expect(clippy::unwrap_used)]
-pub fn pb_style() -> ProgressStyle {
-    ProgressStyle::with_template(
-        "[{elapsed_precise}] {bar:50.cyan/blue} {pos:>7}/{len:7} {wide_msg}",
-    )
-    .unwrap()
-    .progress_chars("##-")
 }

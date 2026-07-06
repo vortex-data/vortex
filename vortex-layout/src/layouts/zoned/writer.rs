@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -26,9 +27,11 @@ use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::dtype::DType;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
@@ -50,18 +53,23 @@ use crate::sequence::SequentialStreamExt;
 /// possibly the final partial zone.
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
-    pub block_size: usize,
+    pub block_size: NonZeroUsize,
     /// The aggregate partials to collect for each block.
     ///
     /// If unset, the writer chooses pruning aggregates from the input dtype.
     pub aggregate_fns: Option<Arc<[AggregateFnRef]>>,
+    /// Number of chunks to compute aggregate partials in parallel.
+    pub concurrency: NonZeroUsize,
 }
 
 impl Default for ZonedLayoutOptions {
     fn default() -> Self {
         Self {
-            block_size: 8192,
+            block_size: unsafe { NonZeroUsize::new_unchecked(8192) },
             aggregate_fns: None,
+            concurrency: unsafe {
+                NonZeroUsize::new_unchecked(get_available_parallelism().unwrap_or(1))
+            },
         }
     }
 }
@@ -97,17 +105,12 @@ impl LayoutStrategy for ZonedStrategy {
         mut eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
-        vortex_ensure!(
-            self.options.block_size > 0,
-            "ZonedStrategy requires block_size > 0 when writing"
-        );
-
         let aggregate_fns = self
             .options
             .aggregate_fns
             .clone()
             .unwrap_or_else(|| default_zoned_aggregate_fns(stream.dtype()));
-        let session = session.clone();
+        let compute_session = session.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(AggregateStatsAccumulator::new(
             stream.dtype(),
@@ -115,20 +118,31 @@ impl LayoutStrategy for ZonedStrategy {
         )));
         let aggregate_fns = stats_accumulator.lock().aggregate_fns();
 
+        let stream_dtype = stream.dtype().clone();
+        let concurrency = self.options.concurrency.get();
+        let stream = stream
+            .map(move |item| {
+                let aggregate_fns = Arc::clone(&aggregate_fns);
+                let session = compute_session.clone();
+                session.handle().spawn_cpu(move || {
+                    let (sequence_id, chunk) = item?;
+                    let partials = aggregate_partials(
+                        &chunk,
+                        &aggregate_fns,
+                        &mut session.create_execution_ctx(),
+                    )?;
+                    Ok::<_, VortexError>((sequence_id, chunk, partials))
+                })
+            })
+            .buffered(concurrency);
+
         // Accumulate zone stats in stream order so the auxiliary table stays aligned with the
         // data child.
         let stats_accumulator2 = Arc::clone(&stats_accumulator);
-        let aggregate_fns2 = Arc::clone(&aggregate_fns);
-        let compute_session = session.clone();
         let stream = SequentialStreamAdapter::new(
-            stream.dtype().clone(),
+            stream_dtype,
             stream.map(move |item| {
-                let (sequence_id, chunk) = item?;
-                let partials = aggregate_partials(
-                    &chunk,
-                    &aggregate_fns2,
-                    &mut compute_session.create_execution_ctx(),
-                )?;
+                let (sequence_id, chunk, partials) = item?;
                 stats_accumulator2.lock().push_partials(partials)?;
                 Ok((sequence_id, chunk))
             }),
@@ -146,7 +160,7 @@ impl LayoutStrategy for ZonedStrategy {
                 Arc::clone(&segment_sink),
                 stream,
                 data_eof,
-                &session,
+                session,
             )
             .await?;
 
@@ -164,7 +178,7 @@ impl LayoutStrategy for ZonedStrategy {
             .sequenced(eof.split_off());
         let zones_layout = self
             .stats
-            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, &session)
+            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
             .await?;
 
         Ok(

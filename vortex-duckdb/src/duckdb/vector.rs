@@ -4,9 +4,7 @@
 use std::ffi::CStr;
 use std::ffi::c_void;
 use std::ops::Range;
-use std::ptr;
 
-use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
 use bitvec::view::BitView;
 use vortex::array::dtype::Nullability;
@@ -18,7 +16,6 @@ use vortex::error::vortex_bail;
 use vortex::mask::Mask;
 
 use crate::cpp;
-use crate::cpp::duckdb_vx_error;
 use crate::cpp::idx_t;
 use crate::duckdb::LogicalType;
 use crate::duckdb::LogicalTypeRef;
@@ -282,20 +279,6 @@ impl VectorRef {
         }
     }
 
-    pub fn try_to_string(&self, len: u64) -> VortexResult<String> {
-        let mut err: duckdb_vx_error = ptr::null_mut();
-        let debug =
-            unsafe { cpp::duckdb_vector_to_string(self.as_ptr(), len.as_u64(), &raw mut err) };
-        if !err.is_null() {
-            vortex_bail!("{}", unsafe {
-                CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()
-            })
-        }
-        let string = unsafe { CStr::from_ptr(debug).to_string_lossy() }.to_string();
-        unsafe { cpp::duckdb_free(debug.cast_mut().cast()) };
-        Ok(string)
-    }
-
     pub fn list_vector_reserve(&self, required_capacity: u64) -> VortexResult<()> {
         let state = unsafe { cpp::duckdb_list_vector_reserve(self.as_ptr(), required_capacity) };
         match state {
@@ -400,7 +383,7 @@ impl ValidityRef<'_> {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::LEGACY_SESSION;
+    use vortex::array::array_session;
     use vortex::mask::Mask;
     use vortex_array::VortexSessionExecute;
 
@@ -437,7 +420,7 @@ mod tests {
         let validity = validity.to_validity();
         assert_eq!(validity.maybe_len(), Some(len));
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(
             validity.execute_mask(len, &mut ctx).unwrap(),
             Mask::from_indices(len, vec![0, 2, 4, 5, 6, 8, 9])
@@ -457,7 +440,7 @@ mod tests {
         let validity = validity.to_validity();
         assert!(
             validity
-                .execute_is_null(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_is_null(0, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
     }
@@ -474,7 +457,7 @@ mod tests {
         let validity = validity.to_validity();
         assert!(
             validity
-                .execute_is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_is_valid(0, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
     }

@@ -15,15 +15,17 @@ use vortex_array::IntoArray;
 #[expect(deprecated)]
 use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::patches::Patches;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 const BENCH_ARGS: &[(f64, f64)] = &[
     // patches_sparsity, index_multiple

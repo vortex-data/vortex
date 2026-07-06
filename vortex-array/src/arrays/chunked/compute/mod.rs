@@ -18,6 +18,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
@@ -79,7 +81,10 @@ mod tests {
     ).unwrap())]
 
     fn test_chunked_consistency(#[case] array: ChunkedArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[rstest]
@@ -154,6 +159,9 @@ mod tests {
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
     fn test_chunked_binary_numeric(#[case] array: ChunkedArray) {
-        test_binary_numeric_array(array.into_array())
+        test_binary_numeric_array(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        )
     }
 }

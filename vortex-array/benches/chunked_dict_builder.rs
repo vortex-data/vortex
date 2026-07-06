@@ -15,6 +15,7 @@ use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 

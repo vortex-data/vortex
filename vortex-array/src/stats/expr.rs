@@ -89,6 +89,7 @@ mod tests {
     use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -105,7 +106,7 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
     #[test]
     fn stat_expr_reads_cached_sum() -> VortexResult<()> {
@@ -123,7 +124,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::primitive(6i64, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -142,7 +143,7 @@ mod tests {
             3,
         )
         .into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -177,7 +178,7 @@ mod tests {
             Validity::from_iter([true, true, false, false, false]),
         )
         .into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -203,7 +204,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::primitive(2u64, Nullability::Nullable), 4).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -222,7 +223,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -241,7 +242,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(false, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -260,7 +261,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -279,7 +280,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -298,7 +299,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -318,7 +319,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 4).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -352,7 +353,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -373,7 +374,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(false, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -394,7 +395,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -413,7 +414,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -433,7 +434,7 @@ mod tests {
 
         let expected =
             ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 3).into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -460,7 +461,11 @@ mod tests {
             .into_array();
         let expected_min =
             ConstantArray::new(Scalar::primitive(1i32, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(min_result, expected_min);
+        assert_arrays_eq!(
+            min_result,
+            expected_min,
+            &mut SESSION.create_execution_ctx()
+        );
 
         let max_result = array
             .apply(&stat(
@@ -473,7 +478,11 @@ mod tests {
             .into_array();
         let expected_max =
             ConstantArray::new(Scalar::primitive(3i32, Nullability::Nullable), 3).into_array();
-        assert_arrays_eq!(max_result, expected_max);
+        assert_arrays_eq!(
+            max_result,
+            expected_max,
+            &mut SESSION.create_execution_ctx()
+        );
 
         Ok(())
     }

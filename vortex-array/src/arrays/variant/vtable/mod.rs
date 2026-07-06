@@ -24,6 +24,7 @@ use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::VTable;
+use crate::array::with_empty_buffers;
 use crate::arrays::variant::CORE_STORAGE_SLOT;
 use crate::arrays::variant::NUM_SLOTS;
 use crate::arrays::variant::SHREDDED_SLOT;
@@ -125,6 +126,14 @@ impl VTable for Variant {
         None
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -143,7 +152,6 @@ impl VTable for Variant {
         dtype: &DType,
         len: usize,
         metadata: &[u8],
-
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,

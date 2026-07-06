@@ -82,6 +82,7 @@ impl FileStatsLayoutReader {
         )
     }
 
+    /// Returns the file-level statistics used by this reader.
     pub fn file_stats(&self) -> &FileStatistics {
         &self.file_stats
     }

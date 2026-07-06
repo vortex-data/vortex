@@ -219,6 +219,7 @@ impl LayoutReader for ZonedReader {
 
 #[cfg(test)]
 mod test {
+    use std::num::NonZeroUsize;
     use std::sync::Arc;
 
     use rstest::fixture;
@@ -226,6 +227,8 @@ mod test {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -235,6 +238,7 @@ mod test {
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
@@ -265,7 +269,7 @@ mod test {
     use crate::session::LayoutSession;
 
     fn session_with_handle(handle: Handle) -> VortexSession {
-        vortex_array::array_session()
+        array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
@@ -281,7 +285,7 @@ mod test {
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
             ZonedLayoutOptions {
-                block_size: 3,
+                block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
                 ..Default::default()
             },
         );
@@ -309,6 +313,7 @@ mod test {
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         block_on(|handle| async {
+            let mut ctx = array_session().create_execution_ctx();
             let session = session_with_handle(handle);
             let result = layout
                 .new_reader("".into(), segments, &session, &Default::default())
@@ -323,7 +328,7 @@ mod test {
                 .unwrap();
 
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
-            assert_arrays_eq!(result, expected);
+            assert_arrays_eq!(result, expected, &mut ctx);
         })
     }
 
@@ -367,7 +372,7 @@ mod test {
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
             ZonedLayoutOptions {
-                block_size: 3,
+                block_size: NonZeroUsize::new(3).vortex_expect("non zero"),
                 ..Default::default()
             },
         );
@@ -429,7 +434,7 @@ mod test {
         let zoned_layout = layout.as_::<Zoned>();
         let children =
             OwnedLayoutChildren::layout_children(vec![layout.child(0)?, layout.child(1)?]);
-        let session = vortex_array::array_session();
+        let session = array_session();
         let read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {
             session: &session,
@@ -466,34 +471,5 @@ mod test {
             assert!(result.all_true());
             Ok(())
         })
-    }
-
-    #[test]
-    fn test_writer_rejects_zero_block_size() {
-        let ctx = ArrayContext::empty();
-        let segments = Arc::new(TestSegments::default());
-        let (ptr, eof) = SequenceId::root().split();
-        let strategy = ZonedStrategy::new(
-            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-            FlatLayoutStrategy::default(),
-            ZonedLayoutOptions {
-                block_size: 0,
-                ..Default::default()
-            },
-        );
-        let array_stream = ChunkedArray::from_iter([buffer![1, 2, 3].into_array()])
-            .into_array()
-            .to_array_stream()
-            .sequenced(ptr);
-        let segments2 = Arc::<TestSegments>::clone(&segments);
-
-        let result = block_on(|handle| async move {
-            let session = session_with_handle(handle);
-            strategy
-                .write_stream(ctx, segments2, array_stream, eof, &session)
-                .await
-        });
-
-        assert!(result.is_err());
     }
 }

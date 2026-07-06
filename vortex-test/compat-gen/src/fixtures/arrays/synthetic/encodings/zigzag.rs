@@ -12,6 +12,7 @@ use vortex::array::validity::Validity;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -31,7 +32,7 @@ impl FlatLayoutFixture for ZigZagFixture {
         vec![ZigZag.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let alternating_i32: PrimitiveArray = (0..N as i32)
             .map(|i| {
                 let v = i / 2 + 1;

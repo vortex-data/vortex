@@ -8,8 +8,8 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::array_session;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListArray;
@@ -26,6 +26,7 @@ use crate::validity::Validity;
 
 #[test]
 fn test_basic_listview_comprehensive() {
+    let mut ctx = array_session().create_execution_ctx();
     // Comprehensive test for basic ListView functionality including scalar_at.
     // Logical lists: [[1,2,3], [4,5], [6,7,8,9]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
@@ -50,12 +51,13 @@ fn test_basic_listview_comprehensive() {
     // Check individual list elements.
     assert_arrays_eq!(
         listview.list_elements_at(0).unwrap(),
-        PrimitiveArray::from_iter([1i32, 2, 3])
+        PrimitiveArray::from_iter([1i32, 2, 3]),
+        &mut ctx
     );
 
     // Test scalar_at which returns entire lists as Scalar values.
     let first_scalar = listview
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+        .execute_scalar(0, &mut array_session().create_execution_ctx())
         .unwrap();
     assert_eq!(
         first_scalar,
@@ -68,17 +70,20 @@ fn test_basic_listview_comprehensive() {
 
     assert_arrays_eq!(
         listview.list_elements_at(1).unwrap(),
-        PrimitiveArray::from_iter([4i32, 5])
+        PrimitiveArray::from_iter([4i32, 5]),
+        &mut ctx
     );
 
     assert_arrays_eq!(
         listview.list_elements_at(2).unwrap(),
-        PrimitiveArray::from_iter([6i32, 7, 8, 9])
+        PrimitiveArray::from_iter([6i32, 7, 8, 9]),
+        &mut ctx
     );
 }
 
 #[test]
 fn test_out_of_order_offsets() {
+    let mut ctx = array_session().create_execution_ctx();
     // ListView-specific: Tests that offsets can be non-sequential and out-of-order.
     // Logical lists: [[7,8,9], [1,2,3], [4,5,6]]
     let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
@@ -92,13 +97,15 @@ fn test_out_of_order_offsets() {
     // First list starts at offset 6: [7, 8, 9].
     assert_arrays_eq!(
         listview.list_elements_at(0).unwrap(),
-        PrimitiveArray::from_iter([7i32, 8, 9])
+        PrimitiveArray::from_iter([7i32, 8, 9]),
+        &mut ctx
     );
 
     // Second list starts at offset 0: [1, 2, 3].
     assert_arrays_eq!(
         listview.list_elements_at(1).unwrap(),
-        PrimitiveArray::from_iter([1i32, 2, 3])
+        PrimitiveArray::from_iter([1i32, 2, 3]),
+        &mut ctx
     );
 }
 
@@ -128,7 +135,7 @@ fn test_from_list_array() -> VortexResult<()> {
     let validity = Validity::from_iter([true, false, true]);
 
     let list_array = ListArray::try_new(elements, offsets, validity)?;
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = array_session().create_execution_ctx();
     let list_view = list_view_from_list(list_array, &mut ctx)?;
 
     assert_eq!(list_view.len(), 3);
@@ -136,18 +143,20 @@ fn test_from_list_array() -> VortexResult<()> {
     // Check first list.
     assert_arrays_eq!(
         list_view.list_elements_at(0)?,
-        PrimitiveArray::from_iter([1i32, 2])
+        PrimitiveArray::from_iter([1i32, 2]),
+        &mut ctx
     );
 
     // Check validity is preserved.
-    assert!(list_view.is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())?);
-    assert!(list_view.is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())?);
-    assert!(list_view.is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())?);
+    assert!(list_view.is_valid(0, &mut array_session().create_execution_ctx())?);
+    assert!(list_view.is_invalid(1, &mut array_session().create_execution_ctx())?);
+    assert!(list_view.is_valid(2, &mut array_session().create_execution_ctx())?);
 
     // Check third list.
     assert_arrays_eq!(
         list_view.list_elements_at(2)?,
-        PrimitiveArray::from_iter([5i32, 6, 7])
+        PrimitiveArray::from_iter([5i32, 6, 7]),
+        &mut ctx
     );
     Ok(())
 }
@@ -158,6 +167,7 @@ fn test_from_list_array() -> VortexResult<()> {
 #[case::constant_offsets(false, true)] // Varying sizes, constant offsets
 #[case::both_constant(true, true)] // Both constant
 fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_offsets: bool) {
+    let mut ctx = array_session().create_execution_ctx();
     // Logical lists vary by case:
     // - constant_sizes: [[1,2,3], [4,5,6], [7,8,9]] (size 3 each, varying offsets)
     // - constant_offsets: [[1,2,3], [1,2], [1]] (all start at 0, varying sizes)
@@ -190,7 +200,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
         // All lists are identical [1, 2, 3] (overlapping).
         let expected = PrimitiveArray::from_iter([1i32, 2, 3]);
         for i in 0..3 {
-            assert_arrays_eq!(listview.list_elements_at(i).unwrap(), expected);
+            assert_arrays_eq!(listview.list_elements_at(i).unwrap(), expected, &mut ctx);
         }
     } else if const_sizes {
         // All lists have size 3, different offsets (no overlap).
@@ -203,7 +213,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(0)
                 .unwrap()
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             1i32.into()
         );
@@ -211,7 +221,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(1)
                 .unwrap()
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             1i32.into()
         );
@@ -219,7 +229,7 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
             listview
                 .list_elements_at(2)
                 .unwrap()
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             1i32.into()
         );

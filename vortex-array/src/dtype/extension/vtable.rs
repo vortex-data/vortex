@@ -15,7 +15,13 @@ use crate::scalar::ScalarValue;
 /// The public API for defining new extension types.
 ///
 /// This is the non-object-safe trait that plugin authors implement to define a new extension type.
-/// It specifies the type's identity, metadata, serialization, and validation.
+/// It specifies the type's identity, metadata, serialization, storage compatibility, and scalar
+/// compatibility.
+///
+/// An extension dtype is not a new physical array layout. It is a logical wrapper around a storage
+/// [`DType`] plus metadata. Implementations should keep [`validate_dtype`](Self::validate_dtype)
+/// strict enough that every valid storage scalar can be interpreted by
+/// [`unpack_native`](Self::unpack_native).
 pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Associated type containing the deserialized metadata for this extension type.
     type Metadata: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
@@ -37,6 +43,9 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata>;
 
     /// Validate that the given storage type is compatible with this extension type.
+    ///
+    /// This is called when constructing an [`ExtDType`] and should check both storage dtype and
+    /// extension metadata.
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
 
     /// Can a value of `other` be implicitly widened into this type? (e.g. GeographyType might

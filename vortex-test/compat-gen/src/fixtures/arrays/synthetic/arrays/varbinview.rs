@@ -4,6 +4,7 @@
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinView;
@@ -29,7 +30,7 @@ impl FlatLayoutFixture for VarBinViewFixture {
         vec![VarBinView.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let strings = VarBinViewArray::from_iter_bin(vec!["", "hello", "こんにちは", "\u{1f980}"]);
         let nullable_strings = VarBinViewArray::from_iter_nullable_str(vec![
             Some("hello"),

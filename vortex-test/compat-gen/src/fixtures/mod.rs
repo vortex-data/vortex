@@ -10,6 +10,7 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::file::WriteStrategyBuilder;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -26,7 +27,7 @@ pub trait Fixture {
     fn description(&self) -> &str;
 
     /// Generate the fixture file(s) into `dir`, returning manifest entries.
-    fn write(&self, dir: &Path) -> VortexResult<Vec<FixtureEntry>>;
+    fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>>;
 }
 
 /// A deterministic fixture that produces a single array written via flat layout (no compression).
@@ -38,7 +39,7 @@ pub trait FlatLayoutFixture {
     fn description(&self) -> &str;
 
     /// Build the expected arrays. Must be deterministic under all versions of vortex.
-    fn build(&self) -> VortexResult<ArrayRef>;
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
     /// Encoding IDs that must appear somewhere in the array tree produced by [`Self::build`].
     ///
@@ -82,10 +83,10 @@ impl Fixture for FlatLayoutAdapter {
         self.0.description()
     }
 
-    fn write(&self, dir: &Path) -> VortexResult<Vec<FixtureEntry>> {
-        let array = self.0.build()?;
+    fn write(&self, dir: &Path, ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {
+        let array = self.0.build(ctx)?;
         check_expected_encodings(&array, self.0.as_ref())?;
-        compute_all_stats(&array)?;
+        compute_all_stats(&array, ctx)?;
         let path = dir.join(self.name());
         adapter::write_file(&path, array)?;
         Ok(vec![FixtureEntry {
@@ -131,7 +132,7 @@ impl Fixture for DatasetFixtureAdapter {
         self.inner.description()
     }
 
-    fn write(&self, dir: &Path) -> VortexResult<Vec<FixtureEntry>> {
+    fn write(&self, dir: &Path, _ctx: &mut ExecutionCtx) -> VortexResult<Vec<FixtureEntry>> {
         let array = self.inner.build()?;
         let path = dir.join(self.name());
         if self.compact {

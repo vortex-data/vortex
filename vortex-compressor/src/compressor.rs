@@ -75,6 +75,9 @@ mod root_list_children {
 ///
 /// No scheme may appear twice in a cascade chain. The compressor enforces this automatically
 /// along with push/pull exclusion rules declared by each scheme.
+///
+/// Downstream crates usually wrap this type with a preconfigured scheme set. Use it directly when
+/// embedding a custom fixed scheme list or testing scheme interactions.
 #[derive(Debug, Clone)]
 pub struct CascadingCompressor {
     /// The enabled compression schemes.
@@ -580,7 +583,9 @@ impl CascadingCompressor {
             })
             .collect::<VortexResult<ArraySlots>>()?;
 
-        array.clone().with_slots(slots)
+        // SAFETY: compression rewrites each child slot to an equivalent physical representation,
+        // preserving the parent array's logical values and statistics.
+        unsafe { array.clone().with_slots(slots) }
     }
 }
 

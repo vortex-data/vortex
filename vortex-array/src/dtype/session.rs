@@ -7,6 +7,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_session::SessionExt;
+use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
@@ -68,11 +69,11 @@ impl DTypeSession {
 /// Extension trait for accessing the DType session.
 pub trait DTypeSessionExt: SessionExt {
     /// Get the DType session.
-    fn dtypes(&self) -> &DTypeSession;
+    fn dtypes(&self) -> SessionGuard<'_, DTypeSession>;
 }
 
 impl<S: SessionExt> DTypeSessionExt for S {
-    fn dtypes(&self) -> &DTypeSession {
+    fn dtypes(&self) -> SessionGuard<'_, DTypeSession> {
         self.get::<DTypeSession>()
     }
 }

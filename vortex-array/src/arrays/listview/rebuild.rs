@@ -455,12 +455,14 @@ mod tests {
         // Verify the data is correct
         assert_arrays_eq!(
             flattened.list_elements_at(0)?,
-            PrimitiveArray::from_iter([1i32, 2, 3])
+            PrimitiveArray::from_iter([1i32, 2, 3]),
+            &mut ctx
         );
 
         assert_arrays_eq!(
             flattened.list_elements_at(1)?,
-            PrimitiveArray::from_iter([2i32, 3])
+            PrimitiveArray::from_iter([2i32, 3]),
+            &mut ctx
         );
         Ok(())
     }
@@ -495,12 +497,14 @@ mod tests {
         // Verify valid lists contain correct data
         assert_arrays_eq!(
             flattened.list_elements_at(0)?,
-            PrimitiveArray::from_iter([1i32, 2])
+            PrimitiveArray::from_iter([1i32, 2]),
+            &mut ctx
         );
 
         assert_arrays_eq!(
             flattened.list_elements_at(2)?,
-            PrimitiveArray::from_iter([3i32])
+            PrimitiveArray::from_iter([3i32]),
+            &mut ctx
         );
         Ok(())
     }
@@ -536,12 +540,14 @@ mod tests {
         // Verify the data is correct.
         assert_arrays_eq!(
             trimmed.list_elements_at(0)?,
-            PrimitiveArray::from_iter([1i32, 2])
+            PrimitiveArray::from_iter([1i32, 2]),
+            &mut ctx
         );
 
         assert_arrays_eq!(
             trimmed.list_elements_at(1)?,
-            PrimitiveArray::from_iter([3i32, 4])
+            PrimitiveArray::from_iter([3i32, 4]),
+            &mut ctx
         );
 
         // Note that element at index 2 (97) is preserved as a gap.
@@ -598,12 +604,14 @@ mod tests {
         // Verify data is preserved
         assert_arrays_eq!(
             exact.list_elements_at(0)?,
-            PrimitiveArray::from_iter([1i32, 2])
+            PrimitiveArray::from_iter([1i32, 2]),
+            &mut ctx
         );
 
         assert_arrays_eq!(
             exact.list_elements_at(1)?,
-            PrimitiveArray::from_iter([3i32, 4])
+            PrimitiveArray::from_iter([3i32, 4]),
+            &mut ctx
         );
         Ok(())
     }
@@ -626,7 +634,8 @@ mod tests {
         let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements, &mut ctx)?;
         assert_arrays_eq!(
             trimmed.list_elements_at(1)?,
-            PrimitiveArray::from_iter([30i32, 40])
+            PrimitiveArray::from_iter([30i32, 40]),
+            &mut ctx
         );
         Ok(())
     }
@@ -647,7 +656,8 @@ mod tests {
         let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements, &mut ctx)?;
         assert_arrays_eq!(
             trimmed.list_elements_at(1)?,
-            PrimitiveArray::from_iter([30i32, 40])
+            PrimitiveArray::from_iter([30i32, 40]),
+            &mut ctx
         );
         Ok(())
     }
@@ -670,11 +680,13 @@ mod tests {
         // Values: [1,2,3] and [2,3].
         assert_arrays_eq!(
             rebuilt.list_elements_at(0)?,
-            PrimitiveArray::from_iter([1i32, 2, 3])
+            PrimitiveArray::from_iter([1i32, 2, 3]),
+            &mut ctx
         );
         assert_arrays_eq!(
             rebuilt.list_elements_at(1)?,
-            PrimitiveArray::from_iter([2i32, 3])
+            PrimitiveArray::from_iter([2i32, 3]),
+            &mut ctx
         );
 
         // Signed input -> signed result (offsets widened to i32, sizes kept i16).
@@ -711,7 +723,7 @@ mod tests {
         let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements, &mut ctx)?;
 
         // min(offsets) = 0, so nothing to trim; output should equal input.
-        assert_arrays_eq!(trimmed, listview);
+        assert_arrays_eq!(trimmed, listview, &mut ctx);
         Ok(())
     }
 }

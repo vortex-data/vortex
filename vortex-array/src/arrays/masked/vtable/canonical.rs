@@ -8,8 +8,8 @@ mod tests {
 
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
@@ -41,7 +41,7 @@ mod tests {
         let canonical = array
             .clone()
             .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute::<Canonical>(&mut array_session().create_execution_ctx())?;
         assert_eq!(canonical.dtype().nullability(), expected_nullability);
         assert_eq!(canonical.dtype(), array.dtype());
         Ok(())
@@ -56,17 +56,17 @@ mod tests {
 
         let canonical = array
             .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute::<Canonical>(&mut array_session().create_execution_ctx())?;
         let prim = canonical.into_primitive();
 
         // Check that null positions match validity.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(prim.valid_count(&mut ctx)?, 3);
-        assert!(prim.is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())?);
-        assert!(!prim.is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())?);
-        assert!(prim.is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())?);
-        assert!(!prim.is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())?);
-        assert!(prim.is_valid(4, &mut LEGACY_SESSION.create_execution_ctx())?);
+        assert!(prim.is_valid(0, &mut array_session().create_execution_ctx())?);
+        assert!(!prim.is_valid(1, &mut array_session().create_execution_ctx())?);
+        assert!(prim.is_valid(2, &mut array_session().create_execution_ctx())?);
+        assert!(!prim.is_valid(3, &mut array_session().create_execution_ctx())?);
+        assert!(prim.is_valid(4, &mut array_session().create_execution_ctx())?);
         Ok(())
     }
 
@@ -79,12 +79,12 @@ mod tests {
 
         let canonical = array
             .into_array()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute::<Canonical>(&mut array_session().create_execution_ctx())?;
         assert_eq!(canonical.dtype().nullability(), Nullability::Nullable);
         assert_eq!(
             canonical
                 .into_array()
-                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())?,
+                .valid_count(&mut array_session().create_execution_ctx())?,
             3
         );
         Ok(())

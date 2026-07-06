@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import importlib.metadata
+import importlib.util
 
 from . import _lib, arrays, dataset, expr, file, io, ray, registry, scan
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
@@ -100,6 +101,23 @@ except importlib.metadata.PackageNotFoundError:
     # If the distribution is not installed, keep the unknown fallback.
     pass
 
+
+def cuda_extension_installed() -> bool:
+    """Return whether the optional Vortex CUDA extension package is importable.
+
+    The base ``vortex-data`` wheel is CPU-only. Optional CUDA functionality is
+    provided by the separate ``vortex-data-cuda`` extension package. This returns
+    ``True`` when the ``vortex_cuda`` import package can be found in the current
+    environment, which is what ``vortex-data[cuda]`` installs.
+
+    This does not probe the CUDA driver or attached devices, and it does not
+    imply that any particular GPU interop API is available. After installing the
+    extension package, use ``vortex_cuda.cuda_available()`` to check whether CUDA
+    is usable at runtime.
+    """
+    return importlib.util.find_spec("vortex_cuda") is not None
+
+
 __all__ = [
     # --- Modules ---
     "arrays",
@@ -113,6 +131,7 @@ __all__ = [
     # --- Objects and Functions ---
     "array",
     "compress",
+    "cuda_extension_installed",
     # Arrays
     "Array",
     "PyArray",

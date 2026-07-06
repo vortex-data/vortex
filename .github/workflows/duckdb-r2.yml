@@ -1,0 +1,83 @@
+name: DuckDB R2 mirror
+
+# If we have an archive for a commit or a tag in R2, return it.
+# Otherwise, if it's a tag, download release archive from Duckdb Github
+# page and upload it to R2.
+# If it's a commit, build Duckdb from source and upload it to R2.
+on:
+  workflow_call: { }
+
+concurrency:
+  group: duckdb-r2-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PUBLIC_BASE_URL: "https://ci-builds.vortex.dev"
+  R2_BUCKET: "duckdb-builds"
+  R2_ENDPOINT_URL: "https://52bdeab5651e1584747feefd051fd566.r2.cloudflarestorage.com"
+
+jobs:
+  check:
+    name: "Resolve DuckDB version and check R2"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      ref_dir: ${{ steps.resolve.outputs.ref_dir }}
+      release: ${{ steps.resolve.outputs.release }}
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      any_missing: ${{ steps.resolve.outputs.any_missing }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - name: Resolve version and check R2
+        id: resolve
+        run: sh scripts/duckdb-r2-resolve.sh
+
+  mirror:
+    name: "Mirror DuckDB ${{ matrix.archive }} to R2"
+    needs: check
+    if: >-
+      needs.check.outputs.any_missing == 'true' &&
+      github.repository == 'vortex-data/vortex' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    environment: duckdb-build
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.check.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - name: Install build dependencies (Linux)
+        if: needs.check.outputs.release != 'true' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libcurl4-openssl-dev zip unzip
+
+      # MacOS already has ninja and p7zip
+
+      - name: Prepare ${{ matrix.archive }}
+        env:
+          ARCHIVE: ${{ matrix.archive }}
+          REF_DIR: ${{ needs.check.outputs.ref_dir }}
+          RELEASE: ${{ needs.check.outputs.release }}
+          PLATFORM_OS: ${{ matrix.os }}
+        run: sh scripts/duckdb-r2-prepare.sh
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.DUCKDB_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DUCKDB_R2_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: ${{ env.R2_ENDPOINT_URL }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/s3-upload.py \
+            --bucket "$R2_BUCKET" \
+            --key "${{ needs.check.outputs.ref_dir }}/${{ matrix.archive }}" \
+            --body "${{ matrix.archive }}" \
+            --checksum-algorithm CRC32

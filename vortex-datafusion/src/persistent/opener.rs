@@ -237,7 +237,7 @@ impl FileOpener for VortexOpener {
             let this_file_schema = Arc::new(calculate_physical_schema(
                 vxf.dtype(),
                 &unified_file_schema,
-                session.arrow(),
+                &session.arrow(),
             )?);
 
             let projected_physical_schema = projection.project_schema(&unified_file_schema)?;
@@ -296,7 +296,7 @@ impl FileOpener for VortexOpener {
                 Schema::new(fields)
             };
             let stream_schema =
-                calculate_physical_schema(&scan_dtype, &scan_reference_schema, session.arrow())?;
+                calculate_physical_schema(&scan_dtype, &scan_reference_schema, &session.arrow())?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;

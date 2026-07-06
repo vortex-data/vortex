@@ -246,7 +246,8 @@ fn decode_nullable_sequential(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::LEGACY_SESSION;
+    use std::sync::LazyLock;
+
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -255,12 +256,19 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::runend_decode_bools;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn decode_bools_alternating() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Alternating true/false: [T, T, F, F, F, T, T, T, T, T]
         let ends = PrimitiveArray::from_iter([2u32, 5, 10]);
         let values = BoolArray::from(BitBuffer::from(vec![true, false, true]));
@@ -269,13 +277,13 @@ mod tests {
         let expected = BoolArray::from(BitBuffer::from(vec![
             true, true, false, false, false, true, true, true, true, true,
         ]));
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn decode_bools_mostly_true() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Mostly true: [T, T, T, T, T, F, T, T, T, T]
         let ends = PrimitiveArray::from_iter([5u32, 6, 10]);
         let values = BoolArray::from(BitBuffer::from(vec![true, false, true]));
@@ -284,13 +292,13 @@ mod tests {
         let expected = BoolArray::from(BitBuffer::from(vec![
             true, true, true, true, true, false, true, true, true, true,
         ]));
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn decode_bools_mostly_false() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Mostly false: [F, F, F, F, F, T, F, F, F, F]
         let ends = PrimitiveArray::from_iter([5u32, 6, 10]);
         let values = BoolArray::from(BitBuffer::from(vec![false, true, false]));
@@ -299,13 +307,13 @@ mod tests {
         let expected = BoolArray::from(BitBuffer::from(vec![
             false, false, false, false, false, true, false, false, false, false,
         ]));
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn decode_bools_all_true_single_run() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let ends = PrimitiveArray::from_iter([10u32]);
         let values = BoolArray::from(BitBuffer::from(vec![true]));
         let decoded = runend_decode_bools(ends, values, 0, 10, &mut ctx)?;
@@ -313,13 +321,13 @@ mod tests {
         let expected = BoolArray::from(BitBuffer::from(vec![
             true, true, true, true, true, true, true, true, true, true,
         ]));
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn decode_bools_all_false_single_run() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let ends = PrimitiveArray::from_iter([10u32]);
         let values = BoolArray::from(BitBuffer::from(vec![false]));
         let decoded = runend_decode_bools(ends, values, 0, 10, &mut ctx)?;
@@ -327,13 +335,13 @@ mod tests {
         let expected = BoolArray::from(BitBuffer::from(vec![
             false, false, false, false, false, false, false, false, false, false,
         ]));
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn decode_bools_with_offset() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test with offset: [T, T, F, F, F, T, T, T, T, T] -> slice [2..8] = [F, F, F, T, T, T]
         let ends = PrimitiveArray::from_iter([2u32, 5, 10]);
         let values = BoolArray::from(BitBuffer::from(vec![true, false, true]));
@@ -341,7 +349,7 @@ mod tests {
 
         let expected =
             BoolArray::from(BitBuffer::from(vec![false, false, false, true, true, true]));
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
@@ -349,7 +357,7 @@ mod tests {
     fn decode_bools_nullable() -> VortexResult<()> {
         use vortex_array::validity::Validity;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // 3 runs: T (valid), F (null), T (valid) -> [T, T, null, null, null, T, T, T, T, T]
         let ends = PrimitiveArray::from_iter([2u32, 5, 10]);
         let values = BoolArray::new(
@@ -367,13 +375,13 @@ mod tests {
                 true, true, false, false, false, true, true, true, true, true,
             ])),
         );
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn decode_bools_nullable_few_runs() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test few runs (uses fast path): 5 runs of length 2000 each
         let ends = PrimitiveArray::from_iter([2000u32, 4000, 6000, 8000, 10000]);
         let values = BoolArray::new(

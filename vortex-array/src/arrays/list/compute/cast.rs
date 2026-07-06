@@ -71,7 +71,6 @@ mod tests {
 
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::RecursiveCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
@@ -169,7 +168,7 @@ mod tests {
         );
 
         let result = list.into_array().cast(target_dtype).and_then(|a| {
-            a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            a.execute::<RecursiveCanonical>(&mut SESSION.create_execution_ctx())
                 .map(|c| c.0.into_array())
         });
         assert!(result.is_err());

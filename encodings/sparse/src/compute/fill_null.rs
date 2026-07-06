@@ -105,6 +105,6 @@ mod tests {
             .execute::<Canonical>(&mut ctx)
             .unwrap();
 
-        assert_arrays_eq!(kernel, baseline);
+        assert_arrays_eq!(kernel, baseline, &mut ctx);
     }
 }

@@ -32,4 +32,6 @@ export default meta;
 
 type Story = StoryObj<typeof FileHeader>;
 
-export const Default: Story = {};
+export const Default: Story = {
+  args: { view: 'details', onViewChange: () => {} },
+};

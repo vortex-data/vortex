@@ -52,20 +52,30 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::Canonical;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::kernel::ExecuteParentKernel;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::RunEnd;
     use crate::RunEndArray;
     use crate::array::RunEndArrayExt;
     use crate::compute::take_from::RunEndTakeFrom;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     /// Build a DictArray whose codes are run-end encoded.
     ///
@@ -82,7 +92,7 @@ mod tests {
 
     #[test]
     fn test_execute_parent_no_offset() -> VortexResult<()> {
-        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
+        let mut ctx = SESSION.create_execution_ctx();
         let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
 
         let result = RunEndTakeFrom
@@ -91,13 +101,13 @@ mod tests {
 
         let expected = PrimitiveArray::from_iter([2i32, 2, 2, 3, 3, 2, 2]);
         let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
-        assert_arrays_eq!(canonical, expected);
+        assert_arrays_eq!(canonical, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_execute_parent_with_offset() -> VortexResult<()> {
-        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
+        let mut ctx = SESSION.create_execution_ctx();
         let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
         // Slice codes to positions 2..5 → logical codes [0, 1, 1] → values [2, 3, 3]
         let sliced_codes = unsafe {
@@ -115,13 +125,13 @@ mod tests {
 
         let expected = PrimitiveArray::from_iter([2i32, 3, 3]);
         let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
-        assert_arrays_eq!(canonical, expected);
+        assert_arrays_eq!(canonical, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_execute_parent_offset_at_run_boundary() -> VortexResult<()> {
-        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
+        let mut ctx = SESSION.create_execution_ctx();
         let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
         // Slice codes to positions 3..7 → logical codes [1, 1, 0, 0] → values [3, 3, 2, 2]
         let sliced_codes = unsafe {
@@ -139,13 +149,13 @@ mod tests {
 
         let expected = PrimitiveArray::from_iter([3i32, 3, 2, 2]);
         let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
-        assert_arrays_eq!(canonical, expected);
+        assert_arrays_eq!(canonical, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_execute_parent_single_element_offset() -> VortexResult<()> {
-        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
+        let mut ctx = SESSION.create_execution_ctx();
         let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
         // Slice to single element at position 4 → code=1 → value=3
         let sliced_codes = unsafe {
@@ -163,13 +173,13 @@ mod tests {
 
         let expected = PrimitiveArray::from_iter([3i32]);
         let canonical = result.execute::<Canonical>(&mut ctx)?.into_array();
-        assert_arrays_eq!(canonical, expected);
+        assert_arrays_eq!(canonical, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_execute_parent_returns_none_for_non_codes_child() -> VortexResult<()> {
-        let mut ctx = ExecutionCtx::new(vortex_array::array_session());
+        let mut ctx = SESSION.create_execution_ctx();
         let (codes, dict) = make_dict_with_runend_codes(&mut ctx);
 
         let result = RunEndTakeFrom.execute_parent(codes.as_view(), dict.as_view(), 1, &mut ctx)?;

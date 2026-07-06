@@ -15,7 +15,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::ListArray;
 use crate::arrays::listview::ListViewArrayExt;
@@ -30,6 +29,7 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
+use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
@@ -222,6 +222,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.append_value(scalar.as_list())
     }
 
+    #[allow(clippy::disallowed_methods)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         #[expect(deprecated)]
         let list = array.to_listview();
@@ -234,7 +235,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
             &array
                 .validity()
                 .vortex_expect("validity_mask in extend_from_array_unchecked")
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut legacy_session().create_execution_ctx())
                 .vortex_expect("Failed to compute validity mask"),
         );
 
@@ -329,9 +330,9 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArrayExt;
@@ -456,7 +457,7 @@ mod tests {
         .unwrap();
         assert_eq!(list.len(), 3);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         let mut builder = ListBuilder::<O>::with_capacity(Arc::new(I32.into()), Nullable, 18, 9);
         builder.extend_from_array(&list);
@@ -483,9 +484,9 @@ mod tests {
 
         let actual = builder.finish_into_canonical().into_listview();
 
-        assert_arrays_eq!(actual.elements(), expected.elements());
+        assert_arrays_eq!(actual.elements(), expected.elements(), &mut ctx);
 
-        assert_arrays_eq!(actual.offsets(), expected.offsets());
+        assert_arrays_eq!(actual.offsets(), expected.offsets(), &mut ctx);
 
         assert!(
             actual
@@ -544,18 +545,18 @@ mod tests {
 
         assert_eq!(
             one_trailing_unused_element
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             canon_values
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             second_array
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             canon_values
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
     }
@@ -585,7 +586,7 @@ mod tests {
         let array = builder.finish_into_list();
         assert_eq!(array.len(), 3);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         // Check actual values using scalar_at.
 
@@ -642,7 +643,7 @@ mod tests {
     #[test]
     fn test_append_array_as_list() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder =
             ListBuilder::<u32>::with_capacity(Arc::clone(&dtype), NonNullable, 20, 10);
 
@@ -681,13 +682,15 @@ mod tests {
         // Verify elements array: [1, 2, 3, 10, 11, 4, 5].
         assert_arrays_eq!(
             list.elements(),
-            PrimitiveArray::from_iter([1i32, 2, 3, 10, 11, 4, 5])
+            PrimitiveArray::from_iter([1i32, 2, 3, 10, 11, 4, 5]),
+            &mut ctx
         );
 
         // Verify offsets array.
         assert_arrays_eq!(
             list.offsets(),
-            PrimitiveArray::from_iter([0u32, 3, 5, 7, 7, 7])
+            PrimitiveArray::from_iter([0u32, 3, 5, 7, 7, 7]),
+            &mut ctx
         );
 
         // Test dtype mismatch error.

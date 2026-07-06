@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! This module defines the footer of a Vortex file, which contains metadata about the file's contents.
+//! Vortex file footer metadata.
 //!
-//! The footer includes:
-//! - The file's layout, which describes how the data is organized
-//! - Statistics about the data, which can be used for query optimization
-//! - Segment map, which describe the physical location of data in the file
+//! A footer contains the root layout, file-level statistics, the segment map, and the read contexts
+//! needed to resolve array/layout encoding ids during deserialization.
 //!
-//! The footer is located at the end of the file and is used to interpret the file's contents.
+//! The byte-level footer and postscript layout is part of the file-format spec; this module exposes
+//! the structured Rust representation and serializer/deserializer state machine.
 mod file_layout;
 mod file_statistics;
 mod postscript;
@@ -51,7 +50,7 @@ pub struct Footer {
 }
 
 impl Footer {
-    pub(crate) fn new(
+    pub fn new(
         root_layout: LayoutRef,
         segments: Arc<[SegmentSpec]>,
         statistics: Option<FileStatistics>,
@@ -84,6 +83,7 @@ impl Footer {
 
         // Create a LayoutContext from the registry.
         let layout_specs = fb_footer.layout_specs();
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let layout_ids: Arc<[_]> = layout_specs
             .iter()
             .flat_map(|e| e.iter())
@@ -93,6 +93,7 @@ impl Footer {
 
         // Create an ArrayContext from the registry.
         let array_specs = fb_footer.array_specs();
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let array_ids: Arc<[_]> = array_specs
             .iter()
             .flat_map(|e| e.iter())

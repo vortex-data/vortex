@@ -69,6 +69,20 @@ pub mod variant_path_element {
         Index(u64),
     }
 }
+/// Options for `vortex.json_to_variant`
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct JsonToVariantOpts {
+    #[prost(message, repeated, tag = "1")]
+    pub shredding: ::prost::alloc::vec::Vec<ShreddingSpecField>,
+}
+/// One (path, dtype) shredding directive for `vortex.json_to_variant`.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ShreddingSpecField {
+    #[prost(message, repeated, tag = "1")]
+    pub path: ::prost::alloc::vec::Vec<VariantPathElement>,
+    #[prost(message, optional, tag = "2")]
+    pub dtype: ::core::option::Option<super::dtype::DType>,
+}
 /// Options for `vortex.binary`
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BinaryOpts {

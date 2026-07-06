@@ -3,6 +3,15 @@
 
 //! Extension DTypes, and interfaces for working with extension types.
 //!
+//! An extension dtype gives semantic meaning to values stored in an ordinary Vortex storage dtype.
+//! For example, a timestamp extension can store an integer while carrying unit/time-zone metadata.
+//! Arrays with [`DType::Extension`](crate::dtype::DType::Extension) use
+//! [`crate::arrays::ExtensionArray`] to pair the extension dtype with the storage array.
+//!
+//! Extension dtype implementations provide an [`ExtVTable`] for identity, metadata
+//! serialization, storage dtype validation, scalar validation, and typed scalar unpacking. Register
+//! extension plugins in a session before deserializing data that may reference them.
+//!
 //! ## File layout convention
 //!
 //! Each vtable-backed concept `Foo` follows this module structure:

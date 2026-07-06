@@ -926,9 +926,9 @@ mod test {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::RecursiveCanonical;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -944,40 +944,49 @@ mod test {
                 Operator::Sub,
             )
             .and_then(|a| {
-                a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())
             })
             .map(|a| a.0.into_array())
     }
 
     #[test]
     fn test_scalar_subtract_unsigned() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = buffer![1u16, 2, 3].into_array();
         let result = sub_scalar(&values, 1u16).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u16, 1, 2]));
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u16, 1, 2]), &mut ctx);
     }
 
     #[test]
     fn test_scalar_subtract_signed() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = buffer![1i64, 2, 3].into_array();
         let result = sub_scalar(&values, -1i64).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([2i64, 3, 4]));
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([2i64, 3, 4]), &mut ctx);
     }
 
     #[test]
     fn test_scalar_subtract_nullable() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
         let result = sub_scalar(&values.into_array(), Some(1u16)).unwrap();
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)])
+            PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)]),
+            &mut ctx
         );
     }
 
     #[test]
     fn test_scalar_subtract_float() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = buffer![1.0f64, 2.0, 3.0].into_array();
         let result = sub_scalar(&values, -1f64).unwrap();
-        assert_arrays_eq!(result, PrimitiveArray::from_iter([2.0f64, 3.0, 4.0]));
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_iter([2.0f64, 3.0, 4.0]),
+            &mut ctx
+        );
     }
 
     #[test]
@@ -989,18 +998,20 @@ mod test {
 
     #[test]
     fn test_float_divide_by_zero_is_ok() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = buffer![1.0f64, -1.0].into_array();
         let result = values
             .binary(
                 ConstantArray::new(0.0f64, values.len()).into_array(),
                 Operator::Div,
             )
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()))
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()))
             .unwrap();
 
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_iter([f64::INFINITY, f64::NEG_INFINITY])
+            PrimitiveArray::from_iter([f64::INFINITY, f64::NEG_INFINITY]),
+            &mut ctx
         );
     }
 
@@ -1012,7 +1023,7 @@ mod test {
                 ConstantArray::new(1u8, values.len()).into_array(),
                 Operator::Add,
             )
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()));
 
         assert!(result.is_err());
     }
@@ -1025,7 +1036,7 @@ mod test {
                 ConstantArray::new(0i32, values.len()).into_array(),
                 Operator::Div,
             )
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()));
 
         assert!(result.is_err());
     }
@@ -1038,29 +1049,35 @@ mod test {
                 ConstantArray::new(-1i64, values.len()).into_array(),
                 Operator::Div,
             )
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()));
 
         assert!(result.is_err());
     }
 
     #[test]
     fn test_integer_divide_errors_ignore_null_lanes() {
+        let mut ctx = array_session().create_execution_ctx();
         let lhs = PrimitiveArray::new(buffer![10i32, 10], Validity::from_iter([false, true]))
             .into_array();
         let rhs = buffer![0i32, 2].into_array();
         let result = lhs
             .binary(rhs, Operator::Div)
             .and_then(|a| {
-                a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())
             })
             .map(|a| a.0.into_array())
             .unwrap();
 
-        assert_arrays_eq!(result, PrimitiveArray::from_option_iter([None, Some(5i32)]));
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([None, Some(5i32)]),
+            &mut ctx
+        );
     }
 
     #[test]
     fn test_integer_errors_ignore_null_lanes() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = PrimitiveArray::new(buffer![u8::MAX, 1], Validity::from_iter([false, true]))
             .into_array();
         let result = values
@@ -1069,12 +1086,16 @@ mod test {
                 Operator::Add,
             )
             .and_then(|a| {
-                a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                a.execute::<RecursiveCanonical>(&mut array_session().create_execution_ctx())
             })
             .map(|a| a.0.into_array())
             .unwrap();
 
-        assert_arrays_eq!(result, PrimitiveArray::from_option_iter([None, Some(2u8)]));
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([None, Some(2u8)]),
+            &mut ctx
+        );
     }
 
     #[test]
@@ -1087,25 +1108,27 @@ mod test {
         let rhs = buffer![1u8, 1, 1].into_array();
         let result = lhs
             .binary(rhs, Operator::Add)
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()));
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()));
 
         assert!(result.is_err());
     }
 
     #[test]
     fn test_present_nullable_constant_preserves_nullable_output() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = buffer![1u8, 2].into_array();
         let result = values
             .binary(
                 ConstantArray::new(Some(1u8), values.len()).into_array(),
                 Operator::Add,
             )
-            .and_then(|a| a.execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx()))
+            .and_then(|a| a.execute::<PrimitiveArray>(&mut array_session().create_execution_ctx()))
             .unwrap();
 
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(2u8), Some(3)])
+            PrimitiveArray::from_option_iter([Some(2u8), Some(3)]),
+            &mut ctx
         );
     }
 }

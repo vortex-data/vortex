@@ -225,6 +225,7 @@ mod test {
 
     use futures::io::Cursor;
     use vortex_array::IntoArray as _;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::stream::ArrayStream;
     use vortex_array::stream::ArrayStreamExt;
@@ -249,7 +250,7 @@ mod test {
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.read_all().await.unwrap();
-        assert_arrays_eq!(result, array);
+        assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
     }
 
     /// Wrapper that limits reads to small chunks to simulate network behavior
@@ -288,7 +289,7 @@ mod test {
 
         let result = reader.read_all().await.unwrap();
         let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 
     /// Test with 1-byte chunks to stress-test partial read handling.
@@ -311,6 +312,6 @@ mod test {
 
         let result = reader.read_all().await.unwrap();
         let expected = buffer![42i64, -1, 0, i64::MAX, i64::MIN].into_array();
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 }

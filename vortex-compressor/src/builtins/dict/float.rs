@@ -290,7 +290,7 @@ mod tests {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?
             .into_array();
-        assert_arrays_eq!(undict, expected);
+        assert_arrays_eq!(undict, expected, &mut ctx);
         Ok(())
     }
 }

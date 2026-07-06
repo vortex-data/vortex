@@ -18,8 +18,6 @@ use vortex::session::VortexSession;
 
 use crate::duckdb::Database;
 use crate::duckdb::DatabaseRef;
-use crate::duckdb::LogicalType;
-use crate::duckdb::Value;
 
 mod column_statistics;
 mod convert;
@@ -67,12 +65,6 @@ fn init_tracing() {
 /// Note: This also registers extension options. If you want to register options
 /// separately (e.g., before creating connections), call `register_extension_options` first.
 pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
-    db.config().add_extension_options(
-        "vortex_filesystem",
-        "Whether to use Vortex's filesystem ('vortex') or DuckDB's filesystems ('duckdb').",
-        LogicalType::varchar(),
-        Value::from("vortex"),
-    )?;
     db.register_table_functions()?;
     db.register_optimizer_extension()?;
     db.register_copy_function()

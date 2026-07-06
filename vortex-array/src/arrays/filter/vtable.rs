@@ -16,6 +16,7 @@ use vortex_session::registry::CachedId;
 use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EqMode;
@@ -26,6 +27,7 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
+use crate::array::with_empty_buffers;
 use crate::arrays::filter::FilterArrayExt;
 use crate::arrays::filter::array::CHILD_SLOT;
 use crate::arrays::filter::array::FilterData;
@@ -117,6 +119,14 @@ impl VTable for Filter {
         None
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -138,7 +148,7 @@ impl VTable for Filter {
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_bail!("Filter array is not serializable")
     }
 

@@ -24,6 +24,7 @@ use crate::LayoutReaderContext;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
 
+/// Shared handle to a stateful layout reader.
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
 /// A row range used when registering natural scan splits.
@@ -93,16 +94,16 @@ impl SplitRange {
     }
 }
 
-/// A collection of row split points
+/// A collection of root-coordinate row split points.
 pub struct RowSplits(Vec<u64>);
 
 impl RowSplits {
-    /// Add row to splits
+    /// Add a row boundary to the split set.
     pub fn push(&mut self, row: u64) {
         self.0.push(row);
     }
 
-    /// Reserve space for "additional" elements
+    /// Reserve space for additional row boundaries.
     pub fn reserve(&mut self, additional: usize) {
         self.0.reserve(additional);
     }
@@ -120,12 +121,17 @@ impl RowSplits {
     }
 }
 
-/// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
-/// evaluation operations.
+/// Stateful reader for a [`crate::Layout`].
+///
+/// A reader owns or references any state needed to evaluate many scan operations over the same
+/// layout, such as child readers, decoded metadata, or segment caches. Scan planning calls
+/// [`register_splits`](Self::register_splits); execution calls pruning, filter, and projection
+/// evaluation for each selected row range.
 pub trait LayoutReader: 'static + Send + Sync {
     /// Returns the name of the layout reader for debugging.
     fn name(&self) -> &Arc<str>;
 
+    /// Returns this reader as [`Any`] for downcasting by specialized wrappers.
     fn as_any(&self) -> &dyn Any;
 
     /// Returns the un-projected dtype of the layout reader.
@@ -134,7 +140,11 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// Returns the number of rows in the layout.
     fn row_count(&self) -> u64;
 
-    /// Register the splits of this layout reader.
+    /// Register natural split boundaries for this reader.
+    ///
+    /// `field_mask` contains the projected and filtered field paths needed by the scan.
+    /// Implementations should add root-coordinate split boundaries to `splits`, constrained to
+    /// `split_range`.
     // TODO(ngates): this is a temporary API until we make layout readers stream based.
     fn register_splits(
         &self,
@@ -186,9 +196,12 @@ pub trait LayoutReader: 'static + Send + Sync {
     ) -> VortexResult<ArrayFuture>;
 }
 
+/// Future resolving to a projected Vortex array.
 pub type ArrayFuture = BoxFuture<'static, VortexResult<ArrayRef>>;
 
+/// Helpers for futures that resolve to arrays.
 pub trait ArrayFutureExt {
+    /// Apply a row mask to the resolved array.
     fn masked(self, mask: MaskFuture) -> Self;
 }
 
@@ -202,6 +215,7 @@ impl ArrayFutureExt for ArrayFuture {
     }
 }
 
+/// Lazily constructs and caches child readers while preserving reader context.
 pub struct LazyReaderChildren {
     children: Arc<dyn LayoutChildren>,
     dtypes: Vec<DType>,
@@ -214,6 +228,9 @@ pub struct LazyReaderChildren {
 }
 
 impl LazyReaderChildren {
+    /// Create a lazy child-reader cache.
+    ///
+    /// `dtypes` and `names` must be aligned with the child indices exposed by `children`.
     pub fn new(
         children: Arc<dyn LayoutChildren>,
         dtypes: Vec<DType>,
@@ -235,6 +252,7 @@ impl LazyReaderChildren {
         }
     }
 
+    /// Return the child reader at `idx`, constructing it on first access.
     pub fn get(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
         if idx >= self.cache.len() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());

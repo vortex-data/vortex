@@ -172,6 +172,7 @@ mod test {
     use std::io::Cursor;
 
     use vortex_array::IntoArray as _;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::iter::ArrayIterator;
     use vortex_array::iter::ArrayIteratorExt;
@@ -192,7 +193,7 @@ mod test {
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.read_all()?;
-        assert_arrays_eq!(result, array);
+        assert_arrays_eq!(result, array, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }

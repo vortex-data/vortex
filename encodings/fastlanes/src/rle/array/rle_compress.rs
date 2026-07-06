@@ -153,10 +153,11 @@ fn padded_validity(array: &PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResu
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::MaskedArray;
@@ -166,13 +167,20 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::rle::array::RLEArrayExt;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn test_encode_decode() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // u8
         let array_u8: Buffer<u8> = buffer![1, 1, 2, 2, 3, 3];
         let encoded_u8 = RLEData::encode(
@@ -184,7 +192,7 @@ mod tests {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_u8 = PrimitiveArray::from_iter(vec![1u8, 1, 2, 2, 3, 3]);
-        assert_arrays_eq!(decoded_u8, expected_u8);
+        assert_arrays_eq!(decoded_u8, expected_u8, &mut ctx);
 
         // u16
         let array_u16: Buffer<u16> = buffer![100, 100, 200, 200];
@@ -197,7 +205,7 @@ mod tests {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_u16 = PrimitiveArray::from_iter(vec![100u16, 100, 200, 200]);
-        assert_arrays_eq!(decoded_u16, expected_u16);
+        assert_arrays_eq!(decoded_u16, expected_u16, &mut ctx);
 
         // u64
         let array_u64: Buffer<u64> = buffer![1000, 1000, 2000];
@@ -210,13 +218,13 @@ mod tests {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
         let expected_u64 = PrimitiveArray::from_iter(vec![1000u64, 1000, 2000]);
-        assert_arrays_eq!(decoded_u64, expected_u64);
+        assert_arrays_eq!(decoded_u64, expected_u64, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_length() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Buffer<u32> = buffer![1, 1, 2, 2, 2, 3];
         let encoded = RLEData::encode(
             PrimitiveArray::new(values, Validity::NonNullable).as_view(),
@@ -228,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_empty_length() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Buffer<u32> = Buffer::empty();
         let encoded = RLEData::encode(
             PrimitiveArray::new(values, Validity::NonNullable).as_view(),
@@ -242,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_single_value() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Buffer<u16> = vec![42; 2000].into_iter().collect();
 
         let encoded = RLEData::encode(
@@ -256,13 +264,13 @@ mod tests {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?; // Verify round-trip
         let expected = PrimitiveArray::from_iter(vec![42u16; 2000]);
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_all_different() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Buffer<u8> = (0u8..=255).collect();
 
         let encoded = RLEData::encode(
@@ -276,13 +284,13 @@ mod tests {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?; // Verify round-trip
         let expected = PrimitiveArray::from_iter((0u8..=255).collect::<Vec<_>>());
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_partial_last_chunk() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Test array with partial last chunk (not divisible by 1024)
         let values: Buffer<u32> = (0..1500).map(|i| (i / 100) as u32).collect();
         let array = PrimitiveArray::new(values, Validity::NonNullable);
@@ -290,14 +298,14 @@ mod tests {
         let encoded = RLEData::encode(array.as_view(), &mut ctx).unwrap();
 
         assert_eq!(encoded.len(), 1500);
-        assert_arrays_eq!(encoded, array);
+        assert_arrays_eq!(encoded, array, &mut ctx);
         // 2 chunks: 1024 + 476 elements
         assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
 
     #[test]
     fn test_two_full_chunks() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Array that spans exactly 2 chunks (2048 elements)
         let values: Buffer<u32> = (0..2048).map(|i| (i / 100) as u32).collect();
         let array = PrimitiveArray::new(values, Validity::NonNullable);
@@ -305,7 +313,7 @@ mod tests {
         let encoded = RLEData::encode(array.as_view(), &mut ctx).unwrap();
 
         assert_eq!(encoded.len(), 2048);
-        assert_arrays_eq!(encoded, array);
+        assert_arrays_eq!(encoded, array, &mut ctx);
         assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
 
@@ -324,7 +332,7 @@ mod tests {
     fn test_roundtrip_primitive_types<T: NativePType>(
         #[case] values: Buffer<T>,
     ) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive = values
             .clone()
             .into_array()
@@ -335,7 +343,7 @@ mod tests {
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
         let expected = PrimitiveArray::new(values, primitive.validity()?);
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(decoded, expected, &mut ctx);
         Ok(())
     }
 
@@ -366,44 +374,44 @@ mod tests {
 
     #[test]
     fn test_encode_all_null_chunk() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<Option<u32>> = vec![None; FL_CHUNK_SIZE];
         let original = PrimitiveArray::from_option_iter(values);
         let rle = RLEData::encode(original.as_view(), &mut ctx)?;
         let decoded = with_masked_constant_indices(&rle, &mut ctx)?;
-        assert_arrays_eq!(decoded, original);
+        assert_arrays_eq!(decoded, original, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_encode_all_null_chunk_then_value_chunk() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // First chunk is entirely null, second chunk has a value preceded by nulls.
         let mut values: Vec<Option<u32>> = vec![None; 2 * FL_CHUNK_SIZE];
         values[FL_CHUNK_SIZE + 100] = Some(42);
         let original = PrimitiveArray::from_option_iter(values);
         let rle = RLEData::encode(original.as_view(), &mut ctx)?;
         let decoded = with_masked_constant_indices(&rle, &mut ctx)?;
-        assert_arrays_eq!(decoded, original);
+        assert_arrays_eq!(decoded, original, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_encode_one_value_near_end() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Single distinct value near the end of the chunk.
         let mut values: Vec<Option<u32>> = vec![None; FL_CHUNK_SIZE];
         values[1000] = Some(42);
         let original = PrimitiveArray::from_option_iter(values);
         let rle = RLEData::encode(original.as_view(), &mut ctx)?;
         let decoded = with_masked_constant_indices(&rle, &mut ctx)?;
-        assert_arrays_eq!(decoded, original);
+        assert_arrays_eq!(decoded, original, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_encode_value_chunk_then_all_null_remainder() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // 1085 elements (2 chunks: 1024 + 61 padded to 1024).
         // Chunk 0 has -1i16 at scattered positions (273..=366), rest null.
         // Chunk 1 (the remainder) is entirely null.
@@ -420,7 +428,7 @@ mod tests {
         let original = PrimitiveArray::from_option_iter(values);
         let rle = RLEData::encode(original.as_view(), &mut ctx)?;
         let decoded = with_masked_constant_indices(&rle, &mut ctx)?;
-        assert_arrays_eq!(decoded, original);
+        assert_arrays_eq!(decoded, original, &mut ctx);
         Ok(())
     }
 
@@ -463,18 +471,18 @@ mod tests {
 
     #[test]
     fn test_random_invalid_indices_all_null_chunk() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<Option<u32>> = vec![None; FL_CHUNK_SIZE];
         let original = PrimitiveArray::from_option_iter(values);
         let rle = RLEData::encode(original.as_view(), &mut ctx)?;
         let clobbered = with_random_invalid_indices(&rle, &mut ctx)?;
-        assert_arrays_eq!(clobbered, original);
+        assert_arrays_eq!(clobbered, original, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_random_invalid_indices_sparse_values() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let mut values: Vec<Option<u32>> = vec![None; FL_CHUNK_SIZE];
         values[0] = Some(10);
         values[500] = Some(20);
@@ -482,13 +490,13 @@ mod tests {
         let original = PrimitiveArray::from_option_iter(values);
         let rle = RLEData::encode(original.as_view(), &mut ctx)?;
         let clobbered = with_random_invalid_indices(&rle, &mut ctx)?;
-        assert_arrays_eq!(clobbered, original);
+        assert_arrays_eq!(clobbered, original, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_random_invalid_indices_multi_chunk() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Two chunks: first has scattered values, second is all null.
         let mut values: Vec<Option<i16>> = vec![None; 2 * FL_CHUNK_SIZE];
         values[0] = Some(10);
@@ -497,13 +505,13 @@ mod tests {
         let original = PrimitiveArray::from_option_iter(values);
         let rle = RLEData::encode(original.as_view(), &mut ctx)?;
         let clobbered = with_random_invalid_indices(&rle, &mut ctx)?;
-        assert_arrays_eq!(clobbered, original);
+        assert_arrays_eq!(clobbered, original, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_random_invalid_indices_partial_last_chunk() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // 1085 elements: chunk 0 has values at scattered positions, chunk 1 is
         // a partial (61 elements padded to 1024) that is entirely null.
         let mut values: Vec<Option<u32>> = vec![None; 1085];
@@ -513,13 +521,13 @@ mod tests {
         let original = PrimitiveArray::from_option_iter(values);
         let rle = RLEData::encode(original.as_view(), &mut ctx)?;
         let clobbered = with_random_invalid_indices(&rle, &mut ctx)?;
-        assert_arrays_eq!(clobbered, original);
+        assert_arrays_eq!(clobbered, original, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_random_invalid_indices_mostly_valid() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Most positions are valid, only a few are null with garbage indices.
         let mut values: Vec<Option<u64>> =
             (0..FL_CHUNK_SIZE).map(|i| Some((i / 100) as u64)).collect();
@@ -530,7 +538,7 @@ mod tests {
         let original = PrimitiveArray::from_option_iter(values);
         let rle = RLEData::encode(original.as_view(), &mut ctx)?;
         let clobbered = with_random_invalid_indices(&rle, &mut ctx)?;
-        assert_arrays_eq!(clobbered, original);
+        assert_arrays_eq!(clobbered, original, &mut ctx);
         Ok(())
     }
 
@@ -543,11 +551,11 @@ mod tests {
     fn test_float_zeros<T: NativePType + fastlanes::RLE>(
         #[case] values: Vec<T>,
     ) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let primitive = PrimitiveArray::from_iter(values);
         let rle = RLEData::encode(primitive.as_view(), &mut ctx)?;
         let decoded = rle.as_array().clone().execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(primitive, decoded);
+        assert_arrays_eq!(primitive, decoded, &mut ctx);
         Ok(())
     }
 }

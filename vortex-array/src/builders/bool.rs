@@ -13,7 +13,6 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
@@ -25,6 +24,7 @@ use crate::canonical::Canonical;
 use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::legacy_session;
 use crate::scalar::Scalar;
 
 pub struct BoolBuilder {
@@ -127,10 +127,11 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
+    #[allow(clippy::disallowed_methods)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         #[expect(deprecated)]
         let bool_array = array.to_bool();
-        self.append_bool_array(&bool_array, &mut LEGACY_SESSION.create_execution_ctx())
+        self.append_bool_array(&bool_array, &mut legacy_session().create_execution_ctx())
             .vortex_expect("Failed to append bool array");
     }
 
@@ -161,8 +162,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ChunkedArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
@@ -199,7 +200,7 @@ mod tests {
         let chunk_count = 10;
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk
             .clone()
@@ -221,6 +222,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = BoolBuilder::with_capacity(Nullability::Nullable, 10);
 
         // Test appending true value.
@@ -237,7 +239,7 @@ mod tests {
 
         let array = builder.finish_into_bool();
         let expected = BoolArray::from_iter([Some(true), Some(false), None]);
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test wrong dtype error.
         let mut builder = BoolBuilder::with_capacity(Nullability::NonNullable, 10);

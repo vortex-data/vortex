@@ -90,20 +90,20 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::accessor::ArrayAccessor;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbinview::compute::take::PrimitiveArray;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::validity::Validity;
 
     #[test]
-    fn take_nullable() {
+    fn take_nullable() -> VortexResult<()> {
         let arr = VarBinViewArray::from_iter_nullable_str([
             Some("one"),
             None,
@@ -113,19 +113,24 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = arr.take(buffer![0, 3].into_array()).unwrap();
+        let taken = arr.take(buffer![0, 3].into_array())?;
 
         assert!(taken.dtype().is_nullable());
-        #[expect(deprecated)]
-        let result = taken.to_varbinview().with_iterator(|it| {
-            it.map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                .collect::<Vec<_>>()
-        });
+        let mut ctx = array_session().create_execution_ctx();
+        let taken = taken.execute::<VarBinViewArray>(&mut ctx)?;
+        let mask = taken.validity()?.execute_mask(taken.len(), &mut ctx)?;
+        let result = (0..taken.len())
+            .map(|i| {
+                mask.value(i)
+                    .then(|| unsafe { String::from_utf8_unchecked(taken.bytes_at(i).to_vec()) })
+            })
+            .collect::<Vec<_>>();
         assert_eq!(result, [Some("one".to_string()), Some("four".to_string())]);
+        Ok(())
     }
 
     #[test]
-    fn take_nullable_indices() {
+    fn take_nullable_indices() -> VortexResult<()> {
         let arr = VarBinViewArray::from_iter(["one", "two"].map(Some), DType::Utf8(NonNullable));
 
         let indices = PrimitiveArray::new(
@@ -134,15 +139,20 @@ mod tests {
             Validity::from(BitBuffer::from(vec![true, false])),
         );
 
-        let taken = arr.take(indices.into_array()).unwrap();
+        let taken = arr.take(indices.into_array())?;
 
         assert!(taken.dtype().is_nullable());
-        #[expect(deprecated)]
-        let result = taken.to_varbinview().with_iterator(|it| {
-            it.map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
-                .collect::<Vec<_>>()
-        });
+        let mut ctx = array_session().create_execution_ctx();
+        let taken = taken.execute::<VarBinViewArray>(&mut ctx)?;
+        let mask = taken.validity()?.execute_mask(taken.len(), &mut ctx)?;
+        let result = (0..taken.len())
+            .map(|i| {
+                mask.value(i)
+                    .then(|| unsafe { String::from_utf8_unchecked(taken.bytes_at(i).to_vec()) })
+            })
+            .collect::<Vec<_>>();
         assert_eq!(result, [Some("two".to_string()), None]);
+        Ok(())
     }
 
     #[rstest]

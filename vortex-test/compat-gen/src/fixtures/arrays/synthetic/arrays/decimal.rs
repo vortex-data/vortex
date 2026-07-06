@@ -4,6 +4,7 @@
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Decimal;
 use vortex_array::arrays::DecimalArray;
@@ -31,7 +32,7 @@ impl FlatLayoutFixture for DecimalFixture {
         vec![Decimal.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // Decimal(5,2) stored as i32: represents 123.45, -678.90, 0.01
         let dec_5_2 = DecimalArray::new(
             buffer![12345i32, -67890, 1],

@@ -222,9 +222,9 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array::IntoArray;
+    use crate::array_session;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::executor::decimal::DecimalArray;
     use crate::builders::ArrayBuilder;
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn decimal_to_arrow() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         // Make a very simple i128 and i256 array.
         let decimal_vortex = DecimalArray::new(
             buffer![1i128, 2i128, 3i128, 4i128, 5i128],
@@ -264,7 +264,7 @@ mod tests {
     fn test_to_arrow_decimal128<T: NativeDecimalType>(
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
@@ -292,7 +292,7 @@ mod tests {
     fn test_to_arrow_decimal32<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
         use arrow_array::Decimal32Array;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
@@ -320,7 +320,7 @@ mod tests {
     fn test_to_arrow_decimal64<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
         use arrow_array::Decimal64Array;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);
@@ -348,7 +348,7 @@ mod tests {
     fn test_to_arrow_decimal256<T: NativeDecimalType>(
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
         decimal.append_value(10);
         decimal.append_value(11);

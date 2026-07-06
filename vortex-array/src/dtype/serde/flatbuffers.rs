@@ -207,6 +207,7 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_ext = fb
                     .type__as_extension()
                     .ok_or_else(|| vortex_err!("failed to parse extension from flatbuffer"))?;
+                #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
                 let id =
                     ExtId::new(fb_ext.id().ok_or_else(|| {
                         vortex_err!("failed to parse extension id from flatbuffer")

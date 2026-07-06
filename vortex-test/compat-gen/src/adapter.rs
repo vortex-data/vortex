@@ -13,9 +13,7 @@ use futures::stream;
 use tokio::runtime::Runtime;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::MaskFuture;
-use vortex::array::VortexSessionExecute;
 use vortex::array::expr::root;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
@@ -23,6 +21,7 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_array::ExecutionCtx;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -40,11 +39,10 @@ fn runtime() -> VortexResult<Runtime> {
 /// The flat layout writer does not compute stats itself — it only serializes stats already
 /// cached on each array node. This function walks the entire tree and forces computation of
 /// all stats so they are present in the serialized output.
-pub fn compute_all_stats(array: &ArrayRef) -> VortexResult<()> {
+pub fn compute_all_stats(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
     let all_stats: Vec<Stat> = Stat::all().collect();
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     for node in array.depth_first_traversal() {
-        let computed = node.statistics().compute_all(&all_stats, &mut ctx)?;
+        let computed = node.statistics().compute_all(&all_stats, ctx)?;
         node.statistics().set_iter(computed.into_iter());
     }
     Ok(())

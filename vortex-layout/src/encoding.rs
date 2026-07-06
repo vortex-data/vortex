@@ -23,13 +23,25 @@ use crate::segments::SegmentId;
 
 /// A unique identifier for a layout encoding.
 pub type LayoutEncodingId = Id;
+/// Shared reference to a registered layout encoding.
 pub type LayoutEncodingRef = ArcRef<dyn LayoutEncoding>;
 
+/// Object-safe layout encoding registered in a [`LayoutSession`](crate::session::LayoutSession).
+///
+/// Encoding instances deserialize serialized layout metadata into concrete [`LayoutRef`] nodes.
+/// New in-tree encodings usually implement [`VTable`] and use [`LayoutEncodingAdapter`], while
+/// foreign encodings can provide an object-safe implementation directly.
 pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
+    /// Returns this encoding as [`Any`] for downcasting.
     fn as_any(&self) -> &dyn Any;
 
+    /// Returns the globally unique encoding id.
     fn id(&self) -> LayoutEncodingId;
 
+    /// Build a layout from serialized metadata, segment ids, and children.
+    ///
+    /// Implementations must use `build_ctx` for session-scoped plugin resolution instead of global
+    /// registries.
     fn build(
         &self,
         dtype: &DType,
@@ -41,6 +53,7 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
     ) -> VortexResult<LayoutRef>;
 }
 
+/// Object-safe adapter from a typed layout [`VTable`] to [`LayoutEncoding`].
 #[repr(transparent)]
 pub struct LayoutEncodingAdapter<V: VTable>(V::Encoding);
 

@@ -37,6 +37,11 @@ members = ["bench-orchestrator", "vortex-python", "docs"]
 [tool.uv.sources]
 bench-orchestrator = { workspace = true }
 vortex-data = { workspace = true }
+# Resolve vortex-data-cuda from its local path so the optional `cuda` extra is
+# lockable before the package is published to PyPI. A path source (not
+# `workspace = true`) keeps the CUDA extension out of the default `--all-packages`
+# set, so it is only built when the `cuda` extra is requested.
+vortex-data-cuda = { path = "vortex-python-cuda" }
 docs = { workspace = true }
 
 [tool.ruff]

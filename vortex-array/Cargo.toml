@@ -115,6 +115,10 @@ name = "cast_primitive"
 harness = false
 
 [[bench]]
+name = "cast_decimal"
+harness = false
+
+[[bench]]
 name = "search_sorted"
 harness = false
 
@@ -213,6 +217,10 @@ name = "primitive_zip"
 harness = false
 
 [[bench]]
+name = "listview_zip"
+harness = false
+
+[[bench]]
 name = "take_primitive"
 harness = false
 
@@ -230,6 +238,10 @@ harness = false
 
 [[bench]]
 name = "filter_bool"
+harness = false
+
+[[bench]]
+name = "list_length"
 harness = false
 
 [[bench]]

@@ -17,14 +17,11 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
-use vortex_array::Canonical;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -129,6 +126,14 @@ impl VTable for ALPRD {
         None
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_array::vtable::with_empty_buffers(self, array, buffers)
+    }
+
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -154,6 +159,7 @@ impl VTable for ALPRD {
         ))
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn deserialize(
         &self,
         dtype: &DType,
@@ -209,13 +215,6 @@ impl VTable for ALPRD {
                 )
             })
             .transpose()?;
-        // NOTE: `VTable::deserialize` has a fixed trait signature without `ExecutionCtx`, so we
-        // cannot plumb a ctx in here. We construct a legacy ctx locally at this trait boundary.
-        let left_parts_patches = ALPRDData::canonicalize_patches(
-            &left_parts,
-            left_parts_patches,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(
             left_parts_dictionary,
@@ -368,11 +367,8 @@ impl ALPRD {
         right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
-        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ALPRDArray> {
         let len = left_parts.len();
-        let left_parts_patches =
-            ALPRDData::canonicalize_patches(&left_parts, left_parts_patches, ctx)?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, left_parts_patches.as_ref());
         let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
         Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
@@ -400,28 +396,6 @@ impl ALPRD {
 }
 
 impl ALPRDData {
-    fn canonicalize_patches(
-        left_parts: &ArrayRef,
-        left_parts_patches: Option<Patches>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Patches>> {
-        left_parts_patches
-            .map(|patches| {
-                if !patches.values().all_valid(ctx)? {
-                    vortex_bail!("patches must be all valid: {}", patches.values());
-                }
-                // TODO(ngates): assert the DType, don't cast it.
-                // TODO(joe): assert the DType, don't cast it in the next PR.
-                let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
-                // Force execution of the lazy cast so patch values are materialized
-                // before serialization.
-                let canonical = patches.values().clone().execute::<Canonical>(ctx)?;
-                *patches.values_mut() = canonical.into_array();
-                Ok(patches)
-            })
-            .transpose()
-    }
-
     /// Build a new `ALPRDArray` from components.
     pub fn new(
         left_parts_dictionary: Buffer<u16>,
@@ -497,6 +471,7 @@ fn patches_from_slots(
     PatchesData::patches_from_slots(patches_data, len, slots, LP_PATCH_SLOTS)
 }
 
+#[allow(clippy::disallowed_methods)]
 fn validate_parts(
     dtype: &DType,
     len: usize,
@@ -548,18 +523,16 @@ fn validate_parts(
             "patches array_len {} != outer len {len}",
             patches.array_len(),
         );
+        // Left-parts exceptions are always all-valid and are stored as the non-nullable left-parts
+        // dtype. Requiring that exact dtype (rather than ignoring nullability) means each
+        // construction path must produce correct patches, removing the need to normalize them.
+        // Non-nullable also implies all-valid, so no separate validity check is required.
+        let expected = left_parts.dtype().as_nonnullable();
         vortex_ensure!(
-            patches.dtype().eq_ignore_nullability(left_parts.dtype()),
-            "patches dtype {} does not match left_parts dtype {}",
+            patches.dtype() == &expected,
+            "patches dtype {} must be the non-nullable left_parts dtype {}",
             patches.dtype(),
-            left_parts.dtype(),
-        );
-        vortex_ensure!(
-            patches
-                .values()
-                .all_valid(&mut LEGACY_SESSION.create_execution_ctx())?,
-            "patches must be all valid: {}",
-            patches.values()
+            expected,
         );
     }
 
@@ -621,19 +594,27 @@ impl ValidityChild<ALPRD> for ALPRD {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use prost::Message;
     use rstest::rstest;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
+    use vortex_session::VortexSession;
 
     use super::ALPRDMetadata;
     use crate::ALPRDFloat;
     use crate::alp_rd;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]
@@ -642,7 +623,7 @@ mod test {
         #[case] reals: Vec<T>,
         #[case] seed: T,
     ) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         assert_eq!(reals.len(), 1024, "test expects 1024-length fixture");
         // Null out some of the values.
         let mut reals: Vec<Option<T>> = reals.into_iter().map(Some).collect();
@@ -656,7 +637,7 @@ mod test {
         // Pick a seed that we know will trigger lots of patches.
         let encoder: alp_rd::RDEncoder = alp_rd::RDEncoder::new(&[seed.powi(-2)]);
 
-        let rd_array = encoder.encode(real_array.as_view(), &mut ctx);
+        let rd_array = encoder.encode(real_array.as_view());
 
         let decoded = rd_array
             .as_array()
@@ -664,7 +645,7 @@ mod test {
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();
 
-        assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
+        assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals), &mut ctx);
     }
 
     #[cfg_attr(miri, ignore)]

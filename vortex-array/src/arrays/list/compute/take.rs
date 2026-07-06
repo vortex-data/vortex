@@ -212,10 +212,10 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
@@ -258,12 +258,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -274,18 +274,18 @@ mod test {
 
         assert!(
             result
-                .is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_invalid(1, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
 
         assert!(
             result
-                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(2, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -296,12 +296,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(3, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(3, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::Nullable)
         );
@@ -361,12 +361,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(0, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -377,12 +377,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(1, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(1, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::list(
                 Arc::clone(&element_dtype),
@@ -393,12 +393,12 @@ mod test {
 
         assert!(
             result
-                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(2, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert_eq!(
             result
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_scalar(2, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)
         );
@@ -488,12 +488,12 @@ mod test {
         assert_eq!(result_view.len(), 2);
         assert!(
             result_view
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert!(
             result_view
-                .is_valid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(1, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
     }
@@ -518,17 +518,17 @@ mod test {
         assert_eq!(result_view.len(), 3);
         assert!(
             result_view
-                .is_valid(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(0, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert!(
             result_view
-                .is_invalid(1, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_invalid(1, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
         assert!(
             result_view
-                .is_valid(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .is_valid(2, &mut array_session().create_execution_ctx())
                 .unwrap()
         );
     }

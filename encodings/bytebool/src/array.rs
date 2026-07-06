@@ -94,6 +94,23 @@ impl VTable for ByteBool {
         }
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_ensure!(
+            buffers.len() == 1,
+            "Expected 1 buffer, got {}",
+            buffers.len()
+        );
+        let data = ByteBoolData::new(buffers[0].clone());
+        Ok(
+            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                .with_slots(array.slots().iter().cloned().collect()),
+        )
+    }
+
     fn serialize(
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -304,9 +321,10 @@ impl OperationsVTable<ByteBool> for ByteBool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::SerializeOptions;
@@ -317,6 +335,12 @@ mod tests {
 
     use super::*;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn test_validity_construction() {
         let v = vec![true, false];
@@ -325,7 +349,7 @@ mod tests {
         let arr = ByteBool::from_vec(v, Validity::AllValid);
         assert_eq!(v_len, arr.len());
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         for idx in 0..arr.len() {
             assert!(arr.is_valid(idx, &mut ctx).unwrap());
         }
@@ -374,6 +398,6 @@ mod tests {
             .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
             .unwrap();
 
-        assert_arrays_eq!(decoded, array);
+        assert_arrays_eq!(decoded, array, &mut SESSION.create_execution_ctx());
     }
 }

@@ -34,7 +34,7 @@ This starts a dev server at http://localhost:6006.
 ## Scripts
 
 | Command                   | Description                                |
-|---------------------------|--------------------------------------------|
+| ------------------------- | ------------------------------------------ |
 | `npm run dev`             | Build WASM (debug) + start Vite dev server |
 | `npm run build`           | Production build (WASM release + Vite)     |
 | `npm run storybook`       | Start Storybook dev server on port 6006    |
@@ -49,18 +49,18 @@ This starts a dev server at http://localhost:6006.
 Add story files alongside your components as `*.stories.tsx`:
 
 ```tsx
-import type {Meta, StoryObj} from '@storybook/react-vite';
-import {MyComponent} from './MyComponent';
+import type { Meta, StoryObj } from '@storybook/react-vite';
+import { MyComponent } from './MyComponent';
 
 const meta: Meta<typeof MyComponent> = {
-    component: MyComponent,
+  component: MyComponent,
 };
 export default meta;
 
 type Story = StoryObj<typeof MyComponent>;
 
 export const Default: Story = {
-    args: {},
+  args: {},
 };
 ```
 

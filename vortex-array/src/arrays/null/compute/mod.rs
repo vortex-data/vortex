@@ -15,10 +15,10 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     #[expect(deprecated)]
     use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::NullArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
@@ -38,7 +38,10 @@ mod test {
             sliced_arr
                 .validity()
                 .unwrap()
-                .execute_mask(sliced_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(
+                    sliced_arr.len(),
+                    &mut array_session().create_execution_ctx()
+                )
                 .unwrap(),
             Mask::AllFalse(4)
         ));
@@ -59,7 +62,7 @@ mod test {
             taken_arr
                 .validity()
                 .unwrap()
-                .execute_mask(taken_arr.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(taken_arr.len(), &mut array_session().create_execution_ctx())
                 .unwrap(),
             Mask::AllFalse(5)
         ));
@@ -70,7 +73,7 @@ mod test {
         let nulls = NullArray::new(10);
 
         let scalar = nulls
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);
@@ -104,6 +107,9 @@ mod test {
     #[case::null_array_large(NullArray::new(1000))]
     #[case::null_array_empty(NullArray::new(0))]
     fn test_null_consistency(#[case] array: NullArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

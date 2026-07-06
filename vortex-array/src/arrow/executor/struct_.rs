@@ -208,9 +208,9 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array;
+    use crate::array_session;
     use crate::arrays;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn struct_nullable_non_null_to_arrow() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     fn struct_nullable_with_nulls_to_arrow() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let xs =
             PrimitiveArray::from_option_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
 
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn struct_to_arrow_with_schema_mismatch() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_to_arrow() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = StructArray::from_fields(
             vec![
                 (
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn to_arrow_with_non_nullable_fields() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = StructArray::from_fields(
             vec![
                 (

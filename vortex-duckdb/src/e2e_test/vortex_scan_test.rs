@@ -19,8 +19,8 @@ use jiff::tz::TimeZone;
 use num_traits::AsPrimitive;
 use tempfile::NamedTempFile;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
+use vortex::array::array_session;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
@@ -34,6 +34,7 @@ use vortex::array::validity::Validity;
 use vortex::buffer::buffer;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::encodings::fastlanes::RLEData;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::scalar::PValue;
@@ -778,7 +779,7 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     // 4. Run-End
     let run_ends = buffer![3u32, 5];
     let run_values = buffer![100i32, 200];
-    let mut rle_ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut rle_ctx = array_session().create_execution_ctx();
     let rle_array =
         RunEnd::try_new(run_ends.into_array(), run_values.into_array(), &mut rle_ctx).unwrap();
 
@@ -949,6 +950,27 @@ fn test_vortex_encodings_roundtrip() {
     assert_eq!(fixed_child_values, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 }
 
+// Spatial extension is not bundled with duckdb. If we're building from a
+// commit, don't run this test, since bundling spatial requires openssl-dev
+// which is an issue on macos runners.
+#[cfg_attr(
+    not(duckdb_release),
+    ignore = "spatial extension requires a release DuckDB build"
+)]
+#[test]
+fn test_fastlanes_rle_roundtrip() {
+    let expected: Vec<i32> = (0i32..2048).map(|i| i / 256).collect();
+    let file = RUNTIME.block_on(async {
+        let mut ctx = SESSION.create_execution_ctx();
+        let primitive = PrimitiveArray::from_iter(expected.clone());
+        let rle = RLEData::encode(primitive.as_view(), &mut ctx).unwrap();
+        write_single_column_vortex_file("rle_col", rle.into_array()).await
+    });
+
+    let values: Vec<i32> = scan_vortex_file::<i32, _>(file, "SELECT rle_col FROM ?", 0).unwrap();
+    assert_eq!(values, expected);
+}
+
 #[test]
 fn test_geometry() {
     let file = RUNTIME.block_on(async {
@@ -991,4 +1013,102 @@ fn test_geometry() {
     let vec = chunk.get_vector(0);
     let area = vec.as_slice_with_len::<f64>(chunk.len().as_())[0];
     assert_eq!(area, 1000.0);
+}
+
+/// `SELECT array_length(list)` / `len(list)` / `length(list)` should push the list-length
+/// computation into the Vortex scan (computed from offsets, without materializing the list
+/// elements) and return the per-row element counts.
+#[test]
+fn test_vortex_scan_list_length_projection() {
+    let file = RUNTIME.block_on(async {
+        let integers = PrimitiveArray::from_iter([
+            10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
+        ]);
+        // Variable-length lists with 3, 4, 1, 5, 2 elements respectively.
+        let offsets = buffer![0i32, 3, 7, 8, 13, 15];
+        let list_array = ListArray::try_new(
+            integers.into_array(),
+            offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        write_single_column_vortex_file("int_list", list_array).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+
+    // `len`/`length` bind to the same DuckDB function set as `array_length` for list arguments.
+    for func in ["array_length", "len", "length"] {
+        let result = conn
+            .query(&format!("SELECT {func}(int_list) FROM '{file_path}'"))
+            .unwrap();
+
+        let mut lengths = Vec::new();
+        for chunk in result {
+            let len = chunk.len().as_();
+            let vec = chunk.get_vector(0);
+            lengths.extend_from_slice(vec.as_slice_with_len::<i64>(len));
+        }
+
+        assert_eq!(lengths, vec![3, 4, 1, 5, 2], "{func}(int_list) mismatch");
+    }
+}
+
+/// `WHERE array_length(list) >= k` should push down as a complex filter.
+#[test]
+fn test_vortex_scan_list_length_filter() {
+    let file = RUNTIME.block_on(async {
+        let integers = PrimitiveArray::from_iter([
+            10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150,
+        ]);
+        // Variable-length lists with 3, 4, 1, 5, 2 elements respectively.
+        let offsets = buffer![0i32, 3, 7, 8, 13, 15];
+        let list_array = ListArray::try_new(
+            integers.into_array(),
+            offsets.into_array(),
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        write_single_column_vortex_file("int_list", list_array).await
+    });
+
+    // Lists with length >= 4: the 4-element and 5-element lists => 2 rows.
+    let count = scan_vortex_file_single_row::<i64, i64>(
+        file,
+        "SELECT COUNT(*) FROM ? WHERE array_length(int_list) >= 4",
+        0,
+    );
+    assert_eq!(count, 2);
+}
+
+/// `array_length`/`len`/`length` over a FixedSizeList column. The length is the fixed list size.
+#[test]
+fn test_vortex_scan_fixed_size_list_length_projection() {
+    let file = RUNTIME.block_on(async {
+        // 6 fixed-size lists of 4 i32 elements each.
+        let elements = (0..24i32).collect::<PrimitiveArray>();
+        let fsl = FixedSizeListArray::new(elements.into_array(), 4, Validity::AllValid, 6);
+        write_single_column_vortex_file("int_lists", fsl).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+
+    for func in ["array_length", "len", "length"] {
+        let result = conn
+            .query(&format!("SELECT {func}(int_lists) FROM '{file_path}'"))
+            .unwrap();
+
+        let mut lengths = Vec::new();
+        for chunk in result {
+            let len = chunk.len().as_();
+            let vec = chunk.get_vector(0);
+            lengths.extend_from_slice(vec.as_slice_with_len::<i64>(len));
+        }
+
+        assert_eq!(lengths, vec![4i64; 6], "{func}(int_lists) mismatch");
+    }
 }

@@ -36,7 +36,9 @@ members = [
     "vortex-ffi",
     "fuzz",
     "vortex-jni",
+    "vortex-python-abi",
     "vortex-python",
+    "vortex-python-cuda",
     "vortex-tui",
     "vortex-web/crate",
     "vortex-sqllogictest",
@@ -125,7 +127,7 @@ cc = "1.2"
 cfg-if = "1.0.1"
 chrono = "0.4.44"
 clap = "4.5"
-criterion = "0.8"
+criterion = { package = "codspeed-criterion-compat-walltime", version = "5.0.0" }
 crossterm = "0.29"
 cudarc = { version = "0.19.0", features = [
     # The NSight Compute version available on lambda.ai hosts does not inject a symbol for
@@ -143,6 +145,7 @@ datafusion-datasource = { version = "54", default-features = false }
 datafusion-execution = { version = "54" }
 datafusion-expr = { version = "54" }
 datafusion-functions = { version = "54" }
+datafusion-functions-nested = { version = "54" }
 datafusion-physical-expr = { version = "54" }
 datafusion-physical-expr-adapter = { version = "54" }
 datafusion-physical-expr-common = { version = "54" }
@@ -150,7 +153,7 @@ datafusion-physical-plan = { version = "54" }
 datafusion-pruning = { version = "54" }
 datafusion-sqllogictest = { version = "54" }
 dirs = "6.0.0"
-divan = { package = "codspeed-divan-compat", version = "4.0.4" }
+divan = { package = "codspeed-divan-compat", version = "5.0.0" }
 enum-iterator = "2.0.0"
 env_logger = "0.11"
 fastlanes = "0.5.1"
@@ -162,6 +165,7 @@ geo = "0.31.0"
 geo-traits = "0.3.0"
 geo-types = "0.7.19"
 geoarrow = "0.8.0"
+geoarrow-cast = "0.8.0"
 get_dir = "0.5.0"
 glob = "0.3.2"
 goldenfile = "1"
@@ -241,6 +245,14 @@ similar = "3.0.0"
 sketches-ddsketch = "0.4.0"
 smallvec = "1.15.1"
 smol = "2.0.2"
+spatialbench = "0.2"
+spatialbench-arrow = "0.2"
+# spatialbench still pins arrow 56, two majors behind the workspace arrow. Until upstream
+# catches up, write its generated batches with a matching parquet instead of converting
+# arrow versions at the boundary.
+spatialbench-parquet = { package = "parquet", version = "56", features = [
+    "async",
+] }
 static_assertions = "1.1"
 strum = "0.28"
 syn = { version = "2.0.117", features = ["full"] }

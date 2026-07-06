@@ -26,7 +26,16 @@ const mockFileState: VortexFileState = {
 
 const meta: Meta<typeof DetailPanel> = {
   component: DetailPanel,
-  decorators: [withMockFileContext(mockFileState), withMockSelection(layout)],
+  decorators: [
+    withMockFileContext(mockFileState),
+    withMockSelection(layout),
+    // DetailPanel fills its parent's height; give it a bounded flex container.
+    (Story) => (
+      <div className="flex" style={{ height: 520 }}>
+        <Story />
+      </div>
+    ),
+  ],
   parameters: {
     layout: 'padded',
   },
@@ -35,4 +44,5 @@ export default meta;
 
 type Story = StoryObj<typeof DetailPanel>;
 
+/** No node selected — the panel shows its empty state. */
 export const NoSelection: Story = {};

@@ -14,7 +14,6 @@ def _int64_pylist(array: vx.Array) -> list[int | None]:
 
 
 def test_global_session_array_execution() -> None:
-
     array = vx.array([1, 2, 3])
 
     assert array.scalar_at(1).as_py() == 2

@@ -16,7 +16,6 @@ use vortex_bench::Format;
 use vortex_bench::IdempotentPath;
 use vortex_bench::generate_duckdb_registration_sql;
 use vortex_bench::runner::BenchmarkQueryResult;
-use vortex_duckdb::duckdb::Config;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
 use vortex_duckdb::duckdb::QueryResult;
@@ -27,6 +26,8 @@ pub struct DuckClient {
     connection: Option<Connection>,
     pub db_path: PathBuf,
     pub threads: Option<usize>,
+    /// `INSTALL spatial; LOAD spatial;` for SpatialBench.
+    init_sql: Vec<String>,
 }
 
 impl DuckClient {
@@ -68,37 +69,43 @@ impl DuckClient {
             connection: Some(connection),
             db_path,
             threads,
+            init_sql: Vec::new(),
         })
+    }
+
+    /// Run `statements` now and after every subsequent [`DuckClient::reopen`].
+    pub fn set_init_sql(&mut self, statements: Vec<String>) -> Result<()> {
+        for stmt in &statements {
+            self.connection().query(stmt)?;
+        }
+        // After `LOAD spatial`, shadow `ST_DWithin` so radius filters push. No-op without it.
+        self.db
+            .as_ref()
+            .vortex_expect("DuckClient database accessed after close")
+            .register_st_dwithin_override()?;
+        self.init_sql = statements;
+        Ok(())
     }
 
     pub fn open_and_setup_database(
         path: Option<PathBuf>,
         threads: Option<usize>,
     ) -> Result<(Database, Connection)> {
-        let mut config = Config::new().vortex_expect("failed to create duckdb config");
-
-        // Set DuckDB thread count if specified
-        if let Some(thread_count) = threads {
-            config.set("threads", &format!("{}", thread_count))?;
-        }
-
         let db = match path {
-            Some(path) => Database::open_with_config(path, config),
-            None => Database::open_in_memory_with_config(config),
+            Some(path) => Database::open(path),
+            None => Database::open_in_memory(),
         }?;
 
         let connection = db.connect()?;
         vortex_duckdb::initialize(&db)?;
 
-        // Enable Parquet metadata cache for all benchmark runs.
-        //
+        if let Some(thread_count) = threads {
+            connection.query(&format!("SET threads = {thread_count}"))?;
+        }
+
         // `parquet_metadata_cache` is an extension-specific option that's
         // only available after the Parquet extension is loaded. The Parquet
         // extension is loaded after the connection is established.
-        //
-        // Passing the option to `open_with_config` before leads to
-        // "Invalid Input Error: The following options were not recognized:
-        // parquet_metadata_cache" when running DuckDB in debug mode.
         connection.query("SET parquet_metadata_cache = true")?;
 
         Ok((db, connection))
@@ -118,6 +125,19 @@ impl DuckClient {
         self.db = Some(db);
         self.connection = Some(connection);
 
+        // Replay init SQL (e.g. LOAD spatial).
+        for stmt in &self.init_sql {
+            self.connection
+                .as_ref()
+                .vortex_expect("connection just opened")
+                .query(stmt)?;
+        }
+        // Re-shadow `ST_DWithin` against the fresh instance.
+        self.db
+            .as_ref()
+            .vortex_expect("database just opened")
+            .register_st_dwithin_override()?;
+
         Ok(())
     }
 
@@ -133,6 +153,7 @@ impl DuckClient {
             connection: Some(connection),
             db_path,
             threads: None,
+            init_sql: Vec::new(),
         })
     }
 
@@ -158,7 +179,10 @@ impl DuckClient {
         file_format: Format,
     ) -> Result<()> {
         let object_type = match file_format {
-            Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => "VIEW",
+            Format::Parquet
+            | Format::OnDiskVortex
+            | Format::VortexCompact
+            | Format::VortexNative => "VIEW",
             Format::OnDiskDuckDB => "TABLE",
             Format::Lance => {
                 anyhow::bail!(

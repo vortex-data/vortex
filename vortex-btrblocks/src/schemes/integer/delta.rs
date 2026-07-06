@@ -43,7 +43,7 @@ pub struct DeltaScheme {
 }
 
 impl DeltaScheme {
-    /// Creates a Delta scheme requiring `min_ratio` (after the [`DELTA_PENALTY`]) before it wins.
+    /// Creates a Delta scheme requiring `min_ratio` after the delta penalty before it wins.
     ///
     /// Pass a higher ratio to make Delta more conservative, or a lower one to select it more
     /// eagerly. [`DeltaScheme::default`] uses a ratio of `1.25`.

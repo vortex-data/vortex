@@ -5,8 +5,6 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -21,6 +19,7 @@ use vortex::array::scalar::DecimalValue;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -40,7 +39,7 @@ impl FlatLayoutFixture for ConstantFixture {
         vec![Constant.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let const_i32 = ConstantArray::new(42i32, N);
         let const_f64 = ConstantArray::new(99.99f64, N);
         let const_bool = ConstantArray::new(true, N);
@@ -78,7 +77,7 @@ impl FlatLayoutFixture for ConstantFixture {
             Some("UTC".into()),
         )
         .into_array()
-        .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
+        .execute_scalar(0, ctx)?;
         let const_timestamp = ConstantArray::new(timestamp_scalar, N);
 
         let arr = StructArray::try_new(

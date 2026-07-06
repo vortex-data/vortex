@@ -180,8 +180,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
@@ -202,18 +202,20 @@ mod tests {
         #[case] array: ArrayRef,
         #[case] expected_lens: Vec<u64>,
     ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let result = array.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(expected_lens);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
     #[test]
     fn test_varbinview_byte_length() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let array = VarBinViewArray::from_iter_str(["short", "a longer string here"]).into_array();
         let result = array.apply(&byte_length(root()))?;
         let expected = PrimitiveArray::from_iter(vec![5u64, 20]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }
 
@@ -223,16 +225,16 @@ mod tests {
             .into_array();
         let result = array.apply(&byte_length(root()))?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert!(result.is_valid(0, &mut ctx)?);
         assert!(!result.is_valid(1, &mut ctx)?);
         assert!(result.is_valid(2, &mut ctx)?);
         assert_eq!(
-            result.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            result.execute_scalar(0, &mut array_session().create_execution_ctx())?,
             Scalar::primitive(5u64, Nullability::Nullable),
         );
         assert_eq!(
-            result.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
+            result.execute_scalar(2, &mut array_session().create_execution_ctx())?,
             Scalar::primitive(18u64, Nullability::Nullable),
         );
         Ok(())
@@ -243,7 +245,7 @@ mod tests {
         let null_scalar = Scalar::null(DType::Utf8(Nullability::Nullable));
         let array = ConstantArray::new(null_scalar, 2).into_array();
         let result = array.apply(&byte_length(root()))?;
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert!(!result.is_valid(0, &mut ctx)?);
         assert!(!result.is_valid(1, &mut ctx)?);
         Ok(())

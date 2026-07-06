@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayParts;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -95,6 +96,24 @@ impl VTable for Decimal {
         }
     }
 
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_ensure!(
+            buffers.len() == 1,
+            "Expected 1 buffer, got {}",
+            buffers.len()
+        );
+        let mut data = array.data().clone();
+        data.values = buffers[0].clone();
+        Ok(
+            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                .with_slots(array.slots().iter().cloned().collect()),
+        )
+    }
+
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
@@ -147,7 +166,7 @@ impl VTable for Decimal {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = DecimalMetadata::decode(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -177,7 +196,7 @@ impl VTable for Decimal {
             );
             DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype)
         })?;
-        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -208,7 +227,8 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
@@ -219,6 +239,7 @@ mod tests {
 
     #[test]
     fn test_array_serde() {
+        let session = array_session();
         let array = DecimalArray::new(
             buffer![100i128, 200i128, 300i128, 400i128, 500i128],
             DecimalDType::new(10, 2),
@@ -226,10 +247,10 @@ mod tests {
         );
         let dtype = array.dtype().clone();
 
-        let ctx = ArrayContext::empty();
+        let array_ctx = ArrayContext::empty();
         let out = array
             .into_array()
-            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .serialize(&array_ctx, &session, &SerializeOptions::default())
             .unwrap();
         // Concat into a single buffer
         let mut concat = ByteBufferMut::empty();
@@ -241,13 +262,15 @@ mod tests {
 
         let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
-            .decode(&dtype, 5, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION)
+            .decode(&dtype, 5, &ReadContext::new(array_ctx.to_ids()), &session)
             .unwrap();
         assert!(decoded.is::<Decimal>());
     }
 
     #[test]
     fn test_nullable_decimal_serde_roundtrip() {
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
         let array = DecimalArray::new(
             buffer![1234567i32, 0i32, -9999999i32],
             DecimalDType::new(7, 3),
@@ -256,11 +279,11 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let ctx = ArrayContext::empty();
+        let array_ctx = ArrayContext::empty();
         let out = array
             .clone()
             .into_array()
-            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .serialize(&array_ctx, &session, &SerializeOptions::default())
             .unwrap();
         let mut concat = ByteBufferMut::empty();
         for buf in out {
@@ -269,14 +292,9 @@ mod tests {
 
         let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
-            .decode(
-                &dtype,
-                len,
-                &ReadContext::new(ctx.to_ids()),
-                &LEGACY_SESSION,
-            )
+            .decode(&dtype, len, &ReadContext::new(array_ctx.to_ids()), &session)
             .unwrap();
 
-        assert_arrays_eq!(decoded, array);
+        assert_arrays_eq!(decoded, array, &mut ctx);
     }
 }

@@ -14,6 +14,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::DecimalArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DecimalDType;
@@ -53,6 +55,9 @@ mod tests {
         Validity::NonNullable,
     ))]
     fn test_decimal_consistency(#[case] array: DecimalArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

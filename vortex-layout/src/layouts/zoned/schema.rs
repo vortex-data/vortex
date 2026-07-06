@@ -44,6 +44,7 @@ impl AggregateSpecProto {
     }
 
     pub(crate) fn to_aggregate_fn(&self, session: &VortexSession) -> VortexResult<AggregateFnRef> {
+        #[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
         let aggregate_fn_id = AggregateFnId::new(self.id.as_str());
         let Some(plugin) = session.aggregate_fns().find_plugin(&aggregate_fn_id) else {
             vortex_bail!("unknown aggregate function id: {}", self.id);

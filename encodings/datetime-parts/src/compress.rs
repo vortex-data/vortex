@@ -62,8 +62,8 @@ pub fn split_temporal(array: TemporalArray, ctx: &mut ExecutionCtx) -> VortexRes
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::extension::datetime::TimeUnit;
@@ -80,7 +80,7 @@ mod tests {
     #[case(Validity::AllInvalid)]
     #[case(Validity::from_iter([true, false, true]))]
     fn test_split_temporal(#[case] validity: Validity) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let milliseconds = PrimitiveArray::new(
             buffer![
                 86_400i64,            // element with only day component

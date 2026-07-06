@@ -27,16 +27,25 @@ use crate::display::display_tree_with_segment_sizes;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
-/// A unique identifier for a layout.
+/// A unique identifier for a layout encoding.
 pub type LayoutId = Id;
 
+/// Shared, erased handle to a layout tree node.
 pub type LayoutRef = Arc<dyn Layout>;
 
+/// Erased layout tree node.
+///
+/// A layout is immutable metadata describing how row data is organized into child layouts and
+/// physical byte segments. It is self-describing only when paired with the session registries used
+/// to deserialize its encoding ids and the segment source used to read bytes.
 pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
+    /// Returns this layout as [`Any`] for downcasting through the `dyn Layout` helpers.
     fn as_any(&self) -> &dyn Any;
 
+    /// Converts an owned layout reference into erased [`Any`] for `Arc` downcasting.
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 
+    /// Clone this layout as an erased [`LayoutRef`].
     fn to_layout(&self) -> LayoutRef;
 
     /// Returns the [`crate::LayoutEncoding`] for this layout.
@@ -45,23 +54,26 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     /// The number of rows in this layout.
     fn row_count(&self) -> u64;
 
-    /// The dtype of this layout when projected with the root scope.
+    /// The logical dtype of this layout when evaluated at the root scope.
     fn dtype(&self) -> &DType;
 
     /// The number of children in this layout.
     fn nchildren(&self) -> usize;
 
     /// Get the child at the given index.
+    ///
+    /// Child ordering and meaning are encoding-specific and described by
+    /// [`child_type`](Self::child_type).
     fn child(&self, idx: usize) -> VortexResult<LayoutRef>;
 
     /// Get the relative row offset of the child at the given index, returning `None` for
     /// any auxiliary children, e.g. dictionary values, zone maps, etc.
     fn child_type(&self, idx: usize) -> LayoutChildType;
 
-    /// Get the metadata for this layout.
+    /// Serialize this layout's encoding metadata.
     fn metadata(&self) -> Vec<u8>;
 
-    /// Get the segment IDs for this layout.
+    /// Get the segment IDs directly referenced by this layout node.
     fn segment_ids(&self) -> Vec<SegmentId>;
 
     /// Construct a new reader for this layout.
@@ -87,6 +99,7 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     ) -> VortexResult<LayoutReaderRef>;
 }
 
+/// Conversion into an erased [`LayoutRef`].
 pub trait IntoLayout {
     /// Converts this type into a [`LayoutRef`].
     fn into_layout(self) -> LayoutRef;

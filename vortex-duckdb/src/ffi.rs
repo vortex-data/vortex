@@ -172,6 +172,12 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_cardinality(
 
     match cardinality(bind_data) {
         Cardinality::Unknown => {}
+        Cardinality::Exact(c) => {
+            node_stats.has_estimated_cardinality = true;
+            node_stats.estimated_cardinality = c as _;
+            node_stats.has_max_cardinality = true;
+            node_stats.max_cardinality = c as _;
+        }
         Cardinality::Estimate(c) => {
             node_stats.has_estimated_cardinality = true;
             node_stats.estimated_cardinality = c as _;

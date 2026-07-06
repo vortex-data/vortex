@@ -17,7 +17,6 @@ use std::sync::LazyLock;
 
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -72,19 +71,21 @@ fn nonnullable_roundtrip_via_default_compressor() {
         .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())
         .expect("decompress");
     assert_eq!(decoded.len(), n);
-    decoded
-        .with_iterator(|iter| {
-            for (i, got) in iter.enumerate() {
-                assert_eq!(
-                    got,
-                    Some(strings[i].as_bytes()),
-                    "mismatch at row {i}: got {:?}",
-                    got.map(|b| String::from_utf8_lossy(b).into_owned()),
-                );
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })
+    let mask = decoded
+        .validity()
+        .unwrap()
+        .execute_mask(decoded.len(), &mut SESSION.create_execution_ctx())
         .unwrap();
+    for i in 0..decoded.len() {
+        let got = mask.value(i).then(|| decoded.bytes_at(i));
+        assert_eq!(
+            got.as_deref(),
+            Some(strings[i].as_bytes()),
+            "mismatch at row {i}: got {:?}",
+            got.as_deref()
+                .map(|b| String::from_utf8_lossy(b).into_owned()),
+        );
+    }
 }
 
 #[test]
@@ -112,15 +113,16 @@ fn nullable_roundtrip_via_default_compressor() {
         .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())
         .expect("decompress");
     assert_eq!(decoded.len(), n);
-    decoded
-        .with_iterator(|iter| {
-            for (i, got) in iter.enumerate() {
-                let want = strings[i].as_deref().map(str::as_bytes);
-                assert_eq!(got, want, "mismatch at row {i}");
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })
+    let mask = decoded
+        .validity()
+        .unwrap()
+        .execute_mask(decoded.len(), &mut SESSION.create_execution_ctx())
         .unwrap();
+    for i in 0..decoded.len() {
+        let got = mask.value(i).then(|| decoded.bytes_at(i));
+        let want = strings[i].as_deref().map(str::as_bytes);
+        assert_eq!(got.as_deref(), want, "mismatch at row {i}");
+    }
 }
 
 /// Larger corpus that exercises the offsets-narrowing / delta-encoding paths
@@ -145,14 +147,15 @@ fn large_unique_short_strings_roundtrip() {
         .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())
         .expect("decompress");
     assert_eq!(decoded.len(), n);
-    decoded
-        .with_iterator(|iter| {
-            for (i, got) in iter.enumerate() {
-                assert_eq!(got, Some(strings[i].as_bytes()), "row {i}");
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })
+    let mask = decoded
+        .validity()
+        .unwrap()
+        .execute_mask(decoded.len(), &mut SESSION.create_execution_ctx())
         .unwrap();
+    for i in 0..decoded.len() {
+        let got = mask.value(i).then(|| decoded.bytes_at(i));
+        assert_eq!(got.as_deref(), Some(strings[i].as_bytes()), "row {i}");
+    }
 }
 
 #[test]
@@ -171,15 +174,17 @@ fn empty_and_short_string_roundtrip() {
     let decoded = compressed
         .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())
         .expect("decompress");
-    decoded
-        .with_iterator(|iter| {
-            let got: Vec<_> = iter.collect();
-            for (i, want) in strings.iter().enumerate() {
-                assert_eq!(got[i], Some(want.as_bytes()), "row {i}");
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })
+    let mask = decoded
+        .validity()
+        .unwrap()
+        .execute_mask(decoded.len(), &mut SESSION.create_execution_ctx())
         .unwrap();
+    let got: Vec<Option<Vec<u8>>> = (0..decoded.len())
+        .map(|i| mask.value(i).then(|| decoded.bytes_at(i).to_vec()))
+        .collect();
+    for (i, want) in strings.iter().enumerate() {
+        assert_eq!(got[i].as_deref(), Some(want.as_bytes()), "row {i}");
+    }
 }
 
 /// Regression for the Euro2016 compress-bench panic
@@ -215,12 +220,13 @@ fn delta_dict_offsets_roundtrip() {
         .execute::<VarBinViewArray>(&mut SESSION.create_execution_ctx())
         .expect("decompress");
     assert_eq!(decoded.len(), n);
-    decoded
-        .with_iterator(|iter| {
-            for (i, got) in iter.enumerate() {
-                assert_eq!(got, Some(strings[i].as_bytes()), "row {i}");
-            }
-            Ok::<_, vortex_error::VortexError>(())
-        })
+    let mask = decoded
+        .validity()
+        .unwrap()
+        .execute_mask(decoded.len(), &mut SESSION.create_execution_ctx())
         .unwrap();
+    for i in 0..decoded.len() {
+        let got = mask.value(i).then(|| decoded.bytes_at(i));
+        assert_eq!(got.as_deref(), Some(strings[i].as_bytes()), "row {i}");
+    }
 }

@@ -7,13 +7,13 @@ include ./setup.slt.no
 
 # Create test data
 query I
-COPY (SELECT * FROM (VALUES (5), (3), (1), (4), (2)) AS t(num)) TO '$__TEST_DIR__/order.vortex';
+COPY (SELECT * FROM (VALUES (5), (3), (1), (4), (2)) AS t(num)) TO '${WORK_DIR}/order.vortex';
 ----
 5
 
 # Test ORDER BY ASC
 query I
-SELECT num FROM '$__TEST_DIR__/order.vortex' ORDER BY num ASC;
+SELECT num FROM '${WORK_DIR}/order.vortex' ORDER BY num ASC;
 ----
 1
 2
@@ -23,7 +23,7 @@ SELECT num FROM '$__TEST_DIR__/order.vortex' ORDER BY num ASC;
 
 # Test ORDER BY DESC
 query I
-SELECT num FROM '$__TEST_DIR__/order.vortex' ORDER BY num DESC;
+SELECT num FROM '${WORK_DIR}/order.vortex' ORDER BY num DESC;
 ----
 5
 4
@@ -33,7 +33,7 @@ SELECT num FROM '$__TEST_DIR__/order.vortex' ORDER BY num DESC;
 
 # Test LIMIT
 query I
-SELECT num FROM '$__TEST_DIR__/order.vortex' ORDER BY num LIMIT 3;
+SELECT num FROM '${WORK_DIR}/order.vortex' ORDER BY num LIMIT 3;
 ----
 1
 2
@@ -41,7 +41,7 @@ SELECT num FROM '$__TEST_DIR__/order.vortex' ORDER BY num LIMIT 3;
 
 # Test LIMIT with OFFSET
 query I
-SELECT num FROM '$__TEST_DIR__/order.vortex' ORDER BY num LIMIT 2 OFFSET 2;
+SELECT num FROM '${WORK_DIR}/order.vortex' ORDER BY num LIMIT 2 OFFSET 2;
 ----
 3
 4

@@ -29,6 +29,7 @@ use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::dynamic::Rhs;
+use crate::scalar_fn::fns::ext_storage::ExtStorage;
 use crate::scalar_fn::fns::fill_null::FillNull;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
@@ -36,6 +37,7 @@ use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::list_length::ListLength;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::DuplicateHandling;
@@ -421,13 +423,13 @@ where
 /// ```
 /// # use vortex_array::IntoArray;
 /// # use vortex_array::arrow::ArrowArrayExecutor;
-/// # use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
+/// # use vortex_array::{VortexSessionExecute, array_session};
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{checked_add, lit, root};
 /// let xs = buffer![1, 2, 3].into_array();
 /// let result = xs.apply(&checked_add(root(), lit(5))).unwrap();
 ///
-/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
+/// let mut ctx = array_session().create_execution_ctx();
 /// assert_eq!(
 ///     &result.execute_arrow(None, &mut ctx).unwrap(),
 ///     &buffer![6, 7, 8]
@@ -736,4 +738,30 @@ pub fn list_contains(list: Expression, value: Expression) -> Expression {
 /// ```
 pub fn byte_length(input: Expression) -> Expression {
     ByteLength.new_expr(EmptyOptions, [input])
+}
+
+// ---- ExtStorage ----
+
+/// Creates an expression that extracts the storage values from an extension array.
+///
+/// ```rust
+/// # use vortex_array::expr::{ext_storage, root};
+/// let expr = ext_storage(root());
+/// ```
+pub fn ext_storage(input: Expression) -> Expression {
+    ExtStorage.new_expr(EmptyOptions, [input])
+}
+
+// ---- ListLength ----
+
+/// Creates an expression that computes the number of elements in each list
+/// for `List` and `FixedSizeList` inputs. This is akin to ANSI SQL `CARDINALITY()`,
+/// or DuckDB's `len()`/`array_length()`.
+///
+/// ```rust
+/// # use vortex_array::expr::{list_length, root};
+/// let expr = list_length(root());
+/// ```
+pub fn list_length(input: Expression) -> Expression {
+    ListLength.new_expr(EmptyOptions, [input])
 }

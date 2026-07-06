@@ -264,6 +264,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::SessionExt;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;

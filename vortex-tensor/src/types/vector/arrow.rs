@@ -319,7 +319,7 @@ mod tests {
 
         let imported = session.from_arrow_array(arrow, &field)?;
         assert_eq!(imported.dtype(), original.dtype());
-        vortex_array::assert_arrays_eq!(imported, original);
+        vortex_array::assert_arrays_eq!(imported, original, &mut ctx);
         Ok(())
     }
 
@@ -411,7 +411,7 @@ mod tests {
         let field = session.to_arrow_field("v", original.dtype())?;
         let imported = session.from_arrow_array(arrow, &field)?;
         assert_eq!(imported.dtype(), original.dtype());
-        vortex_array::assert_arrays_eq!(imported, original);
+        vortex_array::assert_arrays_eq!(imported, original, &mut ctx);
         Ok(())
     }
 }

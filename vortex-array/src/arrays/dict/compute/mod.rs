@@ -56,17 +56,13 @@ impl FilterReduce for Dict {
 mod test {
     use std::sync::LazyLock;
 
-    #[expect(unused_imports)]
-    use itertools::Itertools;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
-    use crate::accessor::ArrayAccessor;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
@@ -86,6 +82,7 @@ mod test {
 
     #[test]
     fn canonicalise_nullable_primitive() {
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Vec<Option<i32>> = (0..65)
             .map(|i| match i % 3 {
                 0 => Some(42),
@@ -100,16 +97,19 @@ mod test {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap();
-        #[expect(deprecated)]
-        let actual = dict.as_array().to_primitive();
+        let actual = dict
+            .into_array()
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         let expected = PrimitiveArray::from_option_iter(values);
 
-        assert_arrays_eq!(actual, expected);
+        assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
     #[test]
     fn canonicalise_non_nullable_primitive_32_unique_values() {
+        let mut ctx = SESSION.create_execution_ctx();
         let unique_values: Vec<i32> = (0..32).collect();
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 32]));
 
@@ -117,15 +117,19 @@ mod test {
             &expected.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
         )
-        .unwrap();
-        #[expect(deprecated)]
-        let actual = dict.as_array().to_primitive();
+        .unwrap()
+        .into_array();
 
-        assert_arrays_eq!(actual, expected);
+        let actual = dict
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
+
+        assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
     #[test]
     fn canonicalise_non_nullable_primitive_100_unique_values() {
+        let mut ctx = SESSION.create_execution_ctx();
         let unique_values: Vec<i32> = (0..100).collect();
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 100]));
 
@@ -133,35 +137,48 @@ mod test {
             &expected.clone().into_array(),
             &mut SESSION.create_execution_ctx(),
         )
-        .unwrap();
-        #[expect(deprecated)]
-        let actual = dict.as_array().to_primitive();
+        .unwrap()
+        .into_array();
 
-        assert_arrays_eq!(actual, expected);
+        let actual = dict
+            .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
+
+        assert_arrays_eq!(actual, expected, &mut ctx);
     }
 
     #[test]
-    fn canonicalise_nullable_varbin() {
+    fn canonicalise_nullable_varbin() -> VortexResult<()> {
         let reference = VarBinViewArray::from_iter(
             vec![Some("a"), Some("b"), None, Some("a"), None, Some("b")],
             DType::Utf8(Nullability::Nullable),
         );
         assert_eq!(reference.len(), 6);
-        let dict = dict_encode(
-            &reference.clone().into_array(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
-        #[expect(deprecated)]
-        let flattened_dict = dict.as_array().to_varbinview();
-        assert_eq!(
-            flattened_dict.with_iterator(|iter| iter
-                .map(|slice| slice.map(|s| s.to_vec()))
-                .collect::<Vec<_>>()),
-            reference.with_iterator(|iter| iter
-                .map(|slice| slice.map(|s| s.to_vec()))
-                .collect::<Vec<_>>()),
-        );
+        let mut ctx = SESSION.create_execution_ctx();
+        let dict = dict_encode(&reference.clone().into_array(), &mut ctx)?;
+        let flattened_dict = dict.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+        let flattened_mask = flattened_dict
+            .validity()?
+            .execute_mask(flattened_dict.len(), &mut ctx)?;
+        let flattened_values = (0..flattened_dict.len())
+            .map(|i| {
+                flattened_mask
+                    .value(i)
+                    .then(|| flattened_dict.bytes_at(i).to_vec())
+            })
+            .collect::<Vec<_>>();
+        let reference_mask = reference
+            .validity()?
+            .execute_mask(reference.len(), &mut ctx)?;
+        let reference_values = (0..reference.len())
+            .map(|i| {
+                reference_mask
+                    .value(i)
+                    .then(|| reference.bytes_at(i).to_vec())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(flattened_values, reference_values);
+        Ok(())
     }
 
     fn sliced_dict_array() -> ArrayRef {
@@ -180,6 +197,7 @@ mod test {
 
     #[test]
     fn compare_sliced_dict() {
+        let mut ctx = SESSION.create_execution_ctx();
         use crate::arrays::BoolArray;
         let sliced = sliced_dict_array();
         let compared = sliced
@@ -187,7 +205,7 @@ mod test {
             .unwrap();
 
         let expected = BoolArray::from_iter([Some(false), None, Some(true)]);
-        assert_arrays_eq!(compared, expected.into_array());
+        assert_arrays_eq!(compared, expected.into_array(), &mut ctx);
     }
 
     #[test]
@@ -362,6 +380,6 @@ mod tests {
     #[case::dict_all_same(dict_encode(&buffer![5i32, 5, 5, 5, 5].into_array(), &mut SESSION.create_execution_ctx()).unwrap())]
     #[case::dict_large(dict_encode(&PrimitiveArray::from_iter((0..1000).map(|i| i % 10)).into_array(), &mut SESSION.create_execution_ctx()).unwrap())]
     fn test_dict_consistency(#[case] array: DictArray) {
-        test_array_consistency(&array.into_array());
+        test_array_consistency(&array.into_array(), &mut SESSION.create_execution_ctx());
     }
 }

@@ -13,7 +13,6 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
@@ -27,6 +26,7 @@ use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
+use crate::legacy_session;
 use crate::scalar::Scalar;
 use crate::scalar::StructScalar;
 
@@ -168,6 +168,7 @@ impl ArrayBuilder for StructBuilder {
         self.append_value(scalar.as_struct())
     }
 
+    #[allow(clippy::disallowed_methods)]
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         #[expect(deprecated)]
         let array = array.to_struct();
@@ -183,7 +184,7 @@ impl ArrayBuilder for StructBuilder {
             &array
                 .validity()
                 .vortex_expect("validity_mask")
-                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .execute_mask(array.len(), &mut legacy_session().create_execution_ctx())
                 .vortex_expect("Failed to compute validity mask"),
         );
     }
@@ -211,8 +212,8 @@ impl ArrayBuilder for StructBuilder {
 #[cfg(test)]
 mod tests {
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
@@ -258,7 +259,7 @@ mod tests {
         assert_eq!(struct_.dtype(), &dtype);
         assert_eq!(
             struct_
-                .valid_count(&mut LEGACY_SESSION.create_execution_ctx())
+                .valid_count(&mut array_session().create_execution_ctx())
                 .unwrap(),
             1
         );
@@ -266,6 +267,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
+        let mut ctx = array_session().create_execution_ctx();
         use crate::scalar::Scalar;
 
         let dtype = DType::Struct(
@@ -328,7 +330,7 @@ mod tests {
             Validity::from_iter([true, true, false]),
         )
         .unwrap();
-        assert_arrays_eq!(&array, &expected);
+        assert_arrays_eq!(&array, &expected, &mut ctx);
 
         // Test wrong dtype error.
         let struct_fields = match &dtype {

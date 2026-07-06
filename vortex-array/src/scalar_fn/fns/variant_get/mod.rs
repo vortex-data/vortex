@@ -55,16 +55,7 @@ impl ScalarFnVTable for VariantGet {
             .path()
             .elements()
             .iter()
-            .map(|element| match element {
-                VariantPathElement::Field(name) => pb::VariantPathElement {
-                    element: Some(variant_path_element::Element::Field(
-                        name.as_ref().to_string(),
-                    )),
-                },
-                VariantPathElement::Index(index) => pb::VariantPathElement {
-                    element: Some(variant_path_element::Element::Index(*index)),
-                },
-            })
+            .map(VariantPathElement::to_proto)
             .collect();
         let dtype = options.dtype().map(TryInto::try_into).transpose()?;
 
@@ -355,13 +346,28 @@ impl VariantPathElement {
         Self::Index(index)
     }
 
-    fn from_proto(value: pb::VariantPathElement) -> VortexResult<Self> {
+    /// Decodes a path element from its protobuf representation.
+    pub fn from_proto(value: pb::VariantPathElement) -> VortexResult<Self> {
         match value
             .element
-            .ok_or_else(|| vortex_err!("VariantGet path element missing value"))?
+            .ok_or_else(|| vortex_err!("Variant path element missing value"))?
         {
             variant_path_element::Element::Field(field) => Ok(Self::field(field)),
             variant_path_element::Element::Index(index) => Ok(Self::index(index)),
+        }
+    }
+
+    /// Encodes this path element into its protobuf representation.
+    pub fn to_proto(&self) -> pb::VariantPathElement {
+        match self {
+            VariantPathElement::Field(name) => pb::VariantPathElement {
+                element: Some(variant_path_element::Element::Field(
+                    name.as_ref().to_string(),
+                )),
+            },
+            VariantPathElement::Index(index) => pb::VariantPathElement {
+                element: Some(variant_path_element::Element::Index(*index)),
+            },
         }
     }
 }
@@ -395,8 +401,8 @@ mod tests {
     use crate::ArrayRef;
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -539,7 +545,7 @@ mod tests {
         let expr = variant_get(root(), parse_path(path)?, dtype);
         array
             .apply(&expr)?
-            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
+            .execute::<ArrayRef>(&mut array_session().create_execution_ctx())
     }
 
     #[test]
@@ -630,7 +636,7 @@ mod tests {
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
         let proto = expr.serialize_proto().unwrap();
-        let actual = Expression::from_proto(&proto, &LEGACY_SESSION).unwrap();
+        let actual = Expression::from_proto(&proto, &array_session()).unwrap();
 
         assert_eq!(actual, expr);
     }
@@ -672,10 +678,12 @@ mod tests {
             "$.items[1]",
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
+        let mut ctx = array_session().create_execution_ctx();
 
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(20i32), None, None])
+            PrimitiveArray::from_option_iter([Some(20i32), None, None]),
+            &mut ctx
         );
         Ok(())
     }
@@ -704,10 +712,12 @@ mod tests {
             "$.a",
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
+        let mut ctx = array_session().create_execution_ctx();
 
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None])
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None]),
+            &mut ctx
         );
         Ok(())
     }
@@ -736,9 +746,11 @@ mod tests {
         )?;
 
         assert!(!result.is::<Chunked>());
+        let mut ctx = array_session().create_execution_ctx();
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([Some(10i32), Some(20), None])
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), None]),
+            &mut ctx
         );
         Ok(())
     }
@@ -760,7 +772,7 @@ mod tests {
 
         let result = execute_variant_get(array, "$.a", None)?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let row0 = result.execute_scalar(0, &mut ctx)?;
         assert_eq!(
             row0.as_variant()
@@ -769,7 +781,7 @@ mod tests {
                 .map(|value| value.as_str()),
             Some("ok")
         );
-        assert_nth_scalar_is_null!(result, 1);
+        assert_nth_scalar_is_null!(result, 1, &mut ctx);
         assert_eq!(
             result
                 .execute_scalar(2, &mut ctx)?
@@ -777,7 +789,7 @@ mod tests {
                 .is_variant_null(),
             Some(true)
         );
-        assert_nth_scalar_is_null!(result, 3);
+        assert_nth_scalar_is_null!(result, 3, &mut ctx);
         Ok(())
     }
 
@@ -797,8 +809,8 @@ mod tests {
         let result = execute_variant_get(array, "$.a", None)?;
         let variant = result
             .clone()
-            .execute::<VariantArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
-        let canonical = result.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute::<VariantArray>(&mut array_session().create_execution_ctx())?;
+        let canonical = result.execute::<Canonical>(&mut array_session().create_execution_ctx())?;
         let Canonical::Variant(canonical_variant) = canonical else {
             vortex_bail!("expected Variant canonical array");
         };
@@ -808,7 +820,7 @@ mod tests {
         assert_eq!(variant.core_storage().dtype(), variant.dtype());
         assert_eq!(variant.core_storage().len(), variant.len());
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         for (idx, expected) in [10i32, 20].into_iter().enumerate() {
             let scalar = variant.execute_scalar(idx, &mut ctx)?;
             let actual = scalar

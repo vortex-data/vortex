@@ -3,6 +3,7 @@
 
 //! This module defines the default layout strategy for a Vortex file.
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -35,6 +36,7 @@ use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_bytebool::ByteBool;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_error::VortexExpect;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::FoR;
@@ -143,6 +145,11 @@ enum CompressorConfig {
 /// Vortex provides an out-of-the-box file writer that optimizes the layout of chunks on-disk,
 /// repartitioning and compressing them to strike a balance between size on-disk,
 /// bulk decoding performance, and IOPS required to perform an indexed read.
+///
+/// The default pipeline first splits struct columns, repartitions rows into fixed-size row blocks,
+/// computes zoned statistics, applies dictionary encoding where useful, coalesces chunks toward
+/// segment-sized blocks, compresses arrays, buffers nearby chunks, and finally writes flat leaf
+/// layouts.
 pub struct WriteStrategyBuilder {
     compressor: CompressorConfig,
     row_block_size: usize,
@@ -168,14 +175,19 @@ impl Default for WriteStrategyBuilder {
 }
 
 impl WriteStrategyBuilder {
-    /// Override the row block size used to determine the zone map sizes.
+    /// Override the row block size used for row repartitioning and zoned statistics.
+    ///
+    /// Larger blocks reduce footer/statistics overhead. Smaller blocks can improve pruning and
+    /// random-access locality.
     pub fn with_row_block_size(mut self, row_block_size: usize) -> Self {
         self.row_block_size = row_block_size;
         self
     }
 
-    /// Override the default write layout for a specific field somewhere in the nested
-    /// schema tree.
+    /// Override the write layout for a specific field somewhere in the nested schema tree.
+    ///
+    /// The field path is matched after the root struct is split into columns. This is useful when a
+    /// column needs a custom compression/layout policy while the rest of the file uses defaults.
     pub fn with_field_writer(
         mut self,
         field: impl Into<FieldPath>,
@@ -186,6 +198,9 @@ impl WriteStrategyBuilder {
     }
 
     /// Override the allowed array encodings for normalization.
+    ///
+    /// The flat leaf writer uses this set when deciding whether an existing encoded array can be
+    /// written as-is or must be normalized before serialization.
     pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
         self.allow_encodings = Some(allow_encodings);
         self
@@ -211,7 +226,8 @@ impl WriteStrategyBuilder {
 
     /// Set the compressor to an opaque [`CompressorPlugin`].
     ///
-    /// The compressor is used as-is for both data and stats compression.
+    /// The compressor is used as-is for both data and stats compression. Use this when the
+    /// compressor is already fully configured and should not be modified by the builder.
     pub fn with_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.compressor = CompressorConfig::Opaque(Arc::new(compressor));
         self
@@ -297,7 +313,7 @@ impl WriteStrategyBuilder {
             dict,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
-                block_size: self.row_block_size,
+                block_size: NonZeroUsize::new(self.row_block_size).vortex_expect("must be non 0"),
                 ..Default::default()
             },
         );

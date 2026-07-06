@@ -135,7 +135,10 @@ fn find_intersection<P: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
@@ -143,8 +146,15 @@ mod tests {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_session::VortexSession;
 
     use crate::Sequence;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn test_compare_match() {
@@ -155,7 +165,7 @@ mod tests {
             .binary(rhs.into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([false, false, true, false]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -167,7 +177,7 @@ mod tests {
             .binary(rhs.into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true), Some(false)]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -179,6 +189,6 @@ mod tests {
             .binary(rhs.into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([false, false, false, false]);
-        assert_arrays_eq!(result, expected);
+        assert_arrays_eq!(result, expected, &mut SESSION.create_execution_ctx());
     }
 }

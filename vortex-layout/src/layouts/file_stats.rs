@@ -11,7 +11,6 @@ use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
@@ -26,6 +25,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
+use vortex_array::legacy_session;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
@@ -236,8 +236,9 @@ struct NamedArrays {
 }
 
 impl NamedArrays {
+    #[allow(clippy::disallowed_methods)]
     fn all_invalid(&self) -> VortexResult<bool> {
-        self.arrays[0].all_invalid(&mut LEGACY_SESSION.create_execution_ctx())
+        self.arrays[0].all_invalid(&mut legacy_session().create_execution_ctx())
     }
 }
 
@@ -498,6 +499,7 @@ impl FileStatsAccumulator {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::array_session;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::bool::BoolArrayExt;
     use vortex_array::builders::VarBinViewBuilder;
@@ -510,7 +512,7 @@ mod tests {
     #[case(DType::Utf8(Nullability::NonNullable))]
     #[case(DType::Binary(Nullability::NonNullable))]
     fn truncates_accumulated_stats(#[case] dtype: DType) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), 2);
         builder.append_value("Value to be truncated");
         builder.append_value("untruncated");
@@ -555,7 +557,7 @@ mod tests {
 
     #[test]
     fn always_adds_is_truncated_column() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array, &mut ctx)

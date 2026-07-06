@@ -4,6 +4,7 @@
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVTable;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Primitive;
@@ -30,7 +31,7 @@ impl FlatLayoutFixture for ChunkedFixture {
         vec![Primitive.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
+    fn build(&self, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // Variable chunk sizes: 500, 1000, 250
         let chunk_sizes: [u32; 3] = [500, 1000, 250];
         let mut offset = 0u32;

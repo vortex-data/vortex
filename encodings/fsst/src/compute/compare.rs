@@ -122,8 +122,9 @@ fn compare_fsst_constant(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
@@ -134,14 +135,22 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     #[cfg_attr(miri, ignore)]
-    fn test_compare_fsst() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    fn test_compare_fsst() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         let lhs = VarBinArray::from_iter(
             [
                 Some("hello"),
@@ -151,11 +160,10 @@ mod tests {
                 Some("this is a very long string"),
             ],
             DType::Utf8(Nullability::Nullable),
-        );
-        let compressor = fsst_train_compressor(&lhs);
-        let len = lhs.len();
-        let dtype = lhs.dtype().clone();
-        let lhs = fsst_compress(lhs, len, &dtype, &compressor, &mut ctx);
+        )
+        .into_array();
+        let compressor = fsst_train_compressor(&lhs, &mut ctx)?;
+        let lhs = fsst_compress(&lhs, &compressor, &mut ctx)?;
 
         let rhs = ConstantArray::new("world", lhs.len());
 
@@ -163,31 +171,29 @@ mod tests {
         let equals = lhs
             .clone()
             .into_array()
-            .binary(rhs.clone().into_array(), Operator::Eq)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
+            .binary(rhs.clone().into_array(), Operator::Eq)?
+            .execute::<BoolArray>(&mut ctx)?;
 
         assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
 
         assert_arrays_eq!(
             &equals,
-            &BoolArray::from_iter([Some(false), None, Some(true), None, Some(false)])
+            &BoolArray::from_iter([Some(false), None, Some(true), None, Some(false)]),
+            &mut ctx
         );
 
         // Ensure fastpath for Eq exists, and returns correct answer
         let not_equals = lhs
             .clone()
             .into_array()
-            .binary(rhs.into_array(), Operator::NotEq)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap();
+            .binary(rhs.into_array(), Operator::NotEq)?
+            .execute::<BoolArray>(&mut ctx)?;
 
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
         assert_arrays_eq!(
             &not_equals,
-            &BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)])
+            &BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)]),
+            &mut ctx
         );
 
         // Ensure null constants are handled correctly.
@@ -196,20 +202,21 @@ mod tests {
         let equals_null = lhs
             .clone()
             .into_array()
-            .binary(null_rhs.clone().into_array(), Operator::Eq)
-            .unwrap();
+            .binary(null_rhs.clone().into_array(), Operator::Eq)?;
         assert_arrays_eq!(
             &equals_null,
-            &BoolArray::from_iter([None::<bool>, None, None, None, None])
+            &BoolArray::from_iter([None::<bool>, None, None, None, None]),
+            &mut ctx
         );
 
         let noteq_null = lhs
             .into_array()
-            .binary(null_rhs.into_array(), Operator::NotEq)
-            .unwrap();
+            .binary(null_rhs.into_array(), Operator::NotEq)?;
         assert_arrays_eq!(
             &noteq_null,
-            &BoolArray::from_iter([None::<bool>, None, None, None, None])
+            &BoolArray::from_iter([None::<bool>, None, None, None, None]),
+            &mut ctx
         );
+        Ok(())
     }
 }

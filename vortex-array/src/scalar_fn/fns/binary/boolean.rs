@@ -3,7 +3,6 @@
 
 use std::iter::repeat_n;
 
-use arrow_array::cast::AsArray;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::read_u64_le;
@@ -27,8 +26,6 @@ use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
-use crate::arrow::ArrowSessionExt;
-use crate::arrow::FromArrowArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -116,67 +113,32 @@ pub fn or_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
 /// This is the entry point for boolean operations from the binary expression.
 /// Handles constants and canonical boolean arrays directly, otherwise falls back to Arrow.
 pub(crate) fn execute_boolean(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
-    op: Operator,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let nullable = boolean_nullability(lhs, rhs);
-
-    if lhs.is_empty() {
-        return Ok(Canonical::empty(&DType::Bool(nullable)).into_array());
-    }
-
-    if let Some(result) = constant_boolean(lhs, rhs, op)? {
-        return Ok(result);
-    }
-
-    if let Some(lhs) = lhs.as_opt::<Bool>()
-        && let Some(result) = <Bool as BooleanKernel>::boolean(lhs, rhs, op, ctx)?
-    {
-        return Ok(result);
-    }
-
-    if let Some(rhs) = rhs.as_opt::<Bool>()
-        && let Some(result) = <Bool as BooleanKernel>::boolean(rhs, lhs, op, ctx)?
-    {
-        return Ok(result);
-    }
-
-    arrow_execute_boolean(lhs.clone(), rhs.clone(), op, ctx)
-}
-
-/// Arrow implementation for Kleene boolean operations using [`Operator`].
-fn arrow_execute_boolean(
     lhs: ArrayRef,
     rhs: ArrayRef,
     op: Operator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullable = boolean_nullability(&lhs, &rhs);
-    let session = ctx.session().clone();
 
-    let lhs = session
-        .arrow()
-        .execute_arrow(lhs, None, ctx)?
-        .as_boolean_opt()
-        .ok_or_else(|| vortex_err!("expected lhs to be boolean"))?
-        .clone();
+    if lhs.is_empty() {
+        return Ok(Canonical::empty(&DType::Bool(nullable)).into_array());
+    }
 
-    let rhs = session
-        .arrow()
-        .execute_arrow(rhs, None, ctx)?
-        .as_boolean_opt()
-        .ok_or_else(|| vortex_err!("expected rhs to be boolean"))?
-        .clone();
+    if let Some(result) = constant_boolean(&lhs, &rhs, op)? {
+        return Ok(result);
+    }
 
-    let array = match op {
-        Operator::And => arrow_arith::boolean::and_kleene(&lhs, &rhs)?,
-        Operator::Or => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
-        other => vortex_bail!("Not a boolean operator: {other}"),
+    let lhs = lhs.execute::<BoolArray>(ctx)?;
+    if let Some(result) = <Bool as BooleanKernel>::boolean(lhs.as_view(), &rhs, op, ctx)? {
+        return Ok(result);
+    }
+
+    let rhs = rhs.execute::<BoolArray>(ctx)?;
+    let Some(result) = <Bool as BooleanKernel>::boolean(rhs.as_view(), &lhs.into_array(), op, ctx)?
+    else {
+        vortex_bail!("No boolean kernel for two BoolArrays");
     };
-
-    ArrayRef::from_arrow(&array, nullable == Nullability::Nullable)
+    Ok(result)
 }
 
 /// Handles boolean operations where at least one operand is a constant array.
@@ -757,8 +719,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::assert_arrays_eq;
@@ -772,6 +734,7 @@ mod tests {
 
     #[test]
     fn test_kleene_truth_table() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let lhs = BoolArray::from_iter([
             Some(true),
             Some(true),
@@ -809,7 +772,8 @@ mod tests {
                 None,
                 Some(false),
                 None,
-            ])
+            ]),
+            &mut ctx
         );
 
         assert_arrays_eq!(
@@ -824,7 +788,8 @@ mod tests {
                 Some(true),
                 None,
                 None,
-            ])
+            ]),
+            &mut ctx
         );
 
         Ok(())
@@ -832,17 +797,20 @@ mod tests {
 
     #[test]
     fn test_null_constant_kleene() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         let lhs = BoolArray::from_iter([Some(false), Some(true), None]).into_array();
         let null = ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), lhs.len())
             .into_array();
 
         assert_arrays_eq!(
             lhs.binary(null.clone(), Operator::And)?,
-            BoolArray::from_iter([Some(false), None, None])
+            BoolArray::from_iter([Some(false), None, None]),
+            &mut ctx
         );
         assert_arrays_eq!(
             lhs.binary(null, Operator::Or)?,
-            BoolArray::from_iter([None, Some(true), None])
+            BoolArray::from_iter([None, Some(true), None]),
+            &mut ctx
         );
 
         Ok(())
@@ -863,22 +831,22 @@ mod tests {
         let r = r.to_bool().into_array();
 
         let v0 = r
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v1 = r
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v2 = r
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v3 = r
-            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(3, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
@@ -907,22 +875,22 @@ mod tests {
             .into_array();
 
         let v0 = r
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(0, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v1 = r
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(1, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v2 = r
-            .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(2, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();
         let v3 = r
-            .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+            .execute_scalar(3, &mut array_session().create_execution_ctx())
             .unwrap()
             .as_bool()
             .value();

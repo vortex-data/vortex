@@ -47,10 +47,7 @@ impl CompareKernel for DecimalByteParts {
             .decimal_value()
             .vortex_expect("checked for null in entry func");
 
-        match decimal_value_wrapper_to_primitive(
-            rhs_decimal,
-            lhs.msp().as_primitive_typed().ptype(),
-        ) {
+        match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp().dtype().as_ptype()) {
             Ok(value) => {
                 let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
                 let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
@@ -144,7 +141,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -159,8 +159,15 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::DecimalByteParts;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[test]
     fn compare_decimal_const() {
@@ -180,7 +187,7 @@ mod tests {
         let res = lhs.binary(rhs.into_array(), Operator::Eq).unwrap();
 
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true)]).into_array();
-        assert_arrays_eq!(res, expected);
+        assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
     }
 
     #[test]
@@ -208,7 +215,7 @@ mod tests {
         let res = lhs.into_array().binary(rhs, Operator::Lte)?;
         let expected =
             BoolArray::from_iter([None, Some(true), Some(true), Some(true)]).into_array();
-        assert_arrays_eq!(res, expected);
+        assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
         Ok(())
     }
@@ -235,15 +242,15 @@ mod tests {
 
         let res = lhs.binary(rhs.clone().into_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
-        assert_arrays_eq!(res, expected);
+        assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
         let res = lhs.binary(rhs.clone().into_array(), Operator::Gt).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
-        assert_arrays_eq!(res, expected);
+        assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
         let res = lhs.binary(rhs.into_array(), Operator::Lt).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
-        assert_arrays_eq!(res, expected);
+        assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
         // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
@@ -253,14 +260,14 @@ mod tests {
 
         let res = lhs.binary(rhs.clone().into_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
-        assert_arrays_eq!(res, expected);
+        assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
         let res = lhs.binary(rhs.clone().into_array(), Operator::Gt).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
-        assert_arrays_eq!(res, expected);
+        assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
 
         let res = lhs.binary(rhs.into_array(), Operator::Lt).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
-        assert_arrays_eq!(res, expected);
+        assert_arrays_eq!(res, expected, &mut SESSION.create_execution_ctx());
     }
 }

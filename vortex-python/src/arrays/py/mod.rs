@@ -17,6 +17,7 @@ pub(crate) use vtable::*;
 use crate::error::PyVortexResult;
 
 /// Extract the array id from a Python class `id` attribute.
+#[expect(clippy::disallowed_methods, reason = "interning a dynamic id")]
 pub fn id_from_obj(cls: &Bound<PyAny>) -> PyVortexResult<ArrayId> {
     let id_str: String = cls
         .getattr("id")

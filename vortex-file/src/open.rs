@@ -41,6 +41,12 @@ use crate::segments::RequestMetrics;
 const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
 /// Open options for a Vortex file reader.
+///
+/// Options are session-bound because opening a file may need array, layout, dtype, runtime, and
+/// memory registries. Construct with [`OpenOptionsSessionExt::open_options`] for the common path.
+///
+/// The opener first resolves a [`Footer`], then creates a segment source for later scans. Known
+/// file metadata can be supplied up front to avoid IO during footer discovery.
 pub struct VortexOpenOptions {
     /// The session to use for opening the file.
     session: VortexSession,
@@ -64,6 +70,7 @@ pub struct VortexOpenOptions {
     cache_layout_reader: bool,
 }
 
+/// Extension trait for constructing [`VortexOpenOptions`] from a session.
 pub trait OpenOptionsSessionExt:
     ArraySessionExt + LayoutSessionExt + RuntimeSessionExt + MemorySessionExt
 {
@@ -89,19 +96,29 @@ impl<S: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt + MemorySessionEx
 }
 
 impl VortexOpenOptions {
-    /// Configure the initial read size for the Vortex file.
+    /// Configure how many bytes to read from the end of the file before parsing the footer.
+    ///
+    /// The actual read is at least large enough to contain the maximum postscript and EOF marker,
+    /// and no larger than the file. Increase this when you expect footer segments to be near the
+    /// end and want to avoid a second footer read.
     pub fn with_initial_read_size(mut self, initial_read_size: usize) -> Self {
         self.initial_read_size = initial_read_size;
         self
     }
 
-    /// Cache file's LayoutReader between scans
+    /// Cache the file's [`LayoutReader`](vortex_layout::LayoutReader) between scans.
+    ///
+    /// This avoids rebuilding the reader tree for repeated scans of the same [`VortexFile`], at the
+    /// cost of keeping reader state alive for the lifetime of the file handle.
     pub fn with_layout_reader_cache(mut self) -> Self {
         self.cache_layout_reader = true;
         self
     }
 
     /// Configure a custom [`SegmentCache`].
+    ///
+    /// The cache is checked before the underlying file segment source. Segments covered by the
+    /// initial footer read are also inserted into an internal first-read cache.
     pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
         self.segment_cache = Some(segment_cache);
         self
@@ -135,7 +152,7 @@ impl VortexOpenOptions {
         self
     }
 
-    /// Configure a known file layout.
+    /// Configure a known file footer.
     ///
     /// If this is provided, then the Vortex file can be opened without performing any I/O.
     /// Once open, the [`Footer`] can be accessed via [`crate::VortexFile::footer`].
@@ -181,6 +198,8 @@ impl VortexOpenOptions {
     ///
     /// This uses a `BufferSegmentSource` that resolves segments synchronously
     /// by slicing the buffer directly, bypassing the async I/O pipeline.
+    ///
+    /// Segment cache and metrics registry settings are ignored for this path.
     pub fn open_buffer<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer: ByteBuffer = buffer.into();
 
@@ -211,7 +230,9 @@ impl VortexOpenOptions {
         })
     }
 
-    /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
+    /// Open a [`VortexFile`] using any [`VortexReadAt`] implementation.
+    ///
+    /// This is the common path for files, object stores, and custom random-access sources.
     pub async fn open_read<R: VortexReadAt + Clone>(self, reader: R) -> VortexResult<VortexFile> {
         let segment_cache = self
             .segment_cache
@@ -339,6 +360,7 @@ impl VortexOpenOptions {
 
 #[cfg(feature = "object_store")]
 impl VortexOpenOptions {
+    /// Open a Vortex file from an `object_store` backend and path.
     pub async fn open_object_store(
         self,
         object_store: &Arc<dyn object_store::ObjectStore>,

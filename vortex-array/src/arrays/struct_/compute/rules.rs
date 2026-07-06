@@ -165,6 +165,7 @@ mod tests {
 
     #[test]
     fn test_struct_cast_field_reorder() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Source: {a, b}, Target: {c, b, a} - reordered + new null field
         let source = StructArray::try_new(
             FieldNames::from(["a", "b"]),
@@ -196,15 +197,18 @@ mod tests {
             .unwrap();
         assert_arrays_eq!(
             result.unmasked_field_by_name("a").unwrap(),
-            VarBinViewArray::from_iter_nullable_str([Some("A")])
+            VarBinViewArray::from_iter_nullable_str([Some("A")]),
+            &mut ctx
         );
         assert_arrays_eq!(
             result.unmasked_field_by_name("b").unwrap(),
-            VarBinViewArray::from_iter_nullable_str([Some("B")])
+            VarBinViewArray::from_iter_nullable_str([Some("B")]),
+            &mut ctx
         );
         assert_arrays_eq!(
             result.unmasked_field_by_name("c").unwrap(),
-            ConstantArray::new(Scalar::null(utf8_null), 1)
+            ConstantArray::new(Scalar::null(utf8_null), 1),
+            &mut ctx
         );
     }
 
@@ -298,6 +302,7 @@ mod tests {
 
     #[test]
     fn cast_struct_drop_field() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Casting to a struct with a subset of fields should succeed.
         let source = StructArray::try_new(
             FieldNames::from(["a", "b", "c"]),
@@ -331,16 +336,19 @@ mod tests {
         assert_eq!(result.unmasked_fields().len(), 2);
         assert_arrays_eq!(
             result.unmasked_field_by_name("a").unwrap(),
-            buffer![1i32, 2, 3].into_array()
+            buffer![1i32, 2, 3].into_array(),
+            &mut ctx
         );
         assert_arrays_eq!(
             result.unmasked_field_by_name("c").unwrap(),
-            buffer![100u8, 200, 255].into_array()
+            buffer![100u8, 200, 255].into_array(),
+            &mut ctx
         );
     }
 
     #[test]
     fn cast_struct_field_type_widening() {
+        let mut ctx = SESSION.create_execution_ctx();
         // Casting struct fields to wider types (i32 -> i64).
         let source = StructArray::try_new(
             FieldNames::from(["val"]),
@@ -370,7 +378,8 @@ mod tests {
         );
         assert_arrays_eq!(
             result.unmasked_field_by_name("val").unwrap(),
-            buffer![1i64, 2, 3].into_array()
+            buffer![1i64, 2, 3].into_array(),
+            &mut ctx
         );
     }
 

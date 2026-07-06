@@ -2,6 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Array validity and nullability behavior, used by arrays and compute functions.
+//!
+//! [`Validity`] describes which rows are logically present without forcing every array to carry a
+//! materialized boolean bitmap. Constant states (`NonNullable`, `AllValid`, `AllInvalid`) are cheap
+//! to clone and inspect. [`Validity::Array`] may itself be encoded or lazy, so APIs that need exact
+//! per-row answers take an [`ExecutionCtx`] and execute the validity array as needed.
 
 use std::fmt::Debug;
 use std::ops::Range;
@@ -19,7 +24,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
@@ -28,20 +32,21 @@ use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::legacy_session;
 use crate::optimizer::ArrayOptimizer;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 
-/// Validity information for an array
+/// Validity information for an array.
 #[derive(Clone)]
 pub enum Validity {
-    /// Items *can't* be null
+    /// Items cannot be null because the dtype is non-nullable.
     NonNullable,
-    /// All items are valid
+    /// The dtype is nullable, but every item is valid.
     AllValid,
-    /// All items are null
+    /// The dtype is nullable, and every item is null.
     AllInvalid,
     /// The validity of each position in the array is determined by a boolean array.
     ///
@@ -181,15 +186,17 @@ impl Validity {
     /// Returns whether the `index` item is valid.
     #[deprecated(note = "use `execute_is_valid` with an explicit `ExecutionCtx`")]
     #[inline]
+    #[allow(clippy::disallowed_methods)]
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.execute_is_valid(index, &mut LEGACY_SESSION.create_execution_ctx())
+        self.execute_is_valid(index, &mut legacy_session().create_execution_ctx())
     }
 
     /// Returns whether the `index` item is null.
     #[deprecated(note = "use `execute_is_null` with an explicit `ExecutionCtx`")]
     #[inline]
+    #[allow(clippy::disallowed_methods)]
     pub fn is_null(&self, index: usize) -> VortexResult<bool> {
-        self.execute_is_null(index, &mut LEGACY_SESSION.create_execution_ctx())
+        self.execute_is_null(index, &mut legacy_session().create_execution_ctx())
     }
 
     #[inline]
@@ -645,8 +652,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
     use crate::validity::BoolArray;
@@ -715,7 +722,7 @@ mod tests {
         let indices =
             PrimitiveArray::new(Buffer::copy_from(positions), Validity::NonNullable).into_array();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
 
         assert!(
             validity
@@ -729,7 +736,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn out_of_bounds_patch() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         Validity::NonNullable
             .patch(
                 2,
@@ -781,7 +788,7 @@ mod tests {
         #[case] indices: ArrayRef,
         #[case] expected: Validity,
     ) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert!(
             validity
                 .take(&indices)
@@ -828,7 +835,7 @@ mod tests {
         #[case] rhs: Validity,
         #[case] expected: bool,
     ) -> vortex_error::VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         assert_eq!(lhs.mask_eq(&rhs, 3, &mut ctx)?, expected);
         Ok(())
     }

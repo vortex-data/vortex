@@ -50,6 +50,34 @@ jobs:
         run: |
           cargo set-version --workspace ${{ inputs.version }}
 
+      # cargo set-version bumps Cargo.toml crate versions but not the ==0.1.0 pins
+      # between these two wheels in their pyproject.toml. The base and CUDA extension
+      # wheels must require each other at the exact released version (they exchange
+      # Vortex IPC buffers), so rewrite those pins here.
+      - name: Set Python extension version pins
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          replacements = {
+              Path("vortex-python/pyproject.toml"): "vortex-data-cuda",
+              Path("vortex-python-cuda/pyproject.toml"): "vortex-data",
+          }
+          for path, package in replacements.items():
+              text = path.read_text()
+              text, count = re.subn(
+                  f"{re.escape(package)}==[^\"\\]]+", f"{package}=={version}", text
+              )
+              if count != 1:
+                  raise RuntimeError(f"Expected one {package} version pin in {path}, found {count}")
+              path.write_text(text)
+          PY
+
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter

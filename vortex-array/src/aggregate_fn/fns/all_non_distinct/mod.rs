@@ -12,12 +12,14 @@ mod struct_;
 #[cfg(test)]
 mod tests;
 mod varbin;
+mod variant;
 
 use std::sync::LazyLock;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::registry::CachedId;
 
 use self::bool::check_bool_identical;
 use self::decimal::check_decimal_identical;
@@ -38,6 +40,7 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::fns::all_non_distinct::variant::check_variant_identical;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
@@ -119,7 +122,8 @@ impl AggregateFnVTable for AllNonDistinct {
     type Partial = AllNonDistinctPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.all_non_distinct")
+        static ID: CachedId = CachedId::new("vortex.all_non_distinct");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -264,8 +268,8 @@ fn check_canonical_identical(
         (Canonical::Extension(lhs), Canonical::Extension(rhs)) => {
             check_extension_identical(lhs, rhs, ctx)
         }
-        (Canonical::Variant(_), _) | (_, Canonical::Variant(_)) => {
-            vortex_bail!("Variant arrays don't support AllNonDistinct")
+        (Canonical::Variant(lhs), Canonical::Variant(rhs)) => {
+            check_variant_identical(lhs, rhs, ctx)
         }
         _ => Err(vortex_err!(
             "Canonical type mismatch in AllNonDistinct: {:?} vs {:?}",

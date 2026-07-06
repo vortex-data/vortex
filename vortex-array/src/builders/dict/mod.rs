@@ -35,7 +35,7 @@ pub const UNCONSTRAINED: DictConstraints = DictConstraints {
 
 pub trait DictEncoder: Send {
     /// Assign dictionary codes to the given input array.
-    fn encode(&mut self, array: &ArrayRef) -> ArrayRef;
+    fn encode(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray>;
 
     /// Clear the encoder state to make it ready for a new round of decoding.
     fn reset(&mut self) -> ArrayRef;
@@ -68,8 +68,7 @@ pub fn dict_encode_with_constraints(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<DictArray> {
     let mut encoder = dict_encoder(array, constraints);
-    let encoded = encoder.encode(array);
-    let codes = encoded.execute::<PrimitiveArray>(ctx)?.narrow(ctx)?;
+    let codes = encoder.encode(array, ctx)?.narrow(ctx)?;
     // SAFETY: The encoding process will produce a value set of codes and values
     // All values in the dictionary are guaranteed to be referenced by at least one code
     // since we build the dictionary from the codes we observe during encoding

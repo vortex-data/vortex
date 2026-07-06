@@ -77,14 +77,22 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::ZigZag;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     #[rstest]
     #[case::i8(PrimitiveArray::from_iter(-100_i8..100))]
@@ -92,10 +100,10 @@ mod test {
     #[case::i32(PrimitiveArray::from_iter(-100_i32..100))]
     #[case::i64(PrimitiveArray::from_iter(-100_i64..100))]
     fn test_compress(#[case] input: PrimitiveArray) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let compressed = zigzag_encode(input.as_view()).unwrap().into_array();
         assert!(compressed.is::<ZigZag>());
         let decompressed = compressed.execute::<PrimitiveArray>(&mut ctx).unwrap();
-        assert_arrays_eq!(decompressed, input);
+        assert_arrays_eq!(decompressed, input, &mut ctx);
     }
 }

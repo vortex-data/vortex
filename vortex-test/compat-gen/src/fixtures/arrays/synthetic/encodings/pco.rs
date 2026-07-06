@@ -7,14 +7,13 @@ use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::pco::Pco;
 use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -34,10 +33,7 @@ impl FlatLayoutFixture for PcoFixture {
         vec![Pco.id()]
     }
 
-    fn build(&self) -> VortexResult<ArrayRef> {
-        // NOTE: `FlatLayoutFixture::build` has a fixed trait signature without `ExecutionCtx`, so
-        // we construct a legacy ctx locally at this trait boundary.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    fn build(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let irregular_i64: PrimitiveArray =
             (0..N as i64).map(|i| i * i + (i % 17) * 1000).collect();
         let smooth_f64: PrimitiveArray = (0..N)
@@ -77,14 +73,14 @@ impl FlatLayoutFixture for PcoFixture {
                 "narrow_i16",
             ]),
             vec![
-                Pco::from_primitive(irregular_i64.as_view(), 8, 0, &mut ctx)?.into_array(),
-                Pco::from_primitive(smooth_f64.as_view(), 8, 0, &mut ctx)?.into_array(),
-                Pco::from_primitive(pattern_u32.as_view(), 8, 0, &mut ctx)?.into_array(),
-                Pco::from_primitive(nullable_f32.as_view(), 8, 0, &mut ctx)?.into_array(),
-                Pco::from_primitive(negative_i32.as_view(), 8, 0, &mut ctx)?.into_array(),
-                Pco::from_primitive(constant_u16.as_view(), 8, 0, &mut ctx)?.into_array(),
-                Pco::from_primitive(spike_outliers.as_view(), 8, 0, &mut ctx)?.into_array(),
-                Pco::from_primitive(narrow_i16.as_view(), 8, 0, &mut ctx)?.into_array(),
+                Pco::from_primitive(irregular_i64.as_view(), 8, 0, ctx)?.into_array(),
+                Pco::from_primitive(smooth_f64.as_view(), 8, 0, ctx)?.into_array(),
+                Pco::from_primitive(pattern_u32.as_view(), 8, 0, ctx)?.into_array(),
+                Pco::from_primitive(nullable_f32.as_view(), 8, 0, ctx)?.into_array(),
+                Pco::from_primitive(negative_i32.as_view(), 8, 0, ctx)?.into_array(),
+                Pco::from_primitive(constant_u16.as_view(), 8, 0, ctx)?.into_array(),
+                Pco::from_primitive(spike_outliers.as_view(), 8, 0, ctx)?.into_array(),
+                Pco::from_primitive(narrow_i16.as_view(), 8, 0, ctx)?.into_array(),
             ],
             N,
             Validity::NonNullable,

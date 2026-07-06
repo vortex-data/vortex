@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import type { LayoutTreeNode } from '../components/swimlane/types';
+import type { LayoutTreeNode, SegmentMapEntry } from '../components/swimlane/types';
 import {
   resetSegmentIds,
   makeFlat,
@@ -259,4 +259,77 @@ export function heavyChunksMock(): LayoutTreeNode {
       }),
     ],
   });
+}
+
+/**
+ * Gapped: two columns whose chunks are interleaved on disk (temp[0], count[0],
+ * temp[1], count[1], …). Plotting by physical byte offset shows each column's
+ * storage split by the other's — a gap in the column representation. Returns a
+ * hand-built segment map so the interleaving is explicit.
+ */
+export function gappedMock(): {
+  layout: LayoutTreeNode;
+  segments: SegmentMapEntry[];
+  totalBytes: number;
+} {
+  const rowsPerChunk = 30_000;
+  const totalRows = rowsPerChunk * 3;
+  const chunkBytes = 100_000;
+
+  const chunk = (columnId: string, dtype: string, i: number, segId: number): LayoutTreeNode => ({
+    id: `${columnId}.[${i}]`,
+    encoding: 'vortex.flat',
+    dtype,
+    rowCount: rowsPerChunk,
+    rowOffset: i * rowsPerChunk,
+    metadataBytes: 32,
+    segmentIds: [segId],
+    childType: { kind: 'chunk', chunkIndex: i, rowOffset: i * rowsPerChunk },
+    children: [],
+  });
+
+  const column = (
+    columnId: string,
+    fieldName: string,
+    dtype: string,
+    segIds: number[],
+  ): LayoutTreeNode => ({
+    id: columnId,
+    encoding: 'vortex.chunked',
+    dtype,
+    rowCount: totalRows,
+    rowOffset: 0,
+    metadataBytes: 64,
+    segmentIds: [],
+    childType: { kind: 'field', fieldName },
+    children: segIds.map((segId, i) => chunk(columnId, dtype, i, segId)),
+  });
+
+  const layout: LayoutTreeNode = {
+    id: 'root',
+    encoding: 'vortex.struct',
+    dtype: '{temp=f64, count=i64}',
+    rowCount: totalRows,
+    rowOffset: 0,
+    metadataBytes: 96,
+    segmentIds: [],
+    childType: { kind: 'root' },
+    children: [
+      column('root.temp', 'temp', 'f64', [0, 2, 4]),
+      column('root.count', 'count', 'i64', [1, 3, 5]),
+    ],
+  };
+
+  // Segment i sits at byte offset i * chunkBytes, so even segments (temp) and odd
+  // segments (count) alternate on disk — each column is physically fragmented.
+  const segments: SegmentMapEntry[] = [0, 1, 2, 3, 4, 5].map((index) => ({
+    index,
+    byteOffset: index * chunkBytes,
+    byteLength: chunkBytes,
+    alignment: 64,
+    column: index % 2 === 0 ? 'temp' : 'count',
+    layoutPath: index % 2 === 0 ? `root.temp.[${index / 2}]` : `root.count.[${(index - 1) / 2}]`,
+  }));
+
+  return { layout, segments, totalBytes: 6 * chunkBytes };
 }

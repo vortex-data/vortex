@@ -13,6 +13,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
+use vortex_session::registry::CachedId;
 
 use self::bool::accumulate_bool;
 use self::decimal::accumulate_decimal;
@@ -149,6 +150,10 @@ pub(crate) fn nan_scalar(dtype: &DType) -> Scalar {
 
 /// Whether a scalar holds a primitive float NaN value.
 pub(crate) fn scalar_is_nan(scalar: &Scalar) -> bool {
+    if !scalar.dtype().is_float() {
+        return false;
+    }
+
     scalar.as_primitive_opt().is_some_and(|p| p.is_nan())
 }
 
@@ -233,7 +238,7 @@ impl MinMaxPartial {
 
     /// Whether the partial state is poisoned to NaN.
     fn is_poisoned(&self) -> bool {
-        self.min.as_ref().is_some_and(scalar_is_nan)
+        self.element_dtype.is_float() && self.min.as_ref().is_some_and(scalar_is_nan)
     }
 }
 
@@ -287,7 +292,8 @@ impl AggregateFnVTable for MinMax {
     type Partial = MinMaxPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new("vortex.min_max")
+        static ID: CachedId = CachedId::new("vortex.min_max");
+        *ID
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -407,7 +413,7 @@ impl AggregateFnVTable for MinMax {
             Columnar::Canonical(c) => match c {
                 Canonical::Primitive(p) => accumulate_primitive(partial, p, ctx),
                 Canonical::Bool(b) => accumulate_bool(partial, b, ctx),
-                Canonical::VarBinView(v) => accumulate_varbinview(partial, v),
+                Canonical::VarBinView(v) => accumulate_varbinview(partial, v, ctx),
                 Canonical::Decimal(d) => accumulate_decimal(partial, d, ctx),
                 Canonical::Extension(e) => accumulate_extension(partial, e, ctx),
                 Canonical::Null(_) => Ok(()),

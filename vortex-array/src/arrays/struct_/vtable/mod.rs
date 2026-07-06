@@ -17,6 +17,7 @@ use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::VTable;
 use crate::array::child_to_validity;
+use crate::array::with_empty_buffers;
 use crate::arrays::struct_::array::FIELDS_OFFSET;
 use crate::arrays::struct_::array::VALIDITY_SLOT;
 use crate::arrays::struct_::array::make_struct_slots;
@@ -120,6 +121,14 @@ impl VTable for Struct {
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("StructArray buffer_name index {idx} out of bounds")
+    }
+
+    fn with_buffers(
+        &self,
+        array: ArrayView<'_, Self>,
+        buffers: &[BufferHandle],
+    ) -> VortexResult<ArrayParts<Self>> {
+        with_empty_buffers(self, array, buffers)
     }
 
     fn serialize(

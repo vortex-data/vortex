@@ -45,9 +45,10 @@ impl CastReduce for ALP {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -59,13 +60,20 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::alp::array::ALPArrayExt;
     use crate::alp_encode;
 
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
+
     #[test]
     fn issue_5766_test_cast_alp_with_patches_to_nullable() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![1.234f32, f32::NAN, 2.345, f32::INFINITY, 3.456].into_array();
         let values_primitive = values.clone().execute::<PrimitiveArray>(&mut ctx)?;
         let alp = alp_encode(values_primitive.as_view(), None, &mut ctx)?;
@@ -81,14 +89,14 @@ mod tests {
         let expected = values.cast(nullable_dtype)?;
 
         let casted_prim = casted.execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(casted_prim, expected);
+        assert_arrays_eq!(casted_prim, expected, &mut ctx);
 
         Ok(())
     }
 
     #[test]
     fn test_cast_alp_f32_to_f64() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![1.5f32, 2.5, 3.5, 4.5].into_array();
         let values_primitive = values.execute::<PrimitiveArray>(&mut ctx)?;
         let alp = alp_encode(values_primitive.as_view(), None, &mut ctx)?;
@@ -112,7 +120,7 @@ mod tests {
 
     #[test]
     fn test_cast_alp_to_int() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![1.0f32, 2.0, 3.0, 4.0].into_array();
         let values_primitive = values.execute::<PrimitiveArray>(&mut ctx)?;
         let alp = alp_encode(values_primitive.as_view(), None, &mut ctx)?;
@@ -126,7 +134,11 @@ mod tests {
         );
 
         let decoded = casted.execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i32, 2, 3, 4]));
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([1i32, 2, 3, 4]),
+            &mut ctx
+        );
 
         Ok(())
     }
@@ -138,7 +150,7 @@ mod tests {
     #[case(buffer![42.42f64].into_array())]
     #[case(buffer![0.0f32, -1.5, 2.5, -3.5, 4.5].into_array())]
     fn test_cast_alp_conformance(#[case] array: vortex_array::ArrayRef) -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array_primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
         let alp =
             alp_encode(array_primitive.as_view(), None, &mut ctx).vortex_expect("cannot fail");

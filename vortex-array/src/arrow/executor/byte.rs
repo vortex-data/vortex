@@ -80,14 +80,17 @@ mod tests {
     use arrow_array::cast::AsArray;
     use arrow_schema::DataType;
     use rstest::rstest;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array_session;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::executor::byte::VarBinViewArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::legacy_session;
 
     fn make_utf8_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["hello", "world", "this is a longer string for testing"])
@@ -119,7 +122,7 @@ mod tests {
         #[case] vortex_array: VarBinViewArray,
         #[case] target_dtype: DataType,
     ) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arrow = vortex_array
             .into_array()
             .execute_arrow(Some(&target_dtype), &mut ctx)
@@ -166,7 +169,7 @@ mod tests {
             vortex_dtype,
         );
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = array_session().create_execution_ctx();
         let arrow = vortex_array
             .into_array()
             .execute_arrow(Some(&target_dtype), &mut ctx)
@@ -178,5 +181,29 @@ mod tests {
         assert!(!arrow.is_null(0));
         assert!(arrow.is_null(1));
         assert!(!arrow.is_null(2));
+    }
+
+    #[test]
+    #[allow(clippy::disallowed_methods)]
+    fn filtered_utf8_view_export_does_not_retain_unselected_buffers() -> VortexResult<()> {
+        let unselected = "x".repeat(1 << 20);
+        let array =
+            VarBinViewArray::from_iter_str(["selected", unselected.as_str(), unselected.as_str()]);
+        let filtered = array
+            .into_array()
+            .filter(Mask::from_iter([true, false, false]))?;
+
+        let arrow = filtered.execute_arrow(
+            Some(&DataType::Utf8View),
+            &mut legacy_session().create_execution_ctx(),
+        )?;
+
+        assert_eq!(arrow.as_string_view().value(0), "selected");
+        assert!(
+            arrow.get_array_memory_size() < unselected.len(),
+            "filtered export retained unselected payload: {} bytes",
+            arrow.get_array_memory_size()
+        );
+        Ok(())
     }
 }

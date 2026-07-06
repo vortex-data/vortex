@@ -5,9 +5,13 @@
 //!
 //! This crate provides scalar types and values that can be used to represent individual data
 //! elements in the Vortex array system. [`Scalar`]s are composed of a logical data type ([`DType`])
-//! and an optional (encoding nullablity) value ([`ScalarValue`]).
+//! and an optional (encoding nullability) value ([`ScalarValue`]).
 //!
 //! Note that the implementations of `Scalar` are split into several different modules.
+//!
+//! `Scalar` is the single-row counterpart to [`ArrayRef`](crate::ArrayRef): it is logical, not tied
+//! to any physical array encoding. A scalar always carries its [`DType`], and null scalars are
+//! represented by `value == None`.
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;

@@ -48,9 +48,10 @@ impl CompareKernel for RunEnd {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
@@ -58,9 +59,16 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_session::VortexSession;
 
     use crate::RunEnd;
     use crate::RunEndArray;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        crate::initialize(&session);
+        session
+    });
 
     fn ree_array(ctx: &mut ExecutionCtx) -> RunEndArray {
         RunEnd::encode(
@@ -72,7 +80,7 @@ mod test {
 
     #[test]
     fn compare_run_end() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = ree_array(&mut ctx);
         let res = arr
             .into_array()
@@ -81,6 +89,6 @@ mod test {
         let expected = BoolArray::from_iter([
             false, false, false, false, false, false, false, false, true, true, true, true,
         ]);
-        assert_arrays_eq!(res, expected);
+        assert_arrays_eq!(res, expected, &mut ctx);
     }
 }

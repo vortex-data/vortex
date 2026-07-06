@@ -57,16 +57,14 @@ pub trait RuntimeSessionExt: SessionExt {
     #[cfg(feature = "tokio")]
     fn with_tokio(self) -> VortexSession {
         use crate::runtime::tokio::TokioRuntime;
-        let mut builder = self.session().to_builder();
-        builder.get_mut::<RuntimeSession>().handle = Some(TokioRuntime::current());
-        builder.build()
+        self.with_handle(TokioRuntime::current())
     }
 
     /// Configure the runtime session to use a specific Vortex runtime handle.
     fn with_handle(self, handle: Handle) -> VortexSession {
-        let mut builder = self.session().to_builder();
-        builder.get_mut::<RuntimeSession>().handle = Some(handle);
-        builder.build()
+        let session = self.session();
+        session.get_mut::<RuntimeSession>().handle = Some(handle);
+        session
     }
 }
 impl<S: SessionExt> RuntimeSessionExt for S {}

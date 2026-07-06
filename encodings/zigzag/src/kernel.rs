@@ -10,7 +10,6 @@ use vortex_session::VortexSession;
 use crate::ZigZag;
 
 pub(crate) fn initialize(session: &VortexSession) {
-    session
-        .kernels()
-        .register_execute_parent_kernel(Dict.id(), ZigZag, TakeExecuteAdaptor(ZigZag));
+    let kernels = session.kernels();
+    kernels.register_execute_parent_kernel(Dict.id(), ZigZag, TakeExecuteAdaptor(ZigZag));
 }

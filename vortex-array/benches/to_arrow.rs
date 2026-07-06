@@ -10,6 +10,7 @@ use divan::Bencher;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_session;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -28,10 +29,11 @@ use vortex_array::dtype::StructFields;
 use vortex_session::VortexSession;
 
 fn main() {
+    LazyLock::force(&SESSION);
     divan::main();
 }
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
 fn schema() -> DType {
     let fields = StructFields::from_iter([
@@ -89,9 +91,6 @@ fn to_arrow_dtype(bencher: Bencher) {
 #[allow(non_snake_case)]
 #[divan::bench]
 fn ArrowExportVTable_to_arrow_field(bencher: Bencher) {
-    // Warm the ArrowSession
-    drop(SESSION.arrow().to_arrow_field("", &schema()).unwrap());
-
     bencher
         .with_inputs(schema)
         .bench_values(|dtype| SESSION.arrow().to_arrow_field("", &dtype).unwrap())
@@ -110,13 +109,6 @@ fn to_arrow_array(bencher: Bencher) {
 #[allow(non_snake_case)]
 #[divan::bench]
 fn ArrowExportVTable_execute_arrow(bencher: Bencher) {
-    // Warm the ArrowSession
-    drop(
-        SESSION
-            .arrow()
-            .execute_arrow(array(), None, &mut SESSION.create_execution_ctx()),
-    );
-
     bencher
         .with_inputs(|| (array(), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {

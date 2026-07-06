@@ -5,8 +5,8 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
 use crate::Canonical;
-use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::SharedArray;
 use crate::arrays::shared::SharedArrayExt;
@@ -20,7 +20,7 @@ fn shared_array_caches_on_canonicalize() -> VortexResult<()> {
     let shared = SharedArray::new(array);
 
     let session = crate::array_session();
-    let mut ctx = ExecutionCtx::new(session);
+    let mut ctx = session.create_execution_ctx();
 
     let first = shared.get_or_compute(|source| source.clone().execute::<Canonical>(&mut ctx))?;
 
