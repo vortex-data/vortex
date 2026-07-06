@@ -201,6 +201,10 @@ name = "dict_mask"
 harness = false
 
 [[bench]]
+name = "validity_is_valid"
+harness = false
+
+[[bench]]
 name = "dict_unreferenced_mask"
 harness = false
 

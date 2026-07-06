@@ -10217,6 +10217,7 @@ dependencies = [
  "bitvec",
  "cbindgen",
  "cc",
+ "codspeed-divan-compat",
  "custom-labels",
  "futures",
  "geo-types",
