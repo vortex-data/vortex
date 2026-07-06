@@ -23,6 +23,25 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
+  changes:
+    name: "Detect CUDA changes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: read
+    outputs:
+      run-cuda-benchmarks: ${{ github.event_name != 'pull_request' || steps.filter.outputs.cuda == 'true' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d  # v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            cuda:
+              - "vortex-cuda/**"
+              - ".github/workflows/**"
+
   bench-codspeed:
     strategy:
       matrix:
@@ -72,7 +91,10 @@ jobs:
   # Getting a GPU box is slow, in the future we can build on a box without one and only run
   # on GPU machines.
   bench-codspeed-cuda-build:
-    if: github.repository == 'vortex-data/vortex'
+    needs: [changes]
+    if: >-
+      always() && github.repository == 'vortex-data/vortex' &&
+      needs.changes.outputs.run-cuda-benchmarks == 'true'
     name: "Build Codspeed CUDA benchmarks"
     timeout-minutes: 30
     runs-on: >-
