@@ -3,9 +3,11 @@
 #pragma once
 #include <stdint.h>
 
-//
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
-//
+
+// All operations return owned types which need to be freed by calling a
+// matching _free() function. This includes all arrays, data sources, scans,
+// errors, error messages, and other allocated objects.
 
 // https://arrow.apache.org/docs/format/CDataInterface.html#structure-definitions
 // If you want to use your own Arrow library like nanoarrow, define this macro
@@ -410,7 +412,7 @@ typedef struct Primitive Primitive;
  * array is a cheap operation.
  *
  * Unless stated explicitly, all operations with vx_array don't take
- * ownership of it, and thus it must be freed by the caller.
+ * ownership of it, and thus the array must be freed by the caller.
  */
 typedef struct vx_array vx_array;
 
@@ -475,8 +477,6 @@ typedef struct vx_error vx_error;
  * data. Each expression consists of an encoding (vtable), heap-allocated
  * metadata, and child expressions.
  *
- * Unless stated explicitly, all expressions returned are owned and must
- * be freed by the caller.
  * Unless stated explicitly, if an operation on const vx_expression* is
  * passed NULL, NULL is returned.
  * Operations on expressions don't take ownership of input values, and so
@@ -629,8 +629,7 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Clone a borrowed [`vx_array`], returning an owned [`vx_array`].
- * Must be released with [`vx_array_free`].
+ * Clone a vx_array
  */
 const vx_array *vx_array_clone(const vx_array *ptr);
 
@@ -677,10 +676,7 @@ void vx_array_get_validity(const vx_array *array, vx_validity *validity, vx_erro
 size_t vx_array_len(const vx_array *array);
 
 /**
- * Get the [`struct@crate::dtype::vx_dtype`] of the array.
- *
- * The returned pointer is valid as long as the array is valid.
- * Do NOT free the returned dtype pointer - it shares the lifetime of the array.
+ * Get array's dtype
  */
 const vx_dtype *vx_array_dtype(const vx_array *array);
 
@@ -737,9 +733,6 @@ const vx_array *vx_array_new_primitive(vx_ptype ptype,
  *
  * `nullable` controls the top-level nullability of the resulting array's dtype. For an Arrow
  * record batch (which has no top-level validity) pass `false`.
- *
- * The imported buffers are referenced zero-copy where possible; the returned array keeps the
- * Arrow data alive until it is freed with [`vx_array_free`].
  *
  * On error, returns NULL and sets `error_out`.
  *
@@ -820,7 +813,7 @@ const vx_array *vx_array_apply(const vx_array *array, const vx_expression *expre
 /**
  * Free an owned [`vx_array_iterator`] object.
  */
-void vx_array_iterator_free(vx_array_iterator *ptr);
+void vx_array_iterator_free(const vx_array_iterator *ptr);
 
 /**
  * Attempt to advance the `current` pointer of the iterator.
@@ -833,13 +826,12 @@ void vx_array_iterator_free(vx_array_iterator *ptr);
 const vx_array *vx_array_iterator_next(vx_array_iterator *iter, vx_error **error_out);
 
 /**
- * Clone a borrowed [`vx_binary`], returning an owned [`vx_binary`].
- * Must be released with [`vx_binary_free`].
+ * Clone a vx_binary. Returned handle must be release with vx_binary_free
  */
 const vx_binary *vx_binary_clone(const vx_binary *ptr);
 
 /**
- * Free an owned [`vx_binary`] object.
+ * Free a vx_binary
  */
 void vx_binary_free(const vx_binary *ptr);
 
@@ -859,21 +851,19 @@ size_t vx_binary_len(const vx_binary *ptr);
 const char *vx_binary_ptr(const vx_binary *ptr);
 
 /**
- * Clone a borrowed [`vx_data_source`], returning an owned [`vx_data_source`].
- * Must be released with [`vx_data_source_free`].
+ * Clone a vx_data_source. Returned handle must be release with vx_data_source_free
  */
 const vx_data_source *vx_data_source_clone(const vx_data_source *ptr);
 
 /**
- * Free an owned [`vx_data_source`] object.
+ * Free a vx_data_source
  */
 void vx_data_source_free(const vx_data_source *ptr);
 
 /**
  * Create a data source.
  * The first matched file is opened eagerly. to read the schema. All other I/O
- * is deferred until a scan is requested. The returned pointer is owned by the
- * caller and must be freed with vx_data_source_free.
+ * is deferred until a scan is requested.
  *
  * On error, returns NULL and sets "err".
  */
@@ -887,17 +877,13 @@ vx_data_source_new(const vx_session *session, const vx_data_source_options *opti
  * The bytes are borrowed, not copied: the caller must keep "buffer" alive and
  * unmodified until the data source is freed.
  *
- * The returned pointer is owned by the caller and must be freed with
- * vx_data_source_free.
- *
  * On error, returns NULL and sets "err".
  */
 const vx_data_source *
 vx_data_source_new_buffer(const vx_session *session, const void *buffer, size_t buffer_len, vx_error **err);
 
 /**
- * Return the schema of the data source as a non-owned dtype.
- * The returned pointer is valid as long as "ds" is alive. Do not free it.
+ * Return data source's dtype
  */
 const vx_dtype *vx_data_source_dtype(const vx_data_source *ds);
 
@@ -907,8 +893,7 @@ const vx_dtype *vx_data_source_dtype(const vx_data_source *ds);
 void vx_data_source_get_row_count(const vx_data_source *ds, vx_estimate *row_count);
 
 /**
- * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
- * Must be released with [`vx_dtype_free`].
+ * Clone a vx_dtype
  */
 const vx_dtype *vx_dtype_clone(const vx_dtype *ptr);
 
@@ -994,26 +979,21 @@ uint8_t vx_dtype_decimal_precision(const vx_dtype *dtype);
 int8_t vx_dtype_decimal_scale(const vx_dtype *dtype);
 
 /**
- * Return a borrowed reference to the [`vx_struct_fields`] of a struct.
- *
- * The returned pointer is valid as long as the struct dtype is valid.
- * Do NOT free the returned pointer - it shares the lifetime of the struct dtype.
+ * If "dtype" is DTYPE_STRUCT, return owned vx_struct_fields for this struct,
+ * return NULL otherwise. Returned vx_struct_fields must be released with
+ * vx_dtype_free.
  */
 const vx_struct_fields *vx_dtype_struct_dtype(const vx_dtype *dtype);
 
 /**
- * Returns the element type of a list.
- *
- * The returned pointer is valid as long as the list dtype is valid.
- * Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
+ * If "dtype" is DTYPE_LIST, return its owned element dtype, return NULL
+ * otherwise. Returned dtype must be released with vx_dtype_free.
  */
 const vx_dtype *vx_dtype_list_element(const vx_dtype *dtype);
 
 /**
- * Returns the element type of a fixed-size list.
- *
- * The returned pointer is valid as long as the fixed-size list dtype is valid.
- * Do NOT free the returned dtype pointer - it shares the lifetime of the fixed-size list dtype.
+ * If "dtype" is DTYPE_FIXED_SIZE_LIST, return its owned element dtype, return
+ * NULL otherwise. Returned dtype must be released with vx_dtype_free.
  */
 const vx_dtype *vx_dtype_fixed_size_list_element(const vx_dtype *dtype);
 
@@ -1069,20 +1049,17 @@ const vx_dtype *vx_dtype_from_arrow_schema(FFI_ArrowSchema *schema, vx_error **e
 /**
  * Free an owned [`vx_error`] object.
  */
-void vx_error_free(vx_error *ptr);
+void vx_error_free(const vx_error *ptr);
 
 /**
- * Returns the error message from the given Vortex error.
- *
- * The returned pointer is valid as long as the error is valid.
- * Do NOT free the returned string pointer - it shares the lifetime of the error.
+ * Return an error message for this error
  */
 const vx_string *vx_error_get_message(const vx_error *error);
 
 /**
  * Free an owned [`vx_expression`] object.
  */
-void vx_expression_free(vx_expression *ptr);
+void vx_expression_free(const vx_expression *ptr);
 
 /**
  * Create a root expression. A root expression, applied to an array in
@@ -1223,8 +1200,7 @@ vx_expression *vx_expression_get_item(const char *item, const vx_expression *chi
 vx_expression *vx_expression_list_contains(const vx_expression *list, const vx_expression *value);
 
 /**
- * Clone a borrowed [`vx_file`], returning an owned [`vx_file`].
- * Must be released with [`vx_file_free`].
+ * Clone a vx_file
  */
 const vx_file *vx_file_clone(const vx_file *ptr);
 
@@ -1248,22 +1224,17 @@ void vx_set_log_level(vx_log_level level);
 /**
  * Free an owned [`vx_scalar`] object.
  */
-void vx_scalar_free(vx_scalar *ptr);
+void vx_scalar_free(const vx_scalar *ptr);
 
 /**
- * Clone a borrowed scalar handle.
- *
- * The input scalar handle is not consumed. The returned scalar handle must be
- * released with vx_scalar_free. Returns NULL when given a NULL scalar handle.
+ * Clone a scalar handle.
+ * If scalar is NULL, returns NULL.
  */
 vx_scalar *vx_scalar_clone(const vx_scalar *scalar);
 
 /**
- * Return the data type of a scalar.
- *
- * The returned data type handle borrows storage from the scalar handle, so its
- * lifetime is bound to the scalar handle. It MUST NOT be freed separately.
- * Returns NULL when given a NULL scalar handle.
+ * Return scalar's dtype.
+ * If scalar is NULL, returns NULL.
  */
 const vx_dtype *vx_scalar_dtype(const vx_scalar *scalar);
 
@@ -1358,9 +1329,11 @@ vx_scalar *vx_scalar_new_binary(const uint8_t *ptr, size_t len, bool is_nullable
 /**
  * Create a typed null scalar.
  *
- * The data type handle is borrowed, not consumed. The returned scalar uses a
- * nullable copy of that logical type, regardless of the input type's top-level
- * nullability. A NULL data type handle returns NULL and writes the error output.
+ * "dtype" is not consumed, you can use it after calling this function. Returned
+ * scalar uses a nullable copy of that logical type, regardless of the input
+ * type's top-level nullability.
+ *
+ * Returns NULL and sets "err" on error or NULL dtype.
  */
 vx_scalar *vx_scalar_new_null(const vx_dtype *dtype, vx_error **err);
 
@@ -1435,10 +1408,8 @@ vx_scalar *vx_scalar_new_decimal_i256_le(const uint8_t *bytes32,
 /**
  * Create a list scalar.
  *
- * The element data type handle is borrowed, not consumed. Child scalar handles
- * are cloned into the list value, so the caller keeps ownership of the handle
- * array and each scalar in it. A NULL child handle array is allowed only for an
- * empty list. Child values are validated against the element logical type.
+ * "element_dtype" and "elements" are not consumed, you can use them after
+ * calling this function. If len is 0, you can pass NULL to "elements".
  */
 vx_scalar *vx_scalar_new_list(const vx_dtype *element_dtype,
                               const vx_scalar *const *elements,
@@ -1449,27 +1420,21 @@ vx_scalar *vx_scalar_new_list(const vx_dtype *element_dtype,
 /**
  * Create a fixed-size list scalar.
  *
- * The element data type handle is borrowed, not consumed. The number of child
- * scalars becomes the fixed-size list width and must fit in a 32-bit unsigned
- * integer. Child scalar handles are cloned into the list value, so the caller
- * keeps ownership of the handle array and each scalar in it. A NULL child
- * handle array is allowed only for an empty list. Child values are validated
- * against the element logical type.
+ * "element_dtype" and "elements" are not consumed, you can use them after
+ * calling this function. If len is 0, you can pass NULL to "elements".
+ * "len" must fit in uint32_t.
  */
 vx_scalar *vx_scalar_new_fixed_size_list(const vx_dtype *element_dtype,
                                          const vx_scalar *const *elements,
-                                         size_t len,
+                                         uint32_t len,
                                          bool is_nullable,
                                          vx_error **err);
 
 /**
  * Create a struct scalar.
  *
- * The struct data type handle is borrowed, not consumed. Field scalar handles
- * are cloned into the struct value, so the caller keeps ownership of the handle
- * array and each scalar in it. Field count and field logical types are validated
- * against the struct logical type. A NULL field handle array is allowed only for
- * an empty struct value.
+ * "struct_dtype" and "fields" are not consumed, you can use them after calling
+ * this function. If len is 0, you can pass NULL to "fields".
  */
 vx_scalar *vx_scalar_new_struct(const vx_dtype *struct_dtype,
                                 const vx_scalar *const *fields,
@@ -1479,19 +1444,17 @@ vx_scalar *vx_scalar_new_struct(const vx_dtype *struct_dtype,
 /**
  * Free an owned [`vx_scan`] object.
  */
-void vx_scan_free(vx_scan *ptr);
+void vx_scan_free(const vx_scan *ptr);
 
 /**
  * Free an owned [`vx_partition`] object.
  */
-void vx_partition_free(vx_partition *ptr);
+void vx_partition_free(const vx_partition *ptr);
 
 /**
  * Scan a data source.
  *
- * Return an owned scan that must be freed with vx_scan_free. A scan may be
- * consumed only once.
- *
+ * A scan may be consumed only once.
  * "options" and "estimate" may be NULL.
  *
  * If "options" is NULL, all rows and columns are returned.
@@ -1506,17 +1469,14 @@ vx_scan *vx_data_source_scan(const vx_data_source *data_source,
                              vx_error **err);
 
 /**
- * Return borrowed vx_scan's dtype.
+ * Return scan's dtype.
  * This function will fail if called after vx_scan_next_partition.
- * Called must not free the returned pointer as its lifetime is bound to the
- * lifetime of the scan.
  * On error returns NULL and sets "err".
  */
 const vx_dtype *vx_scan_dtype(const vx_scan *scan, vx_error **err);
 
 /**
- * Return an owned partition from a scan.
- * The returned partition must be freed with vx_partition_free.
+ * Return an partition from a scan.
  *
  * On success returns a partition.
  * On exhaustion (no more partitions in scan) returns NULL but doesn't set
@@ -1555,8 +1515,7 @@ int vx_partition_scan_arrow(const vx_session *session,
                             vx_error **err);
 
 /**
- * Return an owned owned array from a partition.
- * The returned array must be freed with vx_array_free.
+ * Return an array from a partition.
  *
  * On success returns an array.
  * On exhaustion (no more arrays in partition) returns NULL but doesn't set
@@ -1570,7 +1529,7 @@ const vx_array *vx_partition_next(vx_partition *partition, vx_error **err);
 /**
  * Free an owned [`vx_session`] object.
  */
-void vx_session_free(vx_session *ptr);
+void vx_session_free(const vx_session *ptr);
 
 /**
  * Create a new Vortex session.
@@ -1608,13 +1567,12 @@ void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **e
 void vx_array_sink_close(vx_array_sink *sink, vx_error **error_out);
 
 /**
- * Clone a borrowed [`vx_string`], returning an owned [`vx_string`].
- * Must be released with [`vx_string_free`].
+ * Clone a vx_string. Returned handle must be release with vx_string_free
  */
 const vx_string *vx_string_clone(const vx_string *ptr);
 
 /**
- * Free an owned [`vx_string`] object.
+ * Free a vx_string
  */
 void vx_string_free(const vx_string *ptr);
 
@@ -1641,7 +1599,7 @@ const char *vx_string_ptr(const vx_string *ptr);
 /**
  * Free an owned [`vx_struct_column_builder`] object.
  */
-void vx_struct_column_builder_free(vx_struct_column_builder *ptr);
+void vx_struct_column_builder_free(const vx_struct_column_builder *ptr);
 
 /**
  * Create a new column-wise struct array builder with given validity and a
@@ -1692,7 +1650,7 @@ const vx_array *vx_struct_column_builder_finalize(vx_struct_column_builder *buil
 /**
  * Free an owned [`vx_struct_fields`] object.
  */
-void vx_struct_fields_free(vx_struct_fields *ptr);
+void vx_struct_fields_free(const vx_struct_fields *ptr);
 
 /**
  * Return the number of fields in the struct dtype.
@@ -1700,28 +1658,21 @@ void vx_struct_fields_free(vx_struct_fields *ptr);
 uint64_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
 
 /**
- * Return a borrowed reference to the name of the field at the given index.
- *
- * The returned pointer is valid as long as the struct fields is valid.
- * Do NOT free the returned string pointer - it shares the lifetime of the struct fields.
- * Returns null if the index is out of bounds.
+ * Return an owned name of the field at a given index.
+ * If index is out of bounds, returns NULL.
  */
 const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
 
 /**
- * Returns an *owned* reference to the dtype of the field at the given index.
- *
- * The return type is owned since struct dtypes can be lazily parsed from a binary format, in
- * which case it's not possible to return a borrowed reference to the field dtype.
- *
- * Returns null if the index is out of bounds or if the field dtype cannot be parsed.
+ * Return an owned dtype of the field at a given index.
+ * Returns NULL if index is out of bounds or if dtype cannot be parsed.
  */
 const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, size_t idx);
 
 /**
  * Free an owned [`vx_struct_fields_builder`] object.
  */
-void vx_struct_fields_builder_free(vx_struct_fields_builder *ptr);
+void vx_struct_fields_builder_free(const vx_struct_fields_builder *ptr);
 
 /**
  * Create a new struct dtype builder.

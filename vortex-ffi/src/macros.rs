@@ -21,7 +21,7 @@
 //! Each macro provides a `free` function, and the `Arc` variants also provide a `clone` function.
 //!
 //! Converting between the raw pointer and the wrapped type is done using the generated `new`,
-//! `new_ref`, `as_ref`, `as_mut`, `into_box`, and `into_arc` methods, which internally check for
+//! `as_ref`, `as_mut`, `into_box`, and `into_arc` methods, which internally check for
 //! null pointers.
 //!
 //! ## Internals
@@ -59,11 +59,6 @@ macro_rules! arc_dyn_wrapper {
                     Box::into_raw(Box::new($ffi_ident(obj))).cast_const()
                 }
 
-                /// Wrap a borrowed object into a raw pointer.
-                pub(crate) fn new_ref(obj: &std::sync::Arc<$T>) -> *const $ffi_ident {
-                    obj as *const std::sync::Arc<$T> as *const $ffi_ident
-                }
-
                 /// Extract a borrowed reference from a const pointer.
                 pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a std::sync::Arc<$T> {
                     use vortex::error::VortexExpect;
@@ -82,8 +77,7 @@ macro_rules! arc_dyn_wrapper {
                 }
             }
 
-            #[doc = r" Clone a borrowed [`" $ffi_ident "`], returning an owned [`" $ffi_ident "`].\n\n"]
-            #[doc = r" Must be released with [`" $ffi_ident "_free`]."]
+            #[doc = r" Clone a " $ffi_ident ". Returned handle must be release with " $ffi_ident "_free "]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _clone>](ptr: *const $ffi_ident) -> *const $ffi_ident {
                 if ptr.is_null() {
@@ -93,7 +87,7 @@ macro_rules! arc_dyn_wrapper {
                 $ffi_ident::new($ffi_ident::as_ref(ptr).clone())
             }
 
-            #[doc = r" Free an owned [`" $ffi_ident "`] object."]
+            #[doc = r" Free a " $ffi_ident]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
                 if ptr.is_null() {
@@ -121,11 +115,6 @@ macro_rules! arc_wrapper {
                      std::sync::Arc::into_raw(obj).cast::<$ffi_ident>()
                 }
 
-                /// Wrap a borrowed object into a raw pointer.
-                pub(crate) fn new_ref(obj: &$T) -> *const $ffi_ident {
-                    obj as *const $T as *const $ffi_ident
-                }
-
                 /// Extract a borrowed reference from a const pointer.
                 pub(crate) fn as_ref(ptr: *const $ffi_ident) -> &'static $T {
                     use vortex::error::VortexExpect;
@@ -144,8 +133,7 @@ macro_rules! arc_wrapper {
                 }
             }
 
-            #[doc = r" Clone a borrowed [`" $ffi_ident "`], returning an owned [`" $ffi_ident "`].\n\n"]
-            #[doc = r" Must be released with [`" $ffi_ident "_free`]."]
+            #[doc = r" Clone a " $ffi_ident]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _clone>](ptr: *const $ffi_ident) -> *const $ffi_ident {
                 if ptr.is_null() {
@@ -186,21 +174,6 @@ macro_rules! box_dyn_wrapper {
                     Box::into_raw(Box::new($ffi_ident(obj)))
                 }
 
-                /// Wrap a borrowed object into a raw pointer.
-                pub(crate) fn new_ref(obj: &$T) -> *const $ffi_ident {
-                    obj as *const $T as *const $ffi_ident
-                }
-
-                /// Extract a borrowed reference from a const pointer.
-                pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a $T {
-                    use vortex::error::VortexExpect;
-                    // TODO(joe): propagate this error up instead of expecting
-                    unsafe { ptr.as_ref() }
-                        .vortex_expect("null pointer")
-                        .0
-                        .as_ref()
-                }
-
                 /// Extract a borrowed mutable reference from a mut pointer.
                 pub(crate) fn as_mut<'a>(ptr: *mut $ffi_ident) -> &'a mut $T {
                     use vortex::error::VortexExpect;
@@ -222,11 +195,11 @@ macro_rules! box_dyn_wrapper {
 
             #[doc = r" Free an owned [`" $ffi_ident "`] object."]
             #[unsafe(no_mangle)]
-            pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *mut $ffi_ident) {
+            pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
                 if ptr.is_null() {
                     vortex::error::vortex_panic!("null pointer");
                 }
-                drop($ffi_ident::into_box(ptr))
+                drop($ffi_ident::into_box(ptr.cast_mut()))
             }
         }
     };
@@ -251,11 +224,6 @@ macro_rules! box_wrapper {
                 /// Wrap an owned object into a raw pointer.
                 pub(crate) fn new(obj: $T) -> *mut $ffi_ident {
                     Box::into_raw(Box::new(obj)).cast::<$ffi_ident>()
-                }
-
-                /// Wrap a borrowed object into a raw pointer.
-                pub(crate) fn new_ref(obj: &$T) -> *const $ffi_ident {
-                    obj as *const $T as *const $ffi_ident
                 }
 
                 /// Extract a borrowed reference from a const pointer.
@@ -291,11 +259,11 @@ macro_rules! box_wrapper {
             #[allow(clippy::missing_safety_doc)]
             #[allow(rustdoc::private_intra_doc_links)]
             #[unsafe(no_mangle)]
-            pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *mut $ffi_ident) {
+            pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
                 if ptr.is_null() {
                     vortex::error::vortex_panic!("null pointer");
                 }
-                std::mem::drop(unsafe { Box::from_raw(ptr.cast::<$T>()) })
+                std::mem::drop(unsafe { Box::from_raw(ptr.cast::<$T>().cast_mut()) })
             }
         }
     };

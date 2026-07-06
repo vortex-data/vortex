@@ -11,9 +11,11 @@ header = """
 #pragma once
 #include <stdint.h>
 
-//
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
-//
+
+// All operations return owned types which need to be freed by calling a
+// matching _free() function. This includes all arrays, data sources, scans,
+// errors, error messages, and other allocated objects.
 
 // https://arrow.apache.org/docs/format/CDataInterface.html#structure-definitions
 // If you want to use your own Arrow library like nanoarrow, define this macro

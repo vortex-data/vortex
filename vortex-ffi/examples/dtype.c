@@ -61,9 +61,12 @@ void print_struct_dtype(const vx_dtype *dtype) {
         const vx_string *field_name = vx_struct_fields_field_name(fields, i);
         printf("    %.*s = ", (int)vx_string_len(field_name), vx_string_ptr(field_name));
         print_dtype(field_dtype);
+        vx_string_free(field_name);
         vx_dtype_free(field_dtype);
     }
     printf(")");
+
+    vx_struct_fields_free(fields);
 }
 
 void print_list_dtype(const vx_dtype *dtype) {
@@ -148,7 +151,9 @@ int main(int argc, char **argv) {
     }
 
     printf("dtype: ");
-    print_dtype(vx_data_source_dtype(data_source));
+    const vx_dtype* dtype = vx_data_source_dtype(data_source);
+    print_dtype(dtype);
+    vx_dtype_free(dtype);
 
     vx_data_source_free(data_source);
     vx_session_free(session);

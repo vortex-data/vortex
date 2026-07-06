@@ -55,7 +55,7 @@ arc_wrapper!(
     /// array is a cheap operation.
     ///
     /// Unless stated explicitly, all operations with vx_array don't take
-    /// ownership of it, and thus it must be freed by the caller.
+    /// ownership of it, and thus the array must be freed by the caller.
     ArrayRef,
     vx_array
 );
@@ -206,16 +206,13 @@ pub unsafe extern "C-unwind" fn vx_array_len(array: *const vx_array) -> usize {
     vx_array::as_ref(array).len()
 }
 
-/// Get the [`struct@crate::dtype::vx_dtype`] of the array.
-///
-/// The returned pointer is valid as long as the array is valid.
-/// Do NOT free the returned dtype pointer - it shares the lifetime of the array.
+/// Get array's dtype
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const vx_dtype {
-    vx_dtype::new_ref(vx_array::as_ref(array).dtype())
+    vx_dtype::new(Arc::new(vx_array::as_ref(array).dtype().clone()))
 }
 
-// Return an owned field for array at index.
+// Return a field for array at index.
 // Returns NULL and sets error_out if index is out of bounds or array doesn't
 // have dtype DTYPE_STRUCT.
 #[unsafe(no_mangle)]
@@ -357,9 +354,6 @@ pub extern "C-unwind" fn vx_array_new_primitive(
 ///
 /// `nullable` controls the top-level nullability of the resulting array's dtype. For an Arrow
 /// record batch (which has no top-level validity) pass `false`.
-///
-/// The imported buffers are referenced zero-copy where possible; the returned array keeps the
-/// Arrow data alive until it is freed with [`vx_array_free`].
 ///
 /// On error, returns NULL and sets `error_out`.
 ///
@@ -520,6 +514,7 @@ mod tests {
 
     use crate::array::*;
     use crate::binary::vx_binary_free;
+    use crate::dtype::vx_dtype_free;
     use crate::dtype::vx_dtype_get_variant;
     use crate::dtype::vx_dtype_variant;
     use crate::error::vx_error_free;
@@ -547,6 +542,7 @@ mod tests {
             assert_eq!(vx_array_get_i32(ffi_array, 1), 2);
             assert_eq!(vx_array_get_i32(ffi_array, 2), 3);
 
+            vx_dtype_free(array_dtype);
             vx_array_free(ffi_array);
         }
     }
@@ -865,17 +861,14 @@ mod tests {
         let vx_arr = vx_array::new(Arc::new(array));
         assert!(unsafe { vx_array_has_dtype(vx_arr, vx_dtype_variant::DTYPE_STRUCT) });
 
-        // Get dtype reference - this is valid as long as array lives
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
         let variant = unsafe { vx_dtype_get_variant(dtype_ptr) };
         assert_eq!(variant, vx_dtype_variant::DTYPE_STRUCT);
 
-        // Proper usage: use dtype while array is still alive
-        // This demonstrates the correct lifetime pattern
         unsafe { vx_array_free(vx_arr) };
-
-        // Note: dtype_ptr is now invalid - this test documents the lifetime pattern
-        // In real usage, don't access dtype_ptr after freeing the array
+        unsafe {
+            vx_dtype_free(dtype_ptr);
+        }
     }
 
     #[test]

@@ -208,10 +208,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -
         .scale()
 }
 
-/// Return a borrowed reference to the [`vx_struct_fields`] of a struct.
-///
-/// The returned pointer is valid as long as the struct dtype is valid.
-/// Do NOT free the returned pointer - it shares the lifetime of the struct dtype.
+/// If "dtype" is DTYPE_STRUCT, return owned vx_struct_fields for this struct,
+/// return NULL otherwise. Returned vx_struct_fields must be released with
+/// vx_dtype_free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     dtype: *const vx_dtype,
@@ -219,34 +218,29 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     let Some(struct_dtype) = vx_dtype::as_ref(dtype).as_struct_fields_opt() else {
         return ptr::null();
     };
-    vx_struct_fields::new_ref(struct_dtype)
+    vx_struct_fields::new(struct_dtype.clone())
 }
 
-/// Returns the element type of a list.
-///
-/// The returned pointer is valid as long as the list dtype is valid.
-/// Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
+/// If "dtype" is DTYPE_LIST, return its owned element dtype, return NULL
+/// otherwise. Returned dtype must be released with vx_dtype_free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) -> *const vx_dtype {
     let Some(element_dtype) = vx_dtype::as_ref(dtype).as_list_element_opt() else {
         return ptr::null();
     };
-    vx_dtype::new_ref(element_dtype)
+    vx_dtype::new(Arc::clone(element_dtype))
 }
 
-/// Returns the element type of a fixed-size list.
-///
-/// The returned pointer is valid as long as the fixed-size list dtype is valid.
-/// Do NOT free the returned dtype pointer - it shares the lifetime of the fixed-size list dtype.
+/// If "dtype" is DTYPE_FIXED_SIZE_LIST, return its owned element dtype, return
+/// NULL otherwise. Returned dtype must be released with vx_dtype_free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_element(
     dtype: *const vx_dtype,
 ) -> *const vx_dtype {
-    // TODO(joe): propagate this error up instead of expecting
-    let element_dtype = vx_dtype::as_ref(dtype)
-        .as_fixed_size_list_element_opt()
-        .vortex_expect("not a fixed-size list dtype");
-    vx_dtype::new_ref(element_dtype)
+    let Some(element_dtype) = vx_dtype::as_ref(dtype).as_fixed_size_list_element_opt() else {
+        return ptr::null();
+    };
+    vx_dtype::new(Arc::clone(element_dtype))
 }
 
 /// Returns the size of a fixed-size list.
@@ -398,6 +392,7 @@ mod tests {
     use crate::dtype::vx_dtype_variant;
     use crate::ptype::vx_ptype;
     use crate::string::vx_string;
+    use crate::string::vx_string_free;
     use crate::string::vx_string_len;
     use crate::string::vx_string_ptr;
     use crate::struct_fields::vx_struct_fields_builder_add_field;
@@ -449,6 +444,9 @@ mod tests {
             let age = vx_struct_fields_field_name(person, 1);
             assert_eq!(vx_string::as_str(age), "age");
 
+            vx_string_free(name);
+            vx_string_free(age);
+
             let dtype0 = vx_struct_fields_field_dtype(person, 0);
             let dtype1 = vx_struct_fields_field_dtype(person, 1);
             assert_eq!(vx_dtype_get_variant(dtype0), vx_dtype_variant::DTYPE_UTF8);
@@ -457,13 +455,9 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
 
-            // Field names are now borrowed references - do not free them
-
-            // Free field dtypes (owned references)
             vx_dtype_free(dtype0);
             vx_dtype_free(dtype1);
 
-            // Free struct fields
             vx_struct_fields_free(person);
         }
     }
@@ -517,6 +511,7 @@ mod tests {
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
             assert_eq!(vx_dtype_primitive_ptype(element), vx_ptype::PTYPE_I32);
+            vx_dtype_free(element);
 
             vx_dtype_free(list_dtype);
         }
@@ -534,15 +529,14 @@ mod tests {
             );
             assert!(vx_dtype_is_nullable(fsl_dtype));
 
-            // Test element accessor
             let element = vx_dtype_fixed_size_list_element(fsl_dtype);
             assert_eq!(
                 vx_dtype_get_variant(element),
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
             assert_eq!(vx_dtype_primitive_ptype(element), vx_ptype::PTYPE_F64);
+            vx_dtype_free(element);
 
-            // Test size accessor
             let size = vx_dtype_fixed_size_list_size(fsl_dtype);
             assert_eq!(size, 3);
 
@@ -565,6 +559,7 @@ mod tests {
             let element = vx_dtype_fixed_size_list_element(fsl_dtype);
             assert_eq!(vx_dtype_get_variant(element), vx_dtype_variant::DTYPE_UTF8);
             assert!(vx_dtype_is_nullable(element));
+            vx_dtype_free(element);
 
             let size = vx_dtype_fixed_size_list_size(fsl_dtype);
             assert_eq!(size, 10);
@@ -607,6 +602,8 @@ mod tests {
             );
             assert_eq!(vx_dtype_primitive_ptype(innermost), vx_ptype::PTYPE_I32);
 
+            vx_dtype_free(innermost);
+            vx_dtype_free(inner);
             vx_dtype_free(outer_fsl);
         }
     }
@@ -703,8 +700,9 @@ mod tests {
         let n_fields = unsafe { vx_struct_fields_nfields(struct_fields_ptr) };
         assert_eq!(n_fields, 2);
 
-        // Cleanup in reverse order - this is the safest order
         unsafe {
+            vx_struct_fields_free(struct_fields_ptr);
+            vx_dtype_free(dtype_ptr);
             vx_array_free(vx_arr);
         }
     }
@@ -729,9 +727,10 @@ mod tests {
         let name_str = str::from_utf8(name_slice).unwrap();
         assert_eq!(name_str, "nums");
 
-        // Cleanup in careful order
         unsafe {
-            // Field name is now a borrowed reference - do not free it
+            vx_string_free(field_name_ptr);
+            vx_struct_fields_free(struct_fields_ptr);
+            vx_dtype_free(dtype_ptr);
             vx_array_free(vx_arr);
         }
     }
@@ -762,11 +761,12 @@ mod tests {
             let expected_name = if i == 0 { "nums" } else { "floats" };
             assert_eq!(name_str, expected_name);
 
-            // Field name is now a borrowed reference - do not free it
+            unsafe { vx_string_free(field_name_ptr) };
         }
 
-        // Cleanup
         unsafe {
+            vx_struct_fields_free(struct_fields_ptr);
+            vx_dtype_free(dtype_ptr);
             vx_array_free(vx_arr);
         }
     }
@@ -800,6 +800,7 @@ mod tests {
             let f1 = vx_struct_fields_field_dtype(fields, 1);
             assert_eq!(vx_dtype_get_variant(f1), vx_dtype_variant::DTYPE_UTF8);
             assert!(vx_dtype_is_nullable(f1));
+            vx_struct_fields_free(fields);
             vx_dtype_free(f1);
             vx_dtype_free(dtype);
         }

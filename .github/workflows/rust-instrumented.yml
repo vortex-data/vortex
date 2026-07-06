@@ -194,7 +194,7 @@ jobs:
           - sanitizer: tsan
             sanitizer_flags: "-Zsanitizer=thread"
     name: "Rust/C++ FFI tests (${{ matrix.sanitizer }})"
-    timeout-minutes: 30
+    timeout-minutes: 5
     env:
       ASAN_OPTIONS: "symbolize=1:check_initialization_order=1:detect_leaks=1:leak_check_at_exit=1"
       LSAN_OPTIONS: "report_objects=1"
@@ -217,9 +217,6 @@ jobs:
           sccache: s3
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - uses: ./.github/actions/setup-prebuild
-      - name: Install rustfilt
-        run: |
-          cargo install rustfilt
       - name: Install Rust nightly toolchain
         run: |
           rustup toolchain install $NIGHTLY_TOOLCHAIN
@@ -241,8 +238,7 @@ jobs:
       - name: Run tests
         run: |
           set -o pipefail
-#         re-enable once we can fix this hang
-#         ./vortex-ffi/build/test/vortex_ffi_test 2>&1 | rustfilt
+          ./vortex-ffi/build/test/vortex_ffi_test
       - name: Run examples
         run: |
           set -o pipefail
@@ -251,11 +247,11 @@ jobs:
           # error: Unable to walk dir: File system loop found
           rm -fr vortex-ffi/build/_deps/nanoarrow-src/python
 
-          ./vortex-ffi/build/examples/write_sample file.vortex 2>&1 | rustfilt
-          ./vortex-ffi/build/examples/write_sample file2.vortex 2>&1 | rustfilt
-          ./vortex-ffi/build/examples/dtype '*.vortex' 2>&1 | rustfilt
-          ./vortex-ffi/build/examples/scan '*.vortex' 2>&1 | rustfilt
-          ./vortex-ffi/build/examples/scan_to_arrow '*.vortex' 2>&1 | rustfilt
+          ./vortex-ffi/build/examples/write_sample file.vortex
+          ./vortex-ffi/build/examples/write_sample file2.vortex
+          ./vortex-ffi/build/examples/dtype '*.vortex'
+          ./vortex-ffi/build/examples/scan '*.vortex'
+          ./vortex-ffi/build/examples/scan_to_arrow '*.vortex'
 
   miri:
     name: "Rust tests (miri)"

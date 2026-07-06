@@ -37,10 +37,8 @@ crate::box_wrapper!(
     vx_scalar
 );
 
-/// Clone a borrowed scalar handle.
-///
-/// The input scalar handle is not consumed. The returned scalar handle must be
-/// released with vx_scalar_free. Returns NULL when given a NULL scalar handle.
+/// Clone a scalar handle.
+/// If scalar is NULL, returns NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scalar_clone(scalar: *const vx_scalar) -> *mut vx_scalar {
     if scalar.is_null() {
@@ -49,17 +47,14 @@ pub unsafe extern "C-unwind" fn vx_scalar_clone(scalar: *const vx_scalar) -> *mu
     vx_scalar::new(vx_scalar::as_ref(scalar).clone())
 }
 
-/// Return the data type of a scalar.
-///
-/// The returned data type handle borrows storage from the scalar handle, so its
-/// lifetime is bound to the scalar handle. It MUST NOT be freed separately.
-/// Returns NULL when given a NULL scalar handle.
+/// Return scalar's dtype.
+/// If scalar is NULL, returns NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scalar_dtype(scalar: *const vx_scalar) -> *const vx_dtype {
     if scalar.is_null() {
         return ptr::null();
     }
-    vx_dtype::new_ref(vx_scalar::as_ref(scalar).dtype())
+    vx_dtype::new(Arc::new(vx_scalar::as_ref(scalar).dtype().clone()))
 }
 
 /// Return whether the scalar is a typed null value.
@@ -202,9 +197,11 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_binary(
 
 /// Create a typed null scalar.
 ///
-/// The data type handle is borrowed, not consumed. The returned scalar uses a
-/// nullable copy of that logical type, regardless of the input type's top-level
-/// nullability. A NULL data type handle returns NULL and writes the error output.
+/// "dtype" is not consumed, you can use it after calling this function. Returned
+/// scalar uses a nullable copy of that logical type, regardless of the input
+/// type's top-level nullability.
+///
+/// Returns NULL and sets "err" on error or NULL dtype.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scalar_new_null(
     dtype: *const vx_dtype,
@@ -342,10 +339,8 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_decimal_i256_le(
 
 /// Create a list scalar.
 ///
-/// The element data type handle is borrowed, not consumed. Child scalar handles
-/// are cloned into the list value, so the caller keeps ownership of the handle
-/// array and each scalar in it. A NULL child handle array is allowed only for an
-/// empty list. Child values are validated against the element logical type.
+/// "element_dtype" and "elements" are not consumed, you can use them after
+/// calling this function. If len is 0, you can pass NULL to "elements".
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scalar_new_list(
     element_dtype: *const vx_dtype,
@@ -370,30 +365,25 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_list(
 
 /// Create a fixed-size list scalar.
 ///
-/// The element data type handle is borrowed, not consumed. The number of child
-/// scalars becomes the fixed-size list width and must fit in a 32-bit unsigned
-/// integer. Child scalar handles are cloned into the list value, so the caller
-/// keeps ownership of the handle array and each scalar in it. A NULL child
-/// handle array is allowed only for an empty list. Child values are validated
-/// against the element logical type.
+/// "element_dtype" and "elements" are not consumed, you can use them after
+/// calling this function. If len is 0, you can pass NULL to "elements".
+/// "len" must fit in uint32_t.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scalar_new_fixed_size_list(
     element_dtype: *const vx_dtype,
     elements: *const *const vx_scalar,
-    len: usize,
+    len: u32,
     is_nullable: bool,
     err: *mut *mut vx_error,
 ) -> *mut vx_scalar {
     try_or(err, ptr::null_mut(), || {
         vortex_ensure!(!element_dtype.is_null(), "element dtype is null");
-        let size = u32::try_from(len)
-            .map_err(|_| vortex_err!("fixed-size list length {len} exceeds u32::MAX"))?;
         let dtype = DType::FixedSizeList(
             Arc::new(vx_dtype::as_ref(element_dtype).clone()),
-            size,
+            len,
             Nullability::from(is_nullable),
         );
-        let values = scalar_values_from_raw(elements, len)?;
+        let values = scalar_values_from_raw(elements, len as usize)?;
         Ok(vx_scalar::new(Scalar::try_new(
             dtype,
             Some(ScalarValue::Tuple(values)),
@@ -403,11 +393,8 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_fixed_size_list(
 
 /// Create a struct scalar.
 ///
-/// The struct data type handle is borrowed, not consumed. Field scalar handles
-/// are cloned into the struct value, so the caller keeps ownership of the handle
-/// array and each scalar in it. Field count and field logical types are validated
-/// against the struct logical type. A NULL field handle array is allowed only for
-/// an empty struct value.
+/// "struct_dtype" and "fields" are not consumed, you can use them after calling
+/// this function. If len is 0, you can pass NULL to "fields".
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scalar_new_struct(
     struct_dtype: *const vx_dtype,
@@ -620,10 +607,12 @@ mod tests {
             vx_dtype_free(dtype);
             assert_no_error(error);
             assert!(vx_scalar_is_null(null_scalar));
+            let scalar_dtype = vx_scalar_dtype(null_scalar);
             assert_eq!(
-                vx_dtype::as_ref(vx_scalar_dtype(null_scalar)),
+                vx_dtype::as_ref(scalar_dtype),
                 &DType::Primitive(PType::I32, Nullability::Nullable)
             );
+            vx_dtype_free(scalar_dtype);
             vx_scalar_free(null_scalar);
         }
     }
@@ -743,11 +732,12 @@ mod tests {
             );
             assert_no_error(error);
 
+            let len = u32::try_from(children.len()).unwrap();
             assert_scalar(
                 vx_scalar_new_fixed_size_list(
                     element_dtype,
                     children.as_ptr(),
-                    children.len(),
+                    len,
                     false,
                     &raw mut error,
                 ),

@@ -95,8 +95,7 @@ unsafe fn data_source_new(
 
 /// Create a data source.
 /// The first matched file is opened eagerly. to read the schema. All other I/O
-/// is deferred until a scan is requested. The returned pointer is owned by the
-/// caller and must be freed with vx_data_source_free.
+/// is deferred until a scan is requested.
 ///
 /// On error, returns NULL and sets "err".
 #[unsafe(no_mangle)]
@@ -115,9 +114,6 @@ pub unsafe extern "C-unwind" fn vx_data_source_new(
 /// "buffer_len" is the length of "buffer" in bytes.
 /// The bytes are borrowed, not copied: the caller must keep "buffer" alive and
 /// unmodified until the data source is freed.
-///
-/// The returned pointer is owned by the caller and must be freed with
-/// vx_data_source_free.
 ///
 /// On error, returns NULL and sets "err".
 #[unsafe(no_mangle)]
@@ -147,11 +143,10 @@ pub unsafe extern "C-unwind" fn vx_data_source_new_buffer(
     })
 }
 
-/// Return the schema of the data source as a non-owned dtype.
-/// The returned pointer is valid as long as "ds" is alive. Do not free it.
+/// Return data source's dtype
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_data_source_dtype(ds: *const vx_data_source) -> *const vx_dtype {
-    vx_dtype::new_ref(vx_data_source::as_ref(ds).dtype())
+    vx_dtype::new(Arc::new(vx_data_source::as_ref(ds).dtype().clone()))
 }
 
 /// Write data source's row count estimate into "row_count".
@@ -194,6 +189,7 @@ mod tests {
     use crate::data_source::vx_data_source_new_buffer;
     use crate::data_source::vx_data_source_options;
     use crate::dtype::vx_dtype;
+    use crate::dtype::vx_dtype_free;
     use crate::scan::vx_estimate;
     use crate::scan::vx_estimate_type;
     use crate::session::vx_session_free;
@@ -254,7 +250,8 @@ mod tests {
             assert_no_error(error);
             assert!(!ds.is_null());
 
-            let dtype = vx_dtype::as_ref(vx_data_source_dtype(ds));
+            let ffi_dtype = vx_data_source_dtype(ds);
+            let dtype = vx_dtype::as_ref(ffi_dtype);
             assert_eq!(dtype, struct_array.dtype());
 
             let mut row_count = vx_estimate::default();
@@ -262,6 +259,7 @@ mod tests {
             assert_eq!(row_count.r#type, vx_estimate_type::VX_ESTIMATE_EXACT);
             assert_eq!(row_count.estimate, SAMPLE_ROWS as u64);
 
+            vx_dtype_free(ffi_dtype);
             vx_data_source_free(ds);
             vx_session_free(session);
         }
@@ -289,7 +287,8 @@ mod tests {
             assert_no_error(error);
             assert!(!ds.is_null());
 
-            let dtype = vx_dtype::as_ref(vx_data_source_dtype(ds));
+            let ffi_dtype = vx_data_source_dtype(ds);
+            let dtype = vx_dtype::as_ref(ffi_dtype);
             assert_eq!(dtype, struct_array.dtype());
 
             let mut row_count = vx_estimate::default();
@@ -297,6 +296,7 @@ mod tests {
             assert_eq!(row_count.r#type, vx_estimate_type::VX_ESTIMATE_EXACT);
             assert_eq!(row_count.estimate, SAMPLE_ROWS as u64);
 
+            vx_dtype_free(ffi_dtype);
             vx_data_source_free(ds);
             vx_session_free(session);
         }

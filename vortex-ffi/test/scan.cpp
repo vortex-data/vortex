@@ -265,27 +265,36 @@ TEST_CASE("Write file and read dtypes", "[datasource]") {
     CHECK(row_count.estimate == SAMPLE_ROWS);
 
     const vx_dtype *data_source_dtype = vx_data_source_dtype(ds);
+    defer {
+        vx_dtype_free(data_source_dtype);
+    };
     REQUIRE(vx_dtype_get_variant(data_source_dtype) == DTYPE_STRUCT);
 
     const vx_struct_fields *fields = vx_dtype_struct_dtype(data_source_dtype);
+    defer {
+        vx_struct_fields_free(fields);
+    };
     const size_t len = vx_struct_fields_nfields(fields);
     REQUIRE(len == 2);
 
     const vx_dtype *age_dtype = vx_struct_fields_field_dtype(fields, 0);
+    const vx_string *age_name = vx_struct_fields_field_name(fields, 0);
     defer {
         vx_dtype_free(age_dtype);
+        vx_string_free(age_name);
     };
-    const vx_string *age_name = vx_struct_fields_field_name(fields, 0);
+
     REQUIRE(vx_dtype_get_variant(age_dtype) == DTYPE_PRIMITIVE);
     REQUIRE(vx_dtype_primitive_ptype(age_dtype) == PTYPE_U8);
     REQUIRE_FALSE(vx_dtype_is_nullable(age_dtype));
     REQUIRE(to_string_view(age_name) == "age");
 
     const vx_dtype *height_dtype = vx_struct_fields_field_dtype(fields, 1);
+    const vx_string *height_name = vx_struct_fields_field_name(fields, 1);
     defer {
         vx_dtype_free(height_dtype);
+        vx_string_free(height_name);
     };
-    const vx_string *height_name = vx_struct_fields_field_name(fields, 1);
     REQUIRE(vx_dtype_get_variant(height_dtype) == DTYPE_PRIMITIVE);
     REQUIRE(vx_dtype_primitive_ptype(height_dtype) == PTYPE_U16);
     REQUIRE(vx_dtype_is_nullable(height_dtype));
@@ -294,7 +303,11 @@ TEST_CASE("Write file and read dtypes", "[datasource]") {
 
 void verify_age_field(const vx_array *age_field) {
     REQUIRE(vx_array_has_dtype(age_field, DTYPE_PRIMITIVE));
-    REQUIRE(vx_dtype_primitive_ptype(vx_array_dtype(age_field)) == PTYPE_U8);
+    const vx_dtype *dtype = vx_array_dtype(age_field);
+    defer {
+        vx_dtype_free(dtype);
+    };
+    REQUIRE(vx_dtype_primitive_ptype(dtype) == PTYPE_U8);
     REQUIRE(vx_array_len(age_field) == SAMPLE_ROWS);
     for (size_t i = 0; i < SAMPLE_ROWS; ++i) {
         REQUIRE(vx_array_get_u8(age_field, i) == i);
@@ -303,7 +316,11 @@ void verify_age_field(const vx_array *age_field) {
 
 void verify_height_field(const vx_array *height_field) {
     REQUIRE(vx_array_has_dtype(height_field, DTYPE_PRIMITIVE));
-    REQUIRE(vx_dtype_primitive_ptype(vx_array_dtype(height_field)) == PTYPE_U16);
+    const vx_dtype *dtype = vx_array_dtype(height_field);
+    defer {
+        vx_dtype_free(dtype);
+    };
+    REQUIRE(vx_dtype_primitive_ptype(dtype) == PTYPE_U16);
     REQUIRE(vx_array_len(height_field) == SAMPLE_ROWS);
     for (size_t i = 0; i < SAMPLE_ROWS; ++i) {
         REQUIRE(vx_array_get_u16(height_field, i) > 0);
@@ -314,7 +331,9 @@ void verify_sample_array(const vx_array *array) {
     REQUIRE(vx_array_len(array) == SAMPLE_ROWS);
     REQUIRE(vx_array_has_dtype(array, DTYPE_STRUCT));
 
-    const vx_struct_fields *fields = vx_dtype_struct_dtype(vx_array_dtype(array));
+    const vx_dtype *dtype = vx_array_dtype(array);
+    const vx_struct_fields *fields = vx_dtype_struct_dtype(dtype);
+    vx_dtype_free(dtype);
     size_t len = vx_struct_fields_nfields(fields);
     REQUIRE(len == 2);
 
@@ -325,6 +344,7 @@ void verify_sample_array(const vx_array *array) {
     vx_dtype_free(age_dtype);
     const vx_string *age_name = vx_struct_fields_field_name(fields, 0);
     REQUIRE(to_string_view(age_name) == "age");
+    vx_string_free(age_name);
 
     const vx_dtype *height_dtype = vx_struct_fields_field_dtype(fields, 1);
     REQUIRE(vx_dtype_get_variant(height_dtype) == DTYPE_PRIMITIVE);
@@ -332,6 +352,9 @@ void verify_sample_array(const vx_array *array) {
     vx_dtype_free(height_dtype);
     const vx_string *height_name = vx_struct_fields_field_name(fields, 1);
     REQUIRE(to_string_view(height_name) == "height");
+    vx_string_free(height_name);
+
+    vx_struct_fields_free(fields);
 
     vx_error *error = nullptr;
     vx_validity validity = {};

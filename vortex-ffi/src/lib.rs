@@ -113,6 +113,7 @@ mod tests {
     use crate::sink::vx_array_sink_open_file;
     use crate::sink::vx_array_sink_push;
     use crate::string::vx_string;
+    use crate::string::vx_string_free;
 
     /// Panic if error is NULL. Free the error if it's not
     pub(crate) fn assert_error(error: *mut vx_error) {
@@ -125,7 +126,9 @@ mod tests {
         if !error.is_null() {
             let message;
             unsafe {
-                message = vx_string::as_str(vx_error_get_message(error)).to_owned();
+                let msg_ptr = vx_error_get_message(error);
+                message = vx_string::as_str(msg_ptr).to_owned();
+                vx_string_free(msg_ptr);
                 vx_error_free(error);
             }
             panic!("{message}");

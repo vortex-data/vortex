@@ -7,22 +7,20 @@
 
 inline std::string to_string(vx_error *err) {
     const vx_string *msg = vx_error_get_message(err);
-    return {vx_string_ptr(msg), vx_string_len(msg)};
+    const std::string out {vx_string_ptr(msg), vx_string_len(msg)};
+    vx_string_free(msg);
+    return out;
 }
 
 inline std::string_view to_string_view(const vx_string *msg) {
     return {vx_string_ptr(msg), vx_string_len(msg)};
 }
 
-inline std::string_view to_string_view(vx_error *err) {
-    return to_string_view(vx_error_get_message(err));
-}
-
 inline void require_no_error(vx_error *error, bool assert = true) {
     if (!error) {
         return;
     }
-    auto message = to_string(error);
+    std::string message = to_string(error);
     vx_error_free(error);
     if (assert) {
         FAIL(message);

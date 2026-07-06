@@ -225,9 +225,7 @@ fn write_estimate<T: Into<u64>>(estimate: Precision<T>, out: &mut vx_estimate) {
 
 /// Scan a data source.
 ///
-/// Return an owned scan that must be freed with vx_scan_free. A scan may be
-/// consumed only once.
-///
+/// A scan may be consumed only once.
 /// "options" and "estimate" may be NULL.
 ///
 /// If "options" is NULL, all rows and columns are returned.
@@ -256,10 +254,8 @@ pub unsafe extern "C-unwind" fn vx_data_source_scan(
     })
 }
 
-/// Return borrowed vx_scan's dtype.
+/// Return scan's dtype.
 /// This function will fail if called after vx_scan_next_partition.
-/// Called must not free the returned pointer as its lifetime is bound to the
-/// lifetime of the scan.
 /// On error returns NULL and sets "err".
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scan_dtype(
@@ -271,12 +267,11 @@ pub unsafe extern "C-unwind" fn vx_scan_dtype(
         let VxScan::Pending(scan) = scan else {
             vortex_bail!("dtype unavailable: scan already started");
         };
-        Ok(vx_dtype::new_ref(scan.dtype()))
+        Ok(vx_dtype::new(Arc::new(scan.dtype().clone())))
     })
 }
 
-/// Return an owned partition from a scan.
-/// The returned partition must be freed with vx_partition_free.
+/// Return an partition from a scan.
 ///
 /// On success returns a partition.
 /// On exhaustion (no more partitions in scan) returns NULL but doesn't set
@@ -398,8 +393,7 @@ pub unsafe extern "C-unwind" fn vx_partition_scan_arrow(
     })
 }
 
-/// Return an owned owned array from a partition.
-/// The returned array must be freed with vx_array_free.
+/// Return an array from a partition.
 ///
 /// On success returns an array.
 /// On exhaustion (no more arrays in partition) returns NULL but doesn't set

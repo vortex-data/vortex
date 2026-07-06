@@ -103,13 +103,10 @@ pub fn try_or<T>(
     }
 }
 
-/// Returns the error message from the given Vortex error.
-///
-/// The returned pointer is valid as long as the error is valid.
-/// Do NOT free the returned string pointer - it shares the lifetime of the error.
+/// Return an error message for this error
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_error_get_message(error: *const vx_error) -> *const vx_string {
-    vx_string::new_ref(&vx_error::as_ref(error).message)
+    vx_string::new(Arc::clone(&vx_error::as_ref(error).message))
 }
 
 #[cfg(test)]
@@ -160,6 +157,7 @@ mod tests {
             vx_string::as_ref(message).as_ref(),
             "panic in Vortex FFI function: boom"
         );
+        unsafe { crate::string::vx_string_free(message) };
         unsafe { vx_error_free(error) };
     }
 }

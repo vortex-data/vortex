@@ -38,8 +38,6 @@ crate::box_wrapper!(
     /// data. Each expression consists of an encoding (vtable), heap-allocated
     /// metadata, and child expressions.
     ///
-    /// Unless stated explicitly, all expressions returned are owned and must
-    /// be freed by the caller.
     /// Unless stated explicitly, if an operation on const vx_expression* is
     /// passed NULL, NULL is returned.
     /// Operations on expressions don't take ownership of input values, and so

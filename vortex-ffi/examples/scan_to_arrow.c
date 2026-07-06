@@ -23,7 +23,6 @@ void print_error(const char *what, const vx_error *error) {
 void execute_scan(vx_session *session, vx_scan *scan) {
     vx_error *error = NULL;
 
-    // Returned dtype is owned and mustn't be freed
     const vx_dtype *dtype = vx_scan_dtype(scan, &error);
     if (dtype == NULL) {
         print_error("Failed to get scan dtype", error);
@@ -37,6 +36,7 @@ void execute_scan(vx_session *session, vx_scan *scan) {
         vx_error_free(error);
         return;
     }
+    vx_dtype_free(dtype);
 
     char schema_buf[1024 * 10];
     const int schema_len = ArrowSchemaToString(&schema, schema_buf, sizeof schema_buf, 1);

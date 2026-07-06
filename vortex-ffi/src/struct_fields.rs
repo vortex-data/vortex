@@ -29,11 +29,8 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(dtype: *const vx_struct
         .nfields() as u64
 }
 
-/// Return a borrowed reference to the name of the field at the given index.
-///
-/// The returned pointer is valid as long as the struct fields is valid.
-/// Do NOT free the returned string pointer - it shares the lifetime of the struct fields.
-/// Returns null if the index is out of bounds.
+/// Return an owned name of the field at a given index.
+/// If index is out of bounds, returns NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     dtype: *const vx_struct_fields,
@@ -46,16 +43,11 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
         return ptr::null();
     }
     let name = struct_dtype.names()[idx].inner();
-    vx_string::new_ref(name)
+    vx_string::new(Arc::clone(name))
 }
 
-/// Returns an *owned* reference to the dtype of the field at the given index.
-///
-/// The return type is owned since struct dtypes can be lazily parsed from a binary format, in
-/// which case it's not possible to return a borrowed reference to the field dtype.
-///
-/// Returns null if the index is out of bounds or if the field dtype cannot be parsed.
-// TODO(ngates): should StructDType cache owned fields internally?
+/// Return an owned dtype of the field at a given index.
+/// Returns NULL if index is out of bounds or if dtype cannot be parsed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
     dtype: *const vx_struct_fields,
