@@ -9,7 +9,6 @@ mod zstd;
 mod zstd_buffers;
 
 // Re-export builtin schemes from vortex-compressor.
-pub use vortex_compressor::builtins::BinaryConstantScheme;
 pub use vortex_compressor::builtins::BinaryDictScheme;
 #[cfg(feature = "zstd")]
 pub use zstd::ZstdScheme;

@@ -206,13 +206,13 @@ pub trait Scheme: Debug + Send + Sync {
     ///
     /// Note that the compressor will also use this method when compressing samples, so some
     /// statistics that might hold for the samples may not hold for the entire array (e.g.,
-    /// `Constant`). Implementations should check `ctx.is_sample` to make sure that they are
+    /// constancy). Implementations should check `ctx.is_sample` to make sure that they are
     /// returning the correct information.
     ///
     /// The compressor guarantees that empty and all-null arrays are handled before this method is
-    /// called. Implementations may assume the array has at least one valid element. However, a
-    /// constant scheme should still be registered with the compressor to detect single-value arrays
-    /// that are not all-null.
+    /// called, so implementations may assume the array has at least one valid element. Outside of
+    /// sample compression, the compressor also encodes constant arrays itself before evaluating
+    /// schemes, so implementations only see constant arrays when `ctx.is_sample()` is `true`.
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,

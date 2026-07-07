@@ -11,7 +11,6 @@ use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
 use crate::schemes::binary;
-use crate::schemes::bool;
 use crate::schemes::decimal;
 use crate::schemes::float;
 use crate::schemes::integer;
@@ -24,13 +23,8 @@ use crate::schemes::temporal;
 /// the final scheme list, so that tie-breaking is deterministic.
 pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    // Bool schemes.
-    ////////////////////////////////////////////////////////////////////////////////////////////////
-    &bool::BoolConstantScheme,
-    ////////////////////////////////////////////////////////////////////////////////////////////////
     // Integer schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    &integer::IntConstantScheme,
     // NOTE: FoR must precede BitPacking to avoid unnecessary patches.
     &integer::FoRScheme,
     // NOTE: ZigZag should precede BitPacking because we don't want negative numbers.
@@ -47,7 +41,6 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Float schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
-    &float::FloatConstantScheme,
     &float::ALPScheme,
     &float::ALPRDScheme,
     &float::FloatDictScheme,
@@ -62,13 +55,11 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &string::FSSTScheme,
     #[cfg(feature = "unstable_encodings")]
     &string::OnPairScheme,
-    &string::StringConstantScheme,
     &string::NullDominatedSparseScheme,
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Binary schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
     &binary::BinaryDictScheme,
-    &binary::BinaryConstantScheme,
     // Decimal schemes.
     &decimal::DecimalScheme,
     // Temporal schemes.
