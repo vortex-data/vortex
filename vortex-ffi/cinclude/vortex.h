@@ -202,6 +202,52 @@ typedef enum {
 } vx_estimate_type;
 
 /**
+ * Error category for vx_error.
+ */
+typedef enum {
+    /**
+     * All other errors
+     */
+    VX_ERROR_CODE_OTHER = 0,
+    /**
+     * Index out of bounds
+     */
+    VX_ERROR_CODE_OUT_OF_BOUNDS = 1,
+    /**
+     * Compute kernel execute error
+     */
+    VX_ERROR_CODE_COMPUTE = 2,
+    /**
+     * An invalid argument was provided.
+     */
+    VX_ERROR_CODE_INVALID_ARGUMENT = 3,
+    /**
+     * Serialization/deserialization error
+     */
+    VX_ERROR_CODE_SERIALIZATION = 4,
+    /**
+     * Unimplemented function
+     */
+    VX_ERROR_CODE_NOT_IMPLEMENTED = 5,
+    /**
+     * Type mismatch
+     */
+    VX_ERROR_CODE_MISMATCHED_TYPES = 6,
+    /**
+     * Assertion failed
+     */
+    VX_ERROR_CODE_ASSERTION_FAILED = 7,
+    /**
+     * IO error
+     */
+    VX_ERROR_CODE_IO = 8,
+    /**
+     * Panic inside FFI
+     */
+    VX_ERROR_CODE_PANIC = 9,
+} vx_error_code;
+
+/**
  * Equalities, inequalities, and boolean operations over possibly null values.
  * For most operations, if either side is null, the result is null.
  * VX_OPERATOR_KLEENE_AND, VX_OPERATOR_KLEENE_OR obey Kleene (three-valued)
@@ -804,6 +850,43 @@ const vx_string *vx_array_get_utf8(const vx_array *array, uint32_t index);
 const vx_binary *vx_array_get_binary(const vx_array *array, uint32_t index);
 
 /**
+ * For a canonical Bool array, return bool at "index".
+ * For invalid elements returned value is unspecified, check validity via
+ * vx_array_get_validity.
+ *
+ * Panics if "array" is not canonical - call vx_array_canonicalize first.
+ * Panics if "array" is not a Bool array.
+ * Panics if "index" is out of bounds.
+ */
+bool vx_array_get_bool(const vx_array *array, size_t index);
+
+/**
+ * Decode array into its canonical form.
+ *
+ * On error returns NULL and "sets error_out".
+ */
+const vx_array *vx_array_canonicalize(const vx_session *session, const vx_array *array, vx_error **error_out);
+
+/**
+ * Return a pointer to the values buffer of a canonical Primitive array.
+ * Pointer is valid as long as "array" is valid.
+ *
+ * Errors if array is not a canonical Primitive.
+ */
+const void *vx_array_data_ptr_primitive(const vx_array *array, vx_error **error_out);
+
+/**
+ * Return a pointer to the bitpacked buffer of a canonical Bool array.
+ * Pointer is valid as long as "array" is valid.
+ *
+ * Writes bit offset of the first element into "bit_offset_out".
+ * "bit_offset_out" must not be NULL.
+ *
+ * Errors if array is not a canonical Bool.
+ */
+const void *vx_array_data_ptr_bool(const vx_array *array, size_t *bit_offset_out, vx_error **error_out);
+
+/**
  * Apply the expression to the array, wrapping it with a ScalarFnArray.
  * This operation takes constant time as it doesn't execute the underlying
  * array. Executing the underlying array still takes O(n) time.
@@ -1055,6 +1138,11 @@ void vx_error_free(const vx_error *ptr);
  * Return an error message for this error
  */
 const vx_string *vx_error_get_message(const vx_error *error);
+
+/**
+ * Return category code for "error".
+ */
+vx_error_code vx_error_get_code(const vx_error *error);
 
 /**
  * Free an owned [`vx_expression`] object.
@@ -1565,6 +1653,12 @@ void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **e
  * to the external resource.
  */
 void vx_array_sink_close(vx_array_sink *sink, vx_error **error_out);
+
+/**
+ * Abort an array sink. File footer is not written, and file is left invalid.
+ * Don't use sink after this call.
+ */
+void vx_array_sink_abort(vx_array_sink *sink);
 
 /**
  * Clone a vx_string. Returned handle must be release with vx_string_free

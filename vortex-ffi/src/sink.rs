@@ -119,6 +119,16 @@ pub unsafe extern "C-unwind" fn vx_array_sink_close(
     })
 }
 
+/// Abort an array sink. File footer is not written, and file is left invalid.
+/// Don't use sink after this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_sink_abort(sink: *mut vx_array_sink) {
+    if sink.is_null() {
+        return;
+    }
+    drop(unsafe { Box::from_raw(sink) });
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
@@ -134,6 +144,8 @@ mod tests {
     use super::*;
     use crate::array::vx_array;
     use crate::array::vx_array_free;
+    use crate::data_source::vx_data_source_new;
+    use crate::data_source::vx_data_source_options;
     use crate::dtype::vx_dtype;
     use crate::dtype::vx_dtype_free;
     use crate::error::vx_error_free;
@@ -257,6 +269,43 @@ mod tests {
             }
 
             vx_dtype_free(vx_dtype_ptr);
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_sink_abort() {
+        let dtype = DType::Primitive(vortex::dtype::PType::I32, false.into());
+        let array = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
+
+        let file = NamedTempFile::new().unwrap();
+        let path = CString::new(file.path().to_str().unwrap()).unwrap();
+
+        unsafe {
+            let session = vx_session_new();
+            let dtype = vx_dtype::new(Arc::new(dtype));
+
+            let mut error = std::ptr::null_mut();
+            let sink = vx_array_sink_open_file(session, path.as_ptr(), dtype, &raw mut error);
+            assert!(error.is_null());
+
+            let array = vx_array::new(Arc::new(array.into_array()));
+            vx_array_sink_push(sink, array, &raw mut error);
+            assert!(error.is_null());
+            vx_array_free(array);
+
+            vx_array_sink_abort(sink);
+
+            let opts = vx_data_source_options {
+                paths: path.as_ptr(),
+            };
+            let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
+            assert!(ds.is_null());
+            assert!(!error.is_null());
+            vx_error_free(error);
+
+            vx_dtype_free(dtype);
             vx_session_free(session);
         }
     }
