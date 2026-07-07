@@ -46,6 +46,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: ${{ github.event.pull_request.head.repo.fork == false && 'true' || 'false' }}
 
       - name: Install DuckDB
         run: |

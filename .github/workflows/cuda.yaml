@@ -54,7 +54,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA build & lint"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-build
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/extras=s3-cache/tag=cuda-build
     steps:
       - uses: runs-on/action@v2
         with:
@@ -63,6 +63,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
       - uses: ./.github/actions/check-rebuild
         with:
           command: >-
@@ -88,7 +89,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-tests
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/extras=s3-cache/tag=cuda-tests
     steps:
       - uses: runs-on/action@v2
         with:
@@ -102,6 +103,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
         with:
@@ -144,7 +146,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (${{ matrix.sanitizer }})"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-sanitizer
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/extras=s3-cache/tag=cuda-test-sanitizer
     strategy:
       fail-fast: false
       matrix:
@@ -171,6 +173,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
       - name: Build tests
         run: cargo test --profile ci --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu --no-run
       - name: "CUDA - ${{ matrix.sanitizer }}"
@@ -185,7 +188,7 @@ jobs:
       needs.changes.outputs.run-cuda-san == 'true'
     name: "CUDA tests (cudf)"
     timeout-minutes: 30
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-cudf
+    runs-on: runs-on=${{ github.run_id }}/runner=gpu/extras=s3-cache/tag=cuda-test-cudf
     steps:
       - uses: runs-on/action@v2
         with:
@@ -199,6 +202,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
       - name: Build cudf test library
         run: cargo build --profile ci --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
       - name: Download and run cudf-test-harness

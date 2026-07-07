@@ -187,8 +187,6 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: ./.github/actions/setup-rust
-        with:
-          enable-sccache: "false"
 
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6

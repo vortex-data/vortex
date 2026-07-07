@@ -64,7 +64,7 @@ jobs:
     timeout-minutes: 370  # 6 hours 10 minutes
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner={1}/disk=large/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
+          && format('runs-on={0}/runner={1}/disk=large/extras=s3-cache/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
           || 'ubuntu-latest' }}
     outputs:
       crashes_found: ${{ steps.check.outputs.crashes_found }}
@@ -82,6 +82,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
 
       - name: Install llvm
         uses: aminya/setup-cpp@v1
