@@ -273,6 +273,7 @@ impl DType {
 
         let mut builder = SchemaBuilder::with_capacity(struct_dtype.names().len());
         for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
+            validate_arrow_field_name(field_name.as_ref())?;
             let field = if field_dtype.is_variant() {
                 let storage = DataType::Struct(variant_storage_fields_minimal());
                 Field::new(field_name.as_ref(), storage, field_dtype.is_nullable()).with_metadata(
@@ -306,6 +307,15 @@ impl DType {
     pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
         to_data_type_naive(self)
     }
+}
+
+/// Reject a field name Arrow cannot export: an interior NUL byte aborts the process during FFI
+/// schema export, where the name is copied into a NUL-terminated `CString`.
+pub(crate) fn validate_arrow_field_name(name: &str) -> VortexResult<()> {
+    if name.contains('\0') {
+        vortex_bail!("field name {name:?} cannot be exported to Arrow: contains a NUL byte");
+    }
+    Ok(())
 }
 
 /// Naive conversion from a Vortex `DType` to the nearest Arrow physical data type.
@@ -361,6 +371,7 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
         DType::Struct(struct_dtype, _) => {
             let mut fields = Vec::with_capacity(struct_dtype.names().len());
             for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
+                validate_arrow_field_name(field_name.as_ref())?;
                 fields.push(FieldRef::from(Field::new(
                     field_name.as_ref(),
                     to_data_type_naive(&field_dt)?,
@@ -652,5 +663,34 @@ mod test {
         let dtype = DType::try_from_arrow((&DataType::Int32, Nullability::Nullable))?;
         assert_eq!(dtype, DType::Primitive(PType::I32, Nullability::Nullable));
         Ok(())
+    }
+
+    #[test]
+    fn test_to_arrow_schema_rejects_nul_field_name() {
+        // A NUL byte in a field name aborts Arrow's FFI schema export (#8652); reject it up front.
+        let dtype = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["col\0hidden"]),
+                vec![DType::Primitive(PType::I32, Nullability::Nullable)],
+            ),
+            Nullability::NonNullable,
+        );
+        assert!(dtype.to_arrow_schema().is_err());
+    }
+
+    #[test]
+    fn test_to_arrow_schema_rejects_nul_in_nested_field_name() {
+        let inner = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["a\0b"]),
+                vec![DType::Primitive(PType::I32, Nullability::Nullable)],
+            ),
+            Nullability::Nullable,
+        );
+        let dtype = DType::Struct(
+            StructFields::new(FieldNames::from(["outer"]), vec![inner]),
+            Nullability::NonNullable,
+        );
+        assert!(dtype.to_arrow_schema().is_err());
     }
 }

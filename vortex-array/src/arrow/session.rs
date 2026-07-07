@@ -60,6 +60,7 @@ use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::dtype::arrow::TryFromArrowType;
 use crate::dtype::arrow::to_data_type_naive;
+use crate::dtype::arrow::validate_arrow_field_name;
 use crate::dtype::extension::ExtId;
 use crate::extension::datetime::AnyTemporal;
 use crate::extension::uuid::Uuid;
@@ -221,6 +222,7 @@ impl ArrowSession {
     /// For [`DType::Extension`]s, plugins registered against the extension's `Id`
     /// are tried in registration order; the first plugin to return `Some(field)` wins.
     pub fn to_arrow_field(&self, name: &str, dtype: &DType) -> VortexResult<Field> {
+        validate_arrow_field_name(name)?;
         // Handle the structural encodings, which may have recursive types
         match dtype {
             DType::List(elem_dtype, nullability) => {
@@ -790,5 +792,13 @@ mod tests {
         assert_eq!(fsb.value(0), b"0123456789abcdef");
         assert_eq!(fsb.value(1), b"fedcba9876543210");
         Ok(())
+    }
+
+    #[test]
+    fn to_arrow_field_rejects_nul_field_name() {
+        // Arrow's FFI schema export aborts on a NUL byte in a field name (#8652); reject it here.
+        let session = ArrowSession::default();
+        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        assert!(session.to_arrow_field("col\0hidden", &dtype).is_err());
     }
 }
