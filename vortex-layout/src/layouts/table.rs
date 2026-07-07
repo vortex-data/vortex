@@ -10,6 +10,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::future::try_join;
 use futures::future::try_join_all;
 use futures::pin_mut;
 use itertools::Itertools;
@@ -266,30 +267,33 @@ impl LayoutStrategy for TableStrategy {
         let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) =
             (0..stream_count).map(|_| kanal::bounded_async(1)).unzip();
 
-        // Spawn a task to fan out column chunks to their respective transposed streams
+        // Fan out column chunks to their respective transposed streams. Keep this future joined
+        // with the column writers so producer panics/errors cannot be hidden as channel EOF.
         let handle = session.handle();
-        handle
-            .spawn(async move {
-                pin_mut!(columns_vec_stream);
-                while let Some(result) = columns_vec_stream.next().await {
-                    match result {
-                        Ok(columns) => {
-                            for (tx, column) in column_streams_tx.iter().zip_eq(columns.into_iter())
-                            {
-                                let _ = tx.send(Ok(column)).await;
+        let fanout_fut = async move {
+            pin_mut!(columns_vec_stream);
+            while let Some(result) = columns_vec_stream.next().await {
+                match result {
+                    Ok(columns) => {
+                        for (tx, column) in column_streams_tx.iter().zip_eq(columns.into_iter()) {
+                            if tx.send(Ok(column)).await.is_err() {
+                                vortex_bail!(
+                                    "table column writer finished before all chunks were sent"
+                                );
                             }
-                        }
-                        Err(e) => {
-                            let e: Arc<VortexError> = Arc::new(e);
-                            for tx in column_streams_tx.iter() {
-                                let _ = tx.send(Err(VortexError::from(Arc::clone(&e)))).await;
-                            }
-                            break;
                         }
                     }
+                    Err(e) => {
+                        let e: Arc<VortexError> = Arc::new(e);
+                        for tx in column_streams_tx.iter() {
+                            let _ = tx.send(Err(VortexError::from(Arc::clone(&e)))).await;
+                        }
+                        return Err(VortexError::from(e));
+                    }
                 }
-            })
-            .detach();
+            }
+            Ok(())
+        };
 
         // First child column is the validity, subsequence children are the individual struct fields
         let column_dtypes: Vec<DType> = if is_nullable {
@@ -359,7 +363,7 @@ impl LayoutStrategy for TableStrategy {
             })
             .collect();
 
-        let column_layouts = try_join_all(layout_futures).await?;
+        let (_success, column_layouts) = try_join(fanout_fut, try_join_all(layout_futures)).await?;
         // TODO(os): transposed stream could count row counts as well,
         // This must hold though, all columns must have the same row count of the struct layout
         let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
@@ -370,12 +374,28 @@ impl LayoutStrategy for TableStrategy {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::task::Poll;
 
+    use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldPath;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::field_path;
+    use vortex_error::VortexResult;
+    use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
 
+    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::table::TableStrategy;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialStreamAdapter;
+    use crate::sequence::SequentialStreamExt;
+    use crate::test::SESSION;
 
     #[test]
     #[should_panic(
@@ -406,5 +426,42 @@ mod tests {
             Arc::<FlatLayoutStrategy>::clone(&flat),
         )
         .with_field_writer(FieldPath::root(), flat);
+    }
+
+    #[test]
+    #[should_panic(expected = "panic while transposing table stream")]
+    fn table_fanout_panic_propagates() {
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let (_, eof) = SequenceId::root().split();
+        let dtype = DType::Struct(
+            StructFields::from_iter([(
+                "a",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+        let stream =
+            futures::stream::poll_fn(|_| -> Poll<Option<VortexResult<(SequenceId, ArrayRef)>>> {
+                panic!("panic while transposing table stream");
+            });
+        let strategy = TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        );
+
+        block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    segments,
+                    SequentialStreamAdapter::new(dtype, stream).sendable(),
+                    eof,
+                    &session,
+                )
+                .await
+                .unwrap();
+        });
     }
 }
