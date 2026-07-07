@@ -223,19 +223,24 @@ impl Future for ReadFuture {
     type Output = VortexResult<BufferHandle>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let _ = self.driver_task.poll(cx);
-
         match self.recv.poll_unpin(cx) {
-            Poll::Ready(result) => {
+            // note: we are skipping polled and dropped events for this if the future is ready on
+            //       the first poll, that means this request was completed before it was polled,
+            //       as part of a coalesced request.
+            Poll::Ready(Ok(result)) => {
                 self.finished = true;
-                // note: we are skipping polled and dropped events for this if the future
-                //       is ready on the first poll, that means this request was completed
-                //       before it was polled, as part of a coalesced request.
-                Poll::Ready(result.unwrap_or_else(|e| {
-                    let _ = self.driver_task.poll(cx);
-                    Err(vortex_err!("ReadRequest dropped by runtime: {e}"))
-                }))
+                Poll::Ready(result)
             }
+            // The request's sender was dropped, so the driver task has finished. Join it so a
+            // panic raised while driving reads is re-raised here rather than surfacing as a
+            // generic error. Only report the dropped error once the driver has finished cleanly.
+            Poll::Ready(Err(e)) => match self.driver_task.poll(cx) {
+                Poll::Ready(()) => {
+                    self.finished = true;
+                    Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}")))
+                }
+                Poll::Pending => Poll::Pending,
+            },
             Poll::Pending if !self.polled => {
                 self.polled = true;
                 // Notify the I/O stream that this request has been polled.
@@ -267,16 +272,19 @@ impl DriverTask {
             return Poll::Pending;
         };
 
-        let Some(task) = guard.as_mut() else {
+        // Take the task out while polling: if the poll re-raises a driver panic, the handle is
+        // dropped during unwind and never put back, so a concurrent reader observes `None` here
+        // and reports a dropped error rather than re-polling an already-completed handle.
+        let Some(mut task) = guard.take() else {
             return Poll::Ready(());
         };
 
-        match Pin::new(task).poll(cx) {
-            Poll::Ready(()) => {
-                *guard = None;
-                Poll::Ready(())
+        match Pin::new(&mut task).poll(cx) {
+            Poll::Ready(()) => Poll::Ready(()),
+            Poll::Pending => {
+                *guard = Some(task);
+                Poll::Pending
             }
-            Poll::Pending => Poll::Pending,
         }
     }
 }
@@ -365,6 +373,8 @@ impl SegmentSource for BufferSegmentSource {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::AssertUnwindSafe;
+
     use futures::future::BoxFuture;
     use vortex_io::runtime::tokio::TokioRuntime;
     use vortex_layout::segments::SegmentSource;
@@ -397,22 +407,103 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    #[should_panic(expected = "Runtime dropped task without completing it, likely it panicked")]
-    async fn file_segment_source_propagates_read_driver_panic() {
+    fn panicking_source() -> FileSegmentSource {
         let segments: Arc<[SegmentSpec]> = Arc::from([SegmentSpec {
             offset: 0,
             length: 4,
             alignment: Alignment::none(),
         }]);
         let metrics = DefaultMetricsRegistry::default();
-        let source = FileSegmentSource::open(
+        FileSegmentSource::open(
             segments,
             PanickingReadAt,
             TokioRuntime::current(),
             RequestMetrics::new(&metrics, vec![]),
-        );
+        )
+    }
 
+    #[tokio::test]
+    #[should_panic(expected = "Runtime dropped task without completing it, likely it panicked")]
+    async fn file_segment_source_propagates_read_driver_panic() {
+        let source = panicking_source();
         let _result = source.request(SegmentId::from(0)).await;
+    }
+
+    // A read-driver panic must propagate on *every* run rather than sometimes surfacing as a
+    // generic "dropped by runtime" error, which is nondeterministic.
+    #[tokio::test]
+    async fn file_segment_source_read_driver_panic_propagates_deterministically() {
+        for i in 0..100 {
+            let source = panicking_source();
+            let outcome = AssertUnwindSafe(source.request(SegmentId::from(0)))
+                .catch_unwind()
+                .await;
+            assert!(
+                outcome.is_err(),
+                "read-driver panic was not propagated on iteration {i}; \
+                 the request resolved instead of panicking"
+            );
+        }
+    }
+
+    #[derive(Clone)]
+    struct SlowErrReadAt;
+
+    impl VortexReadAt for SlowErrReadAt {
+        fn concurrency(&self) -> usize {
+            4
+        }
+
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            async { Ok(1024) }.boxed()
+        }
+
+        fn read_at(
+            &self,
+            offset: u64,
+            _length: usize,
+            _alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            async move {
+                // Stagger completions so some reads finish while others are still in flight.
+                for _ in 0..(offset as usize % 5 + 1) {
+                    tokio::task::yield_now().await;
+                }
+                vortex_bail!("slow read done")
+            }
+            .boxed()
+        }
+    }
+
+    // Many segment reads driven on separate tasks must all make progress and complete.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn read_driver_concurrent_reads_make_progress() {
+        let n = 16u32;
+        let segments: Arc<[SegmentSpec]> = (0..n)
+            .map(|i| SegmentSpec {
+                offset: u64::from(i) * 4,
+                length: 4,
+                alignment: Alignment::none(),
+            })
+            .collect();
+        let metrics = DefaultMetricsRegistry::default();
+        let source = Arc::new(FileSegmentSource::open(
+            segments,
+            SlowErrReadAt,
+            TokioRuntime::current(),
+            RequestMetrics::new(&metrics, vec![]),
+        ));
+
+        let tasks: Vec<_> = (0..n)
+            .map(|i| {
+                let source = Arc::clone(&source);
+                tokio::spawn(async move { source.request(SegmentId::from(i)).await })
+            })
+            .collect();
+
+        let joined =
+            tokio::time::timeout(std::time::Duration::from_secs(5), future::join_all(tasks)).await;
+
+        assert!(joined.is_ok(), "concurrent reads stalled before completing");
     }
 }
