@@ -75,13 +75,6 @@ runs:
       if: inputs.enable-sccache == 'true'
       uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696  # v0.0.10
 
-    - name: Configure C/C++ compile cache
-      if: inputs.enable-sccache == 'true' && runner.os != 'Windows'
-      shell: bash
-      run: |
-        echo "CC=sccache cc" >> "$GITHUB_ENV"
-        echo "CXX=sccache c++" >> "$GITHUB_ENV"
-
     - name: Pre-start sccache server
       if: inputs.enable-sccache == 'true'
       shell: bash

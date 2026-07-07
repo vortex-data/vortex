@@ -32,13 +32,6 @@ runs:
         mkdir -p ~/.config/sccache
         echo 'server_startup_timeout_ms = 60000' > ~/.config/sccache/config
 
-    - name: Configure C/C++ compile cache
-      if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true' && runner.os != 'Windows'
-      shell: bash
-      run: |
-        echo "CC=sccache cc" >> "$GITHUB_ENV"
-        echo "CXX=sccache c++" >> "$GITHUB_ENV"
-
     - name: Pre-start sccache server
       if: github.repository == 'vortex-data/vortex' && inputs.enable-sccache == 'true'
       shell: bash
