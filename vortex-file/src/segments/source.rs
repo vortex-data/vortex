@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -12,6 +13,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use futures::future;
+use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -21,6 +23,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::Handle;
+use vortex_io::runtime::Task;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSource;
@@ -71,6 +74,8 @@ pub struct FileSegmentSource {
     segments: Arc<[SegmentSpec]>,
     /// A queue for sending read request events to the I/O stream.
     events: mpsc::UnboundedSender<ReadEvent>,
+    /// Background request driver task.
+    driver_task: DriverTask,
     /// The next read request ID.
     next_id: Arc<AtomicUsize>,
 }
@@ -144,11 +149,12 @@ impl FileSegmentSource {
                 .await
         };
 
-        handle.spawn(drive_fut).detach();
+        let driver_task = DriverTask::new(handle.spawn(drive_fut));
 
         Self {
             segments,
             events: send,
+            driver_task,
             next_id: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -192,6 +198,7 @@ impl SegmentSource for FileSegmentSource {
             polled: false,
             finished: false,
             events: self.events.clone(),
+            driver_task: self.driver_task.clone(),
         };
 
         // One allocation: we only box the returned SegmentFuture, not the inner ReadFuture.
@@ -209,23 +216,25 @@ struct ReadFuture {
     polled: bool,
     finished: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
+    driver_task: DriverTask,
 }
 
 impl Future for ReadFuture {
     type Output = VortexResult<BufferHandle>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let _ = self.driver_task.poll(cx);
+
         match self.recv.poll_unpin(cx) {
             Poll::Ready(result) => {
                 self.finished = true;
                 // note: we are skipping polled and dropped events for this if the future
                 //       is ready on the first poll, that means this request was completed
                 //       before it was polled, as part of a coalesced request.
-                Poll::Ready(
-                    result.unwrap_or_else(|e| {
-                        Err(vortex_err!("ReadRequest dropped by runtime: {e}"))
-                    }),
-                )
+                Poll::Ready(result.unwrap_or_else(|e| {
+                    let _ = self.driver_task.poll(cx);
+                    Err(vortex_err!("ReadRequest dropped by runtime: {e}"))
+                }))
             }
             Poll::Pending if !self.polled => {
                 self.polled = true;
@@ -236,6 +245,38 @@ impl Future for ReadFuture {
                 }
             }
             _ => Poll::Pending,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct DriverTask {
+    task: Arc<Mutex<Option<Task<()>>>>,
+}
+
+impl DriverTask {
+    fn new(task: Task<()>) -> Self {
+        Self {
+            task: Arc::new(Mutex::new(Some(task))),
+        }
+    }
+
+    fn poll(&self, cx: &mut Context<'_>) -> Poll<()> {
+        let Some(mut guard) = self.task.try_lock() else {
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        };
+
+        let Some(task) = guard.as_mut() else {
+            return Poll::Ready(());
+        };
+
+        match Pin::new(task).poll(cx) {
+            Poll::Ready(()) => {
+                *guard = None;
+                Poll::Ready(())
+            }
+            Poll::Pending => Poll::Pending,
         }
     }
 }
@@ -319,5 +360,59 @@ impl SegmentSource for BufferSegmentSource {
 
         let slice = self.buffer.slice(start..end).aligned(spec.alignment);
         future::ready(Ok(BufferHandle::new_host(slice))).boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::future::BoxFuture;
+    use vortex_io::runtime::tokio::TokioRuntime;
+    use vortex_layout::segments::SegmentSource;
+    use vortex_metrics::DefaultMetricsRegistry;
+
+    use super::*;
+
+    #[derive(Clone)]
+    struct PanickingReadAt;
+
+    impl VortexReadAt for PanickingReadAt {
+        fn concurrency(&self) -> usize {
+            1
+        }
+
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            async { Ok(4) }.boxed()
+        }
+
+        fn read_at(
+            &self,
+            _offset: u64,
+            _length: usize,
+            _alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            async {
+                panic!("read-at panic");
+            }
+            .boxed()
+        }
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Runtime dropped task without completing it, likely it panicked")]
+    async fn file_segment_source_propagates_read_driver_panic() {
+        let segments: Arc<[SegmentSpec]> = Arc::from([SegmentSpec {
+            offset: 0,
+            length: 4,
+            alignment: Alignment::none(),
+        }]);
+        let metrics = DefaultMetricsRegistry::default();
+        let source = FileSegmentSource::open(
+            segments,
+            PanickingReadAt,
+            TokioRuntime::current(),
+            RequestMetrics::new(&metrics, vec![]),
+        );
+
+        let _result = source.request(SegmentId::from(0)).await;
     }
 }

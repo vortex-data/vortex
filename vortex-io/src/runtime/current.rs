@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 
 use futures::Stream;
 use futures::StreamExt;
+use futures::future::poll_fn;
 use futures::stream::BoxStream;
+use parking_lot::Mutex;
 use smol::block_on;
 
 use crate::runtime::BlockingRuntime;
@@ -67,22 +73,24 @@ impl CurrentThreadRuntime {
         // This allows multiple worker threads to drive the execution while all waiting for results
         // on the channel.
         let (result_tx, result_rx) = kanal::bounded_async(1);
-        self.executor
-            .spawn(async move {
-                futures::pin_mut!(stream);
-                while let Some(item) = stream.next().await {
-                    // If all receivers are dropped, we stop driving the stream.
-                    if let Err(e) = result_tx.send(item).await {
-                        tracing::trace!("all receivers dropped, stopping stream: {}", e);
-                        break;
-                    }
+        let driver = self.executor.spawn(async move {
+            futures::pin_mut!(stream);
+            while let Some(item) = stream.next().await {
+                // If all receivers are dropped, we stop driving the stream.
+                if let Err(e) = result_tx.send(item).await {
+                    tracing::trace!("all receivers dropped, stopping stream: {}", e);
+                    break;
                 }
-            })
-            .detach();
+            }
+        });
 
         ThreadSafeIterator {
             executor: Arc::clone(&self.executor),
             results: result_rx,
+            driver: Arc::new(Mutex::new(DriverState {
+                task: Some(driver),
+                joining: false,
+            })),
         }
     }
 }
@@ -132,6 +140,12 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
 pub struct ThreadSafeIterator<T> {
     executor: Arc<smol::Executor<'static>>,
     results: kanal::AsyncReceiver<T>,
+    driver: Arc<Mutex<DriverState>>,
+}
+
+struct DriverState {
+    task: Option<smol::Task<()>>,
+    joining: bool,
 }
 
 // Manual clone implementation since `T` does not need to be `Clone`.
@@ -140,6 +154,7 @@ impl<T> Clone for ThreadSafeIterator<T> {
         Self {
             executor: Arc::clone(&self.executor),
             results: self.results.clone(),
+            driver: Arc::clone(&self.driver),
         }
     }
 }
@@ -148,7 +163,92 @@ impl<T> Iterator for ThreadSafeIterator<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        block_on(self.executor.run(self.results.recv())).ok()
+        let driver = Arc::clone(&self.driver);
+        let recv = self.results.recv();
+
+        block_on(self.executor.run(async move {
+            futures::pin_mut!(recv);
+            let mut recv_done = false;
+            let mut is_joiner = false;
+            poll_fn(move |cx| {
+                poll_finished_driver(&driver, cx);
+
+                if recv_done {
+                    return poll_join_driver(&driver, cx, &mut is_joiner).map(|()| None);
+                }
+
+                match recv.as_mut().poll(cx) {
+                    Poll::Ready(Ok(item)) => {
+                        recv_done = true;
+                        Poll::Ready(Some(item))
+                    }
+                    Poll::Ready(Err(_)) => {
+                        recv_done = true;
+                        poll_join_driver(&driver, cx, &mut is_joiner).map(|()| None)
+                    }
+                    Poll::Pending => Poll::Pending,
+                }
+            })
+            .await
+        }))
+    }
+}
+
+fn poll_finished_driver(driver: &Mutex<DriverState>, cx: &mut Context<'_>) {
+    let Some(mut guard) = driver.try_lock() else {
+        return;
+    };
+
+    let Some(task) = guard.task.as_mut() else {
+        return;
+    };
+
+    if !task.is_finished() {
+        return;
+    }
+
+    if Pin::new(task).poll(cx).is_ready() {
+        guard.task = None;
+        guard.joining = false;
+    }
+}
+
+fn poll_join_driver(
+    driver: &Mutex<DriverState>,
+    cx: &mut Context<'_>,
+    is_joiner: &mut bool,
+) -> Poll<()> {
+    let Some(mut guard) = driver.try_lock() else {
+        if *is_joiner {
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        return Poll::Ready(());
+    };
+
+    if guard.task.is_none() {
+        return Poll::Ready(());
+    }
+
+    if !*is_joiner {
+        if guard.joining {
+            return Poll::Ready(());
+        }
+        guard.joining = true;
+        *is_joiner = true;
+    }
+
+    let Some(task) = guard.task.as_mut() else {
+        return Poll::Ready(());
+    };
+
+    match Pin::new(task).poll(cx) {
+        Poll::Ready(()) => {
+            guard.task = None;
+            guard.joining = false;
+            Poll::Ready(())
+        }
+        Poll::Pending => Poll::Pending,
     }
 }
 
@@ -159,6 +259,7 @@ mod tests {
     use std::sync::Barrier;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::task::Poll;
     use std::thread;
     use std::time::Duration;
 
@@ -259,6 +360,26 @@ mod tests {
         let mut collected: Vec<_> = all_results.iter().flatten().copied().collect();
         collected.sort();
         assert_eq!(collected, (0..total_items).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_block_on_stream_thread_safe_propagates_driver_panic() {
+        let runtime = CurrentThreadRuntime::new();
+        let mut iter = runtime.block_on_stream_thread_safe(|_h| {
+            stream::poll_fn(|_| -> Poll<Option<usize>> {
+                panic!("stream driver panic");
+            })
+            .boxed()
+        });
+
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| iter.next()))
+            .expect_err("stream panic must propagate through iterator");
+        let message = panic
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("<unknown panic>");
+        assert!(message.contains("stream driver panic"));
     }
 
     #[test]
