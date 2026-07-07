@@ -7,7 +7,6 @@
 
 mod array;
 mod array_iterator;
-mod binary;
 mod data_source;
 mod dtype;
 mod error;
@@ -24,8 +23,6 @@ mod string;
 mod struct_array;
 mod struct_fields;
 
-use std::ffi::CStr;
-use std::ffi::c_char;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -42,10 +39,11 @@ pub use session::vx_session_free;
 pub use session::vx_session_new_with;
 pub use session::vx_session_ref;
 use vortex::dtype::FieldName;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::vortex_err;
+use vortex::error::vortex_ensure;
 use vortex::io::runtime::current::CurrentThreadRuntime;
+
+use crate::string::vx_view;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]
@@ -65,31 +63,25 @@ pub fn ffi_runtime() -> &'static CurrentThreadRuntime {
     &RUNTIME
 }
 
-/// SAFETY: name must be a non-NULL pointer
-pub(crate) unsafe fn to_field_name(name: *const c_char) -> VortexResult<FieldName> {
-    let name = unsafe { CStr::from_ptr(name) }
-        .to_str()
-        .map_err(|e| vortex_err!("{e}"))?;
-    let name: Arc<str> = Arc::from(name);
+/// SAFETY: name must be a vx_view with non-NULL pointer
+pub(crate) unsafe fn to_field_name(name: vx_view) -> VortexResult<FieldName> {
+    let name: Arc<str> = Arc::from(unsafe { name.as_str() }?);
     Ok(name.into())
 }
 
 /// SAFETY: names must be a non-NULL pointer valid for reads up to len.
 pub(crate) unsafe fn to_field_names(
-    names: *const *const c_char,
+    names: *const vx_view,
     len: usize,
 ) -> VortexResult<Vec<FieldName>> {
+    vortex_ensure!(!names.is_null() || len == 0, "null names pointer");
     (0..len)
-        .map(|i| unsafe {
-            let name = *names.offset(i.try_into().vortex_expect("pointer offset overflow"));
-            to_field_name(name)
-        })
+        .map(|i| unsafe { to_field_name(*names.add(i)) })
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::CString;
     use std::ptr;
     use std::sync::Arc;
 
@@ -107,13 +99,12 @@ mod tests {
     use crate::dtype::vx_dtype_free;
     use crate::error::vx_error;
     use crate::error::vx_error_free;
-    use crate::error::vx_error_get_message;
+    use crate::error::vx_error_message;
     use crate::session::vx_session;
     use crate::sink::vx_array_sink_close;
     use crate::sink::vx_array_sink_open_file;
     use crate::sink::vx_array_sink_push;
-    use crate::string::vx_string;
-    use crate::string::vx_string_free;
+    use crate::string::vx_view;
 
     /// Panic if error is NULL. Free the error if it's not
     pub(crate) fn assert_error(error: *mut vx_error) {
@@ -126,9 +117,7 @@ mod tests {
         if !error.is_null() {
             let message;
             unsafe {
-                let msg_ptr = vx_error_get_message(error);
-                message = vx_string::as_str(msg_ptr).to_owned();
-                vx_string_free(msg_ptr);
+                message = vx_error_message(error).as_str().unwrap().to_owned();
                 vx_error_free(error);
             }
             panic!("{message}");
@@ -170,14 +159,13 @@ mod tests {
         .unwrap();
 
         let file = NamedTempFile::new().unwrap();
-        let path = CString::new(file.path().to_str().unwrap()).unwrap();
+        let path = vx_view::from_str(file.path().to_str().unwrap());
         let dtype = struct_array.dtype();
 
         unsafe {
             let vx_dtype_ptr = vx_dtype::new(Arc::new(dtype.clone()));
             let mut error = ptr::null_mut();
-            let sink =
-                vx_array_sink_open_file(session, path.as_ptr(), vx_dtype_ptr, &raw mut error);
+            let sink = vx_array_sink_open_file(session, path, vx_dtype_ptr, &raw mut error);
             let array = vx_array::new(Arc::new(struct_array.clone().into_array()));
             vx_array_sink_push(sink, array, &raw mut error);
             vx_array_sink_close(sink, &raw mut error);

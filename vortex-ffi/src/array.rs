@@ -21,6 +21,7 @@ use vortex::array::arrays::NullArray;
 use vortex::array::arrays::Primitive;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBinView;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::arrow::FromArrowArray;
@@ -31,12 +32,12 @@ use vortex::dtype::DType;
 use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 
 use crate::arc_wrapper;
-use crate::binary::vx_binary;
 use crate::dtype::vx_dtype;
 use crate::dtype::vx_dtype_variant;
 use crate::error::try_or;
@@ -47,7 +48,7 @@ use crate::expression::vx_expression;
 use crate::ptype::vx_ptype;
 use crate::session::vx_session;
 use crate::session::vx_session_ref;
-use crate::string::vx_string;
+use crate::string::vx_view;
 
 arc_wrapper!(
     /// Arrays are reference-counted handles to owned memory buffers that hold
@@ -440,46 +441,62 @@ ffiarray_get_ptype!(f16);
 ffiarray_get_ptype!(f32);
 ffiarray_get_ptype!(f64);
 
-/// Return the utf-8 string at `index` in the array. The pointer will be null if the value at `index` is null.
-/// The caller must free the returned pointer.
-#[unsafe(no_mangle)]
-#[allow(clippy::disallowed_methods)]
-pub unsafe extern "C-unwind" fn vx_array_get_utf8(
+/// SAFETY: "array" must be null or a valid "vx_array"
+unsafe fn varbinview_at(
     array: *const vx_array,
-    index: u32,
-) -> *const vx_string {
-    let array = vx_array::as_ref(array);
-    // TODO(joe): propagate this error up instead of expecting
-    let value = array
-        .execute_scalar(index as usize, &mut legacy_session().create_execution_ctx())
-        .vortex_expect("scalar_at failed");
-    let utf8_scalar = value.as_utf8();
-    if let Some(buffer) = utf8_scalar.value() {
-        vx_string::new(Arc::from(buffer.as_str()))
-    } else {
-        ptr::null()
-    }
+    index: usize,
+    want_utf8: bool,
+    error_out: *mut *mut vx_error,
+) -> vx_view {
+    try_or(error_out, vx_view::null(), || {
+        let array = unsafe { vx_array_ref(array) }?;
+        vortex_ensure!(index < array.len(), "index {index} out of bounds");
+        let dtype_matches = if want_utf8 {
+            matches!(array.dtype(), DType::Utf8(_))
+        } else {
+            matches!(array.dtype(), DType::Binary(_))
+        };
+        vortex_ensure!(
+            dtype_matches,
+            "expected a {} array, got {}",
+            if want_utf8 { "Utf8" } else { "Binary" },
+            array.dtype()
+        );
+        let Some(views) = array.as_opt::<VarBinView>() else {
+            vortex_bail!("expected a canonical array, got {}", array.encoding_id());
+        };
+        Ok(vx_view::from_bytes(views.bytes_at(index).as_slice()))
+    })
 }
 
-/// Return the binary at `index` in the array. The pointer will be null if the value at `index` is null.
-/// The caller must free the returned pointer.
+/// Return UTF-8 string at "index" in a canonical Utf8 array.
+///
+/// For invalid elements the returned value is unspecified, check validity via
+/// vx_array_get_validity.
+/// Returned view is valid as long as "array" is valid.
+/// Errors if index is out of bounds or array is not a canonical Utf8 array.
 #[unsafe(no_mangle)]
-#[allow(clippy::disallowed_methods)]
-pub unsafe extern "C-unwind" fn vx_array_get_binary(
+pub unsafe extern "C-unwind" fn vx_array_utf8_at(
     array: *const vx_array,
-    index: u32,
-) -> *const vx_binary {
-    let array = vx_array::as_ref(array);
-    // TODO(joe): propagate this error up instead of expecting
-    let value = array
-        .execute_scalar(index as usize, &mut legacy_session().create_execution_ctx())
-        .vortex_expect("scalar_at failed");
-    let binary_scalar = value.as_binary();
-    if let Some(bytes) = binary_scalar.value() {
-        vx_binary::new(Arc::from(bytes.as_bytes()))
-    } else {
-        ptr::null()
-    }
+    index: usize,
+    error_out: *mut *mut vx_error,
+) -> vx_view {
+    unsafe { varbinview_at(array, index, true, error_out) }
+}
+
+/// Return a binary string at "index" in a canonical Binary array.
+///
+/// For invalid elements the returned value is unspecified, check validity via
+/// vx_array_get_validity.
+/// Returned view is valid as long as "array" is valid.
+/// Errors if index is out of bounds or array is not a canonical Binary array.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_binary_at(
+    array: *const vx_array,
+    index: usize,
+    error_out: *mut *mut vx_error,
+) -> vx_view {
+    unsafe { varbinview_at(array, index, false, error_out) }
 }
 
 /// For a canonical Bool array, return bool at "index".
@@ -616,7 +633,6 @@ mod tests {
     use vortex::expr::root;
 
     use crate::array::*;
-    use crate::binary::vx_binary_free;
     use crate::dtype::vx_dtype_free;
     use crate::dtype::vx_dtype_get_variant;
     use crate::dtype::vx_dtype_variant;
@@ -624,7 +640,6 @@ mod tests {
     use crate::expression::vx_expression_free;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
-    use crate::string::vx_string_free;
     use crate::tests::assert_error;
     use crate::tests::assert_no_error;
 
@@ -844,56 +859,43 @@ mod tests {
     #[test]
     // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
     #[cfg_attr(miri, ignore)]
-    fn test_get_utf8() {
+    fn test_utf8_binary_at() {
         unsafe {
-            let utf8_array = VarBinViewArray::from_iter_str(["hello", "world", "test"]);
+            let long = "a string that is longer than twelve bytes";
+            let utf8_array =
+                VarBinViewArray::from_iter_nullable_str([Some("hello"), None, Some(long)]);
             let ffi_array = vx_array::new(Arc::new(utf8_array.into_array()));
-            assert!(vx_array_has_dtype(ffi_array, vx_dtype_variant::DTYPE_UTF8));
 
-            let vx_str1 = vx_array_get_utf8(ffi_array, 0);
-            assert_eq!(vx_string::as_str(vx_str1), "hello");
-            vx_string_free(vx_str1);
+            let mut error = ptr::null_mut();
+            let inlined = vx_array_utf8_at(ffi_array, 0, &raw mut error);
+            assert!(error.is_null());
+            assert_eq!(inlined.as_str().unwrap(), "hello");
 
-            let vx_str2 = vx_array_get_utf8(ffi_array, 1);
-            assert_eq!(vx_string::as_str(vx_str2), "world");
-            vx_string_free(vx_str2);
+            vx_array_utf8_at(ffi_array, 1, &raw mut error);
+            assert!(error.is_null());
 
-            let vx_str3 = vx_array_get_utf8(ffi_array, 2);
-            assert_eq!(vx_string::as_str(vx_str3), "test");
-            vx_string_free(vx_str3);
+            let buffered = vx_array_utf8_at(ffi_array, 2, &raw mut error);
+            assert!(error.is_null());
+            assert_eq!(buffered.as_str().unwrap(), long);
+
+            vx_array_utf8_at(ffi_array, 3, &raw mut error);
+            assert_error(error);
 
             vx_array_free(ffi_array);
-        }
-    }
 
-    #[test]
-    // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
-    #[cfg_attr(miri, ignore)]
-    fn test_get_binary() {
-        unsafe {
-            let binary_array = VarBinViewArray::from_iter_bin(vec![
-                vec![0x01, 0x02, 0x03],
-                vec![0xFF, 0xEE],
-                vec![0xAA, 0xBB, 0xCC, 0xDD],
-            ]);
+            let numbers =
+                PrimitiveArray::new(buffer![1i32, 2i32], Validity::NonNullable).into_array();
+            let ffi_array = vx_array::new(Arc::new(numbers));
+            let value = vx_array_utf8_at(ffi_array, 0, &raw mut error);
+            assert!(value.ptr.is_null());
+            assert_error(error);
+            vx_array_free(ffi_array);
+
+            let binary_array = VarBinViewArray::from_iter_bin(vec![vec![0x01, 0x02, 0x03]]);
             let ffi_array = vx_array::new(Arc::new(binary_array.into_array()));
-            assert!(vx_array_has_dtype(
-                ffi_array,
-                vx_dtype_variant::DTYPE_BINARY
-            ));
-
-            let vx_bin1 = vx_array_get_binary(ffi_array, 0);
-            assert_eq!(vx_binary::as_slice(vx_bin1), &[0x01, 0x02, 0x03]);
-            vx_binary_free(vx_bin1);
-
-            let vx_bin2 = vx_array_get_binary(ffi_array, 1);
-            assert_eq!(vx_binary::as_slice(vx_bin2), &[0xFF, 0xEE]);
-            vx_binary_free(vx_bin2);
-
-            let vx_bin3 = vx_array_get_binary(ffi_array, 2);
-            assert_eq!(vx_binary::as_slice(vx_bin3), &[0xAA, 0xBB, 0xCC, 0xDD]);
-            vx_binary_free(vx_bin3);
-
+            let bin = vx_array_binary_at(ffi_array, 0, &raw mut error);
+            assert!(error.is_null());
+            assert_eq!(bin.as_bytes().unwrap(), &[0x01, 0x02, 0x03]);
             vx_array_free(ffi_array);
         }
     }

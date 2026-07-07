@@ -11,7 +11,7 @@ use vortex::error::VortexError;
 use vortex::error::VortexResult;
 
 use crate::box_wrapper;
-use crate::string::vx_string;
+use crate::string::vx_view;
 
 /// Error category for vx_error.
 #[repr(C)]
@@ -160,10 +160,11 @@ pub fn try_or<T>(
     }
 }
 
-/// Return an error message for this error
+/// Return error message for this error.
+/// Returned view is valid while "error" is valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_error_get_message(error: *const vx_error) -> *const vx_string {
-    vx_string::new(Arc::clone(&vx_error::as_ref(error).message))
+pub unsafe extern "C-unwind" fn vx_error_message(error: *const vx_error) -> vx_view {
+    vx_view::from_str(&vx_error::as_ref(error).message)
 }
 
 /// Return category code for "error".
@@ -215,12 +216,11 @@ mod tests {
 
         assert_eq!(try_or(&raw mut error, -1, || panic!("boom")), -1);
         assert!(!error.is_null());
-        let message = unsafe { vx_error_get_message(error) };
+        let message = unsafe { vx_error_message(error) };
         assert_eq!(
-            vx_string::as_ref(message).as_ref(),
+            unsafe { message.as_str() }.unwrap(),
             "panic in Vortex FFI function: boom"
         );
-        unsafe { crate::string::vx_string_free(message) };
         unsafe { vx_error_free(error) };
     }
 

@@ -3,7 +3,6 @@
 
 //! FFI interface for working with Vortex scalar values.
 
-use std::ffi::c_char;
 use std::ptr;
 use std::slice;
 use std::str;
@@ -17,7 +16,6 @@ use vortex::dtype::i256;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
@@ -25,6 +23,7 @@ use vortex::scalar::ScalarValue;
 use crate::dtype::vx_dtype;
 use crate::error::try_or;
 use crate::error::vx_error;
+use crate::string::vx_view;
 
 crate::box_wrapper!(
     /// A typed scalar value.
@@ -154,19 +153,16 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_f16_bits(
 
 /// Create a UTF-8 scalar.
 ///
-/// The byte range is copied into the scalar. A NULL data pointer is allowed only
-/// for an empty byte range. Invalid UTF-8 returns NULL and writes the error
-/// output.
+/// The string bytes are copied into the scalar. Invalid UTF-8 returns NULL and
+/// writes the error output.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scalar_new_utf8(
-    ptr: *const c_char,
-    len: usize,
+    value: vx_view,
     is_nullable: bool,
     err: *mut *mut vx_error,
 ) -> *mut vx_scalar {
     try_or(err, ptr::null_mut(), || {
-        let bytes = bytes_from_raw(ptr.cast(), len, "utf8")?;
-        let value = str::from_utf8(bytes).map_err(|e| vortex_err!("invalid utf-8: {e}"))?;
+        let value = unsafe { value.as_str() }?;
         Ok(vx_scalar::new(Scalar::utf8(
             value.to_owned(),
             Nullability::from(is_nullable),
@@ -509,6 +505,7 @@ mod tests {
     use crate::scalar::vx_scalar_new_u32;
     use crate::scalar::vx_scalar_new_u64;
     use crate::scalar::vx_scalar_new_utf8;
+    use crate::string::vx_view;
     use crate::tests::assert_error;
     use crate::tests::assert_no_error;
 
@@ -580,18 +577,14 @@ mod tests {
             let mut error = ptr::null_mut();
             let value = "literal";
             assert_scalar(
-                vx_scalar_new_utf8(value.as_ptr().cast(), value.len(), false, &raw mut error),
+                vx_scalar_new_utf8(vx_view::from_str(value), false, &raw mut error),
                 Scalar::utf8(value, Nullability::NonNullable),
             );
             assert_no_error(error);
 
             let invalid_utf8 = [0xffu8];
-            let scalar = vx_scalar_new_utf8(
-                invalid_utf8.as_ptr().cast(),
-                invalid_utf8.len(),
-                false,
-                &raw mut error,
-            );
+            let scalar =
+                vx_scalar_new_utf8(vx_view::from_bytes(&invalid_utf8), false, &raw mut error);
             assert!(scalar.is_null());
             assert_error(error);
 

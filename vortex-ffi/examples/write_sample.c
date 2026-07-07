@@ -3,7 +3,6 @@
 #include "vortex.h"
 #include <stdint.h>
 #include <stdio.h>
-#include <string.h>
 
 #define SAMPLE_ROWS 200
 
@@ -15,22 +14,22 @@ const vx_dtype *sample_dtype(void) {
     vx_struct_fields_builder *builder = vx_struct_fields_builder_new();
 
     const char *age = "age";
-    const vx_string *age_name = vx_string_new(age, strlen(age));
+
     const vx_dtype *age_type = vx_dtype_new_primitive(PTYPE_U8, false);
-    vx_struct_fields_builder_add_field(builder, age_name, age_type);
+    vx_struct_fields_builder_add_field(builder, vx_view_from_cstr(age), age_type, NULL);
 
     const char *height = "height";
-    const vx_string *height_name = vx_string_new(height, strlen(height));
+
     const vx_dtype *height_type = vx_dtype_new_primitive(PTYPE_U16, true);
-    vx_struct_fields_builder_add_field(builder, height_name, height_type);
+    vx_struct_fields_builder_add_field(builder, vx_view_from_cstr(height), height_type, NULL);
 
     vx_struct_fields *fields = vx_struct_fields_builder_finalize(builder);
     return vx_dtype_new_struct(fields, false);
 }
 
 void print_error(const char *what, const vx_error *error) {
-    const vx_string *str = vx_error_get_message(error);
-    fprintf(stderr, "%s: %.*s\n", what, (int)vx_string_len(str), vx_string_ptr(str));
+    const vx_view str = vx_error_message(error);
+    fprintf(stderr, "%s: %.*s\n", what, (int)str.len, str.ptr);
 }
 
 const vx_array *sample_array(void) {
@@ -53,7 +52,7 @@ const vx_array *sample_array(void) {
         return NULL;
     }
 
-    vx_struct_column_builder_add_field(builder, "age", age_array, &error);
+    vx_struct_column_builder_add_field(builder, vx_view_from_cstr("age"), age_array, &error);
     vx_array_free(age_array);
     if (error != NULL) {
         print_error("Error adding age array field to root array", error);
@@ -72,7 +71,7 @@ const vx_array *sample_array(void) {
         return NULL;
     }
 
-    vx_struct_column_builder_add_field(builder, "height", height_array, &error);
+    vx_struct_column_builder_add_field(builder, vx_view_from_cstr("height"), height_array, &error);
     vx_array_free(height_array);
     if (error != NULL) {
         print_error("Error adding height array field to root array", error);
@@ -107,7 +106,7 @@ int main(int argc, char *argv[]) {
     const vx_dtype *dtype = sample_dtype();
 
     vx_error *error = NULL;
-    vx_array_sink *sink = vx_array_sink_open_file(session, output, dtype, &error);
+    vx_array_sink *sink = vx_array_sink_open_file(session, vx_view_from_cstr(output), dtype, &error);
 
     vx_dtype_free(dtype);
     if (error != NULL) {

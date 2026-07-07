@@ -171,6 +171,7 @@ nitpick_ignore += [
     ("c:identifier", "int16_t"),
     ("c:identifier", "uint8_t"),
     ("c:identifier", "int8_t"),
+    ("c:identifier", "vx_view"),
 ]
 
 hawkmoth_transform_default = "c_to_rust"

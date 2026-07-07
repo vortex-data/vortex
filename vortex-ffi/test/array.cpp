@@ -62,7 +62,7 @@ TEST_CASE("Struct array creation", "[array]") {
     vx_struct_column_builder *builder = vx_struct_column_builder_new(&validity, 2);
     CHECK(builder != nullptr);
 
-    vx_struct_column_builder_add_field(builder, "age", field_array, &error);
+    vx_struct_column_builder_add_field(builder, vx_view_from_cstr("age"), field_array, &error);
     vx_array_free(field_array);
 
     SECTION("Struct array builder free") {

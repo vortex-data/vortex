@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![expect(non_camel_case_types)]
 
-use std::ffi::CStr;
-use std::ffi::c_char;
 use std::ptr;
 use std::slice;
 use std::sync::Arc;
@@ -28,6 +26,7 @@ use vortex::scalar_fn::fns::operators::Operator;
 use crate::error::try_or;
 use crate::error::vx_error;
 use crate::scalar::vx_scalar;
+use crate::string::vx_view;
 use crate::to_field_names;
 
 // Expressions are Arc'ed inside
@@ -119,7 +118,7 @@ pub unsafe extern "C-unwind" fn vx_expression_literal(
 /// vx_expression_free(root);
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_select(
-    names: *const *const c_char,
+    names: *const vx_view,
     len: usize,
     child: *const vx_expression,
 ) -> *mut vx_expression {
@@ -287,22 +286,19 @@ pub unsafe extern "C" fn vx_expression_is_null(child: *const vx_expression) -> *
 ///
 /// Example: if child is Struct { name=u8, age=u16 } and we do
 /// vx_expression_get_item("name", child), output type will be DTYPE_U8
+///
+/// "item" is copied. Returns NULL if "child" is NULL or "item" is not valid
+/// UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_get_item(
-    item: *const c_char,
+    item: vx_view,
     child: *const vx_expression,
 ) -> *mut vx_expression {
     if child.is_null() {
         return ptr::null_mut();
     }
-    if item.is_null() {
+    let Ok(item) = (unsafe { item.as_str() }) else {
         return ptr::null_mut();
-    }
-    #[expect(clippy::expect_used)]
-    let item = unsafe {
-        CStr::from_ptr(item)
-            .to_str()
-            .expect("converting pointer to str")
     };
     let item: Arc<str> = Arc::from(item);
     let item: FieldName = item.into();
@@ -365,6 +361,7 @@ mod tests {
     use crate::expression::vx_expression_select;
     use crate::scalar::vx_scalar_free;
     use crate::scalar::vx_scalar_new_i32;
+    use crate::string::vx_view;
 
     #[test]
     #[cfg_attr(miri, ignore)]
@@ -395,7 +392,7 @@ mod tests {
         let (array, names_array, ages_array) = struct_array();
         unsafe {
             let root = vx_expression_root();
-            let column = vx_expression_get_item(c"age".as_ptr(), root);
+            let column = vx_expression_get_item(vx_view::from_str("age"), root);
             assert_ne!(column, ptr::null_mut());
 
             let array = vx_array::new(Arc::new(array.into_array()));
@@ -417,7 +414,7 @@ mod tests {
 
             vx_expression_free(column);
 
-            let column = vx_expression_get_item(c"ololo".as_ptr(), root);
+            let column = vx_expression_get_item(vx_view::from_str("ololo"), root);
             assert_ne!(column, ptr::null_mut());
 
             let applied_array = vx_array_apply(array, column, &raw mut error);
@@ -494,7 +491,7 @@ mod tests {
 
             let array = vx_array::new(Arc::new(array.into_array()));
 
-            let columns = [c"name".as_ptr(), c"age".as_ptr()];
+            let columns = [vx_view::from_str("name"), vx_view::from_str("age")];
             let column = vx_expression_select(columns.as_ptr(), 2, root);
             assert_ne!(column, ptr::null_mut());
 
@@ -510,7 +507,7 @@ mod tests {
             vx_array_free(applied_array);
             vx_expression_free(column);
 
-            let columns = [c"age".as_ptr(), c"ololo".as_ptr()];
+            let columns = [vx_view::from_str("age"), vx_view::from_str("ololo")];
             let column = vx_expression_select(columns.as_ptr(), 2, root);
             let applied_array = vx_array_apply(array, column, &raw mut error);
             assert!(applied_array.is_null());
@@ -538,9 +535,9 @@ mod tests {
             let array = vx_array::new(Arc::new(array.unwrap().into_array()));
 
             let root = vx_expression_root();
-            let expression_col1 = vx_expression_get_item(c"col1".as_ptr(), root);
-            let expression_col2 = vx_expression_get_item(c"col2".as_ptr(), root);
-            let expression_col3 = vx_expression_get_item(c"col3".as_ptr(), root);
+            let expression_col1 = vx_expression_get_item(vx_view::from_str("col1"), root);
+            let expression_col2 = vx_expression_get_item(vx_view::from_str("col2"), root);
+            let expression_col3 = vx_expression_get_item(vx_view::from_str("col3"), root);
             let expression_12 = vx_expression_binary(
                 vx_binary_operator::VX_OPERATOR_EQ,
                 expression_col1,

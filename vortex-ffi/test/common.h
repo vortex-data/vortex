@@ -6,14 +6,12 @@
 #include "vortex.h"
 
 inline std::string to_string(vx_error *err) {
-    const vx_string *msg = vx_error_get_message(err);
-    const std::string out {vx_string_ptr(msg), vx_string_len(msg)};
-    vx_string_free(msg);
-    return out;
+    const vx_view msg = vx_error_message(err);
+    return {msg.ptr, msg.len};
 }
 
-inline std::string_view to_string_view(const vx_string *msg) {
-    return {vx_string_ptr(msg), vx_string_len(msg)};
+inline std::string_view to_string_view(vx_view str) {
+    return {str.ptr, str.len};
 }
 
 inline void require_no_error(vx_error *error, bool assert = true) {

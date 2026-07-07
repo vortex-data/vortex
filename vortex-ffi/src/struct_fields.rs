@@ -11,7 +11,9 @@ use vortex::error::VortexExpect;
 
 use crate::box_wrapper;
 use crate::dtype::vx_dtype;
-use crate::string::vx_string;
+use crate::error::try_or_default;
+use crate::error::vx_error;
+use crate::string::vx_view;
 
 box_wrapper!(
     /// Represents a Vortex struct data type, without top-level nullability.
@@ -29,21 +31,22 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(dtype: *const vx_struct
         .nfields() as u64
 }
 
-/// Return an owned name of the field at a given index.
-/// If index is out of bounds, returns NULL.
+/// Return field name at a given index.
+/// If index is out of bounds, returns {NULL, 0}.
+///
+/// Returned view is valid as long as "dtype" is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     dtype: *const vx_struct_fields,
     idx: usize,
-) -> *const vx_string {
+) -> vx_view {
     // TODO(joe): propagate this error up instead of expecting
     let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
     let struct_dtype = &ptr.0;
     if idx >= struct_dtype.nfields() {
-        return ptr::null();
+        return vx_view::null();
     }
-    let name = struct_dtype.names()[idx].inner();
-    vx_string::new(Arc::clone(name))
+    vx_view::from_str(struct_dtype.names()[idx].inner())
 }
 
 /// Return an owned dtype of the field at a given index.
@@ -89,19 +92,23 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_builder_new() -> *mut vx_struct
 
 /// Add a field to the struct dtype builder.
 ///
-/// Takes ownership of both the `name` and `dtype` pointers.
-/// Must either free or finalize the builder.
+/// "name" is copied. Takes ownership of "dtype".
+/// Caller must free or finalize the builder.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_builder_add_field(
     builder: *mut vx_struct_fields_builder,
-    name: *const vx_string,
+    name: vx_view,
     dtype: *const vx_dtype,
+    error_out: *mut *mut vx_error,
 ) {
-    let builder = vx_struct_fields_builder::as_mut(builder);
-    builder.names.push(vx_string::into_arc(name));
-    builder
-        .fields
-        .push(vx_dtype::into_arc(dtype).deref().clone());
+    try_or_default(error_out, || {
+        let builder = vx_struct_fields_builder::as_mut(builder);
+        builder.names.push(Arc::from(unsafe { name.as_str() }?));
+        builder
+            .fields
+            .push(vx_dtype::into_arc(dtype).deref().clone());
+        Ok(())
+    })
 }
 
 /// Finalize the struct dtype builder, returning a new `vx_struct_fields`.

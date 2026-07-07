@@ -23,7 +23,7 @@ use crate::error::try_or;
 use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::ptype::vx_ptype;
-use crate::string::vx_string;
+use crate::string::vx_view;
 use crate::struct_fields::vx_struct_fields;
 
 arc_wrapper!(
@@ -306,9 +306,12 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
     opts.time_unit().into()
 }
 
-/// Returns the time zone, assuming the type is time. Caller is responsible for freeing the returned pointer.
+/// Return time zone assuming "dtype" is time.
+/// Returns {NULL, 0} when timestamp has no time zone.
+///
+/// Returned view is valid as long as "dtype" is valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *const vx_string {
+pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> vx_view {
     // TODO(joe): propagate this error up instead of expecting
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
@@ -322,8 +325,8 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *cons
     };
 
     match opts.tz.as_ref() {
-        Some(zone) => vx_string::new(Arc::clone(zone)),
-        None => ptr::null(),
+        Some(zone) => vx_view::from_str(zone),
+        None => vx_view::null(),
     }
 }
 
@@ -370,7 +373,6 @@ pub unsafe extern "C-unwind" fn vx_dtype_from_arrow_schema(
 #[cfg(test)]
 #[expect(clippy::cast_possible_truncation)]
 mod tests {
-    use std::slice;
 
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
@@ -391,10 +393,7 @@ mod tests {
     use crate::dtype::vx_dtype_new_utf8;
     use crate::dtype::vx_dtype_variant;
     use crate::ptype::vx_ptype;
-    use crate::string::vx_string;
-    use crate::string::vx_string_free;
-    use crate::string::vx_string_len;
-    use crate::string::vx_string_ptr;
+    use crate::string::vx_view;
     use crate::struct_fields::vx_struct_fields_builder_add_field;
     use crate::struct_fields::vx_struct_fields_builder_finalize;
     use crate::struct_fields::vx_struct_fields_builder_new;
@@ -426,26 +425,28 @@ mod tests {
     fn test_struct() {
         unsafe {
             let builder = vx_struct_fields_builder_new();
+            let mut error = ptr::null_mut();
             vx_struct_fields_builder_add_field(
                 builder,
-                vx_string::new("name".into()),
+                vx_view::from_str("name"),
                 vx_dtype_new_utf8(false),
+                &raw mut error,
             );
+            assert!(error.is_null());
             vx_struct_fields_builder_add_field(
                 builder,
-                vx_string::new("age".into()),
+                vx_view::from_str("age"),
                 vx_dtype_new_primitive(vx_ptype::PTYPE_U8, true),
+                &raw mut error,
             );
+            assert!(error.is_null());
             let person = vx_struct_fields_builder_finalize(builder);
             assert_eq!(vx_struct_fields_nfields(person), 2);
 
             let name = vx_struct_fields_field_name(person, 0);
-            assert_eq!(vx_string::as_str(name), "name");
+            assert_eq!(name.as_str().unwrap(), "name");
             let age = vx_struct_fields_field_name(person, 1);
-            assert_eq!(vx_string::as_str(age), "age");
-
-            vx_string_free(name);
-            vx_string_free(age);
+            assert_eq!(age.as_str().unwrap(), "age");
 
             let dtype0 = vx_struct_fields_field_dtype(person, 0);
             let dtype1 = vx_struct_fields_field_dtype(person, 1);
@@ -718,17 +719,11 @@ mod tests {
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
 
         // Test field name access
-        let field_name_ptr = unsafe { vx_struct_fields_field_name(struct_fields_ptr, 0) };
-        assert!(!field_name_ptr.is_null());
-
-        let name_len = unsafe { vx_string_len(field_name_ptr) };
-        let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
-        let name_slice = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len) };
-        let name_str = str::from_utf8(name_slice).unwrap();
-        assert_eq!(name_str, "nums");
+        let field_name = unsafe { vx_struct_fields_field_name(struct_fields_ptr, 0) };
+        assert!(!field_name.ptr.is_null());
+        assert_eq!(unsafe { field_name.as_str() }.unwrap(), "nums");
 
         unsafe {
-            vx_string_free(field_name_ptr);
             vx_struct_fields_free(struct_fields_ptr);
             vx_dtype_free(dtype_ptr);
             vx_array_free(vx_arr);
@@ -749,19 +744,11 @@ mod tests {
 
         // Test both field names
         for i in 0..n_fields {
-            let field_name_ptr =
-                unsafe { vx_struct_fields_field_name(struct_fields_ptr, i as usize) };
-            assert!(!field_name_ptr.is_null());
-
-            let name_len = unsafe { vx_string_len(field_name_ptr) };
-            let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
-            let name_slice = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len) };
-            let name_str = str::from_utf8(name_slice).unwrap();
+            let field_name = unsafe { vx_struct_fields_field_name(struct_fields_ptr, i as usize) };
+            assert!(!field_name.ptr.is_null());
 
             let expected_name = if i == 0 { "nums" } else { "floats" };
-            assert_eq!(name_str, expected_name);
-
-            unsafe { vx_string_free(field_name_ptr) };
+            assert_eq!(unsafe { field_name.as_str() }.unwrap(), expected_name);
         }
 
         unsafe {

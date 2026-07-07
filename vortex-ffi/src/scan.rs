@@ -441,7 +441,6 @@ pub unsafe extern "C-unwind" fn vx_partition_next(
 #[cfg(not(windows))]
 #[cfg(test)]
 mod tests {
-    use std::ffi::CString;
     use std::ptr;
 
     use vortex::VortexSessionDefault;
@@ -477,6 +476,7 @@ mod tests {
     use crate::scan::vx_scan_selection_include;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
+    use crate::string::vx_view;
     use crate::tests::SAMPLE_ROWS;
     use crate::tests::assert_no_error;
     use crate::tests::write_sample;
@@ -487,9 +487,10 @@ mod tests {
         unsafe {
             let session = vx_session_new();
             let (sample, struct_array) = write_sample(session);
-            let path = CString::new(sample.path().to_str().unwrap()).unwrap();
+            let path = vx_view::from_str(sample.path().to_str().unwrap());
             let ds_options = vx_data_source_options {
-                paths: path.as_ptr(),
+                paths: &raw const path,
+                paths_len: 1,
             };
 
             let mut error = ptr::null_mut();
@@ -551,8 +552,8 @@ mod tests {
             let root = vx_expression_root();
             let mut opts = vx_scan_options::default();
 
-            for (field, c_field) in [("age", c"age"), ("height", c"height"), ("name", c"name")] {
-                let field_expr = vx_expression_get_item(c_field.as_ptr(), root);
+            for field in ["age", "height", "name"] {
+                let field_expr = vx_expression_get_item(vx_view::from_str(field), root);
                 assert!(!field_expr.is_null());
                 opts.projection = field_expr;
                 let (array, struct_array) = scan(&raw const opts);
@@ -577,8 +578,8 @@ mod tests {
             let root = vx_expression_root();
             let mut opts = vx_scan_options::default();
 
-            let expr_age = vx_expression_get_item(c"age".as_ptr(), root);
-            let expr_height = vx_expression_get_item(c"height".as_ptr(), root);
+            let expr_age = vx_expression_get_item(vx_view::from_str("age"), root);
+            let expr_height = vx_expression_get_item(vx_view::from_str("height"), root);
             let expr_sum =
                 vx_expression_binary(vx_binary_operator::VX_OPERATOR_ADD, expr_age, expr_height);
 
@@ -608,7 +609,7 @@ mod tests {
     fn test_filter() {
         unsafe {
             let root = vx_expression_root();
-            let age_expr = vx_expression_get_item(c"age".as_ptr(), root);
+            let age_expr = vx_expression_get_item(vx_view::from_str("age"), root);
             let value = vx_scalar_new_u64(100, false);
             let mut error = ptr::null_mut();
             let lit_100 = vx_expression_literal(value, &raw mut error);
@@ -637,7 +638,7 @@ mod tests {
     fn test_filter_project() {
         unsafe {
             let root = vx_expression_root();
-            let age_expr = vx_expression_get_item(c"age".as_ptr(), root);
+            let age_expr = vx_expression_get_item(vx_view::from_str("age"), root);
             let value = vx_scalar_new_u64(100, false);
             let mut error = ptr::null_mut();
             let lit_100 = vx_expression_literal(value, &raw mut error);
@@ -645,7 +646,7 @@ mod tests {
             vx_scalar_free(value);
             let filter =
                 vx_expression_binary(vx_binary_operator::VX_OPERATOR_GTE, age_expr, lit_100);
-            let projection = vx_expression_get_item(c"age".as_ptr(), root);
+            let projection = vx_expression_get_item(vx_view::from_str("age"), root);
 
             let opts = vx_scan_options {
                 projection,
@@ -725,9 +726,10 @@ mod tests {
         unsafe {
             let session = vx_session_new();
             let (sample, _) = write_sample(session);
-            let path = CString::new(sample.path().to_str().unwrap()).unwrap();
+            let path = vx_view::from_str(sample.path().to_str().unwrap());
             let ds_options = vx_data_source_options {
-                paths: path.as_ptr(),
+                paths: &raw const path,
+                paths_len: 1,
             };
 
             let mut error = ptr::null_mut();

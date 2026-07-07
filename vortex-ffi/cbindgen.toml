@@ -65,6 +65,21 @@ typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 #endif
 """
 
+trailer = """
+#include <string.h>
+
+/**
+ * Create a view over a null-terminated C string.
+ * View is valid as long as "str" is valid
+ */
+static inline vx_view vx_view_from_cstr(const char* str) {
+    vx_view s;
+    s.ptr = str;
+    s.len = strlen(str);
+    return s;
+}
+"""
+
 [export.rename]
 "f16" = "uint16_t"
 

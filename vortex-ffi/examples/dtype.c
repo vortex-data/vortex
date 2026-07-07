@@ -58,10 +58,9 @@ void print_struct_dtype(const vx_dtype *dtype) {
     printf("struct(\n");
     for (uint64_t i = 0; i < vx_struct_fields_nfields(fields); ++i) {
         const vx_dtype *field_dtype = vx_struct_fields_field_dtype(fields, i);
-        const vx_string *field_name = vx_struct_fields_field_name(fields, i);
-        printf("    %.*s = ", (int)vx_string_len(field_name), vx_string_ptr(field_name));
+        const vx_view field_name = vx_struct_fields_field_name(fields, i);
+        printf("    %.*s = ", (int)field_name.len, field_name.ptr);
         print_dtype(field_dtype);
-        vx_string_free(field_name);
         vx_dtype_free(field_dtype);
     }
     printf(")");
@@ -124,8 +123,8 @@ void print_dtype(const vx_dtype *dtype) {
 }
 
 void print_error(const char *what, const vx_error *error) {
-    const vx_string *str = vx_error_get_message(error);
-    fprintf(stderr, "%s: %.*s\n", what, (int)vx_string_len(str), vx_string_ptr(str));
+    const vx_view str = vx_error_message(error);
+    fprintf(stderr, "%s: %.*s\n", what, (int)str.len, str.ptr);
 }
 
 int main(int argc, char **argv) {
@@ -141,7 +140,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    vx_data_source_options ds_options = {.paths = argv[1]};
+    vx_view path = vx_view_from_cstr(argv[1]);
+    vx_data_source_options ds_options = {.paths = &path, .paths_len = 1};
     const vx_data_source *data_source = vx_data_source_new(session, &ds_options, &error);
     if (data_source == NULL) {
         print_error("Failed to create data source", error);
@@ -151,7 +151,7 @@ int main(int argc, char **argv) {
     }
 
     printf("dtype: ");
-    const vx_dtype* dtype = vx_data_source_dtype(data_source);
+    const vx_dtype *dtype = vx_data_source_dtype(data_source);
     print_dtype(dtype);
     vx_dtype_free(dtype);
 

@@ -491,11 +491,6 @@ typedef struct vx_array_iterator vx_array_iterator;
 typedef struct vx_array_sink vx_array_sink;
 
 /**
- * Strings for use within Vortex.
- */
-typedef struct vx_binary vx_binary;
-
-/**
  * A reference to one or more (possibly remote) paths.
  * Creating vx_data_source opens the first matched path to read the schema.
  * All other I/O is deferred until a scan is requested. Multiple scans may
@@ -562,11 +557,6 @@ typedef struct vx_scan vx_scan;
  */
 typedef struct vx_session vx_session;
 
-/**
- * Strings for use within Vortex.
- */
-typedef struct vx_string vx_string;
-
 typedef struct vx_struct_column_builder vx_struct_column_builder;
 
 /**
@@ -596,16 +586,33 @@ typedef struct {
 } vx_validity;
 
 /**
+ * A non owning view over a byte range.
+ */
+typedef struct {
+    /**
+     * NULL "ptr" requires len == 0
+     */
+    const char *ptr;
+    /**
+     * Length in bytes.
+     */
+    size_t len;
+} vx_view;
+
+/**
  * Options for creating a data source.
  */
 typedef struct {
     /**
-     * Required: paths to files, tables, or layout trees.
-     * May be a glob pattern like "*.vortex".
-     * If you want to include multiple paths, concat them with a comma:
-     * "file1.vortex,../file2.vortex".
+     * Required: paths to files, tables, or layout trees. Each entry may be a
+     * glob pattern like "*.vortex". Must point to an array of size
+     * "paths_len". paths bytes are copied.
      */
-    const char *paths;
+    const vx_view *paths;
+    /**
+     * Number of entries in `paths`.
+     */
+    size_t paths_len;
 } vx_data_source_options;
 
 /**
@@ -838,16 +845,24 @@ double vx_array_get_f64(const vx_array *array, size_t index);
 double vx_array_get_storage_f64(const vx_array *array, size_t index);
 
 /**
- * Return the utf-8 string at `index` in the array. The pointer will be null if the value at `index` is null.
- * The caller must free the returned pointer.
+ * Return UTF-8 string at "index" in a canonical Utf8 array.
+ *
+ * For invalid elements the returned value is unspecified, check validity via
+ * vx_array_get_validity.
+ * Returned view is valid as long as "array" is valid.
+ * Errors if index is out of bounds or array is not a canonical Utf8 array.
  */
-const vx_string *vx_array_get_utf8(const vx_array *array, uint32_t index);
+vx_view vx_array_utf8_at(const vx_array *array, size_t index, vx_error **error_out);
 
 /**
- * Return the binary at `index` in the array. The pointer will be null if the value at `index` is null.
- * The caller must free the returned pointer.
+ * Return a binary string at "index" in a canonical Binary array.
+ *
+ * For invalid elements the returned value is unspecified, check validity via
+ * vx_array_get_validity.
+ * Returned view is valid as long as "array" is valid.
+ * Errors if index is out of bounds or array is not a canonical Binary array.
  */
-const vx_binary *vx_array_get_binary(const vx_array *array, uint32_t index);
+vx_view vx_array_binary_at(const vx_array *array, size_t index, vx_error **error_out);
 
 /**
  * For a canonical Bool array, return bool at "index".
@@ -907,31 +922,6 @@ void vx_array_iterator_free(const vx_array_iterator *ptr);
  * It is an error to call this function again after the iterator is finished.
  */
 const vx_array *vx_array_iterator_next(vx_array_iterator *iter, vx_error **error_out);
-
-/**
- * Clone a vx_binary. Returned handle must be release with vx_binary_free
- */
-const vx_binary *vx_binary_clone(const vx_binary *ptr);
-
-/**
- * Free a vx_binary
- */
-void vx_binary_free(const vx_binary *ptr);
-
-/**
- * Create a new Vortex UTF-8 string by copying from a pointer and length.
- */
-const vx_binary *vx_binary_new(const char *ptr, size_t len);
-
-/**
- * Return the length of the string in bytes.
- */
-size_t vx_binary_len(const vx_binary *ptr);
-
-/**
- * Return the pointer to the string data.
- */
-const char *vx_binary_ptr(const vx_binary *ptr);
 
 /**
  * Clone a vx_data_source. Returned handle must be release with vx_data_source_free
@@ -1106,9 +1096,12 @@ bool vx_dtype_is_timestamp(const DType *dtype);
 uint8_t vx_dtype_time_unit(const DType *dtype);
 
 /**
- * Returns the time zone, assuming the type is time. Caller is responsible for freeing the returned pointer.
+ * Return time zone assuming "dtype" is time.
+ * Returns {NULL, 0} when timestamp has no time zone.
+ *
+ * Returned view is valid as long as "dtype" is valid.
  */
-const vx_string *vx_dtype_time_zone(const DType *dtype);
+vx_view vx_dtype_time_zone(const DType *dtype);
 
 /**
  * Convert a dtype to ArrowSchema.
@@ -1135,9 +1128,10 @@ const vx_dtype *vx_dtype_from_arrow_schema(FFI_ArrowSchema *schema, vx_error **e
 void vx_error_free(const vx_error *ptr);
 
 /**
- * Return an error message for this error
+ * Return error message for this error.
+ * Returned view is valid while "error" is valid.
  */
-const vx_string *vx_error_get_message(const vx_error *error);
+vx_view vx_error_message(const vx_error *error);
 
 /**
  * Return category code for "error".
@@ -1215,7 +1209,7 @@ vx_expression *vx_expression_literal(const vx_scalar *scalar, vx_error **err);
  * vx_expression_free(select);
  * vx_expression_free(root);
  */
-vx_expression *vx_expression_select(const char *const *names, size_t len, const vx_expression *child);
+vx_expression *vx_expression_select(const vx_view *names, size_t len, const vx_expression *child);
 
 /**
  * Create an AND expression for multiple child expressions.
@@ -1277,8 +1271,11 @@ vx_expression *vx_expression_is_null(const vx_expression *child);
  *
  * Example: if child is Struct { name=u8, age=u16 } and we do
  * vx_expression_get_item("name", child), output type will be DTYPE_U8
+ *
+ * "item" is copied. Returns NULL if "child" is NULL or "item" is not valid
+ * UTF-8.
  */
-vx_expression *vx_expression_get_item(const char *item, const vx_expression *child);
+vx_expression *vx_expression_get_item(vx_view item, const vx_expression *child);
 
 /**
  * Create an expression that checks if a value is contained in a list.
@@ -1298,7 +1295,7 @@ const vx_file *vx_file_clone(const vx_file *ptr);
 void vx_file_free(const vx_file *ptr);
 
 void vx_file_write_array(const vx_session *session,
-                         const char *path,
+                         vx_view path,
                          const vx_array *array,
                          vx_error **error_out);
 
@@ -1399,11 +1396,10 @@ vx_scalar *vx_scalar_new_f16_bits(uint16_t bits, bool is_nullable);
 /**
  * Create a UTF-8 scalar.
  *
- * The byte range is copied into the scalar. A NULL data pointer is allowed only
- * for an empty byte range. Invalid UTF-8 returns NULL and writes the error
- * output.
+ * The string bytes are copied into the scalar. Invalid UTF-8 returns NULL and
+ * writes the error output.
  */
-vx_scalar *vx_scalar_new_utf8(const char *ptr, size_t len, bool is_nullable, vx_error **err);
+vx_scalar *vx_scalar_new_utf8(vx_view value, bool is_nullable, vx_error **err);
 
 /**
  * Create a binary scalar.
@@ -1636,11 +1632,10 @@ vx_session *vx_session_clone(const vx_session *session);
 /**
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
+ * "path" is copied.
  */
-vx_array_sink *vx_array_sink_open_file(const vx_session *session,
-                                       const char *path,
-                                       const vx_dtype *dtype,
-                                       vx_error **error_out);
+vx_array_sink *
+vx_array_sink_open_file(const vx_session *session, vx_view path, const vx_dtype *dtype, vx_error **error_out);
 
 /**
  * Push an array into a file sink.
@@ -1659,36 +1654,6 @@ void vx_array_sink_close(vx_array_sink *sink, vx_error **error_out);
  * Don't use sink after this call.
  */
 void vx_array_sink_abort(vx_array_sink *sink);
-
-/**
- * Clone a vx_string. Returned handle must be release with vx_string_free
- */
-const vx_string *vx_string_clone(const vx_string *ptr);
-
-/**
- * Free a vx_string
- */
-void vx_string_free(const vx_string *ptr);
-
-/**
- * Create a new Vortex UTF-8 string by copying from a pointer and length.
- */
-const vx_string *vx_string_new(const char *ptr, size_t len);
-
-/**
- * Create a new Vortex UTF-8 string by copying from a null-terminated C-style string.
- */
-const vx_string *vx_string_new_from_cstr(const char *ptr);
-
-/**
- * Return the length of the string in bytes.
- */
-size_t vx_string_len(const vx_string *ptr);
-
-/**
- * Return the pointer to the string data.
- */
-const char *vx_string_ptr(const vx_string *ptr);
 
 /**
  * Free an owned [`vx_struct_column_builder`] object.
@@ -1712,7 +1677,7 @@ vx_struct_column_builder *vx_struct_column_builder_new(const vx_validity *validi
  * deallocate it using vx_struct_column_builder_free.
  */
 void vx_struct_column_builder_add_field(vx_struct_column_builder *builder,
-                                        const char *name,
+                                        vx_view name,
                                         const vx_array *field,
                                         vx_error **error);
 
@@ -1752,10 +1717,12 @@ void vx_struct_fields_free(const vx_struct_fields *ptr);
 uint64_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
 
 /**
- * Return an owned name of the field at a given index.
- * If index is out of bounds, returns NULL.
+ * Return field name at a given index.
+ * If index is out of bounds, returns {NULL, 0}.
+ *
+ * Returned view is valid as long as "dtype" is valid.
  */
-const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
+vx_view vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
 
 /**
  * Return an owned dtype of the field at a given index.
@@ -1776,12 +1743,13 @@ vx_struct_fields_builder *vx_struct_fields_builder_new(void);
 /**
  * Add a field to the struct dtype builder.
  *
- * Takes ownership of both the `name` and `dtype` pointers.
- * Must either free or finalize the builder.
+ * "name" is copied. Takes ownership of "dtype".
+ * Caller must free or finalize the builder.
  */
 void vx_struct_fields_builder_add_field(vx_struct_fields_builder *builder,
-                                        const vx_string *name,
-                                        const vx_dtype *dtype);
+                                        vx_view name,
+                                        const vx_dtype *dtype,
+                                        vx_error **error_out);
 
 /**
  * Finalize the struct dtype builder, returning a new `vx_struct_fields`.
@@ -1793,3 +1761,16 @@ vx_struct_fields *vx_struct_fields_builder_finalize(vx_struct_fields_builder *bu
 #ifdef __cplusplus
 } // extern "C"
 #endif // __cplusplus
+
+#include <string.h>
+
+/**
+ * Create a view over a null-terminated C string.
+ * View is valid as long as "str" is valid
+ */
+static inline vx_view vx_view_from_cstr(const char *str) {
+    vx_view s;
+    s.ptr = str;
+    s.len = strlen(str);
+    return s;
+}
