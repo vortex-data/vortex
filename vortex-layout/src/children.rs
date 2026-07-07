@@ -218,15 +218,14 @@ impl LayoutChildren for ViewedLayoutChildren {
             let encoding_id = self
                 .layout_read_ctx
                 .resolve(fb_child.encoding())
-                .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding()))?;
+                .ok_or_else(|| {
+                    vortex_err!("Unknown layout encoding index: {}", fb_child.encoding())
+                })?;
             let Some(encoding) = self.layouts.find(&encoding_id) else {
                 if self.allow_unknown {
                     return viewed_children.foreign_layout_from_fb(fb_child, dtype);
                 }
-                return Err(vortex_err!(
-                    "Encoding not found in registry: {}",
-                    fb_child.encoding()
-                ));
+                vortex_bail!("Unknown layout encoding: {encoding_id}");
             };
 
             let build_ctx = LayoutBuildContext {
