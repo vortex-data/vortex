@@ -4,6 +4,9 @@
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::error::VortexResult;
+use vortex_geo::extension::LineStringData;
+use vortex_geo::extension::MultiLineStringData;
+use vortex_geo::extension::MultiPointData;
 use vortex_geo::extension::MultiPolygonData;
 use vortex_geo::extension::PointData;
 use vortex_geo::extension::PolygonData;
@@ -49,5 +52,37 @@ pub(crate) fn new_multipolygon_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let values = multipolygon.to_wkb(ctx)?.execute::<VarBinViewArray>(ctx)?;
+    new_exporter(values, ctx)
+}
+
+/// Create an exporter for a native `LineString` column, serialized to WKB via
+/// [`LineStringData::to_wkb`] (see [`new_point_exporter`]).
+pub(crate) fn new_linestring_exporter(
+    linestring: LineStringData,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let values = linestring.to_wkb(ctx)?.execute::<VarBinViewArray>(ctx)?;
+    new_exporter(values, ctx)
+}
+
+/// Create an exporter for a native `MultiPoint` column, serialized to WKB via
+/// [`MultiPointData::to_wkb`] (see [`new_point_exporter`]).
+pub(crate) fn new_multipoint_exporter(
+    multipoint: MultiPointData,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let values = multipoint.to_wkb(ctx)?.execute::<VarBinViewArray>(ctx)?;
+    new_exporter(values, ctx)
+}
+
+/// Create an exporter for a native `MultiLineString` column, serialized to WKB via
+/// [`MultiLineStringData::to_wkb`] (see [`new_point_exporter`]).
+pub(crate) fn new_multilinestring_exporter(
+    multilinestring: MultiLineStringData,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let values = multilinestring
+        .to_wkb(ctx)?
+        .execute::<VarBinViewArray>(ctx)?;
     new_exporter(values, ctx)
 }

@@ -58,6 +58,9 @@ use vortex::extension::datetime::Time;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
 use vortex_geo::extension::GeoMetadata;
+use vortex_geo::extension::LineString;
+use vortex_geo::extension::MultiLineString;
+use vortex_geo::extension::MultiPoint;
 use vortex_geo::extension::MultiPolygon;
 use vortex_geo::extension::Point;
 use vortex_geo::extension::Polygon;
@@ -248,10 +251,13 @@ impl TryFrom<&DType> for LogicalType {
                     return temporal_to_duckdb(temporal);
                 }
 
-                // Native Point/Polygon and WKB all surface to DuckDB as GEOMETRY so `ST_*` bind.
+                // Native geometry types and WKB all surface to DuckDB as GEOMETRY so `ST_*` bind.
                 if let Some(geo) = ext_dtype
                     .metadata_opt::<Point>()
+                    .or_else(|| ext_dtype.metadata_opt::<LineString>())
+                    .or_else(|| ext_dtype.metadata_opt::<MultiPoint>())
                     .or_else(|| ext_dtype.metadata_opt::<Polygon>())
+                    .or_else(|| ext_dtype.metadata_opt::<MultiLineString>())
                     .or_else(|| ext_dtype.metadata_opt::<MultiPolygon>())
                     .or_else(|| ext_dtype.metadata_opt::<WellKnownBinary>())
                 {

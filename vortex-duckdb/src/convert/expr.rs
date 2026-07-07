@@ -38,6 +38,9 @@ use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::literal::Literal;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex_geo::extension::LineString;
+use vortex_geo::extension::MultiLineString;
+use vortex_geo::extension::MultiPoint;
 use vortex_geo::extension::MultiPolygon;
 use vortex_geo::extension::Point;
 use vortex_geo::extension::Polygon;
@@ -105,7 +108,14 @@ fn is_native_geo_column(fields: Option<&[DuckdbField]>, name: &str) -> bool {
         .flatten()
         .filter(|field| field.name == name)
         .any(|field| match field.dtype.as_extension_opt() {
-            Some(ext) => ext.is::<Point>() || ext.is::<Polygon>() || ext.is::<MultiPolygon>(),
+            Some(ext) => {
+                ext.is::<Point>()
+                    || ext.is::<LineString>()
+                    || ext.is::<MultiPoint>()
+                    || ext.is::<Polygon>()
+                    || ext.is::<MultiLineString>()
+                    || ext.is::<MultiPolygon>()
+            }
             None => false,
         })
 }

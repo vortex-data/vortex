@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub(crate) mod coordinate;
+mod linestring;
+mod multilinestring;
+mod multipoint;
 mod multipolygon;
 mod point;
 mod polygon;
@@ -19,12 +22,18 @@ use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::Crs;
 use geoarrow::datatypes::Dimension;
 use geoarrow::datatypes::GeoArrowType;
+use geoarrow::datatypes::LineStringType;
 use geoarrow::datatypes::Metadata;
+use geoarrow::datatypes::MultiLineStringType;
+use geoarrow::datatypes::MultiPointType;
 use geoarrow::datatypes::MultiPolygonType;
 use geoarrow::datatypes::PointType;
 use geoarrow::datatypes::PolygonType;
 use geoarrow::datatypes::WkbType;
 use geoarrow_cast::cast::cast;
+pub use linestring::*;
+pub use multilinestring::*;
+pub use multipoint::*;
 pub use multipolygon::*;
 pub use point::*;
 pub use polygon::*;
@@ -61,8 +70,14 @@ pub(crate) fn geometries(
         .clone();
     if ext.is::<Point>() {
         point_geometries(&storage, ctx)
+    } else if ext.is::<LineString>() {
+        linestring_geometries(&storage, ctx)
+    } else if ext.is::<MultiPoint>() {
+        multipoint_geometries(&storage, ctx)
     } else if ext.is::<Polygon>() {
         polygon_geometries(&storage, ctx)
+    } else if ext.is::<MultiLineString>() {
+        multilinestring_geometries(&storage, ctx)
     } else if ext.is::<MultiPolygon>() {
         multipolygon_geometries(&storage, ctx)
     } else {
@@ -107,11 +122,30 @@ pub fn native_geometry_scalar_from_wkb(bytes: &[u8]) -> VortexResult<Option<Scal
             );
             geo_ext_scalar(Point, to_storage(&target)?)?
         }
+        GeometryType::LineString => {
+            let target = GeoArrowType::LineString(
+                LineStringType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+            );
+            geo_ext_scalar(LineString, to_storage(&target)?)?
+        }
         GeometryType::Polygon => {
             let target = GeoArrowType::Polygon(
                 PolygonType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
             );
             geo_ext_scalar(Polygon, to_storage(&target)?)?
+        }
+        GeometryType::MultiPoint => {
+            let target = GeoArrowType::MultiPoint(
+                MultiPointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+            );
+            geo_ext_scalar(MultiPoint, to_storage(&target)?)?
+        }
+        GeometryType::MultiLineString => {
+            let target = GeoArrowType::MultiLineString(
+                MultiLineStringType::new(Dimension::XY, metadata)
+                    .with_coord_type(CoordType::Separated),
+            );
+            geo_ext_scalar(MultiLineString, to_storage(&target)?)?
         }
         GeometryType::MultiPolygon => {
             let target = GeoArrowType::MultiPolygon(
@@ -201,6 +235,9 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
 
+    use super::LineString;
+    use super::MultiLineString;
+    use super::MultiPoint;
     use super::Point;
     use super::Polygon;
     use super::native_geometry_scalar_from_wkb;
@@ -254,6 +291,79 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<Polygon>());
+        Ok(())
+    }
+
+    /// A little-endian WKB `LINESTRING` literal decodes to the native `LineString` extension scalar.
+    #[test]
+    fn decodes_wkb_linestring_to_native() -> VortexResult<()> {
+        let points = [(0.0, 0.0), (1.0, 1.0)];
+        let mut wkb = vec![1u8]; // little-endian byte order
+        wkb.extend_from_slice(&2u32.to_le_bytes()); // geometry type: linestring
+        let len = u32::try_from(points.len()).map_err(|e| vortex_err!("{e}"))?;
+        wkb.extend_from_slice(&len.to_le_bytes());
+        for (x, y) in points {
+            wkb.extend_from_slice(&f64::to_le_bytes(x));
+            wkb.extend_from_slice(&f64::to_le_bytes(y));
+        }
+
+        let scalar = native_geometry_scalar_from_wkb(&wkb)?.expect("a linestring scalar");
+        let DType::Extension(ext) = scalar.dtype() else {
+            panic!("expected an extension dtype, got {}", scalar.dtype());
+        };
+        assert!(ext.is::<LineString>());
+        Ok(())
+    }
+
+    /// A little-endian WKB `MULTIPOINT` literal decodes to the native `MultiPoint` extension scalar.
+    #[test]
+    fn decodes_wkb_multipoint_to_native() -> VortexResult<()> {
+        let points = [(0.0, 0.0), (1.0, 1.0)];
+        let mut wkb = vec![1u8]; // little-endian byte order
+        wkb.extend_from_slice(&4u32.to_le_bytes()); // geometry type: multipoint
+        let len = u32::try_from(points.len()).map_err(|e| vortex_err!("{e}"))?;
+        wkb.extend_from_slice(&len.to_le_bytes());
+        for (x, y) in points {
+            // each member is a full WKB point
+            wkb.push(1u8);
+            wkb.extend_from_slice(&1u32.to_le_bytes());
+            wkb.extend_from_slice(&f64::to_le_bytes(x));
+            wkb.extend_from_slice(&f64::to_le_bytes(y));
+        }
+
+        let scalar = native_geometry_scalar_from_wkb(&wkb)?.expect("a multipoint scalar");
+        let DType::Extension(ext) = scalar.dtype() else {
+            panic!("expected an extension dtype, got {}", scalar.dtype());
+        };
+        assert!(ext.is::<MultiPoint>());
+        Ok(())
+    }
+
+    /// A little-endian WKB `MULTILINESTRING` literal decodes to the native `MultiLineString` scalar.
+    #[test]
+    fn decodes_wkb_multilinestring_to_native() -> VortexResult<()> {
+        let lines = [[(0.0, 0.0), (1.0, 1.0)], [(2.0, 2.0), (3.0, 3.0)]];
+        let mut wkb = vec![1u8]; // little-endian byte order
+        wkb.extend_from_slice(&5u32.to_le_bytes()); // geometry type: multilinestring
+        let num_lines = u32::try_from(lines.len()).map_err(|e| vortex_err!("{e}"))?;
+        wkb.extend_from_slice(&num_lines.to_le_bytes());
+        for line in lines {
+            // each member is a full WKB linestring
+            wkb.push(1u8);
+            wkb.extend_from_slice(&2u32.to_le_bytes());
+            let len = u32::try_from(line.len()).map_err(|e| vortex_err!("{e}"))?;
+            wkb.extend_from_slice(&len.to_le_bytes());
+            for (x, y) in line {
+                wkb.extend_from_slice(&f64::to_le_bytes(x));
+                wkb.extend_from_slice(&f64::to_le_bytes(y));
+            }
+        }
+
+        let scalar = native_geometry_scalar_from_wkb(&wkb)?.expect("a multilinestring scalar");
+        let DType::Extension(ext) = scalar.dtype() else {
+            panic!("expected an extension dtype, got {}", scalar.dtype());
+        };
+        assert!(ext.is::<MultiLineString>());
         Ok(())
     }
 }

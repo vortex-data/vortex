@@ -4,6 +4,9 @@
 //! Arrow interop tests for the geospatial extension types, exercising the session wiring set up
 //! by [`crate::initialize`].
 
+mod linestring;
+mod multilinestring;
+mod multipoint;
 mod multipolygon;
 mod point;
 mod wkb;

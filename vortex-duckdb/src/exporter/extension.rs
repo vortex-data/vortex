@@ -8,6 +8,12 @@ use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::extension::datetime::AnyTemporal;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex_geo::extension::LineString;
+use vortex_geo::extension::LineStringData;
+use vortex_geo::extension::MultiLineString;
+use vortex_geo::extension::MultiLineStringData;
+use vortex_geo::extension::MultiPoint;
+use vortex_geo::extension::MultiPointData;
 use vortex_geo::extension::MultiPolygon;
 use vortex_geo::extension::MultiPolygonData;
 use vortex_geo::extension::Point;
@@ -37,8 +43,20 @@ pub(crate) fn new_exporter(
         return geo::new_point_exporter(PointData::try_from(ext)?, ctx);
     }
 
+    if ext.ext_dtype().is::<LineString>() {
+        return geo::new_linestring_exporter(LineStringData::try_from(ext)?, ctx);
+    }
+
+    if ext.ext_dtype().is::<MultiPoint>() {
+        return geo::new_multipoint_exporter(MultiPointData::try_from(ext)?, ctx);
+    }
+
     if ext.ext_dtype().is::<Polygon>() {
         return geo::new_polygon_exporter(PolygonData::try_from(ext)?, ctx);
+    }
+
+    if ext.ext_dtype().is::<MultiLineString>() {
+        return geo::new_multilinestring_exporter(MultiLineStringData::try_from(ext)?, ctx);
     }
 
     if ext.ext_dtype().is::<MultiPolygon>() {
