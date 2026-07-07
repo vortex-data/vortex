@@ -142,6 +142,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
             "appending this list would cause an offset overflow"
         );
 
+        self.elements_builder.reserve_exact(num_elements);
         array.append_to_builder(self.elements_builder.as_mut(), ctx)?;
         self.nulls.append_non_null();
 
@@ -431,11 +432,14 @@ where
     );
 
     if last > first {
+        builder.elements_builder.reserve_exact(last - first);
         elements
             .slice(first..last)?
             .append_to_builder(builder.elements_builder.as_mut(), ctx)?;
     }
 
+    builder.offsets_builder.reserve_exact(num_lists);
+    builder.sizes_builder.reserve_exact(num_lists);
     let mut offsets_range = builder.offsets_builder.uninit_range(num_lists);
     let mut sizes_range = builder.sizes_builder.uninit_range(num_lists);
     for i in 0..num_lists {
@@ -504,6 +508,7 @@ mod tests {
 
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
 
     use super::ListViewBuilder;
     use crate::IntoArray;
@@ -797,6 +802,35 @@ mod tests {
             PrimitiveArray::from_iter([4i32, 5]),
             &mut ctx
         );
+    }
+
+    #[test]
+    fn test_append_list_array_grows_builder() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype: Arc<DType> = Arc::new(I32.into());
+
+        // Enough lists to exceed the offsets/sizes capacity of a zero-capacity builder, so
+        // appending must grow the builder rather than panic in `uninit_range`.
+        let lists: Vec<Option<Vec<i32>>> =
+            (0..100).map(|i| (i % 10 != 0).then(|| vec![i])).collect();
+        let source = ListArray::from_iter_opt_slow::<u32, _, _>(lists.clone(), Arc::clone(&dtype))?;
+
+        let mut builder =
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
+        builder.append_list_array(source.as_view(), &mut ctx)?;
+        // Append a second time to check growth from a non-empty builder and offset rebasing.
+        builder.append_list_array(source.as_view(), &mut ctx)?;
+
+        let listview = builder.finish_into_listview();
+        assert!(listview.is_zero_copy_to_list());
+
+        let expected = ListArray::from_iter_opt_slow::<u32, _, _>(
+            lists.iter().cloned().chain(lists.iter().cloned()),
+            dtype,
+        )?;
+        assert_arrays_eq!(listview, expected, &mut ctx);
+
+        Ok(())
     }
 
     #[test]

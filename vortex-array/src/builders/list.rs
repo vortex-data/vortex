@@ -111,6 +111,7 @@ impl<O: IntegerPType> ListBuilder<O> {
             self.element_dtype()
         );
 
+        self.elements_builder.reserve_exact(array.len());
         array.append_to_builder(self.elements_builder.as_mut(), ctx)?;
         self.nulls.append_non_null();
         self.offsets_builder.append_value(
@@ -192,7 +193,11 @@ where
     let num_lists = new_offsets.len();
     debug_assert_eq!(num_lists, new_sizes.len());
 
+    let total_elements: usize = new_sizes.iter().map(|size| size.as_()).sum();
+    builder.elements_builder.reserve_exact(total_elements);
+
     let mut curr_offset = builder.elements_builder.len();
+    builder.offsets_builder.reserve_exact(num_lists);
     let mut offsets_range = builder.offsets_builder.uninit_range(num_lists);
 
     // We need to append each list individually, converting from `ListViewArray` format to
@@ -315,12 +320,14 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
             // in bulk and the offsets rebased onto this builder's elements.
             let elements_base = self.elements_builder.len();
             if last > first {
+                self.elements_builder.reserve_exact(last - first);
                 array
                     .elements()
                     .slice(first..last)?
                     .append_to_builder(self.elements_builder.as_mut(), ctx)?;
             }
 
+            self.offsets_builder.reserve_exact(num_lists);
             let mut offsets_range = self.offsets_builder.uninit_range(num_lists);
             for i in 0..num_lists {
                 let end: usize = offsets[i + 1].as_();
@@ -612,6 +619,36 @@ mod tests {
         let mut list_builder_i16 = ListBuilder::<i16>::with_capacity(elem_dtype(), Nullable, 8, 4);
         listview.append_to_builder(&mut list_builder_i16, &mut ctx)?;
         assert_arrays_eq!(list_builder_i16.finish(), list, &mut ctx);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_append_list_arrays_grow_builder() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype: Arc<DType> = Arc::new(I32.into());
+
+        // Enough lists to exceed the offsets capacity of a zero-capacity builder, so appending
+        // must grow the builder rather than panic in `uninit_range`.
+        let lists: Vec<Option<Vec<i32>>> =
+            (0..100).map(|i| (i % 10 != 0).then(|| vec![i])).collect();
+        let source = ListArray::from_iter_opt_slow::<u32, _, _>(lists.clone(), Arc::clone(&dtype))?;
+        let expected = ListArray::from_iter_opt_slow::<u32, _, _>(
+            lists.iter().cloned().chain(lists.iter().cloned()),
+            Arc::clone(&dtype),
+        )?;
+
+        // Appending twice checks growth from a non-empty builder and offset rebasing.
+        let mut builder = ListBuilder::<u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
+        builder.append_list_array(source.as_view(), &mut ctx)?;
+        builder.append_list_array(source.as_view(), &mut ctx)?;
+        assert_arrays_eq!(builder.finish(), expected, &mut ctx);
+
+        let source_listview = source.into_array().execute::<ListViewArray>(&mut ctx)?;
+        let mut builder = ListBuilder::<u32>::with_capacity(dtype, Nullable, 0, 0);
+        builder.append_listview_array(source_listview.as_view(), &mut ctx)?;
+        builder.append_listview_array(source_listview.as_view(), &mut ctx)?;
+        assert_arrays_eq!(builder.finish(), expected, &mut ctx);
 
         Ok(())
     }
