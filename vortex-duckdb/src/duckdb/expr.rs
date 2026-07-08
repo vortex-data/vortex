@@ -44,6 +44,14 @@ impl ExpressionRef {
     pub fn as_class(&self) -> Option<ExpressionClass<'_>> {
         Some(
             match unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) } {
+                cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CAST => {
+                    let child = unsafe {
+                        Expression::borrow(cpp::duckdb_vx_expr_get_bound_cast_child(self.as_ptr()))
+                    };
+                    let is_try =
+                        unsafe { cpp::duckdb_vx_expr_get_bound_cast_is_try(self.as_ptr()) };
+                    ExpressionClass::BoundCast(BoundCast { child, is_try })
+                }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF => {
                     let name = unsafe {
                         let ptr = cpp::duckdb_vx_expr_get_bound_column_ref_get_name(self.as_ptr());
@@ -165,8 +173,14 @@ pub enum ExpressionClass<'a> {
     BoundBetween(BoundBetween<'a>),
     BoundOperator(BoundOperator<'a>),
     BoundFunction(BoundFunction<'a>),
+    BoundCast(BoundCast<'a>),
     /// Column inside ExpressionFilter for expression pushed down to Vortex.
     BoundRef,
+}
+
+pub struct BoundCast<'a> {
+    pub child: &'a ExpressionRef,
+    pub is_try: bool,
 }
 
 pub struct BoundColumnRef {
