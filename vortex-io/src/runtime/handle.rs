@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Weak;
@@ -77,8 +79,11 @@ impl Handle {
         let span = tracing::trace_span!(target: "vortex_io::spawn", "spawn");
         let abort_handle = self.runtime().spawn(
             async move {
+                // Catch a panic so it can be re-raised on the joining side (see `Task::poll`)
+                // rather than being lost, matching `tokio::JoinError` / `smol::Task` semantics.
+                let output = AssertUnwindSafe(f).catch_unwind().await;
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
-                drop(send.send(f.await));
+                drop(send.send(output));
             }
             .instrument(span)
             .boxed(),
@@ -116,8 +121,10 @@ impl Handle {
         let span = tracing::trace_span!(target: "vortex_io::spawn_io", "spawn_io");
         let abort_handle = self.runtime().spawn_io(
             async move {
+                // See `spawn`: catch a panic so it re-raises on the joining side.
+                let output = AssertUnwindSafe(f).catch_unwind().await;
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
-                drop(send.send(f.await));
+                drop(send.send(output));
             }
             .instrument(span)
             .boxed(),
@@ -148,8 +155,10 @@ impl Handle {
             let _guard = span.enter();
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
+                // Catch a panic so it re-raises on the joining side (see `Task::poll`).
+                let output = std::panic::catch_unwind(AssertUnwindSafe(f));
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
-                drop(send.send(f()));
+                drop(send.send(output));
             }
         }));
         Task {
@@ -170,8 +179,10 @@ impl Handle {
             let _guard = span.enter();
             // Optimistically avoid the work if the result won't be used.
             if !send.is_closed() {
+                // Catch a panic so it re-raises on the joining side (see `Task::poll`).
+                let output = std::panic::catch_unwind(AssertUnwindSafe(f));
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
-                drop(send.send(f()));
+                drop(send.send(output));
             }
         }));
         Task {
@@ -181,13 +192,17 @@ impl Handle {
     }
 }
 
+/// The value carried from a spawned task back to its [`Task`] handle: either the task's output,
+/// or the panic payload if the task panicked, so it can be re-raised on the joining side.
+type TaskOutput<T> = Result<T, Box<dyn Any + Send>>;
+
 /// A handle to a spawned Task.
 ///
 /// If this handle is dropped, the task is cancelled where possible. In order to allow the task to
 /// continue running in the background, call [`Task::detach`].
 #[must_use = "When a Task is dropped without being awaited, it is cancelled"]
 pub struct Task<T> {
-    recv: oneshot::AsyncReceiver<T>,
+    recv: oneshot::AsyncReceiver<TaskOutput<T>>,
     abort_handle: Option<AbortHandleRef>,
 }
 
@@ -205,16 +220,19 @@ impl<T> Future for Task<T> {
     #[expect(clippy::panic)]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match ready!(self.recv.poll_unpin(cx)) {
-            Ok(result) => Poll::Ready(result),
+            Ok(Ok(result)) => Poll::Ready(result),
+            // The task panicked: re-raise the original panic on the joining side, preserving its
+            // message and payload rather than collapsing it into a generic error.
+            Ok(Err(panic)) => std::panic::resume_unwind(panic),
             Err(_recv_err) => {
-                // If the other end of the channel was dropped, it means the runtime dropped
-                // the future without ever completing it. If the caller aborted this task by
-                // dropping it, then they wouldn't be able to poll it anymore.
-                // So we consider a closed channel to be a Runtime programming error and therefore
-                // we panic.
+                // The result channel closed without delivering a value, which means the runtime
+                // dropped the task's future before it completed (for example, the task was
+                // aborted). If the caller aborted this task by dropping it, they wouldn't be able
+                // to poll it anymore, so we consider a closed channel a runtime programming error
+                // and panic.
 
                 // NOTE(ngates): we don't use vortex_panic to avoid printing a useless backtrace.
-                panic!("Runtime dropped task without completing it, likely it panicked")
+                panic!("Runtime dropped task without completing it")
             }
         }
     }

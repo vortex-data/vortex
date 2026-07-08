@@ -423,7 +423,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "Runtime dropped task without completing it, likely it panicked")]
+    #[should_panic(expected = "read-at panic")]
     async fn file_segment_source_propagates_read_driver_panic() {
         let source = panicking_source();
         let _result = source.request(SegmentId::from(0)).await;
