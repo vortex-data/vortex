@@ -13,11 +13,15 @@ mod wkb;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use ::wkb::reader::GeometryType;
 use arrow_array::BinaryArray;
+use arrow_array::StringArray;
+use geo_traits::GeometryTrait;
+use geo_traits::GeometryType;
 use geo_types::Geometry;
 use geoarrow::array::GenericWkbArray;
+use geoarrow::array::GenericWktArray;
 use geoarrow::array::GeoArrowArray;
+use geoarrow::array::GeoArrowArrayAccessor;
 use geoarrow::datatypes::CoordType;
 use geoarrow::datatypes::Crs;
 use geoarrow::datatypes::Dimension;
@@ -30,6 +34,7 @@ use geoarrow::datatypes::MultiPolygonType;
 use geoarrow::datatypes::PointType;
 use geoarrow::datatypes::PolygonType;
 use geoarrow::datatypes::WkbType;
+use geoarrow::datatypes::WktType;
 use geoarrow_cast::cast::cast;
 pub use linestring::*;
 pub use multilinestring::*;
@@ -98,68 +103,130 @@ pub(crate) fn single_geometry(
 }
 
 /// Decode a WKB geometry literal (DuckDB's wire form for `GEOMETRY` constants) to its native
-/// `Point`/`Polygon`/`MultiPolygon` scalar. `None` for unsupported types. Plan-time, one value only.
+/// geometry scalar. `None` for kinds without a native type (e.g. GeometryCollection). Plan-time, one value only.
 pub fn native_geometry_scalar_from_wkb(bytes: &[u8]) -> VortexResult<Option<Scalar>> {
     let metadata = geoarrow_metadata(&GeoMetadata::default());
     let binary = BinaryArray::from(vec![Some(bytes)]);
-    let wkb = GenericWkbArray::<i32>::try_from((
+    let src = GenericWkbArray::<i32>::try_from((
         &binary as &dyn arrow_array::Array,
         WkbType::new(Arc::clone(&metadata)),
     ))
     .map_err(|e| vortex_err!("failed to read WKB literal: {e}"))?;
-
-    // Cast the WKB value to `target`, import its native storage as a Vortex array.
-    let to_storage = |target: &GeoArrowType| -> VortexResult<ArrayRef> {
-        let native =
-            cast(&wkb, target).map_err(|e| vortex_err!("failed to cast WKB literal: {e}"))?;
-        ArrayRef::from_arrow(native.to_array_ref().as_ref(), false)
-    };
-
-    let scalar = match Wkb::try_from_bytes(bytes)?.geometry_type() {
-        GeometryType::Point => {
-            let target = GeoArrowType::Point(
-                PointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
-            );
-            geo_ext_scalar(Point, to_storage(&target)?)?
-        }
-        GeometryType::LineString => {
-            let target = GeoArrowType::LineString(
-                LineStringType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
-            );
-            geo_ext_scalar(LineString, to_storage(&target)?)?
-        }
-        GeometryType::Polygon => {
-            let target = GeoArrowType::Polygon(
-                PolygonType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
-            );
-            geo_ext_scalar(Polygon, to_storage(&target)?)?
-        }
-        GeometryType::MultiPoint => {
-            let target = GeoArrowType::MultiPoint(
-                MultiPointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
-            );
-            geo_ext_scalar(MultiPoint, to_storage(&target)?)?
-        }
-        GeometryType::MultiLineString => {
-            let target = GeoArrowType::MultiLineString(
-                MultiLineStringType::new(Dimension::XY, metadata)
-                    .with_coord_type(CoordType::Separated),
-            );
-            geo_ext_scalar(MultiLineString, to_storage(&target)?)?
-        }
-        GeometryType::MultiPolygon => {
-            let target = GeoArrowType::MultiPolygon(
-                MultiPolygonType::new(Dimension::XY, metadata)
-                    .with_coord_type(CoordType::Separated),
-            );
-            geo_ext_scalar(MultiPolygon, to_storage(&target)?)?
-        }
-        _ => return Ok(None),
-    };
-    Ok(Some(scalar))
+    let geometry = src
+        .value(0)
+        .map_err(|e| vortex_err!("failed to decode WKB literal: {e}"))?;
+    native_scalar_from_geometry(&geometry, &src, metadata)
 }
 
-/// Wrap cast-from-WKB `storage` in its `vtable` extension type and pull out the single scalar.
+/// Decode a single WKT geometry literal to its native geometry scalar. `None` for kinds without a native type.
+/// Plan-time, one value only.
+pub fn native_geometry_scalar_from_wkt(wkt: &str) -> VortexResult<Option<Scalar>> {
+    let metadata = geoarrow_metadata(&GeoMetadata::default());
+    let string = StringArray::from(vec![Some(wkt)]);
+    let src = GenericWktArray::<i32>::try_from((
+        &string as &dyn arrow_array::Array,
+        WktType::new(Arc::clone(&metadata)),
+    ))
+    .map_err(|e| vortex_err!("failed to read WKT literal: {e}"))?;
+    let geometry = src
+        .value(0)
+        .map_err(|e| vortex_err!("failed to parse WKT literal: {e}"))?;
+    native_scalar_from_geometry(&geometry, &src, metadata)
+}
+
+/// Dispatch a decoded geoarrow geometry element to its native geometry scalar. `None` for geometry kinds without a native
+/// type (e.g. GeometryCollection).
+fn native_scalar_from_geometry(
+    geometry: &impl GeometryTrait<T = f64>,
+    src: &dyn GeoArrowArray,
+    metadata: Arc<Metadata>,
+) -> VortexResult<Option<Scalar>> {
+    Ok(match geometry.as_type() {
+        GeometryType::Point(_) => Some(geo_scalar_from_geoarrow(
+            src,
+            &point_target(metadata),
+            Point,
+        )?),
+        GeometryType::LineString(_) => Some(geo_scalar_from_geoarrow(
+            src,
+            &linestring_target(metadata),
+            LineString,
+        )?),
+        GeometryType::Polygon(_) => Some(geo_scalar_from_geoarrow(
+            src,
+            &polygon_target(metadata),
+            Polygon,
+        )?),
+        GeometryType::MultiPoint(_) => Some(geo_scalar_from_geoarrow(
+            src,
+            &multipoint_target(metadata),
+            MultiPoint,
+        )?),
+        GeometryType::MultiLineString(_) => Some(geo_scalar_from_geoarrow(
+            src,
+            &multilinestring_target(metadata),
+            MultiLineString,
+        )?),
+        GeometryType::MultiPolygon(_) => Some(geo_scalar_from_geoarrow(
+            src,
+            &multipolygon_target(metadata),
+            MultiPolygon,
+        )?),
+        _ => None,
+    })
+}
+
+fn point_target(metadata: Arc<Metadata>) -> GeoArrowType {
+    GeoArrowType::Point(
+        PointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+    )
+}
+
+fn linestring_target(metadata: Arc<Metadata>) -> GeoArrowType {
+    GeoArrowType::LineString(
+        LineStringType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+    )
+}
+
+fn polygon_target(metadata: Arc<Metadata>) -> GeoArrowType {
+    GeoArrowType::Polygon(
+        PolygonType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+    )
+}
+
+fn multipoint_target(metadata: Arc<Metadata>) -> GeoArrowType {
+    GeoArrowType::MultiPoint(
+        MultiPointType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+    )
+}
+
+fn multilinestring_target(metadata: Arc<Metadata>) -> GeoArrowType {
+    GeoArrowType::MultiLineString(
+        MultiLineStringType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+    )
+}
+
+fn multipolygon_target(metadata: Arc<Metadata>) -> GeoArrowType {
+    GeoArrowType::MultiPolygon(
+        MultiPolygonType::new(Dimension::XY, metadata).with_coord_type(CoordType::Separated),
+    )
+}
+
+/// WKB/WKT literal decoders: cast the geoarrow `src` array to the native
+/// `target` type, import the result as a Vortex storage array, and wrap it in the geo extension
+/// `vtable`, returning the single decoded scalar.
+fn geo_scalar_from_geoarrow<V: ExtVTable<Metadata = GeoMetadata>>(
+    src: &dyn GeoArrowArray,
+    target: &GeoArrowType,
+    vtable: V,
+) -> VortexResult<Scalar> {
+    let native =
+        cast(src, target).map_err(|e| vortex_err!("failed to cast geometry literal: {e}"))?;
+    let storage = ArrayRef::from_arrow(native.to_array_ref().as_ref(), false)?;
+    geo_ext_scalar(vtable, storage)
+}
+
+/// Wrap cast-from-geometry `storage` in its `vtable` extension type and pull out the single scalar.
 // `scalar_at` is deprecated for `execute_scalar`, but there is no execution context at plan time.
 #[allow(deprecated)]
 fn geo_ext_scalar<V: ExtVTable<Metadata = GeoMetadata>>(
@@ -231,6 +298,7 @@ pub(crate) fn geo_metadata_from_arrow(metadata: &Metadata) -> GeoMetadata {
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use rstest::rstest;
     use vortex_array::dtype::DType;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -241,6 +309,7 @@ mod tests {
     use super::Point;
     use super::Polygon;
     use super::native_geometry_scalar_from_wkb;
+    use super::native_geometry_scalar_from_wkt;
     use crate::extension::GeoMetadata;
 
     #[test]
@@ -364,6 +433,52 @@ mod tests {
             panic!("expected an extension dtype, got {}", scalar.dtype());
         };
         assert!(ext.is::<MultiLineString>());
+        Ok(())
+    }
+
+    /// A WKT literal of each OGC simple-feature kind decodes to the matching native extension type
+    /// (asserted via the extension id carried in the dtype).
+    #[rstest]
+    #[case::point("POINT (-111.7610 34.8697)", "vortex.geo.point")]
+    #[case::linestring("LINESTRING (0 0, 1 1, 2 2)", "vortex.geo.linestring")]
+    #[case::polygon("POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))", "vortex.geo.polygon")]
+    #[case::multipoint("MULTIPOINT (0 0, 1 1)", "vortex.geo.multipoint")]
+    #[case::multilinestring(
+        "MULTILINESTRING ((0 0, 1 1), (2 2, 3 3))",
+        "vortex.geo.multilinestring"
+    )]
+    #[case::multipolygon(
+        "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 1, 0 0)))",
+        "vortex.geo.multipolygon"
+    )]
+    fn decodes_wkt_to_native(#[case] wkt: &str, #[case] ext_id: &str) -> VortexResult<()> {
+        let scalar = native_geometry_scalar_from_wkt(wkt)?.expect("a native geometry scalar");
+        assert!(
+            matches!(scalar.dtype(), DType::Extension(_)),
+            "expected an extension dtype, got {}",
+            scalar.dtype()
+        );
+        assert!(
+            scalar.dtype().to_string().contains(ext_id),
+            "{} does not carry {ext_id}",
+            scalar.dtype()
+        );
+        Ok(())
+    }
+
+    /// The same geometry decoded from WKT and from WKB yields identical native scalars, proving both
+    /// source formats funnel through the same cast/import/wrap tail.
+    #[test]
+    fn wkt_matches_wkb() -> VortexResult<()> {
+        // WKB for POINT(1 2), little-endian.
+        let mut wkb = vec![1u8];
+        wkb.extend_from_slice(&1u32.to_le_bytes());
+        wkb.extend_from_slice(&1.0f64.to_le_bytes());
+        wkb.extend_from_slice(&2.0f64.to_le_bytes());
+
+        let from_wkb = native_geometry_scalar_from_wkb(&wkb)?.expect("wkb point");
+        let from_wkt = native_geometry_scalar_from_wkt("POINT (1 2)")?.expect("wkt point");
+        assert_eq!(from_wkb, from_wkt);
         Ok(())
     }
 }
