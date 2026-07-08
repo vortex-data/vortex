@@ -123,15 +123,15 @@ jobs:
       # the RDS IAM token internally (boto3) from the assumed GitHubBenchmarkIngestRole;
       # sslmode=verify-full validates the cert.
       #
-      # ORDER MATTERS: "Install uv" runs BEFORE "Configure AWS credentials".
-      # configure-aws-credentials persists the assumed ingest-role (rds-db:connect
-      # only) as the job's ambient AWS creds; the uv setup compiles via sccache
-      # (S3-backed), so running it after the role switch fails with S3 AccessDenied.
-      # Installing uv first keeps sccache on the original S3-capable creds; the role
-      # is assumed immediately before the ingest, which needs only rds-db:connect.
+      # `sync: false` -- the ingest runs `uv run --no-project --with`, which needs only
+      # the uv binary, never the synced workspace. A full sync would rebuild
+      # vortex-python via sccache->S3, which fails under the ingest-role creds
+      # (rds-db:connect only) and is pure waste here.
       - name: Install uv for v4 ingest
         if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
       - name: Configure AWS credentials for v4 ingest (OIDC)
         if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
         uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6
