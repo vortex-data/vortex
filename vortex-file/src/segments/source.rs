@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -8,12 +9,13 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
-use std::task::Waker;
 
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use futures::future;
+use futures::future::BoxFuture;
+use futures::future::Shared;
 use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
@@ -25,7 +27,6 @@ use vortex_error::vortex_panic;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::JoinOutcome;
-use vortex_io::runtime::Task;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSource;
@@ -72,12 +73,26 @@ pub enum ReadEvent {
 ///
 /// I/O requests will be processed in the order they are `registered`, however coalescing may mean
 /// other registered requests are lumped together into a single I/O operation.
+/// A cloneable handle to the background read driver, shared by every in-flight [`ReadFuture`].
+///
+/// [`Shared`] fans a single completion out to all readers with correct waker bookkeeping, so a
+/// reader is always woken when the driver finishes — even if another reader polled the driver more
+/// recently and was then dropped. Its output is `()`; a driver panic is carried out of band in
+/// [`DriverPanic`] so it can be re-raised on the reader side.
+type SharedDriver = Shared<BoxFuture<'static, ()>>;
+
+/// Slot holding the driver's panic payload, if it panicked while driving reads. The first reader to
+/// observe completion takes the payload and re-raises it; later readers report a graceful error.
+type DriverPanic = Arc<Mutex<Option<Box<dyn Any + Send>>>>;
+
 pub struct FileSegmentSource {
     segments: Arc<[SegmentSpec]>,
     /// A queue for sending read request events to the I/O stream.
     events: mpsc::UnboundedSender<ReadEvent>,
-    /// Background request driver task.
-    driver_task: DriverTask,
+    /// Background request driver, joined by readers to surface a driver panic.
+    driver: SharedDriver,
+    /// Panic payload captured if the driver panicked while driving reads.
+    driver_panic: DriverPanic,
     /// The next read request ID.
     next_id: Arc<AtomicUsize>,
 }
@@ -151,12 +166,30 @@ impl FileSegmentSource {
                 .await
         };
 
-        let driver_task = DriverTask::new(handle.spawn(drive_fut));
+        // Spawn the driver so the runtime makes I/O progress independently of any reader. Readers
+        // join it (below) only to surface a panic raised while driving reads.
+        let mut task = handle.spawn(drive_fut);
+        let driver_panic: DriverPanic = Arc::new(Mutex::new(None));
+        let driver = {
+            let driver_panic = Arc::clone(&driver_panic);
+            async move {
+                // Poll for the terminal outcome without re-raising: a benign abort (runtime
+                // teardown) resolves to `()` so readers report a graceful error, while a panic is
+                // stashed for the first reader to re-raise.
+                if let JoinOutcome::Panicked(panic) = future::poll_fn(|cx| task.poll_join(cx)).await
+                {
+                    *driver_panic.lock() = Some(panic);
+                }
+            }
+            .boxed()
+            .shared()
+        };
 
         Self {
             segments,
             events: send,
-            driver_task,
+            driver,
+            driver_panic,
             next_id: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -200,7 +233,8 @@ impl SegmentSource for FileSegmentSource {
             polled: false,
             finished: false,
             events: self.events.clone(),
-            driver_task: self.driver_task.clone(),
+            driver: self.driver.clone(),
+            driver_panic: Arc::clone(&self.driver_panic),
         };
 
         // One allocation: we only box the returned SegmentFuture, not the inner ReadFuture.
@@ -218,7 +252,8 @@ struct ReadFuture {
     polled: bool,
     finished: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
-    driver_task: DriverTask,
+    driver: SharedDriver,
+    driver_panic: DriverPanic,
 }
 
 impl Future for ReadFuture {
@@ -233,12 +268,17 @@ impl Future for ReadFuture {
                 self.finished = true;
                 Poll::Ready(result)
             }
-            // The request's sender was dropped, so the driver task has finished. Join it so a
-            // panic raised while driving reads is re-raised here rather than surfacing as a
-            // generic error. Only report the dropped error once the driver has finished cleanly.
-            Poll::Ready(Err(e)) => match self.driver_task.poll(cx) {
+            // The request's sender was dropped, so the driver has finished. Join it so a panic
+            // raised while driving reads is re-raised here rather than surfacing as a generic
+            // error. Only report the dropped error once the driver has finished.
+            Poll::Ready(Err(e)) => match self.driver.poll_unpin(cx) {
                 Poll::Ready(()) => {
                     self.finished = true;
+                    // Re-raise the driver panic on the first reader to observe it; later readers
+                    // fall through to the graceful dropped error.
+                    if let Some(panic) = self.driver_panic.lock().take() {
+                        std::panic::resume_unwind(panic);
+                    }
                     Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}")))
                 }
                 Poll::Pending => Poll::Pending,
@@ -253,93 +293,6 @@ impl Future for ReadFuture {
             }
             _ => Poll::Pending,
         }
-    }
-}
-
-#[derive(Clone)]
-struct DriverTask {
-    state: Arc<Mutex<DriverTaskState>>,
-}
-
-struct DriverTaskState {
-    /// Background driver task
-    task: Option<Task<()>>,
-    /// Waiters for tasks that might wait on this driver,
-    /// which we wake up on panic, abort or at the end.
-    waiters: Vec<Waker>,
-    finished: bool,
-}
-
-impl DriverTask {
-    fn new(task: Task<()>) -> Self {
-        Self {
-            state: Arc::new(Mutex::new(DriverTaskState {
-                task: Some(task),
-                waiters: Vec::new(),
-                finished: false,
-            })),
-        }
-    }
-
-    fn poll(&self, cx: &mut Context<'_>) -> Poll<()> {
-        let Some(mut state) = self.state.try_lock() else {
-            cx.waker().wake_by_ref();
-            return Poll::Pending;
-        };
-
-        if state.finished {
-            return Poll::Ready(());
-        }
-
-        // Take the task out while polling so completion can be cached before waking every reader
-        // parked on the shared task.
-        let Some(mut task) = state.task.take() else {
-            state.register(cx.waker());
-            return Poll::Pending;
-        };
-
-        match task.poll_join(cx) {
-            // The driver finished cleanly, or the runtime dropped it before it completed (for
-            // example during shutdown). Neither carries a panic, so readers report a graceful
-            // dropped error rather than turning a benign teardown into a panic.
-            Poll::Ready(JoinOutcome::Completed(()) | JoinOutcome::Aborted) => {
-                let waiters = state.finish();
-                drop(state);
-                for waiter in waiters {
-                    waiter.wake();
-                }
-                Poll::Ready(())
-            }
-            Poll::Pending => {
-                state.task = Some(task);
-                state.register(cx.waker());
-                Poll::Pending
-            }
-            // A panic raised while driving reads: re-raise it here so it surfaces to the caller
-            // instead of collapsing into a generic error.
-            Poll::Ready(JoinOutcome::Panicked(panic)) => {
-                let waiters = state.finish();
-                drop(state);
-                for waiter in waiters {
-                    waiter.wake();
-                }
-                std::panic::resume_unwind(panic)
-            }
-        }
-    }
-}
-
-impl DriverTaskState {
-    fn register(&mut self, waker: &Waker) {
-        if !self.waiters.iter().any(|waiter| waiter.will_wake(waker)) {
-            self.waiters.push(waker.clone());
-        }
-    }
-
-    fn finish(&mut self) -> Vec<Waker> {
-        self.finished = true;
-        self.task = None;
-        std::mem::take(&mut self.waiters)
     }
 }
 
@@ -476,7 +429,7 @@ mod tests {
         )
     }
 
-    fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
+    fn panic_message(payload: &(dyn Any + Send)) -> &str {
         payload
             .downcast_ref::<&str>()
             .copied()
@@ -508,65 +461,52 @@ mod tests {
         }
     }
 
+    // A driver panic must surface to every concurrent reader sharing one driver: exactly one
+    // reader re-raises the original panic, the rest report a graceful error, and none hang. This
+    // also covers the fan-out invariant — `Shared` wakes every reader on completion, so a reader
+    // dropped mid-flight can never swallow another reader's wake-up.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn read_driver_panic_wakes_all_waiters() {
-        let waiter_count = 8;
-        let (release_send, release_recv) = oneshot::channel();
-        let task = TokioRuntime::current().spawn(async move {
-            let _ = release_recv.into_future().await;
-            panic!("read-at panic");
-        });
-        let driver_task = DriverTask::new(task);
-        let registered = Arc::new(AtomicUsize::new(0));
+    async fn file_segment_source_panic_propagates_to_all_concurrent_readers() {
+        let source = Arc::new(panicking_source());
+        let reader_count = 8;
 
-        let waiters: Vec<_> = (0..waiter_count)
+        let readers: Vec<_> = (0..reader_count)
             .map(|_| {
-                let driver_task = driver_task.clone();
-                let registered = Arc::clone(&registered);
+                let source = Arc::clone(&source);
                 tokio::spawn(async move {
-                    let mut counted = false;
-                    AssertUnwindSafe(future::poll_fn(move |cx| {
-                        let poll = driver_task.poll(cx);
-                        if matches!(poll, Poll::Pending) && !counted {
-                            counted = true;
-                            registered.fetch_add(1, Ordering::SeqCst);
-                        }
-                        poll
-                    }))
-                    .catch_unwind()
-                    .await
+                    AssertUnwindSafe(source.request(SegmentId::from(0)))
+                        .catch_unwind()
+                        .await
                 })
             })
             .collect();
 
-        while registered.load(Ordering::SeqCst) < waiter_count {
-            tokio::task::yield_now().await;
-        }
-
-        release_send
-            .send(())
-            .expect("driver task should still be waiting for release");
         let joined =
-            tokio::time::timeout(std::time::Duration::from_secs(5), future::join_all(waiters))
+            tokio::time::timeout(std::time::Duration::from_secs(5), future::join_all(readers))
                 .await
-                .expect("driver panic left waiters parked");
+                .expect("a reader hung instead of observing the driver panic");
 
-        let mut saw_panic = false;
-        for waiter in joined {
-            match waiter.expect("waiter task should catch driver panic") {
-                Ok(()) => {}
+        let mut original_panics = 0;
+        for reader in joined {
+            match reader.expect("reader task panicked at the join boundary") {
+                // The first reader to observe completion re-raises the original panic.
                 Err(payload) => {
-                    saw_panic = true;
                     assert!(
                         panic_message(&*payload).contains("read-at panic"),
                         "got: {:?}",
                         panic_message(&*payload)
                     );
+                    original_panics += 1;
                 }
+                // Every other reader reports a graceful dropped-by-runtime error.
+                Ok(result) => assert!(result.is_err(), "expected a dropped-by-runtime error"),
             }
         }
 
-        assert!(saw_panic, "driver panic was not propagated to any waiter");
+        assert_eq!(
+            original_panics, 1,
+            "exactly one reader should re-raise the original driver panic"
+        );
     }
 
     #[derive(Clone)]
