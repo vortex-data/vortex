@@ -196,6 +196,19 @@ impl Handle {
 /// or the panic payload if the task panicked, so it can be re-raised on the joining side.
 type TaskOutput<T> = Result<T, Box<dyn Any + Send>>;
 
+/// The terminal outcome of joining a spawned [`Task`] with [`Task::poll_join`], without
+/// re-raising a panic.
+pub enum JoinOutcome<T> {
+    /// The task ran to completion and produced this value.
+    Completed(T),
+    /// The task panicked. Carries the original panic payload, ready to be re-raised with
+    /// [`std::panic::resume_unwind`].
+    Panicked(Box<dyn Any + Send>),
+    /// The runtime dropped the task's future before it completed, for example because the task
+    /// was aborted or the runtime shut down. No value or panic payload is available.
+    Aborted,
+}
+
 /// A handle to a spawned Task.
 ///
 /// If this handle is dropped, the task is cancelled where possible. In order to allow the task to
@@ -212,24 +225,40 @@ impl<T> Task<T> {
     pub fn detach(mut self) {
         drop(self.abort_handle.take());
     }
+
+    /// Poll the task to completion, reporting the terminal state as a [`JoinOutcome`] instead of
+    /// re-raising a panic or panicking on abort.
+    ///
+    /// This lets a caller distinguish a task panic (which it may re-raise via
+    /// [`std::panic::resume_unwind`]) from the runtime dropping the task before it completed — for
+    /// example a runtime shutting down while work is in flight — which is benign. The [`Future`]
+    /// implementation, by contrast, re-raises a panic and itself panics on abort.
+    pub fn poll_join(&mut self, cx: &mut Context<'_>) -> Poll<JoinOutcome<T>> {
+        match ready!(self.recv.poll_unpin(cx)) {
+            Ok(Ok(output)) => Poll::Ready(JoinOutcome::Completed(output)),
+            Ok(Err(panic)) => Poll::Ready(JoinOutcome::Panicked(panic)),
+            // The result channel closed without delivering a value: the runtime dropped the task's
+            // future before it completed (for example the task was aborted or the runtime shut
+            // down).
+            Err(_recv_err) => Poll::Ready(JoinOutcome::Aborted),
+        }
+    }
 }
 
 impl<T> Future for Task<T> {
     type Output = T;
 
     #[expect(clippy::panic)]
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match ready!(self.recv.poll_unpin(cx)) {
-            Ok(Ok(result)) => Poll::Ready(result),
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match ready!(self.get_mut().poll_join(cx)) {
+            JoinOutcome::Completed(output) => Poll::Ready(output),
             // The task panicked: re-raise the original panic on the joining side, preserving its
             // message and payload rather than collapsing it into a generic error.
-            Ok(Err(panic)) => std::panic::resume_unwind(panic),
-            Err(_recv_err) => {
-                // The result channel closed without delivering a value, which means the runtime
-                // dropped the task's future before it completed (for example, the task was
-                // aborted). If the caller aborted this task by dropping it, they wouldn't be able
-                // to poll it anymore, so we consider a closed channel a runtime programming error
-                // and panic.
+            JoinOutcome::Panicked(panic) => std::panic::resume_unwind(panic),
+            JoinOutcome::Aborted => {
+                // The runtime dropped the task's future before it completed. If the caller aborted
+                // this task by dropping it, they wouldn't be able to poll it anymore, so we
+                // consider a closed channel a runtime programming error and panic.
 
                 // NOTE(ngates): we don't use vortex_panic to avoid printing a useless backtrace.
                 panic!("Runtime dropped task without completing it")
@@ -244,5 +273,54 @@ impl<T> Drop for Task<T> {
         if let Some(handle) = self.abort_handle.take() {
             handle.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::task::noop_waker;
+
+    use super::*;
+
+    // A task whose result channel closed without a value — the runtime dropped its future before
+    // it sent a result — must report `Aborted`, so callers can treat a benign teardown as a
+    // recoverable stop rather than a propagated panic.
+    #[test]
+    fn poll_join_reports_aborted_when_channel_closed_without_value() {
+        let (send, recv) = oneshot::channel::<TaskOutput<()>>();
+        // Simulate the runtime dropping the task's future before it sent a result.
+        drop(send);
+
+        let mut task = Task::<()> {
+            recv: recv.into_future(),
+            abort_handle: None,
+        };
+
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        assert!(matches!(
+            task.poll_join(&mut cx),
+            Poll::Ready(JoinOutcome::Aborted)
+        ));
+    }
+
+    // A completed task reports its value through `poll_join` rather than re-raising or panicking.
+    #[test]
+    fn poll_join_reports_completed_value() {
+        let (send, recv) = oneshot::channel::<TaskOutput<u32>>();
+        // Ignore the send result: the payload type is not `Debug`, and the receiver is alive.
+        drop(send.send(Ok(7)));
+
+        let mut task = Task::<u32> {
+            recv: recv.into_future(),
+            abort_handle: None,
+        };
+
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        assert!(matches!(
+            task.poll_join(&mut cx),
+            Poll::Ready(JoinOutcome::Completed(7))
+        ));
     }
 }

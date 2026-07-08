@@ -14,10 +14,8 @@ use std::task::Poll;
 
 use custom_labels::CURRENT_LABELSET;
 use futures::FutureExt;
-use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
-use futures::channel::mpsc;
 use futures::future::BoxFuture;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
@@ -36,6 +34,7 @@ use vortex::error::VortexResult;
 use vortex::expr::Expression;
 use vortex::expr::stats::Precision;
 use vortex::file::v2::FileStatsLayoutReader;
+use vortex::io::kanal_ext::KanalExt as _;
 use vortex::io::runtime::BlockingRuntime as _;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::layout::scan::multi::MultiLayoutChild;
@@ -230,7 +229,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
 
     // We create an async bounded channel so that all thread-local workers can pull the next
     // available array chunk regardless of which partition it came from.
-    let (tx, rx) = mpsc::channel(num_workers * 2);
+    let (tx, rx) = kanal::bounded_async(num_workers * 2);
 
     // We drive one partition per worker thread. Each partition is driven as a spawned task
     // that pushes array chunks into the shared channel as they are produced. This spawning
@@ -239,7 +238,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
     let stream = scan
         .partitions()
         .map(move |partition| {
-            let mut tx = tx.clone();
+            let tx = tx.clone();
             RUNTIME.handle().spawn(async move {
                 let partition = match partition {
                     Ok(partition) => partition,
@@ -288,13 +287,13 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
     })
 }
 
-fn scan_driver_stream<S>(stream: S, rx: mpsc::Receiver<ScanItem>) -> ScanDriverStream
+fn scan_driver_stream<S>(stream: S, rx: kanal::AsyncReceiver<ScanItem>) -> ScanDriverStream
 where
     S: Stream<Item = ()> + Send + 'static,
 {
     ScanDriverStream {
         driver: Some(stream.collect::<()>().boxed()),
-        rx: rx.boxed(),
+        rx: rx.into_stream().boxed(),
     }
 }
 
@@ -585,8 +584,6 @@ mod tests {
     use std::sync::atomic::Ordering::Relaxed;
     use std::task::Poll;
 
-    use futures::channel::mpsc;
-
     use crate::RUNTIME;
     use crate::table_function::progress;
     use crate::table_function::scan_driver_stream;
@@ -607,7 +604,7 @@ mod tests {
 
     #[test]
     fn scan_driver_panic_propagates_through_iterator() {
-        let (tx, rx) = mpsc::channel(1);
+        let (tx, rx) = kanal::bounded_async(1);
         let _tx = tx;
         let stream = futures::stream::poll_fn(|_| -> Poll<Option<()>> {
             panic!("duckdb scan driver panic");

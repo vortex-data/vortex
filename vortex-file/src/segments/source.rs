@@ -24,6 +24,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::Handle;
+use vortex_io::runtime::JoinOutcome;
 use vortex_io::runtime::Task;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
@@ -261,7 +262,10 @@ struct DriverTask {
 }
 
 struct DriverTaskState {
+    /// Background driver task
     task: Option<Task<()>>,
+    /// Waiters for tasks that might wait on this driver,
+    /// which we wake up on panic, abort or at the end.
     waiters: Vec<Waker>,
     finished: bool,
 }
@@ -294,24 +298,31 @@ impl DriverTask {
             return Poll::Pending;
         };
 
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            Pin::new(&mut task).poll(cx)
-        })) {
-            Ok(Poll::Ready(())) => {
+        match task.poll_join(cx) {
+            // The driver finished cleanly, or the runtime dropped it before it completed (for
+            // example during shutdown). Neither carries a panic, so readers report a graceful
+            // dropped error rather than turning a benign teardown into a panic.
+            Poll::Ready(JoinOutcome::Completed(()) | JoinOutcome::Aborted) => {
                 let waiters = state.finish();
                 drop(state);
-                wake_all(waiters);
+                for waiter in waiters {
+                    waiter.wake();
+                }
                 Poll::Ready(())
             }
-            Ok(Poll::Pending) => {
+            Poll::Pending => {
                 state.task = Some(task);
                 state.register(cx.waker());
                 Poll::Pending
             }
-            Err(panic) => {
+            // A panic raised while driving reads: re-raise it here so it surfaces to the caller
+            // instead of collapsing into a generic error.
+            Poll::Ready(JoinOutcome::Panicked(panic)) => {
                 let waiters = state.finish();
                 drop(state);
-                wake_all(waiters);
+                for waiter in waiters {
+                    waiter.wake();
+                }
                 std::panic::resume_unwind(panic)
             }
         }
@@ -329,12 +340,6 @@ impl DriverTaskState {
         self.finished = true;
         self.task = None;
         std::mem::take(&mut self.waiters)
-    }
-}
-
-fn wake_all(waiters: Vec<Waker>) {
-    for waiter in waiters {
-        waiter.wake();
     }
 }
 
