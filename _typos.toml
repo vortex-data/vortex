@@ -8,7 +8,10 @@ extend-ignore-re = [
 ]
 
 [files]
-extend-exclude = ["/vortex-bench/**", "/docs/references.bib", "benchmarks/**", "vortex-sqllogictest/slt/**", "encodings/fsst/src/dfa/tests.rs", "encodings/fsst/src/dfa/flat_contains.rs", "benchmarks-website/server/static/**", "benchmarks-website/server/tests/snapshots/**"]
+# scripts/measurement_id_golden.json is a frozen hash-pin artifact whose vectors include
+# deliberate Unicode edge cases (JSON-escaped, so "café" reads as the token "caf"); its bytes
+# must never change, so it is excluded rather than "fixed".
+extend-exclude = ["/vortex-bench/**", "/docs/references.bib", "benchmarks/**", "vortex-sqllogictest/slt/**", "encodings/fsst/src/dfa/tests.rs", "encodings/fsst/src/dfa/flat_contains.rs", "benchmarks-website/server/static/**", "benchmarks-website/server/tests/snapshots/**", "scripts/measurement_id_golden.json"]
 
 [type.py]
 extend-ignore-identifiers-re = [
