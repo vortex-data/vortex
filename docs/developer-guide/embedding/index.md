@@ -3,7 +3,7 @@
 :::{warning}
 This section is under construction. For guidance on embedding Vortex, please join the
 [Vortex Slack channel](https://vortex.dev/slack)
-or start a [GitHub Discussion](https://github.com/vortex-data/vortex/discussions).
+or open a [GitHub Issue](https://github.com/vortex-data/vortex/issues/new/choose).
 :::
 
 Vortex can be embedded into applications and services via its C FFI, C++ wrapper, or the Scan API.

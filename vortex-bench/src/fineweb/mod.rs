@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fs;
 use std::path::PathBuf;
 
 use tracing::info;
@@ -11,29 +12,10 @@ use crate::BenchmarkDataset;
 use crate::TableSpec;
 use crate::datasets::data_downloads::download_data;
 use crate::utils::file::resolve_data_url;
+use crate::workspace_root;
 
 /// URL to the sample file
 const SAMPLE_URL: &str = "https://huggingface.co/datasets/HuggingFaceFW/fineweb/resolve/v1.4.0/sample/10BT/001_00000.parquet";
-
-/// Some basic string-focused queries.
-const QUERIES: &[&str] = &[
-    // simple summary
-    "SELECT count(DISTINCT dump) FROM fineweb",
-    // selective string equality filter
-    "SELECT * FROM fineweb WHERE dump = 'CC-MAIN-2016-30'",
-    // LIKE with prefix filter
-    "SELECT * FROM fineweb WHERE date LIKE '2020-10-%'",
-    // LIKE with simple containment filter
-    "SELECT * FROM fineweb WHERE url LIKE '%google%' AND text LIKE '%Google%'",
-    // LIKE with larger containment filter
-    "SELECT * FROM fineweb WHERE url LIKE '%.google.%' OR text LIKE '% Google %'",
-    "SELECT * FROM fineweb WHERE text LIKE '% vortex %'",
-    // More LIKE filters
-    "SELECT * FROM fineweb WHERE url LIKE '%espn%' AND language = 'en' AND language_score > 0.92",
-    "SELECT * FROM fineweb WHERE url LIKE '%espn%' OR url LIKE '%www.espn.go.com%' OR url LIKE '%espn.go.com%'",
-    // no results, stats cannot prune but tokenized bloom filters could
-    "SELECT * FROM fineweb WHERE file_path LIKE '%/CC-MAIN-2014-%'",
-];
 
 /// A benchmark using the HuggingFace FineWeb dataset.
 ///
@@ -71,8 +53,22 @@ impl FinewebBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for FinewebBenchmark {
+    /// Some basic string-focused queries, numbered from Q0 in `sql/fineweb.sql` file order.
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
-        Ok(QUERIES.iter().map(|s| s.to_string()).enumerate().collect())
+        // `;`-separated; a `;` must not appear in a comment, or it would split a statement in two.
+        let queries_file = workspace_root()
+            .join("vortex-bench")
+            .join("sql")
+            .join("fineweb")
+            .with_extension("sql");
+        let contents = fs::read_to_string(queries_file)?;
+        Ok(contents
+            .split_terminator(';')
+            .map(str::trim)
+            .filter(|stmt| !stmt.is_empty())
+            .map(str::to_string)
+            .enumerate()
+            .collect())
     }
 
     async fn generate_base_data(&self) -> anyhow::Result<()> {

@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Features, Questions
-    url: https://github.com/vortex-data/vortex/discussions/new/choose
-    about: Our preferred starting point if you have any questions or suggestions about configuration, features or behavior.
+  - name: Community Slack
+    url: https://vortex.dev/slack
+    about: Chat with the community for quick questions and discussion.

@@ -17,6 +17,7 @@ pub fn tpcds_queries() -> impl Iterator<Item = (usize, String)> {
 // A few tpcds queries have multiple statements, this handles that
 fn tpcds_query(query_idx: usize) -> String {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("sql")
         .join("tpcds")
         .join(format!("{query_idx:02}"))
         .with_extension("sql");
