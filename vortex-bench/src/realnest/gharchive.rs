@@ -5,6 +5,7 @@
 //!
 //! This dataset applies a bunch of events this way
 
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -18,20 +19,13 @@ use crate::TableSpec;
 use crate::idempotent;
 use crate::idempotent_async;
 use crate::utils::file::resolve_data_url;
+use crate::workspace_root;
 
 /// Template URL for raw JSON dataset
 fn raw_json_url(hour: usize) -> String {
     assert!(hour <= 23);
     format!("https://data.gharchive.org/2024-10-01-{hour}.json.gz")
 }
-
-const QUERIES: &[&str] = &[
-    "select count(*) from events where payload.ref = 'refs/heads/main'",
-    "select distinct repo.name from events where repo.name like 'spiraldb/%'",
-    "select distinct org.id as org_id from events order by org_id limit 100",
-    "select actor.login, count() as freq from events group by actor.login order by freq desc limit 10",
-    "select actor.avatar_url from events where actor.login = 'renovate[bot]'",
-];
 
 pub struct GithubArchiveBenchmark {
     data_url: Url,
@@ -72,8 +66,22 @@ impl GithubArchiveBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for GithubArchiveBenchmark {
+    /// GitHub Archive queries, numbered from Q0 in `sql/gharchive.sql` file order.
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
-        Ok(QUERIES.iter().map(|s| s.to_string()).enumerate().collect())
+        // `;`-separated; a `;` must not appear in a comment, or it would split a statement in two.
+        let queries_file = workspace_root()
+            .join("vortex-bench")
+            .join("sql")
+            .join("gharchive")
+            .with_extension("sql");
+        let contents = fs::read_to_string(queries_file)?;
+        Ok(contents
+            .split_terminator(';')
+            .map(str::trim)
+            .filter(|stmt| !stmt.is_empty())
+            .map(str::to_string)
+            .enumerate()
+            .collect())
     }
 
     async fn generate_base_data(&self) -> anyhow::Result<()> {
