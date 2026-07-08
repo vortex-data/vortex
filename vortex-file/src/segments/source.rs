@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
+use std::task::Waker;
 
 use futures::FutureExt;
 use futures::StreamExt;
@@ -256,36 +257,84 @@ impl Future for ReadFuture {
 
 #[derive(Clone)]
 struct DriverTask {
-    task: Arc<Mutex<Option<Task<()>>>>,
+    state: Arc<Mutex<DriverTaskState>>,
+}
+
+struct DriverTaskState {
+    task: Option<Task<()>>,
+    waiters: Vec<Waker>,
+    finished: bool,
 }
 
 impl DriverTask {
     fn new(task: Task<()>) -> Self {
         Self {
-            task: Arc::new(Mutex::new(Some(task))),
+            state: Arc::new(Mutex::new(DriverTaskState {
+                task: Some(task),
+                waiters: Vec::new(),
+                finished: false,
+            })),
         }
     }
 
     fn poll(&self, cx: &mut Context<'_>) -> Poll<()> {
-        let Some(mut guard) = self.task.try_lock() else {
+        let Some(mut state) = self.state.try_lock() else {
             cx.waker().wake_by_ref();
             return Poll::Pending;
         };
 
-        // Take the task out while polling: if the poll re-raises a driver panic, the handle is
-        // dropped during unwind and never put back, so a concurrent reader observes `None` here
-        // and reports a dropped error rather than re-polling an already-completed handle.
-        let Some(mut task) = guard.take() else {
+        if state.finished {
             return Poll::Ready(());
+        }
+
+        // Take the task out while polling so completion can be cached before waking every reader
+        // parked on the shared task.
+        let Some(mut task) = state.task.take() else {
+            state.register(cx.waker());
+            return Poll::Pending;
         };
 
-        match Pin::new(&mut task).poll(cx) {
-            Poll::Ready(()) => Poll::Ready(()),
-            Poll::Pending => {
-                *guard = Some(task);
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Pin::new(&mut task).poll(cx)
+        })) {
+            Ok(Poll::Ready(())) => {
+                let waiters = state.finish();
+                drop(state);
+                wake_all(waiters);
+                Poll::Ready(())
+            }
+            Ok(Poll::Pending) => {
+                state.task = Some(task);
+                state.register(cx.waker());
                 Poll::Pending
             }
+            Err(panic) => {
+                let waiters = state.finish();
+                drop(state);
+                wake_all(waiters);
+                std::panic::resume_unwind(panic)
+            }
         }
+    }
+}
+
+impl DriverTaskState {
+    fn register(&mut self, waker: &Waker) {
+        if !self.waiters.iter().any(|waiter| waiter.will_wake(waker)) {
+            self.waiters.push(waker.clone());
+        }
+    }
+
+    fn finish(&mut self) -> Vec<Waker> {
+        self.finished = true;
+        self.task = None;
+        std::mem::take(&mut self.waiters)
+    }
+}
+
+fn wake_all(waiters: Vec<Waker>) {
+    for waiter in waiters {
+        waiter.wake();
     }
 }
 
@@ -422,6 +471,14 @@ mod tests {
         )
     }
 
+    fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
+        payload
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("<non-string panic>")
+    }
+
     #[tokio::test]
     #[should_panic(expected = "read-at panic")]
     async fn file_segment_source_propagates_read_driver_panic() {
@@ -444,6 +501,67 @@ mod tests {
                  the request resolved instead of panicking"
             );
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn read_driver_panic_wakes_all_waiters() {
+        let waiter_count = 8;
+        let (release_send, release_recv) = oneshot::channel();
+        let task = TokioRuntime::current().spawn(async move {
+            let _ = release_recv.into_future().await;
+            panic!("read-at panic");
+        });
+        let driver_task = DriverTask::new(task);
+        let registered = Arc::new(AtomicUsize::new(0));
+
+        let waiters: Vec<_> = (0..waiter_count)
+            .map(|_| {
+                let driver_task = driver_task.clone();
+                let registered = Arc::clone(&registered);
+                tokio::spawn(async move {
+                    let mut counted = false;
+                    AssertUnwindSafe(future::poll_fn(move |cx| {
+                        let poll = driver_task.poll(cx);
+                        if matches!(poll, Poll::Pending) && !counted {
+                            counted = true;
+                            registered.fetch_add(1, Ordering::SeqCst);
+                        }
+                        poll
+                    }))
+                    .catch_unwind()
+                    .await
+                })
+            })
+            .collect();
+
+        while registered.load(Ordering::SeqCst) < waiter_count {
+            tokio::task::yield_now().await;
+        }
+
+        release_send
+            .send(())
+            .expect("driver task should still be waiting for release");
+        let joined =
+            tokio::time::timeout(std::time::Duration::from_secs(5), future::join_all(waiters))
+                .await
+                .expect("driver panic left waiters parked");
+
+        let mut saw_panic = false;
+        for waiter in joined {
+            match waiter.expect("waiter task should catch driver panic") {
+                Ok(()) => {}
+                Err(payload) => {
+                    saw_panic = true;
+                    assert!(
+                        panic_message(&*payload).contains("read-at panic"),
+                        "got: {:?}",
+                        panic_message(&*payload)
+                    );
+                }
+            }
+        }
+
+        assert!(saw_panic, "driver panic was not propagated to any waiter");
     }
 
     #[derive(Clone)]

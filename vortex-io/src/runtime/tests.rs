@@ -4,6 +4,7 @@
 #![cfg(feature = "tokio")]
 #![expect(clippy::cast_possible_truncation)]
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -16,8 +17,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
-
-use std::panic::AssertUnwindSafe;
 
 use crate::VortexReadAt;
 use crate::runtime::Task;
