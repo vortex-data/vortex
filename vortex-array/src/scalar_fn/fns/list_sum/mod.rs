@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynGroupedAccumulator;
+use crate::aggregate_fn::GroupRanges;
 use crate::aggregate_fn::GroupedAccumulator;
 use crate::aggregate_fn::GroupedArray;
 use crate::aggregate_fn::NumericalAggregateOpts;
@@ -19,17 +24,15 @@ use crate::aggregate_fn::fns::sum::Sum;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeList;
-use crate::arrays::List;
 use crate::arrays::ListView;
-use crate::arrays::listview::list_view_from_list;
-use crate::builtins::ArrayBuiltins;
+use crate::arrays::masked::mask_validity_canonical;
 use crate::dtype::DType;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::fns::list_length::AnyList;
+use crate::validity::Validity;
 
 /// Sum of the elements in each list of a `List` or `FixedSizeList` typed array.
 ///
@@ -102,9 +105,6 @@ impl ScalarFnVTable for ListSum {
         list_sum_impl(&input, options, ctx)
     }
 
-    // `validity` is left as the default (computed from execution): the output validity is
-    // data-dependent, since a *valid* empty or all-null list yields a *null* sum.
-
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
         false
     }
@@ -114,7 +114,10 @@ impl ScalarFnVTable for ListSum {
     }
 }
 
-/// Sum each list of `array` into one value per list, with SQL `SUM` semantics per list.
+/// Sum each list of `array` into one value per list, with SQL `SUM` semantics per list:
+/// * Null lists have a null sum
+/// * Valid lists that have less than one valid element have a null sum
+/// * Overflowed sums are nullified
 fn list_sum_impl(
     array: &ArrayRef,
     options: &NumericalAggregateOpts,
@@ -125,53 +128,54 @@ fn list_sum_impl(
         other => vortex_bail!("list_sum() requires List or FixedSizeList, got {other}"),
     };
 
-    let any_list = array.clone().execute_until::<AnyList>(ctx)?;
+    // Canonicalize once, up front: `accumulate_list` would do this internally anyway, and
+    // the fix-up pass below needs the same canonical form for elements and ranges.
+    let canonical = array.clone().execute_until::<AnyCanonical>(ctx)?;
 
-    // Normalize to a grouped representation shared by the aggregate pass and the
-    // empty/all-null fix-up pass below.
-    let grouped: GroupedArray = if any_list.is::<FixedSizeList>() {
-        any_list.downcast::<FixedSizeList>().into()
-    } else if any_list.is::<ListView>() {
-        any_list.downcast::<ListView>().into()
-    } else if any_list.is::<List>() {
-        list_view_from_list(any_list.downcast::<List>(), ctx)?.into()
-    } else {
-        let dtype = any_list.dtype();
-        vortex_bail!("list_sum() requires List, ListView, or FixedSizeList but got {dtype}")
-    };
-    let list_ref = match &grouped {
-        GroupedArray::ListView(lv) => lv.clone().into_array(),
-        GroupedArray::FixedSizeList(fsl) => fsl.clone().into_array(),
-    };
-
-    // One sum per list through the grouped aggregate machinery, so per-list widening,
-    // overflow, and NaN semantics match `sum` exactly. Null lists and overflowed sums are
-    // already null in the result.
+    // Null lists and overflowed sums are already null in the result of GroupedAccumulator
     let mut acc = GroupedAccumulator::try_new(Sum, *options, elem_dtype)?;
-    acc.accumulate_list(&list_ref, ctx)?;
+    acc.accumulate_list(&canonical, ctx)?;
     let sums = acc.finish()?;
+
+    // The grouped view of the canonical array, for the fix-up pass.
+    let grouped: GroupedArray = if let Some(fsl) = canonical.as_opt::<FixedSizeList>() {
+        fsl.into_owned().into()
+    } else if let Some(lv) = canonical.as_opt::<ListView>() {
+        lv.into_owned().into()
+    } else {
+        let dtype = canonical.dtype();
+        vortex_bail!("list_sum() requires List or FixedSizeList but got {dtype}")
+    };
 
     // The grouped sum yields `0` for empty and all-null lists, while SQL `SUM` (and the
     // engines Vortex pushes expressions down from) yields null. Null out every list without
-    // at least one valid element, using one materialized element mask rather than
-    // per-element validity checks.
+    // at least one valid element.
     let elements = grouped.elements();
     let elem_mask = elements.validity()?.execute_mask(elements.len(), ctx)?;
     let ranges = grouped.group_ranges(ctx)?;
-    let has_valid_element: Vec<bool> = if elem_mask.all_true() {
-        ranges.iter().map(|(_, size)| size > 0).collect()
-    } else {
-        ranges
+
+    let has_valid_element: BitBuffer = match elem_mask.bit_buffer() {
+        AllOr::All => match &ranges {
+            // fixed-size lists of non-zero width cannot have empty lists.
+            GroupRanges::FixedSizeList { size, .. } if *size > 0 => return Ok(sums),
+            GroupRanges::FixedSizeList { len, .. } => BitBuffer::full(false, *len),
+            GroupRanges::ListView { ranges } => ranges.iter().map(|&(_, size)| size > 0).collect(),
+        },
+        AllOr::None => BitBuffer::full(false, ranges.len()),
+        AllOr::Some(bits) => ranges
             .iter()
-            .map(|(offset, size)| {
-                size > 0 && elem_mask.slice(offset..offset + size).true_count() > 0
-            })
-            .collect()
+            .map(|(offset, size)| size > 0 && bits.count_range(offset, offset + size) > 0)
+            .collect(),
     };
-    if has_valid_element.iter().all(|valid| *valid) {
+    if has_valid_element.true_count() == has_valid_element.len() {
         return Ok(sums);
     }
-    sums.mask(BoolArray::from_iter(has_valid_element).into_array())
+    // Intersect into the result's validity directly instead of executing a `mask`
+    // expression, which would rebuild the sums array in a second full pass.
+    let sums = sums.execute::<Canonical>(ctx)?;
+    let validity =
+        Validity::Array(BoolArray::new(has_valid_element, Validity::NonNullable).into_array());
+    Ok(mask_validity_canonical(sums, validity, ctx)?.into_array())
 }
 
 #[cfg(test)]

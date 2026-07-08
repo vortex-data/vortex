@@ -173,7 +173,7 @@ fn list_length_from_offsets(list: ArrayView<'_, List>) -> VortexResult<ArrayRef>
 }
 
 /// Matches an `Array<List>`, `Array<ListView>`, or `Array<FixedSizeList>`
-pub(crate) struct AnyList;
+struct AnyList;
 
 impl Matcher for AnyList {
     type Match<'a> = ();
