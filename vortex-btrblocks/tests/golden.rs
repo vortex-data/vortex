@@ -9,9 +9,13 @@
 //! snapshot untouched, so snapshot churn in a later change is the reviewable signal of a
 //! behavior change.
 //!
-//! The `default` variant pins the default feature set and [`BtrBlocksCompressor::default`];
-//! it is compiled out under `unstable_encodings`, whose scheme set differs (variants pinning
-//! that feature set are gated separately).
+//! Three variants cover the feature matrix:
+//!
+//! - `default`: the default feature set and [`BtrBlocksCompressor::default`].
+//! - `unstable`: `unstable_encodings` enabled, default builder — pins Delta / OnPair
+//!   selection (compiled out of `ALL_SCHEMES` otherwise).
+//! - `compact`: `unstable_encodings` + `zstd` + `pco`, with
+//!   [`BtrBlocksCompressorBuilder::with_compact`] — pins Zstd / Pco selection.
 //!
 //! Every corpus entry is longer than 1024 values so the sampling-based estimation path is
 //! exercised, and each entry is compressed twice per run to assert determinism directly.
@@ -368,8 +372,44 @@ fn list_of_int_runs() -> VortexResult<ArrayRef> {
     Ok(ListArray::try_new(elements, offsets.into_array(), Validity::NonNullable)?.into_array())
 }
 
+/// Excludes OnPair from the golden compressors: its dictionary training (upstream `onpair`
+/// crate) iterates randomly-seeded `hashbrown` maps, so its compressed output — and therefore
+/// its sampled estimate — differs run-to-run. A nondeterministic scheme cannot serve as a
+/// golden baseline; excluding it keeps the remaining unstable schemes pinned.
+#[cfg(feature = "unstable_encodings")]
+fn without_onpair(
+    builder: vortex_btrblocks::BtrBlocksCompressorBuilder,
+) -> vortex_btrblocks::BtrBlocksCompressorBuilder {
+    use vortex_btrblocks::SchemeExt;
+    use vortex_btrblocks::schemes::string::OnPairScheme;
+
+    builder.exclude_schemes([OnPairScheme.id()])
+}
+
 #[cfg(not(feature = "unstable_encodings"))]
 #[test]
 fn golden_default() -> VortexResult<()> {
     golden_corpus_snapshots("default", &BtrBlocksCompressor::default())
+}
+
+#[cfg(feature = "unstable_encodings")]
+#[test]
+fn golden_unstable() -> VortexResult<()> {
+    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+
+    golden_corpus_snapshots(
+        "unstable",
+        &without_onpair(BtrBlocksCompressorBuilder::default()).build(),
+    )
+}
+
+#[cfg(all(feature = "unstable_encodings", feature = "zstd", feature = "pco"))]
+#[test]
+fn golden_compact() -> VortexResult<()> {
+    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+
+    golden_corpus_snapshots(
+        "compact",
+        &without_onpair(BtrBlocksCompressorBuilder::default().with_compact()).build(),
+    )
 }

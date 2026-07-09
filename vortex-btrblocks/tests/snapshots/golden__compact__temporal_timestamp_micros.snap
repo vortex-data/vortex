@@ -1,0 +1,9 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: vortex.timestamp[µs, tz=UTC](i64), len=16384, nbytes=131072
+root: vortex.ext(vortex.timestamp[µs, tz=UTC](i64), len=16384) nbytes=40985
+  metadata: 
+  storage: vortex.pco(i64, len=16384) nbytes=40985
+    metadata: ptype: i64, nrows: 16384, slice: 0..16384
