@@ -9900,6 +9900,7 @@ dependencies = [
  "num-traits",
  "parking_lot",
  "rand 0.10.2",
+ "rstest",
  "rustc-hash",
  "tracing",
  "vortex-array",
