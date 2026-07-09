@@ -42,6 +42,7 @@ use std::fmt::Debug;
 pub use size::SizeCost;
 
 pub use crate::candidate::Candidate;
+use crate::scheme::SchemeId;
 use crate::stats::ArrayAndStats;
 
 /// An opaque, totally ordered cost. Lower is better.
@@ -95,4 +96,18 @@ pub trait CostModel: Debug + Send + Sync + 'static {
     /// Cost of leaving the array canonical — the baseline every candidate must strictly
     /// beat to be selected.
     fn canonical_cost(&self, data: &ArrayAndStats, n_values: u64) -> Cost;
+
+    /// A lower bound on the cost any candidate from `scheme` could possibly achieve on
+    /// `data`, or `None` (the default) if the model offers no bound.
+    ///
+    /// The compressor skips a scheme's deferred estimation work (sampling, callbacks)
+    /// outright when the bound is not strictly below the best cost observed so far, since
+    /// even the scheme's best case could not win selection. Models that can bound a
+    /// scheme's payoff from cheap facts (e.g. minimum plausible output bytes at zero decode
+    /// cost) can prune expensive sampling here; a sound bound never exceeds the cost of any
+    /// candidate the scheme could actually produce.
+    fn lower_bound(&self, scheme: SchemeId, data: &ArrayAndStats) -> Option<Cost> {
+        let _ = (scheme, data);
+        None
+    }
 }
