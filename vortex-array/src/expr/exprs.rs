@@ -787,7 +787,7 @@ pub fn list_length(input: Expression) -> Expression {
 // ---- ListSum ----
 
 /// Creates an expression that sums the elements of each list for `List` and
-/// `FixedSizeList` inputs, akin to DuckDB's `list_sum()` or DataFusion's `array_sum()`.
+/// `FixedSizeList` inputs, akin to DuckDB's `list_sum()`.
 ///
 /// Follows SQL `SUM` semantics per list: null lists, empty lists, and lists whose elements are
 /// all null yield null; null elements are skipped; integer and decimal overflow yields a null

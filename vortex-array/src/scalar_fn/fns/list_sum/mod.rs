@@ -11,7 +11,6 @@ use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnVTable;
@@ -25,7 +24,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::ListView;
-use crate::arrays::masked::mask_validity_canonical;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -36,10 +35,10 @@ use crate::validity::Validity;
 
 /// Sum of the elements in each list of a `List` or `FixedSizeList` typed array.
 ///
-/// Follows SQL `SUM` semantics per list, matching DuckDB's `list_sum` and DataFusion's
-/// `array_sum`: null lists, empty lists, and lists whose elements are all null yield a null
-/// sum; null elements are skipped. Integer and decimal overflow yields a null sum value,
-/// matching [`Sum`]. The result dtype follows [`Sum`]'s widening rules and is always nullable.
+/// Follows SQL `SUM` semantics per list, matching DuckDB's `list_sum`: null lists, empty
+/// lists, and lists whose elements are all null yield a null sum; null elements are skipped.
+/// Integer and decimal overflow yields a null sum value, matching [`Sum`]. The result dtype
+/// follows [`Sum`]'s widening rules and is always nullable.
 ///
 /// NaN handling for float elements is controlled by [`NumericalAggregateOpts`]: with
 /// `skip_nans` (the default) NaN values contribute nothing, otherwise any NaN poisons the
@@ -114,10 +113,7 @@ impl ScalarFnVTable for ListSum {
     }
 }
 
-/// Sum each list of `array` into one value per list, with SQL `SUM` semantics per list:
-/// * Null lists have a null sum
-/// * Valid lists that have less than one valid element have a null sum
-/// * Overflowed sums are nullified
+/// Sum each list of `array` into one value per list.
 fn list_sum_impl(
     array: &ArrayRef,
     options: &NumericalAggregateOpts,
@@ -128,16 +124,14 @@ fn list_sum_impl(
         other => vortex_bail!("list_sum() requires List or FixedSizeList, got {other}"),
     };
 
-    // Canonicalize once, up front: `accumulate_list` would do this internally anyway, and
-    // the fix-up pass below needs the same canonical form for elements and ranges.
+    // Canonicalize upfront because `mask_empty_lists` needs access to list elements validity
+    // and sizes.
     let canonical = array.clone().execute_until::<AnyCanonical>(ctx)?;
 
-    // Null lists and overflowed sums are already null in the result of GroupedAccumulator
     let mut acc = GroupedAccumulator::try_new(Sum, *options, elem_dtype)?;
     acc.accumulate_list(&canonical, ctx)?;
     let sums = acc.finish()?;
 
-    // The grouped view of the canonical array, for the fix-up pass.
     let grouped: GroupedArray = if let Some(fsl) = canonical.as_opt::<FixedSizeList>() {
         fsl.into_owned().into()
     } else if let Some(lv) = canonical.as_opt::<ListView>() {
@@ -147,9 +141,17 @@ fn list_sum_impl(
         vortex_bail!("list_sum() requires List or FixedSizeList but got {dtype}")
     };
 
-    // The grouped sum yields `0` for empty and all-null lists, while SQL `SUM` (and the
-    // engines Vortex pushes expressions down from) yields null. Null out every list without
-    // at least one valid element.
+    mask_empty_lists(grouped, sums, ctx)
+}
+
+/// Applies a mask to `sums` that nullifies entries produced by lists without at least
+/// one valid element. This is necessary because the grouped `Sum` aggregate only produces
+/// nulls for null lists and sums that overflow.
+fn mask_empty_lists(
+    grouped: GroupedArray,
+    sums: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let elements = grouped.elements();
     let elem_mask = elements.validity()?.execute_mask(elements.len(), ctx)?;
     let ranges = grouped.group_ranges(ctx)?;
@@ -170,12 +172,8 @@ fn list_sum_impl(
     if has_valid_element.true_count() == has_valid_element.len() {
         return Ok(sums);
     }
-    // Intersect into the result's validity directly instead of executing a `mask`
-    // expression, which would rebuild the sums array in a second full pass.
-    let sums = sums.execute::<Canonical>(ctx)?;
-    let validity =
-        Validity::Array(BoolArray::new(has_valid_element, Validity::NonNullable).into_array());
-    Ok(mask_validity_canonical(sums, validity, ctx)?.into_array())
+
+    sums.mask(BoolArray::new(has_valid_element, Validity::NonNullable).into_array())
 }
 
 #[cfg(test)]
@@ -340,6 +338,26 @@ mod tests {
 
         let mut ctx = array_session().create_execution_ctx();
         let expected = PrimitiveArray::from_option_iter::<f64, _>([Some(3.0)]);
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_all_nan_list_sums_to_zero() -> VortexResult<()> {
+        // NaN elements are *valid*: with the default `skip_nans` they contribute nothing, but
+        // the list still has valid elements, so the sum is `0.0` rather than null (unlike an
+        // all-null list).
+        let elements = PrimitiveArray::from_iter([f64::NAN, f64::NAN]);
+        let list = ListArray::try_new(
+            elements.into_array(),
+            buffer![0u32, 2].into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let result = list.apply(&list_sum(root()))?;
+
+        let mut ctx = array_session().create_execution_ctx();
+        let expected = PrimitiveArray::from_option_iter::<f64, _>([Some(0.0)]);
         assert_arrays_eq!(result, expected, &mut ctx);
         Ok(())
     }

@@ -3,11 +3,6 @@
 
 //! Benchmarks for the `list_sum` scalar function over `List`, `ListView`, and
 //! `FixedSizeList` inputs.
-//!
-//! Unlike `list_length`, `list_sum` reads every element, so its cost scales with the total
-//! element count. The nullable-elements variants exercise the per-list valid-element fix-up
-//! pass (empty and all-null lists sum to null) on its popcount path rather than the
-//! all-valid fast path.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
