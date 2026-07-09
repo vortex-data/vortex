@@ -63,6 +63,7 @@
 //! with a short `jq` query.
 
 pub mod builtins;
+pub mod cost;
 pub mod ctx;
 pub mod estimate;
 pub mod scheme;
