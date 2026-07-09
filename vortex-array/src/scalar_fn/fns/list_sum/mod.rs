@@ -9,8 +9,9 @@ use vortex_mask::AllOr;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::AnyCanonical;
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnVTable;
@@ -94,14 +95,29 @@ impl ScalarFnVTable for ListSum {
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
 
-        if let Some(scalar) = input.as_constant() {
-            // Sum the constant's single list once, then broadcast the result.
-            let one_row = ConstantArray::new(scalar, 1).into_array();
-            let sum_scalar = list_sum_impl(&one_row, options, ctx)?.execute_scalar(0, ctx)?;
-            return Ok(ConstantArray::new(sum_scalar, args.row_count()).into_array());
-        }
+        let elem_dtype = match input.dtype() {
+            DType::List(elem, _) | DType::FixedSizeList(elem, ..) => elem.as_ref().clone(),
+            other => vortex_bail!("list_sum() requires List or FixedSizeList, got {other}"),
+        };
 
-        list_sum_impl(&input, options, ctx)
+        // `mask_empty_lists` needs access to list elements validity and sizes
+        let columnar = input.execute::<Columnar>(ctx)?;
+
+        match columnar {
+            Columnar::Constant(constant) => {
+                // Canonicalize one row of the constant and broadcast its sum.
+                let one_row = ConstantArray::new(constant.scalar().clone(), 1)
+                    .into_array()
+                    .execute::<Canonical>(ctx)?
+                    .into_array();
+                let sum =
+                    list_sum_impl(one_row, elem_dtype, options, ctx)?.execute_scalar(0, ctx)?;
+                Ok(ConstantArray::new(sum, constant.len()).into_array())
+            }
+            Columnar::Canonical(canonical) => {
+                list_sum_impl(canonical.into_array(), elem_dtype, options, ctx)
+            }
+        }
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
@@ -113,21 +129,16 @@ impl ScalarFnVTable for ListSum {
     }
 }
 
-/// Sum each list of `array` into one value per list.
+/// Sum each list of a canonical `array` into one value per list.
+///
+/// Note that we need to nullify sums produced by empty or all-null lists,
+/// since grouped sum kernels default to 0 for these.
 fn list_sum_impl(
-    array: &ArrayRef,
+    canonical: ArrayRef,
+    elem_dtype: DType,
     options: &NumericalAggregateOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let elem_dtype = match array.dtype() {
-        DType::List(elem, _) | DType::FixedSizeList(elem, ..) => elem.as_ref().clone(),
-        other => vortex_bail!("list_sum() requires List or FixedSizeList, got {other}"),
-    };
-
-    // Canonicalize upfront because `mask_empty_lists` needs access to list elements validity
-    // and sizes.
-    let canonical = array.clone().execute_until::<AnyCanonical>(ctx)?;
-
     let mut acc = GroupedAccumulator::try_new(Sum, *options, elem_dtype)?;
     acc.accumulate_list(&canonical, ctx)?;
     let sums = acc.finish()?;
