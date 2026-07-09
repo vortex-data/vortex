@@ -3,54 +3,32 @@
 
 use std::sync::Arc;
 
-use arrow_array::BooleanArray;
-use vortex_error::VortexExpect;
-use vortex_mask::Mask;
+use vortex_buffer::Buffer;
 use vortex_mask::MaskValues;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrow::ArrowSessionExt;
-use crate::arrow::FromArrowArray;
+use crate::arrays::filter::execute::buffer;
+use crate::arrays::filter::execute::filter_validity;
+use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::VarBinViewArrayExt;
+use crate::buffer::BufferHandle;
 
-pub fn filter_varbinview(
-    array: &VarBinViewArray,
-    mask: &Arc<MaskValues>,
-    ctx: &mut ExecutionCtx,
-) -> VarBinViewArray {
-    // Delegate to the Arrow implementation of filter over `VarBinView`.
-    arrow_filter_fn(
-        &array.clone().into_array(),
-        &Mask::Values(Arc::clone(mask)),
-        ctx,
-    )
-    .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
-    .as_::<VarBinView>()
-    .into_owned()
-}
+pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
+    let filtered_validity = filter_validity(array.varbinview_validity(), mask);
 
-fn arrow_filter_fn(
-    array: &ArrayRef,
-    mask: &Mask,
-    ctx: &mut ExecutionCtx,
-) -> vortex_error::VortexResult<ArrayRef> {
-    let values = match &mask {
-        Mask::Values(values) => values,
-        Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),
-    };
+    let views = Buffer::<BinaryView>::from_byte_buffer(array.views_handle().as_host().clone());
+    let filtered_views = buffer::filter_buffer(views, mask.as_ref());
 
-    let array_ref = ctx
-        .session()
-        .arrow()
-        .clone()
-        .execute_arrow(array.clone(), None, ctx)?;
-    let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
-    let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
-
-    ArrayRef::from_arrow(filtered.as_ref(), array.dtype().is_nullable())
+    // SAFETY: the filtered views are a subset of the original views and reference the same data
+    // buffers, and the validity is filtered by the same mask so lengths stay aligned.
+    unsafe {
+        VarBinViewArray::new_handle_unchecked(
+            BufferHandle::new_host(filtered_views.into_byte_buffer()),
+            Arc::clone(array.data_buffers()),
+            array.dtype().clone(),
+            filtered_validity,
+        )
+    }
 }
 
 #[cfg(test)]

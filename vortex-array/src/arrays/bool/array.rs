@@ -4,7 +4,6 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use arrow_array::BooleanArray;
 use smallvec::smallvec;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMeta;
@@ -338,14 +337,16 @@ impl FromIterator<bool> for BoolArray {
 
 impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
-        let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
+        let iter = iter.into_iter();
+        let capacity = iter.size_hint().0;
+        let mut bits = BitBufferMut::with_capacity(capacity);
+        let mut validity = BitBufferMut::with_capacity(capacity);
+        for value in iter {
+            bits.append(value.unwrap_or_default());
+            validity.append(value.is_some());
+        }
 
-        BoolArray::new(
-            BitBuffer::from(buffer),
-            nulls
-                .map(|n| Validity::from(BitBuffer::from(n.into_inner())))
-                .unwrap_or(Validity::AllValid),
-        )
+        BoolArray::new(bits.freeze(), Validity::from(validity.freeze()))
     }
 }
 

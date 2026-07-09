@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow_array::BinaryArray;
-use arrow_array::LargeBinaryArray;
-use arrow_array::LargeStringArray;
-use arrow_array::StringArray;
-use arrow_ord::cmp;
-use arrow_schema::DataType;
+use std::cmp::Ordering;
+
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -20,19 +15,15 @@ use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
-use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::VarBinArrayExt;
-use crate::arrow::Datum;
-use crate::arrow::from_arrow_columnar;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::scalar_fn::fns::operators::Operator;
 
-// This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
+// This implementation exists so we can compare against a constant in encoded space, without
+// canonicalizing the VarBin array to VarBinView.
 impl CompareKernel for VarBin {
     fn compare(
         lhs: ArrayView<'_, VarBin>,
@@ -40,106 +31,66 @@ impl CompareKernel for VarBin {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if let Some(rhs_const) = rhs.as_constant() {
-            let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
-            let len = lhs.len();
+        let Some(rhs_const) = rhs.as_constant() else {
+            return Ok(None);
+        };
 
-            let rhs_is_empty = match rhs_const.dtype() {
-                DType::Binary(_) => rhs_const
-                    .as_binary()
-                    .is_empty()
-                    .vortex_expect("RHS should not be null"),
-                DType::Utf8(_) => rhs_const
-                    .as_utf8()
-                    .is_empty()
-                    .vortex_expect("RHS should not be null"),
-                _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
-            };
+        let len = lhs.len();
 
-            if rhs_is_empty {
-                let buffer = match operator {
-                    CompareOperator::Gte => BitBuffer::new_set(len), /* Every possible value is >= "" */
-                    CompareOperator::Lt => BitBuffer::new_unset(len), // No value is < ""
-                    CompareOperator::Eq | CompareOperator::Lte => {
-                        let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-                        match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
-                            compare_offsets_to_empty::<P>(lhs_offsets, true)
-                        })
-                    }
-                    CompareOperator::NotEq | CompareOperator::Gt => {
-                        let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-                        match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
-                            compare_offsets_to_empty::<P>(lhs_offsets, false)
-                        })
-                    }
-                };
+        // The compare adaptor resolves null constants before dispatching to this kernel, so
+        // the scalar always carries a value.
+        let rhs_bytes: &[u8] = match rhs_const.dtype() {
+            DType::Binary(_) => rhs_const
+                .as_binary()
+                .value()
+                .vortex_expect("RHS should not be null")
+                .as_slice(),
+            DType::Utf8(_) => rhs_const
+                .as_utf8()
+                .value()
+                .vortex_expect("RHS should not be null")
+                .as_str()
+                .as_bytes(),
+            _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
+        };
 
-                return Ok(Some(
-                    BoolArray::new(
-                        buffer,
-                        lhs.validity()?.union_nullability(rhs.dtype().nullability()),
-                    )
-                    .into_array(),
-                ));
+        let buffer = if rhs_bytes.is_empty() {
+            // Comparisons against "" only need the value lengths, i.e. the offset deltas.
+            match operator {
+                CompareOperator::Gte => BitBuffer::new_set(len), /* Every possible value is >= "" */
+                CompareOperator::Lt => BitBuffer::new_unset(len), // No value is < ""
+                CompareOperator::Eq | CompareOperator::Lte => {
+                    let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+                    match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
+                        compare_offsets_to_empty::<P>(lhs_offsets, true)
+                    })
+                }
+                CompareOperator::NotEq | CompareOperator::Gt => {
+                    let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+                    match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
+                        compare_offsets_to_empty::<P>(lhs_offsets, false)
+                    })
+                }
             }
-
-            let lhs = Datum::try_new(lhs.array(), ctx)?;
-
-            // The RHS scalar must match the LHS Arrow data type. VarBin with i64 offsets is
-            // converted to LargeBinary/LargeUtf8 (see `preferred_arrow_type`), and Arrow refuses to
-            // compare LargeBinary with Binary (or LargeUtf8 with Utf8).
-            let arrow_rhs: &dyn arrow_array::Datum = match (rhs_const.dtype(), lhs.data_type()) {
-                (DType::Utf8(_), DataType::LargeUtf8) => &rhs_const
-                    .as_utf8()
-                    .value()
-                    .map(LargeStringArray::new_scalar)
-                    .unwrap_or_else(|| arrow_array::Scalar::new(LargeStringArray::new_null(1))),
-                (DType::Utf8(_), _) => &rhs_const
-                    .as_utf8()
-                    .value()
-                    .map(StringArray::new_scalar)
-                    .unwrap_or_else(|| arrow_array::Scalar::new(StringArray::new_null(1))),
-                (DType::Binary(_), DataType::LargeBinary) => &rhs_const
-                    .as_binary()
-                    .value()
-                    .map(LargeBinaryArray::new_scalar)
-                    .unwrap_or_else(|| arrow_array::Scalar::new(LargeBinaryArray::new_null(1))),
-                (DType::Binary(_), _) => &rhs_const
-                    .as_binary()
-                    .value()
-                    .map(BinaryArray::new_scalar)
-                    .unwrap_or_else(|| arrow_array::Scalar::new(BinaryArray::new_null(1))),
-                _ => vortex_bail!(
-                    "VarBin array RHS can only be Utf8 or Binary, given {}",
-                    rhs_const.dtype()
-                ),
-            };
-
-            let array = match operator {
-                CompareOperator::Eq => cmp::eq(&lhs, arrow_rhs),
-                CompareOperator::NotEq => cmp::neq(&lhs, arrow_rhs),
-                CompareOperator::Gt => cmp::gt(&lhs, arrow_rhs),
-                CompareOperator::Gte => cmp::gt_eq(&lhs, arrow_rhs),
-                CompareOperator::Lt => cmp::lt(&lhs, arrow_rhs),
-                CompareOperator::Lte => cmp::lt_eq(&lhs, arrow_rhs),
-            }
-            .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
-
-            Ok(Some(from_arrow_columnar(&array, len, nullable, ctx)?))
-        } else if !rhs.is::<VarBin>() {
-            // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
-            // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
-            // to VarBinView and re-invoke.
-            Ok(Some(
-                lhs.array()
-                    .clone()
-                    .execute::<VarBinViewArray>(ctx)?
-                    .into_array()
-                    .binary(rhs.clone(), Operator::from(operator))?,
-            ))
         } else {
-            Ok(None)
-        }
+            let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+            match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
+                compare_bytes_to_constant(
+                    lhs_offsets.as_slice::<P>(),
+                    lhs.bytes().as_slice(),
+                    rhs_bytes,
+                    operator,
+                )
+            })
+        };
+
+        Ok(Some(
+            BoolArray::new(
+                buffer,
+                lhs.validity()?.union_nullability(rhs.dtype().nullability()),
+            )
+            .into_array(),
+        ))
     }
 }
 
@@ -151,6 +102,71 @@ fn compare_offsets_to_empty<P: IntegerPType>(offsets: PrimitiveArray, eq: bool) 
         let right = unsafe { offsets.get_unchecked(idx + 1) };
         fn_(left, right)
     })
+}
+
+/// Compare every value in a VarBin array against a constant, resolving values through the
+/// offsets. Dispatches the operator outside the lane loop so each predicate inlines into its
+/// own loop.
+fn compare_bytes_to_constant<P: IntegerPType>(
+    offsets: &[P],
+    bytes: &[u8],
+    constant: &[u8],
+    operator: CompareOperator,
+) -> BitBuffer {
+    match operator {
+        CompareOperator::Eq => {
+            collect_lane_bits(offsets, |start, end| value_eq(bytes, start, end, constant))
+        }
+        CompareOperator::NotEq => {
+            collect_lane_bits(offsets, |start, end| !value_eq(bytes, start, end, constant))
+        }
+        CompareOperator::Gt => collect_lane_bits(offsets, |start, end| {
+            value_cmp(bytes, start, end, constant).is_gt()
+        }),
+        CompareOperator::Gte => collect_lane_bits(offsets, |start, end| {
+            value_cmp(bytes, start, end, constant).is_ge()
+        }),
+        CompareOperator::Lt => collect_lane_bits(offsets, |start, end| {
+            value_cmp(bytes, start, end, constant).is_lt()
+        }),
+        CompareOperator::Lte => collect_lane_bits(offsets, |start, end| {
+            value_cmp(bytes, start, end, constant).is_le()
+        }),
+    }
+}
+
+/// Bit-pack `predicate(offsets[i], offsets[i + 1])` over each lane of a VarBin array.
+fn collect_lane_bits<P: IntegerPType>(
+    offsets: &[P],
+    predicate: impl Fn(usize, usize) -> bool,
+) -> BitBuffer {
+    BitBuffer::collect_bool(offsets.len() - 1, |idx| {
+        // SAFETY: `collect_bool` yields idx < offsets.len() - 1.
+        let start = unsafe { offsets.get_unchecked(idx) }.as_();
+        let end = unsafe { offsets.get_unchecked(idx + 1) }.as_();
+        predicate(start, end)
+    })
+}
+
+/// Whether `bytes[start..end]` equals `constant`, comparing lengths first so lanes of a
+/// different length never touch the value bytes.
+///
+/// Offsets at null positions are not validated, so an out-of-bounds or inverted range is
+/// possible there; such lanes answer `false`, and validity masks them out of the result anyway.
+#[inline(always)]
+fn value_eq(bytes: &[u8], start: usize, end: usize, constant: &[u8]) -> bool {
+    // A lane can only match when its length equals the constant's, so lanes of a different
+    // length answer without touching the value bytes. An inverted garbage range (start > end)
+    // wraps to a huge value that never equals `constant.len()`.
+    end.wrapping_sub(start) == constant.len()
+        && bytes.get(start..end).is_some_and(|value| value == constant)
+}
+
+/// Order `bytes[start..end]` against `constant`, treating the unvalidated garbage ranges that
+/// can appear at null positions as empty; validity masks those lanes out of the result anyway.
+#[inline(always)]
+fn value_cmp(bytes: &[u8], start: usize, end: usize, constant: &[u8]) -> Ordering {
+    bytes.get(start..end).unwrap_or_default().cmp(constant)
 }
 
 #[cfg(test)]
@@ -277,11 +293,9 @@ mod tests {
         );
     }
 
-    /// Regression: a [`VarBinArray`] built with `i64` offsets is canonicalised to
-    /// Arrow `LargeUtf8` / `LargeBinary` by `preferred_arrow_type`. Without an explicit
-    /// branch in [`CompareKernel`], the constant RHS is wrapped in a `StringArray` /
-    /// `BinaryArray` and Arrow rejects the `LargeUtf8 == Utf8` mismatch. Triggering
-    /// this only requires `i64` offsets, not large data.
+    /// Regression: [`CompareKernel`] must handle every offset width; a `VarBinArray` built with
+    /// `i64` offsets once failed the constant comparison. Triggering this only requires `i64`
+    /// offsets, not large data.
     ///
     /// [`CompareKernel`]: super::CompareKernel
     #[test]
