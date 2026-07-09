@@ -34,6 +34,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::builtins::IntDictScheme;
+use crate::candidate::Candidate;
 use crate::constant;
 use crate::ctx::CompressorContext;
 use crate::estimate::CompressionEstimate;
@@ -416,8 +417,19 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<(&'static dyn Scheme, WinnerEstimate)>> {
-        let mut best: Option<(&'static dyn Scheme, EstimateScore)> = None;
+        let mut best: Option<Candidate> = None;
         let mut deferred: Vec<(&'static dyn Scheme, DeferredEstimate)> = Vec::new();
+
+        let input_nbytes = data.array().nbytes();
+        let n_values = data.array().len() as u64;
+        let new_candidate = |scheme, score, sampled| Candidate {
+            scheme,
+            score,
+            input_nbytes,
+            n_values,
+            sampled,
+            cascade: compress_ctx.cascade_history().to_vec(),
+        };
 
         // Pass 1: evaluate every immediate verdict. Stash deferred work for pass 2.
         {
@@ -432,7 +444,7 @@ impl CascadingCompressor {
                         let score = EstimateScore::FiniteCompression(ratio);
 
                         if is_better_score(score, best.as_ref()) {
-                            best = Some((scheme, score));
+                            best = Some(new_candidate(scheme, score, None));
                         }
                     }
                     CompressionEstimate::Deferred(deferred_estimate) => {
@@ -446,10 +458,10 @@ impl CascadingCompressor {
         // short-circuit with `Skip` when they cannot beat it.
         for (scheme, deferred_estimate) in deferred {
             let _span = trace::scheme_eval_span(scheme.id()).entered();
-            let threshold: Option<EstimateScore> = best.map(|(_, score)| score);
+            let threshold: Option<EstimateScore> = best.as_ref().map(|candidate| candidate.score);
             match deferred_estimate {
                 DeferredEstimate::Sample => {
-                    let score = estimate_compression_ratio_with_sampling(
+                    let estimate = estimate_compression_ratio_with_sampling(
                         self,
                         scheme,
                         data.array(),
@@ -457,8 +469,12 @@ impl CascadingCompressor {
                         exec_ctx,
                     )?;
 
-                    if is_better_score(score, best.as_ref()) {
-                        best = Some((scheme, score));
+                    if is_better_score(estimate.score, best.as_ref()) {
+                        best = Some(new_candidate(
+                            scheme,
+                            estimate.score,
+                            Some(estimate.sampled),
+                        ));
                     }
                 }
                 DeferredEstimate::Callback(callback) => {
@@ -471,7 +487,7 @@ impl CascadingCompressor {
                             let score = EstimateScore::FiniteCompression(ratio);
 
                             if is_better_score(score, best.as_ref()) {
-                                best = Some((scheme, score));
+                                best = Some(new_candidate(scheme, score, None));
                             }
                         }
                     }
@@ -479,7 +495,9 @@ impl CascadingCompressor {
             }
         }
 
-        Ok(best.map(|(scheme, score)| (scheme, WinnerEstimate::Score(score))))
+        // The sampled arrays carried by candidates are dropped here; only the winning scheme
+        // and its score survive selection.
+        Ok(best.map(|candidate| (candidate.scheme, WinnerEstimate::Score(candidate.score))))
     }
 
     // TODO(connor): Lots of room for optimization here.
@@ -1356,14 +1374,16 @@ mod tests {
         // Before the fix this panicked with:
         //   "this must be present since `DictScheme` declared that we need distinct values"
         let mut exec_ctx = SESSION.create_execution_ctx();
-        let score = estimate_compression_ratio_with_sampling(
+        let estimate = estimate_compression_ratio_with_sampling(
             &compressor,
             &FloatDictScheme,
             &array,
             ctx,
             &mut exec_ctx,
         )?;
-        assert!(matches!(score, EstimateScore::FiniteCompression(ratio) if ratio.is_finite()));
+        assert!(
+            matches!(estimate.score, EstimateScore::FiniteCompression(ratio) if ratio.is_finite())
+        );
         Ok(())
     }
 }
