@@ -12,7 +12,7 @@ use vortex_array::IntoArray;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
-use crate::candidate::Candidate;
+use crate::cost::Cost;
 use crate::ctx::CompressorContext;
 use crate::sample::SAMPLE_SIZE;
 use crate::sample::sample;
@@ -138,27 +138,6 @@ impl EstimateScore {
             Self::ZeroBytes => None,
         }
     }
-
-    /// Returns whether this estimate is eligible to compete.
-    fn is_valid(self) -> bool {
-        match self {
-            Self::FiniteCompression(ratio) => {
-                ratio.is_finite() && !ratio.is_subnormal() && ratio > 1.0
-            }
-            Self::ZeroBytes => false,
-        }
-    }
-
-    /// Returns whether this estimate beats another valid estimate.
-    fn beats(self, other: Self) -> bool {
-        match (self, other) {
-            (Self::ZeroBytes, _) => false,
-            (Self::FiniteCompression(_), Self::ZeroBytes) => true,
-            (Self::FiniteCompression(ratio), Self::FiniteCompression(best_ratio)) => {
-                ratio > best_ratio
-            }
-        }
-    }
 }
 
 /// Winner estimate carried from scheme selection into result tracing.
@@ -166,8 +145,13 @@ impl EstimateScore {
 pub(super) enum WinnerEstimate {
     /// The scheme must be used immediately.
     AlwaysUse,
-    /// The scheme won by a ranked estimate.
-    Score(EstimateScore),
+    /// The scheme won by a ranked estimate, priced by the compressor's cost model.
+    Score {
+        /// The winning candidate's ranked estimate.
+        score: EstimateScore,
+        /// The winning candidate's cost under the compressor's cost model.
+        cost: Cost,
+    },
 }
 
 impl WinnerEstimate {
@@ -175,14 +159,17 @@ impl WinnerEstimate {
     pub(super) fn trace_ratio(self) -> Option<f64> {
         match self {
             Self::AlwaysUse => None,
-            Self::Score(score) => score.finite_ratio(),
+            Self::Score { score, .. } => score.finite_ratio(),
         }
     }
-}
 
-/// Returns `true` if `score` beats the current best candidate.
-pub(super) fn is_better_score(score: EstimateScore, best: Option<&Candidate>) -> bool {
-    score.is_valid() && best.is_none_or(|candidate| score.beats(candidate.score))
+    /// Returns the traceable cost for the winning estimate.
+    pub(super) fn trace_cost(self) -> Option<f64> {
+        match self {
+            Self::AlwaysUse => None,
+            Self::Score { cost, .. } => Some(cost.value()),
+        }
+    }
 }
 
 /// A sampling-based estimate: the ranked score together with the compressed sample array it

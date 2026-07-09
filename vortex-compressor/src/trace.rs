@@ -87,7 +87,7 @@ pub(super) fn zero_byte_sample_result(scheme: SchemeId, sampled_before: u64) {
 /// Builds a span covering the winning scheme's full-array compression.
 ///
 /// `scheme_chosen` and `input_nbytes` are known up front. `compressed_nbytes`,
-/// `estimated_ratio`, `achieved_ratio`, and `accepted` are filled in by
+/// `estimated_ratio`, `estimated_cost`, `achieved_ratio`, and `accepted` are filled in by
 /// [`record_winner_compress_result`] once the encode completes.
 #[inline]
 pub(super) fn winner_compress_span(scheme: SchemeId, before_nbytes: u64) -> tracing::Span {
@@ -98,6 +98,7 @@ pub(super) fn winner_compress_span(scheme: SchemeId, before_nbytes: u64) -> trac
         input_nbytes = before_nbytes,
         compressed_nbytes = tracing::field::Empty,
         estimated_ratio = tracing::field::Empty,
+        estimated_cost = tracing::field::Empty,
         achieved_ratio = tracing::field::Empty,
         accepted = tracing::field::Empty,
     )
@@ -108,6 +109,7 @@ pub(super) fn winner_compress_span(scheme: SchemeId, before_nbytes: u64) -> trac
 pub(super) fn record_winner_compress_result(
     compressed_nbytes: u64,
     estimated_ratio: Option<f64>,
+    estimated_cost: Option<f64>,
     achieved_ratio: Option<f64>,
     accepted: bool,
 ) {
@@ -115,6 +117,9 @@ pub(super) fn record_winner_compress_result(
     span.record("compressed_nbytes", compressed_nbytes);
     if let Some(r) = estimated_ratio {
         span.record("estimated_ratio", r);
+    }
+    if let Some(c) = estimated_cost {
+        span.record("estimated_cost", c);
     }
     if let Some(r) = achieved_ratio {
         span.record("achieved_ratio", r);
