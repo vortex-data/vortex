@@ -46,6 +46,7 @@ use crate::estimate::CompressionEstimate;
 use crate::estimate::DeferredEstimate;
 use crate::estimate::EstimateScore;
 use crate::estimate::EstimateVerdict;
+use crate::estimate::SkipThreshold;
 use crate::estimate::WinnerEstimate;
 use crate::estimate::estimate_compression_ratio_with_sampling;
 use crate::scheme::ChildSelection;
@@ -424,9 +425,9 @@ impl CascadingCompressor {
     /// [`CompressionEstimate::Deferred`] are stashed for pass 2 so that we do not make any
     /// expensive computations if we don't have to.
     ///
-    /// Pass 2 evaluates the deferred work and, for each [`DeferredEstimate::Callback`], passes the
-    /// current best [`EstimateScore`] as an early-exit hint so the callback can return
-    /// [`EstimateVerdict::Skip`] without doing expensive work when it cannot beat the threshold.
+    /// Pass 2 evaluates the deferred work and, for each [`DeferredEstimate::Callback`], passes a
+    /// [`SkipThreshold`] wrapping the current best as an early-exit hint so the callback can
+    /// return [`EstimateVerdict::Skip`] without doing expensive work when it cannot win.
     ///
     /// Ties are broken by registration order within each pass (displacing the running best
     /// requires a strictly lower cost).
@@ -495,8 +496,6 @@ impl CascadingCompressor {
                 continue;
             }
 
-            let threshold: Option<EstimateScore> =
-                best.as_ref().map(|(_, candidate)| candidate.score);
             match deferred_estimate {
                 DeferredEstimate::Sample => {
                     let estimate = estimate_compression_ratio_with_sampling(
@@ -513,6 +512,15 @@ impl CascadingCompressor {
                     }
                 }
                 DeferredEstimate::Callback(callback) => {
+                    let threshold = SkipThreshold::new(
+                        best.as_ref()
+                            .map(|(cost, candidate)| (*cost, candidate.score)),
+                        Arc::clone(&self.cost_model),
+                        scheme,
+                        input_nbytes,
+                        n_values,
+                        compress_ctx.cascade_history().to_vec(),
+                    );
                     match callback(self, data, threshold, compress_ctx.clone(), exec_ctx)? {
                         EstimateVerdict::Skip => {}
                         EstimateVerdict::AlwaysUse => {
@@ -834,7 +842,7 @@ mod tests {
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-                |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::AlwaysUse),
+                |_compressor, _data, _threshold, _ctx, _exec_ctx| Ok(EstimateVerdict::AlwaysUse),
             )))
         }
 
@@ -868,7 +876,7 @@ mod tests {
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-                |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Skip),
+                |_compressor, _data, _threshold, _ctx, _exec_ctx| Ok(EstimateVerdict::Skip),
             )))
         }
 
@@ -902,7 +910,7 @@ mod tests {
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-                |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Ratio(3.0)),
+                |_compressor, _data, _threshold, _ctx, _exec_ctx| Ok(EstimateVerdict::Ratio(3.0)),
             )))
         }
 
@@ -1182,11 +1190,11 @@ mod tests {
         Ok(())
     }
 
-    // Observer helper used by threshold-related tests. Captures the `best_so_far` value the
-    // compressor passes to its deferred callback. `OBSERVER_LOCK` serializes tests that share
-    // `OBSERVED_THRESHOLD` so they do not race.
+    // Observer helper used by threshold-related tests. Captures the threshold handle's
+    // ratio view as the compressor passes it to a deferred callback. `OBSERVER_LOCK`
+    // serializes tests that share `OBSERVED_THRESHOLD` so they do not race.
     static OBSERVER_LOCK: Mutex<()> = Mutex::new(());
-    static OBSERVED_THRESHOLD: Mutex<Option<Option<EstimateScore>>> = Mutex::new(None);
+    static OBSERVED_THRESHOLD: Mutex<Option<Option<f64>>> = Mutex::new(None);
 
     #[derive(Debug)]
     struct ThresholdObservingScheme;
@@ -1207,8 +1215,8 @@ mod tests {
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-                |_compressor, _data, best_so_far, _ctx, _exec_ctx| {
-                    *OBSERVED_THRESHOLD.lock() = Some(best_so_far);
+                |_compressor, _data, threshold, _ctx, _exec_ctx| {
+                    *OBSERVED_THRESHOLD.lock() = Some(threshold.best_ratio());
                     Ok(EstimateVerdict::Skip)
                 },
             )))
@@ -1223,6 +1231,72 @@ mod tests {
         ) -> VortexResult<ArrayRef> {
             unreachable!("test helper should never be selected for compression")
         }
+    }
+
+    /// Records the answers the compressor-built [`SkipThreshold`] gives at, just above, and
+    /// below the incumbent ratio. Shares `OBSERVER_LOCK` with the other observing tests.
+    static OBSERVED_CANNOT_WIN: Mutex<Option<(bool, bool, bool)>> = Mutex::new(None);
+
+    #[derive(Debug)]
+    struct CannotWinObservingScheme;
+
+    impl Scheme for CannotWinObservingScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.cannot_win_observing"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            matches_integer_primitive(canonical)
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
+                |_compressor, _data, threshold, _ctx, _exec_ctx| {
+                    *OBSERVED_CANNOT_WIN.lock() = Some((
+                        threshold.best_case_ratio_cannot_win(2.0),
+                        threshold.best_case_ratio_cannot_win(2.0f64.next_up()),
+                        threshold.best_case_ratio_cannot_win(1.9),
+                    ));
+                    Ok(EstimateVerdict::Skip)
+                },
+            )))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            unreachable!("test helper should never be selected for compression")
+        }
+    }
+
+    /// The compressor-built threshold must reproduce the historical `max_ratio <= best`
+    /// skip rule exactly: a best case that ties or loses to the incumbent cannot win, one
+    /// that is strictly greater can.
+    #[test]
+    fn threshold_cannot_win_matches_ratio_rule() -> VortexResult<()> {
+        let _guard = OBSERVER_LOCK.lock();
+        *OBSERVED_CANNOT_WIN.lock() = None;
+
+        let compressor =
+            CascadingCompressor::new(vec![&DirectRatioScheme, &CannotWinObservingScheme]);
+        let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &CannotWinObservingScheme];
+        let data = estimate_test_data();
+        let mut exec_ctx = SESSION.create_execution_ctx();
+
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+        // Incumbent ratio is 2.0: a tie cannot win, the next float up can, a loss cannot.
+        assert_eq!(*OBSERVED_CANNOT_WIN.lock(), Some((true, false, true)));
+        Ok(())
     }
 
     #[derive(Debug)]
@@ -1244,7 +1318,7 @@ mod tests {
             _exec_ctx: &mut ExecutionCtx,
         ) -> CompressionEstimate {
             CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-                |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Ratio(2.0)),
+                |_compressor, _data, _threshold, _ctx, _exec_ctx| Ok(EstimateVerdict::Ratio(2.0)),
             )))
         }
 
@@ -1298,10 +1372,7 @@ mod tests {
         compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
         let observed = *OBSERVED_THRESHOLD.lock();
-        assert!(matches!(
-            observed,
-            Some(Some(EstimateScore::FiniteCompression(r))) if r == 2.0
-        ));
+        assert_eq!(observed, Some(Some(2.0)));
         Ok(())
     }
 
@@ -1319,8 +1390,8 @@ mod tests {
 
         compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
-        // The observing callback was invoked (outer `Some`) and `best_so_far` was `None` (inner
-        // `None`) because the zero-byte sample is never stored as the best.
+        // The observing callback was invoked (outer `Some`) and the threshold's ratio view
+        // was `None` (inner `None`) because the zero-byte sample is never stored as the best.
         let observed = *OBSERVED_THRESHOLD.lock();
         assert_eq!(observed, Some(None));
         Ok(())
@@ -1359,10 +1430,7 @@ mod tests {
         compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
 
         let observed = *OBSERVED_THRESHOLD.lock();
-        assert!(matches!(
-            observed,
-            Some(Some(EstimateScore::FiniteCompression(r))) if r == 3.0
-        ));
+        assert_eq!(observed, Some(Some(3.0)));
         Ok(())
     }
 

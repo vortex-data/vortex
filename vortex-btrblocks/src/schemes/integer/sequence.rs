@@ -12,7 +12,6 @@ use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::estimate::DeferredEstimate;
-use vortex_compressor::estimate::EstimateScore;
 use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
@@ -94,7 +93,7 @@ impl Scheme for SequenceScheme {
         // TODO(connor): `sequence_encode` allocates the encoded array just to confirm feasibility.
         // A cheaper `is_sequence` probe would let us skip the allocation entirely.
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, data, best_so_far, _ctx, exec_ctx| {
+            |_compressor, data, threshold, _ctx, exec_ctx| {
                 // `SequenceArray` stores exactly two scalars (base and multiplier), so the best
                 // achievable compression ratio is `array_len / 2`.
                 let compressed_size = 2usize;
@@ -102,8 +101,7 @@ impl Scheme for SequenceScheme {
 
                 // If we cannot beat the best so far, then we do not want to even try sequence
                 // encoding the data.
-                let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
-                if threshold.is_some_and(|t| max_ratio <= t) {
+                if threshold.best_case_ratio_cannot_win(max_ratio) {
                     return Ok(EstimateVerdict::Skip);
                 }
 
@@ -132,5 +130,108 @@ impl Scheme for SequenceScheme {
         }
         sequence_encode(data.array_as_primitive(), exec_ctx)?
             .ok_or_else(|| vortex_err!("cannot sequence encode array"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_compressor::estimate::EstimateVerdict;
+    use vortex_sequence::Sequence;
+    use vortex_session::VortexSession;
+
+    use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+
+    /// Number of values in the test arrays; Sequence's best case is `LEN / 2`.
+    const LEN: usize = 2048;
+
+    /// Immediate fixed-ratio competitor; its `compress` emits a tiny constant array so the
+    /// winner is observable from the output encoding.
+    #[derive(Debug)]
+    struct FixedRatioScheme {
+        ratio: f64,
+    }
+
+    impl Scheme for FixedRatioScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.fixed_ratio"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            canonical.dtype().is_int()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(self.ratio))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(ConstantArray::new(
+                Scalar::primitive(0i64, Nullability::NonNullable),
+                data.array_len(),
+            )
+            .into_array())
+        }
+    }
+
+    /// An exact arithmetic sequence, encodable by [`SequenceScheme`].
+    fn arithmetic_sequence() -> ArrayRef {
+        let values: Buffer<i64> = (0..LEN as i64).map(|i| 10_000 + 7 * i).collect();
+        PrimitiveArray::new(values, Validity::NonNullable).into_array()
+    }
+
+    /// With the incumbent below Sequence's best case, the callback must proceed past the
+    /// threshold check, trial-encode, and win.
+    #[test]
+    fn sequence_wins_over_low_threshold() -> VortexResult<()> {
+        static COMPETITOR: FixedRatioScheme = FixedRatioScheme { ratio: 2.0 };
+        let compressor = CascadingCompressor::new(vec![&COMPETITOR, &SequenceScheme]);
+
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let compressed = compressor.compress(&arithmetic_sequence(), &mut exec_ctx)?;
+
+        assert!(compressed.is::<Sequence>());
+        Ok(())
+    }
+
+    /// With the incumbent at exactly Sequence's best case (`LEN / 2`), Sequence must not be
+    /// chosen — the same decision the pre-threshold-handle `max_ratio <= best` skip produced
+    /// on this input.
+    #[test]
+    fn sequence_loses_at_best_case_tie() -> VortexResult<()> {
+        static COMPETITOR: FixedRatioScheme = FixedRatioScheme {
+            ratio: LEN as f64 / 2.0,
+        };
+        let compressor = CascadingCompressor::new(vec![&COMPETITOR, &SequenceScheme]);
+
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let compressed = compressor.compress(&arithmetic_sequence(), &mut exec_ctx)?;
+
+        assert!(compressed.is::<Constant>());
+        Ok(())
     }
 }

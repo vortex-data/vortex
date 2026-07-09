@@ -14,7 +14,6 @@ use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::estimate::DeferredEstimate;
-use vortex_compressor::estimate::EstimateScore;
 use vortex_compressor::estimate::EstimateVerdict;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
@@ -133,14 +132,13 @@ impl Scheme for DeltaScheme {
         // delta-encodes the array and measures the residual range.
         let min_ratio = self.min_ratio;
         CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            move |_compressor, data, best_so_far, _ctx, exec_ctx| {
+            move |_compressor, data, threshold, _ctx, exec_ctx| {
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
                 let full_width = primitive.ptype().bit_width() as f64;
 
                 // Delta's best case is residuals collapsing to a single bit. If even that, after
                 // the penalty, can't beat the incumbent, skip before doing the encode work.
-                let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
-                if threshold.is_some_and(|t| full_width * DELTA_PENALTY <= t) {
+                if threshold.best_case_ratio_cannot_win(full_width * DELTA_PENALTY) {
                     return Ok(EstimateVerdict::Skip);
                 }
 
@@ -195,5 +193,132 @@ impl Scheme for DeltaScheme {
         )?;
 
         Delta::try_new(compressed_bases, compressed_deltas, 0, len).map(IntoArray::into_array)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_session::VortexSession;
+
+    use super::*;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+
+    /// Immediate fixed-ratio competitor; its `compress` emits a tiny constant array so the
+    /// winner is observable from the output encoding.
+    #[derive(Debug)]
+    struct FixedRatioScheme {
+        ratio: f64,
+    }
+
+    impl Scheme for FixedRatioScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.fixed_ratio"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            canonical.dtype().is_int()
+        }
+
+        fn expected_compression_ratio(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> CompressionEstimate {
+            CompressionEstimate::Verdict(EstimateVerdict::Ratio(self.ratio))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(ConstantArray::new(
+                Scalar::primitive(0u64, Nullability::NonNullable),
+                data.array_len(),
+            )
+            .into_array())
+        }
+    }
+
+    /// Near-monotone u64 data: Delta's residual span is a few bits, so its real penalized
+    /// ratio is comfortably above 2.0 but nowhere near its 64-bit best case.
+    fn monotone_jitter_u64() -> ArrayRef {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut value = 1_700_000_000_000u64;
+        let values: Buffer<u64> = (0..4096)
+            .map(|_| {
+                value += 900 + rng.random_range(0..200);
+                value
+            })
+            .collect();
+        PrimitiveArray::new(values, Validity::NonNullable).into_array()
+    }
+
+    /// With the incumbent below Delta's achievable ratio, the callback must proceed past
+    /// the best-case threshold check and win with its measured estimate.
+    #[test]
+    fn delta_wins_over_low_threshold() -> VortexResult<()> {
+        static COMPETITOR: FixedRatioScheme = FixedRatioScheme { ratio: 2.0 };
+        static DELTA: DeltaScheme = DeltaScheme::new(1.25);
+        let compressor = CascadingCompressor::new(vec![&COMPETITOR, &DELTA]);
+
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let compressed = compressor.compress(&monotone_jitter_u64(), &mut exec_ctx)?;
+
+        assert!(compressed.is::<Delta>());
+        Ok(())
+    }
+
+    /// With the incumbent at exactly Delta's best case (`full_width * DELTA_PENALTY`, the
+    /// same expression the callback computes), Delta must not be chosen — the same decision
+    /// the pre-threshold-handle `max_ratio <= best` skip produced on this input.
+    #[test]
+    fn delta_loses_at_best_case_tie() -> VortexResult<()> {
+        static COMPETITOR: FixedRatioScheme = FixedRatioScheme {
+            ratio: 64.0 * DELTA_PENALTY,
+        };
+        static DELTA: DeltaScheme = DeltaScheme::new(1.25);
+        let compressor = CascadingCompressor::new(vec![&COMPETITOR, &DELTA]);
+
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let compressed = compressor.compress(&monotone_jitter_u64(), &mut exec_ctx)?;
+
+        assert!(compressed.is::<Constant>());
+        Ok(())
+    }
+
+    /// Wide random residuals put Delta's penalized ratio below its `min_ratio`, so with no
+    /// competitor the array must stay canonical.
+    #[test]
+    fn delta_skips_below_min_ratio() -> VortexResult<()> {
+        static DELTA: DeltaScheme = DeltaScheme::new(1.25);
+        let compressor = CascadingCompressor::new(vec![&DELTA]);
+
+        let mut rng = StdRng::seed_from_u64(43);
+        let values: Buffer<u64> = (0..4096).map(|_| rng.random::<u64>()).collect();
+        let array = PrimitiveArray::new(values, Validity::NonNullable).into_array();
+
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let compressed = compressor.compress(&array, &mut exec_ctx)?;
+
+        assert!(!compressed.is::<Delta>());
+        Ok(())
     }
 }

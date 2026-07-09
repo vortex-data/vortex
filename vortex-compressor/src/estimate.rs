@@ -4,6 +4,7 @@
 //! Compression ratio estimation types and sampling-based estimation.
 
 use std::fmt;
+use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -12,38 +13,128 @@ use vortex_array::IntoArray;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
+use crate::candidate::Candidate;
 use crate::cost::Cost;
+use crate::cost::CostModel;
 use crate::ctx::CompressorContext;
 use crate::sample::SAMPLE_SIZE;
 use crate::sample::sample;
 use crate::sample::sample_count_approx_one_percent;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
+use crate::scheme::SchemeId;
 use crate::stats::ArrayAndStats;
 use crate::trace;
 
 /// Closure type for [`DeferredEstimate::Callback`].
 ///
-/// The compressor calls this with the same arguments it would pass to sampling, plus the best
-/// [`EstimateScore`] observed so far (if any). The closure must resolve directly to a terminal
-/// [`EstimateVerdict`].
+/// The compressor calls this with the same arguments it would pass to sampling, plus a
+/// [`SkipThreshold`] handle wrapping the best candidate observed so far. The closure must
+/// resolve directly to a terminal [`EstimateVerdict`].
 ///
-/// The `best_so_far` threshold is an early-exit hint. If your scheme's maximum achievable
-/// compression ratio is not strictly greater than
-/// `best_so_far.and_then(EstimateScore::finite_ratio)`, you should return
-/// [`EstimateVerdict::Skip`]. Returning a ratio equal to the threshold is permitted but will
-/// lose to the prior best due to strict `>` tie-breaking in the selector. Use the threshold
-/// only as an early-exit hint, never to perform additional work.
+/// The threshold is an early-exit hint. If your scheme knows its maximum achievable
+/// compression ratio, ask [`SkipThreshold::best_case_ratio_cannot_win`] before doing
+/// expensive work and return [`EstimateVerdict::Skip`] when it answers `true`. Returning an
+/// estimate that merely ties the threshold is permitted but will lose to the prior best,
+/// since displacing the running best requires a strictly better (lower-cost) candidate. Use
+/// the threshold only as an early-exit hint, never to perform additional work.
 #[rustfmt::skip]
 pub type EstimateFn = dyn FnOnce(
         &CascadingCompressor,
         &ArrayAndStats,
-        Option<EstimateScore>,
+        SkipThreshold,
         CompressorContext,
         &mut ExecutionCtx,
     ) -> VortexResult<EstimateVerdict>
     + Send
     + Sync;
+
+/// Early-exit threshold handle passed to [`DeferredEstimate::Callback`] closures.
+///
+/// Owned and constructed by the compressor during selection; wraps the best candidate
+/// observed so far together with the compressor's [`CostModel`] and the selection-site
+/// facts needed to price a hypothetical best-case candidate. Schemes keep their side of the
+/// bargain — knowing their own best case — and ask the handle whether that best case could
+/// still win.
+pub struct SkipThreshold {
+    /// The best candidate so far: its cost and its ranked estimate. `None` when no
+    /// candidate has been stored yet.
+    best: Option<(Cost, EstimateScore)>,
+
+    /// The compressor's cost model.
+    model: Arc<dyn CostModel>,
+
+    /// The scheme whose deferred estimate is being resolved.
+    scheme: &'static dyn Scheme,
+
+    /// Uncompressed size in bytes of the array under selection.
+    input_nbytes: u64,
+
+    /// Number of values in the array under selection.
+    n_values: u64,
+
+    /// The cascade ancestry `(scheme_id, child_index)` of the selection site.
+    cascade: Vec<(SchemeId, usize)>,
+}
+
+impl SkipThreshold {
+    /// Creates a threshold handle for `scheme` at a selection site.
+    ///
+    /// Normally the compressor builds these during selection. The constructor is public so
+    /// scheme implementors can unit-test their callbacks' skip decisions.
+    pub fn new(
+        best: Option<(Cost, EstimateScore)>,
+        model: Arc<dyn CostModel>,
+        scheme: &'static dyn Scheme,
+        input_nbytes: u64,
+        n_values: u64,
+        cascade: Vec<(SchemeId, usize)>,
+    ) -> Self {
+        Self {
+            best,
+            model,
+            scheme,
+            input_nbytes,
+            n_values,
+            cascade,
+        }
+    }
+
+    /// Returns `true` if a candidate achieving `max_ratio` — the best case the calling
+    /// scheme could possibly report — still could not displace the best candidate observed
+    /// so far, so the scheme should return [`EstimateVerdict::Skip`] without doing expensive
+    /// work.
+    ///
+    /// The handle prices a hypothetical candidate carrying `max_ratio` under the
+    /// compressor's cost model and compares it against the best cost so far; displacement
+    /// requires a strictly lower cost. Under the default [`SizeCost`] model this reduces to
+    /// exactly the historical `max_ratio <= best_ratio` skip. Returns `false` when there is
+    /// no best candidate yet or the best case cannot be priced.
+    ///
+    /// [`SizeCost`]: crate::cost::SizeCost
+    pub fn best_case_ratio_cannot_win(&self, max_ratio: f64) -> bool {
+        let Some((best_cost, _)) = self.best else {
+            return false;
+        };
+        let best_case = Candidate {
+            scheme: self.scheme,
+            score: EstimateScore::FiniteCompression(max_ratio),
+            input_nbytes: self.input_nbytes,
+            n_values: self.n_values,
+            sampled: None,
+            cascade: self.cascade.clone(),
+        };
+        self.model
+            .cost(&best_case)
+            .is_some_and(|cost| cost >= best_cost)
+    }
+
+    /// The best finite compression ratio observed so far, if any — the pre-cost-model view
+    /// of the threshold, kept for callbacks that reason in ratio space.
+    pub fn best_ratio(&self) -> Option<f64> {
+        self.best.and_then(|(_, score)| score.finite_ratio())
+    }
+}
 
 /// The result of a [`Scheme`]'s compression ratio estimation.
 ///
@@ -97,9 +188,9 @@ pub enum DeferredEstimate {
     /// it cannot request more sampling or another deferred callback.
     ///
     /// The compressor evaluates all immediate [`CompressionEstimate::Verdict`] results before
-    /// invoking any deferred callback, and passes the best [`EstimateScore`] observed so far to
-    /// the callback. This lets the callback return [`EstimateVerdict::Skip`] without performing
-    /// expensive work when its maximum achievable ratio cannot beat the current best. See
+    /// invoking any deferred callback, and passes a [`SkipThreshold`] wrapping the best
+    /// candidate observed so far. This lets the callback return [`EstimateVerdict::Skip`]
+    /// without performing expensive work when its maximum achievable estimate cannot win. See
     /// [`EstimateFn`] for the full contract.
     Callback(Box<EstimateFn>),
 }

@@ -205,4 +205,56 @@ mod tests {
                 .is_none()
         );
     }
+
+    /// Under `SizeCost`, [`SkipThreshold::best_case_ratio_cannot_win`] must reduce to
+    /// exactly the historical `max_ratio <= best_ratio` skip rule, including exact ties and
+    /// one-ulp boundaries; unpriceable best cases must never skip.
+    #[test]
+    fn skip_threshold_reduces_to_ratio_comparison() {
+        use std::sync::Arc;
+
+        use crate::estimate::SkipThreshold;
+
+        for &best_ratio in &[1.5, 2.0, 3.0, 60.8, 1024.0] {
+            let threshold = SkipThreshold::new(
+                Some((
+                    Cost::new(-best_ratio),
+                    EstimateScore::FiniteCompression(best_ratio),
+                )),
+                Arc::new(SizeCost),
+                &TestScheme,
+                1024,
+                256,
+                Vec::new(),
+            );
+            assert_eq!(threshold.best_ratio(), Some(best_ratio));
+
+            let max_ratios = [
+                0.5,
+                1.0,
+                best_ratio.next_down(),
+                best_ratio,
+                best_ratio.next_up(),
+                best_ratio * 2.0,
+            ];
+            for max_ratio in max_ratios {
+                assert_eq!(
+                    threshold.best_case_ratio_cannot_win(max_ratio),
+                    max_ratio <= best_ratio,
+                    "mismatch for max_ratio {max_ratio} vs best {best_ratio}"
+                );
+            }
+
+            // Best cases SizeCost cannot price never skip: the callback proceeds and its
+            // real estimate is rejected later, exactly as before.
+            assert!(!threshold.best_case_ratio_cannot_win(f64::NAN));
+            assert!(!threshold.best_case_ratio_cannot_win(f64::INFINITY));
+        }
+
+        // Without a best candidate there is no threshold to lose to.
+        let no_best =
+            SkipThreshold::new(None, Arc::new(SizeCost), &TestScheme, 1024, 256, Vec::new());
+        assert!(!no_best.best_case_ratio_cannot_win(1e9));
+        assert_eq!(no_best.best_ratio(), None);
+    }
 }
