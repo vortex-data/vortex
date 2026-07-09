@@ -441,9 +441,13 @@ fn list_from_proto(
     dtype: &DType,
     session: &VortexSession,
 ) -> VortexResult<ScalarValue> {
-    let element_dtype = dtype
-        .as_list_element_opt()
-        .ok_or_else(|| vortex_err!(Serde: "expected List dtype for ListValue, got {dtype}"))?;
+    let element_dtype = match dtype {
+        DType::List(edt, _) => edt,
+        DType::FixedSizeList(edt, ..) => edt,
+        _ => {
+            vortex_bail!(Serde: "expected List or FixedSizeList dtype for ListValue, got {dtype}")
+        }
+    };
 
     let mut values = Vec::with_capacity(v.values.len());
     for elem in v.values.iter() {
