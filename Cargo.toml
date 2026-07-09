@@ -216,6 +216,8 @@ rand = "0.10.1"
 rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
 regex = "1.11.0"
+regex-automata = "0.4"
+regex-syntax = "0.8"
 reqwest = { version = "0.13.0", features = [
     "blocking",
     "charset",
