@@ -8,16 +8,16 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::legacy_session;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_runend::RunEndData;
+use vortex_runend::ops::find_physical_index;
+use vortex_runend::ops::find_slice_end_index;
 
-use crate::RunEndData;
-use crate::ops::find_physical_index;
-use crate::ops::find_slice_end_index;
+use crate::FromArrowArray;
 
 impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
 where
@@ -80,8 +80,6 @@ mod tests {
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
-    use vortex_array::arrow::ArrowSessionExt;
-    use vortex_array::arrow::FromArrowArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
@@ -91,16 +89,18 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_runend::RunEnd;
+    use vortex_runend::RunEndArray;
+    use vortex_runend::ops::find_physical_index;
+    use vortex_runend::ops::find_slice_end_index;
     use vortex_session::VortexSession;
 
-    use crate::RunEnd;
-    use crate::RunEndArray;
-    use crate::ops::find_physical_index;
-    use crate::ops::find_slice_end_index;
+    use crate::ArrowSessionExt;
+    use crate::FromArrowArray;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
-        crate::initialize(&session);
+        vortex_runend::initialize(&session);
         session
     });
 

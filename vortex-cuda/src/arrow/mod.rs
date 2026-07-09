@@ -41,7 +41,6 @@ use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::array::arrays::list::ListArrayExt;
 use vortex::array::arrays::listview::ListViewArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::stream::SendableArrayStream;
 use vortex::dtype::DType;
@@ -55,6 +54,7 @@ use vortex::error::vortex_err;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;

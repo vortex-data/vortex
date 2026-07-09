@@ -14,7 +14,7 @@ use futures::TryStreamExt;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrow::ArrowSessionExt;
+use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 
@@ -128,7 +128,7 @@ mod tests {
     use arrow_schema::Schema;
     use vortex_array::ArrayRef;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrow::FromArrowArray;
+    use vortex_arrow::FromArrowArray;
     use vortex_error::VortexResult;
 
     use super::*;

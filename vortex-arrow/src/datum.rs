@@ -6,19 +6,19 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::Datum as ArrowDatum;
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::legacy_session;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::VortexSessionExecute;
-use crate::arrays::Constant;
-use crate::arrays::ConstantArray;
-use crate::arrow::ArrowSessionExt;
-use crate::arrow::FromArrowArray;
-use crate::executor::ExecutionCtx;
-use crate::legacy_session;
+use crate::ArrowSessionExt;
+use crate::FromArrowArray;
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]

@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::BooleanArray as ArrowBooleanArray;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::arrays::BoolArray;
-use crate::arrays::bool::BoolArrayExt;
-use crate::arrow::null_buffer::to_null_buffer;
+use crate::null_buffer::to_null_buffer;
 
 /// Convert a canonical BoolArray directly to Arrow.
 pub fn canonical_bool_to_arrow(

@@ -3,8 +3,8 @@
 
 //! Plugin layer for moving Arrow extension types in and out of Vortex.
 //!
-//! Vortex's canonical Arrow conversion (see [`crate::dtype::arrow`] and the executor in
-//! [`crate::arrow::executor`]) handles every non-extension Arrow type and the builtin temporal
+//! Vortex's canonical Arrow conversion (see [`crate::dtype`] and the executor in
+//! [`crate::executor`]) handles every non-extension Arrow type and the builtin temporal
 //! extensions. The plugins registered here cover the remaining case: **Arrow extension types**.
 //!
 //! * An [`ArrowExportVTable`] is dispatched purely by the **target Arrow extension Id** —
@@ -36,6 +36,20 @@ use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use arrow_schema::extension::ExtensionType;
 use tracing::debug;
 use tracing::trace;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arc_swap_map::ArcSwapMap;
+use vortex_array::arrays::StructArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::StructFields;
+use vortex_array::dtype::extension::ExtId;
+use vortex_array::extension::datetime::AnyTemporal;
+use vortex_array::extension::uuid::Uuid;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -44,26 +58,13 @@ use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arc_swap_map::ArcSwapMap;
-use crate::arrays::StructArray;
-use crate::arrow::FromArrowArray;
-use crate::arrow::convert::nulls;
-use crate::arrow::convert::remove_nulls;
-use crate::arrow::executor::execute_arrow_naive;
-use crate::dtype::DType;
-use crate::dtype::FieldName;
-use crate::dtype::FieldNames;
-use crate::dtype::Nullability;
-use crate::dtype::StructFields;
-use crate::dtype::arrow::TryFromArrowType;
-use crate::dtype::arrow::to_data_type_naive;
-use crate::dtype::extension::ExtId;
-use crate::extension::datetime::AnyTemporal;
-use crate::extension::uuid::Uuid;
-use crate::validity::Validity;
+use crate::FromArrowArray;
+use crate::IntoVortexArray;
+use crate::convert::nulls;
+use crate::convert::remove_nulls;
+use crate::dtype::TryFromArrowType;
+use crate::dtype::to_data_type_naive;
+use crate::executor::execute_arrow_naive;
 
 /// Outcome of a successful call to [`ArrowExportVTable::execute_arrow`].
 ///
@@ -537,7 +538,10 @@ impl ArrowSession {
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(crate::arrays::ListArray::try_new(elements, offsets, validity)?.into_array())
+                Ok(
+                    vortex_array::arrays::ListArray::try_new(elements, offsets, validity)?
+                        .into_array(),
+                )
             }
             DataType::LargeList(elem_field) => {
                 let list = array.as_list::<i64>();
@@ -545,14 +549,17 @@ impl ArrowSession {
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(crate::arrays::ListArray::try_new(elements, offsets, validity)?.into_array())
+                Ok(
+                    vortex_array::arrays::ListArray::try_new(elements, offsets, validity)?
+                        .into_array(),
+                )
             }
             DataType::FixedSizeList(elem_field, list_size) => {
                 let fsl = array.as_fixed_size_list();
                 let elements =
                     self.from_arrow_array(ArrowArrayRef::clone(fsl.values()), elem_field.as_ref())?;
                 let validity = nulls(fsl.nulls(), field.is_nullable())?;
-                Ok(crate::arrays::FixedSizeListArray::try_new(
+                Ok(vortex_array::arrays::FixedSizeListArray::try_new(
                     elements,
                     *list_size as u32,
                     validity,
@@ -567,10 +574,10 @@ impl ArrowSession {
                 let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(
-                    crate::arrays::ListViewArray::try_new(elements, offsets, sizes, validity)?
-                        .into_array(),
-                )
+                Ok(vortex_array::arrays::ListViewArray::try_new(
+                    elements, offsets, sizes, validity,
+                )?
+                .into_array())
             }
             DataType::LargeListView(elem_field) => {
                 let list = array.as_list_view::<i64>();
@@ -579,10 +586,10 @@ impl ArrowSession {
                 let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(
-                    crate::arrays::ListViewArray::try_new(elements, offsets, sizes, validity)?
-                        .into_array(),
-                )
+                Ok(vortex_array::arrays::ListViewArray::try_new(
+                    elements, offsets, sizes, validity,
+                )?
+                .into_array())
             }
             _ => ArrayRef::from_arrow(array.as_ref(), field.is_nullable()),
         }
@@ -631,20 +638,20 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::extension::Uuid as ArrowUuid;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::extension::uuid::Uuid;
+    use vortex_array::extension::uuid::UuidMetadata;
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::VortexSessionExecute;
-    use crate::array_session;
-    use crate::dtype::DType;
-    use crate::dtype::FieldName;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::dtype::StructFields;
-    use crate::dtype::extension::ExtDType;
-    use crate::dtype::extension::ExtVTable;
-    use crate::extension::uuid::Uuid;
-    use crate::extension::uuid::UuidMetadata;
 
     fn uuid_dtype(nullable: bool) -> DType {
         let storage = DType::FixedSizeList(

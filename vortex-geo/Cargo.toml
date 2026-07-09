@@ -23,6 +23,7 @@ geoarrow = { workspace = true }
 geoarrow-cast = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
+vortex-arrow = { workspace = true }
 vortex-error = { workspace = true }
 vortex-session = { workspace = true }
 wkb = { workspace = true }

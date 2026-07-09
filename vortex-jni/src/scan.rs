@@ -29,7 +29,6 @@ use jni::objects::JLongArray;
 use jni::sys::jboolean;
 use jni::sys::jlong;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
@@ -44,6 +43,8 @@ use vortex::scan::PartitionRef;
 use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
+use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ToArrowType;
 
 use crate::POOL;
 use crate::RUNTIME;

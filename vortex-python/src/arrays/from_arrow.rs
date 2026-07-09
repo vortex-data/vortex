@@ -13,11 +13,11 @@ use pyo3::prelude::*;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
-use vortex::array::arrow::FromArrowArray;
 use vortex::dtype::DType;
-use vortex::dtype::arrow::TryFromArrowType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex_arrow::FromArrowArray;
+use vortex_arrow::TryFromArrowType;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;

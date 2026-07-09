@@ -141,11 +141,11 @@ mod common_tests {
     use url::Url;
     use vortex::VortexSessionDefault;
     use vortex::array::ArrayRef;
-    use vortex::array::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::session::VortexSession;
+    use vortex_arrow::FromArrowArray;
 
     use crate::VortexFormatFactory;
     use crate::VortexTableOptions;

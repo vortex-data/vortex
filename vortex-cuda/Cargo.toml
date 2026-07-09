@@ -38,6 +38,7 @@ tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true, features = ["std", "attributes"] }
 vortex = { workspace = true, features = ["zstd"] }
 vortex-array = { workspace = true, features = ["cudarc"] }
+vortex-arrow = { workspace = true }
 vortex-cub = { path = "cub" }
 vortex-cuda-macros = { workspace = true }
 vortex-error = { workspace = true, features = ["object_store"] }

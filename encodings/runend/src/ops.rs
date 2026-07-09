@@ -31,7 +31,7 @@ impl OperationsVTable<RunEnd> for RunEnd {
 ///
 /// If the index exists in the array we want to take that position (as we are searching from the right)
 /// otherwise we want to take the next one
-pub(crate) fn find_slice_end_index(
+pub fn find_slice_end_index(
     array: &ArrayRef,
     index: usize,
     ctx: &mut ExecutionCtx,
@@ -52,7 +52,8 @@ pub(crate) fn find_slice_end_index(
     })
 }
 
-pub(crate) fn find_physical_index(
+/// Find the physical index (the run) that contains the logical `index`, given the run `ends`.
+pub fn find_physical_index(
     array: &ArrayRef,
     index: usize,
     ctx: &mut ExecutionCtx,

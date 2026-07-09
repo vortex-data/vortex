@@ -55,6 +55,7 @@ taffy = { workspace = true }
 vortex = { version = "0.1.0", path = "../vortex", default-features = false, features = [
     "files",
 ] }
+vortex-arrow = { workspace = true }
 
 # Native-only dependencies (gated behind "native" feature)
 arrow-array = { workspace = true, optional = true }

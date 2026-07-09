@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 vortex-array = { workspace = true }
+vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-compressor = { workspace = true }
 vortex-error = { workspace = true }

@@ -13,15 +13,15 @@ use arrow_schema::DataType;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use num_traits::ToPrimitive;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::DecimalArray;
+use vortex_array::dtype::DecimalType;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::arrays::DecimalArray;
-use crate::arrow::null_buffer::to_null_buffer;
-use crate::dtype::DecimalType;
+use crate::null_buffer::to_null_buffer;
 
 pub(super) fn to_arrow_decimal(
     array: ArrayRef,
@@ -72,7 +72,7 @@ fn to_arrow_decimal32(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexResu
             })
             .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
         DecimalType::I256 => array
-            .buffer::<crate::dtype::i256>()
+            .buffer::<vortex_array::dtype::i256>()
             .into_iter()
             .map(|x| {
                 x.to_i32()
@@ -116,7 +116,7 @@ fn to_arrow_decimal64(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexResu
             })
             .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
         DecimalType::I256 => array
-            .buffer::<crate::dtype::i256>()
+            .buffer::<vortex_array::dtype::i256>()
             .into_iter()
             .map(|x| {
                 x.to_i64()
@@ -155,7 +155,7 @@ fn to_arrow_decimal128(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexRes
         }
         DecimalType::I128 => array.buffer::<i128>(),
         DecimalType::I256 => array
-            .buffer::<crate::dtype::i256>()
+            .buffer::<vortex_array::dtype::i256>()
             .into_iter()
             .map(|x| {
                 x.to_i128()
@@ -196,7 +196,7 @@ fn to_arrow_decimal256(array: DecimalArray, ctx: &mut ExecutionCtx) -> VortexRes
             array
                 .buffer::<i128>()
                 .into_iter()
-                .map(|x| crate::dtype::i256::from_i128(x).into()),
+                .map(|x| vortex_array::dtype::i256::from_i128(x).into()),
         ),
         DecimalType::I256 => {
             Buffer::<i256>::from_byte_buffer(array.buffer_handle().clone().into_host_sync())
@@ -219,19 +219,19 @@ mod tests {
     use arrow_buffer::i256;
     use arrow_schema::DataType;
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
+    use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::DecimalBuilder;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::NativeDecimalType;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::VortexSessionExecute;
-    use crate::array::IntoArray;
-    use crate::array_session;
-    use crate::arrow::ArrowArrayExecutor;
-    use crate::arrow::executor::decimal::DecimalArray;
-    use crate::builders::ArrayBuilder;
-    use crate::builders::DecimalBuilder;
-    use crate::dtype::DecimalDType;
-    use crate::dtype::NativeDecimalType;
-    use crate::validity::Validity;
+    use crate::ArrowArrayExecutor;
+    use crate::executor::decimal::DecimalArray;
 
     #[test]
     fn decimal_to_arrow() -> VortexResult<()> {
@@ -260,7 +260,7 @@ mod tests {
     #[case(0i32)]
     #[case(0i64)]
     #[case(0i128)]
-    #[case(crate::dtype::i256::ZERO)]
+    #[case(vortex_array::dtype::i256::ZERO)]
     fn test_to_arrow_decimal128<T: NativeDecimalType>(
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {
@@ -288,7 +288,7 @@ mod tests {
     #[case(0i32)]
     #[case(0i64)]
     #[case(0i128)]
-    #[case(crate::dtype::i256::ZERO)]
+    #[case(vortex_array::dtype::i256::ZERO)]
     fn test_to_arrow_decimal32<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
         use arrow_array::Decimal32Array;
 
@@ -316,7 +316,7 @@ mod tests {
     #[case(0i32)]
     #[case(0i64)]
     #[case(0i128)]
-    #[case(crate::dtype::i256::ZERO)]
+    #[case(vortex_array::dtype::i256::ZERO)]
     fn test_to_arrow_decimal64<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
         use arrow_array::Decimal64Array;
 
@@ -344,7 +344,7 @@ mod tests {
     #[case(0i32)]
     #[case(0i64)]
     #[case(0i128)]
-    #[case(crate::dtype::i256::ZERO)]
+    #[case(vortex_array::dtype::i256::ZERO)]
     fn test_to_arrow_decimal256<T: NativeDecimalType>(
         #[case] _decimal_type: T,
     ) -> VortexResult<()> {

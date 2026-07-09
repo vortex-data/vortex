@@ -85,14 +85,14 @@ use crate::validity::Validity;
 ///
 /// The full list of canonical types and their equivalent Arrow array types are:
 ///
-/// * `NullArray`: [`arrow_array::NullArray`]
-/// * `BoolArray`: [`arrow_array::BooleanArray`]
-/// * `PrimitiveArray`: [`arrow_array::PrimitiveArray`]
-/// * `DecimalArray`: [`arrow_array::Decimal128Array`] and [`arrow_array::Decimal256Array`]
-/// * `VarBinViewArray`: [`arrow_array::GenericByteViewArray`]
-/// * `ListViewArray`: [`arrow_array::ListViewArray`]
-/// * `FixedSizeListArray`: [`arrow_array::FixedSizeListArray`]
-/// * `StructArray`: [`arrow_array::StructArray`]
+/// * `NullArray`: `arrow_array::NullArray`
+/// * `BoolArray`: `arrow_array::BooleanArray`
+/// * `PrimitiveArray`: `arrow_array::PrimitiveArray`
+/// * `DecimalArray`: `arrow_array::Decimal128Array` and `arrow_array::Decimal256Array`
+/// * `VarBinViewArray`: `arrow_array::GenericByteViewArray`
+/// * `ListViewArray`: `arrow_array::ListViewArray`
+/// * `FixedSizeListArray`: `arrow_array::FixedSizeListArray`
+/// * `StructArray`: `arrow_array::StructArray`
 ///
 /// Vortex uses a logical type system, unlike Arrow which uses physical encodings for its types.
 /// As an example, there are at least six valid physical encodings for a `Utf8` array. This can
@@ -102,7 +102,7 @@ use crate::validity::Validity;
 /// variants to hold the data.
 ///
 /// To disambiguate, we choose a canonical physical encoding for every Vortex [`DType`], which
-/// will correspond to an arrow-rs [`arrow_schema::DataType`].
+/// will correspond to an arrow-rs `arrow_schema::DataType`.
 ///
 /// # Views support
 ///
@@ -111,7 +111,7 @@ use crate::validity::Validity;
 /// fully supported by the Datafusion query engine. We use them as our canonical string encoding
 /// for all `Utf8` and `Binary` typed arrays in Vortex. They provide considerably faster filter
 /// execution than the core `StringArray` and `BinaryArray` types, at the expense of potentially
-/// needing [garbage collection][arrow_array::GenericByteViewArray::gc] to clear unreferenced items
+/// needing garbage collection (`arrow_array::GenericByteViewArray::gc`) to clear unreferenced items
 /// from memory.
 ///
 /// # For Developers
@@ -1118,25 +1118,8 @@ impl Matcher for AnyCanonical {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
     use std::sync::LazyLock;
 
-    use arrow_array::Array as ArrowArray;
-    use arrow_array::ArrayRef as ArrowArrayRef;
-    use arrow_array::ListArray as ArrowListArray;
-    use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
-    use arrow_array::StringArray;
-    use arrow_array::StringViewArray;
-    use arrow_array::StructArray as ArrowStructArray;
-    use arrow_array::cast::AsArray;
-    use arrow_array::types::Int32Type;
-    use arrow_array::types::Int64Type;
-    use arrow_array::types::UInt64Type;
-    use arrow_buffer::NullBufferBuilder;
-    use arrow_buffer::OffsetBuffer;
-    use arrow_schema::DataType;
-    use arrow_schema::Field;
-    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
@@ -1154,8 +1137,6 @@ mod test {
     use crate::arrays::VariantArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::arrays::variant::VariantArrayExt;
-    use crate::arrow::ArrowSessionExt;
-    use crate::arrow::FromArrowArray;
     use crate::canonical::StructArray;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
@@ -1206,135 +1187,5 @@ mod test {
         assert!(!value.is::<Constant>());
 
         Ok(())
-    }
-
-    #[test]
-    fn test_canonicalize_nested_struct() {
-        let mut ctx = SESSION.create_execution_ctx();
-        // Create a struct array with multiple internal components.
-        let nested_struct_array = StructArray::from_fields(&[
-            ("a", buffer![1u64].into_array()),
-            (
-                "b",
-                StructArray::from_fields(&[(
-                    "inner_a",
-                    // The nested struct contains a ConstantArray representing the primitive array
-                    //   [100i64]
-                    // ConstantArray is not a canonical type, so converting `into_arrow()` should
-                    // map this to the nearest canonical type (PrimitiveArray).
-                    ConstantArray::new(100i64, 1).into_array(),
-                )])
-                .unwrap()
-                .into_array(),
-            ),
-        ])
-        .unwrap();
-
-        let arrow_struct = SESSION
-            .arrow()
-            .execute_arrow(nested_struct_array.into_array(), None, &mut ctx)
-            .unwrap()
-            .as_any()
-            .downcast_ref::<ArrowStructArray>()
-            .cloned()
-            .unwrap();
-
-        assert!(
-            arrow_struct
-                .column(0)
-                .as_any()
-                .downcast_ref::<ArrowPrimitiveArray<UInt64Type>>()
-                .is_some()
-        );
-
-        let inner_struct = Arc::clone(arrow_struct.column(1))
-            .as_any()
-            .downcast_ref::<ArrowStructArray>()
-            .cloned()
-            .unwrap();
-
-        let inner_a = inner_struct
-            .column(0)
-            .as_any()
-            .downcast_ref::<ArrowPrimitiveArray<Int64Type>>();
-        assert!(inner_a.is_some());
-
-        assert_eq!(
-            inner_a.cloned().unwrap(),
-            ArrowPrimitiveArray::from_iter([100i64])
-        );
-    }
-
-    #[test]
-    fn roundtrip_struct() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let mut nulls = NullBufferBuilder::new(6);
-        nulls.append_n_non_nulls(4);
-        nulls.append_null();
-        nulls.append_non_null();
-        let names = Arc::new(StringViewArray::from_iter(vec![
-            Some("Joseph"),
-            None,
-            Some("Angela"),
-            Some("Mikhail"),
-            None,
-            None,
-        ]));
-        let ages = Arc::new(ArrowPrimitiveArray::<Int32Type>::from(vec![
-            Some(25),
-            Some(31),
-            None,
-            Some(57),
-            None,
-            None,
-        ]));
-
-        let arrow_struct = ArrowStructArray::new(
-            vec![
-                Arc::new(Field::new("name", DataType::Utf8View, true)),
-                Arc::new(Field::new("age", DataType::Int32, true)),
-            ]
-            .into(),
-            vec![names, ages],
-            nulls.finish(),
-        );
-
-        let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true).unwrap();
-        let vortex_struct = SESSION
-            .arrow()
-            .execute_arrow(vortex_struct, None, &mut ctx)
-            .unwrap();
-        assert_eq!(&arrow_struct, vortex_struct.as_struct());
-    }
-
-    #[test]
-    fn roundtrip_list() {
-        let mut ctx = SESSION.create_execution_ctx();
-        let names = Arc::new(StringArray::from_iter(vec![
-            Some("Joseph"),
-            Some("Angela"),
-            Some("Mikhail"),
-        ]));
-
-        let arrow_list = ArrowListArray::new(
-            Arc::new(Field::new_list_field(DataType::Utf8, true)),
-            OffsetBuffer::from_lengths(vec![0, 2, 1]),
-            names,
-            None,
-        );
-        let list_data_type = arrow_list.data_type();
-        let list_field = Field::new(String::new(), list_data_type.clone(), true);
-
-        let vortex_list = ArrayRef::from_arrow(&arrow_list, true).unwrap();
-
-        let rt_arrow_list = SESSION
-            .arrow()
-            .execute_arrow(vortex_list, Some(&list_field), &mut ctx)
-            .unwrap();
-
-        assert_eq!(
-            (Arc::new(arrow_list.clone()) as ArrowArrayRef).as_ref(),
-            rt_arrow_list.as_ref()
-        );
     }
 }

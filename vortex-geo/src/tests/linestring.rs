@@ -13,9 +13,9 @@ use geoarrow::datatypes::Crs;
 use geoarrow::datatypes::Dimension as GeoArrowDimension;
 use geoarrow::datatypes::LineStringType;
 use geoarrow::datatypes::Metadata;
-use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 
 use super::SESSION;

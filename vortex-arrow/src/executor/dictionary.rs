@@ -10,19 +10,19 @@ use arrow_array::cast::AsArray;
 use arrow_array::new_null_array;
 use arrow_array::types::*;
 use arrow_schema::DataType;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::Constant;
-use crate::arrays::ConstantArray;
-use crate::arrays::Dict;
-use crate::arrays::DictArray;
-use crate::arrays::dict::DictArraySlotsExt;
-use crate::arrow::ArrowArrayExecutor;
+use crate::ArrowArrayExecutor;
 
 pub(super) fn to_arrow_dictionary(
     array: ArrayRef,
@@ -145,30 +145,33 @@ mod tests {
     use arrow_array::types::UInt32Type;
     use arrow_schema::DataType;
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::Nullable;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::IntoArray;
-    use crate::array_session;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::VarBinViewArray;
-    use crate::arrow::ArrowArrayExecutor;
-    use crate::arrow::executor::dictionary::ConstantArray;
-    use crate::arrow::executor::dictionary::DictArray;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability::Nullable;
-    use crate::executor::VortexSessionExecute;
-    use crate::scalar::Scalar;
+    use crate::ArrowArrayExecutor;
+    use crate::executor::dictionary::ConstantArray;
+    use crate::executor::dictionary::DictArray;
 
     fn dict_type(codes: DataType, values: DataType) -> DataType {
         DataType::Dictionary(Box::new(codes), Box::new(values))
     }
 
-    fn execute(array: crate::ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
+    fn execute(
+        array: vortex_array::ArrayRef,
+        dt: &DataType,
+    ) -> VortexResult<arrow_array::ArrayRef> {
         array.execute_arrow(Some(dt), &mut array_session().create_execution_ctx())
     }
 
-    fn dict_basic_input() -> crate::ArrayRef {
+    fn dict_basic_input() -> vortex_array::ArrayRef {
         DictArray::try_new(
             buffer![0u8, 1, 0].into_array(),
             VarBinViewArray::from_iter_str(["a", "b"]).into_array(),
@@ -177,7 +180,7 @@ mod tests {
         .into_array()
     }
 
-    fn dict_with_null_codes_input() -> crate::ArrayRef {
+    fn dict_with_null_codes_input() -> vortex_array::ArrayRef {
         DictArray::try_new(
             PrimitiveArray::from_option_iter(vec![Some(0u8), None, Some(1)]).into_array(),
             VarBinViewArray::from_iter_str(["a", "b"]).into_array(),
@@ -213,7 +216,7 @@ mod tests {
         Arc::new(vec![Some("a"), None, Some("a"), Some("b"), Some("a")].into_iter().collect::<ArrowDictArray<UInt8Type>>()) as arrow_array::ArrayRef,
     )]
     fn to_arrow_dictionary(
-        #[case] input: crate::ArrayRef,
+        #[case] input: vortex_array::ArrayRef,
         #[case] target_type: DataType,
         #[case] expected: arrow_array::ArrayRef,
     ) -> VortexResult<()> {

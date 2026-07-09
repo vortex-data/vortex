@@ -37,8 +37,8 @@ mod vtable;
 use std::sync::Arc;
 
 pub use array::ParquetVariantArrayExt;
-use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::session::ArraySessionExt;
+use vortex_arrow::ArrowSessionExt;
 pub use vortex_json::JsonToVariant;
 pub use vortex_json::JsonToVariantOptions;
 pub use vortex_json::ShreddingSpec;

@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::ffi_stream;
+use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
+use vortex_array::iter::ArrayIterator;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
-use crate::arrow::FromArrowArray;
-use crate::dtype::DType;
-use crate::dtype::arrow::FromArrowType;
-use crate::iter::ArrayIterator;
+use crate::FromArrowArray;
+use crate::dtype::FromArrowType;
 
 /// An adapter for converting an `ArrowArrayStreamReader` into a Vortex `ArrayStream`.
 pub struct ArrowArrayStreamAdapter {

@@ -29,7 +29,6 @@ use object_store::ObjectStore;
 use object_store::path::Path as ObjectStorePath;
 use vortex::array::ArrayRef;
 use vortex::array::VTable;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::Field as DTypeField;
@@ -48,6 +47,7 @@ use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex_arrow::ArrowSessionExt;
 use vortex_parquet_variant::ParquetVariant;
 
 use crate::RUNTIME;

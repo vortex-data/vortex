@@ -30,6 +30,7 @@ regex = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 vortex = { workspace = true }
+vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
 
 [features]

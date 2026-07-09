@@ -31,6 +31,7 @@ divan = { workspace = true }
 itertools = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-arrow = { workspace = true }
 
 [[bench]]
 name = "sparse_canonical"

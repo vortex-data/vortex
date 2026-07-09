@@ -99,7 +99,6 @@
 // vortex::compute is deprecated and will be ported over to expressions.
 pub use vortex_array::aggregate_fn;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
-use vortex_array::arrow::ArrowSession;
 pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
@@ -125,6 +124,12 @@ pub mod array {
     // TODO(connor): We should probably manually pull up everything we need besides these 3 modules.
     // Note that there `vortex::dtype`, `vortex::extension`, and `vortex::scalar` are all exported
     // twice.
+}
+
+/// Arrow interoperability: conversion between Vortex and Apache Arrow arrays, types, and
+/// schemas.
+pub mod arrow {
+    pub use vortex_arrow::*;
 }
 
 /// Aligned buffers and byte buffers used by arrays, layouts, IPC, and file IO.
@@ -297,9 +302,9 @@ impl VortexSessionDefault for VortexSession {
             .with::<ScalarFnSession>()
             .with::<StatsSession>()
             .with::<AggregateFnSession>()
-            .with::<ArrowSession>()
             .with::<MemorySession>()
             .with::<RuntimeSession>();
+        vortex_arrow::initialize(&session);
 
         // `MultiFileSession` holds a `moka` cache whose clock reads `std::time::Instant::now()`
         // when constructed. `Instant` is unsupported on `wasm32` and panics with "time not
@@ -355,9 +360,9 @@ mod test {
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
         use vortex::array::arrays::ChunkedArray;
-        use vortex::array::arrow::FromArrowArray;
+        use vortex::arrow::FromArrowArray;
+        use vortex::arrow::FromArrowType;
         use vortex::dtype::DType;
-        use vortex::dtype::arrow::FromArrowType;
 
         let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(
             "../docs/_static/example.parquet",
