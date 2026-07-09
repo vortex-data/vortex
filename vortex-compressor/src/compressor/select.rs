@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use super::ROOT_SCHEME_ID;
 use super::sample::estimate_compression_ratio_with_sampling;
 use crate::CascadingCompressor;
+use crate::candidate::Candidate;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
@@ -38,12 +39,9 @@ impl WinnerEstimate {
     }
 }
 
-/// Returns `true` if `score` beats the current best estimate.
-fn is_better_score(
-    score: EstimateScore,
-    best: Option<&(&'static dyn Scheme, EstimateScore)>,
-) -> bool {
-    score.is_valid() && best.is_none_or(|(_, best_score)| score.beats(*best_score))
+/// Returns `true` if `score` beats the current best candidate.
+fn is_better_score(score: EstimateScore, best: Option<&Candidate>) -> bool {
+    score.is_valid() && best.is_none_or(|candidate| score.beats(candidate.score))
 }
 
 impl CascadingCompressor {
@@ -69,8 +67,19 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<(&'static dyn Scheme, WinnerEstimate)>> {
-        let mut best: Option<(&'static dyn Scheme, EstimateScore)> = None;
+        let mut best: Option<Candidate> = None;
         let mut deferred: Vec<(&'static dyn Scheme, DeferredEstimate)> = Vec::new();
+
+        let input_nbytes = data.array().nbytes();
+        let n_values = data.array().len() as u64;
+        let new_candidate = |scheme, score, sampled| Candidate {
+            scheme,
+            score,
+            input_nbytes,
+            n_values,
+            sampled,
+            cascade: compress_ctx.cascade_history().to_vec(),
+        };
 
         // Pass 1: evaluate every immediate verdict. Stash deferred work for pass 2.
         {
@@ -85,7 +94,7 @@ impl CascadingCompressor {
                         let score = EstimateScore::FiniteCompression(ratio);
 
                         if is_better_score(score, best.as_ref()) {
-                            best = Some((scheme, score));
+                            best = Some(new_candidate(scheme, score, None));
                         }
                     }
                     CompressionEstimate::Deferred(deferred_estimate) => {
@@ -99,10 +108,10 @@ impl CascadingCompressor {
         // short-circuit with `Skip` when they cannot beat it.
         for (scheme, deferred_estimate) in deferred {
             let _span = trace::scheme_eval_span(scheme.id()).entered();
-            let threshold: Option<EstimateScore> = best.map(|(_, score)| score);
+            let threshold: Option<EstimateScore> = best.as_ref().map(|candidate| candidate.score);
             match deferred_estimate {
                 DeferredEstimate::Sample => {
-                    let score = estimate_compression_ratio_with_sampling(
+                    let estimate = estimate_compression_ratio_with_sampling(
                         self,
                         scheme,
                         data.array(),
@@ -110,8 +119,12 @@ impl CascadingCompressor {
                         exec_ctx,
                     )?;
 
-                    if is_better_score(score, best.as_ref()) {
-                        best = Some((scheme, score));
+                    if is_better_score(estimate.score, best.as_ref()) {
+                        best = Some(new_candidate(
+                            scheme,
+                            estimate.score,
+                            Some(estimate.sampled),
+                        ));
                     }
                 }
                 DeferredEstimate::Callback(callback) => {
@@ -124,7 +137,7 @@ impl CascadingCompressor {
                             let score = EstimateScore::FiniteCompression(ratio);
 
                             if is_better_score(score, best.as_ref()) {
-                                best = Some((scheme, score));
+                                best = Some(new_candidate(scheme, score, None));
                             }
                         }
                     }
@@ -132,7 +145,9 @@ impl CascadingCompressor {
             }
         }
 
-        Ok(best.map(|(scheme, score)| (scheme, WinnerEstimate::Score(score))))
+        // The sampled arrays carried by candidates are dropped here; only the winning scheme
+        // and its score survive selection.
+        Ok(best.map(|candidate| (candidate.scheme, WinnerEstimate::Score(candidate.score))))
     }
 
     // TODO(connor): Lots of room for optimization here.

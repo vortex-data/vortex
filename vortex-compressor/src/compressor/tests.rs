@@ -694,13 +694,13 @@ fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
     // Before the fix this panicked with:
     //   "this must be present since `DictScheme` declared that we need distinct values"
     let mut exec_ctx = SESSION.create_execution_ctx();
-    let score = estimate_compression_ratio_with_sampling(
+    let estimate = estimate_compression_ratio_with_sampling(
         &compressor,
         &FloatDictScheme,
         &array,
         ctx,
         &mut exec_ctx,
     )?;
-    assert!(matches!(score, EstimateScore::FiniteCompression(ratio) if ratio.is_finite()));
+    assert!(matches!(estimate.score, EstimateScore::FiniteCompression(ratio) if ratio.is_finite()));
     Ok(())
 }

@@ -141,10 +141,24 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
         .collect()
 }
 
+/// A sampling-based estimate: the ranked score together with the compressed sample array it
+/// was measured on.
+pub(crate) struct SampledEstimate {
+    /// The ranked estimate measured on the sample.
+    pub(crate) score: EstimateScore,
+
+    /// The compressed sample array. Its encoding tree is the best available prediction of
+    /// the full-array encoding tree.
+    pub(crate) sampled: ArrayRef,
+}
+
 /// Estimates compression ratio by compressing a ~1% sample of the data.
 ///
 /// Creates a new [`ArrayAndStats`] for the sample so that stats are generated from the sample, not
 /// the full array.
+///
+/// Returns the compressed sample alongside its score so the selection loop can keep the
+/// sample's encoding tree for the winning candidate.
 ///
 /// # Errors
 ///
@@ -155,7 +169,7 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     array: &ArrayRef,
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<EstimateScore> {
+) -> VortexResult<SampledEstimate> {
     let sample_array = if compress_ctx.is_sample() {
         array.clone()
     } else {
@@ -186,7 +200,10 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         trace::zero_byte_sample_result(scheme.id(), before);
     }
 
-    Ok(score)
+    Ok(SampledEstimate {
+        score,
+        sampled: compressed,
+    })
 }
 
 #[cfg(test)]
