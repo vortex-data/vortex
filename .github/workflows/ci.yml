@@ -454,7 +454,7 @@ jobs:
 
   btrblocks-golden:
     name: "Rust (btrblocks golden corpus)"
-    timeout-minutes: 30
+    timeout-minutes: 10
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=btrblocks-golden', github.run_id)
