@@ -10,6 +10,7 @@ use super::ROOT_SCHEME_ID;
 use super::sample::estimate_compression_ratio_with_sampling;
 use crate::CascadingCompressor;
 use crate::candidate::Candidate;
+use crate::cost::Cost;
 use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEstimate;
@@ -25,8 +26,13 @@ use crate::trace;
 pub(super) enum WinnerEstimate {
     /// The scheme must be used immediately.
     AlwaysUse,
-    /// The scheme won by a ranked estimate.
-    Score(EstimateScore),
+    /// The scheme won by a ranked estimate, priced by the compressor's cost model.
+    Score {
+        /// The winning candidate's ranked estimate.
+        score: EstimateScore,
+        /// The winning candidate's cost under the compressor's cost model.
+        cost: Cost,
+    },
 }
 
 impl WinnerEstimate {
@@ -34,19 +40,29 @@ impl WinnerEstimate {
     pub(super) fn trace_ratio(self) -> Option<f64> {
         match self {
             Self::AlwaysUse => None,
-            Self::Score(score) => score.finite_ratio(),
+            Self::Score { score, .. } => score.finite_ratio(),
         }
     }
-}
 
-/// Returns `true` if `score` beats the current best candidate.
-fn is_better_score(score: EstimateScore, best: Option<&Candidate>) -> bool {
-    score.is_valid() && best.is_none_or(|candidate| score.beats(candidate.score))
+    /// Returns the traceable cost for the winning estimate.
+    pub(super) fn trace_cost(self) -> Option<f64> {
+        match self {
+            Self::AlwaysUse => None,
+            Self::Score { cost, .. } => Some(cost.value()),
+        }
+    }
 }
 
 impl CascadingCompressor {
     /// Calls [`expected_compression_ratio`] on each candidate and returns the winning scheme along
     /// with its resolved winner estimate, or `None` if no scheme beats the canonical encoding.
+    ///
+    /// Each scored candidate is priced by the compressor's [`CostModel`]; the winner is the
+    /// candidate with the minimum cost, and only candidates pricing strictly below
+    /// [`CostModel::canonical_cost`] are eligible.
+    ///
+    /// [`CostModel`]: crate::cost::CostModel
+    /// [`CostModel::canonical_cost`]: crate::cost::CostModel::canonical_cost
     ///
     /// Selection runs in two passes. Pass 1 evaluates every immediate
     /// [`CompressionEstimate::Verdict`] and tracks the running best. [`Scheme`]s returning
@@ -57,7 +73,8 @@ impl CascadingCompressor {
     /// current best [`EstimateScore`] as an early-exit hint so the callback can return
     /// [`EstimateVerdict::Skip`] without doing expensive work when it cannot beat the threshold.
     ///
-    /// Ties are broken by registration order within each pass.
+    /// Ties are broken by registration order within each pass (displacing the running best
+    /// requires a strictly lower cost).
     ///
     /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
     pub(super) fn choose_best_scheme(
@@ -67,8 +84,12 @@ impl CascadingCompressor {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<(&'static dyn Scheme, WinnerEstimate)>> {
-        let mut best: Option<Candidate> = None;
+        let mut best: Option<(Cost, Candidate)> = None;
         let mut deferred: Vec<(&'static dyn Scheme, DeferredEstimate)> = Vec::new();
+
+        let canonical_cost = self
+            .cost_model
+            .canonical_cost(data, data.array().len() as u64);
 
         let input_nbytes = data.array().nbytes();
         let n_values = data.array().len() as u64;
@@ -92,9 +113,10 @@ impl CascadingCompressor {
                     }
                     CompressionEstimate::Verdict(EstimateVerdict::Ratio(ratio)) => {
                         let score = EstimateScore::FiniteCompression(ratio);
+                        let candidate = new_candidate(scheme, score, None);
 
-                        if is_better_score(score, best.as_ref()) {
-                            best = Some(new_candidate(scheme, score, None));
+                        if let Some(cost) = self.price(&candidate, canonical_cost, best.as_ref()) {
+                            best = Some((cost, candidate));
                         }
                     }
                     CompressionEstimate::Deferred(deferred_estimate) => {
@@ -108,7 +130,8 @@ impl CascadingCompressor {
         // short-circuit with `Skip` when they cannot beat it.
         for (scheme, deferred_estimate) in deferred {
             let _span = trace::scheme_eval_span(scheme.id()).entered();
-            let threshold: Option<EstimateScore> = best.as_ref().map(|candidate| candidate.score);
+            let threshold: Option<EstimateScore> =
+                best.as_ref().map(|(_, candidate)| candidate.score);
             match deferred_estimate {
                 DeferredEstimate::Sample => {
                     let estimate = estimate_compression_ratio_with_sampling(
@@ -118,13 +141,10 @@ impl CascadingCompressor {
                         compress_ctx.clone(),
                         exec_ctx,
                     )?;
+                    let candidate = new_candidate(scheme, estimate.score, Some(estimate.sampled));
 
-                    if is_better_score(estimate.score, best.as_ref()) {
-                        best = Some(new_candidate(
-                            scheme,
-                            estimate.score,
-                            Some(estimate.sampled),
-                        ));
+                    if let Some(cost) = self.price(&candidate, canonical_cost, best.as_ref()) {
+                        best = Some((cost, candidate));
                     }
                 }
                 DeferredEstimate::Callback(callback) => {
@@ -135,9 +155,12 @@ impl CascadingCompressor {
                         }
                         EstimateVerdict::Ratio(ratio) => {
                             let score = EstimateScore::FiniteCompression(ratio);
+                            let candidate = new_candidate(scheme, score, None);
 
-                            if is_better_score(score, best.as_ref()) {
-                                best = Some(new_candidate(scheme, score, None));
+                            if let Some(cost) =
+                                self.price(&candidate, canonical_cost, best.as_ref())
+                            {
+                                best = Some((cost, candidate));
                             }
                         }
                     }
@@ -146,8 +169,30 @@ impl CascadingCompressor {
         }
 
         // The sampled arrays carried by candidates are dropped here; only the winning scheme
-        // and its score survive selection.
-        Ok(best.map(|candidate| (candidate.scheme, WinnerEstimate::Score(candidate.score))))
+        // and its estimate survive selection.
+        Ok(best.map(|(cost, candidate)| {
+            (
+                candidate.scheme,
+                WinnerEstimate::Score {
+                    score: candidate.score,
+                    cost,
+                },
+            )
+        }))
+    }
+
+    /// Prices a candidate and returns its cost iff it becomes the new best: the model must
+    /// price it (`Some`), and the cost must be strictly below both the canonical baseline and
+    /// the best so far. Strict `<` preserves registration-order tie-breaking.
+    fn price(
+        &self,
+        candidate: &Candidate,
+        canonical_cost: Cost,
+        best: Option<&(Cost, Candidate)>,
+    ) -> Option<Cost> {
+        let cost = self.cost_model.cost(candidate)?;
+        (cost < canonical_cost && best.is_none_or(|&(best_cost, _)| cost < best_cost))
+            .then_some(cost)
     }
 
     // TODO(connor): Lots of room for optimization here.

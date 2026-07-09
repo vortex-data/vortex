@@ -9,7 +9,11 @@ mod sample;
 mod select;
 mod structural;
 
+use std::sync::Arc;
+
 use crate::builtins::IntDictScheme;
+use crate::cost::CostModel;
+use crate::cost::SizeCost;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
@@ -46,10 +50,13 @@ pub struct CascadingCompressor {
     /// Descendant exclusion rules for the compressor's own cascading (e.g. excluding Dict from
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
+
+    /// The cost model pricing candidates during scheme selection.
+    cost_model: Arc<dyn CostModel>,
 }
 
 impl CascadingCompressor {
-    /// Creates a new compressor with the given schemes.
+    /// Creates a new compressor with the given schemes and the default [`SizeCost`] model.
     ///
     /// Root-level exclusion rules (e.g. excluding Dict from list offsets) are built automatically.
     pub fn new(schemes: Vec<&'static dyn Scheme>) -> Self {
@@ -63,7 +70,16 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
+            cost_model: Arc::new(SizeCost),
         }
+    }
+
+    /// Replaces the cost model used to price candidates during scheme selection.
+    ///
+    /// The default is [`SizeCost`], which maximizes estimated compression ratio.
+    pub fn with_cost_model(mut self, cost_model: Arc<dyn CostModel>) -> Self {
+        self.cost_model = cost_model;
+        self
     }
 }
 

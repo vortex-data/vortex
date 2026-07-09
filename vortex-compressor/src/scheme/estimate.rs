@@ -130,27 +130,6 @@ impl EstimateScore {
             Self::ZeroBytes => None,
         }
     }
-
-    /// Returns whether this estimate is eligible to compete.
-    pub(crate) fn is_valid(self) -> bool {
-        match self {
-            Self::FiniteCompression(ratio) => {
-                ratio.is_finite() && !ratio.is_subnormal() && ratio > 1.0
-            }
-            Self::ZeroBytes => false,
-        }
-    }
-
-    /// Returns whether this estimate beats another valid estimate.
-    pub(crate) fn beats(self, other: Self) -> bool {
-        match (self, other) {
-            (Self::ZeroBytes, _) => false,
-            (Self::FiniteCompression(_), Self::ZeroBytes) => true,
-            (Self::FiniteCompression(ratio), Self::FiniteCompression(best_ratio)) => {
-                ratio > best_ratio
-            }
-        }
-    }
 }
 
 impl fmt::Debug for DeferredEstimate {

@@ -378,7 +378,7 @@ fn callback_skip_is_ignored() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(2.0))))
+        Some((scheme, WinnerEstimate::Score { score: EstimateScore::FiniteCompression(2.0), .. }))
             if scheme.id() == DirectRatioScheme.id()
     ));
     Ok(())
@@ -396,7 +396,7 @@ fn callback_ratio_competes_numerically() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(3.0))))
+        Some((scheme, WinnerEstimate::Score { score: EstimateScore::FiniteCompression(3.0), .. }))
             if scheme.id() == CallbackRatioScheme.id()
     ));
     Ok(())
@@ -414,7 +414,7 @@ fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(100.0))))
+        Some((scheme, WinnerEstimate::Score { score: EstimateScore::FiniteCompression(100.0), .. }))
             if scheme.id() == HugeRatioScheme.id()
     ));
     Ok(())
@@ -432,7 +432,7 @@ fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(100.0))))
+        Some((scheme, WinnerEstimate::Score { score: EstimateScore::FiniteCompression(100.0), .. }))
             if scheme.id() == HugeRatioScheme.id()
     ));
     Ok(())
@@ -646,7 +646,7 @@ fn ratio_tie_between_immediate_and_deferred_favors_immediate() -> VortexResult<(
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::Score(EstimateScore::FiniteCompression(r))))
+        Some((scheme, WinnerEstimate::Score { score: EstimateScore::FiniteCompression(r), .. }))
             if scheme.id() == DirectRatioScheme.id() && r == 2.0
     ));
     Ok(())
