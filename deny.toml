@@ -16,7 +16,8 @@ ignore = [
     # Paste is no longer maintained because its essentially "finished".
     "RUSTSEC-2024-0436",
     # quick-xml is a transitive dependency that we cannot upgrade ourselves
-    "RUSTSEC-2026-0195"
+    "RUSTSEC-2026-0195",
+    "RUSTSEC-2026-0194"
 ]
 
 [licenses]
