@@ -115,9 +115,9 @@ pub enum DType {
     /// `i8` tag selects which variant is "live" at that row.
     ///
     /// Unlike other nested types, a union has no independent outer nullability. Its nullability is
-    /// derived at runtime from its variants: a union is nullable when at least one variant is
-    /// nullable (including [`DType::Null`]). A concrete union array has no parent validity bitmap;
-    /// a row's validity is the validity of its selected child.
+    /// derived at runtime from its variants: a union is nullable when any variant can contain null.
+    /// A concrete union array has no parent validity bitmap; a row's validity is the validity of
+    /// its selected child.
     ///
     /// See [`UnionVariants`] for the type-tag conventions and accessors.
     Union(UnionVariants),

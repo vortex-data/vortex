@@ -84,10 +84,16 @@ impl DType {
                 return (lhs == rhs).then(|| self.clone());
             }
             (DType::Null, DType::Union(variants)) => {
-                return variants.nullability().is_nullable().then(|| other.clone());
+                return variants
+                    .derived_nullability()
+                    .is_nullable()
+                    .then(|| other.clone());
             }
             (DType::Union(variants), DType::Null) => {
-                return variants.nullability().is_nullable().then(|| self.clone());
+                return variants
+                    .derived_nullability()
+                    .is_nullable()
+                    .then(|| self.clone());
             }
             _ => {}
         }

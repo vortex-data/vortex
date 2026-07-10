@@ -108,7 +108,7 @@ impl DType {
                 let variants = UnionVariants::try_new(names, dtypes, type_ids)?;
 
                 let serialized_nullability: Nullability = u.nullable.into();
-                let derived_nullability = variants.nullability();
+                let derived_nullability = variants.derived_nullability();
                 vortex_ensure!(
                     serialized_nullability == derived_nullability,
                     "Serialized Union nullability does not match its variants: serialized={:?}, derived={:?}",
@@ -192,7 +192,7 @@ impl TryFrom<&DType> for pb::DType {
                         .map(|d| Self::try_from(&d))
                         .collect::<VortexResult<Vec<_>>>()?,
                     type_ids: uv.type_ids().iter().map(|t| *t as i32).collect(),
-                    nullable: uv.nullability().into(),
+                    nullable: uv.derived_nullability().into(),
                 }),
                 DType::Variant(null) => DtypeType::Variant(pb::Variant {
                     nullable: (*null).into(),
@@ -442,7 +442,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(variants.nullability(), Nullability::Nullable);
+        assert_eq!(variants.derived_nullability(), Nullability::Nullable);
 
         let dtype = DType::Union(variants);
         let converted = round_trip_dtype(&dtype);

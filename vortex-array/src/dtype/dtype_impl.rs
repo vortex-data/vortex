@@ -65,7 +65,7 @@ impl DType {
             | FixedSizeList(_, _, null)
             | Struct(_, null)
             | Variant(null) => matches!(null, Nullability::Nullable),
-            Union(variants) => variants.nullability().is_nullable(),
+            Union(variants) => variants.derived_nullability().is_nullable(),
             Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
         }
     }
@@ -498,7 +498,7 @@ impl Display for DType {
                     .map(|(field_null, dt)| format!("{field_null}={dt}"))
                     .join(", "),
             ),
-            Union(uv) => write!(f, "union({uv}){}", uv.nullability()),
+            Union(uv) => write!(f, "union({uv}){}", uv.derived_nullability()),
             Variant(null) => write!(f, "variant{null}"),
             Extension(ext) => write!(f, "{}", ext),
         }

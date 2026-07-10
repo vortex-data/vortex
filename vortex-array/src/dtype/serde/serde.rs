@@ -119,7 +119,7 @@ impl Serialize for DType {
             DType::Union(uv) => {
                 let mut state = serializer.serialize_tuple_variant("DType", 11, "Union", 2)?;
                 state.serialize_field(&uv)?;
-                state.serialize_field(&uv.nullability())?;
+                state.serialize_field(&uv.derived_nullability())?;
                 state.end()
             }
             DType::Variant(n) => serializer.serialize_newtype_variant("DType", 10, "Variant", n),
@@ -442,7 +442,7 @@ impl<'de> DeserializeSeed<'de> for UnionVariantsSeed<'_> {
                 let serialized_nullability: Nullability = seq
                     .next_element()?
                     .ok_or_else(|| de::Error::invalid_length(1, &self))?;
-                let derived_nullability = variants.nullability();
+                let derived_nullability = variants.derived_nullability();
                 if serialized_nullability != derived_nullability {
                     return Err(de::Error::custom(format!(
                         "Serialized Union nullability does not match its variants: serialized={:?}, derived={:?}",

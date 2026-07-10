@@ -238,7 +238,7 @@ impl TryFrom<ViewedDType> for DType {
                     UnionVariants::from_fb(fb_union, vfdt.buffer().clone(), vfdt.session.clone())?;
 
                 let serialized_nullability: Nullability = fb_union.nullable().into();
-                let derived_nullability = variants.nullability();
+                let derived_nullability = variants.derived_nullability();
                 vortex_ensure!(
                     serialized_nullability == derived_nullability,
                     "Serialized Union nullability does not match its variants: serialized={:?}, derived={:?}",
@@ -414,7 +414,7 @@ impl WriteFlatBuffer for DType {
                         names,
                         dtypes,
                         type_ids,
-                        nullable: uv.nullability().into(),
+                        nullable: uv.derived_nullability().into(),
                     },
                 )
                 .as_union_value()

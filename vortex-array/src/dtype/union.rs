@@ -341,9 +341,9 @@ impl UnionVariants {
 
     /// Returns the runtime-derived nullability of the union.
     ///
-    /// The check materializes each [`FieldDType`] (so it may be expensive if some are still
-    /// flatbuffer-backed views).
-    pub fn nullability(&self) -> Nullability {
+    /// This is not a zero-cost accessor: it scans every variant and materializes each
+    /// [`FieldDType`], which may be expensive when variants are still flatbuffer-backed views.
+    pub fn derived_nullability(&self) -> Nullability {
         self.variants().any(|dtype| dtype.is_nullable()).into()
     }
 }
@@ -482,10 +482,10 @@ mod tests {
         Nullability::NonNullable,
     )]
     #[case::empty(vec![], Nullability::NonNullable)]
-    fn test_nullability(#[case] dtypes: Vec<DType>, #[case] expected: Nullability) {
+    fn test_derived_nullability(#[case] dtypes: Vec<DType>, #[case] expected: Nullability) {
         let names: Vec<&str> = (0..dtypes.len()).map(|i| ["a", "b", "c", "d"][i]).collect();
         let variants = UnionVariants::new(names.as_slice().into(), dtypes).unwrap();
-        assert_eq!(variants.nullability(), expected);
+        assert_eq!(variants.derived_nullability(), expected);
     }
 
     #[test]
