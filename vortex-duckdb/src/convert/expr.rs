@@ -61,6 +61,7 @@ use vortex_geo::extension::Polygon;
 use vortex_geo::extension::WellKnownBinary;
 use vortex_geo::extension::native_geometry_scalar_from_wkb;
 use vortex_geo::scalar_fn::distance::GeoDistance;
+use vortex_geo::scalar_fn::intersects::GeoIntersects;
 
 use crate::convert::dtype::FromLogicalType;
 use crate::cpp::DUCKDB_TYPE;
@@ -166,62 +167,64 @@ fn geo_operand(
     }
 }
 
+/// Lower all geometry operands of a geo function. Returns `None`, skipping the push, when any
+/// operand is neither a constant geometry nor a native geometry column.
+fn geo_operands(
+    children: &[&duckdb::ExpressionRef],
+    ctx: ConvertCtx<'_>,
+) -> VortexResult<Option<Vec<Expression>>> {
+    children
+        .iter()
+        .map(|child| geo_operand(child, ctx))
+        .collect()
+}
+
 /// Lower geo UDFs to native Vortex geo ops so the work runs in the scan. `None` otherwise.
 fn try_from_geo_function(
     name: &str,
     func: &BoundFunction,
     ctx: ConvertCtx<'_>,
 ) -> VortexResult<Option<Expression>> {
-    // Catch-all for every bound function: reject non-geo names before touching the children.
-    if !is_geo_function(name) {
-        return Ok(None);
-    }
     let children: Vec<_> = func.children().collect();
     let expr = match name.to_ascii_lowercase().as_str() {
-        // The Vortex override keeps the radius as `children[2]`; see
-        // `duckdb_vx_register_st_dwithin_override`.
+        // Spatial's own st_dwithin folds the radius into bind data; the override
+        // (cpp/spatial_overrides.cpp) keeps it visible here as `children[2]`.
         "st_dwithin" => {
             if children.len() != 3 {
                 return Ok(None);
             }
-            let Some(a) = geo_operand(children[0], ctx)? else {
-                return Ok(None);
-            };
-            let Some(b) = geo_operand(children[1], ctx)? else {
+            let Some(operands) = geo_operands(&children[..2], ctx)? else {
                 return Ok(None);
             };
             // A non-constant radius is left for DuckDB to evaluate.
             let Some(distance) = from_bound_f64(children[2])? else {
                 return Ok(None);
             };
-            let geo_distance = GeoDistance.new_expr(ScalarEmptyOptions, [a, b]);
+            let geo_distance = GeoDistance.new_expr(ScalarEmptyOptions, operands);
             Binary.new_expr(Operator::Lte, [geo_distance, lit(distance)])
         }
         "st_distance" => {
             if children.len() != 2 {
                 return Ok(None);
             }
-            let Some(a) = geo_operand(children[0], ctx)? else {
+            let Some(operands) = geo_operands(&children, ctx)? else {
                 return Ok(None);
             };
-            let Some(b) = geo_operand(children[1], ctx)? else {
+            GeoDistance.new_expr(ScalarEmptyOptions, operands)
+        }
+        "st_intersects" => {
+            if children.len() != 2 {
+                return Ok(None);
+            }
+            let Some(operands) = geo_operands(&children, ctx)? else {
                 return Ok(None);
             };
-            GeoDistance.new_expr(ScalarEmptyOptions, [a, b])
+            GeoIntersects.new_expr(ScalarEmptyOptions, operands)
         }
         _ => return Ok(None),
     };
 
     Ok(Some(expr))
-}
-
-/// Geo UDFs that `try_from_geo_function` lowers - shared with `can_push_expression` so the pushable
-/// and lowered sets can't drift.
-fn is_geo_function(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "st_distance" | "st_dwithin"
-    )
 }
 
 fn try_from_bound_function(

@@ -27,12 +27,13 @@ const DEFAULT_DUCKDB_VERSION: &str = "1.5.3";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 
-const SOURCE_FILES: [&str; 10] = [
+const SOURCE_FILES: [&str; 11] = [
     "cpp/vortex_duckdb.cpp",
     "cpp/copy_function.cpp",
     "cpp/expr.cpp",
     "cpp/optimizer.cpp",
     "cpp/scalar_fn_pushdown.cpp",
+    "cpp/spatial_overrides.cpp",
     "cpp/cast_pushdown.cpp",
     "cpp/aggregate_fn_pushdown.cpp",
     "cpp/table_filter.cpp",

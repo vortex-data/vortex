@@ -16,6 +16,7 @@ use crate::extension::Point;
 use crate::extension::Polygon;
 use crate::extension::WellKnownBinary;
 use crate::scalar_fn::distance::GeoDistance;
+use crate::scalar_fn::intersects::GeoIntersects;
 
 pub mod extension;
 pub mod scalar_fn;
@@ -51,4 +52,5 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the geometry scalar functions.
     session.scalar_fns().register(GeoDistance);
+    session.scalar_fns().register(GeoIntersects);
 }
