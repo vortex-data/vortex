@@ -71,8 +71,15 @@ pub struct Variant {
     #[prost(bool, tag = "1")]
     pub nullable: bool,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Union {
+    #[prost(string, repeated, tag = "1")]
+    pub names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "2")]
+    pub dtypes: ::prost::alloc::vec::Vec<DType>,
+    /// length must equal dtypes.len(); each value must fit in int8
+    #[prost(int32, repeated, tag = "3")]
+    pub type_ids: ::prost::alloc::vec::Vec<i32>,
     #[prost(bool, tag = "4")]
     pub nullable: bool,
 }

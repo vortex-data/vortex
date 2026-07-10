@@ -452,6 +452,38 @@ jobs:
           alert-title: "Rust tests (linux-arm64) failed on develop"
           deduplication-key: ci-rust-test-linux-arm64-failure
 
+  btrblocks-golden:
+    name: "Rust (btrblocks golden corpus)"
+    timeout-minutes: 10
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=btrblocks-golden', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      # The golden suite pins the compressor's decisions per feature variant, and the
+      # variants are mutually exclusive at compile time: the `default` variant only exists
+      # without `unstable_encodings` (which changes ALL_SCHEMES), so the `--all-features`
+      # workspace test jobs cannot run it. Run each feature combination explicitly.
+      - name: Golden corpus (default features)
+        run: |
+          cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden
+      - name: Golden corpus (unstable_encodings)
+        run: |
+          cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden \
+            --features unstable_encodings
+      - name: Golden corpus (compact, unstable_encodings + zstd + pco)
+        run: |
+          cargo nextest run --cargo-profile ci --locked --no-fail-fast -p vortex-btrblocks --test golden \
+            --features unstable_encodings,zstd,pco
+
   build-java:
     name: "Java"
     runs-on: >-

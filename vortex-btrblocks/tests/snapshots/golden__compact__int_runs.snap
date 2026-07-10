@@ -1,0 +1,9 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: i32, len=16384, nbytes=65536
+root: vortex.zigzag(i32, len=16384) nbytes=2969
+  metadata: 
+  encoded: vortex.pco(u32, len=16384) nbytes=2969
+    metadata: ptype: u32, nrows: 16384, slice: 0..16384

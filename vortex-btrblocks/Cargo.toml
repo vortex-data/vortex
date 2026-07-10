@@ -41,6 +41,7 @@ vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+insta = { workspace = true }
 rstest = { workspace = true }
 test-with = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }

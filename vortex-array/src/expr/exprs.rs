@@ -10,6 +10,7 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
+use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
@@ -38,6 +39,7 @@ use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::list_length::ListLength;
+use crate::scalar_fn::fns::list_sum::ListSum;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::merge::DuplicateHandling;
@@ -780,4 +782,28 @@ pub fn ext_storage(input: Expression) -> Expression {
 /// ```
 pub fn list_length(input: Expression) -> Expression {
     ListLength.new_expr(EmptyOptions, [input])
+}
+
+// ---- ListSum ----
+
+/// Creates an expression that sums the elements of each list for `List` and
+/// `FixedSizeList` inputs, akin to DuckDB's `list_sum()`.
+///
+/// Follows SQL `SUM` semantics per list: null lists, empty lists, and lists whose elements are
+/// all null yield null; null elements are skipped; integer and decimal overflow yields a null
+/// value. The result dtype follows `sum`'s widening rules and is always nullable. NaN float
+/// elements are skipped by default; see [`list_sum_opts`] for the NaN-including variant.
+///
+/// ```rust
+/// # use vortex_array::expr::{list_sum, root};
+/// let expr = list_sum(root());
+/// ```
+pub fn list_sum(input: Expression) -> Expression {
+    ListSum.new_expr(NumericalAggregateOpts::default(), [input])
+}
+
+/// Creates a [`list_sum`] expression with explicit [`NumericalAggregateOpts`], controlling
+/// whether NaN float elements are skipped (the default) or poison the list's sum to NaN.
+pub fn list_sum_opts(input: Expression, options: NumericalAggregateOpts) -> Expression {
+    ListSum.new_expr(options, [input])
 }

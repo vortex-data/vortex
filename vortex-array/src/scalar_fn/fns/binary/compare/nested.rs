@@ -213,7 +213,7 @@ fn build_values_comparator(
             let rhs = rhs.clone().execute::<ExtensionArray>(ctx)?;
             build_comparator(lhs.storage_array(), rhs.storage_array(), ctx)?
         }
-        DType::Union(_) | DType::Variant(_) => {
+        DType::Union(..) | DType::Variant(_) => {
             vortex_bail!("compare is not supported for dtype {}", lhs.dtype())
         }
     })
