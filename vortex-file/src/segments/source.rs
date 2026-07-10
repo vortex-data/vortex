@@ -468,12 +468,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn file_segment_source_panic_propagates_to_all_concurrent_readers() {
         let source = Arc::new(panicking_source());
+        let handle = TokioRuntime::current();
         let reader_count = 8;
 
         let readers: Vec<_> = (0..reader_count)
             .map(|_| {
                 let source = Arc::clone(&source);
-                tokio::spawn(async move {
+                handle.spawn(async move {
                     AssertUnwindSafe(source.request(SegmentId::from(0)))
                         .catch_unwind()
                         .await
@@ -488,7 +489,7 @@ mod tests {
 
         let mut original_panics = 0;
         for reader in joined {
-            match reader.expect("reader task panicked at the join boundary") {
+            match reader {
                 // The first reader to observe completion re-raises the original panic.
                 Err(payload) => {
                     assert!(
@@ -557,10 +558,11 @@ mod tests {
             RequestMetrics::new(&metrics, vec![]),
         ));
 
+        let handle = TokioRuntime::current();
         let tasks: Vec<_> = (0..n)
             .map(|i| {
                 let source = Arc::clone(&source);
-                tokio::spawn(async move { source.request(SegmentId::from(i)).await })
+                handle.spawn(async move { source.request(SegmentId::from(i)).await })
             })
             .collect();
 
