@@ -289,7 +289,7 @@ fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
         DType::Struct(fields, _) => fields
             .fields()
             .all(|field| supports_uncompressed_size_in_bytes(&field)),
-        DType::Union(variants, _) => variants
+        DType::Union(variants) => variants
             .variants()
             .all(|variant| supports_uncompressed_size_in_bytes(&variant)),
         DType::Variant(_) => false,

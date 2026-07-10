@@ -107,14 +107,16 @@ impl DType {
                     .collect::<VortexResult<Vec<_>>>()?;
                 let variants = UnionVariants::try_new(names, dtypes, type_ids)?;
 
-                let nullability: Nullability = u.nullable.into();
+                let serialized_nullability: Nullability = u.nullable.into();
+                let derived_nullability = variants.nullability();
                 vortex_ensure!(
-                    variants.nullability_constraints_satisfied(nullability),
-                    "Union nullability constraint not satisfied: nullability={:?}",
-                    nullability
+                    serialized_nullability == derived_nullability,
+                    "Serialized Union nullability does not match its variants: serialized={:?}, derived={:?}",
+                    serialized_nullability,
+                    derived_nullability
                 );
 
-                Ok(Self::Union(variants, nullability))
+                Ok(Self::Union(variants))
             }
             DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
             DtypeType::Extension(e) => {
@@ -183,14 +185,14 @@ impl TryFrom<&DType> for pb::DType {
                         .collect::<VortexResult<Vec<_>>>()?,
                     nullable: (*null).into(),
                 }),
-                DType::Union(uv, null) => DtypeType::Union(pb::Union {
+                DType::Union(uv) => DtypeType::Union(pb::Union {
                     names: uv.names().iter().map(|n| n.as_ref().to_string()).collect(),
                     dtypes: uv
                         .variants()
                         .map(|d| Self::try_from(&d))
                         .collect::<VortexResult<Vec<_>>>()?,
                     type_ids: uv.type_ids().iter().map(|t| *t as i32).collect(),
-                    nullable: (*null).into(),
+                    nullable: uv.nullability().into(),
                 }),
                 DType::Variant(null) => DtypeType::Variant(pb::Variant {
                     nullable: (*null).into(),
@@ -427,7 +429,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let dtype = DType::Union(variants, Nullability::NonNullable);
+        let dtype = DType::Union(variants);
         let converted = round_trip_dtype(&dtype);
         assert_eq!(dtype, converted);
     }
@@ -440,10 +442,9 @@ mod tests {
         )
         .unwrap();
 
-        assert!(variants.nullability_constraints_satisfied(Nullability::Nullable));
-        assert!(!variants.nullability_constraints_satisfied(Nullability::NonNullable));
+        assert_eq!(variants.nullability(), Nullability::Nullable);
 
-        let dtype = DType::Union(variants, Nullability::Nullable);
+        let dtype = DType::Union(variants);
         let converted = round_trip_dtype(&dtype);
         assert_eq!(dtype, converted);
     }
@@ -461,11 +462,11 @@ mod tests {
         )
         .unwrap();
 
-        let dtype = DType::Union(variants, Nullability::NonNullable);
+        let dtype = DType::Union(variants);
         let converted = round_trip_dtype(&dtype);
         assert_eq!(dtype, converted);
 
-        let DType::Union(uv, _) = &converted else {
+        let DType::Union(uv) = &converted else {
             panic!("Expected Union");
         };
         assert_eq!(uv.type_ids(), &[0, 5, 7]);
@@ -473,8 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn test_union_proto_rejects_violating_nullability_constraint() {
-        // Nullable Union with no nullable or Null children must be rejected.
+    fn test_union_proto_rejects_mismatched_serialized_nullability() {
         let proto = pb::DType {
             dtype_type: Some(DtypeType::Union(pb::Union {
                 names: vec!["a".to_string(), "b".to_string()],
@@ -494,7 +494,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Union nullability constraint not satisfied")
+                .contains("Serialized Union nullability does not match its variants")
         );
     }
 
@@ -534,7 +534,6 @@ mod tests {
                 ],
             )
             .unwrap(),
-            Nullability::NonNullable,
         );
 
         let struct_with_union = DType::Struct(
@@ -551,7 +550,6 @@ mod tests {
                 vec![DType::Utf8(Nullability::NonNullable), struct_with_union],
             )
             .unwrap(),
-            Nullability::NonNullable,
         );
 
         let converted = round_trip_dtype(&outer_union);

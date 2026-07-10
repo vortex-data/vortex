@@ -237,14 +237,16 @@ impl TryFrom<ViewedDType> for DType {
                 let variants =
                     UnionVariants::from_fb(fb_union, vfdt.buffer().clone(), vfdt.session.clone())?;
 
-                let nullability: Nullability = fb_union.nullable().into();
+                let serialized_nullability: Nullability = fb_union.nullable().into();
+                let derived_nullability = variants.nullability();
                 vortex_ensure!(
-                    variants.nullability_constraints_satisfied(nullability),
-                    "Union nullability constraint not satisfied: nullability={:?}",
-                    nullability
+                    serialized_nullability == derived_nullability,
+                    "Serialized Union nullability does not match its variants: serialized={:?}, derived={:?}",
+                    serialized_nullability,
+                    derived_nullability
                 );
 
-                Ok(Self::Union(variants, nullability))
+                Ok(Self::Union(variants))
             }
             fb::Type::Variant => {
                 let fb_variant = fb
@@ -390,7 +392,7 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
-            Self::Union(uv, n) => {
+            Self::Union(uv) => {
                 let names = uv
                     .names()
                     .iter()
@@ -412,7 +414,7 @@ impl WriteFlatBuffer for DType {
                         names,
                         dtypes,
                         type_ids,
-                        nullable: (*n).into(),
+                        nullable: uv.nullability().into(),
                     },
                 )
                 .as_union_value()
@@ -583,7 +585,6 @@ mod test {
                 ],
             )
             .unwrap(),
-            Nullability::NonNullable,
         )
     }
 
@@ -600,9 +601,55 @@ mod test {
                 vec![DType::Null, DType::Utf8(Nullability::NonNullable)],
             )
             .unwrap(),
-            Nullability::Nullable,
         );
         roundtrip_dtype(dtype);
+    }
+
+    #[test]
+    fn test_union_flatbuffer_rejects_mismatched_serialized_nullability() {
+        use flatbuffers::FlatBufferBuilder;
+        use vortex_buffer::ByteBuffer;
+        use vortex_flatbuffers::WriteFlatBuffer;
+
+        let mut fbb = FlatBufferBuilder::new();
+        let name = fbb.create_string("value");
+        let names = fbb.create_vector(&[name]);
+        let child = DType::Utf8(Nullability::Nullable)
+            .write_flatbuffer(&mut fbb)
+            .unwrap();
+        let dtypes = fbb.create_vector(&[child]);
+        let type_ids = fbb.create_vector::<i8>(&[0]);
+        let union_table = fb::Union::create(
+            &mut fbb,
+            &fb::UnionArgs {
+                names: Some(names),
+                dtypes: Some(dtypes),
+                type_ids: Some(type_ids),
+                nullable: false,
+            },
+        );
+        let dtype = fb::DType::create(
+            &mut fbb,
+            &fb::DTypeArgs {
+                type_type: fb::Type::Union,
+                type_: Some(union_table.as_union_value()),
+            },
+        );
+        fbb.finish_minimal(dtype);
+        let (vec, start) = fbb.collapse();
+        let end = vec.len();
+        let buffer = FlatBuffer::align_from(ByteBuffer::from(vec).slice(start..end));
+        let root_fb = root::<fb::DType>(&buffer).unwrap();
+        let view = ViewedDType::from_fb_loc(root_fb._tab.loc(), buffer, SESSION.clone());
+
+        let result = DType::try_from(view);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Serialized Union nullability does not match its variants")
+        );
     }
 
     #[test]
@@ -618,7 +665,6 @@ mod test {
                 vec![0, 5, 7],
             )
             .unwrap(),
-            Nullability::NonNullable,
         );
 
         let bytes = dtype.write_flatbuffer_bytes().unwrap();
@@ -631,7 +677,7 @@ mod test {
 
         let deserialized = DType::try_from(view).unwrap();
         assert_eq!(dtype, deserialized);
-        let DType::Union(uv, _) = &deserialized else {
+        let DType::Union(uv) = &deserialized else {
             panic!("Expected Union");
         };
         assert_eq!(uv.type_ids(), &[0, 5, 7]);
@@ -654,7 +700,6 @@ mod test {
                 vec![DType::Utf8(Nullability::NonNullable), struct_with_union],
             )
             .unwrap(),
-            Nullability::NonNullable,
         );
 
         roundtrip_dtype(outer_union);
