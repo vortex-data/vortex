@@ -22,13 +22,13 @@ use vortex_session::VortexSession;
 
 use super::CascadingCompressor;
 use super::ROOT_SCHEME_ID;
-use super::sample::estimate_candidate_with_sampling;
+use super::sample::evaluate_candidate_with_sampling;
 use super::select::SelectionOutcome;
 use super::structural;
 use crate::builtins::FloatDictScheme;
 use crate::builtins::IntDictScheme;
 use crate::builtins::StringDictScheme;
-use crate::candidate::Candidate;
+use crate::cost::Candidate;
 use crate::cost::Cost;
 use crate::cost::CostModel;
 use crate::scheme::CandidateEstimate;
@@ -764,7 +764,7 @@ fn all_null_array_compresses_to_constant() -> VortexResult<()> {
 
 /// Regression test for <https://github.com/vortex-data/vortex/issues/7227>.
 ///
-/// `estimate_candidate_with_sampling` must use the *scheme's* stats options
+/// `evaluate_candidate_with_sampling` must use the *scheme's* stats options
 /// (which request distinct-value counting) rather than the context's stats options
 /// (which may not). With the old code this panicked inside `dictionary_encode` because
 /// distinct values were never computed for the sample.
@@ -787,7 +787,7 @@ fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
     // Before the fix this panicked with:
     //   "this must be present since `DictScheme` declared that we need distinct values"
     let mut exec_ctx = SESSION.create_execution_ctx();
-    let candidate = estimate_candidate_with_sampling(
+    let candidate = evaluate_candidate_with_sampling(
         &compressor,
         &FloatDictScheme,
         &array,

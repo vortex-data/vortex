@@ -67,7 +67,6 @@ pub mod cost;
 pub mod scheme;
 pub mod stats;
 
-mod candidate;
 mod compressor;
 pub use compressor::CascadingCompressor;
 

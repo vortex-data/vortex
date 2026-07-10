@@ -162,7 +162,7 @@ pub(crate) struct SampledCandidate {
 /// # Errors
 ///
 /// Returns an error if sample compression fails.
-pub(super) fn estimate_candidate_with_sampling<S: Scheme + ?Sized>(
+pub(super) fn evaluate_candidate_with_sampling<S: Scheme + ?Sized>(
     compressor: &CascadingCompressor,
     scheme: &S,
     array: &ArrayRef,

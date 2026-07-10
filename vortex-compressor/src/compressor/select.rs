@@ -7,9 +7,9 @@ use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use super::ROOT_SCHEME_ID;
-use super::sample::estimate_candidate_with_sampling;
+use super::sample::evaluate_candidate_with_sampling;
 use crate::CascadingCompressor;
-use crate::candidate::Candidate;
+use crate::cost::Candidate;
 use crate::cost::Cost;
 use crate::scheme::CompressorContext;
 use crate::scheme::DeferredEvaluation;
@@ -114,7 +114,7 @@ impl CascadingCompressor {
             let _span = trace::scheme_eval_span(scheme.id()).entered();
             match deferred_evaluation {
                 DeferredEvaluation::Sample => {
-                    let sampled_candidate = estimate_candidate_with_sampling(
+                    let sampled_candidate = evaluate_candidate_with_sampling(
                         self,
                         scheme,
                         data.array(),

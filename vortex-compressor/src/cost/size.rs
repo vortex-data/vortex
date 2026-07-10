@@ -3,7 +3,7 @@
 
 //! The default, size-only cost model.
 
-use crate::candidate::Candidate;
+use crate::cost::Candidate;
 use crate::cost::Cost;
 use crate::cost::CostModel;
 use crate::stats::ArrayAndStats;

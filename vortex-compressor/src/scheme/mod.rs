@@ -8,18 +8,18 @@ mod ctx;
 pub use ctx::CompressorContext;
 pub use ctx::MAX_CASCADE;
 
-pub(crate) mod estimate;
+pub(crate) mod evaluation;
 mod exclusion;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-pub use estimate::CandidateEstimate;
-pub use estimate::DeferredEvaluation;
-pub use estimate::DeferredEvaluationFn;
-pub use estimate::ResolvedEvaluation;
-pub use estimate::SchemeEvaluation;
+pub use evaluation::CandidateEstimate;
+pub use evaluation::DeferredEvaluation;
+pub use evaluation::DeferredEvaluationFn;
+pub use evaluation::ResolvedEvaluation;
+pub use evaluation::SchemeEvaluation;
 pub use exclusion::AncestorExclusion;
 pub use exclusion::ChildSelection;
 pub use exclusion::DescendantExclusion;
