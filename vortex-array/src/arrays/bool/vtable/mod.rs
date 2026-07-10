@@ -28,7 +28,6 @@ use crate::builders::BoolBuilder;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-mod canonical;
 mod kernel;
 mod operations;
 mod validity;

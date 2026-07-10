@@ -17,7 +17,6 @@ version = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }
-cargo_metadata = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 prost-build = { workspace = true }
 xshell = { workspace = true }
