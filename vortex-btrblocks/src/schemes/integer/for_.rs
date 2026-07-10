@@ -13,9 +13,9 @@ use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::scheme::AncestorExclusion;
+use vortex_compressor::scheme::CandidateEstimate;
 use vortex_compressor::scheme::ChildSelection;
-use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
@@ -63,29 +63,29 @@ impl Scheme for FoRScheme {
         ]
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         // FoR only subtracts the min. Without further compression (e.g. BitPacking), the output is
         // the same size.
         if compress_ctx.finished_cascading() {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
         let stats = data.integer_stats(exec_ctx);
 
         // Only apply when the min is not already zero.
         if stats.erased().min_is_zero() {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         // Difference between max and min.
         let for_bitwidth = match stats.erased().max_minus_min().checked_ilog2() {
             Some(l) => l + 1,
             // If max-min == 0, the we should be compressing this as a constant array.
-            None => return CompressionEstimate::Verdict(EstimateVerdict::Skip),
+            None => return SchemeEvaluation::Skip,
         };
 
         // If BitPacking can be applied (only non-negative values) and FoR doesn't reduce bit width
@@ -99,7 +99,7 @@ impl Scheme for FoRScheme {
         {
             let bitpack_bitwidth = max_log + 1;
             if for_bitwidth >= bitpack_bitwidth {
-                return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+                return SchemeEvaluation::Skip;
             }
         }
 
@@ -110,7 +110,7 @@ impl Scheme for FoRScheme {
             .try_into()
             .vortex_expect("bit width must fit in u32");
 
-        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
+        SchemeEvaluation::Candidate(CandidateEstimate::from_compression_ratio(
             full_width as f64 / for_bitwidth as f64,
         ))
     }

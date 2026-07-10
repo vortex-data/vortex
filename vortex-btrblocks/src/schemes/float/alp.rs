@@ -15,9 +15,8 @@ use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
-use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::DeferredEstimate;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::DeferredEvaluation;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -45,24 +44,24 @@ impl Scheme for ALPScheme {
         1
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         // ALP encodes floats as integers. Without integer compression afterward, the encoded ints
         // are the same size.
         if compress_ctx.finished_cascading() {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         // We don't support ALP for f16.
         if data.array_as_primitive().ptype() == PType::F16 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        SchemeEvaluation::Deferred(DeferredEvaluation::Sample)
     }
 
     fn compress(

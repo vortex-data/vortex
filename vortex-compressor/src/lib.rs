@@ -53,8 +53,8 @@
 //! `sample.result` events for zero-byte sample outputs, and both `*.compress_failed` events.
 //!
 //! The winning-compression span carries `scheme_chosen`, `input_nbytes`, `compressed_nbytes`,
-//! `estimated_ratio` (absent when the scheme returned `AlwaysUse` or sampled to 0 bytes),
-//! `achieved_ratio` (absent when the compressed output is 0 bytes), and `accepted`.
+//! `estimated_cost` (absent when the scheme returned `AlwaysUse`), `achieved_ratio` (absent when
+//! the compressed output is 0 bytes), and `accepted`.
 //!
 //! Failure events additionally carry `cascade_path` and `cascade_depth`, so nested compression
 //! errors can be tied back to the ancestor branch that triggered them.

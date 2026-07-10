@@ -22,12 +22,11 @@ use vortex_error::VortexResult;
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
 use crate::scheme::ChildSelection;
-use crate::scheme::CompressionEstimate;
 use crate::scheme::CompressorContext;
-use crate::scheme::DeferredEstimate;
+use crate::scheme::DeferredEvaluation;
 use crate::scheme::DescendantExclusion;
-use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
+use crate::scheme::SchemeEvaluation;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
@@ -68,16 +67,16 @@ impl Scheme for StringDictScheme {
         }]
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         let stats = data.varbinview_stats(exec_ctx);
 
         if stats.value_count() == 0 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         let estimated_distinct_values_count = stats.estimated_distinct_count().vortex_expect(
@@ -86,11 +85,11 @@ impl Scheme for StringDictScheme {
 
         // If > 50% of the values are distinct, skip dictionary scheme.
         if estimated_distinct_values_count > stats.value_count() / 2 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         // Let sampling determine the expected ratio.
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        SchemeEvaluation::Deferred(DeferredEvaluation::Sample)
     }
 
     fn compress(

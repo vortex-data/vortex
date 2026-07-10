@@ -11,8 +11,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArrayExt;
-use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::DeferredEvaluation;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexResult;
 use vortex_fsst::FSST;
 use vortex_fsst::FSSTArrayExt;
@@ -48,13 +48,13 @@ impl Scheme for FSSTScheme {
         2
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::Deferred(DeferredEvaluation::Sample)
     }
 
     fn compress(

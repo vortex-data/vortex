@@ -7,8 +7,8 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::DeferredEvaluation;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -29,13 +29,13 @@ impl Scheme for ZstdScheme {
         canonical.dtype().is_binary()
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::Deferred(DeferredEvaluation::Sample)
     }
 
     fn compress(

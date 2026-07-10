@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
-use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -20,18 +22,21 @@ use vortex_session::VortexSession;
 
 use super::CascadingCompressor;
 use super::ROOT_SCHEME_ID;
-use super::sample::estimate_compression_ratio_with_sampling;
-use super::select::WinnerEstimate;
+use super::sample::estimate_candidate_with_sampling;
+use super::select::SelectionOutcome;
 use super::structural;
 use crate::builtins::FloatDictScheme;
 use crate::builtins::IntDictScheme;
 use crate::builtins::StringDictScheme;
-use crate::scheme::CompressionEstimate;
+use crate::candidate::Candidate;
+use crate::cost::Cost;
+use crate::cost::CostModel;
+use crate::scheme::CandidateEstimate;
 use crate::scheme::CompressorContext;
-use crate::scheme::DeferredEstimate;
-use crate::scheme::EstimateScore;
-use crate::scheme::EstimateVerdict;
+use crate::scheme::DeferredEvaluation;
+use crate::scheme::ResolvedEvaluation;
 use crate::scheme::Scheme;
+use crate::scheme::SchemeEvaluation;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
@@ -63,13 +68,13 @@ impl Scheme for DirectRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Verdict(EstimateVerdict::Ratio(2.0))
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::Candidate(CandidateEstimate::from_compression_ratio(2.0))
     }
 
     fn compress(
@@ -95,13 +100,13 @@ impl Scheme for ImmediateAlwaysUseScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::AlwaysUse
     }
 
     fn compress(
@@ -127,14 +132,14 @@ impl Scheme for CallbackAlwaysUseScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::AlwaysUse),
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::Deferred(DeferredEvaluation::Callback(Box::new(
+            |_compressor, _data, _ctx, _exec_ctx| Ok(ResolvedEvaluation::AlwaysUse),
         )))
     }
 
@@ -161,14 +166,14 @@ impl Scheme for CallbackSkipScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Skip),
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::Deferred(DeferredEvaluation::Callback(Box::new(
+            |_compressor, _data, _ctx, _exec_ctx| Ok(ResolvedEvaluation::Skip),
         )))
     }
 
@@ -195,14 +200,56 @@ impl Scheme for CallbackRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Ratio(3.0)),
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::Deferred(DeferredEvaluation::Callback(Box::new(
+            |_compressor, _data, _ctx, _exec_ctx| {
+                Ok(ResolvedEvaluation::Candidate(
+                    CandidateEstimate::from_compression_ratio(3.0),
+                ))
+            },
+        )))
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        unreachable!("test helper should never be selected for compression")
+    }
+}
+
+#[derive(Debug)]
+struct DeferredLowerRatioScheme;
+
+impl Scheme for DeferredLowerRatioScheme {
+    fn scheme_name(&self) -> &'static str {
+        "test.deferred_lower_ratio"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        matches_integer_primitive(canonical)
+    }
+
+    fn evaluate(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::Deferred(DeferredEvaluation::Callback(Box::new(
+            |_compressor, _data, _compress_ctx, _exec_ctx| {
+                Ok(ResolvedEvaluation::Candidate(
+                    CandidateEstimate::from_compression_ratio(1.5),
+                ))
+            },
         )))
     }
 
@@ -229,13 +276,13 @@ impl Scheme for HugeRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Verdict(EstimateVerdict::Ratio(100.0))
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::Candidate(CandidateEstimate::from_compression_ratio(100.0))
     }
 
     fn compress(
@@ -261,13 +308,13 @@ impl Scheme for ZeroBytesSamplingScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::Deferred(DeferredEvaluation::Sample)
     }
 
     fn compress(
@@ -278,6 +325,90 @@ impl Scheme for ZeroBytesSamplingScheme {
         _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(data.array().len()).into_array())
+    }
+}
+
+/// Assigns the lower-ratio direct scheme a lower cost than the high-ratio scheme, proving that
+/// selector policy is supplied by the configured model rather than hard-coded ratio ordering.
+#[derive(Debug)]
+struct PreferDirectCost;
+
+impl CostModel for PreferDirectCost {
+    fn cost(&self, candidate: &Candidate<'_>) -> Option<Cost> {
+        if candidate.scheme_id() == DirectRatioScheme.id() {
+            Some(Cost::new(0.0))
+        } else {
+            Some(Cost::new(1.0))
+        }
+    }
+
+    fn canonical_cost(&self, _data: &ArrayAndStats, _n_values: u64) -> Cost {
+        Cost::new(2.0)
+    }
+}
+
+#[derive(Debug)]
+struct PreferDeferredLowerRatioCost;
+
+impl CostModel for PreferDeferredLowerRatioCost {
+    fn cost(&self, candidate: &Candidate<'_>) -> Option<Cost> {
+        if candidate.scheme_id() == DeferredLowerRatioScheme.id() {
+            Some(Cost::new(0.0))
+        } else {
+            Some(Cost::new(1.0))
+        }
+    }
+
+    fn canonical_cost(&self, _data: &ArrayAndStats, _n_values: u64) -> Cost {
+        Cost::new(2.0)
+    }
+}
+
+#[derive(Debug)]
+struct AboveCanonicalCost;
+
+impl CostModel for AboveCanonicalCost {
+    fn cost(&self, _candidate: &Candidate<'_>) -> Option<Cost> {
+        Some(Cost::new(1.0))
+    }
+
+    fn canonical_cost(&self, _data: &ArrayAndStats, _n_values: u64) -> Cost {
+        Cost::new(0.0)
+    }
+}
+
+#[derive(Debug)]
+struct ObservingCost {
+    immediate_without_sample: Arc<AtomicBool>,
+    sampled_with_sample: Arc<AtomicBool>,
+}
+
+impl CostModel for ObservingCost {
+    fn cost(&self, candidate: &Candidate<'_>) -> Option<Cost> {
+        assert_eq!(candidate.array().len(), 4);
+        assert_eq!(candidate.n_values(), 4);
+        assert_eq!(candidate.input_nbytes(), candidate.array().nbytes());
+        assert!(candidate.cascade().is_empty());
+
+        if candidate.scheme_id() == DirectRatioScheme.id() {
+            self.immediate_without_sample.store(
+                candidate.sampled().is_none()
+                    && candidate.estimate().estimated_compression_ratio() == Some(2.0),
+                Ordering::Relaxed,
+            );
+        } else if candidate.scheme_id() == ZeroBytesSamplingScheme.id() {
+            self.sampled_with_sample.store(
+                candidate.sampled().is_some()
+                    && candidate.estimate().estimated_compression_ratio().is_none(),
+                Ordering::Relaxed,
+            );
+        }
+
+        None
+    }
+
+    fn canonical_cost(&self, _data: &ArrayAndStats, _n_values: u64) -> Cost {
+        Cost::new(0.0)
     }
 }
 
@@ -342,7 +473,7 @@ fn immediate_always_use_wins_immediately() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::AlwaysUse))
+        Some((scheme, SelectionOutcome::AlwaysUse))
             if scheme.id() == ImmediateAlwaysUseScheme.id()
     ));
     Ok(())
@@ -360,7 +491,7 @@ fn callback_always_use_wins_immediately() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::AlwaysUse))
+        Some((scheme, SelectionOutcome::AlwaysUse))
             if scheme.id() == CallbackAlwaysUseScheme.id()
     ));
     Ok(())
@@ -378,14 +509,14 @@ fn callback_skip_is_ignored() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::Score { score: EstimateScore::FiniteCompression(2.0), .. }))
+        Some((scheme, SelectionOutcome::Cost(_)))
             if scheme.id() == DirectRatioScheme.id()
     ));
     Ok(())
 }
 
 #[test]
-fn callback_ratio_competes_numerically() -> VortexResult<()> {
+fn deferred_candidate_competes_by_cost() -> VortexResult<()> {
     let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &CallbackRatioScheme]);
     let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &CallbackRatioScheme];
     let data = estimate_test_data();
@@ -396,9 +527,91 @@ fn callback_ratio_competes_numerically() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::Score { score: EstimateScore::FiniteCompression(3.0), .. }))
+        Some((scheme, SelectionOutcome::Cost(_)))
             if scheme.id() == CallbackRatioScheme.id()
     ));
+    Ok(())
+}
+
+#[test]
+fn custom_cost_model_changes_the_winner() -> VortexResult<()> {
+    let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &HugeRatioScheme];
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let size_winner = CascadingCompressor::new(schemes.to_vec()).choose_best_scheme(
+        &schemes,
+        &data,
+        CompressorContext::new(),
+        &mut exec_ctx,
+    )?;
+    assert!(matches!(
+        size_winner,
+        Some((scheme, _)) if scheme.id() == HugeRatioScheme.id()
+    ));
+
+    let custom_winner = CascadingCompressor::new(schemes.to_vec())
+        .with_cost_model(Arc::new(PreferDirectCost))
+        .choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+    assert!(matches!(
+        custom_winner,
+        Some((scheme, _)) if scheme.id() == DirectRatioScheme.id()
+    ));
+    Ok(())
+}
+
+#[test]
+fn custom_model_can_choose_a_deferred_lower_ratio_candidate() -> VortexResult<()> {
+    let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &DeferredLowerRatioScheme];
+    let compressor = CascadingCompressor::new(schemes.to_vec())
+        .with_cost_model(Arc::new(PreferDeferredLowerRatioCost));
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    assert!(matches!(
+        winner,
+        Some((scheme, _)) if scheme.id() == DeferredLowerRatioScheme.id()
+    ));
+    Ok(())
+}
+
+#[test]
+fn candidate_must_beat_canonical_cost() -> VortexResult<()> {
+    let schemes: [&'static dyn Scheme; 1] = [&DirectRatioScheme];
+    let compressor =
+        CascadingCompressor::new(schemes.to_vec()).with_cost_model(Arc::new(AboveCanonicalCost));
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    assert!(winner.is_none());
+    Ok(())
+}
+
+#[test]
+fn sampled_array_is_exposed_only_for_sampled_candidates() -> VortexResult<()> {
+    let immediate_without_sample = Arc::new(AtomicBool::new(false));
+    let sampled_with_sample = Arc::new(AtomicBool::new(false));
+    let model = ObservingCost {
+        immediate_without_sample: Arc::clone(&immediate_without_sample),
+        sampled_with_sample: Arc::clone(&sampled_with_sample),
+    };
+    let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &ZeroBytesSamplingScheme];
+    let compressor = CascadingCompressor::new(schemes.to_vec()).with_cost_model(Arc::new(model));
+    let data = estimate_test_data();
+    let mut exec_ctx = SESSION.create_execution_ctx();
+
+    let winner =
+        compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
+
+    assert!(winner.is_none());
+    assert!(immediate_without_sample.load(Ordering::Relaxed));
+    assert!(sampled_with_sample.load(Ordering::Relaxed));
     Ok(())
 }
 
@@ -414,7 +627,7 @@ fn zero_byte_sample_loses_to_finite_ratio() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::Score { score: EstimateScore::FiniteCompression(100.0), .. }))
+        Some((scheme, SelectionOutcome::Cost(_)))
             if scheme.id() == HugeRatioScheme.id()
     ));
     Ok(())
@@ -432,7 +645,7 @@ fn finite_ratio_displaces_zero_byte_sample() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::Score { score: EstimateScore::FiniteCompression(100.0), .. }))
+        Some((scheme, SelectionOutcome::Cost(_)))
             if scheme.id() == HugeRatioScheme.id()
     ));
     Ok(())
@@ -452,49 +665,6 @@ fn zero_byte_sample_alone_selects_no_scheme() -> VortexResult<()> {
     Ok(())
 }
 
-// Observer helper used by threshold-related tests. Captures the `best_so_far` value the
-// compressor passes to its deferred callback. `OBSERVER_LOCK` serializes tests that share
-// `OBSERVED_THRESHOLD` so they do not race.
-static OBSERVER_LOCK: Mutex<()> = Mutex::new(());
-static OBSERVED_THRESHOLD: Mutex<Option<Option<EstimateScore>>> = Mutex::new(None);
-
-#[derive(Debug)]
-struct ThresholdObservingScheme;
-
-impl Scheme for ThresholdObservingScheme {
-    fn scheme_name(&self) -> &'static str {
-        "test.threshold_observing"
-    }
-
-    fn matches(&self, canonical: &Canonical) -> bool {
-        matches_integer_primitive(canonical)
-    }
-
-    fn expected_compression_ratio(
-        &self,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, _data, best_so_far, _ctx, _exec_ctx| {
-                *OBSERVED_THRESHOLD.lock() = Some(best_so_far);
-                Ok(EstimateVerdict::Skip)
-            },
-        )))
-    }
-
-    fn compress(
-        &self,
-        _compressor: &CascadingCompressor,
-        _data: &ArrayAndStats,
-        _compress_ctx: CompressorContext,
-        _exec_ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
-        unreachable!("test helper should never be selected for compression")
-    }
-}
-
 #[derive(Debug)]
 struct CallbackMatchingRatioScheme;
 
@@ -507,14 +677,18 @@ impl Scheme for CallbackMatchingRatioScheme {
         matches_integer_primitive(canonical)
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, _data, _ctx, _exec_ctx, _best_so_far| Ok(EstimateVerdict::Ratio(2.0)),
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::Deferred(DeferredEvaluation::Callback(Box::new(
+            |_compressor, _data, _ctx, _exec_ctx| {
+                Ok(ResolvedEvaluation::Candidate(
+                    CandidateEstimate::from_compression_ratio(2.0),
+                ))
+            },
         )))
     }
 
@@ -531,7 +705,7 @@ impl Scheme for CallbackMatchingRatioScheme {
 
 #[test]
 fn callback_always_use_overrides_pass_one_best() -> VortexResult<()> {
-    // `HugeRatioScheme` returns an immediate `Ratio(100.0)` in pass 1;
+    // `HugeRatioScheme` returns an immediate candidate in pass 1;
     // `CallbackAlwaysUseScheme` returns `AlwaysUse` from its deferred callback in pass 2.
     // The deferred `AlwaysUse` must still win.
     let compressor = CascadingCompressor::new(vec![&HugeRatioScheme, &CallbackAlwaysUseScheme]);
@@ -544,97 +718,16 @@ fn callback_always_use_overrides_pass_one_best() -> VortexResult<()> {
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::AlwaysUse))
+        Some((scheme, SelectionOutcome::AlwaysUse))
             if scheme.id() == CallbackAlwaysUseScheme.id()
     ));
     Ok(())
 }
 
 #[test]
-fn threshold_reflects_pass_one_best() -> VortexResult<()> {
-    let _guard = OBSERVER_LOCK.lock();
-    *OBSERVED_THRESHOLD.lock() = None;
-
-    let compressor = CascadingCompressor::new(vec![&DirectRatioScheme, &ThresholdObservingScheme]);
-    let schemes: [&'static dyn Scheme; 2] = [&DirectRatioScheme, &ThresholdObservingScheme];
-    let data = estimate_test_data();
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
-
-    let observed = *OBSERVED_THRESHOLD.lock();
-    assert!(matches!(
-        observed,
-        Some(Some(EstimateScore::FiniteCompression(r))) if r == 2.0
-    ));
-    Ok(())
-}
-
-#[test]
-fn threshold_is_none_when_only_prior_is_zero_bytes() -> VortexResult<()> {
-    let _guard = OBSERVER_LOCK.lock();
-    *OBSERVED_THRESHOLD.lock() = None;
-
-    let compressor =
-        CascadingCompressor::new(vec![&ZeroBytesSamplingScheme, &ThresholdObservingScheme]);
-    let schemes: [&'static dyn Scheme; 2] = [&ZeroBytesSamplingScheme, &ThresholdObservingScheme];
-    let data = estimate_test_data();
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
-
-    // The observing callback was invoked (outer `Some`) and `best_so_far` was `None` (inner
-    // `None`) because the zero-byte sample is never stored as the best.
-    let observed = *OBSERVED_THRESHOLD.lock();
-    assert_eq!(observed, Some(None));
-    Ok(())
-}
-
-#[test]
-fn threshold_is_none_when_no_prior_scheme() -> VortexResult<()> {
-    let _guard = OBSERVER_LOCK.lock();
-    *OBSERVED_THRESHOLD.lock() = None;
-
-    let compressor = CascadingCompressor::new(vec![&ThresholdObservingScheme]);
-    let schemes: [&'static dyn Scheme; 1] = [&ThresholdObservingScheme];
-    let data = estimate_test_data();
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
-
-    let observed = *OBSERVED_THRESHOLD.lock();
-    assert_eq!(observed, Some(None));
-    Ok(())
-}
-
-#[test]
-fn threshold_updates_from_earlier_deferred_callback() -> VortexResult<()> {
-    let _guard = OBSERVER_LOCK.lock();
-    *OBSERVED_THRESHOLD.lock() = None;
-
-    // Both schemes are deferred. The first callback registers `Ratio(3.0)`; the second
-    // callback must observe it as its threshold.
-    let compressor =
-        CascadingCompressor::new(vec![&CallbackRatioScheme, &ThresholdObservingScheme]);
-    let schemes: [&'static dyn Scheme; 2] = [&CallbackRatioScheme, &ThresholdObservingScheme];
-    let data = estimate_test_data();
-    let mut exec_ctx = SESSION.create_execution_ctx();
-
-    compressor.choose_best_scheme(&schemes, &data, CompressorContext::new(), &mut exec_ctx)?;
-
-    let observed = *OBSERVED_THRESHOLD.lock();
-    assert!(matches!(
-        observed,
-        Some(Some(EstimateScore::FiniteCompression(r))) if r == 3.0
-    ));
-    Ok(())
-}
-
-#[test]
-fn ratio_tie_between_immediate_and_deferred_favors_immediate() -> VortexResult<()> {
-    // Both schemes produce the same `Ratio(2.0)`, one from pass 1 (immediate) and one from
-    // pass 2 (deferred callback). Pass 1 locks in first, and strict `>` tie-breaking means
-    // the deferred callback's equal ratio cannot displace it.
+fn equal_cost_between_immediate_and_deferred_favors_immediate() -> VortexResult<()> {
+    // Both schemes produce candidates with the same SizeCost, one from pass 1 and one from
+    // pass 2. Pass 1 locks in first, and strict cost comparison keeps that candidate.
     let compressor =
         CascadingCompressor::new(vec![&CallbackMatchingRatioScheme, &DirectRatioScheme]);
     let schemes: [&'static dyn Scheme; 2] = [&CallbackMatchingRatioScheme, &DirectRatioScheme];
@@ -646,8 +739,8 @@ fn ratio_tie_between_immediate_and_deferred_favors_immediate() -> VortexResult<(
 
     assert!(matches!(
         winner,
-        Some((scheme, WinnerEstimate::Score { score: EstimateScore::FiniteCompression(r), .. }))
-            if scheme.id() == DirectRatioScheme.id() && r == 2.0
+        Some((scheme, SelectionOutcome::Cost(_)))
+            if scheme.id() == DirectRatioScheme.id()
     ));
     Ok(())
 }
@@ -671,7 +764,7 @@ fn all_null_array_compresses_to_constant() -> VortexResult<()> {
 
 /// Regression test for <https://github.com/vortex-data/vortex/issues/7227>.
 ///
-/// `estimate_compression_ratio_with_sampling` must use the *scheme's* stats options
+/// `estimate_candidate_with_sampling` must use the *scheme's* stats options
 /// (which request distinct-value counting) rather than the context's stats options
 /// (which may not). With the old code this panicked inside `dictionary_encode` because
 /// distinct values were never computed for the sample.
@@ -694,13 +787,18 @@ fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
     // Before the fix this panicked with:
     //   "this must be present since `DictScheme` declared that we need distinct values"
     let mut exec_ctx = SESSION.create_execution_ctx();
-    let estimate = estimate_compression_ratio_with_sampling(
+    let candidate = estimate_candidate_with_sampling(
         &compressor,
         &FloatDictScheme,
         &array,
         ctx,
         &mut exec_ctx,
     )?;
-    assert!(matches!(estimate.score, EstimateScore::FiniteCompression(ratio) if ratio.is_finite()));
+    assert!(
+        candidate
+            .estimate
+            .estimated_compression_ratio()
+            .is_some_and(f64::is_finite)
+    );
     Ok(())
 }

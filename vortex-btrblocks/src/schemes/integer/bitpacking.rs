@@ -10,9 +10,8 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::DeferredEstimate;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::DeferredEvaluation;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexResult;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
@@ -38,20 +37,20 @@ impl Scheme for BitPackingScheme {
         canonical.dtype().is_int()
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         let stats = data.integer_stats(exec_ctx);
 
         // BitPacking only works for non-negative values.
         if stats.erased().min_is_negative() {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        SchemeEvaluation::Deferred(DeferredEvaluation::Sample)
     }
 
     fn compress(

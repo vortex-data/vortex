@@ -35,7 +35,8 @@ pub(super) fn compress_span(
 /// Builds a span covering on-demand materialization of a cached stats type.
 ///
 /// Child of whatever span is active when a stats accessor first fires. Typically that's
-/// [`verdict_pass_span`]; entering this span disambiguates stats cost from the rest of Pass 1.
+/// [`immediate_evaluation_pass_span`]; entering this span disambiguates stats cost from the rest of
+/// Pass 1.
 /// `kind` is usually `std::any::type_name::<T>()` so the args identify which group was generated
 /// (e.g. `IntegerStats`, `FloatStats`).
 #[inline]
@@ -47,16 +48,16 @@ pub(super) fn generate_stats_span(kind: &'static str) -> tracing::Span {
     )
 }
 
-/// Builds a span covering Pass 1 of scheme selection (the cheap-verdict pass).
+/// Builds a span covering immediate scheme evaluation in Pass 1.
 ///
 /// Stats batches merged across eligible schemes are materialized lazily by the first
-/// `expected_compression_ratio` call that touches them. Grouping those calls under one span makes
-/// the stats cost (and unexpectedly slow verdicts) visible independently of per-candidate sampling.
+/// scheme `evaluate` call that touches them. Grouping those calls under one span makes
+/// the stats cost (and unexpectedly slow evaluations) visible independently of sampling.
 #[inline]
-pub(super) fn verdict_pass_span() -> tracing::Span {
+pub(super) fn immediate_evaluation_pass_span() -> tracing::Span {
     tracing::debug_span!(
         target: TARGET_TRACE,
-        "verdict_pass",
+        "immediate_evaluation_pass",
     )
 }
 
@@ -87,7 +88,7 @@ pub(super) fn zero_byte_sample_result(scheme: SchemeId, sampled_before: u64) {
 /// Builds a span covering the winning scheme's full-array compression.
 ///
 /// `scheme_chosen` and `input_nbytes` are known up front. `compressed_nbytes`,
-/// `estimated_ratio`, `estimated_cost`, `achieved_ratio`, and `accepted` are filled in by
+/// the model-defined `estimated_cost`, `achieved_ratio`, and `accepted` are filled in by
 /// [`record_winner_compress_result`] once the encode completes.
 #[inline]
 pub(super) fn winner_compress_span(scheme: SchemeId, before_nbytes: u64) -> tracing::Span {
@@ -97,7 +98,6 @@ pub(super) fn winner_compress_span(scheme: SchemeId, before_nbytes: u64) -> trac
         scheme_chosen = %scheme,
         input_nbytes = before_nbytes,
         compressed_nbytes = tracing::field::Empty,
-        estimated_ratio = tracing::field::Empty,
         estimated_cost = tracing::field::Empty,
         achieved_ratio = tracing::field::Empty,
         accepted = tracing::field::Empty,
@@ -108,16 +108,12 @@ pub(super) fn winner_compress_span(scheme: SchemeId, before_nbytes: u64) -> trac
 #[inline]
 pub(super) fn record_winner_compress_result(
     compressed_nbytes: u64,
-    estimated_ratio: Option<f64>,
     estimated_cost: Option<f64>,
     achieved_ratio: Option<f64>,
     accepted: bool,
 ) {
     let span = tracing::Span::current();
     span.record("compressed_nbytes", compressed_nbytes);
-    if let Some(r) = estimated_ratio {
-        span.record("estimated_ratio", r);
-    }
     if let Some(c) = estimated_cost {
         span.record("estimated_cost", c);
     }

@@ -9,10 +9,10 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_compressor::scheme::CandidateEstimate;
 use vortex_compressor::scheme::ChildSelection;
-use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexResult;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
@@ -59,28 +59,30 @@ impl Scheme for NullDominatedSparseScheme {
         ]
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         let len = data.array_len() as f64;
         let stats = data.varbinview_stats(exec_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
         if value_count == 0 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         // If the majority (90%) of values is null, this will compress well.
         if stats.null_count() as f64 / len > 0.9 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Ratio(len / value_count as f64));
+            return SchemeEvaluation::Candidate(CandidateEstimate::from_compression_ratio(
+                len / value_count as f64,
+            ));
         }
 
         // Otherwise we don't go this route.
-        CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        SchemeEvaluation::Skip
     }
 
     fn compress(

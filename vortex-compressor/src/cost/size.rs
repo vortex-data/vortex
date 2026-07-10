@@ -6,16 +6,15 @@
 use crate::candidate::Candidate;
 use crate::cost::Cost;
 use crate::cost::CostModel;
-use crate::scheme::EstimateScore;
 use crate::stats::ArrayAndStats;
 
 /// The default cost model: maximize estimated compression ratio.
 ///
-/// `SizeCost` reproduces the compressor's historical ratio-argmax selection **bit-exactly**:
+/// `SizeCost` preserves the compressor's historical ratio-argmax ordering:
 ///
-/// - A candidate is priced at `Cost(-ratio)` over the exact ratio signal the candidate
-///   carries (an analytic estimate or a sample-measured `before / after`), so argmin cost is
-///   argmax ratio with identical tie behavior. Pricing off the ratio rather than recomputing
+/// - A candidate's cost is `Cost(-ratio)` over the exact ratio signal the candidate carries
+///   (an analytic estimate or a sample-measured `before / after`), so argmin cost is argmax
+///   ratio with identical tie behavior. Computing cost from the ratio rather than recomputing
 ///   bytes (`input / ratio`) matters: IEEE division could collapse strict ratio inequalities
 ///   into cost ties and silently flip winners via the registration-order tie-break.
 /// - The canonical baseline is `Cost(-1.0)`, so `cost < canonical_cost` reproduces the
@@ -26,13 +25,9 @@ use crate::stats::ArrayAndStats;
 pub struct SizeCost;
 
 impl CostModel for SizeCost {
-    fn cost(&self, candidate: &Candidate) -> Option<Cost> {
-        match candidate.score {
-            EstimateScore::FiniteCompression(ratio) => {
-                (ratio.is_finite() && !ratio.is_subnormal()).then(|| Cost::new(-ratio))
-            }
-            EstimateScore::ZeroBytes => None,
-        }
+    fn cost(&self, candidate: &Candidate<'_>) -> Option<Cost> {
+        let ratio = candidate.estimate().estimated_compression_ratio()?;
+        (ratio.is_finite() && !ratio.is_subnormal()).then(|| Cost::new(-ratio))
     }
 
     fn canonical_cost(&self, _data: &ArrayAndStats, _n_values: u64) -> Cost {
@@ -54,10 +49,10 @@ mod tests {
 
     use super::*;
     use crate::CascadingCompressor;
-    use crate::scheme::CompressionEstimate;
+    use crate::scheme::CandidateEstimate;
     use crate::scheme::CompressorContext;
-    use crate::scheme::EstimateVerdict;
     use crate::scheme::Scheme;
+    use crate::scheme::SchemeEvaluation;
     use crate::stats::GenerateStatsOptions;
 
     #[derive(Debug)]
@@ -72,13 +67,13 @@ mod tests {
             true
         }
 
-        fn expected_compression_ratio(
+        fn evaluate(
             &self,
             _data: &ArrayAndStats,
             _compress_ctx: CompressorContext,
             _exec_ctx: &mut ExecutionCtx,
-        ) -> CompressionEstimate {
-            CompressionEstimate::Verdict(EstimateVerdict::Skip)
+        ) -> SchemeEvaluation {
+            SchemeEvaluation::Skip
         }
 
         fn compress(
@@ -92,20 +87,22 @@ mod tests {
         }
     }
 
-    fn candidate(score: EstimateScore) -> Candidate {
-        Candidate {
-            scheme: &TestScheme,
-            score,
-            input_nbytes: 1024,
-            n_values: 256,
-            sampled: None,
-            cascade: Vec::new(),
-        }
+    fn test_data() -> ArrayAndStats {
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
+        ArrayAndStats::new(array, GenerateStatsOptions::default())
+    }
+
+    fn cost(estimated_ratio: Option<f64>) -> Option<Cost> {
+        let data = test_data();
+        let estimate = estimated_ratio.map_or_else(
+            CandidateEstimate::zero_bytes,
+            CandidateEstimate::from_compression_ratio,
+        );
+        SizeCost.cost(&Candidate::new(&TestScheme, estimate, &data, None, &[]))
     }
 
     fn canonical_cost() -> Cost {
-        let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
-        let data = ArrayAndStats::new(array, GenerateStatsOptions::default());
+        let data = test_data();
         SizeCost.canonical_cost(&data, 4)
     }
 
@@ -133,13 +130,13 @@ mod tests {
         f64::NAN,
     ];
 
-    /// `cost < canonical_cost` must reproduce `legacy_is_valid` exactly, with non-priceable
-    /// ratios rejected as `None`.
+    /// `cost < canonical_cost` must reproduce `legacy_is_valid` exactly, with invalid ratios
+    /// producing no cost.
     #[test]
     fn validity_matches_ratio_gate() {
         let canonical = canonical_cost();
         for &ratio in RATIOS {
-            let cost = SizeCost.cost(&candidate(EstimateScore::FiniteCompression(ratio)));
+            let cost = cost(Some(ratio));
             let valid = cost.is_some_and(|cost| cost < canonical);
             assert_eq!(
                 valid,
@@ -162,12 +159,8 @@ mod tests {
             .collect();
         for &best in &valid {
             for &challenger in &valid {
-                let best_cost = SizeCost
-                    .cost(&candidate(EstimateScore::FiniteCompression(best)))
-                    .expect("valid ratio must be priceable");
-                let challenger_cost = SizeCost
-                    .cost(&candidate(EstimateScore::FiniteCompression(challenger)))
-                    .expect("valid ratio must be priceable");
+                let best_cost = cost(Some(best)).expect("valid ratio must have a cost");
+                let challenger_cost = cost(Some(challenger)).expect("valid ratio must have a cost");
 
                 let displaces = challenger_cost < best_cost;
                 assert_eq!(
@@ -189,20 +182,12 @@ mod tests {
     #[case::infinite(f64::INFINITY)]
     #[case::neg_infinite(f64::NEG_INFINITY)]
     #[case::subnormal(f64::MIN_POSITIVE / 2.0)]
-    fn unpriceable_ratios_are_rejected(#[case] ratio: f64) {
-        assert!(
-            SizeCost
-                .cost(&candidate(EstimateScore::FiniteCompression(ratio)))
-                .is_none()
-        );
+    fn invalid_ratios_have_no_cost(#[case] ratio: f64) {
+        assert!(cost(Some(ratio)).is_none());
     }
 
     #[test]
     fn zero_bytes_is_rejected() {
-        assert!(
-            SizeCost
-                .cost(&candidate(EstimateScore::ZeroBytes))
-                .is_none()
-        );
+        assert!(cost(None).is_none());
     }
 }

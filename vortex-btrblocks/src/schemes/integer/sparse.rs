@@ -12,10 +12,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::IntDictScheme;
+use vortex_compressor::scheme::CandidateEstimate;
 use vortex_compressor::scheme::ChildSelection;
-use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_sparse::Sparse;
@@ -77,24 +77,26 @@ impl Scheme for SparseScheme {
         ]
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         let len = data.array_len() as f64;
         let stats = data.integer_stats(exec_ctx);
         let value_count = stats.value_count();
 
         // All-null arrays should be compressed as constant instead anyways.
         if value_count == 0 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         // If the majority (90%) of values is null, this will compress well.
         if stats.null_count() as f64 / len > 0.9 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Ratio(len / value_count as f64));
+            return SchemeEvaluation::Candidate(CandidateEstimate::from_compression_ratio(
+                len / value_count as f64,
+            ));
         }
 
         let (_, most_frequent_count) = stats
@@ -106,18 +108,18 @@ impl Scheme for SparseScheme {
 
         // If the most frequent value is the only value, we should compress as constant instead.
         if most_frequent_count == value_count {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
         debug_assert!(value_count > most_frequent_count);
 
         // See if the most frequent value accounts for >= 90% of the set values.
         let freq = most_frequent_count as f64 / value_count as f64;
         if freq < 0.9 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         // We only store the positions of the non-top values.
-        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
+        SchemeEvaluation::Candidate(CandidateEstimate::from_compression_ratio(
             value_count as f64 / (value_count - most_frequent_count) as f64,
         ))
     }

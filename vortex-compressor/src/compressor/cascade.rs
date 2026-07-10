@@ -211,8 +211,10 @@ impl CascadingCompressor {
     /// The main scheme-selection entry point for a single leaf array.
     ///
     /// Filters allowed schemes by [`matches`] and exclusion rules, merges their [`stats_options`]
-    /// into a single [`GenerateStatsOptions`], and picks the winner by estimated compression
-    /// ratio.
+    /// into a single [`GenerateStatsOptions`], and asks the configured [`CostModel`] to rank
+    /// the candidates.
+    ///
+    /// [`CostModel`]: crate::cost::CostModel
     ///
     /// If a winner is found and its compressed output is actually smaller, that output is
     /// returned. Otherwise, the original array is returned unchanged.
@@ -270,7 +272,7 @@ impl CascadingCompressor {
             let actual_ratio =
                 (after_nbytes != 0).then(|| before_nbytes as f64 / after_nbytes as f64);
             let accepted = after_nbytes < before_nbytes;
-            trace::record_winner_compress_result(after_nbytes, None, None, actual_ratio, accepted);
+            trace::record_winner_compress_result(after_nbytes, None, actual_ratio, accepted);
 
             return if accepted {
                 Ok(compressed)
@@ -310,7 +312,6 @@ impl CascadingCompressor {
 
         trace::record_winner_compress_result(
             after_nbytes,
-            winner_estimate.trace_ratio(),
             winner_estimate.trace_cost(),
             actual_ratio,
             accepted,

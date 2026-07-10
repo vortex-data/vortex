@@ -34,7 +34,7 @@ pub(crate) const ROOT_SCHEME_ID: SchemeId = SchemeId {
 /// The compressor works by:
 /// 1. Canonicalizing input arrays to a standard representation.
 /// 2. Pre-filtering schemes by [`Scheme::matches`] and exclusion rules.
-/// 3. Evaluating each matching scheme's compression estimate and resolving deferred work.
+/// 3. Evaluating each matching scheme's candidate and resolving deferred work.
 /// 4. Compressing with the best scheme and verifying the result is smaller.
 ///
 /// No scheme may appear twice in a cascade chain. The compressor enforces this automatically
@@ -51,7 +51,7 @@ pub struct CascadingCompressor {
     /// list offsets).
     root_exclusions: Vec<DescendantExclusion>,
 
-    /// The cost model pricing candidates during scheme selection.
+    /// The cost model used during scheme selection.
     cost_model: Arc<dyn CostModel>,
 }
 
@@ -74,9 +74,10 @@ impl CascadingCompressor {
         }
     }
 
-    /// Replaces the cost model used to price candidates during scheme selection.
+    /// Replaces the cost model used during scheme selection.
     ///
-    /// The default is [`SizeCost`], which maximizes estimated compression ratio.
+    /// The default is [`SizeCost`], which assigns lower cost to higher estimated compression
+    /// ratios.
     pub fn with_cost_model(mut self, cost_model: Arc<dyn CostModel>) -> Self {
         self.cost_model = cost_model;
         self

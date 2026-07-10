@@ -15,8 +15,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
+use crate::scheme::CandidateEstimate;
 use crate::scheme::CompressorContext;
-use crate::scheme::EstimateScore;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
@@ -141,35 +141,34 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
         .collect()
 }
 
-/// A sampling-based estimate: the ranked score together with the compressed sample array it
-/// was measured on.
-pub(crate) struct SampledEstimate {
-    /// The ranked estimate measured on the sample.
-    pub(crate) score: EstimateScore,
+/// A candidate produced through sampling.
+pub(crate) struct SampledCandidate {
+    /// Model-independent evidence measured from the sample.
+    pub(crate) estimate: CandidateEstimate,
 
     /// The compressed sample array. Its encoding tree is the best available prediction of
     /// the full-array encoding tree.
     pub(crate) sampled: ArrayRef,
 }
 
-/// Estimates compression ratio by compressing a ~1% sample of the data.
+/// Produces candidate evidence by compressing a ~1% sample of the data.
 ///
 /// Creates a new [`ArrayAndStats`] for the sample so that stats are generated from the sample, not
 /// the full array.
 ///
-/// Returns the compressed sample alongside its score so the selection loop can keep the
-/// sample's encoding tree for the winning candidate.
+/// Returns the compressed sample alongside evidence containing its measured ratio so the cost
+/// model can inspect both while computing the candidate's cost.
 ///
 /// # Errors
 ///
 /// Returns an error if sample compression fails.
-pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
+pub(super) fn estimate_candidate_with_sampling<S: Scheme + ?Sized>(
     compressor: &CascadingCompressor,
     scheme: &S,
     array: &ArrayRef,
     compress_ctx: CompressorContext,
     exec_ctx: &mut ExecutionCtx,
-) -> VortexResult<SampledEstimate> {
+) -> VortexResult<SampledCandidate> {
     let sample_array = if compress_ctx.is_sample() {
         array.clone()
     } else {
@@ -194,14 +193,15 @@ pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     let after = compressed.nbytes();
     let before = sample_data.array().nbytes();
 
-    let score = EstimateScore::from_sample_sizes(before, after);
-
-    if matches!(score, EstimateScore::ZeroBytes) {
+    let estimate = if after == 0 {
         trace::zero_byte_sample_result(scheme.id(), before);
-    }
+        CandidateEstimate::zero_bytes()
+    } else {
+        CandidateEstimate::from_compression_ratio(before as f64 / after as f64)
+    };
 
-    Ok(SampledEstimate {
-        score,
+    Ok(SampledCandidate {
+        estimate,
         sampled: compressed,
     })
 }

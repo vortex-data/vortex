@@ -7,10 +7,9 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_compressor::scheme::AncestorExclusion;
-use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::DeferredEvaluation;
 use vortex_compressor::scheme::DescendantExclusion;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -48,22 +47,22 @@ impl Scheme for FloatRLEScheme {
         rle_ancestor_exclusions()
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         // RLE is only useful when we cascade it with another encoding.
         if compress_ctx.finished_cascading() {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         if data.float_stats(exec_ctx).average_run_length() < RUN_LENGTH_THRESHOLD {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        SchemeEvaluation::Deferred(DeferredEvaluation::Sample)
     }
 
     fn compress(

@@ -15,11 +15,11 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-pub use estimate::CompressionEstimate;
-pub use estimate::DeferredEstimate;
-pub use estimate::EstimateFn;
-pub use estimate::EstimateScore;
-pub use estimate::EstimateVerdict;
+pub use estimate::CandidateEstimate;
+pub use estimate::DeferredEvaluation;
+pub use estimate::DeferredEvaluationFn;
+pub use estimate::ResolvedEvaluation;
+pub use estimate::SchemeEvaluation;
 pub use exclusion::AncestorExclusion;
 pub use exclusion::ChildSelection;
 pub use exclusion::DescendantExclusion;
@@ -56,8 +56,9 @@ impl fmt::Display for SchemeId {
 /// A single compression encoding that the [`CascadingCompressor`] can select from.
 ///
 /// The compressor evaluates every registered scheme whose [`matches`] returns `true` for a given
-/// array, picks the one with the highest [`expected_compression_ratio`], and calls [`compress`] on
-/// the winner.
+/// array, asks the configured [`CostModel`] to compute each candidate's cost, and calls [`compress`]
+/// on the lowest-cost eligible candidate. The default [`SizeCost`] model preserves the historical
+/// highest-compression-ratio selection.
 ///
 /// One of the key features of the compressor in this crate is that schemes may "cascade". A
 /// scheme's [`compress`] can call back into the compressor via
@@ -95,10 +96,9 @@ impl fmt::Display for SchemeId {
 ///
 /// # Implementing a scheme
 ///
-/// [`expected_compression_ratio`] should return
-/// `CompressionEstimate::Deferred(DeferredEstimate::Sample)` when a cheap heuristic is not
-/// available, asking the compressor to estimate via sampling. Implementors should return an
-/// immediate [`CompressionEstimate::Verdict`] when possible.
+/// [`evaluate`] should return `SchemeEvaluation::Deferred(DeferredEvaluation::Sample)` when a
+/// candidate cannot be described cheaply, asking the compressor to evaluate it through sampling.
+/// Implementors should return an immediate [`SchemeEvaluation::Candidate`] when possible.
 ///
 /// Schemes that need statistics that may be expensive to compute should override [`stats_options`]
 /// to declare what they require. The compressor merges all eligible schemes' options before
@@ -111,7 +111,9 @@ impl fmt::Display for SchemeId {
 /// [`scheme_name`]: Scheme::scheme_name
 /// [`matches`]: Scheme::matches
 /// [`compress`]: Scheme::compress
-/// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
+/// [`evaluate`]: Scheme::evaluate
+/// [`CostModel`]: crate::cost::CostModel
+/// [`SizeCost`]: crate::cost::SizeCost
 /// [`stats_options`]: Scheme::stats_options
 /// [`num_children`]: Scheme::num_children
 /// [`descendant_exclusions`]: Scheme::descendant_exclusions
@@ -152,22 +154,24 @@ pub trait Scheme: Debug + Send + Sync {
         Vec::new()
     }
 
-    /// Cheaply estimate the compression ratio for this scheme on the given array.
+    /// Produces model-independent candidate evidence for this scheme on the given array.
     ///
     /// This method should be fast and infallible. Any expensive or fallible work should be
     /// deferred to the compressor by returning
-    /// `CompressionEstimate::Deferred(DeferredEstimate::Sample)` or
-    /// `CompressionEstimate::Deferred(DeferredEstimate::Callback(...))`.
+    /// `SchemeEvaluation::Deferred(DeferredEvaluation::Sample)` or
+    /// `SchemeEvaluation::Deferred(DeferredEvaluation::Callback(...))`.
     ///
-    /// The compressor will ask all schemes what their expected compression ratio is given the array
-    /// and statistics. The scheme with the highest estimated ratio will then be applied to the
-    /// entire array.
+    /// The compressor combines the returned estimate with compressor-owned selection context to
+    /// construct a [`crate::cost::Candidate`], then asks the configured
+    /// [`crate::cost::CostModel`] to compute its cost. The default [`crate::cost::SizeCost`] model
+    /// interprets the candidate's estimated compression ratio; other models may use the remaining
+    /// candidate evidence differently.
     ///
-    /// [`CompressionEstimate::Verdict`] means the scheme already knows the terminal
-    /// [`crate::scheme::EstimateVerdict`]. `CompressionEstimate::Deferred(DeferredEstimate::Sample)`
-    /// asks the compressor to sample. `CompressionEstimate::Deferred(DeferredEstimate::Callback(...))`
-    /// asks the compressor to run custom deferred work. Deferred callbacks must return a
-    /// [`crate::scheme::EstimateVerdict`] directly, never another deferred request.
+    /// [`SchemeEvaluation::Candidate`] means the scheme can immediately describe a candidate.
+    /// `SchemeEvaluation::Deferred(DeferredEvaluation::Sample)` asks the compressor to sample;
+    /// `SchemeEvaluation::Deferred(DeferredEvaluation::Callback(...))` asks it to run custom
+    /// deferred work. Deferred callbacks must return a terminal
+    /// [`ResolvedEvaluation`], never another deferred request.
     ///
     /// Note that the compressor will also use this method when compressing samples, so some
     /// statistics that might hold for the samples may not hold for the entire array (e.g.,
@@ -178,12 +182,12 @@ pub trait Scheme: Debug + Send + Sync {
     /// called, so implementations may assume the array has at least one valid element. Outside of
     /// sample compression, the compressor also encodes constant arrays itself before evaluating
     /// schemes, so implementations only see constant arrays when `ctx.is_sample()` is `true`.
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate;
+    ) -> SchemeEvaluation;
 
     /// Compress the array using this scheme.
     ///

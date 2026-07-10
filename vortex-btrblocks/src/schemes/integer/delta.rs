@@ -13,12 +13,12 @@ use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::scheme::AncestorExclusion;
+use vortex_compressor::scheme::CandidateEstimate;
 use vortex_compressor::scheme::ChildSelection;
-use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::DeferredEvaluation;
 use vortex_compressor::scheme::DescendantExclusion;
-use vortex_compressor::scheme::EstimateScore;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::ResolvedEvaluation;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
 
@@ -114,35 +114,28 @@ impl Scheme for DeltaScheme {
         ]
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         // Delta only pays off if a later cascade layer (FoR/BitPacking) packs the residuals.
         if compress_ctx.finished_cascading() {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
         // Too short to transpose into FastLanes chunks meaningfully.
         if data.array_len() < MIN_DELTA_LEN {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         // Estimating Delta needs the real transposed-delta span, so defer to a callback that
         // delta-encodes the array and measures the residual range.
         let min_ratio = self.min_ratio;
-        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            move |_compressor, data, best_so_far, _ctx, exec_ctx| {
+        SchemeEvaluation::Deferred(DeferredEvaluation::Callback(Box::new(
+            move |_compressor, data, _ctx, exec_ctx| {
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
                 let full_width = primitive.ptype().bit_width() as f64;
-
-                // Delta's best case is residuals collapsing to a single bit. If even that, after
-                // the penalty, can't beat the incumbent, skip before doing the encode work.
-                let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
-                if threshold.is_some_and(|t| full_width * DELTA_PENALTY <= t) {
-                    return Ok(EstimateVerdict::Skip);
-                }
 
                 // Measure the actual FastLanes transposed-delta span. This is the lane-stride
                 // difference that gets bit-packed, not the lag-1 difference (which the transpose
@@ -156,14 +149,16 @@ impl Scheme for DeltaScheme {
                 // SequenceScheme already captures more cheaply, so defer to it.
                 let delta_bits = match span.checked_ilog2() {
                     Some(l) => (l + 1) as f64,
-                    None => return Ok(EstimateVerdict::Skip),
+                    None => return Ok(ResolvedEvaluation::Skip),
                 };
 
                 let ratio = full_width / delta_bits * DELTA_PENALTY;
                 if ratio <= min_ratio {
-                    return Ok(EstimateVerdict::Skip);
+                    return Ok(ResolvedEvaluation::Skip);
                 }
-                Ok(EstimateVerdict::Ratio(ratio))
+                Ok(ResolvedEvaluation::Candidate(
+                    CandidateEstimate::from_compression_ratio(ratio),
+                ))
             },
         )))
     }

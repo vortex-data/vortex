@@ -15,8 +15,7 @@ use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::extension::Matcher;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::TemporalMetadata;
-use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_datetime_parts::TemporalParts;
 use vortex_datetime_parts::split_temporal;
@@ -58,14 +57,14 @@ impl Scheme for TemporalScheme {
         3
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         // Temporal compression (splitting into parts) is almost always beneficial.
-        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+        SchemeEvaluation::AlwaysUse
     }
 
     fn compress(

@@ -14,10 +14,9 @@ use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
-use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::DeferredEvaluation;
 use vortex_compressor::scheme::DescendantExclusion;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexResult;
 use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
@@ -97,18 +96,18 @@ impl Scheme for RunEndScheme {
         ]
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         // If the run length is below the threshold, drop it.
         if data.integer_stats(exec_ctx).average_run_length() < RUN_END_THRESHOLD {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
-        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+        SchemeEvaluation::Deferred(DeferredEvaluation::Sample)
     }
 
     fn compress(

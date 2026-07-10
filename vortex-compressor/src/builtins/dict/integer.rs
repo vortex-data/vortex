@@ -23,10 +23,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
-use crate::scheme::CompressionEstimate;
+use crate::scheme::CandidateEstimate;
 use crate::scheme::CompressorContext;
-use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
+use crate::scheme::SchemeEvaluation;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
@@ -57,17 +57,17 @@ impl Scheme for IntDictScheme {
         2
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         let bit_width = data.array_as_primitive().ptype().bit_width();
         let stats = data.integer_stats(exec_ctx);
 
         if stats.value_count() == 0 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         let distinct_values_count = stats.distinct_count().vortex_expect(
@@ -76,7 +76,7 @@ impl Scheme for IntDictScheme {
 
         // If > 50% of the values are distinct, skip dictionary scheme.
         if distinct_values_count > stats.value_count() / 2 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         // Ignore nulls encoding for the estimate. We only focus on values.
@@ -97,7 +97,7 @@ impl Scheme for IntDictScheme {
 
         let before = stats.value_count() as usize * bit_width;
 
-        CompressionEstimate::Verdict(EstimateVerdict::Ratio(
+        SchemeEvaluation::Candidate(CandidateEstimate::from_compression_ratio(
             before as f64 / (values_size + codes_size) as f64,
         ))
     }

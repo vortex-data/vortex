@@ -11,11 +11,11 @@ use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::IntDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::scheme::AncestorExclusion;
+use vortex_compressor::scheme::CandidateEstimate;
 use vortex_compressor::scheme::ChildSelection;
-use vortex_compressor::scheme::CompressionEstimate;
-use vortex_compressor::scheme::DeferredEstimate;
-use vortex_compressor::scheme::EstimateScore;
-use vortex_compressor::scheme::EstimateVerdict;
+use vortex_compressor::scheme::DeferredEvaluation;
+use vortex_compressor::scheme::ResolvedEvaluation;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -64,22 +64,22 @@ impl Scheme for SequenceScheme {
         ]
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         data: &ArrayAndStats,
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
+    ) -> SchemeEvaluation {
         // It is pointless checking if a sample is a sequence since it will not correspond to the
         // entire array.
         if compress_ctx.is_sample() {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
         let stats = data.integer_stats(exec_ctx);
 
         // `SequenceArray` does not support nulls.
         if stats.null_count() > 0 {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         // If the distinct_values_count was computed, and not all values are unique, then this
@@ -88,32 +88,27 @@ impl Scheme for SequenceScheme {
             .distinct_count()
             .is_some_and(|count| count as usize != data.array_len())
         {
-            return CompressionEstimate::Verdict(EstimateVerdict::Skip);
+            return SchemeEvaluation::Skip;
         }
 
         // TODO(connor): `sequence_encode` allocates the encoded array just to confirm feasibility.
         // A cheaper `is_sequence` probe would let us skip the allocation entirely.
-        CompressionEstimate::Deferred(DeferredEstimate::Callback(Box::new(
-            |_compressor, data, best_so_far, _ctx, exec_ctx| {
+        SchemeEvaluation::Deferred(DeferredEvaluation::Callback(Box::new(
+            |_compressor, data, _ctx, exec_ctx| {
                 // `SequenceArray` stores exactly two scalars (base and multiplier), so the best
                 // achievable compression ratio is `array_len / 2`.
                 let compressed_size = 2usize;
                 let max_ratio = data.array_len() as f64 / compressed_size as f64;
 
-                // If we cannot beat the best so far, then we do not want to even try sequence
-                // encoding the data.
-                let threshold = best_so_far.and_then(EstimateScore::finite_ratio);
-                if threshold.is_some_and(|t| max_ratio <= t) {
-                    return Ok(EstimateVerdict::Skip);
-                }
-
                 // TODO(connor): We should pass this array back to the compressor in the case that
                 // we do want to sequence encode this so that we do not need to recompress.
                 if sequence_encode(data.array_as_primitive(), exec_ctx)?.is_none() {
-                    return Ok(EstimateVerdict::Skip);
+                    return Ok(ResolvedEvaluation::Skip);
                 }
                 // TODO(connor): Should we get the actual ratio here?
-                Ok(EstimateVerdict::Ratio(max_ratio))
+                Ok(ResolvedEvaluation::Candidate(
+                    CandidateEstimate::from_compression_ratio(max_ratio),
+                ))
             },
         )))
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compression ratio estimation types returned by schemes.
+//! Scheme evaluation and model-independent candidate evidence.
 
 use std::fmt;
 
@@ -12,55 +12,49 @@ use crate::CascadingCompressor;
 use crate::scheme::CompressorContext;
 use crate::stats::ArrayAndStats;
 
-/// Closure type for [`DeferredEstimate::Callback`].
+/// Closure type for [`DeferredEvaluation::Callback`].
 ///
-/// The compressor calls this with the same arguments it would pass to sampling, plus the best
-/// [`EstimateScore`] observed so far (if any). The closure must resolve directly to a terminal
-/// [`EstimateVerdict`].
-///
-/// The `best_so_far` threshold is an early-exit hint. If your scheme's maximum achievable
-/// compression ratio is not strictly greater than
-/// `best_so_far.and_then(EstimateScore::finite_ratio)`, you should return
-/// [`EstimateVerdict::Skip`]. Returning a ratio equal to the threshold is permitted but will
-/// lose to the prior best due to strict `>` tie-breaking in the selector. Use the threshold
-/// only as an early-exit hint, never to perform additional work.
+/// The compressor invokes this when a scheme needs fallible or expensive work to produce a
+/// terminal [`ResolvedEvaluation`]. Candidate comparison is deliberately absent from this API:
+/// the callback describes the candidate, and the configured cost model decides whether it wins.
 #[rustfmt::skip]
-pub type EstimateFn = dyn FnOnce(
+pub type DeferredEvaluationFn = dyn FnOnce(
         &CascadingCompressor,
         &ArrayAndStats,
-        Option<EstimateScore>,
         CompressorContext,
         &mut ExecutionCtx,
-    ) -> VortexResult<EstimateVerdict>
+    ) -> VortexResult<ResolvedEvaluation>
     + Send
     + Sync;
 
-/// The result of a [`Scheme`](crate::scheme::Scheme)'s compression ratio estimation.
+/// A scheme's initial evaluation result.
 ///
-/// This type is returned by
-/// [`Scheme::expected_compression_ratio`](crate::scheme::Scheme::expected_compression_ratio) to
-/// tell the compressor how promising this scheme is for a given array without performing any
-/// expensive work.
-///
-/// [`CompressionEstimate::Verdict`] means the scheme already knows the terminal answer.
-/// [`CompressionEstimate::Deferred`] means the compressor must do extra work before the scheme can
-/// produce a terminal answer.
+/// A scheme either declines the input, forces itself for semantic reasons, produces a candidate
+/// estimate immediately, or asks the compressor to resolve deferred work. Candidate estimates are
+/// model-independent facts; the compressor wraps them in a [`Candidate`](crate::cost::Candidate)
+/// and passes them to the configured cost model.
 #[derive(Debug)]
-pub enum CompressionEstimate {
-    /// The scheme already knows the terminal estimation verdict.
-    Verdict(EstimateVerdict),
-
-    /// The compressor must perform deferred work to resolve the terminal estimation verdict.
-    Deferred(DeferredEstimate),
-}
-
-/// The terminal answer to a compression estimate request.
-#[derive(Debug)]
-pub enum EstimateVerdict {
-    /// Do not use this scheme for this array.
+pub enum SchemeEvaluation {
+    /// Do not consider this scheme for the input.
     Skip,
 
-    /// Always use this scheme, as it is definitively the best choice.
+    /// Select this scheme immediately without cost-model comparison.
+    AlwaysUse,
+
+    /// Hand this estimate to the configured cost model as a candidate.
+    Candidate(CandidateEstimate),
+
+    /// The compressor must perform deferred work to resolve a terminal result.
+    Deferred(DeferredEvaluation),
+}
+
+/// A terminal result produced by a deferred scheme evaluation.
+#[derive(Debug)]
+pub enum ResolvedEvaluation {
+    /// Do not consider this scheme for the input.
+    Skip,
+
+    /// Select this scheme immediately without cost-model comparison.
     ///
     /// Some examples include decimal byte parts and temporal decomposition.
     ///
@@ -71,72 +65,59 @@ pub enum EstimateVerdict {
     /// [`Scheme::matches`]: crate::scheme::Scheme::matches
     AlwaysUse,
 
-    /// The estimated compression ratio. This must be greater than `1.0` to be considered by the
-    /// compressor, otherwise it is worse than the canonical encoding.
-    Ratio(f64),
+    /// Hand this estimate to the configured cost model as a candidate.
+    Candidate(CandidateEstimate),
 }
 
-/// Deferred work that can resolve to a terminal [`EstimateVerdict`].
-pub enum DeferredEstimate {
-    /// The scheme cannot cheaply estimate its ratio, so the compressor should compress a small
-    /// sample to determine effectiveness.
+/// Deferred work that can produce a terminal [`ResolvedEvaluation`].
+pub enum DeferredEvaluation {
+    /// Compress a small sample and expose the resulting candidate to the cost model.
     Sample,
 
-    /// A fallible estimation requiring a custom expensive computation.
+    /// Run a scheme-defined fallible or expensive evaluation.
     ///
-    /// Use this only when the scheme needs to perform trial encoding or other costly checks to
-    /// determine its compression ratio. The callback returns an [`EstimateVerdict`] directly, so
-    /// it cannot request more sampling or another deferred callback.
-    ///
-    /// The compressor evaluates all immediate [`CompressionEstimate::Verdict`] results before
-    /// invoking any deferred callback, and passes the best [`EstimateScore`] observed so far to
-    /// the callback. This lets the callback return [`EstimateVerdict::Skip`] without performing
-    /// expensive work when its maximum achievable ratio cannot beat the current best. See
-    /// [`EstimateFn`] for the full contract.
-    Callback(Box<EstimateFn>),
+    /// The callback returns a [`ResolvedEvaluation`] directly, so it cannot request more sampling
+    /// or another deferred callback.
+    Callback(Box<DeferredEvaluationFn>),
 }
 
-/// Ranked estimate used for comparing non-terminal compression candidates.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EstimateScore {
-    /// A finite compression ratio. Higher means a smaller amount of data, so it is better.
-    FiniteCompression(f64),
-    /// Trial compression produced a 0-byte output.
-    ///
-    /// This has no finite ratio and is not eligible for scheme selection.
-    ///
-    /// TODO(connor): A zero-byte sample usually means the sampler happened to hit an all-null
-    /// sample. Improve this logic so we can distinguish real zero-byte wins from sampling artifacts.
-    ZeroBytes,
+/// Model-independent evidence produced by a scheme for one candidate.
+///
+/// The estimate is intentionally opaque and evolution-safe. Compression ratio is currently the
+/// common signal produced by schemes and consumed by [`SizeCost`](crate::cost::SizeCost); it is not
+/// an ordering used by the compressor itself.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CandidateEstimate {
+    /// Estimated compression ratio, absent when a sampled candidate produced zero bytes.
+    estimated_compression_ratio: Option<f64>,
 }
 
-impl EstimateScore {
-    /// Converts measured sample sizes into a ranked estimate.
-    pub(crate) fn from_sample_sizes(before_nbytes: u64, after_nbytes: u64) -> Self {
-        if after_nbytes == 0 {
-            Self::ZeroBytes
-        } else {
-            Self::FiniteCompression(before_nbytes as f64 / after_nbytes as f64)
+impl CandidateEstimate {
+    /// Creates candidate evidence from an estimated compression ratio.
+    pub fn from_compression_ratio(ratio: f64) -> Self {
+        Self {
+            estimated_compression_ratio: Some(ratio),
         }
     }
 
-    /// Returns the finite compression ratio, or [`None`] for the zero-byte special case.
-    ///
-    /// Callers comparing a scheme's maximum achievable ratio against a "best so far" threshold
-    /// should use this to extract a numeric value from an [`EstimateScore`].
-    pub fn finite_ratio(self) -> Option<f64> {
-        match self {
-            Self::FiniteCompression(ratio) => Some(ratio),
-            Self::ZeroBytes => None,
+    /// Returns the estimated compression ratio, or `None` when a sample produced zero bytes.
+    pub fn estimated_compression_ratio(&self) -> Option<f64> {
+        self.estimated_compression_ratio
+    }
+
+    /// Creates candidate evidence for a sampled output containing zero bytes.
+    pub(crate) fn zero_bytes() -> Self {
+        Self {
+            estimated_compression_ratio: None,
         }
     }
 }
 
-impl fmt::Debug for DeferredEstimate {
+impl fmt::Debug for DeferredEvaluation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DeferredEstimate::Sample => write!(f, "Sample"),
-            DeferredEstimate::Callback(_) => write!(f, "Callback(..)"),
+            DeferredEvaluation::Sample => write!(f, "Sample"),
+            DeferredEvaluation::Callback(_) => write!(f, "Callback(..)"),
         }
     }
 }

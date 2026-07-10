@@ -7,10 +7,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_compressor::CascadingCompressor;
-use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::CompressorContext;
-use vortex_compressor::scheme::EstimateVerdict;
 use vortex_compressor::scheme::Scheme;
+use vortex_compressor::scheme::SchemeEvaluation;
 use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexResult;
 
@@ -32,13 +31,13 @@ impl Scheme for L2DenormScheme {
         )
     }
 
-    fn expected_compression_ratio(
+    fn evaluate(
         &self,
         _data: &ArrayAndStats,
         _compress_ctx: CompressorContext,
         _exec_ctx: &mut ExecutionCtx,
-    ) -> CompressionEstimate {
-        CompressionEstimate::Verdict(EstimateVerdict::AlwaysUse)
+    ) -> SchemeEvaluation {
+        SchemeEvaluation::AlwaysUse
     }
 
     fn compress(
