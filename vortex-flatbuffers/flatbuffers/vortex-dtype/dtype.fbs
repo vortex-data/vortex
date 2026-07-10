@@ -67,13 +67,10 @@ table Variant {
     nullable: bool;
 }
 
-// Explicit ids keep `nullable` at id 0, the id it had before the variant metadata fields were
-// added, so schemas written in between remain readable.
 table Union {
-    names: [string] (id: 1);
-    dtypes: [DType] (id: 2);
-    type_ids: [byte] (id: 3); // length must equal dtypes.len()
-    nullable: bool (id: 0);
+    names: [string];
+    dtypes: [DType];
+    type_ids: [byte]; // length must equal dtypes.len()
 }
 
 union Type {

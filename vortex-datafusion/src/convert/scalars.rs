@@ -832,8 +832,7 @@ mod tests {
             ["a"].into(),
             vec![DType::Primitive(PType::I32, Nullability::Nullable)],
         )
-        .unwrap(),
-        Nullability::Nullable
+        .unwrap()
     )))]
     fn unsupported_vortex_scalars_return_errors(#[case] scalar: Scalar) {
         let err = scalar.try_to_df().unwrap_err();

@@ -11,7 +11,6 @@ use itertools::Itertools;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::FlatBufferRoot;
@@ -22,7 +21,6 @@ use vortex_session::VortexSession;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldDType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::UnionVariants;
@@ -236,15 +234,7 @@ impl TryFrom<ViewedDType> for DType {
                     .ok_or_else(|| vortex_err!("failed to parse union from flatbuffer"))?;
                 let variants =
                     UnionVariants::from_fb(fb_union, vfdt.buffer().clone(), vfdt.session.clone())?;
-
-                let nullability: Nullability = fb_union.nullable().into();
-                vortex_ensure!(
-                    variants.nullability_constraints_satisfied(nullability),
-                    "Union nullability constraint not satisfied: nullability={:?}",
-                    nullability
-                );
-
-                Ok(Self::Union(variants, nullability))
+                Ok(Self::Union(variants))
             }
             fb::Type::Variant => {
                 let fb_variant = fb
@@ -390,7 +380,7 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
-            Self::Union(uv, n) => {
+            Self::Union(uv) => {
                 let names = uv
                     .names()
                     .iter()
@@ -412,7 +402,6 @@ impl WriteFlatBuffer for DType {
                         names,
                         dtypes,
                         type_ids,
-                        nullable: (*n).into(),
                     },
                 )
                 .as_union_value()
@@ -583,7 +572,6 @@ mod test {
                 ],
             )
             .unwrap(),
-            Nullability::NonNullable,
         )
     }
 
@@ -593,14 +581,13 @@ mod test {
     }
 
     #[test]
-    fn test_union_round_trip_flatbuffer_with_nullability() {
+    fn test_union_round_trip_flatbuffer_with_nullable_variant() {
         let dtype = DType::Union(
             UnionVariants::new(
                 ["null_variant", "str"].into(),
                 vec![DType::Null, DType::Utf8(Nullability::NonNullable)],
             )
             .unwrap(),
-            Nullability::Nullable,
         );
         roundtrip_dtype(dtype);
     }
@@ -618,7 +605,6 @@ mod test {
                 vec![0, 5, 7],
             )
             .unwrap(),
-            Nullability::NonNullable,
         );
 
         let bytes = dtype.write_flatbuffer_bytes().unwrap();
@@ -631,7 +617,7 @@ mod test {
 
         let deserialized = DType::try_from(view).unwrap();
         assert_eq!(dtype, deserialized);
-        let DType::Union(uv, _) = &deserialized else {
+        let DType::Union(uv) = &deserialized else {
             panic!("Expected Union");
         };
         assert_eq!(uv.type_ids(), &[0, 5, 7]);
@@ -654,7 +640,6 @@ mod test {
                 vec![DType::Utf8(Nullability::NonNullable), struct_with_union],
             )
             .unwrap(),
-            Nullability::NonNullable,
         );
 
         roundtrip_dtype(outer_union);
@@ -710,7 +695,6 @@ mod test {
                 names: Some(names),
                 dtypes: Some(dtypes),
                 type_ids: Some(type_ids),
-                nullable: false,
             },
         );
 

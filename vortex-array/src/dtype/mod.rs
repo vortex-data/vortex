@@ -114,8 +114,13 @@ pub enum DType {
     /// A `Union` is composed of one or more **variants**, each with a name and a `DType`. A per-row
     /// `i8` tag selects which variant is "live" at that row.
     ///
+    /// Unlike other nested types, a union has no independent outer nullability. Its nullability is
+    /// derived at runtime from its variants: a union is nullable when any variant can contain null.
+    /// A concrete union array has no parent validity bitmap; a row's validity is the validity of
+    /// its selected child.
+    ///
     /// See [`UnionVariants`] for the type-tag conventions and accessors.
-    Union(UnionVariants, Nullability),
+    Union(UnionVariants),
 
     /// Dynamically typed values stored as Vortex scalars.
     ///
@@ -148,7 +153,7 @@ impl PartialEq for DType {
             // StructFields handles its own Arc::ptr_eq in its PartialEq impl.
             (Self::Struct(a, na), Self::Struct(b, nb)) => na == nb && a == b,
             // UnionVariants handles its own Arc::ptr_eq in its PartialEq impl.
-            (Self::Union(a, na), Self::Union(b, nb)) => na == nb && a == b,
+            (Self::Union(a), Self::Union(b)) => a == b,
             (Self::Variant(a), Self::Variant(b)) => a == b,
             (Self::Extension(a), Self::Extension(b)) => a == b,
             // Every variant is listed in the first position so that adding a new
