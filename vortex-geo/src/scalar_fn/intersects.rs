@@ -23,6 +23,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -73,7 +74,14 @@ impl ScalarFnVTable for GeoIntersects {
         }
     }
 
-    fn return_dtype(&self, _: &Self::Options, _: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, _: &Self::Options, dtypes: &[DType]) -> VortexResult<DType> {
+        // Geometry arrays are never nullable; reject nullable operands up front.
+        for dtype in dtypes {
+            vortex_ensure!(
+                !dtype.is_nullable(),
+                "geo intersects: nullable operand {dtype} is unsupported"
+            );
+        }
         Ok(DType::Bool(Nullability::NonNullable))
     }
 
@@ -98,8 +106,9 @@ impl ScalarFnVTable for GeoIntersects {
             (Some(query), None) => intersects_constant(&b, query.scalar(), ctx),
             (None, Some(query)) => intersects_constant(&a, query.scalar(), ctx),
             (None, None) => {
-                vortex_ensure!(
-                    a.len() == b.len(),
+                vortex_ensure_eq!(
+                    a.len(),
+                    b.len(),
                     "geo intersects: operand length mismatch {} vs {}",
                     a.len(),
                     b.len()
@@ -142,6 +151,8 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar_fn::EmptyOptions;
+    use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use wkb::writer::WriteOptions;
@@ -303,5 +314,14 @@ mod tests {
         let empty = Geometry::LineString(LineString::new(Vec::<Coord>::new()));
         let points = point_column(vec![0.0, 1.0], vec![0.0, 1.0])?;
         assert_intersects(points, geometry_constant(&empty, 2)?, [false, false])
+    }
+
+    /// Geometry arrays are never nullable, so a nullable operand dtype is rejected.
+    #[test]
+    fn nullable_operand_is_rejected() -> VortexResult<()> {
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let result = GeoIntersects.return_dtype(&EmptyOptions, &[dtype.as_nullable(), dtype]);
+        assert!(result.is_err());
+        Ok(())
     }
 }

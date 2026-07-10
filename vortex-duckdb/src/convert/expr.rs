@@ -117,13 +117,14 @@ struct ConvertCtx<'a> {
     fields: Option<&'a [DuckdbField]>,
 }
 
-/// Whether `name` is a native geometry column of the scan. The pushed `GeoDistance` cannot
-/// evaluate `vortex.geo.wkb` columns, which also surface to DuckDB as `GEOMETRY`.
+/// Whether `name` is a non-nullable native geometry column of the scan. The pushed geo kernels
+/// reject nullable operands and cannot evaluate `vortex.geo.wkb` columns, which also surface to
+/// DuckDB as `GEOMETRY`.
 fn is_native_geo_column(fields: Option<&[DuckdbField]>, name: &str) -> bool {
     fields
         .into_iter()
         .flatten()
-        .filter(|field| field.name == name)
+        .filter(|field| field.name == name && !field.dtype.is_nullable())
         .any(|field| match field.dtype.as_extension_opt() {
             Some(ext) => {
                 ext.is::<Point>()

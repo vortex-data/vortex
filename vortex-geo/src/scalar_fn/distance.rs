@@ -25,6 +25,7 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -75,7 +76,14 @@ impl ScalarFnVTable for GeoDistance {
         }
     }
 
-    fn return_dtype(&self, _: &Self::Options, _: &[DType]) -> VortexResult<DType> {
+    fn return_dtype(&self, _: &Self::Options, dtypes: &[DType]) -> VortexResult<DType> {
+        // Geometry arrays are never nullable; reject nullable operands up front.
+        for dtype in dtypes {
+            vortex_ensure!(
+                !dtype.is_nullable(),
+                "geo distance: nullable operand {dtype} is unsupported"
+            );
+        }
         Ok(DType::Primitive(PType::F64, Nullability::NonNullable))
     }
 
@@ -101,8 +109,9 @@ impl ScalarFnVTable for GeoDistance {
             (Some(query), None) => distances_to_constant(&b, query.scalar(), ctx),
             (None, Some(query)) => distances_to_constant(&a, query.scalar(), ctx),
             (None, None) => {
-                vortex_ensure!(
-                    a.len() == b.len(),
+                vortex_ensure_eq!(
+                    a.len(),
+                    b.len(),
                     "geo distance: operand length mismatch {} vs {}",
                     a.len(),
                     b.len()
@@ -137,6 +146,8 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::scalar_fn::EmptyOptions;
+    use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_error::VortexResult;
 
     use super::GeoDistance;
@@ -216,6 +227,15 @@ mod tests {
         let distance = GeoDistance::try_new_array(a, b)?.into_array();
 
         assert_eq!(distances(distance, &mut ctx)?, vec![5.0, 5.0, 5.0]);
+        Ok(())
+    }
+
+    /// Geometry arrays are never nullable, so a nullable operand dtype is rejected.
+    #[test]
+    fn nullable_operand_is_rejected() -> VortexResult<()> {
+        let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let result = GeoDistance.return_dtype(&EmptyOptions, &[dtype.as_nullable(), dtype]);
+        assert!(result.is_err());
         Ok(())
     }
 }
