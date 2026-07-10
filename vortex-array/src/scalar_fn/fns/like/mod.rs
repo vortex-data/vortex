@@ -516,7 +516,7 @@ mod tests {
     #[rstest]
     // Exact, prefix, suffix, contains fast paths.
     #[case("hello", [true, false, false, false])]
-    #[case("hel%", [true, false, true, false])]
+    #[case("he%", [true, false, true, false])]
     #[case("%llo", [true, false, false, true])]
     #[case("%ell%", [true, false, false, true])]
     // Wildcards that require the regex path.
@@ -596,7 +596,7 @@ mod tests {
         let array = VarBinViewArray::from_iter_str(["hello", "world"]).into_array();
         let result = run_like(
             array,
-            ConstantArray::new("hel%", 2).into_array(),
+            ConstantArray::new("he%", 2).into_array(),
             LikeOptions {
                 negated: true,
                 case_insensitive: false,
@@ -615,7 +615,7 @@ mod tests {
 
         // Pure-ASCII data takes the ASCII fast paths.
         let array = VarBinViewArray::from_iter_str(["HELLO", "world", "Help"]).into_array();
-        let result = run_like(array, ConstantArray::new("hel%", 3).into_array(), ilike);
+        let result = run_like(array, ConstantArray::new("he%", 3).into_array(), ilike);
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, true]), &mut ctx);
 
         // Non-ASCII data requires full case folding: `k` matches U+212A KELVIN SIGN.
@@ -630,7 +630,7 @@ mod tests {
         let array = VarBinViewArray::from_iter_str(["HELLO", "world"]).into_array();
         let result = run_like(
             array,
-            ConstantArray::new("hel%", 2).into_array(),
+            ConstantArray::new("he%", 2).into_array(),
             LikeOptions {
                 negated: true,
                 case_insensitive: true,
@@ -646,7 +646,7 @@ mod tests {
             .into_array();
         let result = run_like(
             array,
-            ConstantArray::new("hel%", 3).into_array(),
+            ConstantArray::new("he%", 3).into_array(),
             LikeOptions::default(),
         );
         assert_arrays_eq!(
@@ -672,7 +672,7 @@ mod tests {
     fn test_like_per_row_patterns() {
         let mut ctx = array_session().create_execution_ctx();
         let array = VarBinViewArray::from_iter_str(["hello", "hello", "hello"]).into_array();
-        let patterns = VarBinViewArray::from_iter_str(["hel%", "%world", "h_llo"]).into_array();
+        let patterns = VarBinViewArray::from_iter_str(["he%", "%world", "h_llo"]).into_array();
         let result = run_like(array, patterns, LikeOptions::default());
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, true]), &mut ctx);
     }
@@ -688,7 +688,7 @@ mod tests {
         .into_array();
         let result = run_like(
             array,
-            ConstantArray::new("hel%", 2).into_array(),
+            ConstantArray::new("he%", 2).into_array(),
             LikeOptions::default(),
         );
         assert_arrays_eq!(

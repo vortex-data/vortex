@@ -22,7 +22,7 @@ fn main() {
     divan::main();
 }
 
-const ARRAY_SIZE: usize = 65_536;
+const ARRAY_SIZE: usize = 2_048;
 
 /// Random lowercase strings of 4..=24 bytes, some with a `hello` infix.
 fn strings() -> ArrayRef {

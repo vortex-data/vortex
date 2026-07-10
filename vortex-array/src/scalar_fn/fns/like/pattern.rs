@@ -29,7 +29,9 @@ pub(crate) enum LikePattern {
     /// `%suffix`: byte suffix comparison.
     EndsWith(Vec<u8>),
     /// `%needle%`: SIMD substring search, along with the needle length.
-    Contains(Finder<'static>, usize),
+    ///
+    /// The searcher is boxed to keep this variant close in size to the others.
+    Contains(Box<Finder<'static>>, usize),
     /// Equality ignoring ASCII case (ILIKE over ASCII-only data).
     IEqAscii(Vec<u8>),
     /// Prefix comparison ignoring ASCII case (ILIKE over ASCII-only data).
@@ -81,7 +83,7 @@ impl LikePattern {
             && !contains_like_pattern(&pattern[1..pattern.len() - 1])
         {
             Self::Contains(
-                Finder::new(&pattern.as_bytes()[1..pattern.len() - 1]).into_owned(),
+                Box::new(Finder::new(&pattern.as_bytes()[1..pattern.len() - 1]).into_owned()),
                 pattern.len() - 2,
             )
         } else {
