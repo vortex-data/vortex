@@ -60,6 +60,7 @@ use vortex_geo::extension::Point;
 use vortex_geo::extension::Polygon;
 use vortex_geo::extension::WellKnownBinary;
 use vortex_geo::extension::native_geometry_scalar_from_wkb;
+use vortex_geo::scalar_fn::contains::GeoContains;
 use vortex_geo::scalar_fn::distance::GeoDistance;
 use vortex_geo::scalar_fn::intersects::GeoIntersects;
 
@@ -221,6 +222,19 @@ fn try_from_geo_function(
                 return Ok(None);
             };
             GeoIntersects.new_expr(ScalarEmptyOptions, operands)
+        }
+        containment @ ("st_contains" | "st_within") => {
+            if children.len() != 2 {
+                return Ok(None);
+            }
+            let Some(mut operands) = geo_operands(&children, ctx)? else {
+                return Ok(None);
+            };
+            // `st_within(a, b)` is `st_contains(b, a)`; both lower to the contains kernel.
+            if containment == "st_within" {
+                operands.swap(0, 1);
+            }
+            GeoContains.new_expr(ScalarEmptyOptions, operands)
         }
         _ => return Ok(None),
     };
