@@ -48,7 +48,17 @@ pub(crate) fn filter_validity(validity: Validity, mask: &MaskValuesRef) -> Valid
         .vortex_expect("filtering validity with a partially selective mask is valid")
 }
 
-/// Returns an all-null result when the child contains no valid values.
+pub(super) fn contiguous_filter_range(mask: &Mask) -> Option<Range<usize>> {
+    let start = mask.first()?;
+    let end = mask.last()?.checked_add(1)?;
+    (end - start == mask.true_count()).then_some(start..end)
+}
+
+pub(super) fn prepare_mask_for_reuse(mask: &MaskValues, consumers: usize) {
+    buffer::prepare_mask_for_reuse(mask, consumers);
+}
+
+/// Check for some fast-path execution conditions before calling [`execute_filter`].
 pub(super) fn execute_all_null_filter_fast_path(
     array: ArrayView<'_, Filter>,
     selected_count: usize,
@@ -116,4 +126,35 @@ fn filter_map(array: &MapArray, mask: &MaskValuesRef) -> MapArray {
         .vortex_expect("MapArray somehow could not be filtered")
         .vortex_expect("Map filter reduce always produces an array");
     filtered.as_::<Map>().into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::VortexSessionExecute;
+    use crate::array_session;
+    use crate::arrays::PrimitiveArray;
+
+    #[test]
+    fn contiguous_filter_executes_as_zero_copy_slice() -> VortexResult<()> {
+        let array = PrimitiveArray::from_iter(0i32..8);
+        let original = array.to_buffer::<i32>();
+        let filtered = array
+            .into_array()
+            .filter(Mask::from_slices(8, vec![(2, 6)]))?
+            .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
+        let filtered_values = filtered.to_buffer::<i32>();
+
+        assert_eq!(filtered_values.as_slice(), &[2, 3, 4, 5]);
+        assert_eq!(filtered_values.as_ptr(), original.as_ptr().wrapping_add(2));
+        Ok(())
+    }
+
+    #[test]
+    fn fragmented_filter_is_not_a_contiguous_range() {
+        let mask = Mask::from_indices(8, [1, 2, 5, 6]);
+        assert_eq!(contiguous_filter_range(&mask), None);
+    }
 }

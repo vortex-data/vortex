@@ -9,6 +9,7 @@ use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use super::super::contiguous_filter_range;
 use super::small_take_rank_lookup_len;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::IntegerPType;
@@ -153,7 +154,5 @@ pub(in crate::arrays::filter) fn contiguous_sequential_take_range<P: IntegerPTyp
 
 #[inline]
 pub(in crate::arrays::filter) fn contiguous_filter_start(filter: &Mask) -> Option<usize> {
-    let start = filter.first()?;
-    let end = filter.last()?.checked_add(1)?;
-    (end - start == filter.true_count()).then_some(start)
+    contiguous_filter_range(filter).map(|range| range.start)
 }

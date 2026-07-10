@@ -49,6 +49,16 @@ fn filter_fallback_width_records() {
 ).into_array())]
 #[case::primitive_large(PrimitiveArray::from_iter(0..LARGE_SIZE as u32).into_array())]
 #[case::primitive_medium(PrimitiveArray::from_iter(0..MEDIUM_SIZE as i64).into_array())]
+#[case::decimal_i8(DecimalArray::new(
+    buffer![1i8, 2, 3, 4, 5],
+    DecimalDType::new(2, 0),
+    Validity::NonNullable,
+).into_array())]
+#[case::decimal_i16(DecimalArray::new(
+    buffer![10i16, 20, 30, 40, 50],
+    DecimalDType::new(3, 0),
+    Validity::NonNullable,
+).into_array())]
 #[case::decimal_i32(DecimalArray::new(
     buffer![123i32, 456, -123, 0, 999],
     DecimalDType::new(8, 2),
