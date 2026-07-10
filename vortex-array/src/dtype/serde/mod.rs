@@ -190,6 +190,10 @@ mod test {
         );
 
         let json = serde_json::to_string(&dtype).unwrap();
+        assert_eq!(
+            json,
+            r#"{"Union":{"names":["value"],"dtypes":[{"Utf8":true}],"type_ids":[0]}}"#
+        );
         let mut deserializer = serde_json::Deserializer::from_str(&json);
         let deserialized: DType = DTypeSerde::<DType>::new(&SESSION)
             .deserialize(&mut deserializer)
@@ -197,29 +201,5 @@ mod test {
 
         assert_eq!(deserialized, dtype);
         assert_eq!(deserialized.nullability(), Nullability::Nullable);
-    }
-
-    #[test]
-    fn test_serde_union_rejects_mismatched_serialized_nullability() {
-        let json = r#"{
-            "Union": [
-                {
-                    "names": ["value"],
-                    "dtypes": [{"Utf8": false}],
-                    "type_ids": [0]
-                },
-                true
-            ]
-        }"#;
-        let mut deserializer = serde_json::Deserializer::from_str(json);
-        let result = DTypeSerde::<DType>::new(&SESSION).deserialize(&mut deserializer);
-
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Serialized Union nullability does not match its variants")
-        );
     }
 }

@@ -5,13 +5,11 @@ use std::sync::Arc;
 
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::UnionVariants;
@@ -106,16 +104,6 @@ impl DType {
                     })
                     .collect::<VortexResult<Vec<_>>>()?;
                 let variants = UnionVariants::try_new(names, dtypes, type_ids)?;
-
-                let serialized_nullability: Nullability = u.nullable.into();
-                let derived_nullability = variants.derived_nullability();
-                vortex_ensure!(
-                    serialized_nullability == derived_nullability,
-                    "Serialized Union nullability does not match its variants: serialized={:?}, derived={:?}",
-                    serialized_nullability,
-                    derived_nullability
-                );
-
                 Ok(Self::Union(variants))
             }
             DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
@@ -192,7 +180,6 @@ impl TryFrom<&DType> for pb::DType {
                         .map(|d| Self::try_from(&d))
                         .collect::<VortexResult<Vec<_>>>()?,
                     type_ids: uv.type_ids().iter().map(|t| *t as i32).collect(),
-                    nullable: uv.derived_nullability().into(),
                 }),
                 DType::Variant(null) => DtypeType::Variant(pb::Variant {
                     nullable: (*null).into(),
@@ -435,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn test_union_round_trip_proto_with_nullability() {
+    fn test_union_round_trip_proto_with_nullable_variant() {
         let variants = UnionVariants::new(
             ["null_variant", "str"].into(),
             vec![DType::Null, DType::Utf8(Nullability::NonNullable)],
@@ -474,31 +461,6 @@ mod tests {
     }
 
     #[test]
-    fn test_union_proto_rejects_mismatched_serialized_nullability() {
-        let proto = pb::DType {
-            dtype_type: Some(DtypeType::Union(pb::Union {
-                names: vec!["a".to_string(), "b".to_string()],
-                dtypes: vec![
-                    pb::DType::try_from(&DType::Primitive(PType::I32, Nullability::NonNullable))
-                        .unwrap(),
-                    pb::DType::try_from(&DType::Utf8(Nullability::NonNullable)).unwrap(),
-                ],
-                type_ids: vec![0, 1],
-                nullable: true,
-            })),
-        };
-
-        let result = DType::from_proto(&proto, &SESSION);
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Serialized Union nullability does not match its variants")
-        );
-    }
-
-    #[test]
     fn test_union_proto_rejects_out_of_range_type_id() {
         let proto = pb::DType {
             dtype_type: Some(DtypeType::Union(pb::Union {
@@ -509,7 +471,6 @@ mod tests {
                 ],
                 // 200 does not fit in i8.
                 type_ids: vec![200],
-                nullable: false,
             })),
         };
 
