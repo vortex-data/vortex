@@ -35,6 +35,13 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=PROFILE");
 
+    // nvcc availability depends on PATH (e.g. entering/leaving a nix shell that
+    // provides cuda_nvcc). Without this, cargo caches a stale build.rs result
+    // from an environment without nvcc, and switching to one with nvcc does not
+    // trigger PTX recompilation — producing a binary with an empty embedded_ptx
+    // table that silently falls back to CPU at runtime.
+    println!("cargo:rerun-if-env-changed=PATH");
+
     // Regenerate bit_unpack kernels only when the generator changes
     println!(
         "cargo:rerun-if-changed={}",
