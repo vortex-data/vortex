@@ -3,7 +3,7 @@
 
 #include "spatial_overrides.hpp"
 
-#include "expr.h"
+#include "spatial_overrides.h"
 
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/scalar_function_catalog_entry.hpp"
@@ -97,70 +97,58 @@ extern "C" duckdb_state duckdb_vx_register_spatial_overrides(duckdb_database ffi
     return DuckDBSuccess;
 }
 
-namespace {
+SpatialOverrideRestore::SpatialOverrideRestore(ClientContext &context) : context(context) {
+}
 
-// Rebinds overridden spatial calls in join conditions back to spatial's original, so spatial's
-// own machinery handles joins. Filters are left untouched: they keep the override and push to
-// Vortex scans.
-class SpatialOverrideRestore final : public LogicalOperatorVisitor {
-public:
-    explicit SpatialOverrideRestore(ClientContext &context) : context(context) {
+void SpatialOverrideRestore::VisitOperator(LogicalOperator &op) {
+    using enum LogicalOperatorType;
+    switch (op.type) {
+    case LOGICAL_COMPARISON_JOIN:
+    case LOGICAL_ANY_JOIN:
+    case LOGICAL_DELIM_JOIN:
+    case LOGICAL_ASOF_JOIN:
+        VisitOperatorExpressions(op);
+        break;
+    default:
+        break;
     }
+    VisitOperatorChildren(op);
+}
 
-    void VisitOperator(LogicalOperator &op) override {
-        using enum LogicalOperatorType;
-        switch (op.type) {
-        case LOGICAL_COMPARISON_JOIN:
-        case LOGICAL_ANY_JOIN:
-        case LOGICAL_DELIM_JOIN:
-        case LOGICAL_ASOF_JOIN:
-            VisitOperatorExpressions(op);
-            break;
-        default:
-            break;
-        }
-        VisitOperatorChildren(op);
+unique_ptr<Expression> SpatialOverrideRestore::VisitReplace(BoundFunctionExpression &expr,
+                                                            unique_ptr<Expression> *) {
+    const bool overridden =
+        std::any_of(std::begin(SPATIAL_OVERRIDES),
+                    std::end(SPATIAL_OVERRIDES),
+                    [&](const SpatialOverride &o) {
+                        return expr.function.name == o.name && expr.children.size() == o.arity;
+                    });
+    if (!overridden) {
+        return nullptr; // Not an overridden call: leave it as is.
     }
-
-    unique_ptr<Expression> VisitReplace(BoundFunctionExpression &expr, unique_ptr<Expression> *) override {
-        const bool overridden =
-            std::any_of(std::begin(SPATIAL_OVERRIDES),
-                        std::end(SPATIAL_OVERRIDES),
-                        [&](const SpatialOverride &o) {
-                            return expr.function.name == o.name && expr.children.size() == o.arity;
-                        });
-        if (!overridden) {
-            return nullptr; // Not an overridden call: leave it as is.
-        }
-        // Spatial's original lives in the system catalog, where the override cannot shadow it.
-        auto original = Catalog::GetSystemCatalog(context).GetEntry<ScalarFunctionCatalogEntry>(
-            context,
-            DEFAULT_SCHEMA,
-            expr.function.name,
-            OnEntryNotFound::RETURN_NULL);
-        if (!original) {
-            return nullptr;
-        }
-        // Rebind a copy of the call's arguments through the original function.
-        vector<unique_ptr<Expression>> children;
-        children.reserve(expr.children.size());
-        for (const auto &child : expr.children) {
-            children.push_back(child->Copy());
-        }
-        ErrorData error;
-        FunctionBinder binder(context);
-        auto bound = binder.BindScalarFunction(*original, std::move(children), error);
-        if (!bound) {
-            return nullptr; // No matching overload: the override call still executes, keep it.
-        }
-        return bound;
+    // Spatial's original lives in the system catalog, where the override cannot shadow it.
+    auto original =
+        Catalog::GetSystemCatalog(context).GetEntry<ScalarFunctionCatalogEntry>(context,
+                                                                                DEFAULT_SCHEMA,
+                                                                                expr.function.name,
+                                                                                OnEntryNotFound::RETURN_NULL);
+    if (!original) {
+        return nullptr;
     }
-
-private:
-    ClientContext &context;
-};
-
-} // namespace
+    // Rebind a copy of the call's arguments through the original function.
+    vector<unique_ptr<Expression>> children;
+    children.reserve(expr.children.size());
+    for (const auto &child : expr.children) {
+        children.push_back(child->Copy());
+    }
+    ErrorData error;
+    FunctionBinder binder(context);
+    auto bound = binder.BindScalarFunction(*original, std::move(children), error);
+    if (!bound) {
+        return nullptr; // No matching overload: the override call still executes, keep it.
+    }
+    return bound;
+}
 
 void RestoreSpatialOverrides(ClientContext &context, LogicalOperator &plan) {
     SpatialOverrideRestore(context).VisitOperator(plan);

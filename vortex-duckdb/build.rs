@@ -179,9 +179,10 @@ const DUCKDB_C_API_FUNCTIONS: [&str; 133] = [
     "duckdb_vector_size",
 ];
 
-const DUCKDB_C_API_HEADERS: [&str; 6] = [
+const DUCKDB_C_API_HEADERS: [&str; 7] = [
     "cpp/include/vortex_duckdb.h",
     "cpp/include/expr.h",
+    "cpp/include/spatial_overrides.h",
     "cpp/include/table_filter.h",
     "cpp/include/vector.h",
     "cpp/include/copy_function.h",

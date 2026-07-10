@@ -14,11 +14,6 @@ typedef struct duckdb_vx_agg_func_ *duckdb_vx_agg_func;
 
 const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func);
 
-/// Shadow the spatial functions that block filter pushdown with pushable copies; see
-/// `SPATIAL_OVERRIDES` in spatial_overrides.cpp for the list. Call after `LOAD spatial`;
-/// does nothing when spatial is not loaded.
-duckdb_state duckdb_vx_register_spatial_overrides(duckdb_database ffi_db);
-
 typedef struct duckdb_vx_expr_ *duckdb_vx_expr;
 
 const char *duckdb_vx_agg_func_name(duckdb_vx_agg_func func);
