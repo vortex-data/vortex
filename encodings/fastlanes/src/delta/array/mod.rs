@@ -13,6 +13,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::Delta;
+
 pub mod delta_compress;
 pub mod delta_decompress;
 
@@ -88,7 +90,7 @@ impl Display for DeltaData {
     }
 }
 
-pub trait DeltaArrayExt: TypedArrayRef<crate::Delta> {
+pub trait DeltaArrayExt: TypedArrayRef<Delta> {
     fn bases(&self) -> &ArrayRef {
         self.as_ref().slots()[BASES_SLOT]
             .as_ref()
@@ -106,7 +108,7 @@ pub trait DeltaArrayExt: TypedArrayRef<crate::Delta> {
     }
 }
 
-impl<T: TypedArrayRef<crate::Delta>> DeltaArrayExt for T {}
+impl<T: TypedArrayRef<Delta>> DeltaArrayExt for T {}
 
 impl DeltaData {
     pub fn try_new(offset: usize) -> VortexResult<Self> {

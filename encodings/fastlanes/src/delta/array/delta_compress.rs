@@ -7,17 +7,21 @@ use std::mem::MaybeUninit;
 use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
-use crate::bit_transpose::transpose_validity;
+use crate::bit_transpose::transpose_bitbuffer;
 use crate::fill_forward_nulls;
 pub fn delta_compress(
     array: &PrimitiveArray,
@@ -33,8 +37,19 @@ pub fn delta_compress(
         // corrupted delta values propagate through the cumulative sum during decompression.
         let filled = fill_forward_nulls(array.to_buffer::<T>(), &validity, ctx)?;
         let (bases, deltas) = compress_primitive::<T, { T::LANES }>(&filled);
-        // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
-        let validity = transpose_validity(&validity, ctx)?;
+        let validity = match &validity {
+            Validity::Array(mask) => {
+                let bits = mask
+                    .clone()
+                    .execute::<Canonical>(ctx)?
+                    .into_bool()
+                    .into_bit_buffer();
+                Validity::Array(
+                    BoolArray::new(transpose_bitbuffer(bits), Validity::NonNullable).into_array(),
+                )
+            }
+            validity => validity.clone(),
+        };
         (
             PrimitiveArray::new(bases, array.dtype().nullability().into()),
             PrimitiveArray::new(deltas, validity),
@@ -104,10 +119,13 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Bool;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::validity::Validity;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
     use vortex_session::VortexSession;
 
     use crate::Delta;
@@ -165,6 +183,11 @@ mod tests {
             (0u8..200).map(|i| (!(50..100).contains(&i)).then_some(i)),
         );
         let (bases, deltas) = delta_compress(&array, &mut ctx)?;
+        let Validity::Array(storage_validity) = deltas.validity()? else {
+            vortex_bail!("test input should have array-backed validity")
+        };
+        assert!(storage_validity.is::<Bool>());
+
         let bitpacked_deltas = bitpack_encode(&deltas, 1, None, &mut ctx)?;
         let packed_delta = Delta::try_new(
             bases.into_array(),
