@@ -3,6 +3,7 @@
 
 package dev.vortex.jni;
 
+import dev.vortex.api.VortexWriteSummary;
 import java.util.Map;
 
 /** JNI boundary for {@link dev.vortex.api.VortexWriter}. */
@@ -27,6 +28,12 @@ public final class NativeWriter {
      */
     public static native boolean writeBatch(long writerPointer, long arrowArrayAddress, long arrowSchemaAddress);
 
+    /** Number of bytes successfully written to the underlying sink so far. */
+    public static native long bytesWritten(long writerPointer);
+
     /** Flush and close the writer. Must be called exactly once. */
     public static native void close(long writerPointer);
+
+    /** Flush and close the writer, returning its completed-file summary. Must be called exactly once. */
+    public static native VortexWriteSummary finish(long writerPointer);
 }

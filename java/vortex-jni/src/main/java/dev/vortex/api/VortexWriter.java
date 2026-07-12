@@ -29,6 +29,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 public final class VortexWriter implements AutoCloseable {
     private final long pointer;
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private volatile VortexWriteSummary summary;
 
     private VortexWriter(long pointer) {
         Preconditions.checkArgument(pointer != 0, "invalid writer pointer");
@@ -79,15 +80,45 @@ public final class VortexWriter implements AutoCloseable {
         }
     }
 
-    /** Flush any pending batches and finalize the file. Idempotent. */
-    @Override
-    public void close() throws IOException {
+    /**
+     * Return the number of bytes successfully written to the underlying sink so far.
+     *
+     * <p>This count does not include queued batches or data still buffered by layout strategies, so it may lag the
+     * amount of input accepted by {@link #writeBatch(long, long)}. After {@link #finish()}, it is the exact completed
+     * file size and is equal to {@link VortexWriteSummary#fileSize()}.
+     */
+    public synchronized long bytesWritten() {
+        if (summary != null) {
+            return summary.fileSize();
+        }
+        Preconditions.checkState(!closed.get(), "writer closed without a write summary");
+        long bytesWritten = NativeWriter.bytesWritten(pointer);
+        Preconditions.checkState(bytesWritten >= 0, "native writer returned an invalid byte count");
+        return bytesWritten;
+    }
+
+    /**
+     * Flush pending batches, finalize the file, and return its statistics and physical sizes.
+     *
+     * <p>This method is idempotent. Later calls return the same immutable summary.
+     */
+    public synchronized VortexWriteSummary finish() throws IOException {
         if (closed.compareAndSet(false, true)) {
             try {
-                NativeWriter.close(pointer);
+                summary = NativeWriter.finish(pointer);
             } catch (RuntimeException e) {
                 throw new IOException("failed to close writer", e);
             }
         }
+        if (summary == null) {
+            throw new IOException("writer was closed without retaining its write summary");
+        }
+        return summary;
+    }
+
+    /** Flush any pending batches and finalize the file. Idempotent. */
+    @Override
+    public void close() throws IOException {
+        finish();
     }
 }

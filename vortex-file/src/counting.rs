@@ -9,13 +9,14 @@ use std::sync::atomic::Ordering;
 use vortex_io::IoBuf;
 use vortex_io::VortexWrite;
 
-/// A wrapper around an `VortexWrite` that counts the number of bytes written.
-pub(crate) struct CountingVortexWrite<W> {
+/// A wrapper around a [`VortexWrite`] that counts the number of bytes written.
+pub struct CountingVortexWrite<W> {
     inner: W,
     bytes_written: Arc<AtomicU64>,
 }
 
 impl<W: VortexWrite> CountingVortexWrite<W> {
+    /// Wrap a writer with a new byte counter.
     pub fn new(inner: W) -> Self {
         Self {
             inner,
@@ -23,6 +24,15 @@ impl<W: VortexWrite> CountingVortexWrite<W> {
         }
     }
 
+    /// Wrap a writer with an existing shared byte counter.
+    pub fn with_counter(inner: W, bytes_written: Arc<AtomicU64>) -> Self {
+        Self {
+            inner,
+            bytes_written,
+        }
+    }
+
+    /// Returns the shared byte counter updated by this writer.
     pub fn counter(&self) -> Arc<AtomicU64> {
         Arc::clone(&self.bytes_written)
     }

@@ -39,14 +39,18 @@ use vortex_io::VortexWrite;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_layout::LayoutChildType;
+use vortex_layout::LayoutRef;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::file_stats::accumulate_stats;
+use vortex_layout::segments::SegmentId;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
 use vortex_layout::sequence::SequentialStreamExt;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ALLOWED_ENCODINGS;
 use crate::Footer;
@@ -505,4 +509,58 @@ impl WriteSummary {
     pub fn row_count(&self) -> u64 {
         self.footer.row_count()
     }
+
+    /// Returns the compressed size in bytes of each top-level column in schema order.
+    ///
+    /// A column's size includes every physical segment referenced by its layout subtree,
+    /// including auxiliary segments such as zone maps and dictionaries. A segment is counted at
+    /// most once per column even if more than one layout node references it. File-level metadata,
+    /// alignment padding, and the footer are not attributed to any column.
+    ///
+    /// For a non-struct file, the returned vector contains a single entry for the root column.
+    pub fn compressed_column_sizes(&self) -> VortexResult<Vec<u64>> {
+        let root = self.footer.layout();
+        if !root.dtype().is_struct() {
+            return Ok(vec![compressed_layout_size(
+                root,
+                self.footer.segment_map(),
+            )?]);
+        }
+
+        let mut sizes = Vec::with_capacity(
+            root.dtype()
+                .as_struct_fields_opt()
+                .map_or(1, |f| f.nfields()),
+        );
+        for idx in 0..root.nchildren() {
+            if matches!(root.child_type(idx), LayoutChildType::Field(_)) {
+                sizes.push(compressed_layout_size(
+                    &root.child(idx)?,
+                    self.footer.segment_map(),
+                )?);
+            }
+        }
+        Ok(sizes)
+    }
+}
+
+fn compressed_layout_size(
+    layout: &LayoutRef,
+    segments: &[crate::footer::SegmentSpec],
+) -> VortexResult<u64> {
+    let mut segment_ids = HashSet::<SegmentId>::default();
+    for node in layout.depth_first_traversal() {
+        segment_ids.extend(node?.segment_ids());
+    }
+
+    segment_ids.into_iter().try_fold(0u64, |size, segment_id| {
+        let segment = segments.get(*segment_id as usize).ok_or_else(|| {
+            vortex_err!(
+                "layout references missing segment {} (segment count: {})",
+                *segment_id,
+                segments.len()
+            )
+        })?;
+        Ok(size + u64::from(segment.length))
+    })
 }
