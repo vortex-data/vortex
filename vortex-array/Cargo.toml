@@ -249,6 +249,10 @@ name = "filter_bool"
 harness = false
 
 [[bench]]
+name = "filter_fixed_width"
+harness = false
+
+[[bench]]
 name = "list_length"
 harness = false
 
