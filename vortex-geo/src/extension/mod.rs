@@ -8,6 +8,7 @@ mod multipoint;
 mod multipolygon;
 mod point;
 mod polygon;
+mod rect;
 mod wkb;
 
 use std::fmt::Display;
@@ -37,6 +38,7 @@ pub use multipoint::*;
 pub use multipolygon::*;
 pub use point::*;
 pub use polygon::*;
+pub use rect::*;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -63,6 +65,7 @@ fn is_native_geometry(dtype: &DType) -> bool {
             || ext.is::<Polygon>()
             || ext.is::<MultiLineString>()
             || ext.is::<MultiPolygon>()
+            || ext.is::<Rect>()
     })
 }
 
@@ -110,6 +113,8 @@ pub(crate) fn geometries(
         multilinestring_geometries(&storage, ctx)
     } else if ext.is::<MultiPolygon>() {
         multipolygon_geometries(&storage, ctx)
+    } else if ext.is::<Rect>() {
+        rect_geometries(&storage, ctx)
     } else {
         vortex_bail!("geo: unsupported geometry extension {}", array.dtype())
     }

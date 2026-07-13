@@ -14,6 +14,7 @@ use crate::extension::MultiPoint;
 use crate::extension::MultiPolygon;
 use crate::extension::Point;
 use crate::extension::Polygon;
+use crate::extension::Rect;
 use crate::extension::WellKnownBinary;
 use crate::scalar_fn::contains::GeoContains;
 use crate::scalar_fn::distance::GeoDistance;
@@ -50,6 +51,9 @@ pub fn initialize(session: &VortexSession) {
     session.dtypes().register(MultiPolygon);
     session.arrow().register_exporter(Arc::new(MultiPolygon));
     session.arrow().register_importer(Arc::new(MultiPolygon));
+    session.dtypes().register(Rect);
+    session.arrow().register_exporter(Arc::new(Rect));
+    session.arrow().register_importer(Arc::new(Rect));
 
     // Register the geometry scalar functions.
     session.scalar_fns().register(GeoContains);

@@ -9,6 +9,7 @@ mod multilinestring;
 mod multipoint;
 mod multipolygon;
 mod point;
+mod rect;
 mod wkb;
 
 use std::sync::LazyLock;
