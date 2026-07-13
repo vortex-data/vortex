@@ -6,18 +6,32 @@ use std::mem::MaybeUninit;
 
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
 pub fn transpose_bitbuffer(bits: BitBuffer) -> BitBuffer {
     let (offset, len, bytes) = bits.into_inner();
-    BitBuffer::new_with_offset(
-        transform_buffer(bytes, fastlanes::transpose_bits),
-        len.next_multiple_of(1024),
-        offset,
-    )
+
+    if bytes.len().is_multiple_of(128) {
+        match bytes.try_into_mut() {
+            Ok(mut bytes_mut) => {
+                // We can ignore the spare trailer capacity that can be an artifact of allocator as we requested 128 multiple chunks
+                let (chunks, _) = bytes_mut.as_chunks_mut::<128>();
+                let mut tmp = [0u64; 16];
+                for chunk in chunks {
+                    let chunk_u64 =
+                        unsafe { mem::transmute::<&mut [u8; 128], &mut [u64; 16]>(chunk) };
+                    fastlanes::transpose_bits(chunk_u64, &mut tmp);
+                    chunk_u64.copy_from_slice(&tmp);
+                }
+                BitBuffer::new_with_offset(bytes_mut.freeze().into_byte_buffer(), len, offset)
+            }
+            Err(bytes) => bits_op_with_copy(bytes, len, offset, fastlanes::transpose_bits),
+        }
+    } else {
+        bits_op_with_copy(bytes, len, offset, fastlanes::transpose_bits)
+    }
 }
 
 pub fn untranspose_bitbuffer(bits: BitBuffer) -> BitBuffer {
@@ -27,77 +41,71 @@ pub fn untranspose_bitbuffer(bits: BitBuffer) -> BitBuffer {
     );
     assert!(
         bits.inner().is_aligned(Alignment::of::<u64>()),
-        "Transposed BitBuffer must be 8 byte aligned"
+        "Transposed buffer must be 8 byte aligned"
     );
     let (offset, len, bytes) = bits.into_inner();
-    BitBuffer::new_with_offset(
-        transform_buffer(bytes, fastlanes::untranspose_bits::<u64>),
-        len,
-        offset,
-    )
-}
-
-fn transform_buffer(bytes: ByteBuffer, op: impl Fn(&[u64; 16], &mut [u64; 16])) -> ByteBuffer {
-    let alignment = Alignment::of::<u64>();
-
-    if bytes.is_aligned(alignment) {
-        let words = Buffer::<u64>::from_byte_buffer_aligned(bytes, alignment);
-        match words.try_into_mut() {
-            Ok(words_mut) => transform_in_place(words_mut, op),
-            Err(words) => transform_copy(words.into_byte_buffer(), op),
+    match bytes.try_into_mut() {
+        Ok(mut bytes_mut) => {
+            let (prefix, middle, trailer) = unsafe { bytes_mut.align_to_mut::<u64>() };
+            assert!(
+                prefix.is_empty() && trailer.is_empty(),
+                "Transposed buffer must be 8 byte aligned"
+            );
+            let (chunks, _) = middle.as_chunks_mut::<16>();
+            let mut tmp = [0u64; 16];
+            for chunk in chunks {
+                fastlanes::untranspose_bits::<u64>(chunk, &mut tmp);
+                chunk.copy_from_slice(&tmp);
+            }
+            BitBuffer::new_with_offset(bytes_mut.freeze().into_byte_buffer(), len, offset)
         }
-    } else {
-        transform_copy(bytes, op)
+        Err(bytes) => bits_op_with_copy(bytes, len, offset, fastlanes::untranspose_bits::<u64>),
     }
 }
 
-fn transform_copy(bytes: ByteBuffer, op: impl Fn(&[u64; 16], &mut [u64; 16])) -> ByteBuffer {
-    let out_len = bytes.len().next_multiple_of(128);
-    let mut words_out = BufferMut::<u64>::with_capacity(out_len);
-    let (in_chunks, trailer) = bytes.as_chunks::<128>();
-    let (out_chunks, _) = words_out.spare_capacity_mut().as_chunks_mut::<16>();
+fn bits_op_with_copy<F: Fn(&[u64; 16], &mut [u64; 16])>(
+    bytes: ByteBuffer,
+    len: usize,
+    offset: usize,
+    op: F,
+) -> BitBuffer {
+    let output_len = bytes.len().div_ceil(8).next_multiple_of(16);
+    let mut output = BufferMut::<u64>::with_capacity(output_len);
+    let (input_chunks, input_trailer) = bytes.as_chunks::<128>();
+    // Bound to the requested `output_len`: `spare_capacity_mut` may expose extra over-aligned
+    // capacity, which would otherwise split into spurious trailing chunks and make `last_mut`
+    // below target a chunk past the data we actually initialize.
+    let (output_chunks, _) = unsafe {
+        mem::transmute::<&mut [MaybeUninit<u64>], &mut [u64]>(
+            &mut output.spare_capacity_mut()[..output_len],
+        )
+    }
+    .as_chunks_mut::<16>();
 
-    for (chunk, output) in in_chunks
-        .iter()
-        .zip(out_chunks[..in_chunks.len() - 1].iter_mut())
-    {
+    for (input, output) in input_chunks.iter().zip(output_chunks.iter_mut()) {
         op(
-            unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(chunk) },
-            unsafe { mem::transmute::<&mut [MaybeUninit<u64>; 16], &mut [u64; 16]>(output) },
+            unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(input) },
+            output,
         );
     }
 
-    if !trailer.is_empty() {
+    if !input_trailer.is_empty() {
         let mut padded_input = [0u8; 128];
-        padded_input[0..trailer.len()].clone_from_slice(trailer);
+        padded_input[0..input_trailer.len()].clone_from_slice(input_trailer);
         op(
             unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(&padded_input) },
-            unsafe {
-                mem::transmute::<&mut [MaybeUninit<u64>; 16], &mut [u64; 16]>(
-                    out_chunks
-                        .last_mut()
-                        .vortex_expect("Output wasn't a multiple of 128 bytes"),
-                )
-            },
+            output_chunks
+                .last_mut()
+                .vortex_expect("Output wasn't a multiple of 128 bytes"),
         );
     }
 
-    unsafe { words_out.set_len(out_len) };
-    words_out.freeze().into_byte_buffer()
-}
-
-fn transform_in_place(
-    mut words: BufferMut<u64>,
-    op: impl Fn(&[u64; 16], &mut [u64; 16]),
-) -> ByteBuffer {
-    let (chunks, _) = words.as_chunks_mut::<16>();
-
-    let mut output = [0u64; 16];
-    for chunk in chunks {
-        op(chunk, &mut output);
-        chunk.copy_from_slice(&output);
-    }
-    words.freeze().into_byte_buffer()
+    unsafe { output.set_len(output_len) };
+    BitBuffer::new_with_offset(
+        output.freeze().into_byte_buffer(),
+        len.next_multiple_of(1024),
+        offset,
+    )
 }
 
 #[cfg(test)]
