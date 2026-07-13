@@ -29,19 +29,21 @@ struct SpatialOverride {
     void (*tweak)(ScalarFunction &);
 };
 
+/// Drop spatial's bind so the filter keeps the radius visible as `children[2]`.
+static void DropBind(ScalarFunction &fn) {
+    fn.bind = nullptr;
+}
+
+/// Clear the error mode so the filter pushes through view projections.
+static void ClearErrorMode(ScalarFunction &fn) {
+    fn.SetErrorMode(FunctionErrors::CANNOT_ERROR);
+}
+
 static constexpr SpatialOverride SPATIAL_OVERRIDES[] = {
-    // Drop spatial's bind so the filter keeps the radius visible as `children[2]`.
-    {"st_dwithin",
-     3,
-     [](ScalarFunction &fn) {
-         fn.bind = nullptr;
-     }},
-    // Clear the error mode so the filter pushes through view projections.
-    {"st_intersects",
-     2,
-     [](ScalarFunction &fn) {
-         fn.SetErrorMode(FunctionErrors::CANNOT_ERROR);
-     }},
+    {"st_dwithin", 3, DropBind},
+    {"st_intersects", 2, ClearErrorMode},
+    {"st_contains", 2, ClearErrorMode},
+    {"st_within", 2, ClearErrorMode},
 };
 
 /// Apply one override, later calls to the function bind to the pushable copy instead of

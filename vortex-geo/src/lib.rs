@@ -15,6 +15,7 @@ use crate::extension::MultiPolygon;
 use crate::extension::Point;
 use crate::extension::Polygon;
 use crate::extension::WellKnownBinary;
+use crate::scalar_fn::contains::GeoContains;
 use crate::scalar_fn::distance::GeoDistance;
 use crate::scalar_fn::intersects::GeoIntersects;
 
@@ -51,6 +52,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrow().register_importer(Arc::new(MultiPolygon));
 
     // Register the geometry scalar functions.
+    session.scalar_fns().register(GeoContains);
     session.scalar_fns().register(GeoDistance);
     session.scalar_fns().register(GeoIntersects);
 }

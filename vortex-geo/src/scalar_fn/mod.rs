@@ -3,5 +3,6 @@
 
 //! Geometry scalar functions over the native geometry extension types.
 
+pub mod contains;
 pub mod distance;
 pub mod intersects;

@@ -42,6 +42,15 @@ const ST_DISTANCE_FILTER: &str = "ST_Distance(geometry, ST_GeomFromText('POINT (
 /// Matches the same two points as [`ST_DISTANCE_FILTER`], phrased as `ST_DWithin`.
 const ST_DWITHIN_FILTER: &str = "ST_DWithin(geometry, ST_GeomFromText('POINT (1 1)'), 3.0)";
 
+/// Matches two of [`POINTS`]: the boundary point of [`ST_INTERSECTS_FILTER`]'s polygon is not
+/// contained (OGC contains excludes the boundary).
+const ST_CONTAINS_FILTER: &str =
+    "ST_Contains(ST_GeomFromText('POLYGON((0 0, 4 0, 4 4, 0 4, 0 0))'), geometry)";
+
+/// Matches the same two points as [`ST_CONTAINS_FILTER`], phrased as `ST_Within`.
+const ST_WITHIN_FILTER: &str =
+    "ST_Within(geometry, ST_GeomFromText('POLYGON((0 0, 4 0, 4 4, 0 4, 0 0))'))";
+
 /// A vortex file whose single column `geometry` holds [`POINTS`] as native `Point`s.
 fn native_point_file() -> NamedTempFile {
     RUNTIME.block_on(async {
@@ -122,6 +131,8 @@ fn assert_pushed(conn: &Connection, table: &str, filter: &str, expected: i64) {
 #[case::st_intersects(ST_INTERSECTS_FILTER, 3)]
 #[case::st_distance(ST_DISTANCE_FILTER, 2)]
 #[case::st_dwithin(ST_DWITHIN_FILTER, 2)]
+#[case::st_contains(ST_CONTAINS_FILTER, 2)]
+#[case::st_within(ST_WITHIN_FILTER, 2)]
 fn geo_filter_pushes_on_file_scan(#[case] filter: &str, #[case] expected: i64) {
     let file = native_point_file();
     let (_db, conn) = spatial_database();
@@ -135,6 +146,8 @@ fn geo_filter_pushes_on_file_scan(#[case] filter: &str, #[case] expected: i64) {
 #[case::st_intersects(ST_INTERSECTS_FILTER, 3)]
 #[case::st_distance(ST_DISTANCE_FILTER, 2)]
 #[case::st_dwithin(ST_DWITHIN_FILTER, 2)]
+#[case::st_contains(ST_CONTAINS_FILTER, 2)]
+#[case::st_within(ST_WITHIN_FILTER, 2)]
 fn geo_filter_pushes_through_view(#[case] filter: &str, #[case] expected: i64) {
     let file = native_point_file();
     let (_db, conn) = spatial_database();
