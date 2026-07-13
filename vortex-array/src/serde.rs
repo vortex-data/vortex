@@ -329,7 +329,10 @@ impl SerializedArray {
             if session.allows_unknown() {
                 return self.decode_foreign(encoding_id, dtype, len, ctx);
             }
-            vortex_bail!("Unknown encoding: {}", encoding_id);
+            vortex_bail!(
+                "Unknown encoding: {} (not registered in this session)",
+                encoding_id
+            );
         };
 
         let children = SerializedArrayChildren {
