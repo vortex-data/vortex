@@ -116,9 +116,8 @@ mod tests {
 
     #[test]
     fn unknown_expression_id_allow_unknown() {
-        let session = VortexSession::empty()
-            .with::<ScalarFnSession>()
-            .allow_unknown();
+        let session = VortexSession::empty().with::<ScalarFnSession>();
+        session.allow_unknown();
 
         let expr_proto = pb::Expr {
             id: "vortex.test.foreign_scalar_fn".to_string(),

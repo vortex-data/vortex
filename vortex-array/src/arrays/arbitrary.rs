@@ -15,11 +15,10 @@ use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::NullArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinArray;
@@ -130,9 +129,8 @@ fn random_array_chunk(
             PType::I32 => random_primitive::<i32>(u, *n, chunk_len),
             PType::I64 => random_primitive::<i64>(u, *n, chunk_len),
             PType::F16 => {
-                #[expect(deprecated)]
                 let prim = random_primitive::<u16>(u, *n, chunk_len)?
-                    .to_primitive()
+                    .as_::<Primitive>()
                     .reinterpret_cast(PType::F16)
                     .into_array();
                 Ok(prim)

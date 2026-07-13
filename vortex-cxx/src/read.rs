@@ -17,7 +17,6 @@ use futures::stream::TryStreamExt;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowSessionExt;
-use vortex::array::legacy_session;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
@@ -168,11 +167,7 @@ pub(crate) fn scan_builder_into_threadsafe_cloneable_reader(
         .map(move |b| {
             SESSION
                 .arrow()
-                .execute_arrow(
-                    b,
-                    Some(&target),
-                    &mut legacy_session().create_execution_ctx(),
-                )
+                .execute_arrow(b, Some(&target), &mut SESSION.create_execution_ctx())
                 .map(|struct_array| RecordBatch::from(struct_array.as_struct()))
         })
         .into_stream()?

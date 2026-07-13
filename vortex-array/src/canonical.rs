@@ -262,7 +262,7 @@ impl Canonical {
     /// and copy operations.
     pub fn compact(&self, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         match self {
-            Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
+            Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers(ctx)?)),
             Canonical::List(array) => Ok(Canonical::List(
                 array.rebuild(ListViewRebuildMode::TrimElements, ctx)?,
             )),

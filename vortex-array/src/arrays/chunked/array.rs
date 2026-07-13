@@ -18,6 +18,8 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
+use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -194,7 +196,12 @@ impl Array<Chunked> {
         Ok(unsafe { Self::new_unchecked(chunks, dtype) })
     }
 
-    pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
+    pub fn rechunk(
+        &self,
+        target_bytesize: u64,
+        target_rowsize: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
         let mut new_chunks = Vec::new();
         let mut chunks_to_combine = Vec::new();
         let mut new_chunk_n_bytes = 0;
@@ -207,12 +214,11 @@ impl Array<Chunked> {
                 || new_chunk_n_elements + n_elements > target_rowsize)
                 && !chunks_to_combine.is_empty()
             {
-                #[expect(deprecated)]
                 let canonical = unsafe {
                     Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone())
                 }
                 .into_array()
-                .to_canonical()?
+                .execute::<Canonical>(ctx)?
                 .into_array();
                 new_chunks.push(canonical);
 
@@ -231,11 +237,10 @@ impl Array<Chunked> {
         }
 
         if !chunks_to_combine.is_empty() {
-            #[expect(deprecated)]
             let canonical =
                 unsafe { Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone()) }
                     .into_array()
-                    .to_canonical()?
+                    .execute::<Canonical>(ctx)?
                     .into_array();
             new_chunks.push(canonical);
         }
@@ -298,7 +303,7 @@ mod test {
         )
         .unwrap();
 
-        let rechunked = chunked.rechunk(1 << 16, 1 << 16).unwrap();
+        let rechunked = chunked.rechunk(1 << 16, 1 << 16, &mut ctx).unwrap();
 
         assert_arrays_eq!(chunked, rechunked, &mut ctx);
     }
@@ -312,7 +317,7 @@ mod test {
         )
         .unwrap();
 
-        let rechunked = chunked.rechunk(1 << 16, 1 << 16).unwrap();
+        let rechunked = chunked.rechunk(1 << 16, 1 << 16, &mut ctx).unwrap();
 
         assert_eq!(rechunked.nchunks(), 1);
         assert_arrays_eq!(chunked, rechunked, &mut ctx);
@@ -330,7 +335,7 @@ mod test {
         )
         .unwrap();
 
-        let rechunked = chunked.rechunk(1 << 16, 5).unwrap();
+        let rechunked = chunked.rechunk(1 << 16, 5, &mut ctx).unwrap();
 
         assert_eq!(rechunked.nchunks(), 2);
         assert!(rechunked.iter_chunks().all(|c| c.len() < 5));
@@ -352,7 +357,7 @@ mod test {
         )
         .unwrap();
 
-        let rechunked = chunked.rechunk(1 << 16, 5).unwrap();
+        let rechunked = chunked.rechunk(1 << 16, 5, &mut ctx).unwrap();
         // greedy so should be: [0, 1, 2] [42, 42, 42, 42, 42, 42] [4, 5, 6, 7] [8, 9]
 
         assert_eq!(rechunked.nchunks(), 4);
@@ -361,6 +366,7 @@ mod test {
 
     #[test]
     fn test_empty_chunks_all_valid() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // Create chunks where some are empty but all non-empty chunks have all valid values
         let chunks = vec![
             PrimitiveArray::new(buffer![1u64, 2, 3], Validity::AllValid).into_array(),
@@ -373,18 +379,15 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.all_valid(&mut array_session().create_execution_ctx())?);
-        assert!(
-            !chunked
-                .into_array()
-                .all_invalid(&mut array_session().create_execution_ctx())?
-        );
+        assert!(chunked.all_valid(&mut ctx)?);
+        assert!(!chunked.into_array().all_invalid(&mut ctx)?);
 
         Ok(())
     }
 
     #[test]
     fn test_empty_chunks_all_invalid() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // Create chunks where some are empty but all non-empty chunks have all invalid values
         let chunks = vec![
             PrimitiveArray::new(buffer![1u64, 2], Validity::AllInvalid).into_array(),
@@ -397,18 +400,15 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.all_valid(&mut array_session().create_execution_ctx())?);
-        assert!(
-            chunked
-                .into_array()
-                .all_invalid(&mut array_session().create_execution_ctx())?
-        );
+        assert!(!chunked.all_valid(&mut ctx)?);
+        assert!(chunked.into_array().all_invalid(&mut ctx)?);
 
         Ok(())
     }
 
     #[test]
     fn test_empty_chunks_mixed_validity() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
         // Create chunks with mixed validity including empty chunks
         let chunks = vec![
             PrimitiveArray::new(buffer![1u64, 2], Validity::AllValid).into_array(),
@@ -421,12 +421,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.all_valid(&mut array_session().create_execution_ctx())?);
-        assert!(
-            !chunked
-                .into_array()
-                .all_invalid(&mut array_session().create_execution_ctx())?
-        );
+        assert!(!chunked.all_valid(&mut ctx)?);
+        assert!(!chunked.into_array().all_invalid(&mut ctx)?);
 
         Ok(())
     }

@@ -31,6 +31,8 @@ use crate::arrays::fixed_size_list::array::NUM_SLOTS;
 use crate::arrays::fixed_size_list::array::SLOT_NAMES;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::FixedSizeListBuilder;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -200,5 +202,16 @@ impl VTable for FixedSizeList {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<FixedSizeListBuilder>() else {
+            vortex_bail!("append_to_builder for FixedSizeList requires a FixedSizeListBuilder");
+        };
+        builder.append_fixed_size_list_array(&array.into_owned(), ctx)
     }
 }

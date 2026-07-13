@@ -29,21 +29,41 @@ mod test {
 
     #[test]
     fn test_mask_constant() {
-        test_mask_conformance(&ConstantArray::new(Scalar::null_native::<i32>(), 5).into_array());
-        test_mask_conformance(&ConstantArray::new(Scalar::from(3u16), 5).into_array());
-        test_mask_conformance(&ConstantArray::new(Scalar::from(1.0f32 / 0.0f32), 5).into_array());
+        test_mask_conformance(
+            &ConstantArray::new(Scalar::null_native::<i32>(), 5).into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
+        test_mask_conformance(
+            &ConstantArray::new(Scalar::from(3u16), 5).into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
+        test_mask_conformance(
+            &ConstantArray::new(Scalar::from(1.0f32 / 0.0f32), 5).into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
         test_mask_conformance(
             &ConstantArray::new(Scalar::from(f16::from_f32(3.0f32)), 5).into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 
     #[test]
     fn test_filter_constant() {
-        test_filter_conformance(&ConstantArray::new(Scalar::null_native::<i32>(), 5).into_array());
-        test_filter_conformance(&ConstantArray::new(Scalar::from(3u16), 5).into_array());
-        test_filter_conformance(&ConstantArray::new(Scalar::from(1.0f32 / 0.0f32), 5).into_array());
+        test_filter_conformance(
+            &ConstantArray::new(Scalar::null_native::<i32>(), 5).into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
+        test_filter_conformance(
+            &ConstantArray::new(Scalar::from(3u16), 5).into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
+        test_filter_conformance(
+            &ConstantArray::new(Scalar::from(1.0f32 / 0.0f32), 5).into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
         test_filter_conformance(
             &ConstantArray::new(Scalar::from(f16::from_f32(3.0f32)), 5).into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 

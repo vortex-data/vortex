@@ -3,8 +3,6 @@
 #![allow(non_camel_case_types)]
 #![deny(missing_docs)]
 
-use std::ffi::CStr;
-use std::ffi::c_char;
 use std::ffi::c_void;
 use std::ptr;
 use std::slice;
@@ -31,6 +29,7 @@ use crate::error::vx_error;
 use crate::scan::vx_estimate;
 use crate::scan::vx_estimate_type;
 use crate::session::vx_session;
+use crate::string::vx_view;
 
 crate::arc_dyn_wrapper!(
     /// A reference to one or more (possibly remote) paths.
@@ -42,13 +41,23 @@ crate::arc_dyn_wrapper!(
 
 /// Options for creating a data source.
 #[repr(C)]
-#[cfg_attr(test, derive(Default))]
 pub struct vx_data_source_options {
-    /// Required: paths to files, tables, or layout trees.
-    /// May be a glob pattern like "*.vortex".
-    /// If you want to include multiple paths, concat them with a comma:
-    /// "file1.vortex,../file2.vortex".
-    pub paths: *const c_char,
+    /// Required: paths to files, tables, or layout trees. Each entry may be a
+    /// glob pattern like "*.vortex". Must point to an array of size
+    /// "paths_len". paths bytes are copied.
+    pub paths: *const vx_view,
+    /// Number of entries in `paths`.
+    pub paths_len: usize,
+}
+
+#[cfg(test)]
+impl Default for vx_data_source_options {
+    fn default() -> Self {
+        vx_data_source_options {
+            paths: ptr::null(),
+            paths_len: 0,
+        }
+    }
 }
 
 #[cfg(vortex_asan)]
@@ -68,13 +77,12 @@ unsafe fn data_source_new(
 
     let opts = unsafe { &*opts };
     vortex_ensure!(!opts.paths.is_null());
+    vortex_ensure!(opts.paths_len > 0, "empty paths");
 
-    let glob = unsafe { CStr::from_ptr(opts.paths) }
-        .to_string_lossy()
-        .into_owned();
+    let paths = unsafe { slice::from_raw_parts(opts.paths, opts.paths_len) };
     let mut data_source = MultiFileDataSource::new(session.clone());
-    for glob in glob.split(',') {
-        data_source = data_source.with_glob(glob, None);
+    for path in paths {
+        data_source = data_source.with_glob(unsafe { path.as_str() }?, None);
     }
 
     let data_source = RUNTIME.block_on(async {
@@ -95,8 +103,7 @@ unsafe fn data_source_new(
 
 /// Create a data source.
 /// The first matched file is opened eagerly. to read the schema. All other I/O
-/// is deferred until a scan is requested. The returned pointer is owned by the
-/// caller and must be freed with vx_data_source_free.
+/// is deferred until a scan is requested.
 ///
 /// On error, returns NULL and sets "err".
 #[unsafe(no_mangle)]
@@ -115,9 +122,6 @@ pub unsafe extern "C-unwind" fn vx_data_source_new(
 /// "buffer_len" is the length of "buffer" in bytes.
 /// The bytes are borrowed, not copied: the caller must keep "buffer" alive and
 /// unmodified until the data source is freed.
-///
-/// The returned pointer is owned by the caller and must be freed with
-/// vx_data_source_free.
 ///
 /// On error, returns NULL and sets "err".
 #[unsafe(no_mangle)]
@@ -147,11 +151,10 @@ pub unsafe extern "C-unwind" fn vx_data_source_new_buffer(
     })
 }
 
-/// Return the schema of the data source as a non-owned dtype.
-/// The returned pointer is valid as long as "ds" is alive. Do not free it.
+/// Return data source's dtype
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_data_source_dtype(ds: *const vx_data_source) -> *const vx_dtype {
-    vx_dtype::new_ref(vx_data_source::as_ref(ds).dtype())
+    vx_dtype::new(Arc::new(vx_data_source::as_ref(ds).dtype().clone()))
 }
 
 /// Write data source's row count estimate into "row_count".
@@ -182,7 +185,6 @@ pub unsafe extern "C-unwind" fn vx_data_source_get_row_count(
 #[cfg(not(windows))]
 #[cfg(test)]
 mod tests {
-    use std::ffi::CString;
     use std::ffi::c_void;
     use std::fs::read;
     use std::ptr;
@@ -194,10 +196,12 @@ mod tests {
     use crate::data_source::vx_data_source_new_buffer;
     use crate::data_source::vx_data_source_options;
     use crate::dtype::vx_dtype;
+    use crate::dtype::vx_dtype_free;
     use crate::scan::vx_estimate;
     use crate::scan::vx_estimate_type;
     use crate::session::vx_session_free;
     use crate::session::vx_session_new;
+    use crate::string::vx_view;
     use crate::tests::SAMPLE_ROWS;
     use crate::tests::assert_error;
     use crate::tests::assert_no_error;
@@ -223,12 +227,15 @@ mod tests {
             assert_error(error);
             assert!(ds.is_null());
 
-            opts.paths = c"test.vortex".as_ptr();
+            let missing = vx_view::from_str("test.vortex");
+            opts.paths = &raw const missing;
+            opts.paths_len = 1;
             let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
             assert_error(error);
             assert!(ds.is_null());
 
-            opts.paths = c"definitely-missing-dir/*.vortex".as_ptr();
+            let missing_glob = vx_view::from_str("definitely-missing-dir/*.vortex");
+            opts.paths = &raw const missing_glob;
             let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
             assert_error(error);
             assert!(ds.is_null());
@@ -244,9 +251,10 @@ mod tests {
             let session = vx_session_new();
             let (sample, struct_array) = write_sample(session);
 
-            let path = CString::new(sample.path().to_str().unwrap()).unwrap();
+            let path = vx_view::from_str(sample.path().to_str().unwrap());
             let opts = vx_data_source_options {
-                paths: path.as_ptr(),
+                paths: &raw const path,
+                paths_len: 1,
             };
 
             let mut error = ptr::null_mut();
@@ -254,13 +262,50 @@ mod tests {
             assert_no_error(error);
             assert!(!ds.is_null());
 
-            let dtype = vx_dtype::as_ref(vx_data_source_dtype(ds));
+            let ffi_dtype = vx_data_source_dtype(ds);
+            let dtype = vx_dtype::as_ref(ffi_dtype);
             assert_eq!(dtype, struct_array.dtype());
 
             let mut row_count = vx_estimate::default();
             vx_data_source_get_row_count(ds, &raw mut row_count);
             assert_eq!(row_count.r#type, vx_estimate_type::VX_ESTIMATE_EXACT);
             assert_eq!(row_count.estimate, SAMPLE_ROWS as u64);
+
+            vx_dtype_free(ffi_dtype);
+            vx_data_source_free(ds);
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_many_paths() {
+        let dir = tempfile::tempdir().unwrap();
+
+        unsafe {
+            let session = vx_session_new();
+            let (sample, _) = write_sample(session);
+
+            let comma_path = dir.path().join("with,comma.vortex");
+            std::fs::copy(sample.path(), &comma_path).unwrap();
+
+            let paths = [
+                vx_view::from_str(sample.path().to_str().unwrap()),
+                vx_view::from_str(comma_path.to_str().unwrap()),
+            ];
+            let opts = vx_data_source_options {
+                paths: paths.as_ptr(),
+                paths_len: paths.len(),
+            };
+
+            let mut error = ptr::null_mut();
+            let ds = vx_data_source_new(session, &raw const opts, &raw mut error);
+            assert_no_error(error);
+            assert!(!ds.is_null());
+
+            let mut row_count = vx_estimate::default();
+            vx_data_source_get_row_count(ds, &raw mut row_count);
+            assert_eq!(row_count.estimate, 2 * SAMPLE_ROWS as u64);
 
             vx_data_source_free(ds);
             vx_session_free(session);
@@ -289,7 +334,8 @@ mod tests {
             assert_no_error(error);
             assert!(!ds.is_null());
 
-            let dtype = vx_dtype::as_ref(vx_data_source_dtype(ds));
+            let ffi_dtype = vx_data_source_dtype(ds);
+            let dtype = vx_dtype::as_ref(ffi_dtype);
             assert_eq!(dtype, struct_array.dtype());
 
             let mut row_count = vx_estimate::default();
@@ -297,6 +343,7 @@ mod tests {
             assert_eq!(row_count.r#type, vx_estimate_type::VX_ESTIMATE_EXACT);
             assert_eq!(row_count.estimate, SAMPLE_ROWS as u64);
 
+            vx_dtype_free(ffi_dtype);
             vx_data_source_free(ds);
             vx_session_free(session);
         }

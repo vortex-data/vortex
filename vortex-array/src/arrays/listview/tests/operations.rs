@@ -13,8 +13,6 @@ use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use crate::ArrayRef;
 use crate::IntoArray;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::array_session;
@@ -258,8 +256,9 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
     let result = listview.cast(target_dtype.clone()).unwrap();
     assert_eq!(result.dtype(), &target_dtype);
 
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .unwrap();
     assert!(
         result_list.len() == 3 || result_list.len() == 2,
         "Expected 2 or 3 lists"
@@ -295,8 +294,9 @@ fn test_cast_with_nulls() {
     let result = listview.cast(target_dtype.clone()).unwrap();
     assert_eq!(result.dtype(), &target_dtype);
 
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .unwrap();
     assert!(
         result_list
             .is_valid(0, &mut array_session().create_execution_ctx())
@@ -346,8 +346,9 @@ fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_c
     };
 
     let result = listview.cast(target_dtype).unwrap();
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .unwrap();
 
     assert_eq!(result_list.len(), list_count);
 
@@ -379,8 +380,9 @@ fn test_cast_large_dataset() {
     );
 
     let result = listview.cast(target_dtype).unwrap();
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .unwrap();
 
     assert_eq!(result_list.len(), 20);
     for i in 0..20 {
@@ -622,7 +624,10 @@ fn test_constant_repeated_same_lists() {
 #[case::nullable(create_nullable_listview())]
 #[case::large(create_large_listview())]
 fn test_mask_listview_conformance(#[case] listview: ListViewArray) {
-    test_mask_conformance(&listview.into_array());
+    test_mask_conformance(
+        &listview.into_array(),
+        &mut array_session().create_execution_ctx(),
+    );
 }
 
 #[test]
@@ -644,8 +649,9 @@ fn test_mask_preserves_structure() {
     let result = listview.mask((!&selection).into_array()).unwrap();
 
     assert_eq!(result.len(), 4); // Length is preserved.
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .unwrap();
 
     // Check validity: true in selection means null.
     assert!(
@@ -698,8 +704,9 @@ fn test_mask_with_existing_nulls() {
     // Mask additional elements.
     let selection = Mask::from_iter([false, true, true]);
     let result = listview.mask((!&selection).into_array()).unwrap();
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .unwrap();
 
     // Check combined validity:
     assert!(
@@ -731,8 +738,9 @@ fn test_mask_with_gaps() {
 
     let selection = Mask::from_iter([true, false, false]);
     let result = listview.mask((!&selection).into_array()).unwrap();
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .unwrap();
 
     assert_eq!(result_list.len(), 3);
     assert!(
@@ -776,8 +784,9 @@ fn test_mask_constant_arrays() {
 
     let selection = Mask::from_iter([false, true, false]);
     let result = const_list.mask((!&selection).into_array()).unwrap();
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut array_session().create_execution_ctx())
+        .unwrap();
 
     assert_eq!(result_list.len(), 3);
     assert!(

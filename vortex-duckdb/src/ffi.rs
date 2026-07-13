@@ -17,6 +17,7 @@ use crate::copy::copy_to_finalize;
 use crate::copy::copy_to_initialize_global;
 use crate::copy::copy_to_sink;
 use crate::cpp;
+use crate::duckdb::AggregatePushdownInput;
 use crate::duckdb::BindInput;
 use crate::duckdb::BindResult;
 use crate::duckdb::Data;
@@ -38,6 +39,7 @@ use crate::table_function::get_partition_data;
 use crate::table_function::init_global;
 use crate::table_function::init_local;
 use crate::table_function::pushdown_complex_filter;
+use crate::table_function::pushdown_projection_aggregates;
 use crate::table_function::pushdown_projection_expression;
 use crate::table_function::scan;
 use crate::table_function::statistics;
@@ -127,6 +129,20 @@ unsafe extern "C-unwind" fn duckdb_table_function_pushdown_projection_expression
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn duckdb_table_function_pushdown_projection_aggregates(
+    bind_data: *mut c_void,
+    input: cpp::duckdb_vx_agg_input,
+    error_out: *mut cpp::duckdb_vx_error,
+) -> bool {
+    let bind_data = unsafe { bind_data.cast::<TableFunctionBind>().as_mut() }
+        .vortex_expect("bind_data null pointer");
+    let input = unsafe { AggregatePushdownInput::borrow(input) };
+    try_or(error_out, || {
+        pushdown_projection_aggregates(bind_data, input)
+    })
+}
+
+#[unsafe(no_mangle)]
 unsafe extern "C-unwind" fn duckdb_table_function_scan(
     global_init_data: *mut c_void,
     local_init_data: *mut c_void,
@@ -207,12 +223,15 @@ pub unsafe extern "C-unwind" fn duckdb_table_function_init_global(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn duckdb_table_function_init_local(
+    bind_data: *const c_void,
     global_init_data: *mut c_void,
 ) -> cpp::duckdb_vx_data {
+    let bind_data = unsafe { bind_data.cast::<TableFunctionBind>().as_ref() }
+        .vortex_expect("bind_data null pointer");
     let global_init_data = unsafe { global_init_data.cast::<TableFunctionGlobal>().as_ref() }
         .vortex_expect("global_init_data null pointer");
 
-    let init_data = init_local(global_init_data);
+    let init_data = init_local(bind_data, global_init_data);
     Data::from(Box::new(init_data)).as_ptr()
 }
 

@@ -86,10 +86,12 @@ mod test {
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
     fn test_filter_simple<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
+        let mut ctx = SESSION.create_execution_ctx();
         test_filter_conformance(
             &RDEncoder::new(&[a, b])
                 .encode(PrimitiveArray::from_iter([a, b, outlier, b, outlier]).as_view())
                 .into_array(),
+            &mut ctx,
         );
     }
 
@@ -97,6 +99,7 @@ mod test {
     #[case(0.1f32, 3e25f32)]
     #[case(0.5f64, 1e100f64)]
     fn test_filter_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
+        let mut ctx = SESSION.create_execution_ctx();
         test_filter_conformance(
             &RDEncoder::new(&[a])
                 .encode(
@@ -104,6 +107,7 @@ mod test {
                         .as_view(),
                 )
                 .into_array(),
+            &mut ctx,
         );
     }
 }

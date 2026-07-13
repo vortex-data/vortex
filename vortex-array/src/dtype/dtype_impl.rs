@@ -15,6 +15,7 @@ use crate::dtype::FieldDType;
 use crate::dtype::FieldName;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::UnionVariants;
 use crate::dtype::decimal::DecimalDType;
 use crate::dtype::decimal::DecimalType;
 use crate::dtype::extension::ExtDTypeRef;
@@ -63,8 +64,8 @@ impl DType {
             | List(_, null)
             | FixedSizeList(_, _, null)
             | Struct(_, null)
-            | Union(null)
             | Variant(null) => matches!(null, Nullability::Nullable),
+            Union(variants) => variants.derived_nullability().is_nullable(),
             Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
         }
     }
@@ -79,7 +80,10 @@ impl DType {
         self.with_nullability(Nullability::Nullable)
     }
 
-    /// Get a new DType with the given nullability (but otherwise the same as `self`)
+    /// Get a new DType with the given nullability (but otherwise the same as `self`).
+    ///
+    /// [`DType::Null`] and [`DType::Union`] have intrinsic nullability and are returned unchanged.
+    /// To change a union's nullability, construct different [`UnionVariants`].
     pub fn with_nullability(&self, nullability: Nullability) -> Self {
         match self {
             Null => Null,
@@ -91,7 +95,7 @@ impl DType {
             List(edt, _) => List(Arc::clone(edt), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(Arc::clone(edt), *size, nullability),
             Struct(sf, _) => Struct(sf.clone(), nullability),
-            Union(_) => Union(nullability),
+            Union(vs) => Union(vs.clone()),
             Variant(_) => Variant(nullability),
             Extension(ext) => Extension(ext.with_nullability(nullability)),
         }
@@ -123,7 +127,15 @@ impl DType {
                         .zip_eq(rhs_dtype.fields())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
-            (Union(_), Union(_)) => true,
+            (Union(lhs), Union(rhs)) => {
+                // Equal `names` implies equal length by FieldNames equality.
+                lhs.names() == rhs.names()
+                    && lhs.type_ids() == rhs.type_ids()
+                    && lhs
+                        .variants()
+                        .zip_eq(rhs.variants())
+                        .all(|(l, r)| l.eq_ignore_nullability(&r))
+            }
             (Variant(_), Variant(_)) => true,
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
                 lhs_extdtype.eq_ignore_nullability(rhs_extdtype)
@@ -425,6 +437,16 @@ impl DType {
         }
     }
 
+    /// Get the [`UnionVariants`] if `self` is a [`DType::Union`], otherwise `None`.
+    pub fn as_union_variants_opt(&self) -> Option<&UnionVariants> {
+        if let Union(uv) = self { Some(uv) } else { None }
+    }
+
+    /// Owned version of [Self::as_union_variants_opt].
+    pub fn into_union_variants_opt(self) -> Option<UnionVariants> {
+        if let Union(uv) = self { Some(uv) } else { None }
+    }
+
     /// Downcast a `DType` to an `ExtDType`
     pub fn as_extension(&self) -> &ExtDTypeRef {
         let Extension(ext) = self else {
@@ -476,7 +498,7 @@ impl Display for DType {
                     .map(|(field_null, dt)| format!("{field_null}={dt}"))
                     .join(", "),
             ),
-            Union(null) => write!(f, "union(){null}"),
+            Union(uv) => write!(f, "union({uv}){}", uv.derived_nullability()),
             Variant(null) => write!(f, "variant{null}"),
             Extension(ext) => write!(f, "{}", ext),
         }

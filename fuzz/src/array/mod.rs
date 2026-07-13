@@ -41,6 +41,7 @@ use strum::IntoEnumIterator;
 use tracing::debug;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::NumericalAggregateOpts;
@@ -553,25 +554,32 @@ fn random_action_from_list(
 
 /// Compress an array using the given strategy.
 #[cfg(feature = "zstd")]
-pub fn compress_array(array: &ArrayRef, strategy: CompressorStrategy) -> ArrayRef {
-    let mut ctx = SESSION.create_execution_ctx();
+pub fn compress_array(
+    array: &ArrayRef,
+    strategy: CompressorStrategy,
+    ctx: &mut ExecutionCtx,
+) -> ArrayRef {
     match strategy {
         CompressorStrategy::Default => BtrBlocksCompressor::default()
-            .compress(array, &mut ctx)
+            .compress(array, ctx)
             .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
         CompressorStrategy::Compact => BtrBlocksCompressorBuilder::default()
             .with_compact()
             .build()
-            .compress(array, &mut ctx)
+            .compress(array, ctx)
             .vortex_expect("Compact compress should succeed in fuzz test"),
     }
 }
 
 /// Compress an array using the given strategy (only Default).
 #[cfg(not(feature = "zstd"))]
-pub fn compress_array(array: &ArrayRef, _strategy: CompressorStrategy) -> ArrayRef {
+pub fn compress_array(
+    array: &ArrayRef,
+    _strategy: CompressorStrategy,
+    ctx: &mut ExecutionCtx,
+) -> ArrayRef {
     BtrBlocksCompressor::default()
-        .compress(array, &mut SESSION.create_execution_ctx())
+        .compress(array, ctx)
         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test")
 }
 
@@ -602,14 +610,14 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                     .clone()
                     .execute::<Canonical>(&mut ctx)
                     .vortex_expect("execute canonical should succeed in fuzz test");
-                current_array = compress_array(&canonical.into_array(), strategy);
-                assert_array_eq(&expected.array(), &current_array, i)?;
+                current_array = compress_array(&canonical.into_array(), strategy, &mut ctx);
+                assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }
             Action::Slice(range) => {
                 current_array = current_array
                     .slice(range)
                     .vortex_expect("slice operation should succeed in fuzz test");
-                assert_array_eq(&expected.array(), &current_array, i)?;
+                assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }
             Action::Take(indices) => {
                 if indices.is_empty() {
@@ -618,14 +626,14 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                 current_array = current_array
                     .take(indices)
                     .vortex_expect("take operation should succeed in fuzz test");
-                assert_array_eq(&expected.array(), &current_array, i)?;
+                assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }
             Action::SearchSorted(s, side) => {
                 let mut sorted = sort_canonical_array(&current_array, &mut ctx)
                     .vortex_expect("sort_canonical_array should succeed in fuzz test");
 
                 if !current_array.is_canonical() {
-                    sorted = compress_array(&sorted, CompressorStrategy::Default);
+                    sorted = compress_array(&sorted, CompressorStrategy::Default, &mut ctx);
                 }
                 assert_search_sorted(sorted, s, side, expected.search(), i)?;
             }
@@ -633,7 +641,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                 current_array = current_array
                     .filter(mask_val)
                     .vortex_expect("filter operation should succeed in fuzz test");
-                assert_array_eq(&expected.array(), &current_array, i)?;
+                assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }
             Action::Compare(v, op) => {
                 let compare_result = current_array
@@ -642,7 +650,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                         Operator::from(op),
                     )
                     .vortex_expect("compare operation should succeed in fuzz test");
-                if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i) {
+                if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i, &mut ctx) {
                     vortex_panic!(
                         "Failed to compare {}with {op} {v}\nError: {e}",
                         current_array.display_tree()
@@ -654,7 +662,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                 let cast_result = current_array
                     .cast(to.clone())
                     .vortex_expect("cast operation should succeed in fuzz test");
-                if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i) {
+                if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i, &mut ctx) {
                     vortex_panic!(
                         "Failed to cast {} to dtype {to}\nError: {e}",
                         current_array.display_tree()
@@ -677,13 +685,13 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
                 current_array = current_array
                     .fill_null(fill_value.clone())
                     .vortex_expect("fill_null operation should succeed in fuzz test");
-                assert_array_eq(&expected.array(), &current_array, i)?;
+                assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }
             Action::Mask(mask_val) => {
                 current_array = current_array
                     .mask(mask_val.into_array())
                     .vortex_expect("mask operation should succeed in fuzz test");
-                assert_array_eq(&expected.array(), &current_array, i)?;
+                assert_array_eq(&expected.array(), &current_array, i, &mut ctx)?;
             }
             Action::ScalarAt(indices) => {
                 let expected_scalars = expected.scalar_vec();
@@ -730,7 +738,12 @@ fn assert_search_sorted(
 /// Uses `all_non_distinct` for an efficient buffer-level comparison on the happy path.
 /// Falls back to element-wise scalar comparison only on mismatch to produce a detailed error.
 #[expect(clippy::result_large_err)]
-pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzResult<()> {
+pub fn assert_array_eq(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    step: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexFuzzResult<()> {
     if lhs.dtype() != rhs.dtype() {
         return Err(VortexFuzzError::DTypeMismatch(
             lhs.clone(),
@@ -751,10 +764,8 @@ pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuz
         ));
     }
 
-    let mut ctx = SESSION.create_execution_ctx();
-
     // Fast path: buffer-level comparison.
-    let identical = all_non_distinct(lhs, rhs, &mut ctx)
+    let identical = all_non_distinct(lhs, rhs, ctx)
         .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
     if identical {
         return Ok(());
@@ -762,8 +773,8 @@ pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuz
 
     // Slow path: find the first differing element for a detailed error message.
     for idx in 0..lhs.len() {
-        let l = lhs.execute_scalar(idx, &mut ctx).vortex_expect("scalar_at");
-        let r = rhs.execute_scalar(idx, &mut ctx).vortex_expect("scalar_at");
+        let l = lhs.execute_scalar(idx, ctx).vortex_expect("scalar_at");
+        let r = rhs.execute_scalar(idx, ctx).vortex_expect("scalar_at");
 
         if l != r {
             return Err(VortexFuzzError::ArrayNotEqual(

@@ -3,10 +3,13 @@
 
 #include "expr.h"
 #include "duckdb/function/scalar_function.hpp"
+#include "duckdb/function/aggregate_function.hpp"
 #include "duckdb/planner/expression/bound_between_expression.hpp"
+#include "duckdb/planner/expression/bound_cast_expression.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/planner/expression/bound_comparison_expression.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
+#include "duckdb/planner/expression/bound_aggregate_expression.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/planner/expression/bound_operator_expression.hpp"
 #include "duckdb/planner/expression/bound_conjunction_expression.hpp"
@@ -80,6 +83,11 @@ extern "C" duckdb_state duckdb_vx_register_st_dwithin_override(duckdb_database f
     return DuckDBSuccess;
 }
 
+extern "C" const char *duckdb_vx_agg_func_name(duckdb_vx_agg_func ffi) {
+    D_ASSERT(ffi);
+    return reinterpret_cast<AggregateFunction *>(ffi)->name.c_str();
+}
+
 extern "C" const char *duckdb_vx_expr_to_string(duckdb_vx_expr ffi_expr) {
     if (!ffi_expr) {
         return nullptr;
@@ -91,7 +99,6 @@ extern "C" const char *duckdb_vx_expr_to_string(duckdb_vx_expr ffi_expr) {
     return result;
 }
 
-//! Create a DuckDB vortex error.
 extern "C" void duckdb_vx_destroy_expr(duckdb_vx_expr *ffi_expr) {
     auto expr = reinterpret_cast<Expression *>(ffi_expr);
     delete expr;
@@ -187,4 +194,22 @@ extern "C" void duckdb_vx_expr_get_bound_function(duckdb_vx_expr ffi_expr,
     out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
     out->scalar_function = reinterpret_cast<duckdb_vx_sfunc>(&expr.function);
     out->bind_info = expr.bind_info.get();
+}
+
+extern "C" duckdb_vx_expr duckdb_vx_expr_get_bound_cast_child(duckdb_vx_expr ffi_expr) {
+    D_ASSERT(ffi_expr);
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundCastExpression>();
+    return reinterpret_cast<duckdb_vx_expr>(expr.child.get());
+}
+
+extern "C" bool duckdb_vx_expr_get_bound_cast_is_try(duckdb_vx_expr ffi_expr) {
+    D_ASSERT(ffi_expr);
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundCastExpression>();
+    return expr.try_cast;
+}
+
+extern "C" duckdb_vx_agg_func duckdb_vx_expr_get_bound_aggregate_function(duckdb_vx_expr ffi_expr) {
+    D_ASSERT(ffi_expr);
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundAggregateExpression>();
+    return reinterpret_cast<duckdb_vx_agg_func>(&expr.function);
 }

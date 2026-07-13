@@ -35,7 +35,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          enable-sccache: "false"
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
@@ -70,9 +69,9 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            runner: runs-on=${{ github.run_id }}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=check-java-publish-build-amd64
+            runner: runs-on=${{ github.run_id }}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=check-java-publish-build-amd64
           - target: aarch64-unknown-linux-gnu
-            runner: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre-v2/tag=check-java-publish-build-arm64
+            runner: runs-on=${{ github.run_id }}/runner=arm64-medium/image=ubuntu24-full-arm64-pre-v2/extras=s3-cache/tag=check-java-publish-build-arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: runs-on/action@v2
@@ -82,11 +81,13 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@ad2b38190b15e4d6bdf0c97fb4fca8412226d287  # v5
+      - uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a  # v5
         with:
           distribution: "corretto"
           java-version: "17"
       - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29  # v2.2.1
       - name: Install cargo-zigbuild
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
@@ -105,7 +106,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-xsmall/image=ubuntu24-full-x64-pre-v2/tag=rust-publish-dry-run', github.run_id)
+          && format('runs-on={0}/runner=amd64-xsmall/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=rust-publish-dry-run', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -114,6 +115,8 @@ jobs:
           sccache: s3
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - name: Install cargo-edit
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:

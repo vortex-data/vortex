@@ -68,7 +68,9 @@ table Variant {
 }
 
 table Union {
-    nullable: bool;
+    names: [string];
+    dtypes: [DType];
+    type_ids: [byte]; // length must equal dtypes.len()
 }
 
 union Type {

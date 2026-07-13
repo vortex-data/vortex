@@ -351,13 +351,13 @@ ORDER BY strlen(str);
 3
 5
 
-# prefix isn't pushed down as a complex filter so WHERE is not pushed down
+# || isn't pushed down as a complex filter so WHERE is not pushed down
 # although this is only usage of str in SELECT, we can't push strlen down
 # as there is usage in WHERE.
 # This also tests functions with multiple arguments using "str" inside
 query I
 SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex'
-WHERE prefix("str", 'H') > 0
+WHERE prefix(str || 'O', 'H') > 0
 ORDER BY strlen(str);
 ----
 2
@@ -372,13 +372,6 @@ ORDER BY strlen(str);
 2
 3
 5
-
-# explain: prefix()/suffix() in WHERE are multi-arg uses of str, no pushdown
-query TT
-EXPLAIN (FORMAT JSON)
-SELECT strlen(str) FROM '${WORK_DIR}/pe-pushdown.vortex' WHERE prefix("str", 'H') > 0;
-----
-<!REGEX>:SELECT projections
 
 # conflict with concat(), no pushdown
 query I

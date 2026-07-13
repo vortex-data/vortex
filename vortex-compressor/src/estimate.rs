@@ -69,7 +69,7 @@ pub enum EstimateVerdict {
 
     /// Always use this scheme, as it is definitively the best choice.
     ///
-    /// Some examples include constant detection, decimal byte parts, and temporal decomposition.
+    /// Some examples include decimal byte parts and temporal decomposition.
     ///
     /// The compressor will select this scheme immediately without evaluating further candidates.
     /// Schemes that return `AlwaysUse` must be mutually exclusive per canonical type (enforced by

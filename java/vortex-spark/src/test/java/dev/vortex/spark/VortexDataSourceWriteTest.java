@@ -130,6 +130,45 @@ public final class VortexDataSourceWriteTest {
     }
 
     @Test
+    @DisplayName("Write and read Vortex files with a bare path (no URI scheme)")
+    public void testWriteAndReadWithBarePath() throws IOException {
+        int numRows = 50;
+        Dataset<Row> originalDf = createTestDataFrame(numRows);
+
+        // A bare filesystem path, without a file:// scheme.
+        String barePath = tempDir.resolve("bare_path_output").toString();
+        originalDf
+                .write()
+                .format("vortex")
+                .option("path", barePath)
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        assertFalse(findVortexFiles(tempDir.resolve("bare_path_output")).isEmpty(), "Write should create files");
+
+        // Reading a bare directory path exercises schema inference via file listing.
+        Dataset<Row> readDf =
+                spark.read().format("vortex").option("path", barePath).load();
+
+        assertSchemaEquals(originalDf.schema(), readDf.schema());
+        assertEquals(numRows, readDf.count(), "Read DataFrame should have same number of rows as original");
+        verifyDataContent(originalDf, readDf);
+
+        // Overwriting a bare path exercises file listing and deletion of the existing files.
+        Dataset<Row> replacementDf = createTestDataFrame(25);
+        replacementDf
+                .write()
+                .format("vortex")
+                .option("path", barePath)
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        Dataset<Row> reread =
+                spark.read().format("vortex").option("path", barePath).load();
+        assertEquals(25, reread.count(), "Should have data from second write after overwrite");
+    }
+
+    @Test
     @DisplayName("Write empty DataFrame as Vortex")
     public void testWriteEmptyDataFrame() throws IOException {
         // Given: Create an empty DataFrame with schema

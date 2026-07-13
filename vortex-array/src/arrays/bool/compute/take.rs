@@ -88,8 +88,6 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
-    #[expect(deprecated)]
-    use crate::ToCanonical as _;
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
@@ -110,11 +108,11 @@ mod test {
             Some(false),
         ]);
 
-        #[expect(deprecated)]
         let b = reference
             .take(buffer![0, 3, 4].into_array())
             .unwrap()
-            .to_bool();
+            .execute::<BoolArray>(&mut ctx)
+            .unwrap();
         assert_eq!(
             b.to_bit_buffer(),
             BoolArray::from_iter([Some(false), None, Some(false)]).to_bit_buffer()
@@ -190,6 +188,9 @@ mod test {
     #[case(BoolArray::from_iter([true, false]))]
     #[case(BoolArray::from_iter([true]))]
     fn test_take_bool_conformance(#[case] array: BoolArray) {
-        test_take_conformance(&array.into_array());
+        test_take_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }

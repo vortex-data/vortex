@@ -23,6 +23,8 @@ use crate::arrays::struct_::array::VALIDITY_SLOT;
 use crate::arrays::struct_::array::make_struct_slots;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::StructBuilder;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -195,6 +197,17 @@ impl VTable for Struct {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<StructBuilder>() else {
+            vortex_bail!("append_to_builder for Struct requires a StructBuilder");
+        };
+        builder.append_struct_array(&array.into_owned(), ctx)
     }
 
     fn reduce_parent(

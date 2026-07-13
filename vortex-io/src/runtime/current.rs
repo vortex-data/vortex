@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::Future;
 use std::sync::Arc;
 
 use futures::Stream;
 use futures::StreamExt;
 use futures::stream::BoxStream;
+use parking_lot::Mutex;
 use smol::block_on;
 
 use crate::runtime::BlockingRuntime;
@@ -67,22 +69,21 @@ impl CurrentThreadRuntime {
         // This allows multiple worker threads to drive the execution while all waiting for results
         // on the channel.
         let (result_tx, result_rx) = kanal::bounded_async(1);
-        self.executor
-            .spawn(async move {
-                futures::pin_mut!(stream);
-                while let Some(item) = stream.next().await {
-                    // If all receivers are dropped, we stop driving the stream.
-                    if let Err(e) = result_tx.send(item).await {
-                        tracing::trace!("all receivers dropped, stopping stream: {}", e);
-                        break;
-                    }
+        let driver = self.executor.spawn(async move {
+            futures::pin_mut!(stream);
+            while let Some(item) = stream.next().await {
+                // If all receivers are dropped, we stop driving the stream.
+                if let Err(e) = result_tx.send(item).await {
+                    tracing::trace!("all receivers dropped, stopping stream: {}", e);
+                    break;
                 }
-            })
-            .detach();
+            }
+        });
 
         ThreadSafeIterator {
             executor: Arc::clone(&self.executor),
             results: result_rx,
+            driver: Arc::new(Mutex::new(Some(driver))),
         }
     }
 }
@@ -132,6 +133,10 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
 pub struct ThreadSafeIterator<T> {
     executor: Arc<smol::Executor<'static>>,
     results: kanal::AsyncReceiver<T>,
+    /// Handle to the task driving the stream. Once the stream ends, the first consumer to
+    /// observe it joins the task so a panic raised while driving the stream is re-raised rather
+    /// than silently ending the iterator.
+    driver: Arc<Mutex<Option<smol::Task<()>>>>,
 }
 
 // Manual clone implementation since `T` does not need to be `Clone`.
@@ -140,6 +145,7 @@ impl<T> Clone for ThreadSafeIterator<T> {
         Self {
             executor: Arc::clone(&self.executor),
             results: self.results.clone(),
+            driver: Arc::clone(&self.driver),
         }
     }
 }
@@ -148,17 +154,32 @@ impl<T> Iterator for ThreadSafeIterator<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        block_on(self.executor.run(self.results.recv())).ok()
+        match block_on(self.executor.run(self.results.recv())) {
+            Ok(item) => Some(item),
+            // The result channel closes when the driver task finishes. Join the task so a panic
+            // raised while driving the stream is re-raised here instead of being lost. The first
+            // consumer to observe closure joins it; any later consumer just sees the stream end.
+            Err(_) => {
+                let task = self.driver.lock().take();
+                if let Some(task) = task {
+                    block_on(self.executor.run(task));
+                }
+                None
+            }
+        }
     }
 }
 
 #[expect(clippy::if_then_some_else_none)] // Clippy is wrong when if/else has await.
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
+    use std::panic::AssertUnwindSafe;
     use std::sync::Arc;
     use std::sync::Barrier;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::task::Poll;
     use std::thread;
     use std::time::Duration;
 
@@ -259,6 +280,139 @@ mod tests {
         let mut collected: Vec<_> = all_results.iter().flatten().copied().collect();
         collected.sort();
         assert_eq!(collected, (0..total_items).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_block_on_stream_thread_safe_propagates_driver_panic() {
+        let runtime = CurrentThreadRuntime::new();
+        let mut iter = runtime.block_on_stream_thread_safe(|_h| {
+            stream::poll_fn(|_| -> Poll<Option<usize>> {
+                panic!("stream driver panic");
+            })
+            .boxed()
+        });
+
+        let panic = std::panic::catch_unwind(AssertUnwindSafe(|| iter.next()))
+            .expect_err("stream panic must propagate through iterator");
+        let message = panic
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("<unknown panic>");
+        assert!(message.contains("stream driver panic"));
+    }
+
+    fn panic_message(panic: &(dyn Any + Send)) -> &str {
+        panic
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("<unknown panic>")
+    }
+
+    // A driver panic must propagate on *every* run, regardless of executor scheduling. Running
+    // the scenario many times guards against a return to timing-dependent propagation.
+    #[test]
+    fn test_block_on_stream_thread_safe_panic_propagation_is_deterministic() {
+        for i in 0..2000 {
+            let mut iter = CurrentThreadRuntime::new().block_on_stream_thread_safe(|_h| {
+                stream::poll_fn(|_| -> Poll<Option<usize>> {
+                    panic!("deterministic driver panic");
+                })
+                .boxed()
+            });
+
+            let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| iter.next()));
+            assert!(
+                outcome.is_err(),
+                "driver panic was swallowed on iteration {i}: next() returned {:?}",
+                outcome.ok().flatten(),
+            );
+        }
+    }
+
+    // A panic after some items were already produced must still surface, not be seen as a clean
+    // end of stream.
+    #[test]
+    fn test_block_on_stream_thread_safe_panic_after_items() {
+        let mut emitted = 0usize;
+        let iter = CurrentThreadRuntime::new().block_on_stream_thread_safe(move |_h| {
+            stream::poll_fn(move |_| -> Poll<Option<usize>> {
+                if emitted < 3 {
+                    emitted += 1;
+                    Poll::Ready(Some(emitted))
+                } else {
+                    panic!("driver panic after items");
+                }
+            })
+            .boxed()
+        });
+
+        // Drain the iterator. The terminal event must be a propagated panic, never a clean
+        // `None`. This avoids depending on exactly how many buffered items survive channel close.
+        let outcome = std::panic::catch_unwind(AssertUnwindSafe(move || iter.collect::<Vec<_>>()));
+        match outcome {
+            Ok(items) => panic!("driver panic was swallowed; stream ended cleanly with {items:?}"),
+            Err(panic) => assert!(panic_message(&*panic).contains("driver panic after items")),
+        }
+    }
+
+    // With multiple consumers, a driver panic must reach *every* consumer that observes the end
+    // of the stream; it must never be swallowed by all of them. Exactly one consumer joins the
+    // driver and observes the panic; the rest see the stream end.
+    #[test]
+    fn test_block_on_stream_thread_safe_multi_consumer_panic_surfaced() {
+        let iter = CurrentThreadRuntime::new().block_on_stream_thread_safe(|_h| {
+            stream::poll_fn(|_| -> Poll<Option<usize>> {
+                panic!("multi consumer driver panic");
+            })
+            .boxed()
+        });
+
+        let num_threads = 4;
+        let barrier = Arc::new(Barrier::new(num_threads));
+        let panics = Arc::new(AtomicUsize::new(0));
+
+        let handles: Vec<_> = (0..num_threads)
+            .map(|_| {
+                let mut iter = iter.clone();
+                let barrier = Arc::clone(&barrier);
+                let panics = Arc::clone(&panics);
+                thread::spawn(move || {
+                    barrier.wait();
+                    match std::panic::catch_unwind(AssertUnwindSafe(|| iter.next())) {
+                        // The driver panicked before producing anything, so a clean end is the
+                        // only non-panic outcome a consumer may observe.
+                        Ok(None) => {}
+                        Ok(Some(_)) => panic!("no item was produced before the driver panicked"),
+                        Err(panic) => {
+                            assert!(panic_message(&*panic).contains("multi consumer driver panic"));
+                            panics.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().expect("consumer thread panicked uncaught");
+        }
+
+        // The panic surfaces to exactly one consumer and is never swallowed by all of them.
+        assert_eq!(panics.load(Ordering::SeqCst), 1);
+    }
+
+    // Clean completion must return `None` with no spurious panic.
+    #[test]
+    fn test_block_on_stream_thread_safe_clean_completion_returns_none() {
+        let mut iter = CurrentThreadRuntime::new()
+            .block_on_stream_thread_safe(|_h| stream::iter(vec![1usize, 2, 3]).boxed());
+
+        assert_eq!(iter.next(), Some(1));
+        assert_eq!(iter.next(), Some(2));
+        assert_eq!(iter.next(), Some(3));
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None);
     }
 
     #[test]

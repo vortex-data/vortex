@@ -17,25 +17,12 @@ TEST_CASE("Session creation", "[session]") {
     vx_session_free(session2);
 }
 
-TEST_CASE("Creating and iterating binaries", "[binary]") {
-    for (std::string_view str : {"ololo"sv, "Широкая строка"sv, "مرحبا بالعالم"sv}) {
-        const vx_binary *binary = vx_binary_new(str.data(), str.size());
-
-        REQUIRE(binary != nullptr);
-        const size_t len = vx_binary_len(binary);
-        REQUIRE(len == str.size());
-
-        const char *ptr = vx_binary_ptr(binary);
-        REQUIRE(std::string_view {ptr, len} == str);
-
-        const vx_binary *binary2 = vx_binary_clone(binary);
-        vx_binary_free(binary);
-
-        ptr = vx_binary_ptr(binary2);
-        REQUIRE(std::string_view {ptr, len} == str);
-
-        vx_binary_free(binary2);
-    }
+TEST_CASE("vx_view from C string", "[str]") {
+    const std::string_view str = "Широкая строка"sv;
+    const std::string owned {str};
+    const vx_view view = vx_view_from_cstr(owned.c_str());
+    REQUIRE(view.len == str.size());
+    REQUIRE(std::string_view {view.ptr, view.len} == str);
 }
 
 TEST_CASE("Creating dtypes", "[dtype]") {

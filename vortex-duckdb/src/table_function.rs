@@ -4,24 +4,34 @@
 use std::cmp::max;
 use std::fmt::Formatter;
 use std::fmt::{self};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
+use std::task::Context;
+use std::task::Poll;
 
 use custom_labels::CURRENT_LABELSET;
+use futures::FutureExt;
+use futures::Stream;
 use futures::StreamExt;
+use futures::future::BoxFuture;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use parking_lot::Mutex;
 use static_assertions::assert_impl_all;
 use tracing::debug;
+use vortex::aggregate_fn::DynAccumulator;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute as _;
 use vortex::array::arrays::ScalarFn;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -39,14 +49,19 @@ use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::column_statistics::ColumnStatistics;
 use crate::column_statistics::ColumnStatisticsAggregate;
+use crate::convert::PushedAggregate;
 use crate::convert::try_from_bound_expression;
+use crate::convert::try_from_projection_aggregate;
 use crate::convert::try_from_projection_expression;
+use crate::duckdb::AggregateExpression;
+use crate::duckdb::AggregatePushdownInputRef;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
 use crate::duckdb::DataChunkRef;
@@ -62,6 +77,9 @@ use crate::projection::Filter;
 use crate::projection::Projection;
 use crate::projection::extract_schema_from_dtype;
 
+// Aggregate projection index for count(*). See cpp/aggregate_fn_pushdown.cpp
+pub const COUNT_STAR_PROJ_IDX: u64 = u64::MAX;
+
 pub struct TableFunctionBind {
     data_source: Arc<MultiLayoutDataSource>,
     filter_exprs: Vec<Expression>,
@@ -69,6 +87,8 @@ pub struct TableFunctionBind {
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
     has_non_optional_filter: AtomicBool,
+    // Non-empty iff this scan is aggregate
+    aggregates: Vec<ColumnAggregate>,
 }
 assert_impl_all!(TableFunctionBind: Send, Clone);
 
@@ -82,6 +102,7 @@ impl Clone for TableFunctionBind {
             has_non_optional_filter: AtomicBool::new(
                 self.has_non_optional_filter.load(Ordering::Relaxed),
             ),
+            aggregates: self.aggregates.clone(),
         }
     }
 }
@@ -108,7 +129,8 @@ impl<'a> TableInitInput<'a> {
     }
 }
 
-type DataSourceIterator = ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>;
+type ScanItem = VortexResult<(ArrayRef, Arc<ConversionCache>)>;
+type DataSourceIterator = ThreadSafeIterator<ScanItem>;
 
 pub struct TableFunctionGlobal {
     iterator: DataSourceIterator,
@@ -117,6 +139,16 @@ pub struct TableFunctionGlobal {
     bytes_read: AtomicU64,
     file_index_column_pos: Option<usize>,
     file_row_number_column_pos: Option<usize>,
+
+    // Following 4 fields are used only in aggregate scans.
+    /// ArrayRef's scanned but not aggregated in "partials".
+    /// 0 means all arrays have been aggregated but output is not written.
+    /// u64::MAX means arrays have been aggregated and we've written output row
+    pending: Arc<AtomicU64>,
+    aggregates: Vec<ColumnAggregate>,
+    // Accumulated partials
+    partials: Mutex<Vec<Box<dyn DynAccumulator>>>,
+    row_count: AtomicU64,
 }
 assert_impl_all!(TableFunctionGlobal: Send, Sync);
 
@@ -126,12 +158,23 @@ pub struct TableFunctionLocal {
     exporter: Option<ArrayExporter>,
     partition_index: u64,
     file_index: usize,
+    // Aggregate scan accumulated partials. Empty for non-aggregate scan
+    partials: Vec<Box<dyn DynAccumulator>>,
 }
 
 pub struct PartitionData {
     pub partition_index: u64,
     pub file_index_column_pos: Option<usize>,
     pub file_index: usize,
+}
+
+#[derive(Clone)]
+pub(crate) enum ColumnAggregate {
+    Real {
+        projection_id: u64,
+        aggregate: PushedAggregate,
+    },
+    CountStar,
 }
 
 #[derive(Debug)]
@@ -155,6 +198,7 @@ pub fn bind(input: &BindInputRef, result: &mut BindResultRef) -> VortexResult<Ta
         filter_exprs: vec![],
         column_fields,
         has_non_optional_filter: AtomicBool::new(false),
+        aggregates: vec![],
     })
 }
 
@@ -169,7 +213,11 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         projection,
         file_index_column_pos,
         file_row_number_column_pos,
-    } = Projection::new(projection_ids, column_ids, &bind_data.column_fields);
+    } = if bind_data.aggregates.is_empty() {
+        Projection::new(projection_ids, column_ids, &bind_data.column_fields)
+    } else {
+        Projection::new_aggregate(&bind_data.aggregates, &bind_data.column_fields)
+    };
 
     let Filter {
         filter,
@@ -224,6 +272,9 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
     // available array chunk regardless of which partition it came from.
     let (tx, rx) = kanal::bounded_async(num_workers * 2);
 
+    let pending = Arc::new(AtomicU64::new(0));
+    let pending_producer = Arc::clone(&pending);
+
     // We drive one partition per worker thread. Each partition is driven as a spawned task
     // that pushes array chunks into the shared channel as they are produced. This spawning
     // allows all worker threads to drive the polling of all partitions, and then return the
@@ -232,6 +283,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         .partitions()
         .map(move |partition| {
             let tx = tx.clone();
+            let pending = Arc::clone(&pending_producer);
             RUNTIME.handle().spawn(async move {
                 let partition = match partition {
                     Ok(partition) => partition,
@@ -254,6 +306,7 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
                     }
                 };
                 while let Some(item) = stream.next().await {
+                    pending.fetch_add(1, Ordering::Relaxed);
                     if tx
                         .send(item.map(|a| (a, Arc::clone(&cache))))
                         .await
@@ -268,10 +321,10 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         })
         .buffer_unordered(num_workers);
 
-    // Spawn a task to drive the partition stream and push array chunks into the channel.
-    RUNTIME.handle().spawn(stream.collect::<()>()).detach();
+    let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| scan_driver_stream(stream, rx));
 
-    let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| rx.into_stream());
+    let aggregates = bind_data.aggregates.clone();
+    let partials = build_partials(&aggregates, &bind_data.column_fields)?;
 
     Ok(TableFunctionGlobal {
         iterator,
@@ -280,10 +333,69 @@ pub fn init_global(init_input: &TableInitInput) -> VortexResult<TableFunctionGlo
         bytes_read: AtomicU64::new(0),
         file_index_column_pos,
         file_row_number_column_pos,
+        pending,
+        aggregates,
+        partials: Mutex::new(partials),
+        row_count: AtomicU64::new(0),
     })
 }
 
-pub fn init_local(global: &TableFunctionGlobal) -> TableFunctionLocal {
+fn scan_driver_stream<S>(stream: S, rx: kanal::AsyncReceiver<ScanItem>) -> ScanDriverStream
+where
+    S: Stream<Item = ()> + Send + 'static,
+{
+    ScanDriverStream {
+        driver: Some(stream.collect::<()>().boxed()),
+        rx: rx.into_stream().boxed(),
+    }
+}
+
+struct ScanDriverStream {
+    driver: Option<BoxFuture<'static, ()>>,
+    rx: futures::stream::BoxStream<'static, ScanItem>,
+}
+
+impl Stream for ScanDriverStream {
+    type Item = ScanItem;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        if let Some(driver) = this.driver.as_mut()
+            && driver.as_mut().poll(cx).is_ready()
+        {
+            this.driver = None;
+        }
+
+        match this.rx.as_mut().poll_next(cx) {
+            Poll::Ready(None) if this.driver.is_some() => Poll::Pending,
+            poll => poll,
+        }
+    }
+}
+
+fn build_partials(
+    aggregates: &[ColumnAggregate],
+    fields: &[DuckdbField],
+) -> VortexResult<Vec<Box<dyn DynAccumulator>>> {
+    aggregates
+        .iter()
+        .filter_map(|spec| match spec {
+            ColumnAggregate::Real {
+                projection_id,
+                aggregate,
+            } => {
+                let projection_id: usize = projection_id.as_();
+                Some(aggregate.build(fields[projection_id].dtype.clone()))
+            }
+            ColumnAggregate::CountStar => None,
+        })
+        .collect()
+}
+
+pub fn init_local(
+    bind_data: &TableFunctionBind,
+    global: &TableFunctionGlobal,
+) -> TableFunctionLocal {
     unsafe {
         use custom_labels::sys;
 
@@ -299,11 +411,109 @@ pub fn init_local(global: &TableFunctionGlobal) -> TableFunctionLocal {
         CURRENT_LABELSET.set(key, value);
     }
 
+    let partials = build_partials(&global.aggregates, &bind_data.column_fields)
+        // if aggregate initialization produced an error, it would error in
+        // init_global, see "partials" initialization there
+        .vortex_expect("local state aggregate initialization failed");
+
     TableFunctionLocal {
         iterator: global.iterator.clone(),
         exporter: None,
         partition_index: 0,
         file_index: 0,
+        partials,
+    }
+}
+
+fn convert_result(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
+    let array_result = array.optimize_recursive(ctx.session())?;
+    Ok(if let Some(array) = array_result.as_opt::<Struct>() {
+        array.into_owned()
+    } else if let Some(array) = array_result.as_opt::<ScalarFn>()
+        && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
+    {
+        StructArray::new(
+            pack_options.names.clone(),
+            array.children(),
+            array.len(),
+            pack_options.nullability.into(),
+        )
+    } else {
+        array_result.execute::<Canonical>(ctx)?.into_struct()
+    })
+}
+
+fn scan_aggregate(
+    local_state: &mut TableFunctionLocal,
+    global_state: &TableFunctionGlobal,
+    chunk: &mut DataChunkRef,
+) -> VortexResult<()> {
+    let aggregates_len = global_state.aggregates.len();
+    // seen[k] = output column for requested column k.
+    // If min(x), max(x), avg(y) are requested, seen = { 0: 0, 1: 1}
+    let mut seen: HashMap<u64, usize> = HashMap::with_capacity(aggregates_len);
+    // positions[k] = column id for accumulator k
+    // If min(x), max(x), avg(y) are requested, positions = [0, 0, 1]
+    let mut positions: Vec<usize> = Vec::with_capacity(aggregates_len);
+
+    for aggregate in &global_state.aggregates {
+        let ColumnAggregate::Real { projection_id, .. } = aggregate else {
+            continue;
+        };
+        let len = seen.len();
+        let pos = seen.entry_ref(projection_id).or_insert(len);
+        positions.push(*pos);
+    }
+    let has_count_star = local_state.partials.len() < aggregates_len;
+
+    let mut ctx = SESSION.create_execution_ctx();
+    loop {
+        let Some(result) = local_state.iterator.next() else {
+            // 0 means we're the last thread, u64::MAX means output is written.
+            // is_err() means CAS didn't succeed
+            if global_state
+                .pending
+                .compare_exchange(0, u64::MAX, Ordering::AcqRel, Ordering::Relaxed)
+                .is_err()
+            {
+                return Ok(());
+            }
+
+            let mut accumulators = global_state.partials.lock();
+            let row_count = global_state.row_count.load(Ordering::Acquire) as i64;
+            let mut accum_iter = accumulators.iter_mut();
+            for (idx, aggregate) in global_state.aggregates.iter().enumerate() {
+                let value = match aggregate {
+                    ColumnAggregate::Real { .. } => {
+                        let accum = accum_iter.next().vortex_expect("partial for real agg");
+                        Value::try_from(accum.finish()?)?
+                    }
+                    ColumnAggregate::CountStar => Value::from(row_count),
+                };
+                chunk.get_vector_mut(idx).reference_value(&value);
+            }
+            chunk.set_len(1);
+            return Ok(());
+        };
+        let array = convert_result(result?.0, &mut ctx)?;
+
+        for (i, partial) in positions.iter().zip(local_state.partials.iter_mut()) {
+            partial.accumulate(array.unmasked_field(*i), &mut ctx)?;
+        }
+
+        {
+            let mut partials = global_state.partials.lock();
+            for (global, local) in partials.iter_mut().zip(&mut local_state.partials) {
+                global.combine_partials(local.flush()?)?;
+            }
+        }
+
+        if has_count_star {
+            global_state
+                .row_count
+                .fetch_add(array.len() as u64, Ordering::Relaxed);
+        }
+        global_state.pending.fetch_sub(1, Ordering::Release);
     }
 }
 
@@ -312,6 +522,10 @@ pub fn scan(
     global_state: &TableFunctionGlobal,
     chunk: &mut DataChunkRef,
 ) -> VortexResult<()> {
+    if !local_state.partials.is_empty() {
+        return scan_aggregate(local_state, global_state, chunk);
+    }
+
     loop {
         if local_state.exporter.is_none() {
             let mut ctx = SESSION.create_execution_ctx();
@@ -319,23 +533,8 @@ pub fn scan(
                 return Ok(());
             };
             let (array_result, conversion_cache) = result?;
-            let array_result = array_result.optimize_recursive(ctx.session())?;
             local_state.file_index = conversion_cache.file_index;
-
-            let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>() {
-                array.into_owned()
-            } else if let Some(array) = array_result.as_opt::<ScalarFn>()
-                && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
-            {
-                StructArray::new(
-                    pack_options.names.clone(),
-                    array.children(),
-                    array.len(),
-                    pack_options.nullability.into(),
-                )
-            } else {
-                array_result.execute::<Canonical>(&mut ctx)?.into_struct()
-            };
+            let array_result = convert_result(array_result, &mut ctx)?;
 
             local_state.exporter = Some(ArrayExporter::try_new(
                 &array_result,
@@ -447,6 +646,46 @@ pub fn pushdown_projection_expression(
     }
 }
 
+/// Turn a scan into an aggregate scan. Input is N aggregations, possibly over
+/// same columns. If we return true, optimized pass expands output to N columns,
+/// e.g. min(x), max(x) turns into min(x0), max(x1), 2 columns in output.
+pub fn pushdown_projection_aggregates(
+    bind_data: &mut TableFunctionBind,
+    input: &AggregatePushdownInputRef,
+) -> VortexResult<bool> {
+    let len = input.len();
+    let mut aggregates = Vec::with_capacity(len);
+    let mut has_non_count_star = false;
+
+    debug!(%len, "pushing down projection aggregates");
+    for i in 0..len {
+        let AggregateExpression {
+            expr,
+            projection_id,
+        } = input.get(i);
+        if projection_id == COUNT_STAR_PROJ_IDX {
+            aggregates.push(ColumnAggregate::CountStar);
+            continue;
+        }
+        let Some(aggregate) = try_from_projection_aggregate(expr)? else {
+            debug!(%expr, %i, "failed to push down projection aggregate");
+            return Ok(false);
+        };
+        debug!(%expr, %projection_id, %i, "pushed down projection aggregate");
+        aggregates.push(ColumnAggregate::Real {
+            projection_id,
+            aggregate,
+        });
+        has_non_count_star = true;
+    }
+    // DuckDB computes just count(*) faster than us
+    if !has_non_count_star {
+        return Ok(false);
+    }
+    bind_data.aggregates = aggregates;
+    Ok(true)
+}
+
 /// Get column-wise statistics. Available only if we're reading a single file.
 pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<ColumnStatistics> {
     let children = bind_data.data_source.children();
@@ -464,8 +703,16 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
         Some(inner) => inner.file_stats().stats_sets(),
         None => return None,
     };
-    let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
-    let dtype = bind_data.column_fields[column_index].dtype.clone();
+    let source_id = if bind_data.aggregates.is_empty() {
+        column_index
+    } else {
+        match bind_data.aggregates[column_index] {
+            ColumnAggregate::Real { projection_id, .. } => projection_id.as_(),
+            ColumnAggregate::CountStar => return None,
+        }
+    };
+    let dtype = bind_data.column_fields[source_id].dtype.clone();
+    let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[source_id]);
     Some(ColumnStatistics::from(&stats_aggregate, dtype))
 }
 
@@ -480,6 +727,9 @@ pub fn statistics(bind_data: &TableFunctionBind, column_index: usize) -> Option<
 /// here.
 const DEFAULT_SELECTIVITY: f64 = 0.2;
 pub fn cardinality(bind_data: &TableFunctionBind) -> Cardinality {
+    // If we're doing an aggregate scan, we don't change output cardinality to
+    // 1 as we want duckdb to do our aggregation in parallel. That may look
+    // counterintuitive in the plan, though.
     let has_non_optional_filter = bind_data.has_non_optional_filter.load(Ordering::Relaxed);
     match bind_data.data_source.row_count() {
         Precision::Exact(v) => {
@@ -519,6 +769,31 @@ pub fn to_string(bind_data: &TableFunctionBind, map: &mut DuckdbStringMapRef) {
         let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{f}"));
         map.push("Filters", &filters.join("\n"));
     }
+
+    if !bind_data.aggregates.is_empty() {
+        let aggregations = bind_data
+            .aggregates
+            .iter()
+            .map(|agg| match agg {
+                ColumnAggregate::Real {
+                    projection_id,
+                    aggregate,
+                } => {
+                    let projection_id: usize = projection_id.as_();
+                    format!(
+                        "{aggregate}({})",
+                        bind_data.column_fields[projection_id].name
+                    )
+                }
+                ColumnAggregate::CountStar => "count(*)".to_string(),
+            })
+            .join("\n");
+        if !aggregations.is_empty() {
+            map.push("Aggregations", &aggregations);
+        }
+        return;
+    }
+
     let projections = bind_data
         .column_fields
         .iter()
@@ -545,8 +820,11 @@ fn progress(bytes_read: &AtomicU64, bytes_total: &AtomicU64) -> f64 {
 mod tests {
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::Ordering::Relaxed;
+    use std::task::Poll;
 
+    use crate::RUNTIME;
     use crate::table_function::progress;
+    use crate::table_function::scan_driver_stream;
 
     #[test]
     fn test_table_scan_progress() {
@@ -560,5 +838,27 @@ mod tests {
 
         bytes_total.fetch_add(100, Relaxed);
         assert!((progress(&bytes_read, &bytes_total) - 50.).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn scan_driver_panic_propagates_through_iterator() {
+        let (tx, rx) = kanal::bounded_async(1);
+        let _tx = tx;
+        let stream = futures::stream::poll_fn(|_| -> Poll<Option<()>> {
+            panic!("duckdb scan driver panic");
+        });
+
+        let mut iter =
+            RUNTIME.block_on_stream_thread_safe(|_handle| scan_driver_stream(stream, rx));
+        let panic = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| iter.next())) {
+            Ok(_) => panic!("driver panic must propagate through iterator"),
+            Err(panic) => panic,
+        };
+        let message = panic
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("<unknown panic>");
+        assert!(message.contains("duckdb scan driver panic"));
     }
 }

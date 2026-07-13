@@ -9,7 +9,11 @@ TEST_CASE("Null array creation", "[array]") {
     REQUIRE(array != nullptr);
     REQUIRE(vx_array_is_nullable(array));
     REQUIRE(vx_array_has_dtype(array, DTYPE_NULL));
-    REQUIRE(vx_dtype_get_variant(vx_array_dtype(array)) == DTYPE_NULL);
+    const vx_dtype *dtype = vx_array_dtype(array);
+    defer {
+        vx_dtype_free(dtype);
+    };
+    REQUIRE(vx_dtype_get_variant(dtype) == DTYPE_NULL);
     REQUIRE(vx_array_len(array) == 1999);
     vx_array_free(array);
 }
@@ -26,7 +30,11 @@ TEST_CASE("Primitive array creation", "[array]") {
     require_no_error(error);
     REQUIRE(array != nullptr);
     REQUIRE(vx_array_has_dtype(array, DTYPE_PRIMITIVE));
-    REQUIRE(vx_dtype_get_variant(vx_array_dtype(array)) == DTYPE_PRIMITIVE);
+    const vx_dtype *dtype = vx_array_dtype(array);
+    REQUIRE(vx_dtype_get_variant(dtype) == DTYPE_PRIMITIVE);
+    defer {
+        vx_dtype_free(dtype);
+    };
     REQUIRE(vx_array_is_primitive(array, PTYPE_U8));
     REQUIRE(vx_array_len(array) == buffer.size());
 
@@ -54,7 +62,7 @@ TEST_CASE("Struct array creation", "[array]") {
     vx_struct_column_builder *builder = vx_struct_column_builder_new(&validity, 2);
     CHECK(builder != nullptr);
 
-    vx_struct_column_builder_add_field(builder, "age", field_array, &error);
+    vx_struct_column_builder_add_field(builder, vx_view_from_cstr("age"), field_array, &error);
     vx_array_free(field_array);
 
     SECTION("Struct array builder free") {

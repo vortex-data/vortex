@@ -212,7 +212,9 @@ where
     }
 }
 
-enum PrimitiveOperand<T: NativePType> {
+/// A primitive binary-operator operand: a materialized buffer, a non-null constant, or an
+/// all-null constant.
+pub(super) enum PrimitiveOperand<T: NativePType> {
     Array {
         values: Buffer<T>,
         validity: Validity,
@@ -226,7 +228,7 @@ enum PrimitiveOperand<T: NativePType> {
 }
 
 impl<T: NativePType> PrimitiveOperand<T> {
-    fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+    pub(super) fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if let Some(constant) = array.as_opt::<Constant>() {
             return Ok(
                 match constant.scalar().as_primitive().try_typed_value::<T>()? {
@@ -250,14 +252,14 @@ impl<T: NativePType> PrimitiveOperand<T> {
         Ok(Self::Array { values, validity })
     }
 
-    fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         match self {
             Self::Array { values, .. } => values.len(),
             Self::Constant { len, .. } | Self::Null(len) => *len,
         }
     }
 
-    fn validity(&self) -> Validity {
+    pub(super) fn validity(&self) -> Validity {
         match self {
             Self::Array { validity, .. } => validity.clone(),
             Self::Constant { validity, .. } => validity.clone(),

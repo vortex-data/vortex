@@ -240,12 +240,14 @@ async fn test_read_simple_with_spawn() {
             vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
             Arc::new(I32.into()),
         )
-        .unwrap(),
+        .unwrap()
+        .into_array(),
         ListArray::from_iter_slow::<i8, _>(
             vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
             Arc::new(I32.into()),
         )
-        .unwrap(),
+        .unwrap()
+        .into_array(),
     ])
     .into_array();
 
@@ -1731,15 +1733,12 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
 /// Regression test: filtering a milliseconds timestamp column with a seconds scalar should
 /// always error, regardless of how the internal children of `DateTimePartsArray` are encoded.
 ///
-/// This test forces `ConstantArray` encoding for the seconds/subseconds children by using a
-/// compressor with Dict excluded (which triggers distinct-value computation, letting
-/// `ConstantScheme` win for `[0, 0, 0]`). The scanner should still detect the time unit
+/// The compressor's built-in constant detection encodes the seconds/subseconds children
+/// (`[0, 0, 0]`) as `ConstantArray`s. The scanner should still detect the time unit
 /// mismatch and error, not silently return wrong results.
 #[tokio::test]
 async fn timestamp_unit_mismatch_errors_with_constant_children()
 -> Result<(), Box<dyn std::error::Error>> {
-    // Build a compressor where ConstantScheme wins for [0, 0, 0] by including Dict
-    // (which enables distinct-value computation).
     let compressor = vortex_btrblocks::BtrBlocksCompressor::default();
 
     // Write file with MILLISECONDS timestamps using this compressor.

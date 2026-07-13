@@ -1,4 +1,4 @@
-# Vortex C interface
+# Vortex C bindings
 
 ## Updating Headers
 
@@ -20,7 +20,7 @@ target_link_libraries(my_target, vortex_ffi_shared)
 # or target_link_libraries(my_target, vortex_ffi)
 ```
 
-## Running C examples:
+## Running C examples
 
 ```sh
 cmake -Bbuild -DBUILD_EXAMPLES=1
@@ -99,7 +99,7 @@ cargo +nightly build -Zbuild-std --target=<target triple> \
 2. Build tests with target triple:
 
 ```sh
-cmake -Bbuild -DWITH_ASAN=1 -DTARGET_TRIPLE=<target triple>
+cmake -Bbuild -DSANITIZER=asan -DTARGET_TRIPLE=<target triple>
 ```
 
 3. Run the tests (ctest doesn't output failures in detail):

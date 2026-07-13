@@ -4,7 +4,6 @@
 //! Compression scheme implementations.
 
 pub mod binary;
-pub mod bool;
 pub mod float;
 pub mod integer;
 pub mod string;

@@ -70,7 +70,10 @@ mod test {
         ];
         let array =
             StructArray::try_new(["a", "b"].into(), fields, 5, Validity::NonNullable).unwrap();
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[test]
@@ -83,7 +86,10 @@ mod test {
         ];
         let array =
             StructArray::try_new(["a", "b"].into(), fields, 5, Validity::NonNullable).unwrap();
-        test_filter_conformance(&array.into_array());
+        test_filter_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 
     #[test]
@@ -150,6 +156,7 @@ mod test {
             &StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
                 .unwrap()
                 .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 
@@ -184,6 +191,7 @@ mod test {
             )
             .unwrap()
             .into_array(),
+            &mut array_session().create_execution_ctx(),
         );
     }
 }

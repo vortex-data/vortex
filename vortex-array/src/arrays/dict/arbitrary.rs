@@ -37,7 +37,6 @@ impl ArbitraryDictArray {
     pub fn with_dtype(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<Self> {
         // Generate the number of unique values (dictionary size)
         let values_len = u.int_in_range(1..=20)?;
-        // Generate values array with the given dtype
         let values = ArbitraryArray::arbitrary_with_config(
             u,
             &ArbitraryArrayConfig {

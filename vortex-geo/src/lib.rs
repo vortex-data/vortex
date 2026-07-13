@@ -8,6 +8,9 @@ use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_session::VortexSession;
 
+use crate::extension::LineString;
+use crate::extension::MultiLineString;
+use crate::extension::MultiPoint;
 use crate::extension::MultiPolygon;
 use crate::extension::Point;
 use crate::extension::Polygon;
@@ -30,9 +33,18 @@ pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Point);
     session.arrow().register_exporter(Arc::new(Point));
     session.arrow().register_importer(Arc::new(Point));
+    session.dtypes().register(LineString);
+    session.arrow().register_exporter(Arc::new(LineString));
+    session.arrow().register_importer(Arc::new(LineString));
+    session.dtypes().register(MultiPoint);
+    session.arrow().register_exporter(Arc::new(MultiPoint));
+    session.arrow().register_importer(Arc::new(MultiPoint));
     session.dtypes().register(Polygon);
     session.arrow().register_exporter(Arc::new(Polygon));
     session.arrow().register_importer(Arc::new(Polygon));
+    session.dtypes().register(MultiLineString);
+    session.arrow().register_exporter(Arc::new(MultiLineString));
+    session.arrow().register_importer(Arc::new(MultiLineString));
     session.dtypes().register(MultiPolygon);
     session.arrow().register_exporter(Arc::new(MultiPolygon));
     session.arrow().register_importer(Arc::new(MultiPolygon));

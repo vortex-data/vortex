@@ -96,7 +96,7 @@ mod tests {
         let session = VortexSession::empty();
         assert!(!session.allows_unknown());
 
-        let session = session.allow_unknown();
+        session.allow_unknown();
         assert!(session.allows_unknown());
     }
 }

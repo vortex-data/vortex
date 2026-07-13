@@ -31,6 +31,7 @@ mod ptype;
 pub mod serde;
 pub mod session;
 mod struct_;
+mod union;
 
 use std::sync::Arc;
 
@@ -110,11 +111,16 @@ pub enum DType {
 
     /// A logical union (sum) type.
     ///
-    /// `Union` is reserved for values that are drawn from one of several possible child domains.
-    /// The exact child-type metadata and canonical storage are not yet part of the stable public
-    /// Rust API, so most callers should prefer [`DType::Variant`] for dynamically typed values or
-    /// [`DType::Struct`] for fixed schemas.
-    Union(Nullability),
+    /// A `Union` is composed of one or more **variants**, each with a name and a `DType`. A per-row
+    /// `i8` tag selects which variant is "live" at that row.
+    ///
+    /// Unlike other nested types, a union has no independent outer nullability. Its nullability is
+    /// derived at runtime from its variants: a union is nullable when any variant can contain null.
+    /// A concrete union array has no parent validity bitmap; a row's validity is the validity of
+    /// its selected child.
+    ///
+    /// See [`UnionVariants`] for the type-tag conventions and accessors.
+    Union(UnionVariants),
 
     /// Dynamically typed values stored as Vortex scalars.
     ///
@@ -146,6 +152,7 @@ impl PartialEq for DType {
             }
             // StructFields handles its own Arc::ptr_eq in its PartialEq impl.
             (Self::Struct(a, na), Self::Struct(b, nb)) => na == nb && a == b,
+            // UnionVariants handles its own Arc::ptr_eq in its PartialEq impl.
             (Self::Union(a), Self::Union(b)) => a == b,
             (Self::Variant(a), Self::Variant(b)) => a == b,
             (Self::Extension(a), Self::Extension(b)) => a == b,
@@ -178,6 +185,7 @@ pub use half;
 pub use nullability::*;
 pub use ptype::*;
 pub use struct_::*;
+pub use union::*;
 
 use crate::dtype::extension::ExtDTypeRef;
 

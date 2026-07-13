@@ -63,6 +63,7 @@ impl Benchmark for SpatialBenchBenchmark {
         // `;`-separated; a `;` must not appear in a comment, or it would split a statement in two.
         let queries_file = workspace_root()
             .join("vortex-bench")
+            .join("sql")
             .join("spatialbench")
             .with_extension("sql");
         let contents = fs::read_to_string(queries_file)?;

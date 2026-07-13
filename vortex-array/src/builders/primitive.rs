@@ -13,18 +13,14 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
-#[expect(deprecated)]
-use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::legacy_session;
 use crate::scalar::Scalar;
 
 /// The builder for building a [`PrimitiveArray`], parametrized by the `PType`.
@@ -200,15 +196,6 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         Ok(())
     }
 
-    #[allow(clippy::disallowed_methods)]
-    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
-        #[expect(deprecated)]
-        let array = array.to_primitive();
-
-        self.append_primitive_array(&array, &mut legacy_session().create_execution_ctx())
-            .vortex_expect("Failed to append primitive array");
-    }
-
     fn reserve_exact(&mut self, additional: usize) {
         self.values.reserve(additional);
         self.nulls.reserve_exact(additional);
@@ -222,7 +209,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.finish_into_primitive().into_array()
     }
 
-    fn finish_into_canonical(&mut self) -> Canonical {
+    fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
         Canonical::Primitive(self.finish_into_primitive())
     }
 }

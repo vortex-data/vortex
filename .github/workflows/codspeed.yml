@@ -23,6 +23,25 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
+  changes:
+    name: "Detect CUDA changes"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: read
+    outputs:
+      run-cuda-benchmarks: ${{ github.event_name != 'pull_request' || steps.filter.outputs.cuda == 'true' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d  # v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            cuda:
+              - "vortex-cuda/**"
+              - ".github/workflows/**"
+
   bench-codspeed:
     strategy:
       matrix:
@@ -39,7 +58,7 @@ jobs:
     timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -50,6 +69,8 @@ jobs:
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
       - uses: ./.github/actions/system-info
       - run: |
           sudo apt-get update
@@ -72,11 +93,14 @@ jobs:
   # Getting a GPU box is slow, in the future we can build on a box without one and only run
   # on GPU machines.
   bench-codspeed-cuda-build:
-    if: github.repository == 'vortex-data/vortex'
+    needs: [changes]
+    if: >-
+      always() && github.repository == 'vortex-data/vortex' &&
+      needs.changes.outputs.run-cuda-benchmarks == 'true'
     name: "Build Codspeed CUDA benchmarks"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/tag=bench-codspeed-cuda-build
+      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=bench-codspeed-cuda-build
     steps:
       - uses: runs-on/action@v2
         with:
@@ -85,6 +109,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
       - name: Install Codspeed
         uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
         with:
@@ -120,7 +145,7 @@ jobs:
     name: "Benchmark with Codspeed (CUDA Shard #${{ matrix.shard }} - ${{ matrix.name }})"
     timeout-minutes: 30
     runs-on: >-
-      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/tag=bench-codspeed-cuda-${{ matrix.shard }}
+      runs-on=${{ github.run_id }}/family=g5/cpu=8/image=ubuntu24-gpu-x64/extras=s3-cache/tag=bench-codspeed-cuda-${{ matrix.shard }}
     steps:
       - uses: runs-on/action@v2
         with:
@@ -129,6 +154,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "true"
       - name: Display NVIDIA SMI details
         run: |
           nvidia-smi

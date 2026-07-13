@@ -228,7 +228,7 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
         DType::Variant(_) => {
             vortex_bail!("row encoding does not support Variant arrays (no well-defined ordering)")
         }
-        DType::Union(_) => vortex_bail!("row encoding does not support Union arrays"),
+        DType::Union(..) => vortex_bail!("row encoding does not support Union arrays"),
         dtype => vortex_bail!("row encoding does not support dtype: {dtype:?}"),
     }
 }

@@ -4,6 +4,7 @@
 #include "data.hpp"
 #include "error.hpp"
 #include "table_function.hpp"
+#include "expr.h"
 #include "vortex_duckdb.h"
 #include "table_function.h"
 #include "vortex.h"
@@ -171,12 +172,16 @@ struct CTableBindResult {
     vector<string> &names;
 };
 
+// This is a flaw of Duckdb API which doesn't allow passing non-const
+// expressions. We never modify the value on Rust side.
+static duckdb_vx_expr get_ffi_expr(const Expression &expr) {
+    return reinterpret_cast<duckdb_vx_expr>(const_cast<Expression *>(&expr));
+}
+
 bool projection_expression_pushdown(ClientContext &, const TableFunctionProjectionExpressionInput &input) {
     const auto &bind = input.get.bind_data->Cast<CTableBindData>();
 
-    // This is a flaw of Duckdb API which doesn't allow passing non-const
-    // expressions. We never modify the value on Rust side.
-    auto ffi_expr = reinterpret_cast<duckdb_vx_expr>(const_cast<Expression *>(&input.expression));
+    duckdb_vx_expr ffi_expr = get_ffi_expr(input.expression);
     void *const ffi_bind = bind.ffi_data->DataPtr();
     duckdb_vx_error error_out = nullptr;
 
@@ -189,6 +194,33 @@ bool projection_expression_pushdown(ClientContext &, const TableFunctionProjecti
         throw BinderException(IntoErrString(error_out));
     }
     return ret;
+}
+
+extern "C" {
+idx_t duckdb_vx_aggregate_len(duckdb_vx_agg_input ffi_input) {
+    return reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input)->projections.size();
+}
+
+duckdb_vx_expr duckdb_vx_aggregate_at(duckdb_vx_agg_input ffi_input, idx_t i, idx_t *proj_idx) {
+    const auto &input = *reinterpret_cast<const TableFunctionUngroupedAggregateInput *>(ffi_input);
+    const auto &[scan_index, expr] = input.projections[i];
+    *proj_idx = scan_index == COUNT_STAR_PROJ_IDX ? scan_index
+                                                  : input.get.GetColumnIds()[scan_index].GetPrimaryIndex();
+    return get_ffi_expr(expr);
+}
+}
+
+bool aggregate_pushdown(ClientContext &, const TableFunctionUngroupedAggregateInput &input) {
+    const auto &bind = input.get.bind_data->Cast<CTableBindData>();
+    void *const ffi_bind = bind.ffi_data->DataPtr();
+    duckdb_vx_error error_out = nullptr;
+    const auto ffi_input =
+        reinterpret_cast<duckdb_vx_agg_input>(const_cast<TableFunctionUngroupedAggregateInput *>(&input));
+    const bool res = duckdb_table_function_pushdown_projection_aggregates(ffi_bind, ffi_input, &error_out);
+    if (error_out) {
+        throw BinderException(IntoErrString(error_out));
+    }
+    return res;
 }
 
 /**
@@ -238,10 +270,11 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
 }
 
 unique_ptr<LocalTableFunctionState>
-init_local(ExecutionContext &, TableFunctionInitInput &, GlobalTableFunctionState *global_state) {
+init_local(ExecutionContext &, TableFunctionInitInput &input, GlobalTableFunctionState *global_state) {
+    const void *const ffi_bind = input.bind_data->Cast<CTableBindData>().ffi_data->DataPtr();
     void *const ffi_global = global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
 
-    duckdb_vx_data ffi_local_data = duckdb_table_function_init_local(ffi_global);
+    duckdb_vx_data ffi_local_data = duckdb_table_function_init_local(ffi_bind, ffi_global);
     auto cdata = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_local_data));
     return make_uniq<CTableLocalData>(std::move(cdata));
 }

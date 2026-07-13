@@ -16,14 +16,13 @@ const char *usage = "Scan vortex files to Arrow\n"
                     "Usage: scan_to_arrow <file glob>\n";
 
 void print_error(const char *what, const vx_error *error) {
-    const vx_string *str = vx_error_get_message(error);
-    fprintf(stderr, "%s: %.*s\n", what, (int)vx_string_len(str), vx_string_ptr(str));
+    const vx_view str = vx_error_message(error);
+    fprintf(stderr, "%s: %.*s\n", what, (int)str.len, str.ptr);
 }
 
 void execute_scan(vx_session *session, vx_scan *scan) {
     vx_error *error = NULL;
 
-    // Returned dtype is owned and mustn't be freed
     const vx_dtype *dtype = vx_scan_dtype(scan, &error);
     if (dtype == NULL) {
         print_error("Failed to get scan dtype", error);
@@ -37,6 +36,7 @@ void execute_scan(vx_session *session, vx_scan *scan) {
         vx_error_free(error);
         return;
     }
+    vx_dtype_free(dtype);
 
     char schema_buf[1024 * 10];
     const int schema_len = ArrowSchemaToString(&schema, schema_buf, sizeof schema_buf, 1);
@@ -97,7 +97,8 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    vx_data_source_options ds_options = {.paths = paths};
+    vx_view path = vx_view_from_cstr(paths);
+    vx_data_source_options ds_options = {.paths = &path, .paths_len = 1};
     vx_error *error = NULL;
     const vx_data_source *data_source = vx_data_source_new(session, &ds_options, &error);
     if (data_source == NULL) {

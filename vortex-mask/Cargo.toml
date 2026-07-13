@@ -37,5 +37,13 @@ harness = false
 name = "rank"
 harness = false
 
+[[bench]]
+name = "valid_counts"
+harness = false
+
+[[bench]]
+name = "mask_iteration"
+harness = false
+
 [lints]
 workspace = true

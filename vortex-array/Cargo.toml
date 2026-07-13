@@ -23,15 +23,12 @@ workspace = true
 arbitrary = { workspace = true, optional = true }
 arc-swap = { workspace = true }
 arcref = { workspace = true }
-arrow-arith = { workspace = true }
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-buffer = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
-arrow-ord = { workspace = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 arrow-select = { workspace = true }
-arrow-string = { workspace = true }
 async-lock = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
@@ -45,6 +42,7 @@ humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
 jiff = { workspace = true }
+memchr = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
@@ -55,6 +53,8 @@ primitive-types = { workspace = true, optional = true, features = [
 ] }
 prost = { workspace = true }
 rand = { workspace = true }
+regex = { workspace = true }
+regex-syntax = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
@@ -139,6 +139,10 @@ name = "kleene_bool"
 harness = false
 
 [[bench]]
+name = "like"
+harness = false
+
+[[bench]]
 name = "interleave"
 harness = false
 
@@ -201,6 +205,10 @@ name = "dict_mask"
 harness = false
 
 [[bench]]
+name = "validity_is_valid"
+harness = false
+
+[[bench]]
 name = "dict_unreferenced_mask"
 harness = false
 
@@ -241,7 +249,15 @@ name = "filter_bool"
 harness = false
 
 [[bench]]
+name = "filter_fixed_width"
+harness = false
+
+[[bench]]
 name = "list_length"
+harness = false
+
+[[bench]]
+name = "list_sum"
 harness = false
 
 [[bench]]

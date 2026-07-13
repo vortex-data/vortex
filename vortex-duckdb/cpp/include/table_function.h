@@ -88,6 +88,10 @@ typedef struct {
 
 duckdb_state duckdb_vx_register_table_functions(duckdb_database ffi_db);
 
+typedef struct duckdb_vx_agg_input_ *duckdb_vx_agg_input;
+idx_t duckdb_vx_aggregate_len(duckdb_vx_agg_input ffi);
+duckdb_vx_expr duckdb_vx_aggregate_at(duckdb_vx_agg_input ffi, idx_t index, idx_t *proj_idx);
+
 #ifdef __cplusplus
 }
 #endif

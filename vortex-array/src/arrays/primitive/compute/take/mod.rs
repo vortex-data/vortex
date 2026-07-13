@@ -170,6 +170,7 @@ mod test {
 
     #[test]
     fn test_take_with_null_indices() {
+        let mut ctx = array_session().create_execution_ctx();
         let values = PrimitiveArray::new(
             buffer![1i32, 2, 3, 4, 5],
             Validity::Array(BoolArray::from_iter([true, true, false, false, true]).into_array()),
@@ -180,23 +181,17 @@ mod test {
         );
         let actual = values.take(indices.into_array()).unwrap();
         assert_eq!(
-            actual
-                .execute_scalar(0, &mut array_session().create_execution_ctx())
-                .vortex_expect("no fail"),
+            actual.execute_scalar(0, &mut ctx).vortex_expect("no fail"),
             Scalar::from(Some(1))
         );
         // position 3 is null
         assert_eq!(
-            actual
-                .execute_scalar(1, &mut array_session().create_execution_ctx())
-                .vortex_expect("no fail"),
+            actual.execute_scalar(1, &mut ctx).vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );
         // the third index is null
         assert_eq!(
-            actual
-                .execute_scalar(2, &mut array_session().create_execution_ctx())
-                .vortex_expect("no fail"),
+            actual.execute_scalar(2, &mut ctx).vortex_expect("no fail"),
             Scalar::null_native::<i32>()
         );
     }
@@ -213,7 +208,10 @@ mod test {
     ))]
     #[case(PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4), None]))]
     fn test_take_primitive_conformance(#[case] array: PrimitiveArray) {
-        test_take_conformance(&array.into_array());
+        test_take_conformance(
+            &array.into_array(),
+            &mut array_session().create_execution_ctx(),
+        );
     }
 }
 

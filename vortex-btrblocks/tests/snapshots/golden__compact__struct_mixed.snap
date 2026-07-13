@@ -1,0 +1,19 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: {id=i64, category=utf8, value=f64}, len=16384, nbytes=524288
+root: vortex.struct({id=i64, category=utf8, value=f64}, len=16384) nbytes=55986
+  metadata: 
+  id: vortex.sequence(i64, len=16384) nbytes=0
+    metadata: base: 10000i64, multiplier: 7i64
+  category: vortex.dict(utf8, len=16384) nbytes=8287
+    metadata: all_values_referenced: true
+    codes: fastlanes.bitpacked(u8, len=16384) nbytes=8192
+      metadata: bit_width: 4, offset: 0
+    values: vortex.zstd(utf8, len=12) nbytes=95
+      metadata: nrows: 12, slice: 0..12
+  value: vortex.alp(f64, len=16384) nbytes=47699
+    metadata: exponents: e: 14, f: 12
+    encoded: vortex.pco(i64, len=16384) nbytes=47699
+      metadata: ptype: i64, nrows: 16384, slice: 0..16384

@@ -590,7 +590,7 @@ impl SparseData {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
             let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
             let (top_pvalue, _) = primitive
-                .top_value()?
+                .top_value(ctx)?
                 .vortex_expect("Non empty or all null array");
 
             Scalar::primitive_value(top_pvalue, top_pvalue.ptype(), array.dtype().nullability())

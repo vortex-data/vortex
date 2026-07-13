@@ -1,0 +1,15 @@
+---
+source: vortex-btrblocks/tests/golden.rs
+expression: rendered
+---
+input: u64, len=16384, nbytes=131072
+root: fastlanes.delta(u64, len=16384) nbytes=19840
+  metadata: offset: 0
+  bases: vortex.primitive(u64, len=256) nbytes=2048
+    metadata: ptype: u64
+  deltas: vortex.dict(u64, len=16384) nbytes=17792
+    metadata: all_values_referenced: true
+    codes: vortex.primitive(u8, len=16384) nbytes=16384
+      metadata: ptype: u8
+    values: fastlanes.bitpacked(u64, len=201) nbytes=1408
+      metadata: bit_width: 11, offset: 0

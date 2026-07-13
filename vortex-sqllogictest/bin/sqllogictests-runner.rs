@@ -198,6 +198,11 @@ fn complete_files(
 }
 
 fn main() -> anyhow::Result<ExitCode> {
+    drop(
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .try_init(),
+    );
     let mut raw_args: Vec<String> = std::env::args().collect();
     // We remove the `--complete` flag that isn't standard before we pass the rest.
     let complete = {

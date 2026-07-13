@@ -17,9 +17,9 @@ inputs:
     description: "optional targets override (e.g. wasm32-unknown-unknown)"
     required: false
   enable-sccache:
-    description: "Should sccache be enabled, true by default."
+    description: "Should sccache be enabled."
     required: false
-    default: "true"
+    default: "false"
 
 runs:
   using: "composite"

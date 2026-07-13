@@ -28,7 +28,6 @@ use crate::builders::BoolBuilder;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-mod canonical;
 mod kernel;
 mod operations;
 mod validity;
@@ -198,12 +197,10 @@ impl VTable for Bool {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if let Some(builder) = builder.as_any_mut().downcast_mut::<BoolBuilder>() {
-            return builder.append_bool_array(&array.into_owned(), ctx);
-        }
-
-        builder.extend_from_array(array.as_ref());
-        Ok(())
+        let Some(builder) = builder.as_any_mut().downcast_mut::<BoolBuilder>() else {
+            vortex_bail!("append_to_builder for Bool requires a BoolBuilder");
+        };
+        builder.append_bool_array(&array.into_owned(), ctx)
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

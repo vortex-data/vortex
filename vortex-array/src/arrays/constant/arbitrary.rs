@@ -16,15 +16,15 @@ pub struct ArbitraryConstantArray(pub ConstantArray);
 impl<'a> Arbitrary<'a> for ArbitraryConstantArray {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         let dtype: DType = u.arbitrary()?;
-        Self::with_dtype(u, &dtype, None)
+        Self::with_dtype(u, &dtype)
     }
 }
 
 impl ArbitraryConstantArray {
     /// Generate an arbitrary ConstantArray with the given dtype.
-    pub fn with_dtype(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<Self> {
+    pub fn with_dtype(u: &mut Unstructured, dtype: &DType) -> Result<Self> {
         let scalar = random_scalar(u, dtype)?;
-        let len = len.unwrap_or(u.int_in_range(0..=100)?);
+        let len = u.int_in_range(0..=2048)?;
         Ok(ArbitraryConstantArray(ConstantArray::new(scalar, len)))
     }
 }

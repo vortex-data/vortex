@@ -22,14 +22,14 @@ use crate::EqMode;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::CHUNK_OFFSETS_SLOT;
@@ -179,7 +179,7 @@ impl VTable for Chunked {
         metadata: &[u8],
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
@@ -197,8 +197,11 @@ impl VTable for Chunked {
             &DType::Primitive(PType::U64, Nullability::NonNullable),
             nchunks + 1,
         )?;
-        #[expect(deprecated)]
-        let chunk_offsets_buf = chunk_offsets.to_primitive().to_buffer::<u64>();
+        let mut ctx = session.create_execution_ctx();
+        let chunk_offsets_buf = chunk_offsets
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .to_buffer::<u64>();
         let chunk_offsets_usize = chunk_offsets_buf
             .iter()
             .copied()

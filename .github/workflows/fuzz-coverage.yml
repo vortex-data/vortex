@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=arm64-medium/disk=large', github.run_id)
+          && format('runs-on={0}/runner=arm64-medium/disk=large/extras=s3-cache', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -33,6 +33,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           components: clippy, rustfmt, llvm-tools
+          enable-sccache: ${{ github.repository == 'vortex-data/vortex' && 'true' || 'false' }}
 
       - name: Ensure llvm-tools are installed
         run: |

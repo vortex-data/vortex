@@ -25,7 +25,6 @@ use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
-use vortex::array::legacy_session;
 use vortex::dtype::DType;
 
 use crate::arrays::PyArrayRef;
@@ -133,7 +132,7 @@ impl PyArrayIterator {
                     session().arrow().execute_arrow(
                         chunk?,
                         Some(&target),
-                        &mut legacy_session().create_execution_ctx(),
+                        &mut session().create_execution_ctx(),
                     )
                 })
                 .map(|chunk| chunk.map_err(|e| ArrowError::ExternalError(Box::new(e))))

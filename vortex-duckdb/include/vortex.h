@@ -11,6 +11,8 @@
 
 #pragma once
 
+#define COUNT_STAR_PROJ_IDX UINT64_MAX
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -41,6 +43,11 @@ bool duckdb_table_function_pushdown_projection_expression(void *bind_data,
                                                           duckdb_vx_error *error_out);
 
 extern
+bool duckdb_table_function_pushdown_projection_aggregates(void *bind_data,
+                                                          duckdb_vx_agg_input input,
+                                                          duckdb_vx_error *error_out);
+
+extern
 void duckdb_table_function_scan(void *global_init_data,
                                 void *local_init_data,
                                 duckdb_data_chunk output,
@@ -56,7 +63,9 @@ extern
 duckdb_vx_data duckdb_table_function_init_global(const duckdb_vx_tfunc_init_input *init_input,
                                                  duckdb_vx_error *error_out);
 
-extern duckdb_vx_data duckdb_table_function_init_local(void *global_init_data);
+extern
+duckdb_vx_data duckdb_table_function_init_local(const void *bind_data,
+                                                void *global_init_data);
 
 extern
 duckdb_vx_data duckdb_table_function_bind(duckdb_vx_tfunc_bind_input bind_input,

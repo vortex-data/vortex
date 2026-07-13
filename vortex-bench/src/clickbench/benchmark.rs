@@ -60,7 +60,9 @@ impl ClickBenchSortedBenchmark {
 fn read_clickbench_queries(queries_file: Option<&str>) -> Result<Vec<(usize, String)>> {
     let queries_filepath = match queries_file {
         Some(file) => file.into(),
-        None => Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql"),
+        None => Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("sql")
+            .join("clickbench_queries.sql"),
     };
 
     Ok(fs::read_to_string(queries_filepath)?

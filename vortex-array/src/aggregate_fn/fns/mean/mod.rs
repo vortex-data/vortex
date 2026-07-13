@@ -18,10 +18,16 @@ use crate::aggregate_fn::combined::CombinedOptions;
 use crate::aggregate_fn::combined::PairOptions;
 use crate::aggregate_fn::fns::count::Count;
 use crate::aggregate_fn::fns::sum::Sum;
+use crate::aggregate_fn::fns::sum::sum_decimal_dtype;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::MAX_PRECISION;
+use crate::dtype::MAX_SCALE;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::i256;
+use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -45,10 +51,7 @@ pub fn mean(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
 ///
 /// Implemented as `Sum / Count` via [`BinaryCombined`].
 ///
-/// Coercion / return type:
-/// - Booleans and primitive numeric types are coerced to `f64` and the result
-///   is a nullable `f64`.
-/// - Decimals are kept as decimals but not implemented currently
+/// Booleans and primitive numeric types are cast to f64. Decimals stay decimals.
 #[derive(Clone, Debug)]
 pub struct Mean;
 
@@ -88,18 +91,18 @@ impl BinaryCombined for Mean {
     }
 
     fn finalize(&self, sum: ArrayRef, count: ArrayRef) -> VortexResult<ArrayRef> {
-        let target = match sum.dtype() {
-            DType::Decimal(..) => sum.dtype().with_nullability(Nullability::Nullable),
-            _ => DType::Primitive(PType::F64, Nullability::Nullable),
-        };
+        if let DType::Decimal(..) = sum.dtype() {
+            vortex_bail!("grouped mean over decimals is not yet supported");
+        }
+        let target = DType::Primitive(PType::F64, Nullability::Nullable);
         let sum_cast = sum.cast(target.clone())?;
         let count_cast = count.cast(target)?;
         sum_cast.binary(count_cast, Operator::Div)
     }
 
     fn finalize_scalar(&self, left_scalar: Scalar, right_scalar: Scalar) -> VortexResult<Scalar> {
-        if let DType::Decimal(..) = left_scalar.dtype() {
-            vortex_bail!("mean::finalize_scalar not yet implemented for decimal inputs");
+        if let DType::Decimal(decimal_dtype, _) = *left_scalar.dtype() {
+            return finalize_decimal_scalar(&left_scalar, &right_scalar, decimal_dtype);
         }
 
         let target = DType::Primitive(PType::F64, Nullability::Nullable);
@@ -140,13 +143,12 @@ impl BinaryCombined for Mean {
 /// - Bool stays as bool — `Sum` has a native bool path and bool → f64 isn't
 ///   currently a direct cast in vortex.
 /// - Primitive numerics → `f64` so the sum and finalize work without overflow.
+/// - Decimals stay as decimals
 fn coerced_input_dtype(input_dtype: &DType) -> Option<DType> {
     match input_dtype {
         DType::Bool(_) => Some(input_dtype.clone()),
         DType::Primitive(_, n) => Some(DType::Primitive(PType::F64, *n)),
-        DType::Decimal(..) => {
-            unimplemented!("mean is not implemented for decimals yet")
-        }
+        DType::Decimal(..) => Some(input_dtype.clone()),
         _ => None,
     }
 }
@@ -156,11 +158,57 @@ fn mean_output_dtype(input_dtype: &DType) -> Option<DType> {
         DType::Bool(_) | DType::Primitive(..) => {
             Some(DType::Primitive(PType::F64, Nullability::Nullable))
         }
-        DType::Decimal(..) => {
-            unimplemented!("mean for decimals is not yet implemented");
-        }
+        DType::Decimal(decimal_dtype, _) => Some(DType::Decimal(
+            mean_decimal_dtype(&sum_decimal_dtype(decimal_dtype)),
+            Nullability::Nullable,
+        )),
         _ => None,
     }
+}
+
+/// mean() output decimal type mimicking Spark/DataFusion/MySQL: decimal(p+4, s+4)
+fn mean_decimal_dtype(sum: &DecimalDType) -> DecimalDType {
+    DecimalDType::new(
+        u8::min(MAX_PRECISION, sum.precision().saturating_sub(6)),
+        i8::min(MAX_SCALE, sum.scale() + 4),
+    )
+}
+
+fn finalize_decimal_scalar(
+    sum: &Scalar,
+    count: &Scalar,
+    sum_decimal: DecimalDType,
+) -> VortexResult<Scalar> {
+    let target_decimal_dtype = mean_decimal_dtype(&sum_decimal);
+    let target_dtype = DType::Decimal(target_decimal_dtype, Nullability::Nullable);
+
+    // overflow
+    let Some(sum_value) = sum.as_decimal().decimal_value() else {
+        return Ok(Scalar::null(target_dtype));
+    };
+    // empty input
+    let count = count.as_primitive().typed_value::<u64>().unwrap_or(0);
+    if count == 0 {
+        return Ok(Scalar::null(target_dtype));
+    }
+
+    let Ok(sum) = DecimalValue::rescale_i256(
+        sum_value.as_i256(),
+        sum_decimal.scale(),
+        target_decimal_dtype.scale(),
+    ) else {
+        return Ok(Scalar::null(target_dtype));
+    };
+    let mean = sum / i256::from_i128(i128::from(count));
+
+    let Ok(mean) = DecimalValue::try_from_i256(mean, target_decimal_dtype) else {
+        return Ok(Scalar::null(target_dtype));
+    };
+    Ok(Scalar::decimal(
+        mean,
+        target_decimal_dtype,
+        Nullability::Nullable,
+    ))
 }
 
 #[cfg(test)]
@@ -175,7 +223,9 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
+    use crate::dtype::DecimalDType;
     use crate::validity::Validity;
 
     #[test]
@@ -270,6 +320,73 @@ mod tests {
         let mut ctx = array_session().create_execution_ctx();
         let result = mean(&array, &mut ctx)?;
         assert!(result.as_primitive().as_::<f64>().is_some_and(f64::is_nan));
+        Ok(())
+    }
+
+    #[test]
+    fn mean_decimal() -> VortexResult<()> {
+        let dtype = DecimalDType::new(6, 2);
+        let array =
+            DecimalArray::new(buffer![100i32, 200, 300], dtype, Validity::NonNullable).into_array();
+        let mut ctx = array_session().create_execution_ctx();
+        let result = mean(&array, &mut ctx)?;
+        assert_eq!(
+            result.dtype(),
+            &DType::Decimal(DecimalDType::new(10, 6), Nullability::Nullable)
+        );
+        // mean(1.00, 2.00, 3.00) = 2.000000
+        assert_eq!(
+            result.as_decimal().decimal_value(),
+            Some(DecimalValue::I256(i256::from_i128(2_000_000)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn mean_decimal_null() -> VortexResult<()> {
+        let dtype = DecimalDType::new(6, 2);
+        let validity = Validity::from_iter([true, false, true]);
+        let array = DecimalArray::new(buffer![150i32, 0, 450], dtype, validity).into_array();
+        let mut ctx = array_session().create_execution_ctx();
+        let result = mean(&array, &mut ctx)?;
+        // mean(1.50, 4.50) = 3.000000
+        assert_eq!(
+            result.as_decimal().decimal_value(),
+            Some(DecimalValue::I256(i256::from_i128(3_000_000)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn mean_decimal_chunked() -> VortexResult<()> {
+        let dtype = DecimalDType::new(6, 2);
+        let validity = Validity::NonNullable;
+        let chunk1 = DecimalArray::new(buffer![100i32, 200], dtype, validity.clone()).into_array();
+        let chunk2 = DecimalArray::new(buffer![300i32, 400, 500], dtype, validity).into_array();
+        let dtype = chunk1.dtype().clone();
+        let chunked = ChunkedArray::try_new(vec![chunk1, chunk2], dtype)?;
+        let mut ctx = array_session().create_execution_ctx();
+        let result = mean(&chunked.into_array(), &mut ctx)?;
+        // mean(1.00, 2.00, 3.00, 4.00, 5.00) = 3.000000
+        assert_eq!(
+            result.as_decimal().decimal_value(),
+            Some(DecimalValue::I256(i256::from_i128(3_000_000)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn mean_decimal_33() -> VortexResult<()> {
+        let dtype = DecimalDType::new(6, 2);
+        let buf = buffer![100i32, 0, 0];
+        let array = DecimalArray::new(buf, dtype, Validity::NonNullable).into_array();
+        let mut ctx = array_session().create_execution_ctx();
+        let result = mean(&array, &mut ctx)?;
+        // mean(1.00, 0.00, 0.00) = 1/3 => 0.333333
+        assert_eq!(
+            result.as_decimal().decimal_value(),
+            Some(DecimalValue::I256(i256::from_i128(333_333)))
+        );
         Ok(())
     }
 

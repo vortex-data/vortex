@@ -77,6 +77,16 @@ pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
 #[derive(Clone, Debug)]
 pub struct Sum;
 
+// Both Spark and DataFusion use this heuristic.
+// - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
+// - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
+pub(crate) fn sum_decimal_dtype(input: &DecimalDType) -> DecimalDType {
+    DecimalDType::new(
+        u8::min(MAX_PRECISION, input.precision() + 10),
+        input.scale(),
+    )
+}
+
 impl AggregateFnVTable for Sum {
     type Options = NumericalAggregateOpts;
     type Partial = SumPartial;
@@ -118,14 +128,7 @@ impl AggregateFnVTable for Sum {
                 }
             },
             DType::Decimal(decimal_dtype, _) => {
-                // Both Spark and DataFusion use this heuristic.
-                // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
-                // - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
-                let precision = u8::min(MAX_PRECISION, decimal_dtype.precision() + 10);
-                DType::Decimal(
-                    DecimalDType::new(precision, decimal_dtype.scale()),
-                    Nullable,
-                )
+                DType::Decimal(sum_decimal_dtype(decimal_dtype), Nullable)
             }
             // Unsupported types
             _ => return None,
