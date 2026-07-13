@@ -132,19 +132,20 @@ val libExt =
 val nativeLibrary = rustWorkspaceDir.resolve("target/debug/libvortex_jni$libExt")
 val nativeLibraryDir = "src/main/resources/native/$osShortName-$osArch"
 
-val buildJniLibrary = tasks.register<Exec>("buildJniLibrary") {
-    description = "Build the JNI library for the host architecture"
-    group = "verification"
+val buildJniLibrary =
+    tasks.register<Exec>("buildJniLibrary") {
+        description = "Build the JNI library for the host architecture"
+        group = "verification"
 
-    // The publish workflow places release, cross-compiled libs for every supported
-    // architecture before invoking shadowJar; rebuilding the host-arch debug lib
-    // here would overwrite them (linux-aarch64 ends up holding a linux-amd64 .so).
-    onlyIf { System.getenv("VORTEX_SKIP_MAKE_TEST_FILES") != "true" }
+        // The publish workflow places release, cross-compiled libs for every supported
+        // architecture before invoking shadowJar; rebuilding the host-arch debug lib
+        // here would overwrite them (linux-aarch64 ends up holding a linux-amd64 .so).
+        onlyIf { System.getenv("VORTEX_SKIP_MAKE_TEST_FILES") != "true" }
 
-    workingDir = rustWorkspaceDir
-    executable = "cargo"
-    args("build", "--package", "vortex-jni")
-}
+        workingDir = rustWorkspaceDir
+        executable = "cargo"
+        args("build", "--package", "vortex-jni")
+    }
 
 tasks.register<Copy>("makeTestFiles") {
     description = "Stage the JNI library used by unit tests"
