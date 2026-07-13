@@ -25,6 +25,8 @@ use crate::dtype::Nullability;
 /// Per Arrow's spec, the per-row type tag is an `int8`. By default, tag `i` selects the child at
 /// offset `i` (`type_ids = [0, 1, ..., N-1]`).
 ///
+/// Type IDs are restricted to the Arrow-compatible range `0..=127`; negative tags are rejected.
+///
 /// Schemas may also use non-consecutive tags (e.g. `[0, 5, 7]`), in which case the value of
 /// `type_ids[i]` is the tag used in the data to select the child at offset `i`. Supporting
 /// non-consecutive tags lets the schema remove children without renumbering the remaining tags.
@@ -180,6 +182,11 @@ impl UnionVariants {
             type_ids
         );
         vortex_ensure!(
+            type_ids.iter().all(|type_id| *type_id >= 0),
+            "type_ids must be non-negative, got {:?}",
+            type_ids
+        );
+        vortex_ensure!(
             names.iter().all_unique(),
             "union variant names must be distinct, got {:?}",
             names
@@ -193,7 +200,7 @@ impl UnionVariants {
     /// # Errors
     ///
     /// Returns an error if names, dtypes, or type IDs do not all have the same length, or if there
-    /// are any duplicate names or type ids.
+    /// are any duplicate names or type ids, or if a type ID is negative.
     pub fn try_new(names: FieldNames, dtypes: Vec<DType>, type_ids: Vec<i8>) -> VortexResult<Self> {
         Self::validate_shape(&names, dtypes.len(), &type_ids)?;
 
@@ -237,7 +244,7 @@ impl UnionVariants {
     /// # Errors
     ///
     /// Returns an error if names, dtypes, or type IDs do not all have the same length, or if there
-    /// are any duplicate names or type ids.
+    /// are any duplicate names or type ids, or if a type ID is negative.
     pub(crate) fn try_from_fields(
         names: FieldNames,
         dtypes: Vec<FieldDType>,
@@ -427,6 +434,17 @@ mod tests {
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("distinct"));
+    }
+
+    #[test]
+    fn test_negative_type_ids_rejected() {
+        let result = UnionVariants::try_new(
+            ["negative"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![-1],
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("non-negative"));
     }
 
     #[test]
