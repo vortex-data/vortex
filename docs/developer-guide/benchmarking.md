@@ -128,6 +128,26 @@ Each individual iteration of the benchmarked closure should complete in
 
 Use `#[cfg(not(codspeed))]` for benchmarks that are incompatible with CodSpeed.
 
+### Fix flaky benchmarks instead of gating them
+
+A benchmark is *flaky under simulation* when it flips between the same two values (±10% or
+more) on PRs that do not touch its code. Prefer fixing the benchmark over gating it, in this
+order:
+
+1. **Allocation in the timed region** — glibc malloc's code differs across runner images, so
+   alloc-heavy benchmarks trace differently for identical Vortex code. Set `mimalloc` as the
+   global allocator (see below); it is vendored, so every build traces the same allocator.
+2. **Sub-microsecond work** — a benchmark measuring nanoseconds of work reports mostly fixed
+   harness overhead, which shifts with unrelated binary layout changes. Run the operation in
+   a tight loop per iteration so the operation dominates, or drop argument values so small
+   that they only measure overhead.
+3. **Non-deterministic buffer placement** — when simulated cache behavior depends on where the
+   allocator happened to place an input buffer, pin the fixture with
+   `ensure_aligned(Alignment::new(4096))` (see `encodings/fastlanes/benches/bitpack_compare.rs`).
+4. **None of the above applies** — if the measured quantity is inherently environment-bound
+   (e.g. dominated by glibc's `ifunc`-resolved `memcpy` inside a third-party library) and the
+   benchmark carries little signal, delete it rather than letting it spam every PR.
+
 ### CodSpeed's single-run model
 
 CI benchmarks run under [CodSpeed's CPU simulation](https://codspeed.io/docs/instruments/cpu),
