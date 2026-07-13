@@ -40,6 +40,9 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arc_swap_map::ArcSwapMap;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
@@ -297,9 +300,7 @@ impl ArrowSession {
     /// extensions are preserved via [`Self::to_arrow_field`].
     pub fn to_arrow_schema(&self, dtype: &DType) -> VortexResult<Schema> {
         let DType::Struct(struct_dtype, _) = dtype else {
-            vortex_error::vortex_bail!(
-                "to_arrow_schema requires a top-level struct dtype, got {dtype}"
-            );
+            vortex_bail!("to_arrow_schema requires a top-level struct dtype, got {dtype}");
         };
         let mut fields = Vec::with_capacity(struct_dtype.names().len());
         for (name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
@@ -538,10 +539,7 @@ impl ArrowSession {
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(
-                    vortex_array::arrays::ListArray::try_new(elements, offsets, validity)?
-                        .into_array(),
-                )
+                Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
             }
             DataType::LargeList(elem_field) => {
                 let list = array.as_list::<i64>();
@@ -549,23 +547,17 @@ impl ArrowSession {
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(
-                    vortex_array::arrays::ListArray::try_new(elements, offsets, validity)?
-                        .into_array(),
-                )
+                Ok(ListArray::try_new(elements, offsets, validity)?.into_array())
             }
             DataType::FixedSizeList(elem_field, list_size) => {
                 let fsl = array.as_fixed_size_list();
                 let elements =
                     self.from_arrow_array(ArrowArrayRef::clone(fsl.values()), elem_field.as_ref())?;
                 let validity = nulls(fsl.nulls(), field.is_nullable())?;
-                Ok(vortex_array::arrays::FixedSizeListArray::try_new(
-                    elements,
-                    *list_size as u32,
-                    validity,
-                    fsl.len(),
-                )?
-                .into_array())
+                Ok(
+                    FixedSizeListArray::try_new(elements, *list_size as u32, validity, fsl.len())?
+                        .into_array(),
+                )
             }
             DataType::ListView(elem_field) => {
                 let list = array.as_list_view::<i32>();
@@ -574,10 +566,7 @@ impl ArrowSession {
                 let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(vortex_array::arrays::ListViewArray::try_new(
-                    elements, offsets, sizes, validity,
-                )?
-                .into_array())
+                Ok(ListViewArray::try_new(elements, offsets, sizes, validity)?.into_array())
             }
             DataType::LargeListView(elem_field) => {
                 let list = array.as_list_view::<i64>();
@@ -586,10 +575,7 @@ impl ArrowSession {
                 let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
                 let validity = nulls(list.nulls(), field.is_nullable())?;
-                Ok(vortex_array::arrays::ListViewArray::try_new(
-                    elements, offsets, sizes, validity,
-                )?
-                .into_array())
+                Ok(ListViewArray::try_new(elements, offsets, sizes, validity)?.into_array())
             }
             _ => ArrayRef::from_arrow(array.as_ref(), field.is_nullable()),
         }
