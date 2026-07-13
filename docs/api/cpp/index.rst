@@ -4,12 +4,12 @@ C++ API
 Vortex C++ API allows you to read and write ``.vortex`` files directly or via
 Arrow compatibility layer like `nanoarrow
 <https://arrow.apache.org/nanoarrow/>`_. The only dependency apart from
-nanoarrow are Vortex C bindings.
+Vortex is ``nanoarrow``.
 
 .. note::
-   C++ API is a work in progress. Please reach out to us if you are interested
+   C++ API is work in progress. Please reach out to us if you are interested
    in using Vortex from C++ or you want a feature not covered yet e.g.
-   extension DataType support.
+   extension support.
 
 Installation
 ------------
@@ -30,13 +30,12 @@ from source, and for that you will need:
     mkdir build
 
     cmake -Bbuild -DCMAKE_BUILD_TYPE=Release
-    # if you want to build examples
+    # To build the examples, pass -DBUILD_EXAMPLES=1
     # cmake -Bbuild -DBUILD_EXAMPLES=1
 
     cmake --build build -j
 
-This will produce a shared and a static library which you can use directly or
-via
+This produces a shared and a static library which you can use directly or via
 
 .. code-block:: cmake
 
@@ -45,7 +44,8 @@ via
     # shared library
     target_link_libraries(target PRIVATE vortex_cxx_shared)
 
-Have a look at `examples <https://github.com/vortex-data/vortex/tree/develop/vortex-cxx/examples>`_
+Have a look at the `examples
+<https://github.com/vortex-data/vortex/tree/develop/vortex-cxx/examples>`_
 directory as well.
 
 Reading files
@@ -61,15 +61,15 @@ print all ages for specific heights:
 
 .. code-block:: cpp
 
-    const Session session;
-    const DataSource ds = DataSource::open(session, {"people*.vortex", "me.vortex"});
+    Session session;
+    DataSource ds = DataSource::open(session, {"people*.vortex", "me.vortex"});
     Scan scan = ds.scan({.filter = col("height") >= lit<uint16_t>(50)});
 
     for (Partition &partition : scan.partitions()) {
         for (Array &array : partition.batches()) {
-            const Array age = array.field("age");
-            const PrimitiveView<uint8_t> age_view = age.values<uint8_t>(session);
-            const std::span<const uint8_t> age_values = age_view.values();
+            Array age = array.field("age");
+            PrimitiveView<uint8_t> age_view = age.values<uint8_t>(session);
+            std::span<const uint8_t> age_values = age_view.values();
             for (uint8_t value : age_values) {
                 std::cout << int(value) << " ";
             }
@@ -80,24 +80,22 @@ print all ages for specific heights:
 DataSource and Scan
 ^^^^^^^^^^^^^^^^^^^
 
-First, you need to create a Vortex session which holds object store credentials
-and does extension bookkeeping (we'll get back to it later). Then you need to
-create a DataSource, which is a view over multiple files which may also be
-remote. You can specify globs for every item as it's shown.
+First, you need to create a Vortex session which does extension bookkeeping and
+may also hold metadata like object store credentials (we'll get back to it
+later). Further, a DataSource provides a view over multiple files which may also
+be remote. You can specify globs for every item as it's shown.
 
 Once you have a DataSource, you can create Scans out of it. A Scan is a single
 traversal of a DataSource which projects columns and filters on them. Our Scan
-is consumed by following calls so it needs to be non-``const``. ScanOptions which
-are passed to Scan are a simple C++ aggregate so you can initialize any fields
-you want or avoid them altogether (``auto scan = ds.scan()``). Options have
-reasonable defaults: empty projection returns all fields, empty filter doesn't
-filter rows, and so on.
+is consumed by following calls so it needs to be mutable. ScanOptions which are
+passed to Scan are a simple C++ aggregate so you can initialize any fields you
+want or avoid them altogether (``auto scan = ds.scan()``).
 
 Expressions
 ^^^^^^^^^^^
 
-We want to return both columns so we omit ``.projection``. If we'd want to return
-only the "age" column we'd write ``.projection = col("age")``. We pass an
+If you omit ``.projection`` all columns are read as part of a scan. If we'd want to
+return only the "age" column we'd write ``.projection = col("age")``. We pass an
 Expression to a filter which returns false for some "height" values, and the
 scan filters them out.
 
@@ -109,9 +107,8 @@ explicitly pass the type to the ``lit`` expression, which creates a literal
 constant. We don't do any type coercion in Vortex so if you were to write
 ``lit(180)``, C++ would likely deduce the type to ``int`` and fail in runtime.
 
-Once we're done with the scan, we need to consume the data it provides. If
-you want, you can get the data in Arrow format, but now we want our own
-Partitions and Arrays.
+Once we're done with the scan, we need to consume the data it provides. Vortex
+has Arrow interoperability, but now let's focus on Partitions and Arrays.
 
 Partitions and Arrays
 ^^^^^^^^^^^^^^^^^^^^^
@@ -143,12 +140,12 @@ canonicalization.
 Canonicalization
 ^^^^^^^^^^^^^^^^
 
-Vortex files hold layers of compressed data. Each layer is a specific encoding
-(zstd, FSST, delta) on top of another layer. This is good for performance
+Vortex files hold trees of compressed data where each node is a specific
+encoding (zstd, FSST, delta) over another node. This is good for performance
 because we defer decompression and we can also pass compressed data directly to
 other systems. Say, if a reader knows how to deal with bitpacked integers but
-not RLE and we have ``RLE(Bitpacked(U64))``, we can decompress just RLE and pass
-bitpacked array directly to the reader.
+not RLE and we have ``RLE(Bitpacked(U64))``, we can decompress just RLE and
+pass bitpacked array directly to the reader.
 
 In this example we want to remove all encodings and uncompress all data fully.
 This form is called a canonical Array, and the process is canonicalization.
@@ -214,16 +211,16 @@ Each DataType has a notion of nullability: whether some items in the row can be
 invalid (Vortex uses "null" and "invalid" terms interchangeably). DataTypes are
 non-nullable by default, so "age" column is not nullable, but "height" is.
 
-Then we prepare individual columns and use ``make_struct`` to assemble them into
-Array, and here we see Validity.
+Once we create Arrays for columns we can merge them into a Struct Array with
+``make_struct``, and we need to tell a word about Validity.
 
-Validity
-^^^^^^^^
+Nullability and Validity
+^^^^^^^^^^^^^^^^^^^^^^^^
 
-DataType's Nullable flag tells us we may theoretically have invalid items in
-the Array, but to know this for sure we need Validity. "age" is non-Nullable
-so its Validity is NonNullable which means, again, we can't have invalid
-elements.
+Nullability (and ``Nullable`` flag) is a type system note we `may` have invalid
+elements in the column. A non-``Nullable`` column can't have nulls in it, but a
+``Nullable`` column's items may be all valid as well. Validity, on the other
+hand, tells us whether we `do` have nulls in a particular Array.
 
 "height" in first Array is AllValid which means in this Array we don't have
 invalid items. For the second Array we reuse age by copying it (which is a
