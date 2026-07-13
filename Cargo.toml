@@ -32,7 +32,6 @@ members = [
     "vortex-cuda/gpu-scan-cli",
     "vortex-cuda/macros",
     "vortex-cuda/nvcomp",
-    "vortex-cxx",
     "vortex-ffi",
     "fuzz",
     "vortex-jni",

@@ -355,7 +355,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - name: C/C++ Lint - clang-format
         run: |
-          git ls-files vortex-cuda vortex-cxx vortex-duckdb vortex-ffi \
+          git ls-files vortex-cuda vortex-duckdb vortex-ffi \
             | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
             | grep -v 'arrow/reference/arrow_c_device\.h$' \
             | grep -v 'kernels/src/bit_unpack_.*\.cu$' \
@@ -521,37 +521,6 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe  # v2
         with:
           command: check ${{ matrix.checks }}
-
-  cxx-test:
-    name: "C++ build"
-    timeout-minutes: 30
-    runs-on: >-
-      ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
-          || 'ubuntu-latest' }}
-    steps:
-      - uses: runs-on/action@v2
-        if: github.repository == 'vortex-data/vortex'
-        with:
-          sccache: s3
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
-      - uses: ./.github/actions/setup-prebuild
-        with:
-          enable-sccache: "true"
-      - name: Build and run C++ unit tests
-        run: |
-          mkdir -p vortex-cxx/build
-          cmake -S vortex-cxx -B vortex-cxx/build -DVORTEX_ENABLE_TESTING=ON -DVORTEX_ENABLE_ASAN=ON
-          cmake --build vortex-cxx/build --parallel $(nproc)
-          ctest --test-dir vortex-cxx/build -j $(nproc) -V
-      - name: Build and run the example in release mode
-        run: |
-          cmake -S vortex-cxx/examples -B vortex-cxx/examples/build -DCMAKE_BUILD_TYPE=Release
-          cmake --build vortex-cxx/examples/build --parallel $(nproc)
-          vortex-cxx/examples/build/hello-vortex vortex-cxx/examples/goldenfiles/example.vortex
-      - uses: ./.github/actions/check-rebuild
-        with:
-          command: "cargo build --profile ci --locked -p vortex-cxx --lib"
 
   sqllogic-test:
     name: "SQL logic tests"

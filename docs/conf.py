@@ -1,8 +1,6 @@
 import doctest
 import os
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 import hawkmoth.docstring
@@ -120,9 +118,9 @@ _doxygen_xml_dir = str(Path(__file__).parent / "_build" / "doxygen-cpp" / "xml")
 
 os.makedirs(os.path.dirname(_doxygen_xml_dir), exist_ok=True)
 
-if not shutil.which("doxygen"):
-    raise RuntimeError("doxygen is required to build the docs but was not found on PATH")
-subprocess.run(["doxygen", "Doxyfile.cpp"], cwd=Path(__file__).parent, check=True)
+# if not shutil.which("doxygen"):
+#    raise RuntimeError("doxygen is required to build the docs but was not found on PATH")
+# subprocess.run(["doxygen", "Doxyfile.cpp"], cwd=Path(__file__).parent, check=True)
 
 breathe_projects = {"vortex-cpp": _doxygen_xml_dir}
 breathe_default_project = "vortex-cpp"
