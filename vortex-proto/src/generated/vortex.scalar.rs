@@ -8,7 +8,10 @@ pub struct Scalar {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ScalarValue {
-    #[prost(oneof = "scalar_value::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
+    #[prost(
+        oneof = "scalar_value::Kind",
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12"
+    )]
     pub kind: ::core::option::Option<scalar_value::Kind>,
 }
 /// Nested message and enum types in `ScalarValue`.
@@ -39,10 +42,20 @@ pub mod scalar_value {
         /// See RFC 0015: <https://github.com/vortex-data/rfcs/blob/develop/accepted/0015-variant-type.md>
         #[prost(message, tag = "11")]
         VariantValue(::prost::alloc::boxed::Box<super::Scalar>),
+        #[prost(message, tag = "12")]
+        UnionValue(::prost::alloc::boxed::Box<super::UnionValue>),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListValue {
     #[prost(message, repeated, tag = "1")]
     pub values: ::prost::alloc::vec::Vec<ScalarValue>,
+}
+/// A present union value. Outer-null unions use ScalarValue.null_value instead.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UnionValue {
+    #[prost(uint32, tag = "1")]
+    pub type_id: u32,
+    #[prost(message, optional, boxed, tag = "2")]
+    pub value: ::core::option::Option<::prost::alloc::boxed::Box<ScalarValue>>,
 }
