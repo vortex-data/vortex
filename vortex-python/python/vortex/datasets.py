@@ -967,9 +967,7 @@ def _fnmatch_variants(pattern: str) -> list[str]:
     if not sep:
         return [pattern]
     return [
-        head + variant
-        for tail_variant in _fnmatch_variants(tail)
-        for variant in (tail_variant, "**/" + tail_variant)
+        head + variant for tail_variant in _fnmatch_variants(tail) for variant in (tail_variant, "**/" + tail_variant)
     ]
 
 

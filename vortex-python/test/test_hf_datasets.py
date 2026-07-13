@@ -458,8 +458,12 @@ def test_hub_streaming_with_token_uses_authenticated_store(monkeypatch: pytest.M
     )
 
     assert isinstance(store, HTTPStore)
-    assert files == {"train": ["datasets/org/name/resolve/main/data/validation.vortex",
-                               "datasets/org/name/resolve/main/train.vortex"]}
+    assert files == {
+        "train": [
+            "datasets/org/name/resolve/main/data/validation.vortex",
+            "datasets/org/name/resolve/main/train.vortex",
+        ]
+    }
 
 
 @pytest.mark.parametrize(
