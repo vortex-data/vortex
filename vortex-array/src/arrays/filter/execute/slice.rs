@@ -100,8 +100,6 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(slice: &[T], mask: &MaskValues) ->
 
 /// Filter a slice by a set of strictly increasing indices.
 pub(super) fn filter_slice_by_indices<T: Copy>(slice: &[T], indices: &[usize]) -> Buffer<T> {
-    debug_assert!(indices.last().is_none_or(|&index| index < slice.len()));
-
     let mut out = BufferMut::<T>::with_capacity(indices.len());
     let src_ptr = slice.as_ptr();
     let out_ptr = out.spare_capacity_mut().as_mut_ptr().cast::<T>();
@@ -123,10 +121,6 @@ pub(super) fn filter_slice_by_slices<T: Copy>(
     slices: &[(usize, usize)],
     output_len: usize,
 ) -> Buffer<T> {
-    debug_assert_eq!(
-        output_len,
-        slices.iter().map(|(start, end)| end - start).sum::<usize>()
-    );
     let mut out = BufferMut::<T>::with_capacity(output_len);
     for (start, end) in slices {
         out.extend_from_slice(&slice[*start..*end]);
@@ -181,8 +175,6 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(slice: &mut [T], mask: &MaskVa
 
 /// Filter a mutable slice in-place by strictly increasing indices.
 pub(super) fn filter_slice_mut_by_indices<T: Copy>(slice: &mut [T], indices: &[usize]) -> usize {
-    debug_assert!(indices.last().is_none_or(|&index| index < slice.len()));
-
     let ptr = slice.as_mut_ptr();
     for (write_pos, &index) in indices.iter().enumerate() {
         if write_pos != index {
