@@ -7,7 +7,6 @@ use std::mem::MaybeUninit;
 use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
@@ -23,6 +22,7 @@ use vortex_error::VortexResult;
 use crate::FL_CHUNK_SIZE;
 use crate::bit_transpose::transpose_bitbuffer;
 use crate::fill_forward_nulls;
+
 pub fn delta_compress(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
@@ -37,18 +37,14 @@ pub fn delta_compress(
         // corrupted delta values propagate through the cumulative sum during decompression.
         let filled = fill_forward_nulls(array.to_buffer::<T>(), &validity, ctx)?;
         let (bases, deltas) = compress_primitive::<T, { T::LANES }>(&filled);
-        let validity = match &validity {
+        let validity = match validity {
             Validity::Array(mask) => {
-                let bits = mask
-                    .clone()
-                    .execute::<Canonical>(ctx)?
-                    .into_bool()
-                    .into_bit_buffer();
+                let bits = mask.execute::<BoolArray>(ctx)?.into_bit_buffer();
                 Validity::Array(
                     BoolArray::new(transpose_bitbuffer(bits), Validity::NonNullable).into_array(),
                 )
             }
-            validity => validity.clone(),
+            validity => validity,
         };
         (
             PrimitiveArray::new(bases, array.dtype().nullability().into()),
