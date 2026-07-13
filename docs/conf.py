@@ -125,33 +125,6 @@ os.makedirs(os.path.dirname(_doxygen_xml_dir), exist_ok=True)
 breathe_projects = {"vortex-cpp": _doxygen_xml_dir}
 breathe_default_project = "vortex-cpp"
 
-# C++ types from cxx bridge and standard library that Sphinx cannot resolve.
-nitpick_ignore += [
-    ("cpp:identifier", t)
-    for t in [
-        "vortex",
-        "rust",
-        "ffi",
-        "uint8_t",
-        "uint16_t",
-        "uint32_t",
-        "uint64_t",
-        "int8_t",
-        "int16_t",
-        "int32_t",
-        "int64_t",
-        "size_t",
-        "std::size_t",
-    ]
-]
-nitpick_ignore_regex = [
-    # cxx bridge internals that will never be resolvable in Sphinx.
-    (r"cpp:identifier", r"rust::.*"),
-    (r"cpp:identifier", r"ffi::.*"),
-    # Doxygen file-level labels (e.g. "dtype_8hpp") that we don't generate pages for.
-    (r"ref", r".*_8hpp"),
-]
-
 # -- Options for hawkmoth C API gen ----------------------------
 
 hawkmoth_root = str(git_root / "vortex-ffi/cinclude")

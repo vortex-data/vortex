@@ -355,7 +355,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - name: C/C++ Lint - clang-format
         run: |
-          git ls-files vortex-cuda vortex-duckdb vortex-ffi \
+          git ls-files lang/cpp vortex-cuda vortex-duckdb vortex-ffi \
             | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
             | grep -v 'arrow/reference/arrow_c_device\.h$' \
             | grep -v 'kernels/src/bit_unpack_.*\.cu$' \
@@ -521,6 +521,40 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe  # v2
         with:
           command: check ${{ matrix.checks }}
+
+  cxx-api:
+    name: "C++ API"
+    timeout-minutes: 5
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Install Rust nightly toolchain
+        run: |
+          rustup toolchain install $NIGHTLY_TOOLCHAIN
+          rustup component add --toolchain $NIGHTLY_TOOLCHAIN rust-src rustfmt clippy llvm-tools-preview
+      - name: Build FFI library (asan)
+        run: |
+          RUSTFLAGS="-A warnings -Cunsafe-allow-abi-mismatch=sanitizer \
+                -C debuginfo=2 -C opt-level=0 -C strip=none -Zexternal-clangrt \
+                -Zsanitizer=address,leak" \
+          cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
+            --target x86_64-unknown-linux-gnu -Zbuild-std \
+            -p vortex-ffi
+      - name: Build C++ library (asan)
+        run: |
+          mkdir -p build
+          cmake -S lang/cpp -B build -DSANITIZER=asan -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
+          cmake --build build --parallel $(nproc)
 
   sqllogic-test:
     name: "SQL logic tests"
