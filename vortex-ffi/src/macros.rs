@@ -77,7 +77,7 @@ macro_rules! arc_dyn_wrapper {
                 }
             }
 
-            #[doc = r" Clone a " $ffi_ident ". Returned handle must be release with " $ffi_ident "_free "]
+            #[doc = r" Increase reference count on " $ffi_ident]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _clone>](ptr: *const $ffi_ident) -> *const $ffi_ident {
                 if ptr.is_null() {
@@ -87,13 +87,12 @@ macro_rules! arc_dyn_wrapper {
                 $ffi_ident::new($ffi_ident::as_ref(ptr).clone())
             }
 
-            #[doc = r" Free a " $ffi_ident]
+            #[doc = r" Decrease reference count on " $ffi_ident " or free if there are no other references"]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
-                if ptr.is_null() {
-                    vortex::error::vortex_panic!("null pointer");
+                if !ptr.is_null() {
+                    drop($ffi_ident::into_arc(ptr))
                 }
-                drop($ffi_ident::into_arc(ptr))
             }
         }
     };
@@ -133,7 +132,7 @@ macro_rules! arc_wrapper {
                 }
             }
 
-            #[doc = r" Clone a " $ffi_ident]
+            #[doc = r" Increase reference count on " $ffi_ident]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _clone>](ptr: *const $ffi_ident) -> *const $ffi_ident {
                 if ptr.is_null() {
@@ -143,13 +142,12 @@ macro_rules! arc_wrapper {
                 ptr
             }
 
-            #[doc = r" Free an owned [`" $ffi_ident "`] object."]
+            #[doc = r" Decrease reference count on " $ffi_ident " or free if there are no other references"]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
-                if ptr.is_null() {
-                    vortex::error::vortex_panic!("null pointer");
+                if !ptr.is_null() {
+                    unsafe { std::sync::Arc::decrement_strong_count(ptr) };
                 }
-                unsafe { std::sync::Arc::decrement_strong_count(ptr) };
             }
         }
     };
@@ -193,13 +191,12 @@ macro_rules! box_dyn_wrapper {
                 }
             }
 
-            #[doc = r" Free an owned [`" $ffi_ident "`] object."]
+            #[doc = r" Free a " $ffi_ident]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
-                if ptr.is_null() {
-                    vortex::error::vortex_panic!("null pointer");
+                if !ptr.is_null() {
+                    drop($ffi_ident::into_box(ptr.cast_mut()))
                 }
-                drop($ffi_ident::into_box(ptr.cast_mut()))
             }
         }
     };
@@ -253,17 +250,16 @@ macro_rules! box_wrapper {
                 }
             }
 
-            #[doc = r" Free an owned [`" $ffi_ident "`] object."]
+            #[doc = r" Free a " $ffi_ident]
             // These allows only matter once the destructor is re-exported (e.g. `vx_error_free`):
             // its `# Safety` lives at the C boundary, and its doc links a private wrapper type.
             #[allow(clippy::missing_safety_doc)]
             #[allow(rustdoc::private_intra_doc_links)]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
-                if ptr.is_null() {
-                    vortex::error::vortex_panic!("null pointer");
+                if !ptr.is_null() {
+                    std::mem::drop(unsafe { Box::from_raw(ptr.cast::<$T>().cast_mut()) })
                 }
-                std::mem::drop(unsafe { Box::from_raw(ptr.cast::<$T>().cast_mut()) })
             }
         }
     };

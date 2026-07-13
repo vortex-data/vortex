@@ -11,7 +11,6 @@ mod data_source;
 mod dtype;
 mod error;
 mod expression;
-mod file;
 mod log;
 mod macros;
 mod ptype;
