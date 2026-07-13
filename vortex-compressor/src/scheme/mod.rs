@@ -1,21 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Unified compression scheme trait and exclusion rules.
+//! Everything a scheme author implements or receives: the [`Scheme`] trait, exclusion rules,
+//! compression estimates, and the compression context.
 
+mod ctx;
+pub use ctx::CompressorContext;
+pub use ctx::MAX_CASCADE;
+
+pub(crate) mod estimate;
+mod exclusion;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
 
+pub use estimate::CompressionEstimate;
+pub use estimate::DeferredEstimate;
+pub use estimate::EstimateFn;
+pub use estimate::EstimateScore;
+pub use estimate::EstimateVerdict;
+pub use exclusion::AncestorExclusion;
+pub use exclusion::ChildSelection;
+pub use exclusion::DescendantExclusion;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
-use crate::ctx::CompressorContext;
-use crate::estimate::CompressionEstimate;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 
@@ -37,54 +50,6 @@ impl fmt::Display for SchemeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name)
     }
-}
-
-/// Selects which children of a cascading scheme a rule applies to.
-#[derive(Debug, Clone, Copy)]
-pub enum ChildSelection {
-    /// Rule applies to all children.
-    All,
-    /// Rule applies to a single child.
-    One(usize),
-    /// Rule applies to multiple specific children.
-    Many(&'static [usize]),
-}
-
-impl ChildSelection {
-    /// Returns `true` if this selection includes the given child index.
-    pub fn contains(&self, child_index: usize) -> bool {
-        match self {
-            ChildSelection::All => true,
-            ChildSelection::One(idx) => *idx == child_index,
-            ChildSelection::Many(indices) => indices.contains(&child_index),
-        }
-    }
-}
-
-/// Push rule: declared by a cascading scheme to exclude another scheme from the subtree
-/// rooted at the specified children.
-///
-/// Use this when the declaring scheme (the ancestor) knows about the excluded scheme. For example,
-/// `ZigZag` excludes `Dict` from all its children.
-#[derive(Debug, Clone, Copy)]
-pub struct DescendantExclusion {
-    /// The scheme to exclude from descendants.
-    pub excluded: SchemeId,
-    /// Which children of the declaring scheme this rule applies to.
-    pub children: ChildSelection,
-}
-
-/// Pull rule: declared by a scheme to exclude itself when the specified ancestor is in the
-/// cascade chain.
-///
-/// Use this when the excluded scheme (the descendant) knows about the ancestor. For example,
-/// `Sequence` excludes itself when `IntDict` is an ancestor on its codes child.
-#[derive(Debug, Clone, Copy)]
-pub struct AncestorExclusion {
-    /// The ancestor scheme that makes the declaring scheme ineligible.
-    pub ancestor: SchemeId,
-    /// Which children of the ancestor this rule applies to.
-    pub children: ChildSelection,
 }
 
 // TODO(connor): Remove all default implemented methods.
@@ -199,10 +164,10 @@ pub trait Scheme: Debug + Send + Sync {
     /// entire array.
     ///
     /// [`CompressionEstimate::Verdict`] means the scheme already knows the terminal
-    /// [`crate::estimate::EstimateVerdict`]. `CompressionEstimate::Deferred(DeferredEstimate::Sample)`
+    /// [`crate::scheme::EstimateVerdict`]. `CompressionEstimate::Deferred(DeferredEstimate::Sample)`
     /// asks the compressor to sample. `CompressionEstimate::Deferred(DeferredEstimate::Callback(...))`
     /// asks the compressor to run custom deferred work. Deferred callbacks must return a
-    /// [`crate::estimate::EstimateVerdict`] directly, never another deferred request.
+    /// [`crate::scheme::EstimateVerdict`] directly, never another deferred request.
     ///
     /// Note that the compressor will also use this method when compressing samples, so some
     /// statistics that might hold for the samples may not hold for the entire array (e.g.,

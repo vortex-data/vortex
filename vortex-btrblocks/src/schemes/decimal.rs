@@ -11,8 +11,8 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
-use vortex_compressor::estimate::CompressionEstimate;
-use vortex_compressor::estimate::EstimateVerdict;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::EstimateVerdict;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_error::VortexResult;
 

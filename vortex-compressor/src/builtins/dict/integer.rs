@@ -23,9 +23,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
-use crate::ctx::CompressorContext;
-use crate::estimate::CompressionEstimate;
-use crate::estimate::EstimateVerdict;
+use crate::scheme::CompressionEstimate;
+use crate::scheme::CompressorContext;
+use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;

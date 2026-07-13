@@ -7,9 +7,20 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+
+use crate::CascadingCompressor;
+use crate::scheme::CompressorContext;
+use crate::scheme::EstimateScore;
+use crate::scheme::Scheme;
+use crate::scheme::SchemeExt;
+use crate::stats::ArrayAndStats;
+use crate::trace;
 
 /// The size of each sampled run.
 pub const SAMPLE_SIZE: u32 = 64;
@@ -128,6 +139,54 @@ fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> 
                 .map(|off| (off, off + short_step)),
         )
         .collect()
+}
+
+/// Estimates compression ratio by compressing a ~1% sample of the data.
+///
+/// Creates a new [`ArrayAndStats`] for the sample so that stats are generated from the sample, not
+/// the full array.
+///
+/// # Errors
+///
+/// Returns an error if sample compression fails.
+pub(super) fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
+    compressor: &CascadingCompressor,
+    scheme: &S,
+    array: &ArrayRef,
+    compress_ctx: CompressorContext,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<EstimateScore> {
+    let sample_array = if compress_ctx.is_sample() {
+        array.clone()
+    } else {
+        let sample_count = sample_count_approx_one_percent(array.len());
+        // `ArrayAndStats` expects a canonical array (so that it can easily compute lazy stats).
+        let canonical: Canonical = sample(array, SAMPLE_SIZE, sample_count).execute(exec_ctx)?;
+        canonical.into_array()
+    };
+
+    let sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
+    let error_ctx = trace::enabled_error_context(&compress_ctx);
+    let sample_ctx = compress_ctx.with_sampling();
+
+    let compressed = match scheme.compress(compressor, &sample_data, sample_ctx, exec_ctx) {
+        Ok(compressed) => compressed,
+        Err(err) => {
+            trace::sample_compress_failed(scheme.id(), error_ctx.as_ref(), &err);
+            return Err(err);
+        }
+    };
+
+    let after = compressed.nbytes();
+    let before = sample_data.array().nbytes();
+
+    let score = EstimateScore::from_sample_sizes(before, after);
+
+    if matches!(score, EstimateScore::ZeroBytes) {
+        trace::zero_byte_sample_result(scheme.id(), before);
+    }
+
+    Ok(score)
 }
 
 #[cfg(test)]

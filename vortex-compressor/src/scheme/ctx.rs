@@ -44,7 +44,7 @@ impl CompressorContext {
     /// Creates a new `CompressorContext`.
     ///
     /// This should **only** be created by the compressor.
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             is_sample: false,
             allowed_cascading: MAX_CASCADE,
@@ -102,13 +102,13 @@ impl CompressorContext {
     }
 
     /// Returns a context with the given stats options.
-    pub(super) fn with_merged_stats_options(mut self, opts: GenerateStatsOptions) -> Self {
+    pub(crate) fn with_merged_stats_options(mut self, opts: GenerateStatsOptions) -> Self {
         self.merged_stats_options = opts;
         self
     }
 
     /// Returns a context marked as sample compression.
-    pub(super) fn with_sampling(mut self) -> Self {
+    pub(crate) fn with_sampling(mut self) -> Self {
         self.is_sample = true;
         self
     }
@@ -118,7 +118,7 @@ impl CompressorContext {
     ///
     /// The `child_index` identifies which child of the scheme is being compressed (e.g. for
     /// Dict: values=0, codes=1).
-    pub(super) fn descend_with_scheme(mut self, id: SchemeId, child_index: usize) -> Self {
+    pub(crate) fn descend_with_scheme(mut self, id: SchemeId, child_index: usize) -> Self {
         self.allowed_cascading = self
             .allowed_cascading
             .checked_sub(1)
