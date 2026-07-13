@@ -19,6 +19,7 @@ use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldPath;
 use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
@@ -39,18 +40,14 @@ use vortex_io::VortexWrite;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
-use vortex_layout::LayoutChildType;
-use vortex_layout::LayoutRef;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::file_stats::accumulate_stats;
-use vortex_layout::segments::SegmentId;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
 use vortex_layout::sequence::SequentialStreamExt;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ALLOWED_ENCODINGS;
 use crate::Footer;
@@ -512,55 +509,26 @@ impl WriteSummary {
 
     /// Returns the compressed size in bytes of each top-level column in schema order.
     ///
-    /// A column's size includes every physical segment referenced by its layout subtree,
-    /// including auxiliary segments such as zone maps and dictionaries. A segment is counted at
-    /// most once per column even if more than one layout node references it. File-level metadata,
-    /// alignment padding, and the footer are not attributed to any column.
+    /// A column's size includes every physical segment attributed to its layout subtree,
+    /// including auxiliary segments such as zone maps and dictionaries; see
+    /// [`Footer::compressed_field_sizes`] for the exact attribution semantics and for sizes of
+    /// nested fields. Bytes not attributable to a specific column (e.g. top-level struct
+    /// validity) are not included in any column's size.
     ///
     /// For a non-struct file, the returned vector contains a single entry for the root column.
     pub fn compressed_column_sizes(&self) -> VortexResult<Vec<u64>> {
-        let root = self.footer.layout();
-        if !root.dtype().is_struct() {
-            return Ok(vec![compressed_layout_size(
-                root,
-                self.footer.segment_map(),
-            )?]);
-        }
-
-        let mut sizes = Vec::with_capacity(
-            root.dtype()
-                .as_struct_fields_opt()
-                .map_or(1, |f| f.nfields()),
-        );
-        for idx in 0..root.nchildren() {
-            if matches!(root.child_type(idx), LayoutChildType::Field(_)) {
-                sizes.push(compressed_layout_size(
-                    &root.child(idx)?,
-                    self.footer.segment_map(),
-                )?);
-            }
-        }
-        Ok(sizes)
+        let sizes = self.footer.compressed_field_sizes()?;
+        let Some(fields) = self.footer.dtype().as_struct_fields_opt() else {
+            return Ok(vec![sizes.total()]);
+        };
+        Ok(fields
+            .names()
+            .iter()
+            .map(|name| {
+                sizes
+                    .get(&FieldPath::from_name(name.clone()))
+                    .unwrap_or_default()
+            })
+            .collect())
     }
-}
-
-fn compressed_layout_size(
-    layout: &LayoutRef,
-    segments: &[crate::footer::SegmentSpec],
-) -> VortexResult<u64> {
-    let mut segment_ids = HashSet::<SegmentId>::default();
-    for node in layout.depth_first_traversal() {
-        segment_ids.extend(node?.segment_ids());
-    }
-
-    segment_ids.into_iter().try_fold(0u64, |size, segment_id| {
-        let segment = segments.get(*segment_id as usize).ok_or_else(|| {
-            vortex_err!(
-                "layout references missing segment {} (segment count: {})",
-                *segment_id,
-                segments.len()
-            )
-        })?;
-        Ok(size + u64::from(segment.length))
-    })
 }
