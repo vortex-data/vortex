@@ -32,7 +32,6 @@ members = [
     "vortex-cuda/gpu-scan-cli",
     "vortex-cuda/macros",
     "vortex-cuda/nvcomp",
-    "vortex-cxx",
     "vortex-ffi",
     "fuzz",
     "vortex-jni",
@@ -181,6 +180,7 @@ libfuzzer-sys = "0.4"
 libloading = "0.8"
 liblzma = "0.4"
 log = { version = "0.4.21" }
+memchr = "2.8.0"
 memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
@@ -215,7 +215,9 @@ quote = "1.0.44"
 rand = "0.10.1"
 rand_distr = "0.6"
 ratatui = { version = "0.30", default-features = false }
-regex = "1.11.0"
+regex = "1.12"
+regex-automata = "0.4"
+regex-syntax = "0.8.9"
 reqwest = { version = "0.13.0", features = [
     "blocking",
     "charset",

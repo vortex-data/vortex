@@ -6,7 +6,7 @@
 [![CodSpeed Badge](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/vortex-data/vortex)
 [![Crates.io](https://img.shields.io/crates/v/vortex.svg)](https://crates.io/crates/vortex)
 [![PyPI - Version](https://img.shields.io/pypi/v/vortex-data)](https://pypi.org/project/vortex-data/)
-[![Maven - Version](https://img.shields.io/maven-central/v/dev.vortex/vortex-spark)](https://central.sonatype.com/artifact/dev.vortex/vortex-spark)
+[![Maven - Version](https://img.shields.io/maven-central/v/dev.vortex/vortex-spark_2.13)](https://central.sonatype.com/artifact/dev.vortex/vortex-spark_2.13)
 [![codecov](https://codecov.io/github/vortex-data/vortex/graph/badge.svg)](https://codecov.io/github/vortex-data/vortex)
 [![Cite](https://img.shields.io/badge/cite-CITATION.cff-blue)](CITATION.cff)
 

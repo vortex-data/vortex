@@ -30,7 +30,6 @@ use vortex_array::builders::dict::dict_encoder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -44,6 +43,7 @@ use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
+use crate::layouts::compressed::CompressorPlugin;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -108,6 +108,7 @@ pub struct DictStrategy {
     values: Arc<dyn LayoutStrategy>,
     fallback: Arc<dyn LayoutStrategy>,
     options: DictLayoutOptions,
+    probe_compressor: Arc<dyn CompressorPlugin>,
 }
 
 impl DictStrategy {
@@ -116,12 +117,14 @@ impl DictStrategy {
         values: Values,
         fallback: Fallback,
         options: DictLayoutOptions,
+        probe_compressor: Arc<dyn CompressorPlugin>,
     ) -> Self {
         Self {
             codes: Arc::new(codes),
             values: Arc::new(values),
             fallback: Arc::new(fallback),
             options,
+            probe_compressor,
         }
     }
 }
@@ -155,7 +158,9 @@ impl LayoutStrategy for DictStrategy {
             None => true, // empty stream
             Some(chunk) => {
                 let mut exec_ctx = session.create_execution_ctx();
-                let compressed = BtrBlocksCompressor::default().compress(&chunk, &mut exec_ctx)?;
+                let compressed = self
+                    .probe_compressor
+                    .compress_chunk(&chunk, &mut exec_ctx)?;
                 !compressed.is::<Dict>()
             }
         };

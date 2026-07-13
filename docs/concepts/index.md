@@ -42,7 +42,7 @@ segment retrieval, FlatBuffer metadata for O(1) schema access, and support for m
 ## Integrations
 
 **Language bindings:** [Rust](https://docs.rs/vortex), [Python](../api/python/index.rst),
-[Java](../api/java/index.rst), [C](../api/c/index.rst), [C++](../api/cpp/index.rst)
+[Java](../api/java/index.rst), [C](../api/c/index.rst)
 
 **Query engines:** [DataFusion](../user-guide/datafusion.md), [DuckDB](../user-guide/duckdb.md),
 [Spark](../user-guide/spark.md), [Polars](../user-guide/polars.md), [Ray](../user-guide/ray.md)

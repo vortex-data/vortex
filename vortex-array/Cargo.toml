@@ -29,7 +29,6 @@ arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 arrow-select = { workspace = true }
-arrow-string = { workspace = true }
 async-lock = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
@@ -43,6 +42,7 @@ humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
 jiff = { workspace = true }
+memchr = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
@@ -53,6 +53,8 @@ primitive-types = { workspace = true, optional = true, features = [
 ] }
 prost = { workspace = true }
 rand = { workspace = true }
+regex = { workspace = true }
+regex-syntax = { workspace = true }
 rstest = { workspace = true, optional = true }
 rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
@@ -134,6 +136,10 @@ harness = false
 
 [[bench]]
 name = "kleene_bool"
+harness = false
+
+[[bench]]
+name = "like"
 harness = false
 
 [[bench]]
@@ -240,6 +246,10 @@ harness = false
 
 [[bench]]
 name = "filter_bool"
+harness = false
+
+[[bench]]
+name = "filter_fixed_width"
 harness = false
 
 [[bench]]
