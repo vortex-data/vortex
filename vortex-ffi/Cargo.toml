@@ -20,14 +20,14 @@ categories = { workspace = true }
 all-features = true
 
 [dependencies]
-arrow-array = { workspace = true, features = ["ffi"] }
+arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 async-fs = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 mimalloc = { workspace = true, optional = true }
 paste = { workspace = true }
-tracing = { workspace = true, features = ["std", "log"] }
+tracing = { workspace = true, features = ["log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 vortex = { workspace = true, features = ["object_store"] }
 vortex-arrow = { workspace = true }
