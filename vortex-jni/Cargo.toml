@@ -36,7 +36,7 @@ vortex-parquet-variant = { workspace = true }
 jni = { workspace = true, features = ["invocation"] }
 
 [lib]
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["cdylib"]
 
 [lints]
 workspace = true
