@@ -6,6 +6,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use rand::distr::Distribution;
 use rand::distr::StandardUniform;
 use vortex_array::Canonical;
@@ -19,6 +20,9 @@ use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::dtype::NativePType;
 use vortex_session::VortexSession;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     LazyLock::force(&SESSION);
