@@ -111,13 +111,32 @@ impl Alignment {
             .vortex_expect("alignment is a power of 2 within usize, so its exponent fits in u8")
     }
 
+    /// Try to create an alignment from its log2 exponent.
+    ///
+    /// Returns an error when the exponent cannot be represented by a `usize` alignment.
+    #[inline]
+    pub fn try_from_exponent(exponent: u8) -> Result<Self, VortexError> {
+        let alignment = 1usize.checked_shl(u32::from(exponent)).ok_or_else(|| {
+            vortex_err!(
+                "Alignment exponent {exponent} must be less than {}",
+                usize::BITS
+            )
+        })?;
+        Ok(Self::new(alignment))
+    }
+
     /// Create from the log2 exponent of the alignment.
     ///
     /// ## Panics
     ///
-    /// Panics if `1 << exponent` overflows `usize`.
+    /// Panics if `1 << exponent` overflows `usize`. Use [`Self::try_from_exponent`] when parsing
+    /// untrusted input.
     #[inline]
     pub const fn from_exponent(exponent: u8) -> Self {
+        assert!(
+            (exponent as u32) < usize::BITS,
+            "Alignment exponent must fit in usize"
+        );
         Self::new(1 << exponent)
     }
 }
@@ -212,6 +231,13 @@ mod test {
         let alignment = Alignment::new(1024);
         assert_eq!(alignment.exponent(), 10);
         assert_eq!(Alignment::from_exponent(10), alignment);
+    }
+
+    #[test]
+    fn invalid_alignment_exponent() {
+        let error = Alignment::try_from_exponent(usize::BITS as u8)
+            .expect_err("an exponent as wide as usize must be rejected");
+        assert!(error.to_string().contains("must be less than"));
     }
 
     #[test]

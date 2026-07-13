@@ -43,7 +43,7 @@ impl TryFrom<&fb::SegmentSpec> for SegmentSpec {
         Ok(Self {
             offset: value.offset(),
             length: value.length(),
-            alignment: Alignment::from_exponent(value.alignment_exponent()),
+            alignment: Alignment::try_from_exponent(value.alignment_exponent())?,
         })
     }
 }

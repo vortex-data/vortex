@@ -64,6 +64,8 @@
 //! │          Segments          │  serialized array chunks and per-column
 //! │     (data & statistics)    │  statistics, in writer-chosen order
 //! ├────────────────────────────┤
+//! │   User-metadata segments   │  optional; opaque values keyed by the postscript
+//! ├────────────────────────────┤
 //! │      DType flatbuffer      │  optional; omitted via `exclude_dtype`
 //! ├────────────────────────────┤
 //! │      Layout flatbuffer     │  required; the root Layout tree
@@ -73,7 +75,7 @@
 //! │      Footer flatbuffer     │  required; dictionary-encoded segment map
 //! │                            │  and array/layout/compression/encryption specs
 //! ├────────────────────────────┤
-//! │         Postscript         │  offsets of the four footer segments above;
+//! │         Postscript         │  locators for the footer and user-metadata segments;
 //! │                            │  at most 65528 bytes
 //! ├────────────────────────────┤
 //! │     8-byte End of File     │  u16 version, u16 postscript length,
@@ -82,8 +84,12 @@
 //! ```
 //!
 //! The postscript records the offset, length, and alignment of the dtype, layout, statistics, and
-//! footer segments, so a single read of the file tail (defaulting to 64KiB) is enough to locate and
-//! parse the footer. The byte-level format is specified in full at
+//! footer segments, plus any user-defined metadata segments keyed by string, so a single read of the
+//! file tail (defaulting to 64KiB) is enough to locate and parse the footer and metadata locators.
+//! User-metadata values live in their own segments; opening a file reads none of them by default.
+//! [`VortexOpenOptions::include_metadata`] eagerly resolves every locator through the cache-backed
+//! segment source, issuing targeted reads only for values not already covered by the initial read.
+//! The byte-level format is specified in full at
 //! <https://docs.vortex.dev/specs/file-format.html>.
 //!
 //! A Parquet-style file is realized by nesting a chunked layout of struct layouts of chunked layouts

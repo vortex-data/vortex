@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use flatbuffers::root;
 use vortex_array::dtype::DType;
 use vortex_buffer::ByteBuffer;
@@ -18,6 +20,7 @@ use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::VERSION;
 use crate::footer::FileStatistics;
+use crate::footer::SegmentSpec;
 use crate::footer::postscript::Postscript;
 use crate::footer::postscript::PostscriptSegment;
 
@@ -165,14 +168,50 @@ impl FooterDeserializer {
                 )
             })
             .transpose()?;
+        let metadata = postscript
+            .metadata
+            .iter()
+            .map(|metadata| {
+                let segment = SegmentSpec {
+                    offset: metadata.segment.offset,
+                    length: metadata.segment.length,
+                    alignment: metadata.segment.alignment,
+                };
+                let end = segment
+                    .offset
+                    .checked_add(u64::from(segment.length))
+                    .ok_or_else(|| {
+                        vortex_err!("Metadata segment {} range overflowed u64", metadata.key)
+                    })?;
+                if end > file_size {
+                    vortex_bail!(
+                        "Metadata segment {} range {}..{} exceeds file size {}",
+                        metadata.key,
+                        segment.offset,
+                        end,
+                        file_size
+                    );
+                }
+                let offset = usize::try_from(segment.offset)?;
+                if !segment.alignment.is_offset_aligned(offset) {
+                    vortex_bail!(
+                        "Metadata segment {} offset {} is not aligned to {}",
+                        metadata.key,
+                        segment.offset,
+                        segment.alignment
+                    );
+                }
+                Ok((metadata.key.clone(), segment))
+            })
+            .collect::<VortexResult<Arc<[_]>>>()?;
 
         Ok(DeserializeStep::Done(self.parse_footer(
             initial_offset,
             &self.buffer,
-            &postscript.footer,
-            &postscript.layout,
+            postscript,
             dtype,
             file_stats,
+            metadata,
         )?))
     }
 
@@ -257,22 +296,31 @@ impl FooterDeserializer {
         &self,
         initial_offset: u64,
         initial_read: &[u8],
-        footer_segment: &PostscriptSegment,
-        layout_segment: &PostscriptSegment,
+        postscript: &Postscript,
         dtype: DType,
         file_stats: Option<FileStatistics>,
+        metadata: Arc<[(String, SegmentSpec)]>,
     ) -> VortexResult<Footer> {
+        let footer_segment = &postscript.footer;
         let footer_offset = usize::try_from(footer_segment.offset - initial_offset)?;
         let footer_bytes = FlatBuffer::copy_from(
             &initial_read[footer_offset..footer_offset + (footer_segment.length as usize)],
         );
 
+        let layout_segment = &postscript.layout;
         let layout_offset = usize::try_from(layout_segment.offset - initial_offset)?;
         let layout_bytes = FlatBuffer::copy_from(
             &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
         );
 
-        Footer::from_flatbuffer(footer_bytes, layout_bytes, dtype, file_stats, &self.session)
+        Footer::from_flatbuffer(
+            footer_bytes,
+            layout_bytes,
+            dtype,
+            file_stats,
+            metadata,
+            &self.session,
+        )
     }
 }
 

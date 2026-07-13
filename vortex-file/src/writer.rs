@@ -47,6 +47,7 @@ use vortex_layout::sequence::SequentialStreamExt;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ALLOWED_ENCODINGS;
 use crate::Footer;
@@ -54,6 +55,8 @@ use crate::MAGIC_BYTES;
 use crate::WriteStrategyBuilder;
 use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
+use crate::footer::MAX_METADATA_KEY_BYTES;
+use crate::footer::MAX_METADATA_SEGMENTS;
 use crate::segments::writer::BufferedSegmentSink;
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
@@ -70,6 +73,7 @@ pub struct VortexWriteOptions {
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
+    metadata: HashMap<String, ByteBuffer>,
 }
 
 /// Extension trait for constructing [`VortexWriteOptions`] from a session.
@@ -83,6 +87,7 @@ pub trait WriteOptionsSessionExt: SessionExt {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
+            metadata: HashMap::default(),
         }
     }
 }
@@ -97,6 +102,7 @@ impl VortexWriteOptions {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
+            metadata: HashMap::default(),
         }
     }
 
@@ -123,6 +129,34 @@ impl VortexWriteOptions {
     /// Pass an empty vector to omit file-level statistics.
     pub fn with_file_statistics(mut self, file_statistics: Vec<Stat>) -> Self {
         self.file_statistics = file_statistics;
+        self
+    }
+
+    /// Add a user-defined metadata segment (keyed, opaque bytes); a repeated key replaces the
+    /// previous value. Keys and the segment count are validated against `MAX_METADATA_*`.
+    pub fn with_metadata_segment(
+        mut self,
+        key: impl Into<String>,
+        metadata: impl Into<ByteBuffer>,
+    ) -> Self {
+        let key = key.into();
+        let metadata = metadata.into();
+        self.metadata.insert(key, metadata);
+        self
+    }
+
+    /// Add user-defined metadata segments to the file.
+    ///
+    /// If a key already exists, the previous segment for that key is replaced.
+    pub fn with_metadata_segments<I, K, B>(mut self, metadata: I) -> Self
+    where
+        I: IntoIterator<Item = (K, B)>,
+        K: Into<String>,
+        B: Into<ByteBuffer>,
+    {
+        for (key, metadata) in metadata {
+            self = self.with_metadata_segment(key, metadata);
+        }
         self
     }
 }
@@ -157,6 +191,8 @@ impl VortexWriteOptions {
         mut write: W,
         stream: SendableArrayStream,
     ) -> VortexResult<WriteSummary> {
+        validate_metadata_segments(&self.metadata)?;
+
         // NOTE(os): Setup an array context that already has all known encodings pre-populated.
         // This is preferred for now over having an empty context here, because only the
         // serialised array order is deterministic. The serialisation of arrays are done
@@ -225,31 +261,32 @@ impl VortexWriteOptions {
         let (layout, segment_specs) = layout_fut.await?;
 
         // Assemble the Footer object now that we have all the segments.
+        let statistics = if self.file_statistics.is_empty() {
+            None
+        } else {
+            Some(FileStatistics::new_with_dtype(
+                file_stats.stats_sets().into(),
+                &dtype,
+            ))
+        };
         let mut footer = Footer::new(
             Arc::clone(&layout),
             segment_specs,
-            if self.file_statistics.is_empty() {
-                None
-            } else {
-                Some(FileStatistics::new_with_dtype(
-                    file_stats.stats_sets().into(),
-                    &dtype,
-                ))
-            },
+            statistics,
             ReadContext::new(ctx.to_ids()),
         );
 
         // Emit the footer buffers and EOF.
-        let footer_buffers = footer
+        let (footer_buffers, metadata, approx_byte_size) = footer
             .clone()
             .into_serializer()
+            .with_metadata_segments(self.metadata)
             .with_offset(position)
             .with_exclude_dtype(self.exclude_dtype)
-            .serialize()?;
-
-        // Update the approx footer size in the footer object, so it can be used for caching and
-        // memory management in the future.
-        footer = footer.with_approx_byte_size(footer_buffers.iter().map(|b| b.len()).sum());
+            .serialize_with_metadata()?;
+        footer = footer
+            .with_metadata_segments(metadata)
+            .with_approx_byte_size(approx_byte_size);
 
         for buffer in footer_buffers {
             position += buffer.len() as u64;
@@ -287,6 +324,38 @@ impl VortexWriteOptions {
             strategy,
         }
     }
+}
+
+fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexResult<()> {
+    if metadata.len() > MAX_METADATA_SEGMENTS {
+        vortex_bail!(
+            "Vortex files may contain at most {} metadata segments; got {} metadata segments. Metadata keys must be non-empty and at most {} bytes",
+            MAX_METADATA_SEGMENTS,
+            metadata.len(),
+            MAX_METADATA_KEY_BYTES
+        );
+    }
+
+    for key in metadata.keys() {
+        if key.is_empty() {
+            vortex_bail!(
+                "Vortex metadata keys must be non-empty and at most {} bytes; files may contain at most {} metadata segments",
+                MAX_METADATA_KEY_BYTES,
+                MAX_METADATA_SEGMENTS
+            );
+        }
+
+        let key_bytes = key.len();
+        if key_bytes > MAX_METADATA_KEY_BYTES {
+            vortex_bail!(
+                "Vortex metadata key {key:?} is {key_bytes} bytes, but keys must be at most {} bytes; files may contain at most {} metadata segments",
+                MAX_METADATA_KEY_BYTES,
+                MAX_METADATA_SEGMENTS
+            );
+        }
+    }
+
+    Ok(())
 }
 
 /// An async API for writing Vortex files.
