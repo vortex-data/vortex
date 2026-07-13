@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -118,7 +119,30 @@ impl Scalar {
                     Self::validate(&field, field_value.as_ref())?;
                 }
             }
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(variants, _) => {
+                let ScalarValue::Union(union_value) = value else {
+                    vortex_bail!("union dtype expected Union value, got {value}");
+                };
+
+                let type_id = union_value.type_id();
+                let Some(child_index) = variants.tag_to_child_index(type_id) else {
+                    vortex_bail!(
+                        "union value has unknown type ID {type_id}; expected one of {:?}",
+                        variants.type_ids()
+                    );
+                };
+
+                let child_dtype = variants
+                    .variant_by_index(child_index)
+                    .vortex_expect("resolved union child index must be valid");
+
+                vortex_ensure_eq!(
+                    union_value.value().dtype(),
+                    &child_dtype,
+                    "union value for type ID {type_id} must have dtype {child_dtype}, got {}",
+                    union_value.value().dtype()
+                );
+            }
             DType::Variant(_) => {
                 let ScalarValue::Variant(inner) = value else {
                     vortex_bail!("variant dtype expected Variant value, got {value}");
@@ -133,6 +157,56 @@ impl Scalar {
             }
             DType::Extension(ext_dtype) => ext_dtype.validate_storage_value(value)?,
         }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::UnionVariants;
+    use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
+    use crate::scalar::UnionValue;
+
+    #[test]
+    fn union_rejects_unknown_tag_and_wrong_value() -> VortexResult<()> {
+        let variants = UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::Nullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+            vec![5, 9],
+        )?;
+        let dtype = DType::Union(variants, Nullability::NonNullable);
+
+        assert!(
+            Scalar::try_new(
+                dtype.clone(),
+                Some(ScalarValue::Union(UnionValue::new(
+                    7,
+                    Scalar::primitive(42_i32, Nullability::Nullable),
+                ))),
+            )
+            .is_err()
+        );
+
+        assert!(
+            Scalar::try_new(
+                dtype,
+                Some(ScalarValue::Union(UnionValue::new(
+                    5,
+                    Scalar::utf8("wrong", Nullability::NonNullable),
+                ))),
+            )
+            .is_err()
+        );
 
         Ok(())
     }

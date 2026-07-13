@@ -22,6 +22,7 @@ mod extension;
 mod list;
 mod primitive;
 mod struct_;
+mod union;
 mod utf8;
 mod variant;
 
@@ -32,5 +33,6 @@ pub use extension::*;
 pub use list::*;
 pub use primitive::*;
 pub use struct_::*;
+pub use union::*;
 pub use utf8::*;
 pub use variant::*;

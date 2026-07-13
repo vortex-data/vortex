@@ -307,10 +307,12 @@ fn scalar_to_java<'local>(
         }
         ScalarValue::Utf8(value) => Ok(env.new_string(value.as_str())?.into()),
         ScalarValue::Binary(value) => Ok(env.byte_array_from_slice(value.as_slice())?.into()),
-        ScalarValue::Tuple(_) | ScalarValue::Variant(_) => Err(JNIError::Vortex(vortex_err!(
-            "cannot return nested scalar write statistic with dtype {} to Java",
-            scalar.dtype()
-        ))),
+        ScalarValue::Tuple(_) | ScalarValue::Union(_) | ScalarValue::Variant(_) => {
+            Err(JNIError::Vortex(vortex_err!(
+                "cannot return nested scalar write statistic with dtype {} to Java",
+                scalar.dtype()
+            )))
+        }
     }
 }
 

@@ -11,6 +11,8 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::dtype::DType;
@@ -18,6 +20,7 @@ mod tests {
     use crate::dtype::NativeDecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::UnionVariants;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::scalar::DecimalScalar;
@@ -26,6 +29,20 @@ mod tests {
     use crate::scalar::PrimitiveScalar;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+
+    fn union_variants(
+        int_nullability: Nullability,
+        utf8_nullability: Nullability,
+    ) -> VortexResult<UnionVariants> {
+        UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, int_nullability),
+                DType::Utf8(utf8_nullability),
+            ],
+            vec![5, 9],
+        )
+    }
 
     fn scalar_hash(scalar: &Scalar) -> u64 {
         let mut hasher = DefaultHasher::new();
@@ -66,7 +83,43 @@ mod tests {
     }
 
     #[test]
-    fn test_scalar_nbytes() {
+    fn default_value_for_nullable_union_is_null() -> VortexResult<()> {
+        let nullable = DType::Union(
+            union_variants(Nullability::Nullable, Nullability::NonNullable)?,
+            Nullability::Nullable,
+        );
+
+        assert!(Scalar::default_value(&nullable).is_null());
+
+        Ok(())
+    }
+
+    #[test]
+    fn default_value_for_non_nullable_union_selects_first_variant() -> VortexResult<()> {
+        let non_nullable = DType::Union(
+            union_variants(Nullability::NonNullable, Nullability::NonNullable)?,
+            Nullability::NonNullable,
+        );
+
+        let scalar = Scalar::default_value(&non_nullable);
+        assert_eq!(scalar.as_union().type_id(), Some(5));
+        assert_eq!(scalar.as_union().value(), Some(&Scalar::from(0_i32)));
+
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "has no default value")]
+    fn default_value_for_empty_non_nullable_union_panics() {
+        Scalar::default_value(&DType::Union(
+            UnionVariants::new(Default::default(), vec![])
+                .vortex_expect("union variants must be valid"),
+            Nullability::NonNullable,
+        ));
+    }
+
+    #[test]
+    fn test_scalar_nbytes() -> VortexResult<()> {
         // Test null scalar - should be 0 bytes
         let null_scalar = Scalar::null(DType::Null);
         assert_eq!(null_scalar.approx_nbytes(), 0);
@@ -142,6 +195,26 @@ mod tests {
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
         assert_eq!(ext_scalar.approx_nbytes(), 4); // i32 storage
+
+        // Test union scalar: one-byte type ID plus selected child.
+        let variants = union_variants(Nullability::Nullable, Nullability::NonNullable)?;
+        let union_scalar = Scalar::union(
+            variants.clone(),
+            5,
+            Scalar::primitive(42_i32, Nullability::Nullable),
+            Nullability::Nullable,
+        )?;
+
+        assert_eq!(
+            union_scalar.approx_nbytes(),
+            size_of::<u8>() + size_of::<i32>()
+        );
+        assert_eq!(
+            Scalar::null(DType::Union(variants, Nullability::Nullable)).approx_nbytes(),
+            0
+        );
+
+        Ok(())
     }
 
     #[test]
@@ -439,6 +512,35 @@ mod tests {
     }
 
     #[test]
+    fn test_union_scalar_equality_ignores_variant_nullability() -> VortexResult<()> {
+        let lhs_variants = union_variants(Nullability::Nullable, Nullability::NonNullable)?;
+        let rhs_variants = union_variants(Nullability::NonNullable, Nullability::Nullable)?;
+
+        let lhs = Scalar::union(
+            lhs_variants.clone(),
+            5,
+            Scalar::primitive(42_i32, Nullability::Nullable),
+            Nullability::Nullable,
+        )?;
+
+        let rhs = Scalar::union(
+            rhs_variants.clone(),
+            5,
+            Scalar::primitive(42_i32, Nullability::NonNullable),
+            Nullability::NonNullable,
+        )?;
+
+        assert_eq!(lhs, rhs);
+
+        let lhs_null = Scalar::null(DType::Union(lhs_variants, Nullability::Nullable));
+        let rhs_null = Scalar::null(DType::Union(rhs_variants, Nullability::Nullable));
+
+        assert_eq!(lhs_null, rhs_null);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_scalar_partial_ord_incompatible_types() {
         let int_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
@@ -476,5 +578,69 @@ mod tests {
 
         assert_eq!(scalar1, scalar2);
         assert_ne!(scalar1, scalar3);
+    }
+
+    #[test]
+    fn test_union_type_id_is_part_of_value_identity() -> VortexResult<()> {
+        let variants = UnionVariants::try_new(
+            ["left", "right"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            ],
+            vec![3, 8],
+        )?;
+        let left = Scalar::union(
+            variants.clone(),
+            3,
+            Scalar::primitive(42_i32, Nullability::NonNullable),
+            Nullability::NonNullable,
+        )?;
+
+        let right = Scalar::union(
+            variants,
+            8,
+            Scalar::primitive(42_i32, Nullability::NonNullable),
+            Nullability::NonNullable,
+        )?;
+
+        assert_ne!(left, right);
+        assert_eq!(left.partial_cmp(&right), None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn selected_null_union_children_are_equal_across_variants() -> VortexResult<()> {
+        let variants = UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::Nullable),
+                DType::Utf8(Nullability::Nullable),
+            ],
+            vec![3, 8],
+        )?;
+        let int_null = Scalar::union(
+            variants.clone(),
+            3,
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            Nullability::NonNullable,
+        )?;
+        let string_null = Scalar::union(
+            variants,
+            8,
+            Scalar::null(DType::Utf8(Nullability::Nullable)),
+            Nullability::NonNullable,
+        )?;
+
+        assert_eq!(int_null, string_null);
+        assert_eq!(
+            int_null.partial_cmp(&string_null),
+            Some(std::cmp::Ordering::Equal)
+        );
+
+        assert_eq!(scalar_hash(&int_null), scalar_hash(&string_null));
+
+        Ok(())
     }
 }

@@ -20,7 +20,7 @@ impl Display for Scalar {
             DType::Binary(_) => write!(f, "{}", self.as_binary()),
             DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
             DType::Struct(..) => write!(f, "{}", self.as_struct()),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => write!(f, "{}", self.as_union()),
             DType::Variant(_) => write!(f, "{}", self.as_variant()),
             DType::Extension(_) => write!(f, "{}", self.as_extension()),
         }
@@ -30,6 +30,7 @@ impl Display for Scalar {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexResult;
 
     use crate::dtype::DType;
     use crate::dtype::FieldName;
@@ -37,6 +38,7 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::dtype::UnionVariants;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::Time;
     use crate::extension::datetime::TimeUnit;
@@ -77,6 +79,39 @@ mod tests {
             format!("{}", Scalar::null(DType::Primitive(PType::U8, Nullable))),
             "null"
         );
+    }
+
+    #[test]
+    fn display_union() -> VortexResult<()> {
+        let variants = UnionVariants::new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullable),
+                DType::Utf8(NonNullable),
+            ],
+        )?;
+
+        let scalar = Scalar::union(
+            variants.clone(),
+            0,
+            Scalar::primitive(42_i32, Nullable),
+            Nullable,
+        )?;
+
+        assert_eq!(format!("{scalar}"), "int(42i32)");
+        let inner_null = Scalar::union(
+            variants.clone(),
+            0,
+            Scalar::null(DType::Primitive(PType::I32, Nullable)),
+            Nullable,
+        )?;
+        assert_eq!(format!("{inner_null}"), "int(null)");
+        assert_eq!(
+            format!("{}", Scalar::null(DType::Union(variants, Nullable))),
+            "null"
+        );
+
+        Ok(())
     }
 
     #[test]
