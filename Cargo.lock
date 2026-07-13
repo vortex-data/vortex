@@ -1559,6 +1559,7 @@ dependencies = [
  "tokio",
  "tracing",
  "vortex",
+ "vortex-arrow",
  "vortex-bench",
 ]
 
@@ -2125,6 +2126,7 @@ dependencies = [
  "tokio",
  "url",
  "vortex",
+ "vortex-arrow",
  "vortex-bench",
  "vortex-cuda",
  "vortex-datafusion",
@@ -9605,6 +9607,7 @@ dependencies = [
  "vortex",
  "vortex-alp",
  "vortex-array",
+ "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
@@ -9660,12 +9663,7 @@ dependencies = [
  "arbitrary",
  "arc-swap",
  "arcref",
- "arrow-array 58.3.0",
  "arrow-buffer 58.3.0",
- "arrow-cast 58.3.0",
- "arrow-data 58.3.0",
- "arrow-schema 58.3.0",
- "arrow-select 58.3.0",
  "async-lock",
  "bytes",
  "cfg-if",
@@ -9729,6 +9727,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-arrow"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 58.3.0",
+ "arrow-buffer 58.3.0",
+ "arrow-cast 58.3.0",
+ "arrow-data 58.3.0",
+ "arrow-schema 58.3.0",
+ "arrow-select 58.3.0",
+ "codspeed-divan-compat",
+ "itertools 0.14.0",
+ "num-traits",
+ "rstest",
+ "tracing",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-runend",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-bench"
 version = "0.1.0"
 dependencies = [
@@ -9775,6 +9796,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-arrow",
  "vortex-geo",
  "vortex-tensor",
  "wkb",
@@ -9862,6 +9884,7 @@ dependencies = [
  "tpchgen-arrow",
  "vortex",
  "vortex-array",
+ "vortex-arrow",
  "vortex-buffer",
  "vortex-error",
  "vortex-session",
@@ -9935,6 +9958,7 @@ dependencies = [
  "tracing",
  "vortex",
  "vortex-array",
+ "vortex-arrow",
  "vortex-cub",
  "vortex-cuda",
  "vortex-cuda-macros",
@@ -9996,6 +10020,7 @@ dependencies = [
  "tracing",
  "url",
  "vortex",
+ "vortex-arrow",
  "vortex-utils",
 ]
 
@@ -10118,6 +10143,7 @@ dependencies = [
  "tracing-subscriber",
  "vortex",
  "vortex-array",
+ "vortex-arrow",
 ]
 
 [[package]]
@@ -10234,6 +10260,7 @@ dependencies = [
  "prost 0.14.4",
  "rstest",
  "vortex-array",
+ "vortex-arrow",
  "vortex-error",
  "vortex-session",
  "wkb",
@@ -10305,6 +10332,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "vortex",
+ "vortex-arrow",
  "vortex-parquet-variant",
 ]
 
@@ -10316,6 +10344,7 @@ dependencies = [
  "arrow-schema 58.3.0",
  "prost 0.14.4",
  "vortex-array",
+ "vortex-arrow",
  "vortex-error",
  "vortex-proto",
  "vortex-session",
@@ -10351,6 +10380,7 @@ dependencies = [
  "tokio",
  "tracing",
  "vortex-array",
+ "vortex-arrow",
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-error",
@@ -10427,6 +10457,7 @@ dependencies = [
  "rstest",
  "tokio",
  "vortex-array",
+ "vortex-arrow",
  "vortex-buffer",
  "vortex-error",
  "vortex-file",
@@ -10446,6 +10477,7 @@ dependencies = [
  "prost 0.14.4",
  "rstest",
  "vortex-array",
+ "vortex-arrow",
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
@@ -10481,6 +10513,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-array",
+ "vortex-arrow",
  "vortex-python-abi",
  "vortex-tui",
 ]
@@ -10525,8 +10558,6 @@ name = "vortex-runend"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "arrow-array 58.3.0",
- "arrow-schema 58.3.0",
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
@@ -10592,6 +10623,7 @@ dependencies = [
  "prost 0.14.4",
  "rstest",
  "vortex-array",
+ "vortex-arrow",
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
@@ -10632,6 +10664,7 @@ dependencies = [
  "prost 0.14.4",
  "rstest",
  "vortex-array",
+ "vortex-arrow",
  "vortex-buffer",
  "vortex-compressor",
  "vortex-error",
@@ -10675,6 +10708,7 @@ dependencies = [
  "taffy",
  "tokio",
  "vortex",
+ "vortex-arrow",
  "vortex-datafusion",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -10702,6 +10736,7 @@ dependencies = [
  "serde",
  "serde_json",
  "vortex",
+ "vortex-arrow",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

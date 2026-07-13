@@ -7,23 +7,22 @@ use std::sync::Arc;
 
 use arrow_array::Scalar as ArrowScalar;
 use arrow_array::*;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
+use vortex_array::extension::datetime::AnyTemporal;
+use vortex_array::extension::datetime::TemporalMetadata;
+use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::scalar::BinaryScalar;
+use vortex_array::scalar::BoolScalar;
+use vortex_array::scalar::DecimalScalar;
+use vortex_array::scalar::DecimalValue;
+use vortex_array::scalar::ExtScalar;
+use vortex_array::scalar::PrimitiveScalar;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::Utf8Scalar;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-
-use crate::dtype::DType;
-use crate::dtype::PType;
-use crate::extension::datetime::AnyTemporal;
-use crate::extension::datetime::TemporalMetadata;
-use crate::extension::datetime::TimeUnit;
-use crate::scalar::BinaryScalar;
-use crate::scalar::BoolScalar;
-use crate::scalar::DecimalScalar;
-use crate::scalar::DecimalValue;
-use crate::scalar::ExtScalar;
-use crate::scalar::PrimitiveScalar;
-use crate::scalar::Scalar;
-use crate::scalar::Utf8Scalar;
 
 /// Arrow represents scalars as single-element arrays. This constant is the length of those arrays.
 const SCALAR_ARRAY_LEN: usize = 1;
@@ -50,10 +49,18 @@ macro_rules! timestamp_to_arrow_scalar {
     }};
 }
 
-impl TryFrom<&Scalar> for Arc<dyn Datum> {
-    type Error = VortexError;
+/// Convert a Vortex [`Scalar`] into an Arrow [`Datum`] (a single-element Arrow array).
+///
+/// This mirrors a `TryFrom<&Scalar> for Arc<dyn Datum>` conversion; a separate trait is
+/// required because both `Scalar` and `Datum` are foreign to this crate.
+pub trait ToArrowDatum {
+    /// Convert this scalar to an Arrow [`Datum`].
+    fn to_arrow_datum(&self) -> Result<Arc<dyn Datum>, VortexError>;
+}
 
-    fn try_from(value: &Scalar) -> Result<Arc<dyn Datum>, Self::Error> {
+impl ToArrowDatum for Scalar {
+    fn to_arrow_datum(&self) -> Result<Arc<dyn Datum>, VortexError> {
+        let value = self;
         match value.dtype() {
             DType::Null => Ok(Arc::new(NullArray::new(SCALAR_ARRAY_LEN))),
             DType::Bool(_) => bool_to_arrow(value.as_bool()),
@@ -192,149 +199,149 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
 mod tests {
     use std::sync::Arc;
 
-    use arrow_array::Datum;
     use rstest::rstest;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::DecimalDType;
+    use vortex_array::dtype::FieldDType;
+    use vortex_array::dtype::NativeDType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtId;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::dtype::i256;
+    use vortex_array::extension::datetime::Date;
+    use vortex_array::extension::datetime::Time;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
+    use vortex_array::extension::datetime::TimestampOptions;
+    use vortex_array::scalar::DecimalValue;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
 
-    use crate::dtype::DType;
-    use crate::dtype::DecimalDType;
-    use crate::dtype::FieldDType;
-    use crate::dtype::NativeDType;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::dtype::StructFields;
-    use crate::dtype::extension::ExtDType;
-    use crate::dtype::extension::ExtId;
-    use crate::dtype::extension::ExtVTable;
-    use crate::dtype::i256;
-    use crate::extension::datetime::Date;
-    use crate::extension::datetime::Time;
-    use crate::extension::datetime::TimeUnit;
-    use crate::extension::datetime::Timestamp;
-    use crate::extension::datetime::TimestampOptions;
-    use crate::scalar::DecimalValue;
-    use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
+    use super::ToArrowDatum;
 
     #[test]
     fn test_null_scalar_to_arrow() {
         let scalar = Scalar::null(DType::Null);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_bool_scalar_to_arrow() {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_null_bool_scalar_to_arrow() {
         let scalar = Scalar::null(bool::dtype().as_nullable());
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_u8_to_arrow() {
         let scalar = Scalar::primitive(42u8, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_u16_to_arrow() {
         let scalar = Scalar::primitive(1000u16, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_u32_to_arrow() {
         let scalar = Scalar::primitive(100000u32, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_u64_to_arrow() {
         let scalar = Scalar::primitive(10000000000u64, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_i8_to_arrow() {
         let scalar = Scalar::primitive(-42i8, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_i16_to_arrow() {
         let scalar = Scalar::primitive(-1000i16, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_i32_to_arrow() {
         let scalar = Scalar::primitive(-100000i32, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_i64_to_arrow() {
         let scalar = Scalar::primitive(-10000000000i64, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_f16_to_arrow() {
-        use crate::dtype::half::f16;
+        use vortex_array::dtype::half::f16;
 
         let scalar = Scalar::primitive(f16::from_f32(1.234), Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_f32_to_arrow() {
         let scalar = Scalar::primitive(1.234f32, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_primitive_f64_to_arrow() {
         let scalar = Scalar::primitive(1.234567890123f64, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_null_primitive_to_arrow() {
         let scalar = Scalar::null(i32::dtype().as_nullable());
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_utf8_scalar_to_arrow() {
         let scalar = Scalar::utf8("hello world".to_string(), Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_null_utf8_scalar_to_arrow() {
         let scalar = Scalar::null(String::dtype().as_nullable());
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
@@ -342,14 +349,14 @@ mod tests {
     fn test_binary_scalar_to_arrow() {
         let data = vec![1u8, 2, 3, 4, 5];
         let scalar = Scalar::binary(data, Nullability::NonNullable);
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_null_binary_scalar_to_arrow() {
         let scalar = Scalar::null(DType::Binary(Nullability::Nullable));
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
@@ -363,35 +370,35 @@ mod tests {
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(Arc::<dyn Datum>::try_from(&scalar_i8).is_ok());
+        assert!(scalar_i8.to_arrow_datum().is_ok());
 
         let scalar_i16 = Scalar::decimal(
             DecimalValue::I16(10000),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(Arc::<dyn Datum>::try_from(&scalar_i16).is_ok());
+        assert!(scalar_i16.to_arrow_datum().is_ok());
 
         let scalar_i32 = Scalar::decimal(
             DecimalValue::I32(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(Arc::<dyn Datum>::try_from(&scalar_i32).is_ok());
+        assert!(scalar_i32.to_arrow_datum().is_ok());
 
         let scalar_i64 = Scalar::decimal(
             DecimalValue::I64(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(Arc::<dyn Datum>::try_from(&scalar_i64).is_ok());
+        assert!(scalar_i64.to_arrow_datum().is_ok());
 
         let scalar_i128 = Scalar::decimal(
             DecimalValue::I128(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(Arc::<dyn Datum>::try_from(&scalar_i128).is_ok());
+        assert!(scalar_i128.to_arrow_datum().is_ok());
 
         // Test i256
 
@@ -401,14 +408,14 @@ mod tests {
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(Arc::<dyn Datum>::try_from(&scalar_i256).is_ok());
+        assert!(scalar_i256.to_arrow_datum().is_ok());
     }
 
     #[test]
     fn test_null_decimal_to_arrow() {
         let decimal_dtype = DecimalDType::new(10, 2);
         let scalar = Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable));
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
@@ -427,7 +434,7 @@ mod tests {
             struct_dtype,
             vec![Scalar::primitive(42i32, Nullability::NonNullable)],
         );
-        Arc::<dyn Datum>::try_from(&struct_scalar).unwrap();
+        struct_scalar.to_arrow_datum().unwrap();
     }
 
     #[test]
@@ -443,7 +450,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        Arc::<dyn Datum>::try_from(&list_scalar).unwrap();
+        list_scalar.to_arrow_datum().unwrap();
     }
 
     #[test]
@@ -485,7 +492,7 @@ mod tests {
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
 
-        Arc::<dyn Datum>::try_from(&scalar).unwrap();
+        scalar.to_arrow_datum().unwrap();
     }
 
     #[rstest]
@@ -510,7 +517,7 @@ mod tests {
             },
         );
 
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
@@ -534,7 +541,7 @@ mod tests {
             },
         );
 
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
@@ -552,7 +559,7 @@ mod tests {
             Scalar::primitive(value, Nullability::NonNullable),
         );
 
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
@@ -576,7 +583,7 @@ mod tests {
             Scalar::primitive(value, Nullability::NonNullable),
         );
 
-        let result = Arc::<dyn Datum>::try_from(&scalar);
+        let result = scalar.to_arrow_datum();
         assert!(result.is_ok());
     }
 
@@ -587,7 +594,7 @@ mod tests {
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
         );
 
-        let _result = Arc::<dyn Datum>::try_from(&scalar).unwrap();
+        let _result = scalar.to_arrow_datum().unwrap();
     }
 
     #[test]

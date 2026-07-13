@@ -27,6 +27,7 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
+use vortex_arrow::ToArrowType;
 
 use crate::RUNTIME;
 use crate::arrays::PyArrayRef;

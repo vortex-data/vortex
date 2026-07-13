@@ -8,22 +8,22 @@ use arrow_array::GenericByteArray;
 use arrow_array::types::BinaryViewType;
 use arrow_array::types::ByteArrayType;
 use arrow_array::types::StringViewType;
+use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::VarBin;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::ExecutionCtx;
-use crate::array::ArrayView;
-use crate::arrays::VarBin;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::varbin::VarBinArrayExt;
-use crate::arrow::byte_view::execute_varbinview_to_arrow;
-use crate::arrow::executor::validity::to_arrow_null_buffer;
-use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
-use crate::dtype::NativePType;
-use crate::dtype::Nullability;
+use crate::byte_view::execute_varbinview_to_arrow;
+use crate::executor::validity::to_arrow_null_buffer;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
 pub(super) fn to_arrow_byte_array<T: ByteArrayType>(
@@ -81,16 +81,16 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::array_session;
-    use crate::arrow::ArrowSessionExt;
-    use crate::arrow::executor::byte::VarBinViewArray;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
+    use crate::ArrowSessionExt;
+    use crate::executor::byte::VarBinViewArray;
 
     fn make_utf8_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["hello", "world", "this is a longer string for testing"])

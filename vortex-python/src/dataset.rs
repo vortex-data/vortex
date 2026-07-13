@@ -25,6 +25,7 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::split_by::SplitBy;
+use vortex_arrow::ToArrowType;
 
 use crate::RUNTIME;
 use crate::arrays::PyArrayRef;

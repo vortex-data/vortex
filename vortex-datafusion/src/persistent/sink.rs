@@ -25,13 +25,13 @@ use futures::StreamExt;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowSessionExt;
 
 /// Implements [`DataSink`] for writing Vortex files.
 pub struct VortexSink {

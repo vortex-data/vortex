@@ -1,8 +1,8 @@
 [package]
-name = "vortex-runend"
+name = "vortex-arrow"
 authors = { workspace = true }
 categories = { workspace = true }
-description = "Vortex run end encoded array"
+description = "Apache Arrow interoperability for Vortex arrays"
 edition = { workspace = true }
 homepage = { workspace = true }
 include = { workspace = true }
@@ -13,46 +13,34 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[dependencies]
-arbitrary = { workspace = true, optional = true }
-itertools = { workspace = true }
-num-traits = { workspace = true }
-prost = { workspace = true }
-vortex-array = { workspace = true }
-vortex-buffer = { workspace = true }
-vortex-error = { workspace = true }
-vortex-mask = { workspace = true }
-vortex-session = { workspace = true }
+[package.metadata.docs.rs]
+all-features = true
 
 [lints]
 workspace = true
 
+[dependencies]
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-buffer = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-data = { workspace = true }
+arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
+arrow-select = { workspace = true }
+itertools = { workspace = true }
+num-traits = { workspace = true }
+tracing = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-runend = { workspace = true }
+vortex-session = { workspace = true }
+
 [dev-dependencies]
 divan = { workspace = true }
-itertools = { workspace = true }
-rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
-[features]
-arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
-
 [[bench]]
-name = "run_end_null_count"
-harness = false
-
-[[bench]]
-name = "run_end_compress"
-harness = false
-
-[[bench]]
-name = "run_end_decode"
-harness = false
-
-[[bench]]
-name = "run_end_take"
-harness = false
-
-[[bench]]
-name = "run_end_filter"
+name = "to_arrow"
 harness = false

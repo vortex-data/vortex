@@ -24,7 +24,6 @@ use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
 use vortex::VortexSessionDefault;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::dtype::Nullability;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
@@ -47,6 +46,7 @@ use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::convert::FromDataFusion;
 
@@ -1192,8 +1192,8 @@ mod tests {
         use vortex::array::ArrayRef;
         use vortex::array::Canonical;
         use vortex::array::VortexSessionExecute as _;
-        use vortex::array::arrow::FromArrowArray;
         use vortex::session::VortexSession;
+        use vortex_arrow::FromArrowArray;
 
         // Create test data
         let values = Arc::new(Int32Array::from(vec![1, 5, 10, 15, 20]));

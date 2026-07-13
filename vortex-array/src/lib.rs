@@ -95,7 +95,6 @@ use vortex_session::VortexSession;
 use vortex_session::registry::Context;
 
 use crate::aggregate_fn::session::AggregateFnSession;
-use crate::arrow::ArrowSession;
 use crate::dtype::session::DTypeSession;
 use crate::memory::MemorySession;
 use crate::optimizer::kernels::KernelSession;
@@ -106,10 +105,9 @@ use crate::stats::session::StatsSession;
 pub mod aggregate_fn;
 #[doc(hidden)]
 pub mod aliases;
-mod arc_swap_map;
+pub mod arc_swap_map;
 mod array;
 pub mod arrays;
-pub mod arrow;
 pub mod buffer;
 pub mod builders;
 pub mod builtins;
@@ -163,11 +161,13 @@ pub fn initialize(session: &VortexSession) {
 
 /// Builds a fresh [`VortexSession`] registered with all of vortex-array's built-in session
 /// variables: arrays, dtypes, scalar functions, stats, optimizer kernels, aggregate functions,
-/// Arrow conversion, and memory.
+/// and memory.
 ///
 /// Each call returns an independent session (with its own registries), so callers may register
 /// additional encodings or kernels into it without affecting any other session. This does not
-/// register file, layout, or runtime state — those live in higher-level crates.
+/// register file, layout, or runtime state — those live in higher-level crates. Arrow
+/// interoperability lives in the `vortex-arrow` crate, whose session variables are registered
+/// lazily on first use (or eagerly by consumers).
 pub fn array_session() -> VortexSession {
     VortexSession::empty()
         .with::<ArraySession>()
@@ -176,7 +176,6 @@ pub fn array_session() -> VortexSession {
         .with::<ScalarFnSession>()
         .with::<StatsSession>()
         .with::<AggregateFnSession>()
-        .with::<ArrowSession>()
         .with::<MemorySession>()
 }
 

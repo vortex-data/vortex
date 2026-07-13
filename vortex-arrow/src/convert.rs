@@ -57,6 +57,28 @@ use arrow_buffer::buffer::NullBuffer;
 use arrow_buffer::buffer::OffsetBuffer;
 use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::NullArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::TemporalArray;
+use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::i256;
+use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -68,31 +90,19 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::arrays::DecimalArray;
-use crate::arrays::DictArray;
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::ListArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::NullArray;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::StructArray;
-use crate::arrays::TemporalArray;
-use crate::arrays::VarBinArray;
-use crate::arrays::VarBinViewArray;
-use crate::arrow::FromArrowArray;
-use crate::dtype::DType;
-use crate::dtype::DecimalDType;
-use crate::dtype::IntegerPType;
-use crate::dtype::NativePType;
-use crate::dtype::PType;
-use crate::dtype::i256;
-use crate::extension::datetime::TimeUnit;
-use crate::validity::Validity;
+use crate::FromArrowArray;
+use crate::dtype::FromArrowType;
 
-impl IntoArray for ArrowBuffer {
+/// Zero-copy conversion of Arrow buffers into non-nullable Vortex arrays.
+///
+/// This mirrors [`IntoArray`] for Arrow buffer types; a separate trait is required because both
+/// [`IntoArray`] and the Arrow buffer types are foreign to this crate.
+pub trait IntoVortexArray {
+    /// Convert this Arrow buffer into a non-nullable Vortex array without copying.
+    fn into_array(self) -> ArrayRef;
+}
+
+impl IntoVortexArray for ArrowBuffer {
     fn into_array(self) -> ArrayRef {
         PrimitiveArray::from_byte_buffer(
             ByteBuffer::from_arrow_buffer(self, Alignment::of::<u8>()),
@@ -103,13 +113,13 @@ impl IntoArray for ArrowBuffer {
     }
 }
 
-impl IntoArray for BooleanBuffer {
+impl IntoVortexArray for BooleanBuffer {
     fn into_array(self) -> ArrayRef {
         BoolArray::new(self.into(), Validity::NonNullable).into_array()
     }
 }
 
-impl<T> IntoArray for ScalarBuffer<T>
+impl<T> IntoVortexArray for ScalarBuffer<T>
 where
     T: ArrowNativeType + NativePType,
 {
@@ -122,7 +132,7 @@ where
     }
 }
 
-impl<O> IntoArray for OffsetBuffer<O>
+impl<O> IntoVortexArray for OffsetBuffer<O>
 where
     O: IntegerPType + OffsetSizeTrait,
 {
@@ -257,10 +267,14 @@ where
 
     Ok(match value.data_type() {
         DataType::Timestamp(time_unit, tz) => {
-            TemporalArray::new_timestamp(arr, time_unit.into(), tz.clone()).into()
+            TemporalArray::new_timestamp(arr, TimeUnit::from_arrow(time_unit), tz.clone()).into()
         }
-        DataType::Time32(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
-        DataType::Time64(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
+        DataType::Time32(time_unit) => {
+            TemporalArray::new_time(arr, TimeUnit::from_arrow(time_unit)).into()
+        }
+        DataType::Time64(time_unit) => {
+            TemporalArray::new_time(arr, TimeUnit::from_arrow(time_unit)).into()
+        }
         DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::Days).into(),
         DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Milliseconds).into(),
         DataType::Duration(_) => unimplemented!(),
@@ -693,26 +707,26 @@ mod tests {
     use arrow_schema::Fields;
     use arrow_schema::Schema;
     use rstest::rstest;
+    use vortex_array::ArrayRef;
+    use vortex_array::arrays::Decimal;
+    use vortex_array::arrays::FixedSizeList;
+    use vortex_array::arrays::List;
+    use vortex_array::arrays::ListView;
+    use vortex_array::arrays::Primitive;
+    use vortex_array::arrays::Struct;
+    use vortex_array::arrays::VarBinView;
+    use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use vortex_array::arrays::list::ListArrayExt;
+    use vortex_array::arrays::listview::ListViewArrayExt;
+    use vortex_array::arrays::struct_::StructArrayExt;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::Timestamp;
 
-    use crate::ArrayRef;
-    use crate::IntoArray;
-    use crate::arrays::Decimal;
-    use crate::arrays::FixedSizeList;
-    use crate::arrays::List;
-    use crate::arrays::ListView;
-    use crate::arrays::Primitive;
-    use crate::arrays::Struct;
-    use crate::arrays::VarBinView;
-    use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-    use crate::arrays::list::ListArrayExt;
-    use crate::arrays::listview::ListViewArrayExt;
-    use crate::arrays::struct_::StructArrayExt;
-    use crate::arrow::FromArrowArray as _;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::extension::datetime::TimeUnit;
-    use crate::extension::datetime::Timestamp;
+    use crate::FromArrowArray as _;
+    use crate::IntoVortexArray as _;
 
     #[rstest]
     #[case::i8(

@@ -13,6 +13,7 @@ use arrow_schema::Fields;
 use arrow_schema::Schema;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
+use vortex_arrow::ToArrowType;
 
 /// Export a Vortex [`DType`] to the Arrow C Data Interface struct at `schema_addr`. Views
 /// (Utf8View/BinaryView) are downgraded to regular Utf8/Binary so Spark and other consumers

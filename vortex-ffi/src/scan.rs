@@ -18,7 +18,6 @@ use futures::StreamExt;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::expr::stats::Precision;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
@@ -33,6 +32,8 @@ use vortex::scan::Partition;
 use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
+use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ToArrowType;
 
 use crate::RUNTIME;
 use crate::array::vx_array;

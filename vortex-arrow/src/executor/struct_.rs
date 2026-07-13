@@ -9,27 +9,27 @@ use arrow_buffer::NullBuffer;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use itertools::Itertools;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::ScalarFn;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::struct_::StructDataParts;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::StructFields;
+use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::Chunked;
-use crate::arrays::ScalarFn;
-use crate::arrays::Struct;
-use crate::arrays::StructArray;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::arrays::struct_::StructDataParts;
-use crate::arrow::ArrowArrayExecutor;
-use crate::arrow::executor::validity::to_arrow_null_buffer;
-use crate::arrow::session::ArrowSessionExt;
-use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
-use crate::dtype::FieldNames;
-use crate::dtype::StructFields;
-use crate::dtype::arrow::FromArrowType;
-use crate::scalar_fn::fns::pack::Pack;
+use crate::ArrowArrayExecutor;
+use crate::dtype::FromArrowType;
+use crate::executor::validity::to_arrow_null_buffer;
+use crate::session::ArrowSessionExt;
 
 pub(super) fn to_arrow_struct(
     array: ArrayRef,
@@ -91,7 +91,7 @@ pub(super) fn to_arrow_struct(
         // We apply a cast to ensure we push down casting where possible into the struct fields.
         array.cast(DType::Struct(
             vx_fields,
-            crate::dtype::Nullability::Nullable,
+            vortex_array::dtype::Nullability::Nullable,
         ))?
     } else {
         array
@@ -204,20 +204,21 @@ mod tests {
     use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use vortex_array as array;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
+    use vortex_array::arrays;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::array;
-    use crate::array_session;
-    use crate::arrays;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::arrow::ArrowArrayExecutor;
-    use crate::arrow::FromArrowArray;
-    use crate::dtype::FieldNames;
-    use crate::validity::Validity;
+    use crate::ArrowArrayExecutor;
+    use crate::FromArrowArray;
+    use crate::dtype::to_data_type_naive;
 
     #[test]
     fn struct_nullable_non_null_to_arrow() -> VortexResult<()> {
@@ -328,7 +329,7 @@ mod tests {
             ),
         ])?);
 
-        let arrow_dtype = array.dtype().to_arrow_dtype()?;
+        let arrow_dtype = to_data_type_naive(array.dtype())?;
         assert_eq!(
             &array
                 .into_array()

@@ -267,8 +267,6 @@ pub(crate) fn zip_validity(
 
 #[cfg(test)]
 mod tests {
-    use arrow_array::cast::AsArray;
-    use arrow_select::zip::zip as arrow_zip;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -283,7 +281,7 @@ mod tests {
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinView;
-    use crate::arrow::ArrowSessionExt;
+    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BufferGrowthStrategy;
@@ -489,35 +487,34 @@ mod tests {
 
         let mut ctx = array_session().create_execution_ctx();
         let zipped = mask_array
-            .zip(if_true.clone(), if_false.clone())
+            .zip(if_true, if_false)
             .unwrap()
             .execute::<ArrayRef>(&mut ctx)
             .unwrap();
         let zipped = zipped.as_opt::<VarBinView>().unwrap();
         assert_eq!(zipped.data_buffers().len(), 2);
 
-        let mut arrow_ctx = array_session().create_execution_ctx();
-        let expected = arrow_zip(
-            array_session()
-                .arrow()
-                .execute_arrow(mask.into_array(), None, &mut arrow_ctx)
-                .unwrap()
-                .as_boolean(),
-            &array_session()
-                .arrow()
-                .execute_arrow(if_true, None, &mut arrow_ctx)
-                .unwrap(),
-            &array_session()
-                .arrow()
-                .execute_arrow(if_false, None, &mut arrow_ctx)
-                .unwrap(),
-        )
-        .unwrap();
-
-        let actual = array_session()
-            .arrow()
-            .execute_arrow(zipped.array().clone(), None, &mut arrow_ctx)
-            .unwrap();
-        assert_eq!(actual.as_ref(), expected.as_ref());
+        let true_value = |i: usize| {
+            if i.is_multiple_of(2) {
+                "Hello"
+            } else {
+                "Hello this is a long string that won't be inlined."
+            }
+        };
+        let false_value = |i: usize| {
+            if i.is_multiple_of(2) {
+                "Hello2"
+            } else {
+                "Hello2 this is a long string that won't be inlined."
+            }
+        };
+        let expected = VarBinViewArray::from_iter_str((0..200).map(|i| {
+            if mask.value(i) {
+                true_value(i)
+            } else {
+                false_value(i)
+            }
+        }));
+        assert_arrays_eq!(zipped.array().clone(), expected, &mut ctx);
     }
 }

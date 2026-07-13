@@ -24,13 +24,6 @@ use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::variant::VariantArrayExt;
-#[expect(
-    deprecated,
-    reason = "TODO(aduffy): figure out what to do with Parquet Variant"
-)]
-use vortex_array::arrow::ArrowArrayExecutor;
-use vortex_array::arrow::FromArrowArray;
-use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
@@ -41,6 +34,13 @@ use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
+#[expect(
+    deprecated,
+    reason = "TODO(aduffy): figure out what to do with Parquet Variant"
+)]
+use vortex_arrow::ArrowArrayExecutor;
+use vortex_arrow::FromArrowArray;
+use vortex_arrow::to_arrow_null_buffer;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;

@@ -30,6 +30,7 @@ paste = { workspace = true }
 tracing = { workspace = true, features = ["std", "log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 vortex = { workspace = true, features = ["object_store"] }
+vortex-arrow = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }

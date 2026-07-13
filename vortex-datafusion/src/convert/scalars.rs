@@ -14,7 +14,6 @@ use vortex::dtype::DecimalDType;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::half::f16;
 use vortex::dtype::i256;
 use vortex::error::VortexExpect;
@@ -27,6 +26,7 @@ use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::TimeUnit;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
+use vortex_arrow::FromArrowType;
 
 use crate::convert::FromDataFusion;
 use crate::convert::TryToDataFusion;

@@ -26,20 +26,20 @@ use arrow_array::types::TimestampNanosecondType;
 use arrow_array::types::TimestampSecondType;
 use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
+use vortex_array::extension::datetime::AnyTemporal;
+use vortex_array::extension::datetime::TemporalMetadata;
+use vortex_array::extension::datetime::TimeUnit;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::arrays::PrimitiveArray;
-use crate::arrow::null_buffer::to_null_buffer;
-use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
-use crate::dtype::NativePType;
-use crate::dtype::Nullability;
-use crate::extension::datetime::AnyTemporal;
-use crate::extension::datetime::TemporalMetadata;
-use crate::extension::datetime::TimeUnit;
+use crate::null_buffer::to_null_buffer;
 
 pub(super) fn to_arrow_date(
     array: ArrayRef,
@@ -168,7 +168,7 @@ fn validate_temporal_extension(array: &ArrayRef, target: &DataType) -> VortexRes
             Ok(())
         }
         (TemporalMetadata::Timestamp(unit, src_tz), DataType::Timestamp(arrow_unit, tgt_tz)) => {
-            let src_arrow_unit = ArrowTimeUnit::try_from(*unit)?;
+            let src_arrow_unit = crate::dtype::to_arrow_time_unit(*unit)?;
             if src_arrow_unit != *arrow_unit {
                 vortex_bail!(
                     "Cannot convert Timestamp({unit}) to Arrow Timestamp({arrow_unit:?}): unit mismatch"

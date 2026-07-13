@@ -15,17 +15,19 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
-#[expect(
-    deprecated,
-    reason = "benchmark comparing deprecated method with new one"
-)]
-use vortex_array::arrow::ArrowArrayExecutor;
-use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
+#[expect(
+    deprecated,
+    reason = "benchmark comparing deprecated method with new one"
+)]
+use vortex_arrow::ArrowArrayExecutor;
+use vortex_arrow::ArrowSessionExt;
+#[allow(deprecated)]
+use vortex_arrow::dtype::ToArrowType as _;
 use vortex_session::VortexSession;
 
 fn main() {

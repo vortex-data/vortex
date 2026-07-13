@@ -24,7 +24,6 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinView;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
-use vortex::array::arrow::FromArrowArray;
 use vortex::array::legacy_session;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
@@ -36,6 +35,7 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
+use vortex_arrow::FromArrowArray;
 
 use crate::arc_wrapper;
 use crate::dtype::vx_dtype;

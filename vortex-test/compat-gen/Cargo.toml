@@ -23,6 +23,7 @@ path = "src/main.rs"
 # Vortex crates
 vortex = { workspace = true, features = ["files", "tokio", "zstd"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-arrow = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-session = { workspace = true }

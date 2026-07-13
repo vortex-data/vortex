@@ -11,35 +11,20 @@ use arrow_array::types::*;
 use arrow_buffer::ArrowNativeType;
 use arrow_schema::DataType;
 use arrow_schema::Field;
-use prost::Message;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_runend::RunEnd;
+use vortex_runend::RunEndArray;
+use vortex_runend::RunEndArrayExt;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::Constant;
-use crate::arrays::ConstantArray;
-use crate::arrow::ArrowArrayExecutor;
-use crate::session::ArraySessionExt;
-
-/// The encoding ID used by `vortex-runend`. We match on this string to avoid a crate dependency.
-const VORTEX_RUNEND_ID: &str = "vortex.runend";
-
-/// Mirror of `RunEndMetadata` from the `vortex-runend` crate. Same prost field tags so we can
-/// decode the serialized metadata without depending on that crate.
-#[derive(Clone, prost::Message)]
-struct RunEndMetadata {
-    #[prost(int32, tag = "1")]
-    pub ends_ptype: i32,
-    #[prost(uint64, tag = "2")]
-    pub num_runs: u64,
-    #[prost(uint64, tag = "3")]
-    pub offset: u64,
-}
+use crate::ArrowArrayExecutor;
 
 pub(super) fn to_arrow_run_end(
     array: ArrayRef,
@@ -57,47 +42,32 @@ pub(super) fn to_arrow_run_end(
     // Execute to unwrap any wrapper VTables (Slice, Filter, etc.) which may
     // reveal a RunEndArray.
     let array = array.execute::<ArrayRef>(ctx)?;
-    if array.encoding_id().as_ref() == VORTEX_RUNEND_ID {
-        // NOTE(ngates): while this module still lives in vortex-array, we cannot depend on the
-        //  vortex-runend crate. Therefore, we match on the encoding ID string and extract the children
-        //  and metadata directly.
-        return run_end_to_arrow(array, ends_type, values_type, ctx);
+    match array.try_downcast::<RunEnd>() {
+        Ok(run_end) => run_end_to_arrow(run_end, ends_type, values_type, ctx),
+        Err(array) => {
+            // Fallback: canonicalize to flat Arrow, then cast to REE.
+            let flat = array.execute_arrow(Some(values_type.data_type()), ctx)?;
+            let ree_type = DataType::RunEndEncoded(
+                Arc::new(Field::new("run_ends", ends_type.clone(), false)),
+                Arc::new(values_type.clone()),
+            );
+            arrow_cast::cast(&flat, &ree_type).map_err(VortexError::from)
+        }
     }
-
-    // Fallback: canonicalize to flat Arrow, then cast to REE.
-    let flat = array.execute_arrow(Some(values_type.data_type()), ctx)?;
-    let ree_type = DataType::RunEndEncoded(
-        Arc::new(Field::new("run_ends", ends_type.clone(), false)),
-        Arc::new(values_type.clone()),
-    );
-    arrow_cast::cast(&flat, &ree_type).map_err(VortexError::from)
 }
 
 fn run_end_to_arrow(
-    array: ArrayRef,
+    array: RunEndArray,
     ends_type: &DataType,
     values_type: &Field,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let length = array.len();
-    let metadata_bytes = ctx
-        .session()
-        .array_serialize(&array)?
-        .ok_or_else(|| vortex_err!("RunEndArray missing metadata"))?;
-    let metadata = RunEndMetadata::decode(&*metadata_bytes)
-        .map_err(|e| vortex_err!("Failed to decode RunEndMetadata: {e}"))?;
-    let offset = usize::try_from(metadata.offset)
-        .map_err(|_| vortex_err!("RunEndArray offset {} overflows usize", metadata.offset))?;
+    let offset = array.offset();
 
-    let children = array.children();
-    vortex_ensure!(
-        children.len() == 2,
-        "Expected RunEndArray to have 2 children, got {}",
-        children.len()
-    );
-
-    let arrow_ends = children[0].clone().execute_arrow(Some(ends_type), ctx)?;
-    let arrow_values = children[1]
+    let arrow_ends = array.ends().clone().execute_arrow(Some(ends_type), ctx)?;
+    let arrow_values = array
+        .values()
         .clone()
         .execute_arrow(Some(values_type.data_type()), ctx)?;
 
@@ -204,21 +174,21 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::Nullable;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::Scalar;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
-    use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrow::ArrowArrayExecutor;
-    use crate::arrow::executor::run_end::ConstantArray;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability::Nullable;
-    use crate::dtype::PType;
-    use crate::executor::VortexSessionExecute;
-    use crate::scalar::Scalar;
+    use crate::ArrowArrayExecutor;
+    use crate::executor::run_end::ConstantArray;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     fn ree_type(ends: DataType, values_dtype: DataType) -> DataType {
         DataType::RunEndEncoded(
@@ -227,7 +197,10 @@ mod tests {
         )
     }
 
-    fn execute(array: crate::ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
+    fn execute(
+        array: vortex_array::ArrayRef,
+        dt: &DataType,
+    ) -> VortexResult<arrow_array::ArrayRef> {
         array.execute_arrow(Some(dt), &mut SESSION.create_execution_ctx())
     }
 
@@ -279,7 +252,7 @@ mod tests {
         ),
     )]
     fn constant_to_ree(
-        #[case] input: crate::ArrayRef,
+        #[case] input: vortex_array::ArrayRef,
         #[case] target_type: DataType,
         #[case] expected: arrow_array::ArrayRef,
     ) -> VortexResult<()> {

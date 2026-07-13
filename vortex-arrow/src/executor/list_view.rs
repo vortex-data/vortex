@@ -6,24 +6,24 @@ use std::sync::Arc;
 use arrow_array::GenericListViewArray;
 use arrow_array::OffsetSizeTrait;
 use arrow_schema::FieldRef;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
+use vortex_array::arrays::listview::DEFAULT_TRIM_ELEMENTS_THRESHOLD;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::listview::ListViewDataParts;
+use vortex_array::arrays::listview::ListViewRebuildMode;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::arrays::ListViewArray;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
-use crate::arrays::listview::DEFAULT_TRIM_ELEMENTS_THRESHOLD;
-use crate::arrays::listview::ListViewArrayExt;
-use crate::arrays::listview::ListViewDataParts;
-use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrow::executor::validity::to_arrow_null_buffer;
-use crate::arrow::session::ArrowSessionExt;
-use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
-use crate::dtype::IntegerPType;
-use crate::dtype::Nullability::NonNullable;
+use crate::executor::validity::to_arrow_null_buffer;
+use crate::session::ArrowSessionExt;
 
 pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     array: ArrayRef,
@@ -115,19 +115,19 @@ mod tests {
     use arrow_array::GenericListViewArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::arrow::ArrowArrayExecutor;
-    use crate::arrow::executor::list_view::ListViewArray;
-    use crate::arrow::executor::list_view::PrimitiveArray;
-    use crate::validity::Validity;
+    use crate::ArrowArrayExecutor;
+    use crate::executor::list_view::ListViewArray;
+    use crate::executor::list_view::PrimitiveArray;
 
     /// A shared session for these list-view-executor tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[test]
     fn trims_zero_copy_with_significant_trailing_waste() -> VortexResult<()> {

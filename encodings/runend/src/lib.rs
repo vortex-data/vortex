@@ -9,14 +9,12 @@ pub use array::*;
 pub use iter::trimmed_ends_iter;
 
 mod array;
-#[cfg(feature = "arrow")]
-mod arrow;
 pub mod compress;
 mod compute;
 pub mod decompress_bool;
 mod iter;
 mod kernel;
-mod ops;
+pub mod ops;
 mod rules;
 
 #[doc(hidden)]

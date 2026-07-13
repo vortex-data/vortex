@@ -29,6 +29,7 @@ use parking_lot::Mutex;
 use tokio::fs::File;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::scan::DataSourceRef;
+use vortex_arrow::ToArrowType;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;

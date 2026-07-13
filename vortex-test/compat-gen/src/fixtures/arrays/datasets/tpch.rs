@@ -8,7 +8,7 @@ use tpchgen_arrow::RecordBatchIterator;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrow::FromArrowArray;
+use vortex_arrow::FromArrowArray;
 use vortex_error::VortexResult;
 
 use crate::fixtures::DatasetFixture;
