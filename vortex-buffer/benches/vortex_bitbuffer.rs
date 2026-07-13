@@ -246,7 +246,12 @@ fn bitwise_not_vortex_buffer(bencher: Bencher, length: usize) {
         .bench_values(|buffer| !&buffer);
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+/// The in-place NOT on an owned `BitBufferMut` performs no allocation and no copy, so below a
+/// few thousand bits the measurement is fixed harness overhead and binary code layout rather
+/// than the loop itself. Only the sizes where the loop dominates are worth measuring.
+const NOT_MUT_INPUT_SIZE: &[usize] = &[16_384, 65_536];
+
+#[divan::bench(args = NOT_MUT_INPUT_SIZE)]
 fn bitwise_not_vortex_buffer_mut(bencher: Bencher, length: usize) {
     bencher
         .with_inputs(|| BitBufferMut::from_iter((0..length).map(|i| i % 2 == 0)))
