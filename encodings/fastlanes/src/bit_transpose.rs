@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::mem;
+use std::mem::MaybeUninit;
 
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 
 pub fn transpose_bitbuffer(bits: BitBuffer) -> BitBuffer {
@@ -52,17 +52,18 @@ fn transform_buffer(bytes: ByteBuffer, op: impl Fn(&[u64; 16], &mut [u64; 16])) 
 }
 
 fn transform_copy(bytes: ByteBuffer, op: impl Fn(&[u64; 16], &mut [u64; 16])) -> ByteBuffer {
-    let mut words_out = BufferMut::<u64>::with_capacity(bytes.len().next_multiple_of(128));
+    let out_len = bytes.len().next_multiple_of(128);
+    let mut words_out = BufferMut::<u64>::with_capacity(out_len);
     let (in_chunks, trailer) = bytes.as_chunks::<128>();
-    let (out_chunks, _) = words_out.as_chunks_mut::<16>();
+    let (out_chunks, _) = words_out.spare_capacity_mut().as_chunks_mut::<16>();
 
     for (chunk, output) in in_chunks
         .iter()
-        .zip(out_chunks[..in_chunks.len()].iter_mut())
+        .zip(out_chunks[..in_chunks.len() - 1].iter_mut())
     {
         op(
             unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(chunk) },
-            output,
+            unsafe { mem::transmute::<&mut [MaybeUninit<u64>; 16], &mut [u64; 16]>(output) },
         );
     }
 
@@ -71,11 +72,17 @@ fn transform_copy(bytes: ByteBuffer, op: impl Fn(&[u64; 16], &mut [u64; 16])) ->
         padded_input[0..trailer.len()].clone_from_slice(trailer);
         op(
             unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(&padded_input) },
-            out_chunks
-                .last_mut()
-                .vortex_expect("Output wasn't a multiple of 128 bytes"),
+            unsafe {
+                mem::transmute::<&mut [MaybeUninit<u64>; 16], &mut [u64; 16]>(
+                    out_chunks
+                        .last_mut()
+                        .vortex_expect("Output wasn't a multiple of 128 bytes"),
+                )
+            },
         );
     }
+
+    unsafe { words_out.set_len(out_len) };
     words_out.freeze().into_byte_buffer()
 }
 
@@ -91,12 +98,6 @@ fn transform_in_place(
         chunk.copy_from_slice(&output);
     }
     words.freeze().into_byte_buffer()
-}
-
-fn pad_to_chunk(bytes: ByteBuffer) -> ByteBuffer {
-    let mut padded = ByteBufferMut::zeroed(bytes.len().next_multiple_of(128));
-    padded[..bytes.len()].copy_from_slice(&bytes);
-    padded.freeze()
 }
 
 #[cfg(test)]
