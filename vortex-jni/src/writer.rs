@@ -42,6 +42,7 @@ use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::Field as DTypeField;
 use vortex::dtype::FieldPath;
+use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::stats::Stat;
@@ -442,37 +443,37 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
         let write_options = write_options_for_schema(session, &write_schema);
-        let bytes_written = Arc::new(AtomicU64::new(0));
-        let task_bytes_written = Arc::clone(&bytes_written);
 
-        let handle = session.handle().spawn(async move {
-            match resolved {
-                ResolvedStore::Path(path) => {
+        let (bytes_written, handle) = match resolved {
+            ResolvedStore::Path(path) => {
+                let file = RUNTIME.block_on(async {
                     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
                         async_fs::create_dir_all(parent).await?;
                     }
-                    let mut file = File::create(path).await?;
-                    let write = CountingVortexWrite::with_counter(
-                        &mut file,
-                        Arc::clone(&task_bytes_written),
-                    );
-                    let summary = write_options.write(write, stream).await?;
-                    file.shutdown().await?;
-                    Ok(summary)
-                }
-                ResolvedStore::ObjectStore(store, path) => {
-                    let mut write =
-                        ObjectStoreWrite::new(Arc::new(Compat::new(store)), &path).await?;
-                    let counted_write = CountingVortexWrite::with_counter(
-                        &mut write,
-                        Arc::clone(&task_bytes_written),
-                    );
-                    let summary = write_options.write(counted_write, stream).await?;
+                    Ok::<_, VortexError>(File::create(path).await?)
+                })?;
+                let mut write = CountingVortexWrite::new(file);
+                let bytes_written = write.counter();
+                let handle = session.handle().spawn(async move {
+                    let summary = write_options.write(&mut write, stream).await?;
                     write.shutdown().await?;
                     Ok(summary)
-                }
+                });
+                (bytes_written, handle)
             }
-        });
+            ResolvedStore::ObjectStore(store, path) => {
+                let object_write =
+                    RUNTIME.block_on(ObjectStoreWrite::new(Arc::new(Compat::new(store)), &path))?;
+                let mut write = CountingVortexWrite::new(object_write);
+                let bytes_written = write.counter();
+                let handle = session.handle().spawn(async move {
+                    let summary = write_options.write(&mut write, stream).await?;
+                    write.shutdown().await?;
+                    Ok(summary)
+                });
+                (bytes_written, handle)
+            }
+        };
 
         Ok(Box::new(NativeWriter::new(
             session.clone(),

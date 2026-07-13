@@ -24,14 +24,6 @@ impl<W: VortexWrite> CountingVortexWrite<W> {
         }
     }
 
-    /// Wrap a writer with an existing shared byte counter.
-    pub fn with_counter(inner: W, bytes_written: Arc<AtomicU64>) -> Self {
-        Self {
-            inner,
-            bytes_written,
-        }
-    }
-
     /// Returns the shared byte counter updated by this writer.
     pub fn counter(&self) -> Arc<AtomicU64> {
         Arc::clone(&self.bytes_written)
