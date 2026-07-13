@@ -24,13 +24,13 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::extension::geometries;
 use crate::extension::single_geometry;
+use crate::extension::validate_geometry_operands;
 
 /// Planar (Euclidean) `ST_Distance` (no geodesic correction) between two native geometry
 /// operands, each a column or a constant literal.
@@ -77,13 +77,7 @@ impl ScalarFnVTable for GeoDistance {
     }
 
     fn return_dtype(&self, _: &Self::Options, dtypes: &[DType]) -> VortexResult<DType> {
-        // Geometry arrays are never nullable; reject nullable operands up front.
-        for dtype in dtypes {
-            vortex_ensure!(
-                !dtype.is_nullable(),
-                "geo distance: nullable operand {dtype} is unsupported"
-            );
-        }
+        validate_geometry_operands(dtypes)?;
         Ok(DType::Primitive(PType::F64, Nullability::NonNullable))
     }
 
@@ -146,6 +140,9 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_error::VortexResult;
@@ -235,6 +232,16 @@ mod tests {
     fn nullable_operand_is_rejected() -> VortexResult<()> {
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let result = GeoDistance.return_dtype(&EmptyOptions, &[dtype.as_nullable(), dtype]);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    /// A non-geometry operand dtype is rejected up front, before execution.
+    #[test]
+    fn non_geometry_operand_is_rejected() -> VortexResult<()> {
+        let geo = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let numeric = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let result = GeoDistance.return_dtype(&EmptyOptions, &[geo, numeric]);
         assert!(result.is_err());
         Ok(())
     }

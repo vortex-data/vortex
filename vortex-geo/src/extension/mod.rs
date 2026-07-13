@@ -44,13 +44,43 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrow::FromArrowArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 pub use wkb::*;
+
+/// Whether `dtype` is one of the native geometry extension types the geo kernels operate on.
+fn is_native_geometry(dtype: &DType) -> bool {
+    dtype.as_extension_opt().is_some_and(|ext| {
+        ext.is::<Point>()
+            || ext.is::<LineString>()
+            || ext.is::<MultiPoint>()
+            || ext.is::<Polygon>()
+            || ext.is::<MultiLineString>()
+            || ext.is::<MultiPolygon>()
+    })
+}
+
+/// Validate the operands of a geo scalar function: each must be a native geometry type (so the
+/// kernel can decode it) and non-nullable (geometry arrays never carry nulls).
+pub(crate) fn validate_geometry_operands(dtypes: &[DType]) -> VortexResult<()> {
+    for dtype in dtypes {
+        vortex_ensure!(
+            is_native_geometry(dtype),
+            "geo: operand {dtype} is not a native geometry type"
+        );
+        vortex_ensure!(
+            !dtype.is_nullable(),
+            "geo: nullable operand {dtype} is unsupported"
+        );
+    }
+    Ok(())
+}
 
 /// Decode a native geometry column to `geo_types`. A non-geometry operand is an error.
 pub(crate) fn geometries(

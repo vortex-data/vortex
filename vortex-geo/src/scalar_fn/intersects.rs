@@ -22,13 +22,13 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::extension::geometries;
 use crate::extension::single_geometry;
+use crate::extension::validate_geometry_operands;
 
 /// OGC `ST_Intersects` (not disjoint; boundary contact counts) between two native geometry
 /// operands, each a column or a constant literal.
@@ -75,13 +75,7 @@ impl ScalarFnVTable for GeoIntersects {
     }
 
     fn return_dtype(&self, _: &Self::Options, dtypes: &[DType]) -> VortexResult<DType> {
-        // Geometry arrays are never nullable; reject nullable operands up front.
-        for dtype in dtypes {
-            vortex_ensure!(
-                !dtype.is_nullable(),
-                "geo intersects: nullable operand {dtype} is unsupported"
-            );
-        }
+        validate_geometry_operands(dtypes)?;
         Ok(DType::Bool(Nullability::NonNullable))
     }
 
@@ -151,6 +145,9 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_error::VortexResult;
@@ -321,6 +318,16 @@ mod tests {
     fn nullable_operand_is_rejected() -> VortexResult<()> {
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
         let result = GeoIntersects.return_dtype(&EmptyOptions, &[dtype.as_nullable(), dtype]);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    /// A non-geometry operand dtype is rejected up front, before execution.
+    #[test]
+    fn non_geometry_operand_is_rejected() -> VortexResult<()> {
+        let geo = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let numeric = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let result = GeoIntersects.return_dtype(&EmptyOptions, &[geo, numeric]);
         assert!(result.is_err());
         Ok(())
     }
