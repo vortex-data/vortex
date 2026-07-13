@@ -85,6 +85,7 @@ serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
+mimalloc = { workspace = true }
 rand_distr = { workspace = true }
 rstest = { workspace = true }
 serde_json = { workspace = true }
