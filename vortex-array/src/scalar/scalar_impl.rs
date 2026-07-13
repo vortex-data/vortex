@@ -103,6 +103,10 @@ impl Scalar {
     /// For non-nullable and nested types that may need null values in their children (as of right
     /// now, that is _only_ `FixedSizeList` and `Struct`), this function will provide null default
     /// children.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `dtype` is a non-nullable union, which has no default value.
     pub fn default_value(dtype: &DType) -> Self {
         let value = ScalarValue::default_value(dtype);
 
@@ -114,7 +118,7 @@ impl Scalar {
     ///
     /// # Zero Values
     ///
-    /// Here is the list of zero values for each [`DType`] (when the [`DType`] is non-nullable):
+    /// Here is the list of non-null zero values for each [`DType`], regardless of its nullability:
     ///
     /// - `Null`: Does not have a "zero" value
     /// - `Bool`: `false`
@@ -127,7 +131,12 @@ impl Scalar {
     ///   element [`DType`]
     /// - `Struct`: A struct where each field has a zero value, which is determined by the field
     ///   [`DType`]
+    /// - `Union`: The first variant that has a non-null zero value
     /// - `Extension`: The zero value of the storage [`DType`]
+    ///
+    /// # Panics
+    ///
+    /// Panics if the dtype has no non-null value, such as `Null` or an empty union.
     pub fn zero_value(dtype: &DType) -> Self {
         let value = ScalarValue::zero_value(dtype);
 
@@ -201,7 +210,7 @@ impl Scalar {
                 .as_struct()
                 .fields_iter()
                 .is_some_and(|mut fields| fields.all(|f| f.is_zero() == Some(true))),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => self.as_union().value()?.is_zero()?,
             DType::Variant(_) => self.as_variant().is_zero()?,
             DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
         };
@@ -270,18 +279,20 @@ impl Scalar {
                 .fields_iter()
                 .map(|fields| fields.into_iter().map(|f| f.approx_nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => self
+                .as_union()
+                .value()
+                .map_or(0, |value| 1 + value.approx_nbytes()),
             DType::Variant(_) => self.as_variant().value().map_or(0, Scalar::approx_nbytes),
             DType::Extension(_) => self.as_extension().to_storage_scalar().approx_nbytes(),
         }
     }
 }
 
-/// We implement `Hash` manually to be consistent with `PartialEq`. Since we ignore nullability in
-/// equality comparisons, we must also ignore it when hashing to maintain the invariant that equal
-/// values have equal hashes.
+/// We implement `Hash` manually so top-level dtype nullability does not affect the hash.
 impl Hash for Scalar {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        // TODO(connor): Recursively ignore dtype nullability to match Scalar equality (#8744).
         self.dtype.as_nonnullable().hash(state);
         self.value.hash(state);
     }
@@ -377,6 +388,20 @@ fn partial_cmp_non_null_scalar_values(
         (ScalarValue::Tuple(lhs), ScalarValue::Tuple(rhs)) => {
             partial_cmp_tuple_values(dtype, lhs, rhs)
         }
+        (ScalarValue::Union(lhs), ScalarValue::Union(rhs)) => {
+            if lhs.type_id() != rhs.type_id() {
+                return None;
+            }
+
+            let DType::Union(variants) = dtype else {
+                return None;
+            };
+
+            let child_index = variants.tag_to_child_index(lhs.type_id())?;
+            let child_dtype = variants.variant_by_index(child_index)?;
+
+            partial_cmp_non_null_scalar_values(&child_dtype, lhs.value(), rhs.value())
+        }
         // Variant values can have a different dtype in each row, so it doesn't make sense to
         // compare them.
         (ScalarValue::Variant(_), ScalarValue::Variant(_)) => None,
@@ -443,11 +468,13 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
+    use vortex_error::VortexResult;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::dtype::UnionVariants;
     use crate::scalar::Scalar;
 
     fn i32_scalar(value: i32) -> Scalar {
@@ -589,5 +616,27 @@ mod tests {
             )],
         );
         assert_eq!(with_non_zero.is_zero(), Some(false));
+    }
+
+    #[test]
+    fn union_zero_skips_uninhabited_variant() -> VortexResult<()> {
+        let variants = UnionVariants::try_new(
+            ["null", "int"].into(),
+            vec![
+                DType::Null,
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            ],
+            vec![0, 4],
+        )?;
+
+        let scalar = Scalar::zero_value(&DType::Union(variants));
+
+        assert_eq!(scalar.as_union().type_id(), Some(4));
+        assert_eq!(
+            scalar.as_union().value().and_then(|value| value.is_zero()),
+            Some(true)
+        );
+
+        Ok(())
     }
 }

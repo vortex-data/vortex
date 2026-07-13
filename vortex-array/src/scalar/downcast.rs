@@ -8,6 +8,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
+use crate::dtype::DType;
 use crate::scalar::BinaryScalar;
 use crate::scalar::BoolScalar;
 use crate::scalar::DecimalScalar;
@@ -19,6 +20,8 @@ use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar::StructScalar;
+use crate::scalar::UnionScalar;
+use crate::scalar::UnionValue;
 use crate::scalar::Utf8Scalar;
 use crate::scalar::VariantScalar;
 
@@ -156,6 +159,26 @@ impl Scalar {
         Some(ExtScalar::new_unchecked(self.dtype(), self.value()))
     }
 
+    /// Returns a view of the scalar as a union scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar does not have a [`Union`](crate::dtype::DType::Union) type.
+    pub fn as_union(&self) -> UnionScalar<'_> {
+        self.as_union_opt()
+            .vortex_expect("Failed to convert scalar to union")
+    }
+
+    /// Returns a view of the scalar as a union scalar if it has a union type.
+    pub fn as_union_opt(&self) -> Option<UnionScalar<'_>> {
+        if !matches!(self.dtype(), DType::Union(_)) {
+            return None;
+        }
+
+        // Scalar construction has already validated the value against this union dtype.
+        Some(UnionScalar::new_unchecked(self.dtype(), self.value()))
+    }
+
     /// Returns a view of the scalar as a variant scalar.
     ///
     /// # Panics
@@ -270,6 +293,22 @@ impl ScalarValue {
         match self {
             ScalarValue::Tuple(elements) => elements,
             _ => vortex_panic!("ScalarValue is not a Tuple"),
+        }
+    }
+
+    /// Returns the union value, panicking if the value is not a [`Union`](ScalarValue::Union).
+    pub fn as_union(&self) -> &UnionValue {
+        match self {
+            ScalarValue::Union(value) => value,
+            _ => vortex_panic!("ScalarValue is not a Union"),
+        }
+    }
+
+    /// Returns the union value, panicking if the value is not a [`Union`](ScalarValue::Union).
+    pub fn into_union(self) -> UnionValue {
+        match self {
+            ScalarValue::Union(value) => value,
+            _ => vortex_panic!("ScalarValue is not a Union"),
         }
     }
 

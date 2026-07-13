@@ -24,6 +24,16 @@ impl Scalar {
             return Ok(self.clone());
         }
 
+        // Union nullability is part of its variant dtypes, so the generic nullability-only cast
+        // below is not valid for unions. Keep all non-identity union casts unsupported until their
+        // semantics are defined.
+        if self.dtype().is_union() || target_dtype.is_union() {
+            vortex_bail!(
+                "non-identity union scalar cast from {} to {target_dtype} is not supported",
+                self.dtype()
+            );
+        }
+
         // Check for solely nullability casting.
         if self.dtype().eq_ignore_nullability(target_dtype) {
             // Cast from non-nullable to nullable or vice versa.
@@ -58,13 +68,16 @@ impl Scalar {
             DType::Binary(_) => self.as_binary().cast(target_dtype),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target_dtype),
             DType::Struct(..) => self.as_struct().cast(target_dtype),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => unreachable!("union casts are handled before scalar dispatch"),
             DType::Variant(_) => vortex_bail!("Variant scalars can't be cast to {target_dtype}"),
             DType::Extension(..) => self.as_extension().cast(target_dtype),
         }
     }
 
     /// Cast the scalar into a nullable version of its current type.
+    ///
+    /// For a union this makes every variant nullable, since a union has no top-level nullability of
+    /// its own.
     pub fn into_nullable(self) -> Scalar {
         let (dtype, value) = self.into_parts();
         Self::try_new(dtype.as_nullable(), value)

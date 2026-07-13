@@ -8,6 +8,9 @@ use std::sync::Arc;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
@@ -15,6 +18,7 @@ use crate::dtype::DecimalDType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::UnionVariants;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtVTable;
@@ -22,6 +26,7 @@ use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::UnionValue;
 
 // TODO(connor): Really, we want `try_` constructors that return errors instead of just panic.
 impl Scalar {
@@ -188,6 +193,42 @@ impl Scalar {
 
         Self::try_new(DType::Extension(ext_dtype), storage_scalar.into_value())
             .vortex_expect("unable to construct an extension `Scalar`")
+    }
+
+    /// Creates a union scalar from a type ID and child scalar.
+    ///
+    /// A null child is normalized to a null union scalar, so null union scalars do not retain a
+    /// selected type ID. A type ID is not part of a null union scalar's logical identity and is not
+    /// preserved across serialization or other round trips. The type ID and exact child dtype are
+    /// still validated before normalization.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the type ID is not present in `variants` or if the child scalar's dtype
+    /// does not exactly match the selected variant dtype.
+    pub fn union(variants: UnionVariants, type_id: i8, child: Scalar) -> VortexResult<Self> {
+        let child_index = variants.tag_to_child_index(type_id).ok_or_else(|| {
+            vortex_err!(
+                "union type ID {type_id} is not present in {:?}",
+                variants.type_ids()
+            )
+        })?;
+
+        let expected_dtype = variants
+            .variant_by_index(child_index)
+            .vortex_expect("type ID resolved to a valid child index");
+
+        vortex_ensure_eq!(
+            child.dtype(),
+            &expected_dtype,
+            "union type ID {type_id} selects child dtype {expected_dtype}, got {}",
+            child.dtype()
+        );
+
+        let (_, child_value) = child.into_parts();
+        let value = child_value.map(|value| ScalarValue::Union(UnionValue::new(type_id, value)));
+
+        Self::try_new(DType::Union(variants), value)
     }
 
     /// Creates a new variant scalar from a row-specific nested scalar.

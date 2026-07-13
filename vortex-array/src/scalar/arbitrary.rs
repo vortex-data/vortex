@@ -95,7 +95,21 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             )),
         )
         .vortex_expect("unable to construct random `Scalar`_"),
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Union(variants) => {
+            let child_index = u.choose_index(variants.len())?;
+
+            let child_dtype = variants
+                .variant_by_index(child_index)
+                .vortex_expect("chosen union child index must be valid");
+            let child = random_scalar(u, &child_dtype)?;
+
+            Scalar::union(
+                variants.clone(),
+                variants.child_index_to_tag(child_index),
+                child,
+            )
+            .vortex_expect("generated union scalar must be valid")
+        }
         DType::Variant(_) => todo!(),
         DType::Extension(..) => {
             unreachable!("Can't yet generate arbitrary scalars for ext dtype")

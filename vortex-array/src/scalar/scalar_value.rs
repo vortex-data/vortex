@@ -15,6 +15,7 @@ use crate::dtype::DType;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
+use crate::scalar::UnionValue;
 
 /// The value stored in a [`Scalar`].
 ///
@@ -36,6 +37,8 @@ pub enum ScalarValue {
     ///
     /// Used as the underlying representation for list, fixed-size list, and struct scalars.
     Tuple(Vec<Option<ScalarValue>>),
+    /// A non-null union value carrying its selected type ID and child value.
+    Union(UnionValue),
     /// A row-specific scalar wrapped by `DType::Variant`.
     Variant(Box<Scalar>),
 }
@@ -43,8 +46,14 @@ pub enum ScalarValue {
 impl ScalarValue {
     /// Returns the zero / identity value for the given [`DType`].
     pub(super) fn zero_value(dtype: &DType) -> Self {
-        match dtype {
-            DType::Null => vortex_panic!("Null dtype has no zero value"),
+        Self::try_zero_value(dtype)
+            .unwrap_or_else(|| vortex_panic!("{dtype} has no non-null zero value"))
+    }
+
+    /// Returns the non-null zero value for `dtype`, or [`None`] if no such value exists.
+    fn try_zero_value(dtype: &DType) -> Option<Self> {
+        Some(match dtype {
+            DType::Null => return None,
             DType::Bool(_) => Self::Bool(false),
             DType::Primitive(ptype, _) => Self::Primitive(PValue::zero(ptype)),
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
@@ -52,25 +61,34 @@ impl ScalarValue {
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
             DType::List(..) => Self::Tuple(vec![]),
             DType::FixedSizeList(edt, size, _) => {
-                let elements = (0..*size).map(|_| Some(Self::zero_value(edt))).collect();
+                let elements = (0..*size)
+                    .map(|_| Self::try_zero_value(edt).map(Some))
+                    .collect::<Option<Vec<_>>>()?;
                 Self::Tuple(elements)
             }
             DType::Struct(fields, _) => {
                 let field_values = fields
                     .fields()
-                    .map(|f| Some(Self::zero_value(&f)))
-                    .collect();
+                    .map(|f| Self::try_zero_value(&f).map(Some))
+                    .collect::<Option<Vec<_>>>()?;
                 Self::Tuple(field_values)
             }
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(variants) => {
+                let (index, value) = variants
+                    .variants()
+                    .enumerate()
+                    .find_map(|(index, dtype)| Self::try_zero_value(&dtype).map(|v| (index, v)))?;
+
+                Self::Union(UnionValue::new(variants.child_index_to_tag(index), value))
+            }
             DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "zero" extension value (since we have no idea
                 // what the semantics of the extension is), a best effort attempt is to just use the
                 // zero storage value and try to make an extension scalar from that.
-                Self::zero_value(ext_dtype.storage_dtype())
+                Self::try_zero_value(ext_dtype.storage_dtype())?
             }
-        }
+        })
     }
 
     /// A similar function to [`ScalarValue::zero_value`], but for nullable [`DType`]s, this returns
@@ -97,10 +115,13 @@ impl ScalarValue {
                 Self::Tuple(elements)
             }
             DType::Struct(fields, _) => {
-                let field_values = fields.fields().map(|f| Self::default_value(&f)).collect();
+                let field_values = fields
+                    .fields()
+                    .map(|field| Self::default_value(&field))
+                    .collect();
                 Self::Tuple(field_values)
             }
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(_) => vortex_panic!("{dtype} has no default value"),
             DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "default" extension value (since we have no idea
@@ -155,6 +176,9 @@ impl Display for ScalarValue {
                     }
                 }
                 write!(f, "]")
+            }
+            ScalarValue::Union(value) => {
+                write!(f, "union@{}({})", value.type_id(), value.value())
             }
             ScalarValue::Variant(value) => write!(f, "{value}"),
         }

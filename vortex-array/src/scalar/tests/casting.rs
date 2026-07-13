@@ -17,6 +17,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::dtype::UnionVariants;
     use crate::dtype::extension::ExtDType;
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ExtVTable;
@@ -376,5 +377,78 @@ mod tests {
             list_elems[1].as_primitive().pvalue().unwrap(),
             PValue::F16(f16_value)
         );
+    }
+
+    #[test]
+    fn non_identity_union_casts_are_rejected() -> VortexResult<()> {
+        let source_variants = UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::Nullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+            vec![5, 9],
+        )?;
+
+        let target_variants = UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::Nullable),
+            ],
+            vec![5, 9],
+        )?;
+        let target_dtype = DType::Union(target_variants);
+
+        let value = Scalar::union(
+            source_variants.clone(),
+            5,
+            Scalar::primitive(42_i32, Nullability::Nullable),
+        )?;
+
+        assert!(value.cast(&target_dtype).is_err());
+
+        let null = Scalar::null(DType::Union(source_variants));
+
+        assert!(null.cast(&target_dtype).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn into_nullable_makes_every_variant_nullable() -> VortexResult<()> {
+        let scalar = Scalar::union(
+            UnionVariants::try_new(
+                ["int", "string"].into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Utf8(Nullability::NonNullable),
+                ],
+                vec![5, 9],
+            )?,
+            5,
+            Scalar::primitive(42_i32, Nullability::NonNullable),
+        )?;
+
+        let nullable = scalar.into_nullable();
+
+        // A union has no top-level nullability, so `into_nullable` propagates into every variant.
+        let expected = DType::Union(UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::Nullable),
+                DType::Utf8(Nullability::Nullable),
+            ],
+            vec![5, 9],
+        )?);
+        assert_eq!(nullable.dtype(), &expected);
+        assert!(nullable.dtype().is_nullable());
+        assert_eq!(nullable.as_union().type_id(), Some(5));
+        assert_eq!(
+            nullable.as_union().value(),
+            Some(Scalar::primitive(42_i32, Nullability::Nullable))
+        );
+
+        Ok(())
     }
 }
