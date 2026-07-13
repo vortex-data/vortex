@@ -4,8 +4,8 @@
 //! Scalar values and types for the Vortex system.
 //!
 //! This crate provides scalar types and values that can be used to represent individual data
-//! elements in the Vortex array system. [`Scalar`]s are composed of a logical data type ([`DType`])
-//! and an optional (encoding nullability) value ([`ScalarValue`]).
+//! elements in the Vortex array system. A [`Scalar`] pairs a logical data type ([`DType`]) with an
+//! optional non-null value ([`ScalarValue`]); [`None`] represents a null scalar.
 //!
 //! Note that the implementations of `Scalar` are split into several different modules.
 //!
