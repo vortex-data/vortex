@@ -1829,6 +1829,7 @@ fn layout_has_dict(layout: &dyn Layout) -> bool {
             .unwrap()
             .iter()
             .any(|child| layout_has_dict(child.as_ref()))
+}
 
 /// Mirrors the (private) `IDEAL_SPLIT_SIZE` that `SplitBy::Layout` uses to sub-divide wide
 /// chunk-boundary spans: layout splits are never wider than this many rows.
