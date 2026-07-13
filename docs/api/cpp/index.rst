@@ -1,13 +1,13 @@
 C++ API
 =======
 
-Vortex C++ API allows you to read and write ``.vortex`` files directly or via
-Arrow compatibility layer like `nanoarrow
-<https://arrow.apache.org/nanoarrow/>`_. The only dependency apart from
-Vortex is ``nanoarrow``.
+The Vortex C++ API allows you to read and write ``.vortex`` files directly or
+via an Arrow compatibility layer like `nanoarrow
+<https://arrow.apache.org/nanoarrow/>`_. The only dependency apart from Vortex
+is ``nanoarrow``.
 
 .. note::
-   C++ API is work in progress. Please reach out to us if you are interested
+   C++ API is a work in progress. Please reach out to us if you are interested
    in using Vortex from C++ or you want a feature not covered yet e.g.
    extension support.
 
@@ -80,32 +80,32 @@ print all ages for specific heights:
 DataSource and Scan
 ^^^^^^^^^^^^^^^^^^^
 
-First, you need to create a Vortex session which does extension bookkeeping and
+First, you need to create a Vortex session, which does extension bookkeeping and
 may also hold metadata like object store credentials (we'll get back to it
 later). Further, a DataSource provides a view over multiple files which may also
 be remote. You can specify globs for every item as it's shown.
 
 Once you have a DataSource, you can create Scans out of it. A Scan is a single
 traversal of a DataSource which projects columns and filters on them. Our Scan
-is consumed by following calls so it needs to be mutable. ScanOptions which are
-passed to Scan are a simple C++ aggregate so you can initialize any fields you
+is consumed by following calls so it needs to be mutable. ScanOptions, which is
+passed to Scan, is a simple C++ aggregate so you can initialize any fields you
 want or avoid them altogether (``auto scan = ds.scan()``).
 
 Expressions
 ^^^^^^^^^^^
 
-If you omit ``.projection`` all columns are read as part of a scan. If we'd want to
-return only the "age" column we'd write ``.projection = col("age")``. We pass an
-Expression to a filter which returns false for some "height" values, and the
+If you omit ``.projection`` all columns are read as part of a scan. If we wanted
+to return only the "age" column we'd write ``.projection = col("age")``. We pass
+an Expression to a filter which returns false for some "height" values, and the
 scan filters them out.
 
 Two additional things to look for in ``.filter``: first, we allow overloading
-Expression operators which produce Expressions themselves a-la Eigen. This is
+Expression operators which produce Expressions themselves à la Eigen. This is
 opt-in via ``using namespace vortex::expr::ops``. If you prefer, you can use
-``eq(col("height"), lit<uint16_t>(180))`` instead. Second thing is that we
+``eq(col("height"), lit<uint16_t>(180))`` instead. The second thing is that we
 explicitly pass the type to the ``lit`` expression, which creates a literal
 constant. We don't do any type coercion in Vortex so if you were to write
-``lit(180)``, C++ would likely deduce the type to ``int`` and fail in runtime.
+``lit(180)``, C++ would likely deduce the type to ``int`` and fail at runtime.
 
 Once we're done with the scan, we need to consume the data it provides. Vortex
 has Arrow interoperability, but now let's focus on Partitions and Arrays.
@@ -124,7 +124,7 @@ rows and columns.
    cheap.
 
 Once we have an Array, we can get access to its values. First, we need to
-extract "age" field.
+extract the "age" field.
 
 .. note::
    Default projection returns the root Array which is a Struct so to get
@@ -208,27 +208,27 @@ are physical. There's a convenience function ``struct_`` which creates a
 ``DataTypeVariant::Struct`` with fields passed as a ``initializer_list``.
 
 Each DataType has a notion of nullability: whether some items in the row can be
-invalid (Vortex uses "null" and "invalid" terms interchangeably). DataTypes are
-non-nullable by default, so "age" column is not nullable, but "height" is.
+invalid (Vortex uses the terms "null" and "invalid" interchangeably). DataTypes
+are non-nullable by default, so "age" column is not nullable, but "height" is.
 
 Once we create Arrays for columns we can merge them into a Struct Array with
-``make_struct``, and we need to tell a word about Validity.
+``make_struct``, and we need to say a word about Validity.
 
 Nullability and Validity
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-Nullability (and ``Nullable`` flag) is a type system note we `may` have invalid
-elements in the column. A non-``Nullable`` column can't have nulls in it, but a
-``Nullable`` column's items may be all valid as well. Validity, on the other
-hand, tells us whether we `do` have nulls in a particular Array.
+Nullability (and ``Nullable`` flag) is a type-system note that we `may` have
+invalid elements in the column. A non-``Nullable`` column can't have nulls in
+it, but a ``Nullable`` column's items may be all valid as well. Validity, on the
+other hand, tells us whether we `do` have nulls in a particular Array.
 
-"height" in first Array is AllValid which means in this Array we don't have
+"height" in the first Array is AllValid which means in this Array we don't have
 invalid items. For the second Array we reuse age by copying it (which is a
 reference clone so it's cheap). But for "height" we say Validity is determined
 by another Array. This array consists of Bools and we obtained it by applying a
 comparison Expression to the "age" column of the first array. So, "height" field
-in ``array2`` will have null/invalid values if "age"'s item at same index was
-less than 11.
+in ``array2`` will have null/invalid values if "age"'s item at the same index
+was less than 11.
 
 Applying Expressions
 ^^^^^^^^^^^^^^^^^^^^
