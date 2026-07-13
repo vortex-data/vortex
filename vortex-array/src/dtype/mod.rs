@@ -15,7 +15,6 @@
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-pub mod arrow;
 mod bigint;
 mod coercion;
 mod decimal;

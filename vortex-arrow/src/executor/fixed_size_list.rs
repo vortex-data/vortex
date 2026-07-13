@@ -4,16 +4,16 @@
 use std::sync::Arc;
 
 use arrow_schema::FieldRef;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::FixedSizeList;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::arrays::FixedSizeList;
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-use crate::arrow::executor::validity::to_arrow_null_buffer;
-use crate::arrow::session::ArrowSessionExt;
+use crate::executor::validity::to_arrow_null_buffer;
+use crate::session::ArrowSessionExt;
 
 pub(super) fn to_arrow_fixed_list(
     array: ArrayRef,

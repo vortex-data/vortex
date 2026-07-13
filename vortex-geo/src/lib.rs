@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
+use vortex_arrow::ArrowSessionExt;
 use vortex_session::VortexSession;
 
 use crate::extension::LineString;

@@ -28,7 +28,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 /// underlying cell: a registry mutated through one clone is observed by all
 /// others. Session variables rely on this so that encodings registered after a
 /// session is built remain visible to clones of that session.
-pub(crate) struct ArcSwapMap<K, V> {
+pub struct ArcSwapMap<K, V> {
     inner: Arc<ArcSwap<HashMap<K, V>>>,
 }
 
@@ -56,7 +56,7 @@ impl<K: Debug, V: Debug> Debug for ArcSwapMap<K, V> {
 
 impl<K, V> ArcSwapMap<K, V> {
     /// Return the currently published map snapshot.
-    pub(crate) fn snapshot(&self) -> Arc<HashMap<K, V>> {
+    pub fn snapshot(&self) -> Arc<HashMap<K, V>> {
         self.inner.load_full()
     }
 
@@ -64,7 +64,7 @@ impl<K, V> ArcSwapMap<K, V> {
     ///
     /// Every lookup inside `f` observes the same snapshot, which matters when a
     /// single logical read consults more than one key.
-    pub(crate) fn read<R>(&self, f: impl FnOnce(&HashMap<K, V>) -> R) -> R {
+    pub fn read<R>(&self, f: impl FnOnce(&HashMap<K, V>) -> R) -> R {
         f(&self.inner.load())
     }
 
@@ -87,7 +87,7 @@ impl<K, V> ArcSwapMap<K, V> {
 
 impl<K: Eq + Hash, V: Clone> ArcSwapMap<K, V> {
     /// Return a clone of the value stored under `key`, if present.
-    pub(crate) fn get<Q>(&self, key: &Q) -> Option<V>
+    pub fn get<Q>(&self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
@@ -96,7 +96,7 @@ impl<K: Eq + Hash, V: Clone> ArcSwapMap<K, V> {
     }
 
     /// Insert `value` under `key`, replacing any existing value.
-    pub(crate) fn insert(&self, key: K, value: V)
+    pub fn insert(&self, key: K, value: V)
     where
         K: Clone,
     {
@@ -111,7 +111,7 @@ impl<K: Eq + Hash + Clone, T: Clone> ArcSwapMap<K, Arc<[T]>> {
     ///
     /// Each key maps to an immutable `Arc<[T]>`; appending rebuilds that slice
     /// copy-on-write so existing readers keep their previous snapshot.
-    pub(crate) fn extend(&self, key: K, values: &[T]) {
+    pub fn extend(&self, key: K, values: &[T]) {
         self.modify(|map| {
             let merged: Arc<[T]> = match map.get(&key) {
                 Some(existing) => existing.iter().chain(values).cloned().collect(),
@@ -123,7 +123,7 @@ impl<K: Eq + Hash + Clone, T: Clone> ArcSwapMap<K, Arc<[T]>> {
 
     /// Append a single `value` to the list stored under `key`, creating it if
     /// absent.
-    pub(crate) fn push(&self, key: K, value: T) {
+    pub fn push(&self, key: K, value: T) {
         self.extend(key, &[value]);
     }
 }

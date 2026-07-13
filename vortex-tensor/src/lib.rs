@@ -13,10 +13,10 @@
 use std::sync::Arc;
 
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
-use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::session::ArraySessionExt;
+use vortex_arrow::ArrowSessionExt;
 use vortex_session::VortexSession;
 
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;

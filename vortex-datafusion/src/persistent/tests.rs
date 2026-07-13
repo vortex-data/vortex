@@ -494,7 +494,7 @@ async fn arrow_uuid_extension_roundtrip() -> anyhow::Result<()> {
     use datafusion::arrow::array::FixedSizeBinaryArray;
     use datafusion::arrow::array::RecordBatch;
     use datafusion::assert_batches_sorted_eq;
-    use vortex::array::arrow::ArrowSessionExt;
+    use vortex_arrow::ArrowSessionExt;
 
     let ctx = TestSessionContext::default();
     // Default vortex session has importer/exporter for Arrow UUID
@@ -561,7 +561,7 @@ async fn arrow_uuid_extension_roundtrip_nested_struct() -> anyhow::Result<()> {
     use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::array::StructArray as ArrowStructArray;
     use datafusion::assert_batches_sorted_eq;
-    use vortex::array::arrow::ArrowSessionExt;
+    use vortex_arrow::ArrowSessionExt;
 
     let ctx = TestSessionContext::default();
     let session = VortexSession::default();

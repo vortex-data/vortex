@@ -3,11 +3,10 @@
 
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::NullBuffer;
+use vortex_array::ExecutionCtx;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-
-use crate::ExecutionCtx;
-use crate::validity::Validity;
 
 /// Converts a [`Validity`] to an Arrow [`NullBuffer`], executing the validity array if needed.
 pub fn to_arrow_null_buffer(
@@ -38,7 +37,7 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_mask::Mask;
 
-    use crate::arrow::null_buffer::to_null_buffer;
+    use crate::null_buffer::to_null_buffer;
 
     #[test]
     fn test_mask_to_null_buffer() {

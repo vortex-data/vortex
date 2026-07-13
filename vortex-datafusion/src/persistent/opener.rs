@@ -37,7 +37,6 @@ use itertools::Itertools;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::dtype::FieldMask;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
@@ -49,6 +48,7 @@ use vortex::layout::scan::split_by::SplitBy;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowSessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
@@ -596,7 +596,6 @@ mod tests {
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::ArrayRef;
-    use vortex::array::arrow::FromArrowArray;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
@@ -604,6 +603,7 @@ mod tests {
     use vortex::metrics::DefaultMetricsRegistry;
     use vortex::scan::selection::Selection;
     use vortex::session::VortexSession;
+    use vortex_arrow::FromArrowArray;
 
     use super::*;
     use crate::VortexAccessPlan;

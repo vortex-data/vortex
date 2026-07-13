@@ -32,8 +32,8 @@ use tokio::fs::File as TokioFile;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::file::WriteOptionsSessionExt;
+use vortex_arrow::ArrowSessionExt;
 
 use super::table::GeometryKind;
 use super::table::Table;

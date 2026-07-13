@@ -8,30 +8,30 @@ use arrow_array::GenericListArray;
 use arrow_array::OffsetSizeTrait;
 use arrow_buffer::OffsetBuffer;
 use arrow_schema::FieldRef;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::List;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListView;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::chunked::ChunkedArrayExt;
+use vortex_array::arrays::list::ListArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::listview::ListViewDataParts;
+use vortex_array::arrays::listview::ListViewRebuildMode;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::ExecutionCtx;
-use crate::arrays::Chunked;
-use crate::arrays::List;
-use crate::arrays::ListArray;
-use crate::arrays::ListView;
-use crate::arrays::ListViewArray;
-use crate::arrays::chunked::ChunkedArrayExt;
-use crate::arrays::list::ListArrayExt;
-use crate::arrays::listview::ListViewArrayExt;
-use crate::arrays::listview::ListViewDataParts;
-use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrow::executor::validity::to_arrow_null_buffer;
-use crate::arrow::session::ArrowSessionExt;
-use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
-use crate::dtype::NativePType;
-use crate::dtype::Nullability;
+use crate::executor::validity::to_arrow_null_buffer;
+use crate::session::ArrowSessionExt;
 
 #[allow(rustdoc::broken_intra_doc_links)]
 /// Convert a Vortex VarBinArray into an Arrow [`GenericListArray`](arrow_array:array::GenericListArray).
@@ -210,22 +210,22 @@ mod tests {
     use arrow_array::Int32Array;
     use arrow_schema::DataType;
     use arrow_schema::Field;
+    use vortex_array::Canonical;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::Canonical;
-    use crate::IntoArray;
-    use crate::VortexSessionExecute;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrow::ArrowArrayExecutor;
-    use crate::arrow::executor::list::ListViewArray;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability::NonNullable;
-    use crate::validity::Validity;
+    use crate::ArrowArrayExecutor;
+    use crate::executor::list::ListViewArray;
 
     /// A shared session for these list-executor tests, used to create execution contexts.
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[test]
     fn test_to_arrow_list_i32() -> VortexResult<()> {
@@ -368,7 +368,10 @@ mod tests {
     fn test_to_arrow_list_empty_zctl() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let dtype = DType::List(
-            Arc::new(DType::Primitive(crate::dtype::PType::I32, NonNullable)),
+            Arc::new(DType::Primitive(
+                vortex_array::dtype::PType::I32,
+                NonNullable,
+            )),
             NonNullable,
         );
         let list_array = unsafe {

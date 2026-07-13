@@ -323,7 +323,9 @@ impl RunEndData {
         }
     }
 
-    pub(crate) fn validate_parts(
+    /// Validate that `ends` and `values` form a well-formed run-end array covering
+    /// `offset..offset + length`.
+    pub fn validate_parts(
         ends: &ArrayRef,
         values: &ArrayRef,
         offset: usize,

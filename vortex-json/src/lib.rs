@@ -20,9 +20,9 @@ pub use json_to_variant::JsonToVariant;
 pub use json_to_variant::JsonToVariantOptions;
 pub use json_to_variant::ShreddingSpec;
 pub use json_to_variant::json_to_variant;
-use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
+use vortex_arrow::ArrowSessionExt;
 use vortex_session::VortexSession;
 
 /// Register JSON extension support with a session.

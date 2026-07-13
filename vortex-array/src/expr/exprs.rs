@@ -440,7 +440,8 @@ where
 ///
 /// ```
 /// # use vortex_array::IntoArray;
-/// # use vortex_array::arrow::ArrowArrayExecutor;
+/// # use vortex_array::arrays::PrimitiveArray;
+/// # use vortex_array::builtins::ArrayBuiltins;
 /// # use vortex_array::{VortexSessionExecute, array_session};
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{checked_add, lit, root};
@@ -448,13 +449,8 @@ where
 /// let result = xs.apply(&checked_add(root(), lit(5))).unwrap();
 ///
 /// let mut ctx = array_session().create_execution_ctx();
-/// assert_eq!(
-///     &result.execute_arrow(None, &mut ctx).unwrap(),
-///     &buffer![6, 7, 8]
-///         .into_array()
-///         .execute_arrow(None, &mut ctx)
-///         .unwrap()
-/// );
+/// let result = result.execute::<PrimitiveArray>(&mut ctx).unwrap();
+/// assert_eq!(result.as_slice::<i32>(), [6, 7, 8]);
 /// ```
 pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
     Binary

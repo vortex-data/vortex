@@ -23,12 +23,7 @@ workspace = true
 arbitrary = { workspace = true, optional = true }
 arc-swap = { workspace = true }
 arcref = { workspace = true }
-arrow-array = { workspace = true, features = ["ffi"] }
 arrow-buffer = { workspace = true }
-arrow-cast = { workspace = true }
-arrow-data = { workspace = true }
-arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
-arrow-select = { workspace = true }
 async-lock = { workspace = true }
 bytes = { workspace = true }
 cfg-if = { workspace = true }
@@ -69,7 +64,7 @@ termtree = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 vortex-array-macros = { workspace = true }
-vortex-buffer = { workspace = true, features = ["arrow"] }
+vortex-buffer = { workspace = true }
 vortex-compute = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
@@ -87,7 +82,6 @@ _test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
 
 [dev-dependencies]
-arrow-cast = { workspace = true }
 divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
@@ -270,8 +264,4 @@ harness = false
 
 [[bench]]
 name = "slice_dict_primitive"
-harness = false
-
-[[bench]]
-name = "to_arrow"
 harness = false

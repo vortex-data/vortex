@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Convert between Vortex [`crate::dtype::DType`] and Apache Arrow [`arrow_schema::DataType`].
+//! Convert between Vortex [`vortex_array::dtype::DType`] and Apache Arrow [`arrow_schema::DataType`].
 //!
 //! Apache Arrow's type system includes physical information, which could lead to ambiguities as
 //! Vortex treats encodings as separate from logical types.
@@ -23,25 +23,23 @@ use arrow_schema::Schema;
 use arrow_schema::SchemaBuilder;
 use arrow_schema::SchemaRef;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
-use vortex_error::VortexError;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::StructFields;
+use vortex_array::extension::datetime::AnyTemporal;
+use vortex_array::extension::datetime::Date;
+use vortex_array::extension::datetime::TemporalMetadata;
+use vortex_array::extension::datetime::Time;
+use vortex_array::extension::datetime::TimeUnit;
+use vortex_array::extension::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-
-use crate::dtype::DType;
-use crate::dtype::DecimalDType;
-use crate::dtype::FieldName;
-use crate::dtype::Nullability;
-use crate::dtype::PType;
-use crate::dtype::StructFields;
-use crate::extension::datetime::AnyTemporal;
-use crate::extension::datetime::Date;
-use crate::extension::datetime::TemporalMetadata;
-use crate::extension::datetime::Time;
-use crate::extension::datetime::TimeUnit;
-use crate::extension::datetime::Timestamp;
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -93,14 +91,14 @@ impl TryFromArrowType<&DataType> for DecimalDType {
     }
 }
 
-impl From<&ArrowTimeUnit> for TimeUnit {
-    fn from(value: &ArrowTimeUnit) -> Self {
-        (*value).into()
+impl FromArrowType<&ArrowTimeUnit> for TimeUnit {
+    fn from_arrow(value: &ArrowTimeUnit) -> Self {
+        Self::from_arrow(*value)
     }
 }
 
-impl From<ArrowTimeUnit> for TimeUnit {
-    fn from(value: ArrowTimeUnit) -> Self {
+impl FromArrowType<ArrowTimeUnit> for TimeUnit {
+    fn from_arrow(value: ArrowTimeUnit) -> Self {
         match value {
             ArrowTimeUnit::Second => Self::Seconds,
             ArrowTimeUnit::Millisecond => Self::Milliseconds,
@@ -110,18 +108,19 @@ impl From<ArrowTimeUnit> for TimeUnit {
     }
 }
 
-impl TryFrom<TimeUnit> for ArrowTimeUnit {
-    type Error = VortexError;
-
-    fn try_from(value: TimeUnit) -> VortexResult<Self> {
-        Ok(match value {
-            TimeUnit::Seconds => Self::Second,
-            TimeUnit::Milliseconds => Self::Millisecond,
-            TimeUnit::Microseconds => Self::Microsecond,
-            TimeUnit::Nanoseconds => Self::Nanosecond,
-            _ => vortex_bail!("Cannot convert {value} to Arrow TimeUnit"),
-        })
-    }
+/// Convert a Vortex [`TimeUnit`] to an Arrow [`ArrowTimeUnit`].
+///
+/// # Errors
+///
+/// Returns an error for units with no Arrow equivalent (e.g. [`TimeUnit::Days`]).
+pub fn to_arrow_time_unit(value: TimeUnit) -> VortexResult<ArrowTimeUnit> {
+    Ok(match value {
+        TimeUnit::Seconds => ArrowTimeUnit::Second,
+        TimeUnit::Milliseconds => ArrowTimeUnit::Millisecond,
+        TimeUnit::Microseconds => ArrowTimeUnit::Microsecond,
+        TimeUnit::Nanoseconds => ArrowTimeUnit::Nanosecond,
+        _ => vortex_bail!("Cannot convert {value} to Arrow TimeUnit"),
+    })
 }
 
 impl FromArrowType<SchemaRef> for DType {
@@ -204,13 +203,14 @@ impl TryFromArrowType<(&DataType, Nullability)> for DType {
                 DType::Extension(Date::new(TimeUnit::Milliseconds, nullability).erased())
             }
             DataType::Time32(unit) => {
-                DType::Extension(Time::new(unit.into(), nullability).erased())
+                DType::Extension(Time::new(TimeUnit::from_arrow(unit), nullability).erased())
             }
             DataType::Time64(unit) => {
-                DType::Extension(Time::new(unit.into(), nullability).erased())
+                DType::Extension(Time::new(TimeUnit::from_arrow(unit), nullability).erased())
             }
             DataType::Timestamp(unit, tz) => DType::Extension(
-                Timestamp::new_with_tz(unit.into(), tz.clone(), nullability).erased(),
+                Timestamp::new_with_tz(TimeUnit::from_arrow(unit), tz.clone(), nullability)
+                    .erased(),
             ),
             DataType::List(e)
             | DataType::LargeList(e)
@@ -255,14 +255,32 @@ impl TryFromArrowType<&Field> for DType {
     }
 }
 
-impl DType {
+/// Extension trait converting Vortex [`DType`]s into Arrow schemas and data types.
+///
+/// This mirrors inherent methods that lived on [`DType`] before Arrow interoperability moved
+/// into this crate.
+pub trait ToArrowType {
     /// Convert a Vortex [`DType`] into an Arrow [`Schema`].
     ///
     /// **Prefer `ArrowSession::to_arrow_schema`.** This method is not plugin-aware and
     /// strips any `ARROW:extension:name` metadata for non-builtin extensions (only
     /// `arrow.parquet.variant` is special-cased here). Use the session method when you
     /// need round-trippable extension metadata.
-    pub fn to_arrow_schema(&self) -> VortexResult<Schema> {
+    fn to_arrow_schema(&self) -> VortexResult<Schema>;
+
+    /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
+    ///
+    /// **Prefer `ArrowSession::to_arrow_datatype` (or `to_arrow_field`).** This method
+    /// has no awareness of registered Arrow extension plugins, so any [`DType::Extension`]
+    /// outside the builtin temporal set will fail or silently lose its
+    /// `ARROW:extension:name` metadata. The session methods recurse through containers
+    /// and dispatch plugins at every extension node.
+    #[deprecated(note = "Use `ArrowSession::to_arrow_datatype` instead")]
+    fn to_arrow_dtype(&self) -> VortexResult<DataType>;
+}
+
+impl ToArrowType for DType {
+    fn to_arrow_schema(&self) -> VortexResult<Schema> {
         let DType::Struct(struct_dtype, nullable) = self else {
             vortex_bail!("only DType::Struct can be converted to arrow schema");
         };
@@ -295,15 +313,7 @@ impl DType {
         Ok(builder.finish())
     }
 
-    /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
-    ///
-    /// **Prefer `ArrowSession::to_arrow_data_type` (or `to_arrow_field`).** This method
-    /// has no awareness of registered Arrow extension plugins, so any [`DType::Extension`]
-    /// outside the builtin temporal set will fail or silently lose its
-    /// `ARROW:extension:name` metadata. The session methods recurse through containers
-    /// and dispatch plugins at every extension node.
-    #[deprecated(note = "Use `ArrowSession::to_arrow_datatype` instead")]
-    pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
+    fn to_arrow_dtype(&self) -> VortexResult<DataType> {
         to_data_type_naive(self)
     }
 }
@@ -382,7 +392,7 @@ pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
             if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
                 return Ok(match temporal {
                     TemporalMetadata::Timestamp(unit, tz) => {
-                        DataType::Timestamp(ArrowTimeUnit::try_from(*unit)?, tz.clone())
+                        DataType::Timestamp(to_arrow_time_unit(*unit)?, tz.clone())
                     }
                     TemporalMetadata::Date(unit) => match unit {
                         TimeUnit::Days => DataType::Date32,
@@ -425,14 +435,14 @@ mod test {
     use arrow_schema::Schema;
     use rstest::fixture;
     use rstest::rstest;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
 
     use super::*;
-    use crate::dtype::DType;
-    use crate::dtype::FieldName;
-    use crate::dtype::FieldNames;
-    use crate::dtype::Nullability;
-    use crate::dtype::PType;
-    use crate::dtype::StructFields;
 
     #[test]
     fn test_dtype_conversion_success() {
@@ -489,7 +499,7 @@ mod test {
     #[case(39, DataType::Decimal256(39, 0))]
     #[case(76, DataType::Decimal256(76, 0))]
     fn test_decimal_dtype_to_arrow(#[case] precision: u8, #[case] expected: DataType) {
-        use crate::dtype::DecimalDType;
+        use vortex_array::dtype::DecimalDType;
 
         let dtype = DType::Decimal(DecimalDType::new(precision, 0), Nullability::NonNullable);
         assert_eq!(dtype.to_arrow_dtype().unwrap(), expected);

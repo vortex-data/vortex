@@ -9,7 +9,6 @@ use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::Schema;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_panic;
@@ -17,6 +16,8 @@ use vortex::extension::datetime::AnyTemporal;
 use vortex::extension::datetime::Date;
 use vortex::extension::datetime::Time;
 use vortex::extension::datetime::Timestamp;
+use vortex_arrow::FromArrowType;
+use vortex_arrow::ToArrowType;
 
 use crate::arc_wrapper;
 use crate::error::try_or;

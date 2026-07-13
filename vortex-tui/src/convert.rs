@@ -13,16 +13,16 @@ use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use vortex::array::ArrayRef;
-use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
+use vortex_arrow::FromArrowArray;
+use vortex_arrow::FromArrowType;
 
 /// Compression strategy to use when converting Parquet files to Vortex format.
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]

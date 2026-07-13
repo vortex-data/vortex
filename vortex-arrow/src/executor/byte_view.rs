@@ -7,16 +7,16 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::GenericByteViewArray;
 use arrow_array::types::ByteViewType;
 use arrow_buffer::ScalarBuffer;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::arrays::VarBinViewArray;
-use crate::arrow::null_buffer::to_null_buffer;
-use crate::builtins::ArrayBuiltins;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::dtype::arrow::FromArrowType;
+use crate::dtype::FromArrowType;
+use crate::null_buffer::to_null_buffer;
 
 /// Convert a canonical VarBinViewArray directly to Arrow.
 pub fn canonical_varbinview_to_arrow<T: ByteViewType>(

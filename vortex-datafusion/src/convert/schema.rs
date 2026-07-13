@@ -6,8 +6,8 @@ use arrow_schema::Field;
 use arrow_schema::Schema;
 use datafusion_common::Result as DFResult;
 use datafusion_common::exec_datafusion_err;
-use vortex::array::arrow::ArrowSession;
 use vortex::dtype::DType;
+use vortex_arrow::ArrowSession;
 
 /// Calculate the physical Arrow schema for a Vortex file given its DType and the expected logical schema.
 ///

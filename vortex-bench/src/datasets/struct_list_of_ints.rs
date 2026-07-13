@@ -24,9 +24,10 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrays::listview::recursive_list_from_list_view;
-use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
+use vortex_arrow::ArrowSessionExt;
+use vortex_arrow::ToArrowType;
 
 use crate::IdempotentPath;
 use crate::SESSION;
