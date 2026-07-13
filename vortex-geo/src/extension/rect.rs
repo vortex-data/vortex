@@ -6,7 +6,7 @@
 //! `f64` — the lower corner's ordinates followed by the upper corner's — tagged with
 //! [`GeoMetadata`] (CRS). Its GeoArrow wire type is `geoarrow.box`.
 //!
-//! Decoding to `geo_types` yields a 2D [`Geometry::Rect`](geo_types::Geometry::Rect); any `z`/`m`
+//! Decoding to `geo_types` yields a 2D [`Geometry::Rect`]; any `z`/`m`
 //! bounds are dropped, as for the other geometry types.
 
 use std::sync::Arc;
