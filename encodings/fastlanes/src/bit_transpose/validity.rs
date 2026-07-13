@@ -1,22 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem;
+
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexExpect;
 
 pub fn transpose_bitbuffer(bits: BitBuffer) -> BitBuffer {
     let (offset, len, bytes) = bits.into_inner();
-    let (bytes, output_len) = if bytes.len().is_multiple_of(128) {
-        (bytes, len)
-    } else {
-        (pad_to_chunk(bytes), len.next_multiple_of(1024))
-    };
     BitBuffer::new_with_offset(
-        transform_chunks(bytes, fastlanes::transpose_bits),
-        output_len,
+        transform_buffer(bytes, fastlanes::transpose_bits),
+        len.next_multiple_of(1024),
         offset,
     )
 }
@@ -26,20 +25,64 @@ pub fn untranspose_bitbuffer(bits: BitBuffer) -> BitBuffer {
         bits.inner().len().is_multiple_of(128),
         "Transpose BitBuffer byte length must be a multiple of 128"
     );
+    assert!(
+        bits.inner().is_aligned(Alignment::of::<u64>()),
+        "Transposed BitBuffer must be 8 byte aligned"
+    );
     let (offset, len, bytes) = bits.into_inner();
     BitBuffer::new_with_offset(
-        transform_chunks(bytes, fastlanes::untranspose_bits::<u64>),
+        transform_buffer(bytes, fastlanes::untranspose_bits::<u64>),
         len,
         offset,
     )
 }
 
-fn transform_chunks(bytes: ByteBuffer, op: impl Fn(&[u64; 16], &mut [u64; 16])) -> ByteBuffer {
-    let words = Buffer::<u64>::from_byte_buffer_aligned(
-        bytes.aligned(Alignment::of::<u64>()),
-        Alignment::of::<u64>(),
-    );
-    let mut words = words.into_mut();
+fn transform_buffer(bytes: ByteBuffer, op: impl Fn(&[u64; 16], &mut [u64; 16])) -> ByteBuffer {
+    let alignment = Alignment::of::<u64>();
+
+    if bytes.is_aligned(alignment) {
+        let words = Buffer::<u64>::from_byte_buffer_aligned(bytes, alignment);
+        match words.try_into_mut() {
+            Ok(words_mut) => transform_in_place(words_mut, op),
+            Err(words) => transform_copy(words.into_byte_buffer(), op),
+        }
+    } else {
+        transform_copy(bytes, op)
+    }
+}
+
+fn transform_copy(bytes: ByteBuffer, op: impl Fn(&[u64; 16], &mut [u64; 16])) -> ByteBuffer {
+    let mut words_out = BufferMut::<u64>::with_capacity(bytes.len().next_multiple_of(128));
+    let (in_chunks, trailer) = bytes.as_chunks::<128>();
+    let (out_chunks, _) = words_out.as_chunks_mut::<16>();
+
+    for (chunk, output) in in_chunks
+        .iter()
+        .zip(out_chunks[..in_chunks.len()].iter_mut())
+    {
+        op(
+            unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(chunk) },
+            output,
+        );
+    }
+
+    if !trailer.is_empty() {
+        let mut padded_input = [0u8; 128];
+        padded_input[0..trailer.len()].clone_from_slice(trailer);
+        op(
+            unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(&padded_input) },
+            out_chunks
+                .last_mut()
+                .vortex_expect("Output wasn't a multiple of 128 bytes"),
+        );
+    }
+    words_out.freeze().into_byte_buffer()
+}
+
+fn transform_in_place(
+    mut words: BufferMut<u64>,
+    op: impl Fn(&[u64; 16], &mut [u64; 16]),
+) -> ByteBuffer {
     let (chunks, _) = words.as_chunks_mut::<16>();
 
     let mut output = [0u64; 16];
