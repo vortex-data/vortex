@@ -10326,6 +10326,8 @@ dependencies = [
  "arrow-array 58.3.0",
  "arrow-schema 58.3.0",
  "async-fs",
+ "async-lock",
+ "async-trait",
  "futures",
  "jni",
  "object_store",

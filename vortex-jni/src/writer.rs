@@ -68,6 +68,7 @@ use crate::dtype::import_arrow_schema;
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
 use crate::file::extract_properties;
+use crate::io::JavaWrite;
 use crate::object_store::make_object_store;
 use crate::session::session_ref;
 
@@ -448,6 +449,59 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
             arrow_schema,
             write_schema,
             bytes_written,
+            handle,
+            tx,
+        ))
+        .into_raw())
+    })
+}
+
+/// Create a writer that streams the file into a caller-provided
+/// `dev.vortex.io.NativeWritable` instead of a native storage client.
+///
+/// Bytes are pushed through blocking `write`/`flush` upcalls on the runtime thread
+/// driving the write task. The Java caller owns the underlying stream and must close
+/// it after `NativeWriter.close` returns; the native side only flushes.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    writable: JObject,
+    arrow_schema_addr: jlong,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        if session_ptr == 0 {
+            throw_runtime!("null session pointer");
+        }
+        if arrow_schema_addr == 0 {
+            throw_runtime!("null arrow schema address");
+        }
+        if writable.is_null() {
+            throw_runtime!("null writable");
+        }
+        let session = unsafe { session_ref(session_ptr) };
+
+        let arrow_schema = Arc::new(import_arrow_schema(arrow_schema_addr)?);
+        let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
+
+        let vm = env.get_java_vm()?;
+        let writable = Arc::new(env.new_global_ref(&writable)?);
+        let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
+        let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
+        let write_options = write_options_for_schema(session, &write_schema);
+
+        let handle = session.handle().spawn(async move {
+            let mut write = JavaWrite::new(vm, writable);
+            let summary = write_options.write(&mut write, stream).await?;
+            write.shutdown().await?;
+            Ok(summary)
+        });
+
+        Ok(Box::new(NativeWriter::new(
+            session.clone(),
+            arrow_schema,
+            write_schema,
             handle,
             tx,
         ))

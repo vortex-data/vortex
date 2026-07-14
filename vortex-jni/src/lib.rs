@@ -23,6 +23,7 @@ mod dtype;
 mod errors;
 mod expression;
 mod file;
+mod io;
 mod logging;
 mod object_store;
 mod runtime;

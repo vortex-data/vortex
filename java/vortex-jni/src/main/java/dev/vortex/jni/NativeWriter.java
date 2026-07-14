@@ -19,6 +19,12 @@ public final class NativeWriter {
             long sessionPointer, String uri, long arrowSchemaAddress, Map<String, String> options);
 
     /**
+     * Open a writer that streams the file into a caller-provided {@link dev.vortex.io.NativeWritable}. The native side
+     * writes and flushes but never closes the writable; the caller must close it after {@link #close}.
+     */
+    public static native long createStream(long sessionPointer, Object writable, long arrowSchemaAddress);
+
+    /**
      * Write a batch directly from Arrow C Data Interface addresses.
      *
      * @param writerPointer pointer from {@link #create}

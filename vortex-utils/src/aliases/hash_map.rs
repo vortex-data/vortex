@@ -9,6 +9,8 @@ pub type RandomState = hashbrown::DefaultHashBuilder;
 pub type HashMap<K, V, S = DefaultHashBuilder> = hashbrown::HashMap<K, V, S>;
 /// Entry type for HashMap.
 pub type Entry<'a, K, V, S> = hashbrown::hash_map::Entry<'a, K, V, S>;
+/// Entry type for HashMap.
+pub type EntryRef<'a, 'b, K, Q, V, S, A> = hashbrown::hash_map::EntryRef<'a, 'b, K, Q, V, S, A>;
 /// IntoIter type for HashMap.
 pub type IntoIter<K, V> = hashbrown::hash_map::IntoIter<K, V>;
 /// HashTable type alias.

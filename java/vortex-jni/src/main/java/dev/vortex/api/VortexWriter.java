@@ -5,6 +5,7 @@ package dev.vortex.api;
 
 import com.google.common.base.Preconditions;
 import dev.vortex.VortexCleaner;
+import dev.vortex.io.NativeWritable;
 import dev.vortex.jni.NativeWriter;
 import java.io.IOException;
 import java.util.Map;
@@ -59,6 +60,33 @@ public final class VortexWriter implements AutoCloseable {
             long ptr = NativeWriter.create(session.nativePointer(), uri, ffi.memoryAddress(), options);
             if (ptr <= 0) {
                 throw new IOException("failed to create writer for uri " + uri + " (ptr=" + ptr + ")");
+            }
+            return new VortexWriter(ptr);
+        } finally {
+            ffi.close();
+        }
+    }
+
+    /**
+     * Create a writer that streams the file into a caller-provided byte sink instead of a native storage client. This
+     * is the integration point for external I/O abstractions (for example Iceberg's {@code PositionOutputStream}).
+     *
+     * <p>The native side writes and flushes the sink but never closes it: after {@link #close()} returns, all bytes
+     * have been written and flushed, and the caller must close the sink to finalize the file.
+     */
+    public static VortexWriter create(
+            Session session, NativeWritable writable, Schema arrowSchema, BufferAllocator allocator)
+            throws IOException {
+        Objects.requireNonNull(session, "session");
+        Objects.requireNonNull(writable, "writable");
+        Objects.requireNonNull(arrowSchema, "arrowSchema");
+        Objects.requireNonNull(allocator, "allocator");
+        ArrowSchema ffi = ArrowSchema.allocateNew(allocator);
+        try {
+            Data.exportSchema(allocator, arrowSchema, null, ffi);
+            long ptr = NativeWriter.createStream(session.nativePointer(), writable, ffi.memoryAddress());
+            if (ptr <= 0) {
+                throw new IOException("failed to create stream writer (ptr=" + ptr + ")");
             }
             return new VortexWriter(ptr);
         } finally {
