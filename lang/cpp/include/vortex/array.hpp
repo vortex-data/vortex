@@ -30,6 +30,9 @@ class Array;
 class StringView;
 class BytesView;
 
+/*
+ * Validity type tells us whether there are null/invalid values in an Array.
+ */
 enum class ValidityType {
     // Items can't be null
     NonNullable = VX_VALIDITY_NON_NULLABLE,
@@ -40,10 +43,6 @@ enum class ValidityType {
     // Item validity is set in a boolean array: true = valid, false = invalid
     Array = VX_VALIDITY_ARRAY,
 };
-
-constexpr ValidityType NonNullable = ValidityType::NonNullable;
-constexpr ValidityType AllValid = ValidityType::AllValid;
-constexpr ValidityType AllInvalid = ValidityType::AllInvalid;
 
 /**
  * Array per-element validity of type ValidityType.
@@ -58,7 +57,8 @@ public:
     // NonNullable/AllValid/AllInvalid constructor
     // NOLINTNEXTLINE(google-explicit-constructor)
     Validity(ValidityType type);
-    Validity(ValidityType type, const Array &array);
+    // Validity determined by a boolean array, true = valid, false = invalid.
+    static Validity from_array(const Array &bools);
 
     Validity(const Validity &other);
     Validity(Validity &&other) noexcept;
@@ -82,9 +82,6 @@ private:
     ValidityType type_;
     const vx_array *array_;
 };
-
-// Validity determined by a boolean array, true = valid, false = invalid.
-Validity ValidityArray(const Array &bools);
 
 namespace detail {
 // Validity bitmap for typed views. Owns the arrays that back the bits
@@ -130,7 +127,7 @@ public:
      * auto array = Array::primitive(buffer);
      */
     template <primitive_type T>
-    static Array primitive(std::span<const T> data, const Validity &validity = NonNullable) {
+    static Array primitive(std::span<const T> data, const Validity &validity = ValidityType::NonNullable) {
         return primitive_raw(detail::to_ptype<T>(), data.data(), data.size(), validity);
     }
 
@@ -241,6 +238,7 @@ private:
  *
  * Example:
  *
+ * using enum ValidityType;
  * std::array<uint16_t, 3> age_buffer = {0, 1, 2};
  * std::array<uint32_t, 3> height_buffer = {0, 1, 2};
  * Array ages = Array::primitive(age_buffer);
@@ -250,7 +248,7 @@ private:
  *     NonNullable);
  */
 Array make_struct(std::initializer_list<std::pair<std::string_view, Array>> fields,
-                  const Validity &validity = NonNullable);
+                  const Validity &validity = ValidityType::NonNullable);
 
 /**
  * Create a Struct Array from a dynamic number of fields.
@@ -387,7 +385,7 @@ private:
 };
 
 /**
- * Read-only view over a Binary array.
+ * Read-only view over a Bytes array.
  *
  * Byte spans borrow from the view's canonical copy and are valid as long as
  * the view lives.

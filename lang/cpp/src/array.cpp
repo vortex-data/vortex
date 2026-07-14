@@ -29,8 +29,8 @@ Validity::Validity(ValidityType type) : type_(type), array_(nullptr) {
     }
 }
 
-Validity::Validity(ValidityType type, const Array &array)
-    : type_(type), array_(vx_array_clone(Access::c_ptr<Array>(array))) {
+Validity Validity::from_array(const Array &bools) {
+    return {ValidityType::Array, vx_array_clone(Access::c_ptr(bools))};
 }
 
 Validity::Validity(Validity &&other) noexcept : type_(other.type_), array_(other.array_) {
@@ -67,11 +67,9 @@ Array Validity::array() const {
     return Access::adopt<Array>(vx_array_clone(array_));
 }
 
-Validity ValidityArray(const Array &bools) {
-    return Validity(ValidityType::Array, vx_array_clone(Access::c_ptr(bools)));
-}
+namespace detail {
 
-bool detail::ValidityBits::is_null(size_t index) const noexcept {
+bool ValidityBits::is_null(size_t index) const noexcept {
     if (all_invalid_) {
         return true;
     }
@@ -82,7 +80,6 @@ bool detail::ValidityBits::is_null(size_t index) const noexcept {
     return (bits_[bit / 8] >> (bit % 8) & 1) == 0;
 }
 
-namespace detail {
 ValidityBits::ValidityBits(const Session &session, const vx_array *canonical) {
     vx_validity raw {};
     vx_error *error = nullptr;

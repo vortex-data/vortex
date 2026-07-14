@@ -65,7 +65,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
     try_or_default(error_out, || {
-        let session = vx_session::as_ref(session);
+        let session = vx_session::as_ref(session).clone();
 
         if path.ptr.is_null() {
             vortex_bail!("null path");

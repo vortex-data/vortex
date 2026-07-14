@@ -21,7 +21,7 @@ namespace vortex {
 
 namespace detail {
 // range-for support for Scan and Partition
-template <class Source, class Item>
+template <class Source, class Item, auto Next>
 class PullRange {
 public:
     class iterator {
@@ -37,7 +37,7 @@ public:
             return *cur_;
         }
         iterator &operator++() {
-            cur_ = src_->pull();
+            cur_ = Next(src_);
             return *this;
         }
         void operator++(int) {
@@ -55,7 +55,7 @@ public:
     explicit PullRange(Source &src) : src_(&src) {
     }
     iterator begin() {
-        return iterator(src_, src_->pull());
+        return iterator(src_, Next(src_));
     }
     std::default_sentinel_t end() {
         return std::default_sentinel;
@@ -111,7 +111,7 @@ public:
 
     // range-for over Arrays
     auto batches() & {
-        return detail::PullRange<Partition, Array>(*this);
+        return detail::PullRange<Partition, Array, &Partition::next>(*this);
     }
     auto batches() && = delete;
 
@@ -123,12 +123,7 @@ public:
 
 private:
     friend struct detail::Access;
-    friend class detail::PullRange<Partition, Array>;
     Partition(vx_partition *owned, Session session) : handle_(owned), session_(std::move(session)) {
-    }
-
-    std::optional<Array> pull() {
-        return next();
     }
 
     struct Deleter {
@@ -221,20 +216,15 @@ public:
 
     // range-for over partitions
     auto partitions() & {
-        return detail::PullRange<Scan, Partition>(*this);
+        return detail::PullRange<Scan, Partition, &Scan::next_partition>(*this);
     }
     auto partitions() && = delete;
 
 private:
     friend struct detail::Access;
-    friend class detail::PullRange<Scan, Partition>;
     Scan(vx_scan *owned, Estimate estimate, Session session)
         : handle_(owned), mutex_(std::make_unique<std::mutex>()), estimate_(estimate),
           session_(std::move(session)) {
-    }
-
-    std::optional<Partition> pull() {
-        return next_partition();
     }
 
     struct Deleter {

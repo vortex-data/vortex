@@ -5,6 +5,7 @@
 //! FFI interface for working with Vortex Arrays.
 use std::ffi::c_void;
 use std::ptr;
+use std::ptr::NonNull;
 use std::sync::Arc;
 
 use arrow_array::array::make_array;
@@ -305,7 +306,11 @@ unsafe fn primitive_from_raw<T: vortex::dtype::NativePType>(
     len: usize,
     validity: &vx_validity,
 ) -> *const vx_array {
-    let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let slice = if ptr.is_null() {
+        unsafe { std::slice::from_raw_parts(NonNull::dangling().as_ptr(), len) }
+    } else {
+        unsafe { std::slice::from_raw_parts(ptr, len) }
+    };
     let buffer = Buffer::copy_from(slice);
     let array = PrimitiveArray::new(buffer, validity.into());
     vx_array::new(Arc::new(array.into_array()))

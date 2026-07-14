@@ -84,7 +84,7 @@ DataType DataSource::dtype() const {
     return Access::adopt<DataType>(vx_data_source_dtype(handle_.get()));
 }
 
-Scan DataSource::scan(ScanOptions options) const {
+Scan DataSource::scan(const ScanOptions &options) const {
     vx_scan_options raw {};
     raw.projection = options.projection.has_value() ? Access::c_ptr(*options.projection) : nullptr;
     raw.filter = options.filter.has_value() ? Access::c_ptr(*options.filter) : nullptr;

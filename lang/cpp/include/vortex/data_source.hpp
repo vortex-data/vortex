@@ -32,7 +32,8 @@ public:
 
     /**
      * Create a DataSource from an in-memory Vortex file. Borrows the buffer:
-     * caller must keep it alive and unmodified while DataSource is alive.
+     * caller must keep it alive and unmodified while DataSource, Scans,
+     * Partitions, and Arrays obtained from this buffer are alive.
      */
     static DataSource from_buffer(const Session &session, std::span<const std::byte> data);
 
@@ -43,7 +44,7 @@ public:
 
     Estimate row_count() const;
     DataType dtype() const;
-    Scan scan(ScanOptions options = {}) const;
+    Scan scan(const ScanOptions &options = {}) const;
 
 private:
     friend struct detail::Access;
