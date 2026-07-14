@@ -542,11 +542,11 @@ struct PruneAllDeferredModel;
 
 impl CostModel for PruneAllDeferredModel {
     fn cost(&self, candidate: &Candidate<'_>) -> Option<Cost> {
-        SizeCost.cost(candidate)
+        SizeCost::default().cost(candidate)
     }
 
     fn canonical_cost(&self, data: &ArrayAndStats, n_values: u64) -> Cost {
-        SizeCost.canonical_cost(data, n_values)
+        SizeCost::default().canonical_cost(data, n_values)
     }
 
     fn lower_bound(&self, _scheme: SchemeId, _data: &ArrayAndStats) -> Option<Cost> {

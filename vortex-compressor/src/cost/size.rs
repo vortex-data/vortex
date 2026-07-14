@@ -3,10 +3,38 @@
 
 //! The default, size-only cost model.
 
+use vortex_utils::aliases::hash_map::HashMap;
+
 use crate::cost::Candidate;
 use crate::cost::Cost;
 use crate::cost::CostModel;
+use crate::scheme::SchemeId;
 use crate::stats::ArrayAndStats;
+
+/// A per-scheme selection prior applied by [`SizeCost`]: **policy, not measurement**.
+///
+/// Priors let the model demand that a scheme win by a margin (`multiplier < 1.0`) or clear a
+/// floor (`min_ratio`) before it is selected, without the scheme hardcoding that judgment
+/// into its own estimate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SchemePrior {
+    /// Multiplier applied to the scheme's raw ratio signal before any comparison. Values
+    /// below `1.0` handicap the scheme, demanding it win by a margin.
+    pub multiplier: f64,
+
+    /// The effective (post-multiplier) ratio the scheme must strictly exceed to be
+    /// considered at all.
+    pub min_ratio: f64,
+}
+
+impl Default for SchemePrior {
+    fn default() -> Self {
+        Self {
+            multiplier: 1.0,
+            min_ratio: 1.0,
+        }
+    }
+}
 
 /// The default cost model: maximize estimated compression ratio.
 ///
@@ -21,12 +49,43 @@ use crate::stats::ArrayAndStats;
 ///   historical `ratio > 1.0` validity gate.
 /// - Zero-byte sample results and non-finite or subnormal ratios are rejected (`None`),
 ///   reproducing the historical estimate-validity checks.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct SizeCost;
+///
+/// Per-scheme [`SchemePrior`]s registered via [`with_scheme_prior`] additionally handicap a
+/// scheme's raw ratio (`effective = raw * multiplier`) and gate it behind a floor
+/// (`effective > min_ratio`). Schemes without a registered prior are priced off their raw
+/// ratio unchanged.
+///
+/// [`with_scheme_prior`]: SizeCost::with_scheme_prior
+#[derive(Debug, Default, Clone)]
+pub struct SizeCost {
+    /// Per-scheme selection priors; schemes without an entry are priced unmodified.
+    priors: HashMap<SchemeId, SchemePrior>,
+}
+
+impl SizeCost {
+    /// Registers a selection prior for `scheme`, replacing any existing entry.
+    pub fn with_scheme_prior(mut self, scheme: SchemeId, prior: SchemePrior) -> Self {
+        self.priors.insert(scheme, prior);
+        self
+    }
+}
 
 impl CostModel for SizeCost {
     fn cost(&self, candidate: &Candidate<'_>) -> Option<Cost> {
-        let ratio = candidate.estimate().estimated_compression_ratio()?;
+        let raw = candidate.estimate().estimated_compression_ratio()?;
+
+        let ratio = match self.priors.get(&candidate.scheme_id()) {
+            Some(prior) => {
+                let effective = raw * prior.multiplier;
+                // Non-finite `effective` falls through to the validity check below.
+                if effective <= prior.min_ratio {
+                    return None;
+                }
+                effective
+            }
+            None => raw,
+        };
+
         (ratio.is_finite() && !ratio.is_subnormal()).then(|| Cost::new(-ratio))
     }
 
@@ -53,6 +112,7 @@ mod tests {
     use crate::scheme::CompressorContext;
     use crate::scheme::Scheme;
     use crate::scheme::SchemeEvaluation;
+    use crate::scheme::SchemeExt;
     use crate::stats::GenerateStatsOptions;
 
     #[derive(Debug)]
@@ -98,12 +158,12 @@ mod tests {
             CandidateEstimate::zero_bytes,
             CandidateEstimate::from_compression_ratio,
         );
-        SizeCost.cost(&Candidate::new(&TestScheme, estimate, &data, None, &[]))
+        SizeCost::default().cost(&Candidate::new(&TestScheme, estimate, &data, None, &[]))
     }
 
     fn canonical_cost() -> Cost {
         let data = test_data();
-        SizeCost.canonical_cost(&data, 4)
+        SizeCost::default().canonical_cost(&data, 4)
     }
 
     /// The historical estimate-validity rule that `SizeCost` must reproduce: finite,
@@ -189,5 +249,44 @@ mod tests {
     #[test]
     fn zero_bytes_is_rejected() {
         assert!(cost(None).is_none());
+    }
+
+    /// A prior must reproduce the historical scheme-side policy arithmetic bit-for-bit:
+    /// `effective = raw * multiplier` (the exact expression Delta used), gated at
+    /// `effective > min_ratio`, with the effective ratio driving the cost.
+    #[test]
+    fn prior_reproduces_post_penalty_ratios_bit_for_bit() {
+        let model = SizeCost::default().with_scheme_prior(
+            TestScheme.id(),
+            SchemePrior {
+                multiplier: 0.95,
+                min_ratio: 1.25,
+            },
+        );
+
+        // Raw ratios spanning both sides of the floor, plus the exact boundary.
+        let raws = [64.0, 64.0 / 9.0, 8.0, 2.0, 1.4, 1.25 / 0.95, 1.32, 1.3, 1.0];
+        let data = test_data();
+        for raw in raws {
+            let expected = raw * 0.95;
+            let candidate = Candidate::new(
+                &TestScheme,
+                CandidateEstimate::from_compression_ratio(raw),
+                &data,
+                None,
+                &[],
+            );
+            let cost = model.cost(&candidate);
+            if expected > 1.25 {
+                let cost = cost.expect("above the floor must be priceable");
+                // Bit-exact: the cost is the negated product, not a re-derived value.
+                assert_eq!(cost.value(), -expected, "raw {raw}");
+            } else {
+                assert!(cost.is_none(), "raw {raw} must be gated by the floor");
+            }
+        }
+
+        // Schemes without an entry are priced off the raw ratio unchanged.
+        assert_eq!(cost(Some(1.1)).map(Cost::value), Some(-1.1));
     }
 }

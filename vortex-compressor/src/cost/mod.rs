@@ -48,4 +48,5 @@ pub use model::Cost;
 pub use model::CostModel;
 
 mod size;
+pub use size::SchemePrior;
 pub use size::SizeCost;

@@ -70,7 +70,7 @@ impl CascadingCompressor {
         Self {
             schemes,
             root_exclusions,
-            cost_model: Arc::new(SizeCost),
+            cost_model: Arc::new(SizeCost::default()),
         }
     }
 
