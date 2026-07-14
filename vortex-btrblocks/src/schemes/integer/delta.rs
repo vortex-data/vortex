@@ -37,9 +37,8 @@ use crate::SchemeExt;
 ///
 /// The scheme reports its raw estimated ratio (`full_width / delta_bits`). Delta's selection
 /// policy — the "delta tax" multiplier and the minimum-win floor — lives on the compressor's
-/// cost model as a scheme prior (see [`default_cost_model`]), not in the scheme.
-///
-/// [`default_cost_model`]: crate::builder
+/// cost model as a scheme prior (registered by the btrblocks default cost model), not in the
+/// scheme.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct DeltaScheme {
     /// Deprecated scheme-level minimum-ratio floor override. `None` defers entirely to the
