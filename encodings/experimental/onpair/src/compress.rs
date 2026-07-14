@@ -27,7 +27,10 @@ use crate::OnPair;
 use crate::OnPairArray;
 
 /// Default OnPair training configuration: 12-bit codes ("dict-12").
-pub const DEFAULT_DICT12_CONFIG: Config = onpair::DEFAULT_CONFIG;
+pub const DEFAULT_DICT12_CONFIG: Config = Config {
+    seed: Some(42),
+    ..onpair::DEFAULT_CONFIG
+};
 
 fn onpair_compress_varbinview<O>(
     array: VarBinViewArray,
