@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use vortex_compressor::cost::CostModel;
 #[cfg(feature = "unstable_encodings")]
 use vortex_compressor::cost::SchemePrior;
 use vortex_compressor::cost::SizeCost;
@@ -95,12 +96,14 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
+    cost_model: Arc<dyn CostModel>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
             schemes: ALL_SCHEMES.to_vec(),
+            cost_model: Arc::new(default_cost_model()),
         }
     }
 }
@@ -112,7 +115,18 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
+            cost_model: Arc::new(default_cost_model()),
         }
+    }
+
+    /// Replaces the cost model used to price candidates during scheme selection.
+    ///
+    /// The default is the btrblocks default model: [`SizeCost`] with Delta's selection
+    /// prior. The model is attached to the compressor at [`build`](Self::build); the file
+    /// writer's strategy builder carries it to both its data and stats compressors.
+    pub fn with_cost_model(mut self, cost_model: Arc<dyn CostModel>) -> Self {
+        self.cost_model = cost_model;
+        self
     }
 
     /// Adds an external compression scheme not in [`ALL_SCHEMES`].
@@ -209,9 +223,7 @@ impl BtrBlocksCompressorBuilder {
 
     /// Builds the configured [`BtrBlocksCompressor`].
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(
-            CascadingCompressor::new(self.schemes).with_cost_model(Arc::new(default_cost_model())),
-        )
+        BtrBlocksCompressor(CascadingCompressor::new(self.schemes).with_cost_model(self.cost_model))
     }
 }
 
@@ -238,7 +250,31 @@ pub(crate) fn default_cost_model() -> SizeCost {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_compressor::cost::Candidate;
+    use vortex_compressor::cost::Cost;
+    use vortex_compressor::scheme::CandidateEstimate;
+    use vortex_compressor::scheme::SchemeEvaluation;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
     use super::*;
+    use crate::ArrayAndStats;
+    use crate::CompressorContext;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
     #[test]
     fn empty_starts_with_no_schemes() {
@@ -250,5 +286,104 @@ mod tests {
     fn default_includes_all_schemes() {
         let builder = BtrBlocksCompressorBuilder::default();
         assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+    }
+
+    /// Inverts [`SizeCost`]'s preferences, so the *worst*-priced candidate wins. Only useful
+    /// for proving that an injected model actually drives selection.
+    #[derive(Debug)]
+    struct InvertedSizeCost;
+
+    impl CostModel for InvertedSizeCost {
+        fn cost(&self, candidate: &Candidate<'_>) -> Option<Cost> {
+            SizeCost::default()
+                .cost(candidate)
+                .map(|cost| Cost::new(-cost.value()))
+        }
+
+        fn canonical_cost(&self, _data: &ArrayAndStats, _n_values: u64) -> Cost {
+            Cost::new(f64::MAX)
+        }
+    }
+
+    /// Fixed-ratio scheme whose output is a constant array carrying `marker`, so the winner
+    /// is observable from the compressed output.
+    #[derive(Debug)]
+    struct MarkerScheme {
+        name: &'static str,
+        ratio: f64,
+        marker: i32,
+    }
+
+    impl Scheme for MarkerScheme {
+        fn scheme_name(&self) -> &'static str {
+            self.name
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            canonical.dtype().is_int()
+        }
+
+        fn evaluate(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> SchemeEvaluation {
+            SchemeEvaluation::Candidate(CandidateEstimate::from_compression_ratio(self.ratio))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(ConstantArray::new(
+                Scalar::primitive(self.marker, Nullability::NonNullable),
+                data.array_len(),
+            )
+            .into_array())
+        }
+    }
+
+    static HIGH_RATIO: MarkerScheme = MarkerScheme {
+        name: "test.high_ratio",
+        ratio: 3.0,
+        marker: 111,
+    };
+    static LOW_RATIO: MarkerScheme = MarkerScheme {
+        name: "test.low_ratio",
+        ratio: 2.0,
+        marker: 222,
+    };
+
+    /// A model injected via [`BtrBlocksCompressorBuilder::with_cost_model`] must actually
+    /// drive selection: under the default model the higher ratio wins, under the inverted
+    /// model the lower ratio wins.
+    #[test]
+    fn cost_model_plumbing_is_live() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::new(buffer![5i32, 6, 7, 8, 9, 10], Validity::NonNullable).into_array();
+        let marker = |scheme: &MarkerScheme| {
+            Some(Scalar::primitive(scheme.marker, Nullability::NonNullable))
+        };
+
+        let compressed = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&HIGH_RATIO)
+            .with_new_scheme(&LOW_RATIO)
+            .build()
+            .compress(&array, &mut SESSION.create_execution_ctx())?;
+        assert_eq!(compressed.as_constant(), marker(&HIGH_RATIO));
+
+        let compressed = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&HIGH_RATIO)
+            .with_new_scheme(&LOW_RATIO)
+            .with_cost_model(Arc::new(InvertedSizeCost))
+            .build()
+            .compress(&array, &mut SESSION.create_execution_ctx())?;
+        assert_eq!(compressed.as_constant(), marker(&LOW_RATIO));
+
+        Ok(())
     }
 }
