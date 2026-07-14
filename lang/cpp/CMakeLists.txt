@@ -98,6 +98,13 @@ target_include_directories(vortex_cxx PUBLIC
 )
 target_link_libraries(vortex_cxx PUBLIC vortex_ffi)
 add_library(vortex::cxx ALIAS vortex_cxx)
+target_compile_features(vortex_cxx PUBLIC cxx_std_20)
+
+set(APPLE_LINK_FLAGS "-framework CoreFoundation -framework Security")
+
+if(APPLE)
+    target_link_libraries(vortex_cxx PRIVATE ${APPLE_LINK_FLAGS})
+endif()
 
 if(TARGET vortex_ffi_shared)
     add_library(vortex_cxx_shared SHARED ${VORTEX_CXX_SOURCES})
@@ -109,4 +116,9 @@ if(TARGET vortex_ffi_shared)
     )
     target_link_libraries(vortex_cxx_shared PUBLIC vortex_ffi_shared)
     add_library(vortex::cxx_shared ALIAS vortex_cxx_shared)
+    target_compile_features(vortex_cxx_shared PUBLIC cxx_std_20)
+
+    if(APPLE)
+        target_link_libraries(vortex_cxx_shared PRIVATE ${APPLE_LINK_FLAGS})
+    endif()
 endif()

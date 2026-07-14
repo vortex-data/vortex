@@ -16,7 +16,7 @@
 
 namespace vortex {
 
-struct Field;
+struct StructField;
 
 enum class DataTypeVariant {
     Null = DTYPE_NULL,
@@ -88,7 +88,7 @@ public:
      * For a Struct dtype, return its fields in order.
      * Throws if DataType is not Struct.
      */
-    std::vector<Field> fields() const;
+    std::vector<StructField> fields() const;
 
     // List accessors. Valid only on List and FixedSizeList dtypes
 
@@ -109,8 +109,8 @@ private:
     std::unique_ptr<const vx_dtype, Deleter> handle_;
 };
 
-// Field of a Struct dtype
-struct Field {
+// Field of a Struct DataType.
+struct StructField {
     std::string name;
     DataType dtype;
 };
@@ -150,40 +150,7 @@ DataType fixed_size_list(DataType element, uint32_t size, bool nullable = false)
  *     {"height", dtype::uint16(Nullable)}}
  * );
  */
-DataType struct_(std::initializer_list<std::pair<std::string_view, DataType>> fields, bool nullable = false);
+DataType struct_(std::span<const StructField> fields, bool nullable = false);
+DataType struct_(std::initializer_list<StructField> fields, bool nullable = false);
 } // namespace dtype
-
-/*
- * Create a DataTypeVariant::Struct dynamically.
- * Prefer dtype::struct_ if fields are known beforehand.
- *
- * Example:
- *
- * using dtype::Nullable;
- * DataType dtype = StructFieldsBuilder()
- *     .add("age", dtype::uint8())
- *     .add("height", dtype::uint16(Nullable)})
- *     .build(Nullable);
- * );
- */
-class StructFieldsBuilder {
-public:
-    StructFieldsBuilder();
-    StructFieldsBuilder(const StructFieldsBuilder &) = delete;
-    StructFieldsBuilder &operator=(const StructFieldsBuilder &) = delete;
-    StructFieldsBuilder(StructFieldsBuilder &&) noexcept = default;
-    StructFieldsBuilder &operator=(StructFieldsBuilder &&) noexcept = default;
-
-    StructFieldsBuilder &add(std::string_view name, const DataType &dtype) &;
-    StructFieldsBuilder &&add(std::string_view name, const DataType &dtype) &&;
-
-    // Consume the builder and return a DataType
-    DataType build(bool nullable = false) &&;
-
-private:
-    struct Deleter {
-        void operator()(vx_struct_fields_builder *ptr) const noexcept;
-    };
-    std::unique_ptr<vx_struct_fields_builder, Deleter> handle_;
-};
 } // namespace vortex

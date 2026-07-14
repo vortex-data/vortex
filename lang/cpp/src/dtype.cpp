@@ -82,12 +82,12 @@ const vx_struct_fields *struct_fields_or_throw(const vx_dtype *dtype) {
 }
 } // namespace
 
-std::vector<Field> DataType::fields() const {
+std::vector<StructField> DataType::fields() const {
     const std::unique_ptr<const vx_struct_fields, decltype(&vx_struct_fields_free)> fields(
         struct_fields_or_throw(handle_.get()),
         &vx_struct_fields_free);
     const uint64_t fields_size = vx_struct_fields_nfields(fields.get());
-    std::vector<Field> out;
+    std::vector<StructField> out;
     out.reserve(fields_size);
     for (uint64_t idx = 0; idx < fields_size; ++idx) {
         const vx_view name = vx_struct_fields_field_name(fields.get(), idx);
@@ -99,7 +99,7 @@ std::vector<Field> DataType::fields() const {
         if (dtype == nullptr) {
             throw VortexException("error getting dtype at index "s + std::to_string(idx), ErrorCode::Other);
         }
-        out.push_back(Field {{name.ptr, name.len}, DataType(dtype)});
+        out.push_back(StructField {{name.ptr, name.len}, DataType(dtype)});
     }
     return out;
 }
@@ -185,41 +185,26 @@ DataType fixed_size_list(DataType element, uint32_t size, bool nullable) {
         vx_dtype_new_fixed_size_list(Access::release(std::move(element)), size, nullable));
 }
 
-DataType struct_(std::initializer_list<std::pair<std::string_view, DataType>> fields, bool nullable) {
-    StructFieldsBuilder builder;
-    for (const auto &[name, field_dtype] : fields) {
-        builder.add(name, field_dtype);
+DataType struct_(std::span<const StructField> fields, bool nullable) {
+    vx_error *error = nullptr;
+    std::unique_ptr<vx_struct_fields_builder, decltype(&vx_struct_fields_builder_free)> handle(
+        vx_struct_fields_builder_new(),
+        vx_struct_fields_builder_free);
+
+    for (const auto &[name, dtype] : fields) {
+        vx_struct_fields_builder_add_field(handle.get(),
+                                           to_view(name),
+                                           vx_dtype_clone(Access::c_ptr(dtype)),
+                                           &error);
+        throw_on_error(error);
     }
-    return std::move(builder).build(nullable);
+    vx_struct_fields *ffi_fields = vx_struct_fields_builder_finalize(handle.release());
+    return Access::adopt<DataType>(vx_dtype_new_struct(ffi_fields, nullable));
+}
+
+DataType struct_(std::initializer_list<StructField> fields, bool nullable) {
+    return struct_({fields.begin(), fields.end()}, nullable);
 }
 
 } // namespace dtype
-
-void StructFieldsBuilder::Deleter::operator()(vx_struct_fields_builder *ptr) const noexcept {
-    vx_struct_fields_builder_free(ptr);
-}
-
-StructFieldsBuilder::StructFieldsBuilder() : handle_(vx_struct_fields_builder_new()) {
-}
-
-StructFieldsBuilder &StructFieldsBuilder::add(std::string_view name, const DataType &dtype) & {
-    vx_error *error = nullptr;
-    vx_struct_fields_builder_add_field(handle_.get(),
-                                       to_view(name),
-                                       vx_dtype_clone(Access::c_ptr(dtype)),
-                                       &error);
-    throw_on_error(error);
-    return *this;
-}
-
-StructFieldsBuilder &&StructFieldsBuilder::add(std::string_view name, const DataType &dtype) && {
-    add(name, dtype);
-    return std::move(*this);
-}
-
-DataType StructFieldsBuilder::build(bool nullable) && {
-    vx_struct_fields *fields = vx_struct_fields_builder_finalize(handle_.release());
-    return Access::adopt<DataType>(vx_dtype_new_struct(fields, nullable));
-}
-
 } // namespace vortex
