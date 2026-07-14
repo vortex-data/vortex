@@ -11,6 +11,7 @@ use crate::ByteBufferMut;
 use crate::bit::collect_bool_words;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops;
+use crate::bit::pack::collect_bool_words_multiversioned;
 use crate::bit::set_bit_unchecked;
 use crate::bit::unset_bit_unchecked;
 use crate::buffer_mut;
@@ -184,15 +185,56 @@ impl BitBufferMut {
     }
 
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBufferMut`
+    ///
+    /// `f` is invoked exactly once per index, in ascending order, and the results are packed
+    /// with the baseline SIMD byte→bit instruction of the target.
+    ///
+    /// # Performance
+    ///
+    /// The packing is a few instructions per 64 bits, so evaluating `f` is usually the
+    /// bottleneck. In particular, a bounds-checked slice access in `f` (`|i| values[i] > x`)
+    /// blocks vectorization of the gather and can cost ~10x the packing itself. Since `f` only
+    /// ever sees indices `0..len`, callers reading from a slice with `len <= values.len()` may
+    /// soundly use `|i| unsafe { *values.get_unchecked(i) }`.
+    ///
+    /// Prefer this entry point for every predicate. Only switch to
+    /// [`Self::collect_bool_multiversioned`] after carefully checking that your specific `f`
+    /// meets its contract (a trivially cheap, bounds-check-free gather or comparison) —
+    /// ideally with a benchmark.
     #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
+        Self::collect_words(len, |words| collect_bool_words(words, len, f))
+    }
+
+    /// Like [`Self::collect_bool`], but compiles the packing loop — with `f` inside it — once
+    /// per CPU feature level (AVX-512BW/AVX2/baseline) and selects a clone by runtime feature
+    /// detection.
+    ///
+    /// Calling this asserts that `f` is small and simple enough (e.g. a bounds-check-free slice
+    /// gather or comparison) that duplicating it per feature level and paying a
+    /// `#[target_feature]` call boundary beats inlining it once into your function. For any
+    /// non-trivial `f` that assertion is false — the boundary deoptimizes the predicate — so
+    /// unless you have carefully checked (ideally benchmarked) that your specific `f`
+    /// qualifies, use [`Self::collect_bool`]. See
+    /// [`collect_bool_words_multiversioned`].
+    #[inline]
+    pub fn collect_bool_multiversioned<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
+        Self::collect_words(len, |words| {
+            collect_bool_words_multiversioned(words, len, f)
+        })
+    }
+
+    /// Allocate a zero-copy word buffer for `len` bits, let `fill` populate it, and wrap it as a
+    /// `BitBufferMut`.
+    #[inline]
+    fn collect_words(len: usize, fill: impl FnOnce(&mut [u64])) -> Self {
         let num_words = len.div_ceil(64);
         let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_words);
-        // SAFETY: `collect_bool_words` writes every word in `0..num_words` below
-        // before any read; `u64` has no invalid bit patterns and the assignments
-        // inside `collect_bool_words` are pure writes.
+        // SAFETY: `fill` (a `collect_bool_words` variant) writes every word in `0..num_words`
+        // below before any read; `u64` has no invalid bit patterns and the assignments inside
+        // `collect_bool_words` are pure writes.
         unsafe { buffer.set_len(num_words) };
-        collect_bool_words(buffer.as_mut_slice(), len, f);
+        fill(buffer.as_mut_slice());
 
         let mut bytes = buffer.into_byte_buffer();
         bytes.truncate(len.div_ceil(8));
@@ -601,14 +643,23 @@ impl Not for BitBufferMut {
 
 impl From<&[bool]> for BitBufferMut {
     fn from(value: &[bool]) -> Self {
-        BitBufferMut::collect_bool(value.len(), |i| value[i])
+        // SAFETY: the predicate is invoked with indices `0..value.len()` only.
+        // Skipping the bounds check lets the gather loop vectorize.
+        BitBufferMut::collect_bool_multiversioned(value.len(), |i| unsafe {
+            *value.get_unchecked(i)
+        })
     }
 }
 
 // allow building a buffer from a set of truthy byte values.
 impl From<&[u8]> for BitBufferMut {
     fn from(value: &[u8]) -> Self {
-        BitBufferMut::collect_bool(value.len(), |i| value[i] > 0)
+        // SAFETY: the predicate is invoked with indices `0..value.len()` only.
+        // Skipping the bounds check lets the gather loop vectorize.
+        BitBufferMut::collect_bool_multiversioned(
+            value.len(),
+            |i| unsafe { *value.get_unchecked(i) } > 0,
+        )
     }
 }
 
