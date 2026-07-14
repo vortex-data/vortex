@@ -101,7 +101,7 @@ jobs:
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*' --ignore 'vortex-error/*' \
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
-            --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
+            --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' \
             --ignore benchmarks/* --ignore 'vortex-test/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
           test -s ${{ env.GRCOV_OUTPUT_FILE }}
@@ -112,6 +112,42 @@ jobs:
           files: ${{ env.GRCOV_OUTPUT_FILE }}
           disable_search: true
           flags: ${{ matrix.suite }}
+          use_oidc: true
+
+  cxx-coverage:
+    name: "C++ API (coverage)"
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-coverage', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Install lcov
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lcov libjson-xs-perl
+      - name: Build FFI library
+        run: cargo build -p vortex-ffi
+      - name: Build and test C++ API with coverage
+        working-directory: lang/cpp
+        run: ./gcov-report.sh
+      - name: Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7
+        with:
+          name: cxx-api
+          files: lang/cpp/coverage.info
+          disable_search: true
+          flags: cxx-api
           use_oidc: true
 
   rust-test-sanitizer:

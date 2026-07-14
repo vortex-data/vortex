@@ -211,7 +211,7 @@ jobs:
           # including all private docs.
           cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
           # nextest doesn't support doc tests, so we run it here
-          cargo test --profile ci --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
+          cargo test --profile ci --doc --workspace --all-features --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -553,8 +553,11 @@ jobs:
       - name: Build C++ library (asan)
         run: |
           mkdir -p build
-          cmake -S lang/cpp -B build -DSANITIZER=asan -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
+          cmake -S lang/cpp -Bbuild -DSANITIZER=asan -DBUILD_TESTS=1 -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
           cmake --build build --parallel $(nproc)
+      - name: Run C++ tests
+        run: |
+          build/tests/vortex_cxx_test
 
   sqllogic-test:
     name: "SQL logic tests"

@@ -21,6 +21,8 @@ else ()
     message(STATUS "Sccache not found")
 endif ()
 
+option(BUILD_TESTS "Build tests" OFF)
+
 set(SANITIZER "" CACHE STRING "Build with sanitizers")
 set(TARGET_TRIPLE "" CACHE STRING "Rust target triple for FFI library")
 set(RUST_BUILD_PROFILE "" CACHE STRING "Cargo profile name for Rust FFI library")
@@ -121,4 +123,25 @@ if(TARGET vortex_ffi_shared)
     if(APPLE)
         target_link_libraries(vortex_cxx_shared PRIVATE ${APPLE_LINK_FLAGS})
     endif()
+endif()
+
+if (BUILD_TESTS)
+    FetchContent_Declare(
+      Nanoarrow
+      GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
+      GIT_TAG        apache-arrow-nanoarrow-0.8.0
+    )
+    FetchContent_MakeAvailable(Nanoarrow)
+
+    FetchContent_Declare(
+        Catch
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.8.1
+    )
+    FetchContent_MakeAvailable(Catch)
+    include(Catch)
+    target_compile_definitions(Catch2 PRIVATE CATCH_CONFIG_NO_POSIX_SIGNALS)
+
+    include(CTest)
+    add_subdirectory(tests)
 endif()

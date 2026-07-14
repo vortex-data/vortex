@@ -164,8 +164,8 @@ Source code for this example is `writer.cpp
 
 .. code-block:: cpp
 
-    const Session session;
-    const DataType dtype = dtype::struct_({
+    Session session;
+    DataType dtype = dtype::struct_({
         {"age", dtype::uint8()},
         {"height", dtype::uint16(Nullable)},
     });
@@ -187,15 +187,14 @@ Source code for this example is `writer.cpp
     Expression age_gt_10 = expr::gt(expr::col("age"), expr::lit<uint8_t>(10));
     Array validity_array = array.apply(age_gt_10);
 
-    const Validity validity = Validity::from_array(validity_array);
+    Validity validity = Validity::from_array(validity_array);
     Array array2 = make_struct({
         {"age", age},
         {"height", Array::primitive<uint16_t>(height_buffer, validity)},
     });
 
     Writer writer = Writer::open(session, argv[1], dtype);
-    writer.push(array);
-    writer.push(array2);
+    writer.push({array, array2});
     writer.finish();
 
 DataType
