@@ -35,26 +35,40 @@ use crate::SchemeExt;
 /// stride), so a later cascade layer (FoR / BitPacking) packs the smaller residuals. It only
 /// pays off when those residuals span meaningfully fewer bits than the values themselves.
 ///
-/// The minimum penalized compression ratio required for Delta to be selected is configurable via
-/// [`DeltaScheme::new`]; [`DeltaScheme::default`] uses a ratio of `1.25`.
+/// The scheme reports its raw estimated ratio (`full_width / delta_bits`). Delta's selection
+/// policy — the "delta tax" multiplier and the minimum-win floor — lives on the compressor's
+/// cost model as a scheme prior (see [`default_cost_model`]), not in the scheme.
+///
+/// [`default_cost_model`]: crate::builder
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct DeltaScheme {
-    min_ratio: f64,
+    /// Deprecated scheme-level minimum-ratio floor override. `None` defers entirely to the
+    /// cost model's prior.
+    min_ratio: Option<f64>,
 }
 
+/// The `ALL_SCHEMES` Delta instance: all selection policy comes from the cost model.
+pub(crate) const DELTA_SCHEME: DeltaScheme = DeltaScheme { min_ratio: None };
+
 impl DeltaScheme {
-    /// Creates a Delta scheme requiring `min_ratio` after the delta penalty before it wins.
-    ///
-    /// Pass a higher ratio to make Delta more conservative, or a lower one to select it more
-    /// eagerly. [`DeltaScheme::default`] uses a ratio of `1.25`.
+    /// Creates a Delta scheme with a scheme-level minimum-ratio floor: Delta is skipped
+    /// unless its penalized ratio strictly exceeds `min_ratio`.
+    #[deprecated(
+        since = "0.1.0",
+        note = "configure the floor on the compressor's cost model via \
+                `SizeCost::with_scheme_prior` instead; a scheme-level floor only tightens \
+                policy (the model's prior floor still applies)"
+    )]
     pub const fn new(min_ratio: f64) -> Self {
-        Self { min_ratio }
+        Self {
+            min_ratio: Some(min_ratio),
+        }
     }
 }
 
 impl Default for DeltaScheme {
     fn default() -> Self {
-        Self::new(1.25)
+        DELTA_SCHEME
     }
 }
 
@@ -64,7 +78,21 @@ impl Default for DeltaScheme {
 /// carries a structural sign bit on its residuals. We therefore require Delta to be meaningfully
 /// (~5%) smaller than the best alternative before it wins, rather than picking it for a
 /// single-bit gain. This factor encodes that "delta tax".
-const DELTA_PENALTY: f64 = 0.95;
+///
+/// The penalty is applied by the cost model (registered as Delta's [`SchemePrior`] multiplier
+/// in [`default_cost_model`]); the scheme itself only uses it to honor the deprecated
+/// scheme-level floor from [`DeltaScheme::new`].
+///
+/// [`SchemePrior`]: vortex_compressor::cost::SchemePrior
+/// [`default_cost_model`]: crate::builder
+pub(crate) const DELTA_PENALTY: f64 = 0.95;
+
+/// Minimum effective (post-penalty) compression ratio Delta must strictly exceed before it is
+/// selected, registered as Delta's [`SchemePrior`] floor in [`default_cost_model`].
+///
+/// [`SchemePrior`]: vortex_compressor::cost::SchemePrior
+/// [`default_cost_model`]: crate::builder
+pub(crate) const DELTA_MIN_RATIO: f64 = 1.25;
 
 /// Minimum length before Delta is worth considering (one FastLanes chunk).
 const MIN_DELTA_LEN: usize = 1024;
@@ -131,7 +159,7 @@ impl Scheme for DeltaScheme {
 
         // Estimating Delta needs the real transposed-delta span, so defer to a callback that
         // delta-encodes the array and measures the residual range.
-        let min_ratio = self.min_ratio;
+        let min_ratio_override = self.min_ratio;
         SchemeEvaluation::Deferred(DeferredEvaluation::Callback(Box::new(
             move |_compressor, data, _ctx, exec_ctx| {
                 let primitive = data.array().clone().execute::<PrimitiveArray>(exec_ctx)?;
@@ -152,10 +180,15 @@ impl Scheme for DeltaScheme {
                     None => return Ok(ResolvedEvaluation::Skip),
                 };
 
-                let ratio = full_width / delta_bits * DELTA_PENALTY;
-                if ratio <= min_ratio {
+                let ratio = full_width / delta_bits;
+
+                // Deprecated scheme-level floor (`DeltaScheme::new`): reproduces the historical
+                // post-penalty comparison while the constructor remains. The model's prior floor
+                // also applies, so this override can only tighten policy.
+                if min_ratio_override.is_some_and(|min_ratio| ratio * DELTA_PENALTY <= min_ratio) {
                     return Ok(ResolvedEvaluation::Skip);
                 }
+
                 Ok(ResolvedEvaluation::Candidate(
                     CandidateEstimate::from_compression_ratio(ratio),
                 ))
@@ -190,5 +223,137 @@ impl Scheme for DeltaScheme {
         )?;
 
         Delta::try_new(compressed_bases, compressed_deltas, 0, len).map(IntoArray::into_array)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_session::VortexSession;
+
+    use super::*;
+    use crate::builder::default_cost_model;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+
+    /// A compressor over `schemes` with the btrblocks default cost model (which carries
+    /// Delta's prior).
+    fn compressor_with_default_model(schemes: Vec<&'static dyn Scheme>) -> CascadingCompressor {
+        CascadingCompressor::new(schemes).with_cost_model(std::sync::Arc::new(default_cost_model()))
+    }
+
+    /// Immediate fixed-ratio competitor; its `compress` emits a tiny constant array so the
+    /// winner is observable from the output encoding.
+    #[derive(Debug)]
+    struct FixedRatioScheme {
+        ratio: f64,
+    }
+
+    impl Scheme for FixedRatioScheme {
+        fn scheme_name(&self) -> &'static str {
+            "test.fixed_ratio"
+        }
+
+        fn matches(&self, canonical: &Canonical) -> bool {
+            canonical.dtype().is_int()
+        }
+
+        fn evaluate(
+            &self,
+            _data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> SchemeEvaluation {
+            SchemeEvaluation::Candidate(CandidateEstimate::from_compression_ratio(self.ratio))
+        }
+
+        fn compress(
+            &self,
+            _compressor: &CascadingCompressor,
+            data: &ArrayAndStats,
+            _compress_ctx: CompressorContext,
+            _exec_ctx: &mut ExecutionCtx,
+        ) -> VortexResult<ArrayRef> {
+            Ok(ConstantArray::new(
+                Scalar::primitive(0u64, Nullability::NonNullable),
+                data.array_len(),
+            )
+            .into_array())
+        }
+    }
+
+    /// Near-monotone u64 data: Delta's residual span is a few bits, so its effective
+    /// (post-prior) ratio is comfortably above 2.0 but nowhere near its 64-bit best case.
+    fn monotone_jitter_u64() -> ArrayRef {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut value = 1_700_000_000_000u64;
+        let values: Buffer<u64> = (0..4096)
+            .map(|_| {
+                value += 900 + rng.random_range(0..200);
+                value
+            })
+            .collect();
+        PrimitiveArray::new(values, Validity::NonNullable).into_array()
+    }
+
+    /// With the incumbent below Delta's achievable effective ratio, Delta must win under
+    /// the default model's prior.
+    #[test]
+    fn delta_wins_over_low_incumbent() -> VortexResult<()> {
+        static COMPETITOR: FixedRatioScheme = FixedRatioScheme { ratio: 2.0 };
+        let compressor = compressor_with_default_model(vec![&COMPETITOR, &DELTA_SCHEME]);
+
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let compressed = compressor.compress(&monotone_jitter_u64(), &mut exec_ctx)?;
+
+        assert!(compressed.is::<Delta>());
+        Ok(())
+    }
+
+    /// With the incumbent at Delta's penalized best case (`full_width * DELTA_PENALTY`),
+    /// Delta must not be chosen: its measured effective ratio is far below the incumbent —
+    /// the same decision the historical scheme-side `max_ratio <= best` skip produced on
+    /// this input.
+    #[test]
+    fn delta_loses_at_best_case_tie() -> VortexResult<()> {
+        static COMPETITOR: FixedRatioScheme = FixedRatioScheme {
+            ratio: 64.0 * DELTA_PENALTY,
+        };
+        let compressor = compressor_with_default_model(vec![&COMPETITOR, &DELTA_SCHEME]);
+
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let compressed = compressor.compress(&monotone_jitter_u64(), &mut exec_ctx)?;
+
+        assert!(compressed.is::<Constant>());
+        Ok(())
+    }
+
+    /// Wide random residuals put Delta's effective ratio below the prior's floor, so with
+    /// no competitor the array must stay canonical.
+    #[test]
+    fn delta_skips_below_min_ratio() -> VortexResult<()> {
+        let compressor = compressor_with_default_model(vec![&DELTA_SCHEME]);
+
+        let mut rng = StdRng::seed_from_u64(43);
+        let values: Buffer<u64> = (0..4096).map(|_| rng.random::<u64>()).collect();
+        let array = PrimitiveArray::new(values, Validity::NonNullable).into_array();
+
+        let mut exec_ctx = SESSION.create_execution_ctx();
+        let compressed = compressor.compress(&array, &mut exec_ctx)?;
+
+        assert!(!compressed.is::<Delta>());
+        Ok(())
     }
 }

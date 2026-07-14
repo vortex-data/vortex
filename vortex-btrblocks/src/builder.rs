@@ -3,6 +3,11 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
+use std::sync::Arc;
+
+#[cfg(feature = "unstable_encodings")]
+use vortex_compressor::cost::SchemePrior;
+use vortex_compressor::cost::SizeCost;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
@@ -35,9 +40,9 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &integer::RunEndScheme,
     &integer::SequenceScheme,
     &integer::IntRLEScheme,
-    // Prefer all other schemes above delta, for now (since its slower to decompress).
+    // Delta's selection policy (penalty + floor) lives in `default_cost_model`.
     #[cfg(feature = "unstable_encodings")]
-    &integer::DeltaScheme::new(1.25),
+    &integer::DELTA_SCHEME,
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Float schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -204,8 +209,31 @@ impl BtrBlocksCompressorBuilder {
 
     /// Builds the configured [`BtrBlocksCompressor`].
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
+        BtrBlocksCompressor(
+            CascadingCompressor::new(self.schemes).with_cost_model(Arc::new(default_cost_model())),
+        )
     }
+}
+
+/// The default cost model for btrblocks compressors: ratio-argmax ([`SizeCost`]) with Delta's
+/// selection prior.
+///
+/// Prefer all other schemes above Delta unless it wins by a real margin: Delta is slower to
+/// decompress (it breaks random access and adds a prefix-sum decode pass), so its raw ratio
+/// is handicapped by the "delta tax" multiplier and gated behind a minimum effective ratio.
+/// This prior is **policy, not measurement** — the scheme reports raw ratios, and this is
+/// the one place the judgment lives.
+pub(crate) fn default_cost_model() -> SizeCost {
+    let model = SizeCost::default();
+    #[cfg(feature = "unstable_encodings")]
+    let model = model.with_scheme_prior(
+        integer::DELTA_SCHEME.id(),
+        SchemePrior {
+            multiplier: integer::DELTA_PENALTY,
+            min_ratio: integer::DELTA_MIN_RATIO,
+        },
+    );
+    model
 }
 
 #[cfg(test)]

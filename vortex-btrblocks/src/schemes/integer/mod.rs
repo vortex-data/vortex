@@ -18,6 +18,12 @@ mod pco;
 
 pub use bitpacking::BitPackingScheme;
 #[cfg(feature = "unstable_encodings")]
+pub(crate) use delta::DELTA_MIN_RATIO;
+#[cfg(feature = "unstable_encodings")]
+pub(crate) use delta::DELTA_PENALTY;
+#[cfg(feature = "unstable_encodings")]
+pub(crate) use delta::DELTA_SCHEME;
+#[cfg(feature = "unstable_encodings")]
 pub use delta::DeltaScheme;
 pub use for_::FoRScheme;
 #[cfg(feature = "pco")]
