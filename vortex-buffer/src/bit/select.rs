@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use super::count_ones::align_offset_len;
+use crate::dispatch::CpuKernel;
 
 /// Returns the position of the `nth` set bit (0-indexed) within the logical range
 /// `[offset, offset + len)` of the given byte slice.
@@ -82,32 +83,47 @@ pub fn bit_select(bytes: &[u8], offset: usize, len: usize, nth: usize) -> Option
 ///
 /// If `chunk_index < chunks.len()`, the target bit is inside that chunk and `remaining`
 /// is the rank *within* that chunk. Otherwise all chunks were consumed.
+type ScanChunks = unsafe fn(&[[u8; 64]], usize, usize) -> (usize, usize, usize);
+
 #[inline]
 fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
-    scan_chunks_impl(chunks, remaining, pos)
-}
-
-#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-#[inline]
-fn scan_chunks_impl(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
-    scan_chunks_scalar(chunks, remaining, pos)
-}
-
-#[cfg(target_arch = "x86_64")]
-#[inline]
-fn scan_chunks_impl(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
-    if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vpopcntdq") {
-        // SAFETY: runtime detection guarantees the required target features.
-        return unsafe { scan_chunks_avx512_vpopcnt(chunks, remaining, pos) };
+    // Scans of a couple of chunks don't amortize the dispatch indirection: call the
+    // per-architecture unconditional kernel directly so it stays inlinable (see the
+    // size-gating note in the CpuKernel docs).
+    if chunks.len() <= 2 {
+        #[cfg(target_arch = "aarch64")]
+        return scan_chunks_neon(chunks, remaining, pos);
+        #[allow(unreachable_code)]
+        {
+            return scan_chunks_scalar(chunks, remaining, pos);
+        }
     }
 
-    scan_chunks_scalar(chunks, remaining, pos)
+    static KERNEL: CpuKernel<ScanChunks> = CpuKernel::new(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vpopcntdq") {
+                return scan_chunks_avx512_vpopcnt;
+            }
+        }
+        #[cfg(target_arch = "aarch64")]
+        return scan_chunks_neon;
+        // The aarch64 arm above returns unconditionally (NEON needs no probe), making
+        // this portable default unreachable there.
+        #[allow(unreachable_code)]
+        {
+            scan_chunks_scalar
+        }
+    });
+    // SAFETY: the selector only returns kernels that are safe or whose required CPU
+    // features were probed before selection.
+    unsafe { KERNEL.get()(chunks, remaining, pos) }
 }
 
 #[cfg(target_arch = "aarch64")]
 #[allow(clippy::cast_possible_truncation)] // u64 → usize is lossless on aarch64 (64-bit)
 #[inline]
-fn scan_chunks_impl(
+fn scan_chunks_neon(
     chunks: &[[u8; 64]],
     mut remaining: usize,
     mut pos: usize,
@@ -185,7 +201,6 @@ unsafe fn scan_chunks_avx512_vpopcnt(
     (remaining, pos, chunks.len())
 }
 
-#[cfg(not(target_arch = "aarch64"))]
 #[inline]
 fn scan_chunks_scalar(
     chunks: &[[u8; 64]],
@@ -280,21 +295,26 @@ fn scan_words_scalar(
 
 // ── In-chunk select ─────────────────────────────────────────────────────
 
+type SelectInChunk = unsafe fn(&[u8; 64], usize) -> usize;
+
 /// Position of the `nth` set bit inside a 64-byte chunk (0-indexed).
 #[inline]
 fn select_in_chunk(chunk: &[u8; 64], nth: usize) -> usize {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx512f")
-            && is_x86_feature_detected!("avx512vpopcntdq")
-            && is_x86_feature_detected!("avx512vbmi2")
+    static KERNEL: CpuKernel<SelectInChunk> = CpuKernel::new(|| {
+        #[cfg(target_arch = "x86_64")]
         {
-            // SAFETY: runtime detection guarantees the required target features.
-            return unsafe { select_in_chunk_vbmi2(chunk, nth) };
+            if is_x86_feature_detected!("avx512f")
+                && is_x86_feature_detected!("avx512vpopcntdq")
+                && is_x86_feature_detected!("avx512vbmi2")
+            {
+                return select_in_chunk_vbmi2;
+            }
         }
-    }
-
-    select_in_chunk_scalar(chunk, nth)
+        select_in_chunk_scalar
+    });
+    // SAFETY: the selector only returns kernels that are safe or whose required CPU
+    // features were probed before selection.
+    unsafe { KERNEL.get()(chunk, nth) }
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -343,7 +363,6 @@ fn select_in_chunk_scalar(chunk: &[u8; 64], mut nth: usize) -> usize {
     unreachable!("select_in_chunk: nth exceeds popcount")
 }
 
-#[cfg(not(target_arch = "aarch64"))]
 #[inline]
 fn count_ones_chunk(chunk: &[u8; 64]) -> usize {
     let words = chunk.as_chunks::<8>().0;
@@ -359,17 +378,23 @@ fn count_ones_chunk(chunk: &[u8; 64]) -> usize {
 
 // ── In-word select ──────────────────────────────────────────────────────
 
+type SelectInWord = unsafe fn(u64, usize) -> usize;
+
 /// Position of the `nth` set bit inside a u64 (0-indexed, little-endian bit order).
 #[inline]
 fn select_in_word(word: u64, nth: usize) -> usize {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("bmi2") {
-            // SAFETY: runtime detection guarantees the required target feature.
-            return unsafe { select_in_word_bmi2(word, nth) };
+    static KERNEL: CpuKernel<SelectInWord> = CpuKernel::new(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("bmi2") {
+                return select_in_word_bmi2;
+            }
         }
-    }
-    select_in_word_scalar(word, nth)
+        select_in_word_scalar
+    });
+    // SAFETY: the selector only returns kernels that are safe or whose required CPU
+    // features were probed before selection.
+    unsafe { KERNEL.get()(word, nth) }
 }
 
 /// BMI2: deposit a single bit at the nth set-bit position, then count trailing zeros.

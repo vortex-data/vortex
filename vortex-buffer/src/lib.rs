@@ -52,6 +52,7 @@ pub use buffer::*;
 pub use buffer_mut::*;
 pub use bytes::*;
 pub use r#const::*;
+pub use dispatch::*;
 pub use string::*;
 mod alignment;
 #[cfg(feature = "arrow")]
@@ -62,6 +63,7 @@ mod buffer_mut;
 mod bytes;
 mod r#const;
 mod debug;
+mod dispatch;
 mod macros;
 #[cfg(feature = "memmap2")]
 mod memmap2;

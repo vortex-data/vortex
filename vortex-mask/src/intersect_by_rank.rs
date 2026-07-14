@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitChunkIterator;
 use vortex_buffer::BufferMut;
+use vortex_buffer::CpuKernel;
 use vortex_error::VortexExpect;
 
 use crate::Mask;
@@ -396,22 +397,32 @@ fn intersect_bit_buffers_dispatch(
     mask_buffer: &BitBuffer,
     true_count: usize,
 ) -> Mask {
-    #[cfg(target_arch = "x86_64")]
-    if std::arch::is_x86_feature_detected!("bmi2") {
-        return intersect_bit_buffers::<Bmi2>(self_buffer, mask_buffer, true_count);
-    }
-
-    intersect_bit_buffers::<Portable>(self_buffer, mask_buffer, true_count)
+    type IntersectBuffers = fn(&BitBuffer, &BitBuffer, usize) -> Mask;
+    static KERNEL: CpuKernel<IntersectBuffers> = CpuKernel::new(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if std::arch::is_x86_feature_detected!("bmi2") {
+                return intersect_bit_buffers::<Bmi2>;
+            }
+        }
+        intersect_bit_buffers::<Portable>
+    });
+    KERNEL.get()(self_buffer, mask_buffer, true_count)
 }
 
 #[inline]
 fn intersect_rank_indices_dispatch(self_buffer: &BitBuffer, mask_indices: &[usize]) -> Mask {
-    #[cfg(target_arch = "x86_64")]
-    if std::arch::is_x86_feature_detected!("bmi2") {
-        return intersect_bit_buffer_by_rank_indices::<Bmi2>(self_buffer, mask_indices);
-    }
-
-    intersect_bit_buffer_by_rank_indices::<Portable>(self_buffer, mask_indices)
+    type IntersectRankIndices = fn(&BitBuffer, &[usize]) -> Mask;
+    static KERNEL: CpuKernel<IntersectRankIndices> = CpuKernel::new(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if std::arch::is_x86_feature_detected!("bmi2") {
+                return intersect_bit_buffer_by_rank_indices::<Bmi2>;
+            }
+        }
+        intersect_bit_buffer_by_rank_indices::<Portable>
+    });
+    KERNEL.get()(self_buffer, mask_indices)
 }
 
 #[inline]
