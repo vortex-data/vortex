@@ -233,6 +233,12 @@ private:
     std::unique_ptr<const vx_array, Deleter> handle_;
 };
 
+// Column field of a Struct Array
+struct ColumnField {
+    std::string name;
+    Array column;
+};
+
 /**
  * Create a Struct array from named columns of equal length.
  *
@@ -247,46 +253,9 @@ private:
  *     {{"age", ages}, {"height", heights}},
  *     NonNullable);
  */
-Array make_struct(std::initializer_list<std::pair<std::string_view, Array>> fields,
+Array make_struct(std::span<const ColumnField> fields, const Validity &validity = ValidityType::NonNullable);
+Array make_struct(std::initializer_list<ColumnField> fields,
                   const Validity &validity = ValidityType::NonNullable);
-
-/**
- * Create a Struct Array from a dynamic number of fields.
- * Prefer make_struct() if you know all fields beforehand.
- *
- * Example:
- *
- * std::array<uint16_t, 3> age_buffer = {0, 1, 2};
- * std::array<uint32_t, 3> height_buffer = {0, 1, 2};
- * Array ages = Array::primitive(age_buffer);
- * Array heights = Array::primitive(height_buffer);
- *
- * StructArrayBuilder b(NonNullable, 2);
- * Array result = builder
- *     .add("age", ages)
- *     .add("height", heights)
- *     .build();
- */
-class StructArrayBuilder {
-public:
-    explicit StructArrayBuilder(const Validity &validity, size_t capacity = 0);
-    StructArrayBuilder(const StructArrayBuilder &) = delete;
-    StructArrayBuilder &operator=(const StructArrayBuilder &) = delete;
-    StructArrayBuilder(StructArrayBuilder &&) noexcept = default;
-    StructArrayBuilder &operator=(StructArrayBuilder &&) noexcept = default;
-
-    StructArrayBuilder &add(std::string_view name, const Array &field) &;
-    StructArrayBuilder &&add(std::string_view name, const Array &field) &&;
-
-    // Consume the builder and return and Array
-    Array build() &&;
-
-private:
-    struct Deleter {
-        void operator()(vx_struct_column_builder *ptr) const noexcept;
-    };
-    std::unique_ptr<vx_struct_column_builder, Deleter> handle_;
-};
 
 /**
  * Typed read-only view over a Primitive array.

@@ -259,47 +259,33 @@ Array Array::canonicalize(const Session &session) const {
     return Access::adopt<Array>(out);
 }
 
-Array make_struct(std::initializer_list<std::pair<std::string_view, Array>> fields,
-                  const Validity &validity) {
-    StructArrayBuilder builder(validity, fields.size());
-    for (const auto &[name, field] : fields) {
-        builder.add(name, field);
-    }
-    return std::move(builder).build();
-}
-
-void StructArrayBuilder::Deleter::operator()(vx_struct_column_builder *ptr) const noexcept {
-    vx_struct_column_builder_free(ptr);
-}
-
-StructArrayBuilder::StructArrayBuilder(const Validity &validity, size_t capacity) {
-    std::optional<Array> keep_alive;
+Array make_struct(std::span<const ColumnField> fields, const Validity &validity) {
     vx_validity raw {};
     raw.type = static_cast<vx_validity_type>(validity.type());
+
+    std::optional<Array> keep_alive;
     if (validity.type() == ValidityType::Array) {
         keep_alive = validity.array();
         raw.array = Access::c_ptr(*keep_alive);
     }
-    handle_.reset(vx_struct_column_builder_new(&raw, capacity));
-}
 
-StructArrayBuilder &StructArrayBuilder::add(std::string_view name, const Array &field) & {
+    std::unique_ptr<vx_struct_column_builder, decltype(&vx_struct_column_builder_free)> handle(
+        vx_struct_column_builder_new(&raw, fields.size()),
+        &vx_struct_column_builder_free);
+
     vx_error *error = nullptr;
-    vx_struct_column_builder_add_field(handle_.get(), detail::to_view(name), Access::c_ptr(field), &error);
-    throw_on_error(error);
-    return *this;
-}
+    for (const auto &[name, array] : fields) {
+        vx_struct_column_builder_add_field(handle.get(), detail::to_view(name), Access::c_ptr(array), &error);
+        throw_on_error(error);
+    }
 
-StructArrayBuilder &&StructArrayBuilder::add(std::string_view name, const Array &field) && {
-    add(name, field);
-    return std::move(*this);
-}
-
-Array StructArrayBuilder::build() && {
-    vx_error *error = nullptr;
-    const vx_array *out = vx_struct_column_builder_finalize(handle_.release(), &error);
+    const vx_array *out = vx_struct_column_builder_finalize(handle.release(), &error);
     throw_on_error(error);
     return Access::adopt<Array>(out);
+}
+
+Array make_struct(std::initializer_list<ColumnField> fields, const Validity &validity) {
+    return make_struct({fields.begin(), fields.end()}, validity);
 }
 
 PrimitiveView<bool> Array::bools(const Session &session) const {
