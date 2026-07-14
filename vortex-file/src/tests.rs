@@ -58,8 +58,13 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
+use vortex_btrblocks::ArrayAndStats;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::cost::Candidate;
+use vortex_btrblocks::cost::Cost;
+use vortex_btrblocks::cost::CostModel;
+use vortex_btrblocks::cost::SizeCost;
 use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
@@ -67,6 +72,7 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::Layout;
+use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
@@ -2290,5 +2296,67 @@ async fn repro_8166_binary_gt_all_ff_max() -> VortexResult<()> {
         .execute::<StructArray>(&mut ctx)?;
 
     assert_eq!(result.len(), 1);
+    Ok(())
+}
+
+/// Inverts the default size model's preferences, so the *worst*-priced candidate wins. Only
+/// useful for proving that a model injected through the write strategy actually drives
+/// selection inside the file writer.
+#[derive(Debug)]
+struct InvertedSizeCost;
+
+impl CostModel for InvertedSizeCost {
+    fn cost(&self, candidate: &Candidate<'_>) -> Option<Cost> {
+        SizeCost::default()
+            .cost(candidate)
+            .map(|cost| Cost::new(-cost.value()))
+    }
+
+    fn canonical_cost(&self, _data: &ArrayAndStats, _n_values: u64) -> Cost {
+        Cost::new(f64::MAX)
+    }
+}
+
+/// A cost model injected via `WriteStrategyBuilder::with_btrblocks_builder` must reach the
+/// writer's compressors: on the same highly compressible data, the inverted model must
+/// produce a strictly larger file than the default model.
+#[tokio::test]
+async fn cost_model_reaches_file_compressors() -> VortexResult<()> {
+    async fn write_len(array: &ArrayRef, strategy: Arc<dyn LayoutStrategy>) -> VortexResult<usize> {
+        let mut buf = ByteBufferMut::empty();
+        SESSION
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut buf, array.clone().to_array_stream())
+            .await?;
+        Ok(buf.len())
+    }
+
+    let values: Buffer<i64> = (0..65_536i64).map(|i| (i % 7) * 123_456).collect();
+    let array = StructArray::from_fields(&[(
+        "col",
+        PrimitiveArray::new(values, Validity::NonNullable).into_array(),
+    )])?
+    .into_array();
+
+    let default_len = write_len(
+        &array,
+        crate::strategy::WriteStrategyBuilder::default().build(),
+    )
+    .await?;
+    let inverted_len = write_len(
+        &array,
+        crate::strategy::WriteStrategyBuilder::default()
+            .with_btrblocks_builder(
+                BtrBlocksCompressorBuilder::default().with_cost_model(Arc::new(InvertedSizeCost)),
+            )
+            .build(),
+    )
+    .await?;
+
+    assert!(
+        inverted_len > default_len,
+        "a live cost model must change the written file: inverted {inverted_len} vs default {default_len}"
+    );
     Ok(())
 }

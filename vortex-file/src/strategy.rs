@@ -218,7 +218,8 @@ impl WriteStrategyBuilder {
     /// Override the default [`BtrBlocksCompressorBuilder`] used for compression.
     ///
     /// The builder is finalized during [`build`](Self::build), producing two compressors: one for
-    /// data (with `IntDictScheme` excluded) and one for stats.
+    /// data (with `IntDictScheme` excluded) and one for stats. Any cost model configured on the
+    /// builder (via `BtrBlocksCompressorBuilder::with_cost_model`) is carried into both.
     pub fn with_btrblocks_builder(mut self, builder: BtrBlocksCompressorBuilder) -> Self {
         self.compressor = CompressorConfig::BtrBlocks(builder);
         self
