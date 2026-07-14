@@ -558,14 +558,25 @@ jobs:
           cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
             --target x86_64-unknown-linux-gnu -Zbuild-std \
             -p vortex-ffi
-      - name: Build C++ library (asan)
+      - name: Build C++ tests and examples (asan)
         run: |
           mkdir -p build
-          cmake -S lang/cpp -Bbuild -DSANITIZER=asan -DBUILD_TESTS=1 -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
+          cmake -S lang/cpp -Bbuild -DSANITIZER=asan -DBUILD_TESTS=1 -DBUILD_EXAMPLES=1 -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
           cmake --build build --parallel $(nproc)
       - name: Run C++ tests
         run: |
           build/tests/vortex_cxx_test
+      - name: Run C++ examples
+        run: |
+          cd build/examples
+          ./writer people0.vortex
+          ./writer people1.vortex
+          ./writer me.vortex
+
+          ./scan '*.vortex'
+          ./dtype me.vortex
+
+          ./reader
 
   sqllogic-test:
     name: "SQL logic tests"
