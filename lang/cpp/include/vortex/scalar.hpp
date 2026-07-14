@@ -4,6 +4,7 @@
 
 #include "vortex/common.hpp"
 #include "vortex/dtype.hpp"
+#include "vortex/error.hpp"
 
 #include <vortex.h>
 
@@ -67,10 +68,26 @@ Scalar of(T value, bool nullable = false) {
     }
 }
 
+template <primitive_type T>
+Scalar decimal(T value, uint8_t precision, int8_t scale, bool nullable = false) {
+    vx_error *error = nullptr;
+    vx_scalar *out = nullptr;
+    if constexpr (std::is_same_v<T, int8_t>) {
+        out = vx_scalar_new_decimal_i8(value, precision, scale, nullable, &error);
+    } else if constexpr (std::is_same_v<T, int16_t>) {
+        out = vx_scalar_new_decimal_i16(value, precision, scale, nullable, &error);
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        out = vx_scalar_new_decimal_i32(value, precision, scale, nullable, &error);
+    } else if constexpr (std::is_same_v<T, int64_t>) {
+        out = vx_scalar_new_decimal_i64(value, precision, scale, nullable, &error);
+    } else {
+        static_assert(false, "can't construct decimal of following scale");
+    }
+    detail::throw_on_error(error);
+    return detail::Access::adopt<Scalar>(out);
+}
+
 // A typed null of (a nullable copy of) a given DataType.
 Scalar null(const DataType &dtype);
-
-Scalar decimal_i32(int32_t value, uint8_t precision, int8_t scale, bool nullable = false);
-Scalar decimal_i64(int64_t value, uint8_t precision, int8_t scale, bool nullable = false);
 } // namespace scalar
 } // namespace vortex

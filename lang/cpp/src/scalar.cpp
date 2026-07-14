@@ -107,21 +107,5 @@ Scalar null(const DataType &dtype) {
     throw_on_error(error);
     return Access::adopt<Scalar>(out);
 }
-
-Scalar decimal_i32(int32_t value, uint8_t precision, int8_t scale, bool nullable) {
-    vx_error *error = nullptr;
-    vx_scalar *out = vx_scalar_new_decimal_i32(value, precision, scale, nullable, &error);
-    throw_on_error(error);
-    return Access::adopt<Scalar>(out);
-}
-
-Scalar decimal_i64(int64_t value, uint8_t precision, int8_t scale, bool nullable) {
-    vx_error *error = nullptr;
-    vx_scalar *out = vx_scalar_new_decimal_i64(value, precision, scale, nullable, &error);
-    throw_on_error(error);
-    return Access::adopt<Scalar>(out);
-}
-
 } // namespace scalar
-
 } // namespace vortex
