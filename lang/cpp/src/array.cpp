@@ -69,7 +69,7 @@ Array Validity::array() const {
 
 namespace detail {
 
-bool ValidityBits::is_null(size_t index) const noexcept {
+bool ValidityBits::is_null(size_t index) const {
     if (all_invalid_) {
         return true;
     }

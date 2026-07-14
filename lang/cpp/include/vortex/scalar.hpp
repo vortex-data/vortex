@@ -29,7 +29,7 @@ private:
     friend struct detail::Access;
     explicit Scalar(vx_scalar *owned) : handle_(owned) {
     }
-    vx_scalar *release() && noexcept {
+    vx_scalar *release() && {
         return handle_.release();
     }
 

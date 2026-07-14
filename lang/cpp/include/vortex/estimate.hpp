@@ -21,7 +21,7 @@ public:
     explicit Estimate(vx_estimate raw) : raw_(raw) {
     }
 
-    inline EstimateType type() const noexcept {
+    inline EstimateType type() const {
         return static_cast<EstimateType>(raw_.type);
     }
 
@@ -36,7 +36,7 @@ public:
         return raw_.estimate;
     }
 
-    inline uint64_t value_or(uint64_t fallback) const noexcept {
+    inline uint64_t value_or(uint64_t fallback) const {
         return type() == EstimateType::Unknown ? fallback : raw_.estimate;
     }
 

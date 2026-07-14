@@ -16,7 +16,6 @@ namespace vortex {
 
 using detail::Access;
 using detail::throw_on_error;
-using detail::to_view;
 
 void Scalar::Deleter::operator()(vx_scalar *ptr) const noexcept {
     vx_scalar_free(ptr);

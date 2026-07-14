@@ -75,7 +75,7 @@ public:
     ArrowStream &operator=(ArrowStream &&other) noexcept;
     ~ArrowStream();
 
-    ArrowArrayStream *raw() noexcept {
+    ArrowArrayStream *raw() {
         return &stream_;
     }
 
@@ -199,7 +199,7 @@ public:
     Scan(Scan &&) noexcept = default;
     Scan &operator=(Scan &&) noexcept = default;
 
-    Estimate partition_count() const noexcept {
+    Estimate partition_count() const {
         return estimate_;
     }
 

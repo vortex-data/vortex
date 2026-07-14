@@ -99,7 +99,7 @@ public:
 private:
     friend struct detail::Access;
     explicit DataType(const vx_dtype *owned);
-    const vx_dtype *release() && noexcept {
+    const vx_dtype *release() && {
         return handle_.release();
     }
 

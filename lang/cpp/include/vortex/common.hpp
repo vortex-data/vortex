@@ -37,11 +37,11 @@ struct Access {
         return T(std::forward<Args>(args)...);
     }
     template <class T>
-    static auto release(T &&t) noexcept {
+    static auto release(T &&t) {
         return std::forward<T>(t).release();
     }
     template <class T>
-    static auto c_ptr(const T &t) noexcept {
+    static auto c_ptr(const T &t) {
         return t.handle_.get();
     }
 };

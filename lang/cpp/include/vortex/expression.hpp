@@ -50,7 +50,7 @@ private:
     friend struct detail::Access;
     explicit Expression(const vx_expression *owned) : handle_(owned) {
     }
-    const vx_expression *release() && noexcept {
+    const vx_expression *release() && {
         return handle_.release();
     }
 

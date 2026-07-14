@@ -27,7 +27,7 @@ public:
     VortexException(const std::string &message, ErrorCode code) : std::runtime_error(message), code_(code) {
     }
 
-    ErrorCode code() const noexcept {
+    ErrorCode code() const {
         return code_;
     }
 
@@ -48,7 +48,7 @@ inline void throw_on_error(vx_error *error) {
     throw VortexException(message, code);
 }
 
-inline vx_view to_view(std::string_view view) noexcept {
+inline vx_view to_view(std::string_view view) {
     return {view.data(), view.size()};
 }
 } // namespace detail

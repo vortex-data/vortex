@@ -66,7 +66,7 @@ public:
     Validity &operator=(Validity &&other) noexcept;
     ~Validity();
 
-    ValidityType type() const noexcept {
+    ValidityType type() const {
         return type_;
     }
 
@@ -93,7 +93,7 @@ public:
     ValidityBits &operator=(const ValidityBits &) = delete;
     ~ValidityBits();
 
-    bool is_null(size_t index) const noexcept;
+    bool is_null(size_t index) const;
 
 private:
     friend class vortex::Array;
@@ -220,7 +220,7 @@ private:
 
     explicit Array(const vx_array *owned) : handle_(owned) {
     }
-    const vx_array *release() && noexcept {
+    const vx_array *release() && {
         return handle_.release();
     }
 
@@ -301,13 +301,13 @@ public:
      * Get raw values from this view. Values at null/invalid positions are
      * unspecified.
      */
-    std::span<const T> values() const noexcept {
+    std::span<const T> values() const {
         return {data_, size_};
     }
-    bool is_null(size_t index) const noexcept {
+    bool is_null(size_t index) const {
         return validity_.is_null(index);
     }
-    size_t size() const noexcept {
+    size_t size() const {
         return size_;
     }
 
@@ -335,10 +335,10 @@ public:
      * unspecified.
      */
     bool value(size_t index) const;
-    bool is_null(size_t index) const noexcept {
+    bool is_null(size_t index) const {
         return validity_.is_null(index);
     }
-    size_t size() const noexcept {
+    size_t size() const {
         return size_;
     }
 
@@ -366,10 +366,10 @@ public:
      * unspecified.
      */
     std::string_view operator[](size_t index) const;
-    bool is_null(size_t index) const noexcept {
+    bool is_null(size_t index) const {
         return validity_.is_null(index);
     }
-    size_t size() const noexcept {
+    size_t size() const {
         return size_;
     }
 
@@ -397,10 +397,10 @@ public:
      * unspecified.
      */
     BinaryView operator[](size_t index) const;
-    bool is_null(size_t index) const noexcept {
+    bool is_null(size_t index) const {
         return validity_.is_null(index);
     }
-    size_t size() const noexcept {
+    size_t size() const {
         return size_;
     }
 
