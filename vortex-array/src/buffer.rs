@@ -201,6 +201,14 @@ impl BufferHandle {
         }
     }
 
+    /// Creates a new handle to a byte subrange without retaining an alignment guarantee.
+    pub fn slice_unaligned(&self, range: Range<usize>) -> Self {
+        match &self.0 {
+            Inner::Host(host) => BufferHandle::new_host(host.slice_unaligned(range)),
+            Inner::Device(device) => BufferHandle::new_device(device.slice(range)),
+        }
+    }
+
     /// Reinterpret the pointee as a buffer of `T` and slice the provided element range.
     ///
     /// # Example
