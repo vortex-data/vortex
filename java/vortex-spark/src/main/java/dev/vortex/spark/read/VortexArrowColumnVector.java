@@ -329,7 +329,8 @@ public class VortexArrowColumnVector extends ColumnVector {
         } else if (vector instanceof DurationVector) {
             accessor = new VortexArrowColumnVector.DurationAccessor((DurationVector) vector);
         } else {
-            throw new UnsupportedOperationException();
+            throw new UnsupportedOperationException(
+                    "Unsupported Arrow vector type: " + vector.getClass().getName());
         }
     }
 
