@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -20,16 +19,15 @@ use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
+use crate::arrays::union::TYPE_IDS_DTYPE;
 use crate::arrays::union::UnionArrayExt;
 use crate::arrays::union::array::CHILDREN_OFFSET;
 use crate::arrays::union::array::TYPE_IDS_SLOT;
-use crate::arrays::union::array::make_union_slots;
+use crate::arrays::union::array::make_union_parts;
 use crate::arrays::union::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 
 mod operations;
@@ -63,10 +61,6 @@ impl VTable for Union {
             vortex_bail!("Expected union dtype, found {dtype}")
         };
         vortex_ensure!(
-            !dtype.is_nullable(),
-            "Nullable UnionArray is not supported yet"
-        );
-        vortex_ensure!(
             variants.variants().all(|variant| !variant.is_nullable()),
             "UnionArray children must be non-nullable"
         );
@@ -79,9 +73,9 @@ impl VTable for Union {
 
         let type_ids = slots[TYPE_IDS_SLOT]
             .as_ref()
-            .vortex_expect("UnionArray type_ids slot");
+            .ok_or_else(|| vortex_err!("UnionArray is missing its type_ids slot"))?;
         vortex_ensure!(
-            type_ids.dtype() == &DType::Primitive(PType::I8, Nullability::NonNullable),
+            type_ids.dtype() == &TYPE_IDS_DTYPE,
             "UnionArray type_ids must be non-nullable i8, got {}",
             type_ids.dtype()
         );
@@ -91,14 +85,10 @@ impl VTable for Union {
             type_ids.len()
         );
 
-        for (index, (slot, variant_dtype)) in slots[CHILDREN_OFFSET..]
-            .iter()
-            .zip_eq(variants.variants())
-            .enumerate()
-        {
-            let child = slot
+        for (index, variant_dtype) in variants.variants().enumerate() {
+            let child = slots[CHILDREN_OFFSET + index]
                 .as_ref()
-                .ok_or_else(|| vortex_error::vortex_err!("UnionArray missing child {index}"))?;
+                .ok_or_else(|| vortex_err!("UnionArray is missing child {index}"))?;
             vortex_ensure!(
                 child.len() == len,
                 "UnionArray child {index} length {} does not match outer length {len}",
@@ -162,19 +152,18 @@ impl VTable for Union {
             children.len()
         );
 
-        let type_ids = children.get(
-            TYPE_IDS_SLOT,
-            &DType::Primitive(PType::I8, Nullability::NonNullable),
-            len,
-        )?;
+        let type_ids = children.get(TYPE_IDS_SLOT, &TYPE_IDS_DTYPE, len)?;
         let sparse_children = variants
             .variants()
             .enumerate()
             .map(|(index, dtype)| children.get(CHILDREN_OFFSET + index, &dtype, len))
-            .try_collect::<_, Vec<_>, _>()?;
-        let slots = make_union_slots(&type_ids, &sparse_children);
+            .collect::<VortexResult<Vec<_>>>()?;
 
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
+        Ok(make_union_parts(
+            type_ids,
+            variants.clone(),
+            &sparse_children,
+        ))
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {

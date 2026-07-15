@@ -25,13 +25,12 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::Union;
-use crate::arrays::UnionArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::TakeReduce;
+use crate::arrays::union::compute::take_union;
 use crate::arrays::variant::VariantArrayExt;
 
 /// Take from a canonical array using indices (codes), returning a new canonical array.
@@ -55,7 +54,10 @@ pub(crate) fn take_canonical(
             Canonical::FixedSizeList(take_fixed_size_list(&a, codes, ctx))
         }
         Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
-        Canonical::Union(a) => Canonical::Union(take_union(&a, codes)?),
+        Canonical::Union(a) => {
+            let indices = codes.clone().into_array();
+            Canonical::Union(take_union(a.as_view(), &indices)?)
+        }
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes, ctx)),
         Canonical::Variant(a) => {
             let indices = codes.clone().into_array();
@@ -166,15 +168,6 @@ fn take_struct(array: &StructArray, codes: &PrimitiveArray) -> StructArray {
         .vortex_expect("take struct should not return None")
         .as_::<Struct>()
         .into_owned()
-}
-
-fn take_union(array: &UnionArray, codes: &PrimitiveArray) -> VortexResult<UnionArray> {
-    let codes_ref = codes.clone().into_array();
-    let array = array.as_view();
-    Ok(<Union as TakeReduce>::take(array, &codes_ref)?
-        .vortex_expect("take UnionArray should be supported")
-        .as_::<Union>()
-        .into_owned())
 }
 
 fn take_extension(

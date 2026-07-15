@@ -863,12 +863,11 @@ impl Executable for RecursiveCanonical {
                 let type_ids = type_ids.execute::<RecursiveCanonical>(ctx)?.0.into_array();
                 let children = children
                     .iter()
+                    .cloned()
                     .map(|child| {
-                        Ok(child
-                            .clone()
-                            .execute::<RecursiveCanonical>(ctx)?
-                            .0
-                            .into_array())
+                        child
+                            .execute::<RecursiveCanonical>(ctx)
+                            .map(|canonical| canonical.0.into_array())
                     })
                     .collect::<VortexResult<Arc<[_]>>>()?;
 
