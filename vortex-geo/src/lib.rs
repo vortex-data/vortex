@@ -20,6 +20,7 @@ use crate::extension::Polygon;
 use crate::extension::Rect;
 use crate::extension::WellKnownBinary;
 use crate::prune::GeoDistancePrune;
+use crate::prune::GeoIntersectsPrune;
 use crate::scalar_fn::contains::GeoContains;
 use crate::scalar_fn::distance::GeoDistance;
 use crate::scalar_fn::intersects::GeoIntersects;
@@ -70,6 +71,7 @@ pub fn initialize(session: &VortexSession) {
     // geometry columns.
     session.aggregate_fns().register(GeometryAabb);
 
-    // Register the spatial pruning rule that uses that AABB.
+    // Register the spatial pruning rules that use that AABB.
     session.stats().register_rewrite(GeoDistancePrune);
+    session.stats().register_rewrite(GeoIntersectsPrune);
 }
