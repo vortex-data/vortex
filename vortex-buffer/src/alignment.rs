@@ -235,7 +235,7 @@ mod test {
 
     #[test]
     fn invalid_alignment_exponent() {
-        let error = Alignment::try_from_exponent(usize::BITS as u8)
+        let error = Alignment::try_from_exponent(u8::try_from(usize::BITS).unwrap())
             .expect_err("an exponent as wide as usize must be rejected");
         assert!(error.to_string().contains("must be less than"));
     }

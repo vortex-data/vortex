@@ -33,6 +33,7 @@ use crate::DeserializeStep;
 use crate::EOF_SIZE;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VortexFile;
+use crate::footer::FileMetadata;
 use crate::footer::Footer;
 use crate::segments::BufferSegmentSource;
 use crate::segments::FileSegmentSource;
@@ -397,28 +398,15 @@ async fn resolve_metadata(
     footer: &Footer,
     segment_source: Arc<dyn SegmentSource>,
 ) -> VortexResult<Arc<HashMap<String, ByteBuffer>>> {
-    let first_metadata_id = footer.segment_map().len();
-    let requests = footer
-        .metadata_segments()
-        .enumerate()
-        .map(|(index, (key, locator))| {
-            let id = u32::try_from(first_metadata_id + index).map(SegmentId::from);
-            let key = key.to_string();
-            let alignment = locator.alignment;
-            let segment_source = Arc::clone(&segment_source);
-            async move {
-                let handle = segment_source.request(id?).await?;
-                let buffer = handle.try_into_host()?.await?;
-                Ok::<_, VortexError>((
-                    key,
-                    ByteBuffer::copy_from_aligned(buffer.as_slice(), alignment),
-                ))
-            }
-        });
-    let metadata = futures::future::try_join_all(requests)
-        .await?
-        .into_iter()
-        .collect::<HashMap<_, _>>();
+    if footer.metadata_segment().is_none() {
+        return Ok(Arc::new(HashMap::new()));
+    }
+
+    // The metadata segment is appended to the segment map, so its id is the map length.
+    let id = SegmentId::from(u32::try_from(footer.segment_map().len())?);
+    let handle = segment_source.request(id).await?;
+    let buffer = handle.try_into_host()?.await?;
+    let metadata = FileMetadata::parse(buffer.as_slice())?;
 
     Ok(Arc::new(metadata))
 }
@@ -447,11 +435,11 @@ impl VortexOpenOptions {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use futures::future::BoxFuture;
+    use parking_lot::Mutex;
     use vortex_array::IntoArray;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::memory::DefaultHostAllocator;
@@ -489,7 +477,7 @@ mod tests {
             alignment: Alignment,
         ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
             self.total_read.fetch_add(length, Ordering::Relaxed);
-            self.reads.lock().unwrap().push((offset, length));
+            self.reads.lock().push((offset, length));
             let _ = self.first_read_len.compare_exchange(
                 0,
                 length,
@@ -596,7 +584,7 @@ mod tests {
             .await?;
         let locator = *summary
             .footer()
-            .metadata_segment("outside")
+            .metadata_segment()
             .vortex_expect("metadata locator");
         let bytes = ByteBuffer::from(output);
         assert!(locator.offset < bytes.len() as u64 - INITIAL_READ_SIZE as u64);
@@ -614,7 +602,6 @@ mod tests {
         assert!(
             !default_reads
                 .lock()
-                .unwrap()
                 .contains(&(locator.offset, locator.length as usize))
         );
         // A default open must not amplify into the metadata: total bytes read stay
@@ -645,7 +632,6 @@ mod tests {
         assert!(
             metadata_reads
                 .lock()
-                .unwrap()
                 .contains(&(locator.offset, locator.length as usize))
         );
 
@@ -659,7 +645,7 @@ mod tests {
             .with::<RuntimeSession>();
         crate::register_default_encodings(&session);
 
-        let value = ByteBuffer::copy_from(b"supplied-footer metadata".to_vec());
+        let value = ByteBuffer::copy_from(b"supplied-footer metadata");
         let mut output = ByteBufferMut::empty();
         let summary = session
             .write_options()

@@ -1701,9 +1701,8 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
     let array =
         StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
     let small = ByteBuffer::copy_from(b"{\"source\":\"test\"}");
+    // Larger than the postscript to prove metadata is not bounded by it.
     let large = ByteBuffer::copy_from(vec![7u8; usize::from(MAX_POSTSCRIPT_SIZE) + 1024]);
-    let empty = ByteBuffer::empty_aligned(vortex_buffer::Alignment::new(16));
-    let aligned = ByteBuffer::copy_from_aligned(b"aligned", vortex_buffer::Alignment::new(64));
 
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
@@ -1711,17 +1710,18 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
         .with_metadata_segment("json", ByteBuffer::copy_from(b"old"))
         .with_metadata_segment("json", small.clone()) // last write wins
         .with_metadata_segment("large", large.clone())
-        .with_metadata_segment("empty", empty)
-        .with_metadata_segment("aligned", aligned.clone())
+        .with_metadata_segment("empty", ByteBuffer::empty())
         .write(&mut buf, array.to_array_stream())
         .await?;
 
-    assert_eq!(summary.footer().metadata_segments().count(), 4);
-    // The footer holds only locators, so its size does not grow with the large value.
+    // All metadata lives in a single segment, referenced by one postscript locator.
+    let locator = *summary
+        .footer()
+        .metadata_segment()
+        .vortex_expect("metadata locator");
+    assert!(locator.alignment.is_offset_aligned(locator.offset as usize));
+    // The footer holds only the locator, so its size does not grow with the large value.
     assert!(summary.footer().approx_byte_size().unwrap() < large.len());
-    for (_key, locator) in summary.footer().metadata_segments() {
-        assert!(locator.alignment.is_offset_aligned(locator.offset as usize));
-    }
 
     let bytes = ByteBuffer::from(buf);
 
@@ -1734,10 +1734,10 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
         .open_options()
         .include_metadata()
         .open_buffer(bytes.clone())?;
-    assert_eq!(file.metadata_segments().count(), 4);
+    assert_eq!(file.metadata_segments().count(), 3);
     assert_eq!(
         file.metadata_segment("json").map(ByteBuffer::as_slice),
-        Some(small.as_slice())
+        Some(small.as_slice()) // last write wins
     );
     assert_eq!(
         file.metadata_segment("large").map(ByteBuffer::as_slice),
@@ -1748,9 +1748,6 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
             .vortex_expect("empty")
             .is_empty()
     );
-    let resolved_aligned = file.metadata_segment("aligned").vortex_expect("aligned");
-    assert_eq!(resolved_aligned.as_slice(), aligned.as_slice());
-    assert!(resolved_aligned.is_aligned(vortex_buffer::Alignment::new(64)));
     assert!(file.metadata_segment("missing").is_none());
 
     // Resolved values are copied out, not sliced from the file buffer.
@@ -1764,7 +1761,12 @@ async fn test_file_metadata_roundtrip() -> VortexResult<()> {
     Ok(())
 }
 
-fn with_invalid_metadata_alignment(bytes: &ByteBuffer, exponent: u8) -> ByteBuffer {
+/// A transform over a metadata locator's `(offset, length, alignment_exponent)`.
+type LocatorMutation = fn((u64, u32, u8)) -> (u64, u32, u8);
+
+/// Rewrite the postscript with its metadata locator `(offset, length, alignment_exponent)`
+/// transformed by `mutate`, producing a file with a corrupt metadata locator.
+fn corrupt_metadata_locator(bytes: &ByteBuffer, mutate: LocatorMutation) -> ByteBuffer {
     let eof_offset = bytes.len() - crate::EOF_SIZE;
     let postscript_len =
         u16::from_le_bytes(bytes[eof_offset + 2..eof_offset + 4].try_into().unwrap()) as usize;
@@ -1782,9 +1784,7 @@ fn with_invalid_metadata_alignment(bytes: &ByteBuffer, exponent: u8) -> ByteBuff
     let layout = copy_segment(old.layout().unwrap());
     let statistics = old.statistics().map(copy_segment);
     let footer = copy_segment(old.footer().unwrap());
-    let metadata = old.metadata().unwrap().get(0);
-    let metadata_key = metadata.key().to_string();
-    let metadata_segment = copy_segment(metadata.segment());
+    let metadata = mutate(copy_segment(old.metadata().unwrap()));
 
     fn create_segment<'a>(
         fbb: &mut FlatBufferBuilder<'a>,
@@ -1807,17 +1807,7 @@ fn with_invalid_metadata_alignment(bytes: &ByteBuffer, exponent: u8) -> ByteBuff
     let layout = create_segment(&mut fbb, layout);
     let statistics = statistics.map(|segment| create_segment(&mut fbb, segment));
     let footer = create_segment(&mut fbb, footer);
-    let key = fbb.create_string(&metadata_key);
-    let invalid_segment =
-        create_segment(&mut fbb, (metadata_segment.0, metadata_segment.1, exponent));
-    let metadata = fb::PostscriptMetadata::create(
-        &mut fbb,
-        &fb::PostscriptMetadataArgs {
-            key: Some(key),
-            segment: Some(invalid_segment),
-        },
-    );
-    let metadata = fbb.create_vector(&[metadata]);
+    let metadata = create_segment(&mut fbb, metadata);
     let postscript = fb::Postscript::create(
         &mut fbb,
         &fb::PostscriptArgs {
@@ -1841,27 +1831,32 @@ fn with_invalid_metadata_alignment(bytes: &ByteBuffer, exponent: u8) -> ByteBuff
     corrupted.freeze()
 }
 
+#[rstest]
+#[case::invalid_exponent(|(o, l, _)| (o, l, 64), "Alignment exponent")]
+#[case::misaligned_offset(|(o, l, _)| (o, l, 12), "is not aligned to")]
+#[case::out_of_range(|(o, _, e)| (o, u32::MAX, e), "exceeds file size")]
 #[tokio::test]
-async fn test_file_metadata_malformed_alignment_returns_error_on_default_open() -> VortexResult<()>
-{
+async fn test_file_metadata_corrupt_locator_rejected(
+    #[case] mutate: LocatorMutation,
+    #[case] expected: &str,
+) -> VortexResult<()> {
     let mut output = ByteBufferMut::empty();
     SESSION
         .write_options()
         .with_metadata_segment("key", ByteBuffer::copy_from(b"value"))
         .write(&mut output, buffer![1u32].into_array().to_array_stream())
         .await?;
-    let corrupted = with_invalid_metadata_alignment(&ByteBuffer::from(output), 64);
+    let corrupted = corrupt_metadata_locator(&ByteBuffer::from(output), mutate);
 
+    // A corrupt locator must be rejected on open whether or not metadata was requested.
     for include_metadata in [false, true] {
-        let result = SESSION
+        let error = SESSION
             .open_options()
             .with_include_metadata(include_metadata)
-            .open_buffer(corrupted.clone());
-        let error = match result {
-            Ok(_) => panic!("invalid alignment exponent must fail open"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("Alignment exponent"));
+            .open_buffer(corrupted.clone())
+            .err()
+            .vortex_expect("corrupt metadata locator must fail open");
+        assert!(error.to_string().contains(expected), "got: {error}");
     }
 
     Ok(())

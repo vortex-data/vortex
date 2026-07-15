@@ -31,15 +31,9 @@ table Postscript {
     statistics: PostscriptSegment;
     /// Segment containing the 'Footer' flatbuffer (required)
     footer: PostscriptSegment;
-    /// User-defined metadata segments keyed by string. Keys must be unique, non-empty, and at most
-    /// 32 UTF-8 bytes; readers reject postscripts that violate these limits.
-    metadata: [PostscriptMetadata];
-}
-
-/// A keyed user-defined metadata segment.
-table PostscriptMetadata {
-    key: string (required);
-    segment: PostscriptSegment (required);
+    /// Segment containing user-defined file-level metadata (a `FileMetadata` flatbuffer). The
+    /// segment may live anywhere in the file; readers load it only on demand.
+    metadata: PostscriptSegment;
 }
 
 /// A `PostscriptSegment` describes the location of a segment in the file without referencing any
@@ -54,6 +48,20 @@ table PostscriptSegment {
 // [postscript]
 
 // [footer]
+/// User-defined file-level metadata: opaque byte values keyed by unique, non-empty strings.
+///
+/// A future revision may add an optional child-segment locator to `MetadataEntry` to support a
+/// tree of metadata segments; the current format stores every value inline in a single segment.
+table FileMetadata {
+    entries: [MetadataEntry];
+}
+
+/// A single user-defined metadata entry: an opaque byte value keyed by a string.
+table MetadataEntry {
+    key: string (required);
+    value: [ubyte] (required);
+}
+
 /// The `FileStatistics` object contains file-level statistics for the Vortex file.
 table FileStatistics {
     /// Statistics for each field in the root schema. If the root schema is not a struct, there will
@@ -124,5 +132,6 @@ table EncryptionSpec {
 // [footer]
 
 root_type FileStatistics;
+root_type FileMetadata;
 root_type Footer;
 root_type Postscript;

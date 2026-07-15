@@ -10,6 +10,7 @@
 //! the structured Rust representation and serializer/deserializer state machine.
 mod file_layout;
 mod file_statistics;
+mod metadata;
 mod postscript;
 mod segment;
 
@@ -22,6 +23,7 @@ pub use deserializer::*;
 pub use file_statistics::FileStatistics;
 use flatbuffers::root;
 use itertools::Itertools;
+pub(crate) use metadata::FileMetadata;
 pub use segment::*;
 use vortex_array::ArrayId;
 use vortex_array::dtype::DType;
@@ -37,23 +39,14 @@ use vortex_layout::layout_from_flatbuffer_with_options;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
-/// Maximum number of user-defined metadata segments. Keeps postscript bookkeeping small so the
-/// footer and required segments still fit the initial tail read.
-pub(crate) const MAX_METADATA_SEGMENTS: usize = 16;
-
-/// Maximum length, in UTF-8 bytes, of a user-defined metadata key (keys live in the postscript).
-pub(crate) const MAX_METADATA_KEY_BYTES: usize = 32;
-
-/// User-defined metadata segment locators stored as `(key, locator)` pairs.
-pub(crate) type MetadataSegments = Arc<[(String, SegmentSpec)]>;
-
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
-    metadata: Arc<[(String, SegmentSpec)]>,
+    // Locator for the optional user-defined metadata segment, if the file has one.
+    metadata_segment: Option<SegmentSpec>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
@@ -71,7 +64,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
-            metadata: Arc::from([]),
+            metadata_segment: None,
             array_read_ctx,
             approx_byte_size: None,
         }
@@ -88,14 +81,10 @@ impl Footer {
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
-        metadata: Arc<[(String, SegmentSpec)]>,
+        metadata_segment: Option<SegmentSpec>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
-        let metadata_bytes: usize = metadata
-            .iter()
-            .map(|(key, _segment)| key.len() + size_of::<SegmentSpec>())
-            .sum();
-        let approx_byte_size = footer_bytes.len() + layout_bytes.len() + metadata_bytes;
+        let approx_byte_size = footer_bytes.len() + layout_bytes.len();
         let fb_footer = root::<fb::Footer>(&footer_bytes)?;
 
         // Create a LayoutContext from the registry.
@@ -143,7 +132,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
-            metadata,
+            metadata_segment,
             array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
         })
@@ -164,22 +153,16 @@ impl Footer {
         self.statistics.as_ref()
     }
 
-    /// Returns the user-defined metadata segment locators stored in the postscript.
-    pub fn metadata_segments(&self) -> impl Iterator<Item = (&str, &SegmentSpec)> {
-        self.metadata
-            .iter()
-            .map(|(key, segment)| (key.as_str(), segment))
+    /// Returns the locator for the file's user-defined metadata segment, if any.
+    ///
+    /// Present whenever the file was written with metadata; the values are resolved only on
+    /// [`VortexOpenOptions::include_metadata`](crate::VortexOpenOptions::include_metadata).
+    pub fn metadata_segment(&self) -> Option<&SegmentSpec> {
+        self.metadata_segment.as_ref()
     }
 
-    /// Returns the user-defined metadata segment locator for the given key.
-    pub fn metadata_segment(&self, key: &str) -> Option<&SegmentSpec> {
-        self.metadata
-            .iter()
-            .find_map(|(candidate, segment)| (candidate == key).then_some(segment))
-    }
-
-    pub(crate) fn with_metadata_segments(mut self, metadata: Arc<[(String, SegmentSpec)]>) -> Self {
-        self.metadata = metadata;
+    pub(crate) fn with_metadata_segment(mut self, metadata_segment: Option<SegmentSpec>) -> Self {
+        self.metadata_segment = metadata_segment;
         self
     }
 
@@ -187,7 +170,7 @@ impl Footer {
         self.segments
             .iter()
             .copied()
-            .chain(self.metadata.iter().map(|(_, segment)| *segment))
+            .chain(self.metadata_segment)
             .collect()
     }
 

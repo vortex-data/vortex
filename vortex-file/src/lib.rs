@@ -64,7 +64,8 @@
 //! │          Segments          │  serialized array chunks and per-column
 //! │     (data & statistics)    │  statistics, in writer-chosen order
 //! ├────────────────────────────┤
-//! │   User-metadata segments   │  optional; opaque values keyed by the postscript
+//! │    User-metadata segment   │  optional; a single `FileMetadata` flatbuffer of keyed,
+//! │                            │  opaque values (may live anywhere in the file)
 //! ├────────────────────────────┤
 //! │      DType flatbuffer      │  optional; omitted via `exclude_dtype`
 //! ├────────────────────────────┤
@@ -75,8 +76,8 @@
 //! │      Footer flatbuffer     │  required; dictionary-encoded segment map
 //! │                            │  and array/layout/compression/encryption specs
 //! ├────────────────────────────┤
-//! │         Postscript         │  locators for the footer and user-metadata segments;
-//! │                            │  at most 65528 bytes
+//! │         Postscript         │  locators for the footer and the optional user-metadata
+//! │                            │  segment; at most 65528 bytes
 //! ├────────────────────────────┤
 //! │     8-byte End of File     │  u16 version, u16 postscript length,
 //! │                            │  4 magic bytes 'VTXF'
@@ -84,11 +85,10 @@
 //! ```
 //!
 //! The postscript records the offset, length, and alignment of the dtype, layout, statistics, and
-//! footer segments, plus any user-defined metadata segments keyed by string, so a single read of the
-//! file tail (defaulting to 64KiB) is enough to locate and parse the footer and metadata locators.
-//! User-metadata values live in their own segments; opening a file reads none of them by default.
-//! [`VortexOpenOptions::include_metadata`] eagerly resolves every locator through the cache-backed
-//! segment source, issuing targeted reads only for values not already covered by the initial read.
+//! footer segments, plus an optional locator for a single user-metadata segment, so one read of the
+//! file tail (defaulting to 64KiB) locates and parses the footer. Metadata values live in that
+//! segment, read only on [`VortexOpenOptions::include_metadata`] (a targeted read, served from the
+//! initial read when already covered).
 //! The byte-level format is specified in full at
 //! <https://docs.vortex.dev/specs/file-format.html>.
 //!
