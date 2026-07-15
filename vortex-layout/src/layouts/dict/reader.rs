@@ -27,6 +27,7 @@ use vortex_array::expr::pack;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::partition_annotations;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar_fn::fns::list_contains::ListContains;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -222,14 +223,26 @@ impl LayoutReader for DictReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &Expression,
+        expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        // NOTE: we can get the values here, convert expression to the codes domain, and push down
-        // to the codes child. We don't do that here because:
-        // - Reading values only for an approx filter is expensive
-        // - In practice, all stats based pruning evaluation should be already done upstream of this dict reader
-        Ok(MaskFuture::ready(mask))
+        if !expr.is::<ListContains>() {
+            return Ok(MaskFuture::ready(mask));
+        }
+
+        let values_eval = self.values_eval(expr.clone());
+        let session = self.session.clone();
+        Ok(MaskFuture::new(mask.len(), async move {
+            let values = values_eval.await.map_err(VortexError::from)?;
+            let mut ctx = session.create_execution_ctx();
+            let values_mask = values.null_as_false().execute(&mut ctx)?;
+
+            Ok(if values_mask.all_false() {
+                Mask::new_false(mask.len())
+            } else {
+                mask
+            })
+        }))
     }
 
     fn filter_evaluation(
@@ -332,6 +345,7 @@ impl LayoutReader for DictReader {
 mod tests {
     use std::sync::Arc;
 
+    use parking_lot::Mutex;
     use rstest::rstest;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
@@ -356,9 +370,11 @@ mod tests {
     use vortex_array::expr::get_item;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::like;
+    use vortex_array::expr::list_contains;
     use vortex_array::expr::lit;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_error::VortexExpect;
@@ -367,6 +383,7 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
     use vortex_session::VortexSession;
 
     use crate::LayoutId;
@@ -377,6 +394,9 @@ mod tests {
     use crate::layouts::dict::writer::DictLayoutOptions;
     use crate::layouts::dict::writer::DictStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::SegmentFuture;
+    use crate::segments::SegmentId;
+    use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
@@ -391,6 +411,19 @@ mod tests {
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
             .with_handle(handle)
+    }
+
+    #[derive(Clone)]
+    struct RecordingSegmentSource {
+        inner: TestSegments,
+        requested: Arc<Mutex<Vec<SegmentId>>>,
+    }
+
+    impl SegmentSource for RecordingSegmentSource {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.requested.lock().push(id);
+            self.inner.request(id)
+        }
     }
 
     async fn write_dict_layout(
@@ -419,6 +452,69 @@ mod tests {
             .await
             .unwrap();
         (layout, segments)
+    }
+
+    #[rstest]
+    #[case("missing", true)]
+    #[case("abc", false)]
+    fn list_contains_pruning_uses_only_dictionary_values(
+        #[case] filter_value: &str,
+        #[case] expected_all_false: bool,
+    ) {
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let array = VarBinArray::from_iter(
+                [
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                    Some("abc"),
+                    Some("def"),
+                    None,
+                ],
+                DType::Utf8(Nullability::Nullable),
+            )
+            .into_array();
+            let (layout, segments) = write_dict_layout(array, &session).await;
+            assert_eq!(layout.encoding_id().as_ref(), "vortex.dict");
+            let codes_segments = layout.child(1).unwrap().segment_ids();
+            let requested = Arc::new(Mutex::new(Vec::new()));
+            let source = Arc::new(RecordingSegmentSource {
+                inner: segments.as_ref().clone(),
+                requested: Arc::clone(&requested),
+            });
+            let filter = list_contains(
+                lit(Scalar::list(
+                    Arc::new(DType::Utf8(Nullability::NonNullable)),
+                    vec![Scalar::utf8(filter_value, Nullability::NonNullable)],
+                    Nullability::NonNullable,
+                )),
+                root(),
+            );
+
+            let mask = layout
+                .new_reader("".into(), source, &session, &Default::default())
+                .unwrap()
+                .pruning_evaluation(
+                    &(0..layout.row_count()),
+                    &filter,
+                    Mask::new_true(layout.row_count().try_into().unwrap()),
+                )
+                .unwrap()
+                .await
+                .unwrap();
+
+            assert_eq!(mask.all_false(), expected_all_false);
+            let requested = requested.lock();
+            assert!(
+                codes_segments
+                    .iter()
+                    .all(|segment| !requested.contains(segment))
+            );
+        })
     }
 
     #[expect(clippy::disallowed_methods, reason = "test-only id")]
@@ -558,10 +654,7 @@ mod tests {
 
             let filter = eq(
                 root(),
-                lit(vortex_array::scalar::Scalar::utf8(
-                    filter_value,
-                    Nullability::Nullable,
-                )),
+                lit(Scalar::utf8(filter_value, Nullability::Nullable)),
             );
             let mask = layout
                 .new_reader("".into(), segments, &session, &Default::default())
