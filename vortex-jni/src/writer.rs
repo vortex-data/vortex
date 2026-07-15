@@ -222,8 +222,8 @@ fn exact_count_jlong(
     stat: Stat,
 ) -> VortexResult<jlong> {
     stats
-        .zip(dtype)
-        .and_then(|(stats, dtype)| stats.get_as::<u64>(stat, dtype).as_exact())
+        .zip(dtype.and_then(|dt| stat.dtype(dt)))
+        .and_then(|(stats, dt)| stats.get_as::<u64>(stat, &dt).as_exact())
         .map(|value| checked_jlong(value, stat.name()))
         .transpose()
         .map(|value| value.unwrap_or(-1))
