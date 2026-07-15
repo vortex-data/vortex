@@ -371,12 +371,14 @@ async fn export_dict(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
     let len = array.len();
+    let validity = array.validity()?;
     let parts = array.into_parts();
-    let PrimitiveDataParts {
-        buffer, validity, ..
-    } = export_dictionary_codes(parts.codes, ctx).await?;
+    let PrimitiveDataParts { buffer, .. } = export_dictionary_codes(parts.codes, ctx).await?;
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
     let codes_buffer = ctx.ensure_on_device(buffer).await?;
+    // Arrow permits null dictionary values, so preserve the child's validity bitmap. The outer
+    // bitmap independently marks each row whose code selects a null dictionary value, ensuring
+    // consumers that require non-null dictionary keys do not lose the logical nulls.
     let (dictionary, _) = export_array(parts.values, ctx).await?;
 
     let mut private_data = PrivateData::new_with_dictionary(
@@ -1838,6 +1840,35 @@ mod tests {
     }
 
     #[crate::test]
+    async fn test_export_dictionary_propagates_value_nulls_to_codes() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+
+        let array = DictArray::try_new(
+            PrimitiveArray::from_iter([0u8, 1, 2, 1]).into_array(),
+            VarBinViewArray::from_iter_nullable_str([
+                Some("alpha"),
+                None,
+                Some("a dictionary value stored out-of-line"),
+            ])
+            .into_array(),
+        )?
+        .into_array();
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+
+        assert_eq!(exported.array.array.null_count, 2);
+        assert_eq!(
+            private_data_buffer_bytes(&exported.array.array, 0)?.as_ref(),
+            &[0b0000_0101]
+        );
+        let dictionary = unsafe { &*exported.array.array.dictionary };
+        assert_eq!(dictionary.null_count, 1);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
     async fn test_export_struct_preserves_dictionary_child() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
@@ -1900,7 +1931,11 @@ mod tests {
                 true,
             )
         );
-        assert_eq!(exported.array.array.null_count, 0);
+        assert_eq!(exported.array.array.null_count, 1);
+        assert_eq!(
+            private_data_buffer_bytes(&exported.array.array, 0)?.as_ref(),
+            &[0b0000_0101]
+        );
         assert_eq!(
             private_data_buffer_i16_values(&exported.array.array, 1)?,
             [0, 1, 0]
@@ -2691,7 +2726,11 @@ mod tests {
 
         let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
         let elements = unsafe { &*children[0] };
-        assert_eq!(elements.null_count, 0);
+        assert_eq!(elements.null_count, 2);
+        assert_eq!(
+            private_data_buffer_bytes(elements, 0)?.as_ref(),
+            &[0b0001_0101]
+        );
         assert_eq!(
             private_data_buffer_i16_values(elements, 1)?,
             [0, 1, 0, 1, 2]
