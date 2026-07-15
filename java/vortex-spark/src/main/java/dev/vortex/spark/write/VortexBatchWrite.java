@@ -90,9 +90,15 @@ public final class VortexBatchWrite implements Write, BatchWrite, Serializable {
         if (overwrite) {
             var session = VortexSparkSession.get(options);
             var uris = NativeFiles.listFiles(session, outputPath, options);
-            log.info("truncating table with {} files", uris.size());
+            // Deleting the existing files is destructive and happens before the new data is written:
+            // if the subsequent write fails, abort() only removes the newly written files and cannot
+            // restore what was deleted here. Log loudly so operators can see what was removed.
+            log.warn(
+                    "Deleting {} existing file(s) under {} because of overwrite, before writing new data; "
+                            + "this cannot be undone if the subsequent write fails",
+                    uris.size(),
+                    outputPath);
             NativeFiles.delete(session, uris.toArray(new String[0]), options);
-            log.warn("overwrite currently does not do anything for vortex format");
         }
 
         return new VortexDataWriterFactory(outputPath, schema, options, resolvedTransforms);
