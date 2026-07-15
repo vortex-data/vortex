@@ -4,6 +4,7 @@
 
 #include "duckdb/planner/operator/logical_projection.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
+#include "optimizer.hpp"
 
 #include <optional>
 
