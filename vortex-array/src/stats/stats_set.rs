@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::type_name;
 use std::fmt::Debug;
 
 use enum_iterator::all;
@@ -133,12 +134,7 @@ impl StatsSet {
                     .vortex_expect("failed to construct a scalar statistic"),
             )
             .unwrap_or_else(|err| {
-                vortex_panic!(
-                    err,
-                    "Failed to get stat {} as {}",
-                    stat,
-                    std::any::type_name::<T>()
-                )
+                vortex_panic!(err, "Failed to get stat {} as {}", stat, type_name::<T>())
             })
         })
     }

@@ -46,6 +46,7 @@ use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::stats::Stat;
+use vortex::expr::stats::StatsProvider;
 use vortex::file::CountingVortexWrite;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
@@ -336,18 +337,12 @@ fn write_summary_to_java<'local>(
             .map_or((None, None), |(stats, dtype)| (Some(stats), Some(dtype)));
         let null_count = exact_count_jlong(stats, dtype, Stat::NullCount)?;
         let nan_count = exact_count_jlong(stats, dtype, Stat::NaNCount)?;
-        let lower_bound =
-            stats
-                .zip(dtype.and_then(|dt| Stat::Min.dtype(dt)))
-                .map(|(stats, dtype)| unsafe {
-                    Scalar::new_unchecked(dtype, stats.get(Stat::Min).as_exact())
-                });
-        let upper_bound =
-            stats
-                .zip(dtype.and_then(|dt| Stat::Max.dtype(dt)))
-                .map(|(stats, dtype)| unsafe {
-                    Scalar::new_unchecked(dtype, stats.get(Stat::Max).as_exact())
-                });
+        let lower_bound = stats
+            .zip(dtype)
+            .and_then(|(stats, dtype)| stats.as_typed_ref(dtype).get(Stat::Min).into_inner());
+        let upper_bound = stats
+            .zip(dtype)
+            .and_then(|(stats, dtype)| stats.as_typed_ref(dtype).get(Stat::Max).into_inner());
         let column = env.with_local_frame_returning_local::<_, JObject, JNIError>(16, |env| {
             let lower_bound = match lower_bound {
                 Some(value) => scalar_to_java(env, value)?,
