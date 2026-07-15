@@ -185,6 +185,9 @@ fn cast_canonical(
         CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Struct(a) => struct_cast(a, dtype, ctx),
+        CanonicalView::Union(_) => {
+            vortex_bail!("Union arrays don't support casting yet")
+        }
         CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),
         CanonicalView::Variant(_) => {
             vortex_bail!("Variant arrays don't support casting")

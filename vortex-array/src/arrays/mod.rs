@@ -5,8 +5,8 @@
 //!
 //! Canonical arrays are the default uncompressed representation for a logical dtype:
 //! [`NullArray`], [`BoolArray`], [`PrimitiveArray`], [`DecimalArray`], [`VarBinViewArray`],
-//! [`ListViewArray`], [`FixedSizeListArray`], [`StructArray`], [`ExtensionArray`], and
-//! [`VariantArray`].
+//! [`ListViewArray`], [`FixedSizeListArray`], [`StructArray`], [`UnionArray`],
+//! [`ExtensionArray`], and [`VariantArray`].
 //!
 //! Utility and lazy arrays represent common transformations without immediately materializing
 //! their result. Examples include [`ChunkedArray`] for concatenation, [`ConstantArray`] for repeated
@@ -107,6 +107,10 @@ pub use slice::SliceArray;
 pub mod struct_;
 pub use struct_::Struct;
 pub use struct_::StructArray;
+
+pub mod union;
+pub use union::Union;
+pub use union::UnionArray;
 
 pub mod varbin;
 pub use varbin::VarBin;
