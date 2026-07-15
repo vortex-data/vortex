@@ -179,17 +179,19 @@ impl FromLogicalType for DType {
                 )
             }
             DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => DType::Variant(nullability),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_ENUM => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_MAP => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_UUID => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_UNION => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_BIT => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_ANY => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_BIGNUM => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_STRING_LITERAL => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL => todo!(),
+            other @ (DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ
+            | DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL
+            | DUCKDB_TYPE::DUCKDB_TYPE_ENUM
+            | DUCKDB_TYPE::DUCKDB_TYPE_MAP
+            | DUCKDB_TYPE::DUCKDB_TYPE_UUID
+            | DUCKDB_TYPE::DUCKDB_TYPE_UNION
+            | DUCKDB_TYPE::DUCKDB_TYPE_BIT
+            | DUCKDB_TYPE::DUCKDB_TYPE_ANY
+            | DUCKDB_TYPE::DUCKDB_TYPE_BIGNUM
+            | DUCKDB_TYPE::DUCKDB_TYPE_STRING_LITERAL
+            | DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL) => {
+                vortex_bail!("{other:?} -> DType conversion is not supported")
+            }
         })
     }
 }
@@ -241,10 +243,9 @@ impl TryFrom<&DType> for LogicalType {
             DType::Struct(struct_type, _) => {
                 return LogicalType::try_from(struct_type);
             }
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Variant(_) => {
-                vortex_bail!("Vortex Variant array aren't supported in DuckDB")
-            }
+            // TODO(connor): Union
+            DType::Union(..) => vortex_bail!("Vortex Union isn't supported"),
+            DType::Variant(_) => vortex_bail!("Vortex Variant array aren't supported"),
             DType::Extension(ext_dtype) => {
                 // Handle first-party extension types that have DuckDB equivalents.
                 if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
