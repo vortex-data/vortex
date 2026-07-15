@@ -56,6 +56,11 @@ fn scalar_at_uses_type_id_indirection() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
 
     assert_eq!(
+        array.child_by_name("flag")?.dtype(),
+        &DType::Bool(Nullability::NonNullable)
+    );
+    assert!(array.child_by_name_opt("missing").is_none());
+    assert_eq!(
         array.execute_scalar(0, &mut ctx)?,
         Scalar::union(variants()?, 5, 10i32.into())?
     );
@@ -75,33 +80,29 @@ fn validates_sparse_components() -> VortexResult<()> {
         BoolArray::from_iter([false, true, false]).into_array(),
     ];
 
-    assert!(
-        UnionArray::try_new(
-            PrimitiveArray::from_iter([5i8, 7, 5]).into_array(),
-            variants()?,
-            children.clone(),
-        )
-        .is_err()
+    let unknown_type_id = UnionArray::try_new(
+        PrimitiveArray::from_iter([5i8, 7, 5]).into_array(),
+        variants()?,
+        children.clone(),
     );
-    assert!(
-        UnionArray::try_new(
-            PrimitiveArray::from_iter([5i8, 9]).into_array(),
-            variants()?,
-            children,
-        )
-        .is_err()
+    assert!(unknown_type_id.is_err());
+
+    let mismatched_lengths = UnionArray::try_new(
+        PrimitiveArray::from_iter([5i8, 9]).into_array(),
+        variants()?,
+        children,
     );
-    assert!(
-        UnionArray::try_new(
-            PrimitiveArray::from_iter([5i8, 9, 5]).into_array(),
-            variants()?,
-            vec![
-                PrimitiveArray::new(buffer![10i32, 0, 30], Validity::AllValid).into_array(),
-                BoolArray::from_iter([false, true, false]).into_array(),
-            ],
-        )
-        .is_err()
+    assert!(mismatched_lengths.is_err());
+
+    let nullable_child = UnionArray::try_new(
+        PrimitiveArray::from_iter([5i8, 9, 5]).into_array(),
+        variants()?,
+        vec![
+            PrimitiveArray::new(buffer![10i32, 0, 30], Validity::AllValid).into_array(),
+            BoolArray::from_iter([false, true, false]).into_array(),
+        ],
     );
+    assert!(nullable_child.is_err());
 
     Ok(())
 }
