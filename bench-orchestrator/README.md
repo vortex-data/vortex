@@ -70,6 +70,22 @@ vx-bench prepare-data <benchmark> [options]
 - `--formats-json`: Exact data formats as JSON, e.g. `'["parquet","vortex"]'`
 - `--opt`: Benchmark-specific options such as `scale-factor=10.0`
 
+### `matrix` - Resolve CI Benchmark Matrices
+
+Emit the GitHub Actions `include:` array for a named [profile](#declarative-benchmark-matrix). The
+benchmark workflows use this to decide what runs on pull requests, `develop`, and nightly.
+
+```bash
+vx-bench matrix                # list available profiles
+vx-bench matrix develop        # emit the develop matrix as JSON (one line)
+vx-bench matrix nightly --pretty
+```
+
+**Options:**
+
+- `--list`: List available profiles and exit
+- `--pretty`: Pretty-print the JSON output
+
 ### `compare` - Compare Results
 
 Compare benchmark results within a run or across multiple runs. Results are displayed in a pivot table format.
@@ -136,6 +152,83 @@ vx-bench clean --older-than "30 days" [options]
 - `--older-than`: Delete runs older than (required)
 - `--keep-labeled`: Don't delete labeled runs (default: true)
 - `--dry-run, -n`: Show what would be deleted
+
+## Declarative benchmark matrix
+
+To change what CI benchmarks, edit **`bench_orchestrator/benchmarks.py`**. `BENCHMARKS` is the list
+of benchmark suites and their supported targets; `PROFILES` says how much coverage each workflow
+runs. Matrix rendering is kept separately in `bench_orchestrator/matrix.py`.
+
+This replaces the parallel `pr_targets`/`develop_targets` arrays and duplicated `full`/`base`
+matrices that previously lived in workflow YAML.
+
+### Model
+
+The model has three small pieces:
+
+- **Target composition** — each `BenchmarkDef` declares its canonical target set once, as a delta
+  from the shared `STANDARD` core (both engines × parquet/vortex/vortex-compact):
+  - opt in to extras: `STANDARD | df(Format.LANCE) | duck(Format.DUCKDB)`
+  - restrict an engine: `STANDARD.only(Engine.DUCKDB)`
+- **Selection** — a `Profile` chooses either the regular benchmark set or the explicitly nightly
+  benchmark set.
+- **Target policy** — a `Profile` narrows each selected benchmark's declared targets:
+  `all_targets` for full coverage, `defaults` for the cheap lane
+  (datafusion,duckdb × parquet,vortex).
+
+`data_formats` is *derived* from the resolved targets (arrow and lance excluded, since data-gen
+does not produce them), so it can never drift from what actually runs. Targets invalid for a
+benchmark's storage (lance has no remote reader) are dropped by the resolver, reusing the same
+support rules that validate a run.
+
+### Built-in profiles
+
+`develop` runs full coverage on merge, `pr` runs the default targets for every SQL benchmark, and
+`nightly` runs SF=100 TPC-H on NVMe and S3. List them with `vx-bench matrix`.
+
+### Adding a benchmark
+
+Add one `BenchmarkDef` (or a factory call) to `BENCHMARKS` in
+`bench_orchestrator/benchmarks.py`. Its `targets` are the superset it supports; `PROFILES` decides
+how much of that coverage each workflow runs.
+
+### How a workflow consumes it
+
+Generate the matrix in a `plan` job, then fan out in the `bench` job:
+
+```yaml
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: p
+        run: echo "matrix=$(uv run --project bench-orchestrator vx-bench matrix ${{ inputs.profile }})" >> "$GITHUB_OUTPUT"
+  bench:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Run ${{ matrix.name }}
+        run: |
+          uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
+            --targets-json '${{ toJSON(matrix.targets) }}' \
+            --formats-json '${{ toJSON(matrix.data_formats) }}' \
+            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
+```
+
+### Tests
+
+`tests/test_matrix.py` covers each profile with targeted assertions on its load-bearing fields --
+which benchmarks are selected, their engine/format targets, and the secondary fields CI depends on
+(`remote_key`, `scale_factor`, `data_formats`) -- plus a structural smoke check that every profile
+resolves to a well-formed matrix. The `develop` and `nightly` profiles additionally assert they
+reproduce the target sets the old inline workflow matrices used, proving the registry is
+behavior-preserving.
 
 ## Example Workflows
 

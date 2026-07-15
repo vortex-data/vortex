@@ -3,6 +3,7 @@
 
 """CLI for benchmark orchestration."""
 
+import json
 import subprocess
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from .benchmarks import BENCHMARKS, PROFILES
 from .comparison import analyzer
 from .comparison.reporter import pivot_comparison_table
 from .config import (
@@ -29,6 +31,7 @@ from .config import (
     parse_targets_json,
     resolve_axis_targets,
 )
+from .matrix import resolve_matrix
 from .runner.builder import BenchmarkBuilder
 from .runner.executor import BenchmarkExecutor
 from .storage.store import ResultStore
@@ -212,6 +215,35 @@ def prepare_data(
     except subprocess.CalledProcessError as exc:
         console.print(f"[red]Data generation failed: {exc}[/red]")
         raise typer.Exit(1) from exc
+
+
+@app.command("matrix")
+def matrix(
+    profile: Annotated[
+        str | None,
+        typer.Argument(help="Profile to resolve (omit to list available profiles)"),
+    ] = None,
+    list_profiles: Annotated[bool, typer.Option("--list", help="List available profiles and exit")] = False,
+    pretty: Annotated[bool, typer.Option("--pretty", help="Pretty-print the JSON output")] = False,
+) -> None:
+    """Emit the GitHub Actions benchmark matrix (the `include:` array) for a profile.
+
+    With no profile (or --list) it prints the available profiles. Otherwise it prints the resolved
+    matrix as JSON on stdout, suitable for `matrix=$(vx-bench matrix <profile>) >> $GITHUB_OUTPUT`.
+    """
+    if profile is None or list_profiles:
+        for name, prof in PROFILES.items():
+            console.print(f"[bold cyan]{name}[/bold cyan]: {prof.description}")
+        return
+
+    prof = PROFILES.get(profile)
+    if prof is None:
+        known = ", ".join(PROFILES)
+        console.print(f"[red]Unknown profile '{profile}'. Available: {known}[/red]")
+        raise typer.Exit(1)
+
+    entries = resolve_matrix(prof, BENCHMARKS)
+    typer.echo(json.dumps(entries, indent=2 if pretty else None))
 
 
 @app.command()
