@@ -39,4 +39,5 @@ jobs:
     secrets: inherit
     with:
       mode: "pr"
-      benchmark_profile: ${{ inputs.benchmark_profile || 'base' }}
+      # base -> the cheap default-target profile; full -> develop's full target coverage on the PR.
+      profile: ${{ inputs.benchmark_profile == 'full' && 'develop' || 'pr' }}

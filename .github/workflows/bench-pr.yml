@@ -141,3 +141,4 @@ jobs:
     secrets: inherit
     with:
       mode: "pr"
+      profile: "pr"

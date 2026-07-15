@@ -171,3 +171,4 @@ jobs:
     secrets: inherit
     with:
       mode: "develop"
+      profile: "develop"
