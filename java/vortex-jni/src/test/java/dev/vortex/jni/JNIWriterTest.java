@@ -31,6 +31,7 @@ import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ViewVarCharVector;
 import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
@@ -211,7 +212,7 @@ public final class JNIWriterTest {
             try (ArrowReader reader = p.scanArrow(allocator)) {
                 reader.loadNextBatch();
                 VectorSchemaRoot resultRoot = reader.getVectorSchemaRoot();
-                VarCharVector nameOut = (VarCharVector) resultRoot.getVector("name");
+                ViewVarCharVector nameOut = (ViewVarCharVector) resultRoot.getVector("name");
                 IntVector ageOut = (IntVector) resultRoot.getVector("age");
                 assertEquals("Alice", nameOut.getObject(0).toString());
                 assertEquals("Bob", nameOut.getObject(1).toString());

@@ -8,7 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import dev.vortex.relocated.org.apache.arrow.vector.types.DateUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.FloatingPointPrecision;
+import dev.vortex.relocated.org.apache.arrow.vector.types.IntervalUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
+import dev.vortex.relocated.org.apache.arrow.vector.types.UnionMode;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.FieldType;
@@ -52,23 +54,26 @@ final class ArrowUtilsTest {
     }
 
     @Test
-    @DisplayName("Decimal preserves precision and scale")
+    @DisplayName("Decimal preserves precision and scale regardless of bit width")
     void decimalPreservesPrecisionAndScale() {
         assertEquals(DataTypes.createDecimalType(20, 4), ArrowUtils.fromArrowType(new ArrowType.Decimal(20, 4, 128)));
+        assertEquals(DataTypes.createDecimalType(20, 4), ArrowUtils.fromArrowType(new ArrowType.Decimal(20, 4, 256)));
     }
 
     @Test
-    @DisplayName("Utf8 and LargeUtf8 map to StringType")
+    @DisplayName("Utf8, LargeUtf8 and Utf8View map to StringType")
     void utf8MapsToString() {
         assertEquals(DataTypes.StringType, ArrowUtils.fromArrowType(new ArrowType.Utf8()));
         assertEquals(DataTypes.StringType, ArrowUtils.fromArrowType(new ArrowType.LargeUtf8()));
+        assertEquals(DataTypes.StringType, ArrowUtils.fromArrowType(new ArrowType.Utf8View()));
     }
 
     @Test
-    @DisplayName("Binary and LargeBinary map to BinaryType")
+    @DisplayName("Binary, LargeBinary and BinaryView map to BinaryType")
     void binaryMapsToBinary() {
         assertEquals(DataTypes.BinaryType, ArrowUtils.fromArrowType(new ArrowType.Binary()));
         assertEquals(DataTypes.BinaryType, ArrowUtils.fromArrowType(new ArrowType.LargeBinary()));
+        assertEquals(DataTypes.BinaryType, ArrowUtils.fromArrowType(new ArrowType.BinaryView()));
     }
 
     @Test
@@ -78,20 +83,43 @@ final class ArrowUtilsTest {
     }
 
     @Test
-    @DisplayName("Timestamp(MICROSECOND) maps to Timestamp with tz, TimestampNTZ without")
+    @DisplayName("Timestamps of every unit map to Timestamp with tz, TimestampNTZ without")
     void timestampMapsByTimezonePresence() {
-        assertEquals(
-                DataTypes.TimestampType,
-                ArrowUtils.fromArrowType(new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC")));
-        assertEquals(
-                DataTypes.TimestampNTZType,
-                ArrowUtils.fromArrowType(new ArrowType.Timestamp(TimeUnit.MICROSECOND, null)));
+        for (TimeUnit unit :
+                new TimeUnit[] {TimeUnit.SECOND, TimeUnit.MILLISECOND, TimeUnit.MICROSECOND, TimeUnit.NANOSECOND}) {
+            assertEquals(DataTypes.TimestampType, ArrowUtils.fromArrowType(new ArrowType.Timestamp(unit, "UTC")));
+            assertEquals(DataTypes.TimestampNTZType, ArrowUtils.fromArrowType(new ArrowType.Timestamp(unit, null)));
+        }
     }
 
     @Test
     @DisplayName("Null maps to NullType")
     void nullMapsToNull() {
         assertEquals(DataTypes.NullType, ArrowUtils.fromArrowType(new ArrowType.Null()));
+    }
+
+    @Test
+    @DisplayName("Interval(YEAR_MONTH) maps to YearMonthIntervalType")
+    void yearMonthIntervalMapsToYearMonthIntervalType() {
+        assertEquals(
+                DataTypes.createYearMonthIntervalType(),
+                ArrowUtils.fromArrowType(new ArrowType.Interval(IntervalUnit.YEAR_MONTH)));
+    }
+
+    @Test
+    @DisplayName("Interval(MONTH_DAY_NANO) maps to CalendarIntervalType")
+    void monthDayNanoIntervalMapsToCalendarIntervalType() {
+        assertEquals(
+                DataTypes.CalendarIntervalType,
+                ArrowUtils.fromArrowType(new ArrowType.Interval(IntervalUnit.MONTH_DAY_NANO)));
+    }
+
+    @Test
+    @DisplayName("Duration(MICROSECOND) maps to DayTimeIntervalType")
+    void microsecondDurationMapsToDayTimeIntervalType() {
+        assertEquals(
+                DataTypes.createDayTimeIntervalType(),
+                ArrowUtils.fromArrowType(new ArrowType.Duration(TimeUnit.MICROSECOND)));
     }
 
     @Test
@@ -123,6 +151,35 @@ final class ArrowUtilsTest {
     }
 
     @Test
+    @DisplayName("fromArrowField builds an ArrayType from a ListView field")
+    void listViewFieldBuildsArrayType() {
+        Field listView = new Field(
+                "lv",
+                FieldType.nullable(new ArrowType.ListView()),
+                List.of(new Field("element", FieldType.notNullable(new ArrowType.Utf8View()), null)));
+
+        assertEquals(DataTypes.createArrayType(DataTypes.StringType, false), ArrowUtils.fromArrowField(listView));
+    }
+
+    @Test
+    @DisplayName("fromArrowField builds a MapType carrying the value's nullability")
+    void mapFieldBuildsMapType() {
+        assertEquals(
+                DataTypes.createMapType(DataTypes.StringType, DataTypes.LongType, true),
+                ArrowUtils.fromArrowField(mapField(FieldType.nullable(new ArrowType.Int(64, true)))));
+        assertEquals(
+                DataTypes.createMapType(DataTypes.StringType, DataTypes.LongType, false),
+                ArrowUtils.fromArrowField(mapField(FieldType.notNullable(new ArrowType.Int(64, true)))));
+    }
+
+    private static Field mapField(FieldType valueType) {
+        Field key = new Field("key", FieldType.notNullable(new ArrowType.Utf8()), null);
+        Field value = new Field("value", valueType, null);
+        Field entries = new Field("entries", FieldType.notNullable(new ArrowType.Struct()), List.of(key, value));
+        return new Field("m", FieldType.nullable(new ArrowType.Map(false)), List.of(entries));
+    }
+
+    @Test
     @DisplayName("Unsigned integers are unsupported")
     void unsignedIntegerIsUnsupported() {
         assertThrows(UnsupportedOperationException.class, () -> ArrowUtils.fromArrowType(new ArrowType.Int(32, false)));
@@ -145,18 +202,56 @@ final class ArrowUtilsTest {
     }
 
     @Test
-    @DisplayName("Non-microsecond timestamp units are unsupported")
-    void secondTimestampIsUnsupported() {
-        assertThrows(
-                UnsupportedOperationException.class,
-                () -> ArrowUtils.fromArrowType(new ArrowType.Timestamp(TimeUnit.SECOND, "UTC")));
+    @DisplayName("Non-microsecond duration units are unsupported")
+    void nonMicrosecondDurationsAreUnsupported() {
+        for (TimeUnit unit : new TimeUnit[] {TimeUnit.SECOND, TimeUnit.MILLISECOND, TimeUnit.NANOSECOND}) {
+            assertThrows(
+                    UnsupportedOperationException.class, () -> ArrowUtils.fromArrowType(new ArrowType.Duration(unit)));
+        }
     }
 
     @Test
-    @DisplayName("Unrecognized Arrow types raise IllegalArgumentException")
-    void unrecognizedTypeIsIllegalArgument() {
+    @DisplayName("Time is unsupported: Spark's TimeType only exists in Spark 4.1+")
+    void timeIsUnsupported() {
         assertThrows(
-                IllegalArgumentException.class,
-                () -> ArrowUtils.fromArrowType(new ArrowType.Duration(TimeUnit.SECOND)));
+                UnsupportedOperationException.class,
+                () -> ArrowUtils.fromArrowType(new ArrowType.Time(TimeUnit.NANOSECOND, 64)));
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> ArrowUtils.fromArrowType(new ArrowType.Time(TimeUnit.MILLISECOND, 32)));
+    }
+
+    @Test
+    @DisplayName("Interval(DAY_TIME) is unsupported")
+    void dayTimeIntervalIsUnsupported() {
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> ArrowUtils.fromArrowType(new ArrowType.Interval(IntervalUnit.DAY_TIME)));
+    }
+
+    @Test
+    @DisplayName("FixedSizeBinary is unsupported")
+    void fixedSizeBinaryIsUnsupported() {
+        assertThrows(
+                UnsupportedOperationException.class, () -> ArrowUtils.fromArrowType(new ArrowType.FixedSizeBinary(16)));
+    }
+
+    @Test
+    @DisplayName("Union is unsupported")
+    void unionIsUnsupported() {
+        assertThrows(
+                UnsupportedOperationException.class,
+                () -> ArrowUtils.fromArrowType(new ArrowType.Union(UnionMode.Sparse, new int[0])));
+    }
+
+    @Test
+    @DisplayName("LargeList and FixedSizeList fields are unsupported")
+    void largeAndFixedSizeListFieldsAreUnsupported() {
+        Field element = new Field("element", FieldType.nullable(new ArrowType.Int(32, true)), null);
+        Field largeList = new Field("ll", FieldType.nullable(new ArrowType.LargeList()), List.of(element));
+        Field fixedSizeList = new Field("fsl", FieldType.nullable(new ArrowType.FixedSizeList(2)), List.of(element));
+
+        assertThrows(UnsupportedOperationException.class, () -> ArrowUtils.fromArrowField(largeList));
+        assertThrows(UnsupportedOperationException.class, () -> ArrowUtils.fromArrowField(fixedSizeList));
     }
 }

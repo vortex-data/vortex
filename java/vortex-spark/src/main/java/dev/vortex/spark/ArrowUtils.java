@@ -4,7 +4,6 @@
 package dev.vortex.spark;
 
 import dev.vortex.relocated.org.apache.arrow.vector.types.DateUnit;
-import dev.vortex.relocated.org.apache.arrow.vector.types.FloatingPointPrecision;
 import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
@@ -18,8 +17,18 @@ import org.apache.spark.sql.types.StructField;
  * Utility class for converting Arrow types to Spark SQL data types.
  *
  * <p>This class provides static methods to convert Arrow field definitions and type definitions into their
- * corresponding Spark SQL DataType representations. It handles the mapping between Arrow's type system and Spark's type
- * system, including complex types like structs and arrays.
+ * corresponding Spark SQL DataType representations. The mapping matches Spark 4.1's own {@code ArrowUtils}, extended
+ * where Vortex produces types Spark's mapping does not cover:
+ *
+ * <ul>
+ *   <li>the Arrow view types map to their logical Spark types: {@code Utf8View} to {@code StringType},
+ *       {@code BinaryView} to {@code BinaryType}, and {@code ListView} to {@code ArrayType}
+ *   <li>timestamps of every unit map to {@code TimestampType}/{@code TimestampNTZType};
+ *       {@link dev.vortex.spark.read.VortexArrowColumnVector} normalizes non-microsecond values on read
+ * </ul>
+ *
+ * <p>The one intentional divergence from Spark 4.1 is Arrow's Time type: Spark's {@code TimeType} only exists in Spark
+ * 4.1+, and this module compiles a single source set against both Spark 3.5 and 4.1, so Time is rejected.
  */
 public final class ArrowUtils {
     private ArrowUtils() {}
@@ -27,8 +36,8 @@ public final class ArrowUtils {
     /**
      * Converts an Arrow Field to a Spark SQL DataType.
      *
-     * <p>This method handles complex types like structs and arrays by recursively converting their child fields. For
-     * primitive types, it delegates to {@link #fromArrowType(ArrowType)}.
+     * <p>This method handles nested types like structs, lists and maps by recursively converting their child fields.
+     * For non-nested types, it delegates to {@link #fromArrowType(ArrowType)}.
      *
      * @param field the Arrow field to convert
      * @return the corresponding Spark SQL DataType
@@ -43,10 +52,18 @@ public final class ArrowUtils {
                             return new StructField(child.getName(), dt, child.isNullable(), Metadata.empty());
                         })
                         .collect(Collectors.toList()));
-            case List: {
+            case List:
+            case ListView: {
                 Field elementField = field.getChildren().get(0);
                 DataType elementType = fromArrowField(elementField);
                 return DataTypes.createArrayType(elementType, elementField.isNullable());
+            }
+            case Map: {
+                Field entries = field.getChildren().get(0);
+                Field keyField = entries.getChildren().get(0);
+                Field valueField = entries.getChildren().get(1);
+                return DataTypes.createMapType(
+                        fromArrowField(keyField), fromArrowField(valueField), valueField.isNullable());
             }
             default:
                 return fromArrowType(field.getType());
@@ -56,13 +73,12 @@ public final class ArrowUtils {
     /**
      * Converts an Arrow type to a Spark SQL DataType.
      *
-     * <p>This method maps primitive Arrow types to their corresponding Spark SQL types. It supports most common Arrow
-     * types including integers, floating point numbers, strings, binary data, dates, timestamps, decimals, and nulls.
+     * <p>This method maps non-nested Arrow types to their corresponding Spark SQL types, following Spark 4.1's own
+     * Arrow type mapping plus the view types (see the class documentation).
      *
      * @param dt the Arrow type to convert
      * @return the corresponding Spark SQL DataType
-     * @throws UnsupportedOperationException if the Arrow type configuration is not supported
-     * @throws RuntimeException if the Arrow type is not recognized
+     * @throws UnsupportedOperationException if the Arrow type has no Spark representation
      */
     public static DataType fromArrowType(ArrowType dt) {
         switch (dt.getTypeID()) {
@@ -70,26 +86,31 @@ public final class ArrowUtils {
                 return DataTypes.BooleanType;
             case Int: {
                 ArrowType.Int intType = (ArrowType.Int) dt;
-                if (intType.getIsSigned() && intType.getBitWidth() == 8) {
-                    return DataTypes.ByteType;
-                } else if (intType.getIsSigned() && intType.getBitWidth() == 16) {
-                    return DataTypes.ShortType;
-                } else if (intType.getIsSigned() && intType.getBitWidth() == 32) {
-                    return DataTypes.IntegerType;
-                } else if (intType.getIsSigned() && intType.getBitWidth() == 64) {
-                    return DataTypes.LongType;
-                } else {
-                    throw new UnsupportedOperationException("Unsupported Arrow type: " + dt);
+                if (!intType.getIsSigned()) {
+                    throw new UnsupportedOperationException("Unsupported Arrow unsigned integer type: " + dt);
+                }
+                switch (intType.getBitWidth()) {
+                    case 8:
+                        return DataTypes.ByteType;
+                    case 16:
+                        return DataTypes.ShortType;
+                    case 32:
+                        return DataTypes.IntegerType;
+                    case 64:
+                        return DataTypes.LongType;
+                    default:
+                        throw new UnsupportedOperationException("Unsupported Arrow integer bit width: " + dt);
                 }
             }
             case FloatingPoint: {
                 ArrowType.FloatingPoint floatType = (ArrowType.FloatingPoint) dt;
-                if (floatType.getPrecision() == FloatingPointPrecision.SINGLE) {
-                    return DataTypes.FloatType;
-                } else if (floatType.getPrecision() == FloatingPointPrecision.DOUBLE) {
-                    return DataTypes.DoubleType;
-                } else {
-                    throw new UnsupportedOperationException("Unsupported Arrow type: " + dt);
+                switch (floatType.getPrecision()) {
+                    case SINGLE:
+                        return DataTypes.FloatType;
+                    case DOUBLE:
+                        return DataTypes.DoubleType;
+                    default:
+                        throw new UnsupportedOperationException("Unsupported Arrow float precision: " + dt);
                 }
             }
             case Decimal: {
@@ -98,30 +119,52 @@ public final class ArrowUtils {
             }
             case Utf8:
             case LargeUtf8:
+            case Utf8View:
                 return DataTypes.StringType;
             case Binary:
             case LargeBinary:
+            case BinaryView:
                 return DataTypes.BinaryType;
             case Date: {
                 ArrowType.Date dateType = (ArrowType.Date) dt;
                 if (dateType.getUnit() == DateUnit.DAY) {
                     return DataTypes.DateType;
-                } else {
-                    throw new UnsupportedOperationException("Unsupported Arrow type: " + dt);
                 }
+                throw new UnsupportedOperationException("Unsupported Arrow date unit: " + dt);
             }
             case Timestamp: {
+                // Spark timestamps are physically microseconds; VortexArrowColumnVector's accessor
+                // normalizes second/millisecond/nanosecond values on read.
                 ArrowType.Timestamp ts = (ArrowType.Timestamp) dt;
-                if (ts.getUnit() == TimeUnit.MICROSECOND) {
-                    return ts.getTimezone() != null ? DataTypes.TimestampType : DataTypes.TimestampNTZType;
-                } else {
-                    throw new UnsupportedOperationException("Unsupported Arrow type: " + dt);
-                }
+                return ts.getTimezone() != null ? DataTypes.TimestampType : DataTypes.TimestampNTZType;
             }
             case Null:
                 return DataTypes.NullType;
+            case Interval: {
+                ArrowType.Interval interval = (ArrowType.Interval) dt;
+                switch (interval.getUnit()) {
+                    case YEAR_MONTH:
+                        return DataTypes.createYearMonthIntervalType();
+                    case MONTH_DAY_NANO:
+                        return DataTypes.CalendarIntervalType;
+                    default:
+                        throw new UnsupportedOperationException("Unsupported Arrow interval unit: " + dt);
+                }
+            }
+            case Duration: {
+                ArrowType.Duration duration = (ArrowType.Duration) dt;
+                if (duration.getUnit() != TimeUnit.MICROSECOND) {
+                    throw new UnsupportedOperationException("Unsupported Arrow duration unit: " + dt);
+                }
+                return DataTypes.createDayTimeIntervalType();
+            }
+            case Time:
+                // Spark 3.5 has no TIME type (TimeType only exists in Spark 4.1+), and this
+                // module compiles a single source set against both Spark versions.
+                throw new UnsupportedOperationException("Arrow Time type has no Spark 3.5 representation: " + dt);
             default:
-                throw new IllegalArgumentException("Unsupported Arrow type: " + dt);
+                throw new UnsupportedOperationException(
+                        "Unsupported Arrow type: " + dt + " (type id: " + dt.getTypeID() + ")");
         }
     }
 }

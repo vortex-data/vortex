@@ -23,7 +23,6 @@ import org.apache.arrow.c.Data;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ViewVarCharVector;
 import org.apache.arrow.vector.ipc.ArrowReader;
@@ -155,8 +154,8 @@ public final class TestMinimal {
 
         List<Person> people = readAll(ds, options, allocator, batch -> {
             List<Person> results = new ArrayList<>();
-            VarCharVector names = (VarCharVector) batch.getVector("Name");
-            VarCharVector states = (VarCharVector) batch.getVector("State");
+            ViewVarCharVector names = (ViewVarCharVector) batch.getVector("Name");
+            ViewVarCharVector states = (ViewVarCharVector) batch.getVector("State");
             for (int i = 0; i < batch.getRowCount(); i++) {
                 String name = names.isNull(i) ? null : new String(names.get(i), UTF_8);
                 String state = states.isNull(i) ? null : new String(states.get(i), UTF_8);
@@ -272,9 +271,9 @@ public final class TestMinimal {
 
     private static List<Person> readFullBatch(VectorSchemaRoot root) {
         List<Person> result = new ArrayList<>();
-        VarCharVector names = (VarCharVector) root.getVector("Name");
+        ViewVarCharVector names = (ViewVarCharVector) root.getVector("Name");
         FieldVector salaries = root.getVector("Salary");
-        VarCharVector states = (VarCharVector) root.getVector("State");
+        ViewVarCharVector states = (ViewVarCharVector) root.getVector("State");
 
         for (int i = 0; i < root.getRowCount(); i++) {
             String name = names.isNull(i) ? null : new String(names.get(i), UTF_8);
