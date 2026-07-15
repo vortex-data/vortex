@@ -111,6 +111,12 @@ pub(crate) struct VortexOpener {
 
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
+        // Calculate the output schema before replacing partition columns with literals so it
+        // retains the table and partition-field metadata declared by the plan.
+        let output_schema = Arc::new(
+            self.projection
+                .project_schema(self.table_schema.table_schema())?,
+        );
         let session = self.session.clone();
         let metrics_registry = Arc::clone(&self.metrics_registry);
         let labels = vec![
@@ -259,8 +265,6 @@ impl FileOpener for VortexOpener {
                 &session.arrow(),
             )?);
 
-            let projected_physical_schema = projection.project_schema(&unified_file_schema)?;
-
             let expr_adapter = expr_adapter_factory.create(
                 Arc::clone(&unified_file_schema),
                 Arc::clone(&this_file_schema),
@@ -287,7 +291,7 @@ impl FileOpener for VortexOpener {
                 expr_convertor.split_projection(
                     projection.clone(),
                     &this_file_schema,
-                    &projected_physical_schema,
+                    output_schema.as_ref(),
                 )?
             } else {
                 // When projection pushdown is disabled, read only the required columns
@@ -304,7 +308,7 @@ impl FileOpener for VortexOpener {
             // When projection pushdown is enabled, the scan outputs the projected columns.
             // When disabled, the scan outputs raw columns and the projection is applied after.
             let scan_reference_schema = if projection_pushdown {
-                projected_physical_schema
+                (*output_schema).clone()
             } else {
                 // Build schema from the raw columns being read
                 let column_indices = projection.column_indices();
@@ -312,7 +316,7 @@ impl FileOpener for VortexOpener {
                     .into_iter()
                     .map(|idx| this_file_schema.field(idx).clone())
                     .collect();
-                Schema::new(fields)
+                Schema::new_with_metadata(fields, this_file_schema.metadata().clone())
             };
             let stream_schema =
                 calculate_physical_schema(&scan_dtype, &scan_reference_schema, &session.arrow())?;
@@ -450,11 +454,15 @@ impl FileOpener for VortexOpener {
                     ))))
                 })
                 .map(move |batch| {
-                    if projector.projection().as_ref().is_empty() {
+                    let batch = if projector.projection().as_ref().is_empty() {
                         batch
                     } else {
                         batch.and_then(|b| projector.project_batch(&b))
-                    }
+                    }?;
+
+                    batch
+                        .with_schema(Arc::clone(&output_schema))
+                        .map_err(Into::into)
                 })
                 .boxed();
 
@@ -810,6 +818,61 @@ mod tests {
         let num_batches = data.len();
         let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
         assert_eq!((num_batches, num_rows), (0, 0));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_preserves_declared_schema_metadata() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "part=1/file.vortex";
+        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)]))?;
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let file_schema = Arc::new(
+            batch.schema().as_ref().clone().with_metadata(
+                [("table".to_string(), "metadata".to_string())]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        let table_schema = TableSchema::new(
+            file_schema,
+            vec![Arc::new(
+                Field::new("part", DataType::Int32, false).with_metadata(
+                    [("partition".to_string(), "metadata".to_string())]
+                        .into_iter()
+                        .collect(),
+                ),
+            )],
+        );
+        let projection = ProjectionExprs::from_indices(&[0, 1], table_schema.table_schema());
+        let expected_schema = Arc::new(projection.project_schema(table_schema.table_schema())?);
+
+        assert_eq!(
+            expected_schema.metadata().get("table"),
+            Some(&"metadata".to_string())
+        );
+        assert_eq!(
+            expected_schema.field(1).metadata().get("partition"),
+            Some(&"metadata".to_string())
+        );
+
+        for projection_pushdown in [false, true] {
+            let mut opener = make_opener(Arc::clone(&object_store), table_schema.clone(), None);
+            opener.projection = projection.clone();
+            opener.projection_pushdown = projection_pushdown;
+
+            let mut file = PartitionedFile::new(file_path.to_string(), data_size);
+            file.partition_values = vec![ScalarValue::Int32(Some(1))];
+            let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+            assert!(!batches.is_empty());
+            for batch in batches {
+                assert_eq!(batch.schema().as_ref(), expected_schema.as_ref());
+            }
+        }
 
         Ok(())
     }
