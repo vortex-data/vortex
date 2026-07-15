@@ -212,15 +212,6 @@ impl NativeWriter {
     }
 }
 
-fn exact_stat_scalar(stats: &StatsSet, dtype: &DType, stat: Stat) -> Option<Scalar> {
-    let value = stats.get(stat).as_exact()?;
-    Scalar::try_new(stat.dtype(dtype)?, Some(value)).ok()
-}
-
-fn exact_count(stats: &StatsSet, dtype: &DType, stat: Stat) -> Option<u64> {
-    u64::try_from(&exact_stat_scalar(stats, dtype, stat)?).ok()
-}
-
 fn checked_jlong(value: u64, name: &str) -> VortexResult<jlong> {
     jlong::try_from(value).map_err(|_| vortex_err!("{name} exceeds Java long range: {value}"))
 }
@@ -232,50 +223,10 @@ fn exact_count_jlong(
 ) -> VortexResult<jlong> {
     stats
         .zip(dtype)
-        .and_then(|(stats, dtype)| exact_count(stats, dtype, stat))
+        .and_then(|(stats, dtype)| stats.get_as::<u64>(stat, dtype).as_exact())
         .map(|value| checked_jlong(value, stat.name()))
         .transpose()
         .map(|value| value.unwrap_or(-1))
-}
-
-fn boxed_integer<'local>(env: &mut Env<'local>, value: i32) -> Result<JObject<'local>, JNIError> {
-    Ok(env.new_object(
-        jni::jni_str!("java/lang/Integer"),
-        jni::jni_sig!("(I)V"),
-        &[JValue::Int(value)],
-    )?)
-}
-
-fn boxed_long<'local>(env: &mut Env<'local>, value: i64) -> Result<JObject<'local>, JNIError> {
-    Ok(env.new_object(
-        jni::jni_str!("java/lang/Long"),
-        jni::jni_sig!("(J)V"),
-        &[JValue::Long(value)],
-    )?)
-}
-
-fn boxed_float<'local>(env: &mut Env<'local>, value: f32) -> Result<JObject<'local>, JNIError> {
-    Ok(env.new_object(
-        jni::jni_str!("java/lang/Float"),
-        jni::jni_sig!("(F)V"),
-        &[JValue::Float(value)],
-    )?)
-}
-
-fn boxed_double<'local>(env: &mut Env<'local>, value: f64) -> Result<JObject<'local>, JNIError> {
-    Ok(env.new_object(
-        jni::jni_str!("java/lang/Double"),
-        jni::jni_sig!("(D)V"),
-        &[JValue::Double(value)],
-    )?)
-}
-
-fn boxed_boolean<'local>(env: &mut Env<'local>, value: bool) -> Result<JObject<'local>, JNIError> {
-    Ok(env.new_object(
-        jni::jni_str!("java/lang/Boolean"),
-        jni::jni_sig!("(Z)V"),
-        &[JValue::Bool(if value { JNI_TRUE } else { JNI_FALSE })],
-    )?)
 }
 
 fn big_integer<'local>(
@@ -292,32 +243,48 @@ fn big_integer<'local>(
 
 fn scalar_to_java<'local>(
     env: &mut Env<'local>,
-    scalar: &Scalar,
+    scalar: Scalar,
 ) -> Result<JObject<'local>, JNIError> {
     if scalar.is_null() {
         return Ok(JObject::null());
     }
     if scalar.dtype().is_extension() {
-        return scalar_to_java(env, &scalar.as_extension().to_storage_scalar());
+        return scalar_to_java(env, scalar.as_extension().to_storage_scalar());
     }
 
     let Some(value) = scalar.value() else {
         return Ok(JObject::null());
     };
     match value {
-        ScalarValue::Bool(value) => boxed_boolean(env, *value),
+        ScalarValue::Bool(value) => Ok(env.new_object(
+            jni::jni_str!("java/lang/Boolean"),
+            jni::jni_sig!("(Z)V"),
+            &[JValue::Bool(if *value { JNI_TRUE } else { JNI_FALSE })],
+        )?),
         ScalarValue::Primitive(value) => match value {
-            PValue::U8(value) => boxed_integer(env, i32::from(*value)),
-            PValue::U16(value) => boxed_integer(env, i32::from(*value)),
-            PValue::U32(value) => boxed_long(env, i64::from(*value)),
+            PValue::U8(_) | PValue::U16(_) | PValue::I8(_) | PValue::I16(_) | PValue::I32(_) => {
+                Ok(env.new_object(
+                    jni::jni_str!("java/lang/Integer"),
+                    jni::jni_sig!("(I)V"),
+                    &[JValue::Int(value.cast::<i32>()?)],
+                )?)
+            }
+            PValue::U32(_) | PValue::I64(_) => Ok(env.new_object(
+                jni::jni_str!("java/lang/Long"),
+                jni::jni_sig!("(J)V"),
+                &[JValue::Long(value.cast::<i64>()?)],
+            )?),
             PValue::U64(value) => big_integer(env, value),
-            PValue::I8(value) => boxed_integer(env, i32::from(*value)),
-            PValue::I16(value) => boxed_integer(env, i32::from(*value)),
-            PValue::I32(value) => boxed_integer(env, *value),
-            PValue::I64(value) => boxed_long(env, *value),
-            PValue::F16(value) => boxed_float(env, f32::from(*value)),
-            PValue::F32(value) => boxed_float(env, *value),
-            PValue::F64(value) => boxed_double(env, *value),
+            PValue::F16(_) | PValue::F32(_) => Ok(env.new_object(
+                jni::jni_str!("java/lang/Float"),
+                jni::jni_sig!("(F)V"),
+                &[JValue::Float(value.cast::<f32>()?)],
+            )?),
+            PValue::F64(value) => Ok(env.new_object(
+                jni::jni_str!("java/lang/Double"),
+                jni::jni_sig!("(D)V"),
+                &[JValue::Double(*value)],
+            )?),
         },
         ScalarValue::Decimal(value) => {
             let DType::Decimal(decimal_dtype, _) = scalar.dtype() else {
@@ -369,18 +336,18 @@ fn write_summary_to_java<'local>(
             .map_or((None, None), |(stats, dtype)| (Some(stats), Some(dtype)));
         let null_count = exact_count_jlong(stats, dtype, Stat::NullCount)?;
         let nan_count = exact_count_jlong(stats, dtype, Stat::NaNCount)?;
-        let lower_bound = stats
-            .zip(dtype)
-            .and_then(|(stats, dtype)| exact_stat_scalar(stats, dtype, Stat::Min));
-        let upper_bound = stats
-            .zip(dtype)
-            .and_then(|(stats, dtype)| exact_stat_scalar(stats, dtype, Stat::Max));
+        let lower_bound = stats.zip(dtype).map(|(stats, dtype)| unsafe {
+            Scalar::new_unchecked(dtype.clone(), stats.get(Stat::Min).as_exact())
+        });
+        let upper_bound = stats.zip(dtype).map(|(stats, dtype)| unsafe {
+            Scalar::new_unchecked(dtype.clone(), stats.get(Stat::Max).as_exact())
+        });
         let column = env.with_local_frame_returning_local::<_, JObject, JNIError>(16, |env| {
-            let lower_bound = match &lower_bound {
+            let lower_bound = match lower_bound {
                 Some(value) => scalar_to_java(env, value)?,
                 None => JObject::null(),
             };
-            let upper_bound = match &upper_bound {
+            let upper_bound = match upper_bound {
                 Some(value) => scalar_to_java(env, value)?,
                 None => JObject::null(),
             };
