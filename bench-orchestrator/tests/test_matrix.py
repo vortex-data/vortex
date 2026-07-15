@@ -7,7 +7,7 @@ import json
 from typing import cast
 
 from bench_orchestrator import cli as cli_module
-from bench_orchestrator.benchmarks import BENCHMARKS, PROFILES
+from bench_orchestrator.benchmarks import BENCHMARKS, MICRO_BENCHMARKS, PROFILES
 from bench_orchestrator.config import Benchmark, Engine, Format
 from bench_orchestrator.matrix import (
     DEFAULTS,
@@ -19,6 +19,7 @@ from bench_orchestrator.matrix import (
     df,
     duck,
     resolve_matrix,
+    resolve_micro_matrix,
 )
 from typer.testing import CliRunner
 
@@ -127,3 +128,27 @@ def test_matrix_command_emits_json_and_rejects_unknown_profiles() -> None:
 
     result = runner.invoke(cli_module.app, ["matrix", "does-not-exist"])
     assert result.exit_code == 1
+
+
+def test_micro_matrix_matches_the_two_shared_workflow_jobs() -> None:
+    entries = resolve_micro_matrix(MICRO_BENCHMARKS)
+    assert entries == [
+        {
+            "id": "random-access-bench",
+            "name": "Random Access",
+            "build_args": "--features lance",
+            "formats": "parquet,lance,vortex",
+            "split": True,
+        },
+        {
+            "id": "compress-bench",
+            "name": "Compression",
+            "build_args": "--features lance",
+            "formats": "parquet,lance,vortex",
+            "split": False,
+        },
+    ]
+
+    result = runner.invoke(cli_module.app, ["matrix", "micro"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == entries

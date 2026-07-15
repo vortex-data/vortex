@@ -156,8 +156,9 @@ vx-bench clean --older-than "30 days" [options]
 ## Declarative benchmark matrix
 
 To change what CI benchmarks, edit **`bench_orchestrator/benchmarks.py`**. `BENCHMARKS` is the list
-of benchmark suites and their supported targets; `PROFILES` says how much coverage each workflow
-runs. Matrix rendering is kept separately in `bench_orchestrator/matrix.py`.
+of SQL suites and their supported targets, `PROFILES` says how much coverage each SQL workflow
+runs, and `MICRO_BENCHMARKS` lists the Rust benchmark binaries. Matrix rendering is kept
+separately in `bench_orchestrator/matrix.py`.
 
 This replaces the parallel `pr_targets`/`develop_targets` arrays and duplicated `full`/`base`
 matrices that previously lived in workflow YAML.
@@ -184,7 +185,8 @@ support rules that validate a run.
 ### Built-in profiles
 
 `develop` runs full coverage on merge, `pr` runs the default targets for every SQL benchmark, and
-`nightly` runs SF=100 TPC-H on NVMe and S3. List them with `vx-bench matrix`.
+`nightly` runs SF=100 TPC-H on NVMe and S3. The `micro` profile describes the two Rust benchmark
+binaries used by the shared develop/PR workflow. List them with `vx-bench matrix`.
 
 ### Adding a benchmark
 

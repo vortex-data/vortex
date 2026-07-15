@@ -16,7 +16,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .benchmarks import BENCHMARKS, PROFILES
+from .benchmarks import BENCHMARKS, MICRO_BENCHMARKS, MICRO_PROFILE_DESCRIPTION, PROFILES
 from .comparison import analyzer
 from .comparison.reporter import pivot_comparison_table
 from .config import (
@@ -31,7 +31,7 @@ from .config import (
     parse_targets_json,
     resolve_axis_targets,
 )
-from .matrix import resolve_matrix
+from .matrix import resolve_matrix, resolve_micro_matrix
 from .runner.builder import BenchmarkBuilder
 from .runner.executor import BenchmarkExecutor
 from .storage.store import ResultStore
@@ -234,11 +234,17 @@ def matrix(
     if profile is None or list_profiles:
         for name, prof in PROFILES.items():
             console.print(f"[bold cyan]{name}[/bold cyan]: {prof.description}")
+        console.print(f"[bold cyan]micro[/bold cyan]: {MICRO_PROFILE_DESCRIPTION}")
+        return
+
+    if profile == "micro":
+        entries = resolve_micro_matrix(MICRO_BENCHMARKS)
+        typer.echo(json.dumps(entries, indent=2 if pretty else None))
         return
 
     prof = PROFILES.get(profile)
     if prof is None:
-        known = ", ".join(PROFILES)
+        known = ", ".join((*PROFILES, "micro"))
         console.print(f"[red]Unknown profile '{profile}'. Available: {known}[/red]")
         raise typer.Exit(1)
 

@@ -1,19 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-"""The SQL benchmarks and profiles run by CI.
+"""The benchmarks and profiles run by CI.
 
 This is the file to edit when changing benchmark coverage:
 
 * ``BENCHMARKS`` declares which benchmark suites exist and every target they support.
 * ``PROFILES`` declares how much of that coverage each CI workflow runs.
+* ``MICRO_BENCHMARKS`` declares the Rust benchmark binaries run by the shared workflow.
 
 Matrix rendering lives in :mod:`bench_orchestrator.matrix` and should not need to change when a
 benchmark is added or removed.
 """
 
 from .config import Benchmark, Engine, Format
-from .matrix import STANDARD, BenchmarkDef, Profile, Storage, all_targets, defaults, df, duck
+from .matrix import STANDARD, BenchmarkDef, MicroDef, Profile, Storage, all_targets, defaults, df, duck
 
 
 def _tpch(scale_factor: float | int, storage: Storage, *, iterations: int | None = 10) -> BenchmarkDef:
@@ -162,3 +163,26 @@ PROFILES: dict[str, Profile] = {
         description="Large-scale SF=100 TPC-H on NVMe and S3 at default targets.",
     ),
 }
+
+
+# ==================================================================================================
+# RUST MICRO-BENCHMARK DEFINITIONS — ADD OR REMOVE MICRO-BENCHMARKS HERE
+# ==================================================================================================
+
+MICRO_BENCHMARKS: list[MicroDef] = [
+    MicroDef(
+        id="random-access-bench",
+        name="Random Access",
+        build_args="--features lance",
+        formats=(Format.PARQUET, Format.LANCE, Format.VORTEX),
+        split=True,
+    ),
+    MicroDef(
+        id="compress-bench",
+        name="Compression",
+        build_args="--features lance",
+        formats=(Format.PARQUET, Format.LANCE, Format.VORTEX),
+    ),
+]
+
+MICRO_PROFILE_DESCRIPTION = "Rust micro-benchmarks: random access and compression."

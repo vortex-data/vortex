@@ -156,6 +156,17 @@ class BenchmarkDef:
         return self.benchmark.value
 
 
+@dataclass(frozen=True)
+class MicroDef:
+    """A Rust micro-benchmark binary and the arguments needed to build and run it."""
+
+    id: str
+    name: str
+    build_args: str
+    formats: tuple[Format, ...]
+    split: bool = False
+
+
 # A target policy maps a benchmark's declared targets to the targets a profile actually runs.
 TargetPolicy = Callable[[BenchmarkDef], TargetSet]
 
@@ -234,3 +245,17 @@ def resolve_matrix(profile: Profile, benchmarks: Iterable[BenchmarkDef]) -> list
             continue
         entries.append(_matrix_entry(benchmark, run_targets))
     return entries
+
+
+def resolve_micro_matrix(benchmarks: Iterable[MicroDef]) -> list[dict[str, object]]:
+    """Resolve Rust micro-benchmark declarations into GitHub Actions matrix entries."""
+    return [
+        {
+            "id": benchmark.id,
+            "name": benchmark.name,
+            "build_args": benchmark.build_args,
+            "formats": ",".join(fmt.value for fmt in benchmark.formats),
+            "split": benchmark.split,
+        }
+        for benchmark in benchmarks
+    ]
