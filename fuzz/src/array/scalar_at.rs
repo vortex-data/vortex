@@ -104,6 +104,7 @@ pub fn scalar_at_canonical_array(
             let storage_scalar = scalar_at_canonical_array(storage_canonical, index, ctx)?;
             Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar)
         }
+        Canonical::Union(_) => unreachable!("Union arrays are not fuzzed yet"),
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }

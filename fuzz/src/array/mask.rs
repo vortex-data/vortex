@@ -149,6 +149,7 @@ pub fn mask_canonical_array(
                 .with_nullability(masked_storage.dtype().nullability());
             ExtensionArray::new(ext_dtype, masked_storage).into_array()
         }
+        Canonical::Union(_) => unreachable!("Union arrays are not fuzzed yet"),
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }

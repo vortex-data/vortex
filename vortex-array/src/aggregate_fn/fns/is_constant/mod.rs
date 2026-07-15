@@ -404,6 +404,9 @@ impl AggregateFnVTable for IsConstant {
                     Canonical::List(l) => check_listview_constant(l, ctx)?,
                     Canonical::FixedSizeList(f) => check_fixed_size_list_constant(f, ctx)?,
                     Canonical::Null(_) => true,
+                    Canonical::Union(_) => {
+                        vortex_bail!("Union arrays don't support IsConstant yet")
+                    }
                     Canonical::Variant(_) => {
                         vortex_bail!("Variant arrays don't support IsConstant")
                     }

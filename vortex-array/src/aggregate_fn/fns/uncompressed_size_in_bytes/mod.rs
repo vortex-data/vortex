@@ -9,6 +9,7 @@ mod list_view;
 mod null;
 mod primitive;
 mod struct_;
+mod union;
 mod varbinview;
 
 use std::mem::size_of;
@@ -21,6 +22,7 @@ use list_view::list_view_uncompressed_size_in_bytes;
 use null::null_uncompressed_size_in_bytes;
 use primitive::primitive_uncompressed_size_in_bytes;
 use struct_::struct_uncompressed_size_in_bytes;
+use union::union_uncompressed_size_in_bytes;
 use varbinview::varbinview_uncompressed_size_in_bytes;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -199,6 +201,7 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::List(array) => list_view_uncompressed_size_in_bytes(array, ctx),
         Canonical::FixedSizeList(array) => fixed_size_list_uncompressed_size_in_bytes(array, ctx),
         Canonical::Struct(array) => struct_uncompressed_size_in_bytes(array, ctx),
+        Canonical::Union(array) => union_uncompressed_size_in_bytes(array, ctx),
         Canonical::Extension(array) => extension_uncompressed_size_in_bytes(array, ctx),
         Canonical::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
@@ -229,11 +232,14 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
             array.len(),
             array.scalar().as_binary().value().map(|value| value.len()),
         )?,
-        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) | DType::Extension(_) => {
+        DType::List(..)
+        | DType::FixedSizeList(..)
+        | DType::Struct(..)
+        | DType::Union(..)
+        | DType::Extension(_) => {
             let canonical = array.array().clone().execute::<Canonical>(ctx)?;
             return canonical_uncompressed_size_in_bytes(&canonical, ctx);
         }
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
         }

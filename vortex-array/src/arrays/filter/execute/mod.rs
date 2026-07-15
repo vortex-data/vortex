@@ -21,9 +21,11 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
 use crate::arrays::NullArray;
+use crate::arrays::Union;
 use crate::arrays::VariantArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::filter::FilterArrayExt;
+use crate::arrays::filter::FilterReduce;
 use crate::arrays::variant::VariantArrayExt;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
@@ -95,6 +97,13 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
             Canonical::FixedSizeList(fixed_size_list::filter_fixed_size_list(&a, mask))
         }
         Canonical::Struct(a) => Canonical::Struct(struct_::filter_struct(&a, mask)),
+        Canonical::Union(a) => Canonical::Union(
+            <Union as FilterReduce>::filter(a.as_view(), &Mask::Values(Arc::clone(mask)))
+                .vortex_expect("filter UnionArray")
+                .vortex_expect("UnionArray filter must be supported")
+                .as_::<Union>()
+                .into_owned(),
+        ),
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage_array()

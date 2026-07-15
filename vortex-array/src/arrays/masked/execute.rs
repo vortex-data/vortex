@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::IntoArray;
@@ -50,6 +51,9 @@ pub fn mask_validity_canonical(
             Canonical::FixedSizeList(mask_validity_fixed_size_list(a, validity)?)
         }
         Canonical::Struct(a) => Canonical::Struct(mask_validity_struct(a, validity)?),
+        Canonical::Union(_) => {
+            vortex_bail!("Masking UnionArray is not supported until null semantics are defined")
+        }
         Canonical::Extension(a) => Canonical::Extension(mask_validity_extension(a, validity, ctx)?),
         Canonical::Variant(a) => Canonical::Variant(mask_validity_variant(a, validity, ctx)?),
     })

@@ -8,6 +8,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -23,6 +24,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::UnionArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::varbinview::BinaryView;
@@ -164,7 +166,49 @@ pub(crate) fn constant_canonicalize(
                 StructArray::new_unchecked(fields, struct_dtype.clone(), array.len(), validity)
             })
         }
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Union(variants) => {
+            if scalar.is_null() {
+                vortex_bail!(
+                    "Canonicalizing a null union scalar is not supported until null semantics are defined"
+                )
+            }
+            if variants.variants().any(|variant| variant.is_nullable()) {
+                vortex_bail!("Canonical UnionArray children must be non-nullable")
+            }
+
+            let union = scalar.as_union();
+            let type_id = union
+                .type_id()
+                .vortex_expect("non-null union scalar must have a type ID");
+            let child_index = union
+                .child_index()
+                .vortex_expect("validated union scalar must select a child");
+            let selected_value = union
+                .value()
+                .vortex_expect("non-null union scalar must have a value");
+            let children = variants
+                .variants()
+                .enumerate()
+                .map(|(index, dtype)| {
+                    let value = if index == child_index {
+                        selected_value.clone()
+                    } else {
+                        Scalar::zero_value(&dtype)
+                    };
+                    ConstantArray::new(value, array.len()).into_array()
+                })
+                .collect::<Vec<_>>();
+
+            // SAFETY: The scalar's validated type ID selects `child_index`; all sparse children
+            // have the declared dtype and the same length.
+            Canonical::Union(unsafe {
+                UnionArray::new_unchecked(
+                    ConstantArray::new(type_id, array.len()).into_array(),
+                    variants.clone(),
+                    children,
+                )
+            })
+        }
         DType::Variant(_) => Canonical::Variant(VariantArray::try_new(
             array.array().clone().into_array(),
             None,

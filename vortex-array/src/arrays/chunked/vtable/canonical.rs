@@ -19,11 +19,13 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::UnionArray;
 use crate::arrays::VariantArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
+use crate::arrays::union::UnionArrayExt;
 use crate::arrays::variant::VariantArrayExt;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
@@ -54,6 +56,7 @@ pub(super) fn _canonicalize(
             let struct_array = pack_struct_chunks(owned_chunks, ctx)?;
             Canonical::Struct(struct_array)
         }
+        DType::Union(..) => Canonical::Union(pack_union_chunks(owned_chunks, ctx)?),
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             &owned_chunks,
             array.array().validity()?,
@@ -87,6 +90,47 @@ fn pack_struct_chunks(chunks: Vec<ArrayRef>, ctx: &mut ExecutionCtx) -> VortexRe
         .into_iter()
         .map(|c| c.execute::<StructArray>(ctx))
         .process_results(|iter| StructArray::try_concat(iter))?
+}
+
+/// Packs sparse union chunks into one union with chunked type IDs and sparse children.
+fn pack_union_chunks(chunks: Vec<ArrayRef>, ctx: &mut ExecutionCtx) -> VortexResult<UnionArray> {
+    let union_chunks = chunks
+        .into_iter()
+        .map(|chunk| chunk.execute::<UnionArray>(ctx))
+        .collect::<VortexResult<Vec<_>>>()?;
+    let variants = union_chunks[0].variants().clone();
+    let type_ids = ChunkedArray::try_new(
+        union_chunks
+            .iter()
+            .map(|chunk| chunk.type_ids().clone())
+            .collect(),
+        DType::Primitive(PType::I8, Nullability::NonNullable),
+    )?
+    .into_array();
+    let children = (0..variants.len())
+        .map(|index| {
+            let dtype = variants
+                .variant_by_index(index)
+                .vortex_expect("variant index must have a dtype");
+            ChunkedArray::try_new(
+                union_chunks
+                    .iter()
+                    .map(|chunk| {
+                        chunk
+                            .child(index)
+                            .vortex_expect("variant index must have a sparse child")
+                            .clone()
+                    })
+                    .collect(),
+                dtype,
+            )
+            .map(IntoArray::into_array)
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    // SAFETY: Every component was taken from validated UnionArrays with the same dtype and
+    // chunked along identical row boundaries.
+    Ok(unsafe { UnionArray::new_unchecked(type_ids, variants, children) })
 }
 
 /// Packs many [`VariantArray`]s into one [`VariantArray`] with chunked children.

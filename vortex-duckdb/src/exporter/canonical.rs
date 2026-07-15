@@ -32,6 +32,9 @@ pub(crate) fn new_exporter(
         Canonical::List(array) => list_view::new_exporter(array, cache, ctx),
         Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(array, cache, ctx),
         Canonical::Struct(array) => struct_::new_exporter(array, cache, ctx),
+        Canonical::Union(_) => {
+            vortex_bail!("Union arrays can't be exported to DuckDB yet")
+        }
         Canonical::Extension(ext) => extension::new_exporter(ext, ctx),
         Canonical::Variant(_) => {
             vortex_bail!("Variant arrays can't be exported to DuckDB")
