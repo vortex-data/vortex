@@ -576,10 +576,12 @@ jobs:
           RUSTFLAGS: "-C target-cpu=native"
         run: |
           packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
+          features=()
           if [ "${{ inputs.mode }}" != "pr" ]; then
             packages+=(--bin lance-bench)
+            features+=(--features unstable_encodings)
           fi
-          cargo build "${packages[@]}" --profile release_debug --features unstable_encodings
+          cargo build "${packages[@]}" "${features[@]}" --profile release_debug
 
       - name: Generate data
         shell: bash

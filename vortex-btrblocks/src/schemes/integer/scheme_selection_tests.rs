@@ -4,6 +4,7 @@
 //! Tests to verify that each integer compression scheme produces the expected encoding.
 
 use std::iter;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use rand::Rng;
@@ -28,6 +29,8 @@ use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
 
 use crate::BtrBlocksCompressor;
+use crate::BtrBlocksCompressorBuilder;
+use crate::SizeCost;
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
 #[test]
@@ -113,16 +116,36 @@ fn test_dict_compressed() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn test_runend_compressed() -> VortexResult<()> {
+fn runend_input() -> PrimitiveArray {
     let mut values: Vec<i32> = Vec::new();
     for i in 0..100 {
         values.extend(iter::repeat_n((i32::MAX - 50).wrapping_add(i), 10));
     }
-    let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = BtrBlocksCompressor::default();
-    let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
+
+    PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable)
+}
+
+#[test]
+fn test_size_cost_selects_runend() -> VortexResult<()> {
+    let btr = BtrBlocksCompressorBuilder::default()
+        .with_cost_model(Arc::new(SizeCost))
+        .build();
+    let compressed = btr.compress(
+        &runend_input().into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )?;
     assert!(compressed.is::<RunEnd>());
+    Ok(())
+}
+
+#[test]
+#[cfg(not(feature = "unstable_encodings"))]
+fn test_scan_cost_avoids_runend_for_a_modest_size_win() -> VortexResult<()> {
+    let compressed = BtrBlocksCompressor::default().compress(
+        &runend_input().into_array(),
+        &mut SESSION.create_execution_ctx(),
+    )?;
+    assert!(!compressed.is::<RunEnd>());
     Ok(())
 }
 
@@ -137,7 +160,7 @@ fn test_sequence_compressed() -> VortexResult<()> {
 }
 
 #[test]
-fn test_rle_compressed() -> VortexResult<()> {
+fn test_size_cost_selects_runend_for_rle_input() -> VortexResult<()> {
     let mut values: Vec<i32> = Vec::new();
     for i in 0..1024 {
         // Scramble the per-run value so the data is run-length-dominant but not monotone: this
@@ -147,7 +170,9 @@ fn test_rle_compressed() -> VortexResult<()> {
         values.extend(iter::repeat_n(v, 10));
     }
     let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-    let btr = BtrBlocksCompressor::default();
+    let btr = BtrBlocksCompressorBuilder::default()
+        .with_cost_model(Arc::new(SizeCost))
+        .build();
     let compressed = btr.compress(&array.into_array(), &mut SESSION.create_execution_ctx())?;
     eprintln!("{}", compressed.display_tree());
     assert!(compressed.is::<RunEnd>());

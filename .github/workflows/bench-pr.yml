@@ -61,7 +61,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native"
         run: |
-          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
+          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
 
       - name: Setup Polar Signals
         if: github.event.pull_request.head.repo.fork == false

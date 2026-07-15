@@ -47,5 +47,8 @@ mod model;
 pub use model::Cost;
 pub use model::CostModel;
 
+mod read_time;
+pub use read_time::ReadTimeCost;
+
 mod size;
 pub use size::SizeCost;

@@ -3,10 +3,16 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
+use std::sync::Arc;
+
+use vortex_compressor::cost::CostModel;
+use vortex_compressor::cost::SizeCost;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
 use crate::CascadingCompressor;
+#[cfg(not(feature = "unstable_encodings"))]
+use crate::ScanCost;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
@@ -68,8 +74,10 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
-/// By default, all schemes in [`ALL_SCHEMES`] are enabled in a deterministic order. Feature-gated
-/// schemes (Pco, Zstd) are not in `ALL_SCHEMES` and must be added explicitly via
+/// By default, all schemes in [`ALL_SCHEMES`] are enabled in a deterministic order. Stable builds
+/// rank candidates with [`ScanCost`]; builds that opt into `unstable_encodings` preserve
+/// [`SizeCost`] selection. Feature-gated schemes (Pco, Zstd) are not in `ALL_SCHEMES` and must be
+/// added explicitly via
 /// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or `with_compact` when the
 /// `zstd` feature is enabled.
 ///
@@ -90,12 +98,14 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
+    cost_model: Arc<dyn CostModel>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
             schemes: ALL_SCHEMES.to_vec(),
+            cost_model: default_cost_model(),
         }
     }
 }
@@ -107,6 +117,7 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
+            cost_model: Arc::new(SizeCost),
         }
     }
 
@@ -208,10 +219,31 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
+    /// Uses a custom model to rank compression candidates.
+    ///
+    /// Stable builds default to [`ScanCost`]. Builds with `unstable_encodings` default to
+    /// [`SizeCost`] because the scan calibration has not been validated for those schemes.
+    /// [`ReadTimeCost`](vortex_compressor::cost::ReadTimeCost) is available for deterministic
+    /// sequential-scan objectives that combine estimated I/O and decode time.
+    pub fn with_cost_model(mut self, cost_model: Arc<dyn CostModel>) -> Self {
+        self.cost_model = cost_model;
+        self
+    }
+
     /// Builds the configured [`BtrBlocksCompressor`].
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
+        BtrBlocksCompressor(CascadingCompressor::new(self.schemes).with_cost_model(self.cost_model))
     }
+}
+
+#[cfg(not(feature = "unstable_encodings"))]
+fn default_cost_model() -> Arc<dyn CostModel> {
+    Arc::new(ScanCost::default())
+}
+
+#[cfg(feature = "unstable_encodings")]
+fn default_cost_model() -> Arc<dyn CostModel> {
+    Arc::new(SizeCost)
 }
 
 #[cfg(test)]
