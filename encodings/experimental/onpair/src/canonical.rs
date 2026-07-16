@@ -95,10 +95,8 @@ pub(crate) fn onpair_decode_views(
         CompactDictionaryView::validate(array.dict_bytes().as_slice(), dict_offsets.as_slice())
             .map_err(|e| vortex_err!(InvalidArgument: "Invalid OnPair dictionary: {e}"))?;
 
-    // `try_decode_into` derives its write bound from the buffer itself, so it
-    // is sound even when the file-borne `uncompressed_lengths` understate the
-    // real decoded size; the extra DECODE_PADDING merely keeps it on the
-    // all-over-copy fast path.
+    // Pad the output with DECODE_PADDING to absorb the decoder's fixed
+    // per-token over-copy; the exact decoded size is checked below.
     let mut out_bytes = ByteBufferMut::with_capacity(total_size + onpair::DECODE_PADDING);
     let written = onpair::try_decode_into(codes.as_slice(), dict, out_bytes.spare_capacity_mut())
         .map_err(|_| {

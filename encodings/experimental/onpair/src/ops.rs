@@ -46,10 +46,8 @@ impl OperationsVTable<OnPair> for OnPair {
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("OnPair uncompressed_lengths[{index}] is null"))?;
-        // `try_decode_into` derives its write bound from the buffer itself, so
-        // it is sound even when the file-borne `uncompressed_lengths` child
-        // understates the row's real decoded size; the extra DECODE_PADDING
-        // merely keeps it on the all-over-copy fast path.
+        // Pad the row buffer with DECODE_PADDING to absorb the decoder's fixed
+        // per-token over-copy; the exact decoded size is checked below.
         let mut buf: Vec<u8> = Vec::with_capacity(len + onpair::DECODE_PADDING);
         let written = onpair::try_decode_into(codes.as_slice(), dict, buf.spare_capacity_mut())
             .map_err(|_| {
