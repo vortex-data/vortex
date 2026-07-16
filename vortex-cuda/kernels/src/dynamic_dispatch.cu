@@ -118,8 +118,7 @@ __shared__ uint64_t runend_cursors[BLOCK_SIZE];
 
 /// Apply one scalar operation to N values in registers.
 template <typename T, uint32_t N>
-__device__ inline void
-scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem) {
+__device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem) {
     switch (op.op_code) {
     case ScalarOp::FOR: {
         const T ref = static_cast<T>(op.params.frame_of_ref.reference);
@@ -238,10 +237,8 @@ __device__ __forceinline__ void scatter_alp_patches_range(const GPUPatches &patc
 
 /// Apply patch payloads attached to scalar operations after their stage has decoded.
 template <typename T>
-__device__ __forceinline__ void scatter_scalar_patches(const Stage &stage,
-                                                       T *__restrict out,
-                                                       uint64_t logical_start,
-                                                       uint32_t range_len) {
+__device__ __forceinline__ void
+scatter_scalar_patches(const Stage &stage, T *__restrict out, uint64_t logical_start, uint32_t range_len) {
     for (uint8_t op_idx = 0; op_idx < stage.num_scalar_ops; ++op_idx) {
         const auto &op = stage.scalar_ops[op_idx];
         if (op.op_code == ScalarOp::ALP && op.params.alp.patches_ptr != 0) {
