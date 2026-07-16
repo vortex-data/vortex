@@ -1517,6 +1517,52 @@ mod tests {
         CudaSession::create_execution_ctx(&session)
     }
 
+    // Compress values into a concrete FSST array so exports take the direct FSST path.
+    fn fsst_array_from(
+        values: &[Option<&'static [u8]>],
+        dtype: DType,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let varbin = VarBinArray::from_iter(values.iter().copied(), dtype).into_array();
+        let compressor = fsst_train_compressor(&varbin, ctx.execution_ctx())?;
+        Ok(fsst_compress(&varbin, &compressor, ctx.execution_ctx())?.into_array())
+    }
+
+    // Assert an exported varbin array against the logical values: offsets are the prefix sum
+    // of lengths (nulls contribute zero), values are the non-null bytes concatenated, and the
+    // Arrow null bitmap marks exactly the null slots.
+    fn assert_varbin_contents(
+        array: &ArrowArray,
+        values: &[Option<&'static [u8]>],
+    ) -> VortexResult<()> {
+        let mut expected_offsets = vec![0i32];
+        let mut expected_values = Vec::new();
+        for value in values {
+            if let Some(value) = value {
+                expected_values.extend_from_slice(value);
+            }
+            expected_offsets.push(i32::try_from(expected_values.len())?);
+        }
+        let null_count = values.iter().filter(|value| value.is_none()).count();
+
+        assert_binary_layout(
+            array,
+            i64::try_from(values.len())?,
+            i64::try_from(null_count)?,
+            &expected_offsets,
+            &expected_values,
+        )?;
+
+        if null_count > 0 {
+            let bitmap = private_data_buffer_bytes(array, 0)?;
+            for (index, value) in values.iter().enumerate() {
+                let bit = (bitmap.as_ref()[index / 8] >> (index % 8)) & 1;
+                assert_eq!(bit == 1, value.is_some(), "validity bit {index}");
+            }
+        }
+        Ok(())
+    }
+
     // Assert Arrow Device metadata that consumers use before reading buffers.
     fn assert_device_metadata(
         device_array: &ArrowDeviceArray,
@@ -2506,6 +2552,140 @@ mod tests {
             Field::try_from(&schema)?,
             Field::new("", DataType::Utf8View, false)
         );
+        Ok(())
+    }
+
+    // Content coverage for the direct FSST varbin export: offsets, values, and null bitmap,
+    // not just schema shape.
+    #[rstest]
+    #[case::utf8_inline_and_outlined(
+        vec![Some(&b""[..]),
+             Some(&b"short"[..]),
+             Some(&b"this value is stored out of line in the heap"[..])],
+        DType::Utf8(Nullability::NonNullable),
+    )]
+    #[case::partial_nulls(
+        vec![Some(&b"alpha"[..]), None, Some(&b"gamma"[..]), None, Some(&b"epsilon"[..])],
+        DType::Utf8(Nullability::Nullable),
+    )]
+    #[case::all_nulls(
+        vec![None, None, None, None, None],
+        DType::Binary(Nullability::Nullable),
+    )]
+    #[case::all_empty(
+        vec![Some(&b""[..]), Some(&b""[..]), Some(&b""[..])],
+        DType::Binary(Nullability::NonNullable),
+    )]
+    #[case::empty(vec![], DType::Utf8(Nullability::NonNullable))]
+    #[crate::test]
+    async fn test_export_fsst_varbin_contents(
+        #[case] values: Vec<Option<&'static [u8]>>,
+        #[case] dtype: DType,
+    ) -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+        let fsst = fsst_array_from(&values, dtype.clone(), &mut ctx)?;
+
+        let mut exported = fsst.export_device_array_with_schema(&mut ctx).await?;
+        let expected_data_type = if matches!(dtype, DType::Utf8(_)) {
+            DataType::Utf8
+        } else {
+            DataType::Binary
+        };
+        assert_eq!(
+            Field::try_from(&exported.schema)?,
+            Field::new("", expected_data_type, dtype.is_nullable())
+        );
+        assert_varbin_contents(&exported.array.array, &values)?;
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // A sliced FSST array keeps its encoding, so the direct varbin export must respect the
+    // slice's codes offsets and validity.
+    #[crate::test]
+    async fn test_export_sliced_fsst_varbin() -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+        let values: &[Option<&'static [u8]>] = &[
+            Some(&b"alpha"[..]),
+            Some(&b"this value is stored out of line in the heap"[..]),
+            None,
+            Some(&b"delta"[..]),
+            Some(&b"echo"[..]),
+        ];
+        let fsst = fsst_array_from(values, DType::Utf8(Nullability::Nullable), &mut ctx)?;
+        let sliced = fsst.slice(1..4)?;
+        assert!(sliced.as_opt::<FSST>().is_some());
+
+        let mut exported = sliced.export_device_array_with_schema(&mut ctx).await?;
+        assert_eq!(
+            Field::try_from(&exported.schema)?,
+            Field::new("", DataType::Utf8, true)
+        );
+        assert_varbin_contents(&exported.array.array, &values[1..4])?;
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // FSST fields inside a struct take the direct varbin export path through the child
+    // recursion, and the struct schema reflects the offset-based layout.
+    #[crate::test]
+    async fn test_export_struct_with_fsst_field() -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+        let values: &[Option<&'static [u8]>] = &[
+            Some(&b"short"[..]),
+            Some(&b"this value is stored out of line in the heap"[..]),
+        ];
+        let fsst = fsst_array_from(values, DType::Utf8(Nullability::NonNullable), &mut ctx)?;
+        let array = StructArray::new(
+            FieldNames::from_iter(["s"]),
+            vec![fsst],
+            values.len(),
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+        assert_eq!(
+            Schema::try_from(&exported.schema)?,
+            Schema::new(vec![Field::new("s", DataType::Utf8, false)])
+        );
+        assert_eq!(exported.array.array.n_children, 1);
+        let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        assert_varbin_contents(unsafe { &*children[0] }, values)?;
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // FSST dictionary values take the direct varbin export path, and the dictionary schema
+    // reflects the offset-based layout.
+    #[crate::test]
+    async fn test_export_dict_with_fsst_values() -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+        let values: &[Option<&'static [u8]>] = &[
+            Some(&b"alpha"[..]),
+            Some(&b"this dictionary value is stored out of line"[..]),
+        ];
+        let fsst = fsst_array_from(values, DType::Utf8(Nullability::NonNullable), &mut ctx)?;
+        let array = DictArray::try_new(PrimitiveArray::from_iter([0u8, 1, 0]).into_array(), fsst)?
+            .into_array();
+
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+        assert_eq!(
+            Field::try_from(&exported.schema)?,
+            Field::new(
+                "",
+                DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8)),
+                false,
+            )
+        );
+        assert!(!exported.array.array.dictionary.is_null());
+        let dictionary = unsafe { &*exported.array.array.dictionary };
+        assert_varbin_contents(dictionary, values)?;
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
     }
 
