@@ -461,13 +461,18 @@ impl BitBuffer {
             );
         }
 
-        // An unaligned offset requires shifting every bit down to the buffer start;
-        // `append_buffer` performs the unaligned copy into an offset-0 buffer.
-        let mut target = BitBufferMut::with_capacity(self.len);
-        target.append_buffer(self);
-        let target = target.freeze();
-        assert_eq!(target.offset(), 0);
-        target
+        // An unaligned offset requires shifting every bit down to the buffer start.
+        // `iter_padded` realigns the logical bits into offset-0 words without relying on
+        // bitvec's unaligned copy, which violates Miri's Stacked Borrows model.
+        let n_words = self.len.div_ceil(64);
+        let mut words = BufferMut::<u64>::with_capacity(n_words);
+        for word in self.chunks().iter_padded().take(n_words) {
+            words.push(word);
+        }
+
+        let mut bytes = words.into_byte_buffer();
+        bytes.truncate(self.len.div_ceil(8));
+        Self::new(bytes.freeze(), self.len)
     }
 }
 
