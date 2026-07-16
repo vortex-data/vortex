@@ -84,3 +84,83 @@ impl VortexWrite for JavaWrite {
         self.flush_upcall()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use jni::JValue;
+    use jni::objects::JByteArray;
+    use vortex::error::VortexResult;
+    use vortex::error::vortex_err;
+
+    use super::JavaWrite;
+    use crate::io::tests::assert_weak_ref_clears;
+    use crate::io::tests::test_vm;
+    use crate::io::with_jvm;
+
+    /// Write upcalls from a fresh native thread must reach the Java object, and once
+    /// the writer (and every other native reference) is dropped, its JNI global ref
+    /// must be deleted so the Java object becomes collectible.
+    #[test]
+    fn test_write_upcalls_release_global_ref() -> VortexResult<()> {
+        let Some(vm) = test_vm() else {
+            return Ok(());
+        };
+
+        // `ByteArrayOutputStream` has the same `write([BII)V`/`flush()V` shape as
+        // `dev.vortex.io.NativeWritable`, so it stands in for a caller-provided sink.
+        let (writable, content, weak) = with_jvm(vm, |env| {
+            let sink = env.new_object(
+                jni::jni_str!("java/io/ByteArrayOutputStream"),
+                jni::jni_sig!("()V"),
+                &[],
+            )?;
+            let weak = env.new_object(
+                jni::jni_str!("java/lang/ref/WeakReference"),
+                jni::jni_sig!("(Ljava/lang/Object;)V"),
+                &[JValue::Object(&sink)],
+            )?;
+            Ok((
+                env.new_global_ref(&sink)?,
+                env.new_global_ref(&sink)?,
+                env.new_global_ref(&weak)?,
+            ))
+        })?;
+
+        let thread_vm = vm.clone();
+        std::thread::spawn(move || {
+            let write = JavaWrite::new(thread_vm.clone(), Arc::new(writable));
+            write.write_slice(b"vortex")?;
+            write.flush_upcall()?;
+            // `with_jvm` attaches permanently: the thread stays attached until it
+            // exits, at which point the attachment is torn down automatically.
+            let attached = thread_vm
+                .is_thread_attached()
+                .map_err(|e| vortex_err!("is_thread_attached failed: {e}"))?;
+            assert!(attached, "write upcalls should leave the thread attached");
+            VortexResult::Ok(())
+        })
+        .join()
+        .map_err(|_| vortex_err!("writer thread panicked"))??;
+
+        let written = with_jvm(vm, |env| {
+            let array = env
+                .call_method(
+                    content.as_ref(),
+                    jni::jni_str!("toByteArray"),
+                    jni::jni_sig!("()[B"),
+                    &[],
+                )?
+                .l()?;
+            let array = env.cast_local::<JByteArray>(array)?;
+            let mut bytes = vec![0i8; array.len(env)?];
+            array.get_region(env, 0, &mut bytes)?;
+            Ok(bytes.into_iter().map(|b| b as u8).collect::<Vec<u8>>())
+        })?;
+        assert_eq!(written, b"vortex");
+
+        drop(content);
+        assert_weak_ref_clears(vm, &weak)
+    }
+}

@@ -17,9 +17,8 @@ use jni::JavaVM;
 use jni::objects::JObject;
 use jni::refs::Global;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::memory::DefaultHostAllocator;
-use vortex::array::memory::HostAllocator;
 use vortex::buffer::Alignment;
+use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -133,7 +132,9 @@ impl VortexReadAt for JavaReadable {
                     // cancel its task handle, but it cannot interrupt a `readFully` upcall
                     // that has already started.
                     let _permit = permit;
-                    let end = offset + length as u64;
+                    let end = offset
+                        .checked_add(length as u64)
+                        .ok_or_else(|| vortex_err!("read {offset}+{length} overflows u64"))?;
                     if end > len {
                         vortex_bail!("read {offset}..{end} out of bounds for file of length {len}");
                     }
@@ -143,9 +144,10 @@ impl VortexReadAt for JavaReadable {
                     let joffset = i64::try_from(offset)
                         .map_err(|_| vortex_err!("read offset {offset} exceeds i64"))?;
 
-                    let mut buffer = DefaultHostAllocator.allocate(length, alignment)?;
+                    let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+                    unsafe { buffer.set_len(length) };
                     with_jvm(&vm, |env| {
-                        let array = env.new_byte_array(length)?;
+                        let array = env.byte_array_from_slice(buffer.as_slice())?;
                         env.call_method(
                             readable.as_ref(),
                             jni::jni_str!("readFully"),
