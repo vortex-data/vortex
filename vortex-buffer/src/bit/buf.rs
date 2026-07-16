@@ -691,8 +691,9 @@ mod tests {
     #[case::unaligned(1..9)]
     #[case::aligned(8..17)]
     #[case::empty(3..3)]
+    #[case::crosses_word_boundary(60..70)]
     fn test_sliced_resets_offset(#[case] range: std::ops::Range<usize>) {
-        let bits = BitBuffer::from_iter((0..20).map(|bit_index| bit_index % 3 == 0));
+        let bits = BitBuffer::from_iter((0..80).map(|bit_index| bit_index % 3 == 0));
         let view = bits.slice(range.clone());
 
         let sliced = view.sliced();
