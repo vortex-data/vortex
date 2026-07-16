@@ -19,6 +19,8 @@ pub struct PiecewiseSequenceSlots {
     pub starts: ArrayRef,
     /// The length of each sequential piece.
     pub lengths: ArrayRef,
+    /// The distance between consecutive indices in each piece.
+    pub multipliers: ArrayRef,
 }
 
 /// Extension methods for [`PiecewiseSequenceArray`].
@@ -29,16 +31,21 @@ pub trait PiecewiseSequenceArrayExt:
 impl<T: TypedArrayRef<PiecewiseSequence>> PiecewiseSequenceArrayExt for T {}
 
 impl Array<PiecewiseSequence> {
-    /// Constructs a new `PiecewiseSequenceArray` from start and length arrays.
+    /// Constructs a new `PiecewiseSequenceArray` from start, length, and multiplier arrays.
     ///
-    /// This validates only structural invariants: both children must be non-nullable unsigned
+    /// This validates only structural invariants: all children must be non-nullable unsigned
     /// integer arrays with matching lengths, and the outer array length is the declared expanded
     /// index length. Individual ranges are checked when the index array is executed or consumed by
     /// a take implementation.
-    pub fn try_new(starts: ArrayRef, lengths: ArrayRef, len: usize) -> VortexResult<Self> {
+    pub fn try_new(
+        starts: ArrayRef,
+        lengths: ArrayRef,
+        multipliers: ArrayRef,
+        len: usize,
+    ) -> VortexResult<Self> {
         Array::try_from_parts(
             ArrayParts::new(PiecewiseSequence, PType::U64.into(), len, EmptyArrayData)
-                .with_slots(smallvec![Some(starts), Some(lengths)]),
+                .with_slots(smallvec![Some(starts), Some(lengths), Some(multipliers)]),
         )
     }
 
@@ -47,11 +54,16 @@ impl Array<PiecewiseSequence> {
     /// # Safety
     ///
     /// The caller must guarantee the same structural invariants as [`Self::try_new`].
-    pub unsafe fn new_unchecked(starts: ArrayRef, lengths: ArrayRef, len: usize) -> Self {
+    pub unsafe fn new_unchecked(
+        starts: ArrayRef,
+        lengths: ArrayRef,
+        multipliers: ArrayRef,
+        len: usize,
+    ) -> Self {
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(PiecewiseSequence, PType::U64.into(), len, EmptyArrayData)
-                    .with_slots(smallvec![Some(starts), Some(lengths)]),
+                    .with_slots(smallvec![Some(starts), Some(lengths), Some(multipliers)]),
             )
         }
     }

@@ -29,8 +29,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
 use crate::arrays::piecewise_sequence::array::PiecewiseSequenceSlots;
 use crate::arrays::piecewise_sequence::check_index_arrays;
-use crate::arrays::piecewise_sequence::index_value_to_u64;
-use crate::arrays::piecewise_sequence::index_value_to_usize;
+use crate::arrays::piecewise_sequence::execute_index_arrays;
 use crate::arrays::piecewise_sequence::materialize_ranges;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::buffer::BufferHandle;
@@ -52,6 +51,8 @@ struct PiecewiseSequenceMetadata {
     starts_ptype: i32,
     #[prost(enumeration = "PType", tag = "3")]
     lengths_ptype: i32,
+    #[prost(enumeration = "PType", tag = "4")]
+    multipliers_ptype: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -86,15 +87,16 @@ impl VTable for PiecewiseSequence {
         );
         let starts = slots[PiecewiseSequenceSlots::STARTS]
             .as_ref()
-            .ok_or_else(|| {
-                vortex_error::vortex_err!("PiecewiseSequenceArray starts slot must be present")
-            })?;
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray starts slot must be present"))?;
         let lengths = slots[PiecewiseSequenceSlots::LENGTHS]
             .as_ref()
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray lengths slot must be present"))?;
+        let multipliers = slots[PiecewiseSequenceSlots::MULTIPLIERS]
+            .as_ref()
             .ok_or_else(|| {
-                vortex_error::vortex_err!("PiecewiseSequenceArray lengths slot must be present")
+                vortex_err!("PiecewiseSequenceArray multipliers slot must be present")
             })?;
-        check_index_arrays(starts, lengths)
+        check_index_arrays(starts, lengths, multipliers)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -135,6 +137,7 @@ impl VTable for PiecewiseSequence {
                 })?,
                 starts_ptype: PType::try_from(array.starts().dtype())? as i32,
                 lengths_ptype: PType::try_from(array.lengths().dtype())? as i32,
+                multipliers_ptype: PType::try_from(array.multipliers().dtype())? as i32,
             }
             .encode_to_vec(),
         ))
@@ -182,21 +185,26 @@ impl VTable for PiecewiseSequence {
             &metadata.lengths_ptype().into(),
             num_pieces,
         )?;
+        let multipliers = children.get(
+            PiecewiseSequenceSlots::MULTIPLIERS,
+            &metadata.multipliers_ptype().into(),
+            num_pieces,
+        )?;
 
         Ok(
             ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(smallvec![Some(starts), Some(lengths)]),
+                .with_slots(smallvec![Some(starts), Some(lengths), Some(multipliers)]),
         )
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let starts = array.starts().clone().execute::<PrimitiveArray>(ctx)?;
-        let lengths = array.lengths().clone().execute::<PrimitiveArray>(ctx)?;
-        check_index_arrays(starts.as_ref(), lengths.as_ref())?;
+        let (starts, lengths, multipliers) = execute_index_arrays(array.as_view(), ctx)?;
 
         let values = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
             match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-                materialize_ranges::<S, L>(&starts, &lengths, array.len())?
+                match_each_unsigned_integer_ptype!(multipliers.ptype(), |M| {
+                    materialize_ranges::<S, L, M>(&starts, &lengths, &multipliers, array.len())?
+                })
             })
         });
         Ok(ExecutionResult::done(
@@ -211,13 +219,13 @@ impl OperationsVTable<PiecewiseSequence> for PiecewiseSequence {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let starts = array.starts().clone().execute::<PrimitiveArray>(ctx)?;
-        let lengths = array.lengths().clone().execute::<PrimitiveArray>(ctx)?;
-        check_index_arrays(starts.as_ref(), lengths.as_ref())?;
+        let (starts, lengths, multipliers) = execute_index_arrays(array, ctx)?;
 
         let value = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
             match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-                scalar_at::<S, L>(&starts, &lengths, index)?
+                match_each_unsigned_integer_ptype!(multipliers.ptype(), |M| {
+                    scalar_at::<S, L, M>(&starts, &lengths, &multipliers, index)?
+                })
             })
         });
         Ok(value.into())
@@ -230,24 +238,35 @@ impl ValidityVTable<PiecewiseSequence> for PiecewiseSequence {
     }
 }
 
-fn scalar_at<S, L>(
+fn scalar_at<S, L, M>(
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
+    multipliers: &PrimitiveArray,
     index: usize,
 ) -> VortexResult<u64>
 where
-    S: crate::dtype::UnsignedPType + num_traits::AsPrimitive<u64>,
+    S: crate::dtype::UnsignedPType,
     L: crate::dtype::UnsignedPType,
+    M: crate::dtype::UnsignedPType,
 {
     let mut remaining = index;
-    for (&start, &length) in starts
+    for ((&start, &length), &multiplier) in starts
         .as_slice::<S>()
         .iter()
         .zip_eq(lengths.as_slice::<L>())
+        .zip_eq(multipliers.as_slice::<M>())
     {
-        let length = index_value_to_usize(length);
+        let length: usize = length.as_();
         if remaining < length {
-            return Ok(index_value_to_u64(start) + remaining as u64);
+            let start: usize = start.as_();
+            let multiplier: usize = multiplier.as_();
+            let offset = remaining
+                .checked_mul(multiplier)
+                .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+            let value = start
+                .checked_add(offset)
+                .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+            return Ok(value as u64);
         }
         remaining -= length;
     }
