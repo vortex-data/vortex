@@ -352,6 +352,9 @@ where
         args.arg(&num_strings_u64);
     })?;
 
+    // Fast path: the decoded heap fits in one BinaryView backing buffer, so the kernel wrote
+    // views directly and both buffers can remain on-device. Larger heaps use the host rollover
+    // path below to split decoded bytes across multiple backing buffers.
     if let Some(device_views) = device_views {
         let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)));
         let bytes = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
