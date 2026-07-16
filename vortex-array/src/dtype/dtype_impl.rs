@@ -3,6 +3,8 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use DType::*;
@@ -140,6 +142,36 @@ impl DType {
                 lhs_extdtype.eq_ignore_nullability(rhs_extdtype)
             }
             _ => false,
+        }
+    }
+
+    /// Hash this dtype using the same equivalence relation as [`Self::eq_ignore_nullability`].
+    pub(crate) fn hash_ignore_nullability<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            Null | Bool(_) | Utf8(_) | Binary(_) | Variant(_) => {}
+            Primitive(ptype, _) => ptype.hash(state),
+            Decimal(decimal, _) => decimal.hash(state),
+            List(element, _) => element.hash_ignore_nullability(state),
+            FixedSizeList(element, size, _) => {
+                size.hash(state);
+                element.hash_ignore_nullability(state);
+            }
+            Struct(fields, _) => {
+                fields.names().hash(state);
+                for field in fields.fields() {
+                    field.hash_ignore_nullability(state);
+                }
+            }
+            Union(variants) => {
+                variants.names().hash(state);
+                variants.type_ids().hash(state);
+                for variant in variants.variants() {
+                    variant.hash_ignore_nullability(state);
+                }
+            }
+            Extension(ext) => ext.hash_ignore_nullability(state),
         }
     }
 
@@ -514,17 +546,28 @@ impl Display for DType {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hasher;
     use std::sync::Arc;
+
+    use vortex_error::VortexResult;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
+    use crate::dtype::UnionVariants;
     use crate::dtype::decimal::DecimalDType;
     use crate::extension::datetime::Date;
     use crate::extension::datetime::Time;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
+
+    fn hash_ignore_nullability(dtype: &DType) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        dtype.hash_ignore_nullability(&mut hasher);
+        hasher.finish()
+    }
 
     #[test]
     fn test_ext_dtype_eq_ignore_nullability() {
@@ -539,6 +582,31 @@ mod tests {
             Timestamp::new_with_tz(TimeUnit::Seconds, Some("ET".into()), Nullable).erased(),
         );
         assert!(!t1.eq_ignore_nullability(&t2));
+    }
+
+    #[test]
+    fn test_union_dtype_hash_ignores_variant_nullability() -> VortexResult<()> {
+        let lhs = DType::Union(UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullable),
+                DType::Utf8(NonNullable),
+            ],
+            vec![5, 9],
+        )?);
+        let rhs = DType::Union(UnionVariants::try_new(
+            ["int", "string"].into(),
+            vec![
+                DType::Primitive(PType::I32, NonNullable),
+                DType::Utf8(Nullable),
+            ],
+            vec![5, 9],
+        )?);
+
+        assert!(lhs.eq_ignore_nullability(&rhs));
+        assert_eq!(hash_ignore_nullability(&lhs), hash_ignore_nullability(&rhs));
+
+        Ok(())
     }
 
     #[test]

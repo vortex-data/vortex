@@ -139,7 +139,7 @@ impl PartialOrd for ExtScalar<'_> {
 
 impl Hash for ExtScalar<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.ext_dtype.hash(state);
+        self.ext_dtype.hash_ignore_nullability(state);
         self.to_storage_scalar().hash(state);
     }
 }
