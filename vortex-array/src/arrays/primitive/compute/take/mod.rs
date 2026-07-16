@@ -26,6 +26,8 @@ use crate::arrays::piecewise_sequence::validate_index_ranges;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::dtype::NativePType;
+use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
@@ -143,20 +145,10 @@ fn take_piecewise_sequence(
     let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
         return Ok(None);
     };
-    match_each_native_ptype!(array.ptype(), |T| {
-        match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-            match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-                let values = primitive_piecewise_values::<T, S, L>(
-                    array.as_slice::<T>(),
-                    starts.as_slice::<S>(),
-                    lengths.as_slice::<L>(),
-                    indices_ref.len(),
-                )?;
-                let validity = array.validity()?.take(indices_ref)?;
-                Ok(Some(PrimitiveArray::new(values, validity).into_array()))
-            })
-        })
-    })
+    let validity = array.validity()?.take(indices_ref)?;
+    let output_len = indices_ref.len();
+    let taken = take_piecewise_sequence_lengths(array, &starts, &lengths, validity, output_len)?;
+    Ok(Some(taken))
 }
 
 // Compiler may see this as unused based on enabled features
@@ -180,6 +172,57 @@ fn take_primitive_scalar<T: Copy, I: IntegerPType>(buffer: &[T], indices: &[I]) 
     result.freeze()
 }
 
+fn take_piecewise_sequence_lengths(
+    array: ArrayView<'_, Primitive>,
+    starts: &PrimitiveArray,
+    lengths: &PrimitiveArray,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef> {
+    match_each_native_ptype!(array.ptype(), |T| {
+        take_piecewise_sequence_lengths_typed::<T>(array, starts, lengths, validity, output_len)
+    })
+}
+
+fn take_piecewise_sequence_lengths_typed<T>(
+    array: ArrayView<'_, Primitive>,
+    starts: &PrimitiveArray,
+    lengths: &PrimitiveArray,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType,
+{
+    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        take_piecewise_sequence_lengths_start_typed::<T, S>(
+            array, starts, lengths, validity, output_len,
+        )
+    })
+}
+
+fn take_piecewise_sequence_lengths_start_typed<T, S>(
+    array: ArrayView<'_, Primitive>,
+    starts: &PrimitiveArray,
+    lengths: &PrimitiveArray,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType,
+    S: UnsignedPType,
+{
+    match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+        let values = primitive_piecewise_values::<T, S, L>(
+            array.as_slice::<T>(),
+            starts.as_slice::<S>(),
+            lengths.as_slice::<L>(),
+            output_len,
+        )?;
+        Ok(PrimitiveArray::new(values, validity).into_array())
+    })
+}
+
 fn primitive_piecewise_values<T, S, L>(
     source: &[T],
     starts: &[S],
@@ -188,8 +231,8 @@ fn primitive_piecewise_values<T, S, L>(
 ) -> VortexResult<Buffer<T>>
 where
     T: Copy,
-    S: crate::dtype::UnsignedPType,
-    L: crate::dtype::UnsignedPType,
+    S: UnsignedPType,
+    L: UnsignedPType,
 {
     validate_index_ranges(source.len(), starts, lengths, output_len)?;
 
