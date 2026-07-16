@@ -30,7 +30,6 @@ use vortex::io::runtime::Handle;
 use vortex::utils::aliases::hash_map::EntryRef;
 use vortex::utils::aliases::hash_map::HashMap;
 
-use crate::io::as_jbyte_slice_mut;
 use crate::io::with_jvm;
 
 /// Default number of concurrent `readFully` upcalls to allow across all files of one
@@ -145,6 +144,7 @@ impl VortexReadAt for JavaReadable {
                         .map_err(|_| vortex_err!("read offset {offset} exceeds i64"))?;
 
                     let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+                    // SAFETY: The write call is going to populate it or fail
                     unsafe { buffer.set_len(length) };
                     with_jvm(&vm, |env| {
                         let array = env.byte_array_from_slice(buffer.as_slice())?;
@@ -159,7 +159,6 @@ impl VortexReadAt for JavaReadable {
                                 JValue::Int(jlength),
                             ],
                         )?;
-                        array.get_region(env, 0, as_jbyte_slice_mut(buffer.as_mut_slice()))?;
                         Ok(())
                     })
                     .map_err(|e| e.with_context("readFully upcall failed"))?;
