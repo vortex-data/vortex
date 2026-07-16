@@ -1,4 +1,8 @@
 #!/bin/sh
+
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 set -eu
 cmake -Bbuild -DBUILD_TESTS=1 -DCMAKE_CXX_FLAGS='-fprofile-arcs -ftest-coverage'
 cmake --build build -j
