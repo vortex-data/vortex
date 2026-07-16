@@ -58,6 +58,7 @@ use vortex_arrow::ArrowSessionExt;
 
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::VarBinExportLayout;
 
 mod arrow_c_abi {
     #![allow(dead_code)]
@@ -814,10 +815,15 @@ fn arrow_device_export_field(
         .arrow()
         .to_arrow_field(name.as_ref(), dtype)?;
 
-    let data_type = match dtype {
-        DType::Binary(_) => DataType::Binary,
-        DType::Decimal(decimal_dtype, _) => arrow_device_export_decimal_data_type(*decimal_dtype),
-        DType::Struct(struct_dtype, _) => {
+    let data_type = match (ctx.cuda_session().varbin_export_layout(), dtype) {
+        (VarBinExportLayout::VarBin, DType::Utf8(_)) => DataType::Utf8,
+        (VarBinExportLayout::VarBin, DType::Binary(_)) => DataType::Binary,
+        (VarBinExportLayout::VarBinView, DType::Utf8(_)) => DataType::Utf8View,
+        (VarBinExportLayout::VarBinView, DType::Binary(_)) => DataType::BinaryView,
+        (_, DType::Decimal(decimal_dtype, _)) => {
+            arrow_device_export_decimal_data_type(*decimal_dtype)
+        }
+        (_, DType::Struct(struct_dtype, _)) => {
             DataType::Struct(arrow_device_export_struct_fields(struct_dtype, ctx)?.into())
         }
         _ => return Ok(field),

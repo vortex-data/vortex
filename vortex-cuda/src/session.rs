@@ -30,6 +30,16 @@ use crate::stream_pool::VortexCudaStreamPool;
 /// Default maximum number of streams in the pool.
 const DEFAULT_STREAM_POOL_CAPACITY: usize = 4;
 
+/// Arrow Device layout used when exporting variable-length UTF-8 and binary arrays.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VarBinExportLayout {
+    /// Offset-based Arrow `Utf8`/`Binary` with one contiguous values buffer.
+    #[default]
+    VarBin,
+    /// Arrow `Utf8View`/`BinaryView` with 16-byte views and variadic data buffers.
+    VarBinView,
+}
+
 /// CUDA session for GPU accelerated execution.
 ///
 /// Maintains a registry of CUDA kernel implementations for array encodings.
@@ -39,6 +49,7 @@ pub struct CudaSession {
     context: Arc<CudaContext>,
     kernels: Arc<DashMap<ArrayId, &'static dyn CudaExecute>>,
     export_device_array: Arc<dyn ExportDeviceArray>,
+    varbin_export_layout: VarBinExportLayout,
     kernel_loader: Arc<KernelLoader>,
     stream_pool: Arc<VortexCudaStreamPool>,
     pinned_buffer_pool: Arc<PinnedByteBufferPool>,
@@ -65,9 +76,21 @@ impl CudaSession {
             kernels: Arc::new(DashMap::default()),
             kernel_loader: Arc::new(KernelLoader::new()),
             export_device_array: Arc::new(CanonicalDeviceArrayExport),
+            varbin_export_layout: VarBinExportLayout::default(),
             stream_pool,
             pinned_buffer_pool,
         }
+    }
+
+    /// Selects the Arrow Device layout for variable-length UTF-8 and binary exports.
+    pub fn with_varbin_export_layout(mut self, layout: VarBinExportLayout) -> Self {
+        self.varbin_export_layout = layout;
+        self
+    }
+
+    /// Returns the Arrow Device layout used for variable-length UTF-8 and binary exports.
+    pub fn varbin_export_layout(&self) -> VarBinExportLayout {
+        self.varbin_export_layout
     }
 
     /// Creates a default CUDA session using device 0, with all GPU array kernels preloaded.
