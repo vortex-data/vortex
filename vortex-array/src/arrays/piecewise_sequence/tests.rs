@@ -16,6 +16,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
@@ -350,6 +351,27 @@ fn contiguous_take_consumers_support_constant_piecewise_lengths() -> VortexResul
         .into_array(),
         &mut ctx
     );
+
+    Ok(())
+}
+
+#[test]
+fn list_take_consumes_constant_piecewise_lengths() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let list = ListArray::try_new(
+        buffer![0i32, 1, 2, 3, 4, 5, 6].into_array(),
+        buffer![0u32, 2, 5, 5, 7].into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let list_indices = piecewise_indices_constant_length([1, 0], 2)?;
+    let expected = ListArray::try_new(
+        buffer![2i32, 3, 4, 0, 1, 2, 3, 4].into_array(),
+        buffer![0u32, 3, 3, 5, 8].into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    assert_arrays_eq!(list.take(list_indices)?, expected, &mut ctx);
 
     Ok(())
 }
