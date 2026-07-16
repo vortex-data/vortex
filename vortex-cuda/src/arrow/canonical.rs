@@ -2397,6 +2397,55 @@ mod tests {
         Ok(())
     }
 
+    // Regression test: when the export schema is derived from the dtype alone (the top-level
+    // array is not one of the concretely-handled encodings), list element fields must still
+    // reflect the session's varbin export layout, or consumers would read the offset-based
+    // element data through a view-typed schema.
+    #[rstest]
+    #[case::varbin(VarBinExportLayout::VarBin, DataType::Utf8, 3)]
+    #[case::varbin_view(VarBinExportLayout::VarBinView, DataType::Utf8View, 4)]
+    #[crate::test]
+    async fn test_export_chunked_list_utf8_element_matches_schema(
+        #[case] layout: VarBinExportLayout,
+        #[case] expected_element_type: DataType,
+        #[case] expected_element_n_buffers: i64,
+    ) -> VortexResult<()> {
+        use vortex::array::arrays::ChunkedArray;
+
+        let mut ctx = cuda_ctx_with_varbin_layout(layout)?;
+
+        let elements = VarBinViewArray::from_iter_str([
+            "hello",
+            "world",
+            "this is a longer string for out-of-line storage",
+        ])
+        .into_array();
+        let chunk = ListArray::try_new(
+            elements,
+            PrimitiveArray::from_iter([0i32, 2, 3]).into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let dtype = chunk.dtype().clone();
+        let chunked = ChunkedArray::try_new(vec![chunk], dtype)?.into_array();
+
+        let mut exported = chunked.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        let DataType::List(element_field) = field.data_type() else {
+            vortex_bail!("expected List schema, got {:?}", field.data_type());
+        };
+        assert_eq!(element_field.data_type(), &expected_element_type);
+
+        assert_eq!(exported.array.array.n_children, 1);
+        let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let element_array = unsafe { &*children[0] };
+        assert_eq!(element_array.n_buffers, expected_element_n_buffers);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
     #[crate::test]
     async fn test_export_host_contiguous_list_view() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
