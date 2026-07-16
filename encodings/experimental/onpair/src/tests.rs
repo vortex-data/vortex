@@ -11,6 +11,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::filter::FilterKernel;
+use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -242,6 +243,34 @@ fn test_onpair_empty() -> vortex_error::VortexResult<()> {
     assert_eq!(arr.len(), 0);
     let canonical = arr.into_array().execute::<VarBinViewArray>(&mut ctx)?;
     assert_eq!(canonical.len(), 0);
+    Ok(())
+}
+
+/// All-null input has no training values, but still produces a valid OnPair
+/// array backed by an empty code stream and `len + 1` zero boundaries.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_all_null() -> vortex_error::VortexResult<()> {
+    let input = VarBinArray::from_iter(
+        [None::<&str>, None, None],
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = onpair_compress(&input, DEFAULT_DICT12_CONFIG, &mut ctx)?;
+
+    assert!(arr.codes().is_empty());
+    let codes_offsets = arr
+        .codes_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    assert_eq!(codes_offsets.as_slice::<u32>(), &[0, 0, 0, 0]);
+    let uncompressed_lengths = arr
+        .uncompressed_lengths()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    assert_eq!(uncompressed_lengths.as_slice::<i32>(), &[0, 0, 0]);
+    assert_arrays_eq!(arr.into_array(), input, &mut ctx);
     Ok(())
 }
 
