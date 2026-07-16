@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::AsPrimitive;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -32,7 +33,10 @@ fn piecewise_indices(
     starts: impl IntoIterator<Item = u64>,
     lengths: &[u64],
 ) -> VortexResult<ArrayRef> {
-    let len = lengths.iter().map(|&length| length as usize).sum();
+    let len = lengths
+        .iter()
+        .map(|&length| -> usize { length.as_() })
+        .sum();
     let starts = PrimitiveArray::from_iter(starts).into_array();
     let lengths = PrimitiveArray::from_iter(lengths.iter().copied()).into_array();
     let multipliers = ConstantArray::new(1u64, lengths.len()).into_array();
