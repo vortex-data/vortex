@@ -77,8 +77,10 @@ pub struct OnPairMetadata {
     /// narrowed to U16/U8 by the cascading compressor when values fit).
     #[prost(enumeration = "PType", tag = "5")]
     pub dict_offsets_ptype: i32,
-    /// PType of the `codes` slot child (typically U16, may be narrowed to U8
-    /// when the dictionary has at most 256 tokens).
+    /// PType of the `codes` slot child (typically U16; U8 only when the
+    /// dictionary has exactly 256 tokens — its minimum, since a valid OnPair
+    /// dictionary must contain all 256 single-byte tokens, so codes then fit
+    /// in 8 bits).
     #[prost(enumeration = "PType", tag = "6")]
     pub codes_ptype: i32,
     /// PType of the `codes_offsets` slot child.
