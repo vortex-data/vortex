@@ -83,6 +83,7 @@ use crate::executor::CudaArrayExt;
 use crate::executor::execute_validity_cuda;
 use crate::kernel::FSSTVarBin;
 use crate::kernel::decode_fsst_varbin;
+use crate::kernel::fsst_varbin_offsets_fit;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
 /// first decoding the array on the GPU and then converting the canonical type to the nearest
@@ -227,7 +228,17 @@ fn export_array(
         };
         let array = match array.try_downcast::<FSST>() {
             Ok(fsst) if ctx.cuda_session().varbin_export_layout() == VarBinExportLayout::VarBin => {
-                return export_fsst_varbin(fsst, ctx).await;
+                if fsst_varbin_offsets_fit(&fsst, ctx.execution_ctx())? {
+                    return export_fsst_varbin(fsst, ctx).await;
+                }
+                // The decoded heap exceeds Arrow's i32 offset range, so decode to views and
+                // export the view layout, matching the per-array schema fallback in
+                // `arrow_device_export_field_for_array`.
+                let Canonical::VarBinView(varbinview) = fsst.into_array().execute_cuda(ctx).await?
+                else {
+                    vortex_bail!("FSST decode must produce a VarBinView canonical");
+                };
+                return export_varbinview(varbinview, ctx).await;
             }
             Ok(fsst) => fsst.into_array(),
             Err(array) => array,
@@ -318,57 +329,7 @@ fn export_canonical(
                 if ctx.cuda_session().varbin_export_layout() == VarBinExportLayout::VarBin {
                     return export_varbin(varbinview, ctx).await;
                 }
-
-                let len = varbinview.len();
-                let VarBinViewDataParts {
-                    views,
-                    buffers: data_buffers,
-                    validity,
-                    ..
-                } = varbinview.into_data_parts();
-
-                let (validity_buffer, null_count) =
-                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
-
-                let views = ctx.ensure_on_device(views).await?;
-                let mut buffers = Vec::with_capacity(data_buffers.len() + 3);
-                buffers.push(validity_buffer);
-                buffers.push(Some(views));
-                for buffer in data_buffers.iter() {
-                    buffers.push(Some(ctx.ensure_on_device(buffer.clone()).await?));
-                }
-                // Nanoarrow's Utf8View/BinaryView C layout stores the variadic data buffer sizes
-                // as the final buffer slot, after the null bitmap, views, and data buffers.
-                let variadic_buffer_sizes = data_buffers
-                    .iter()
-                    .map(|buffer| i64::try_from(buffer.len()))
-                    .collect::<Result<Vec<_>, _>>()?;
-                buffers.push(Some(
-                    ctx.ensure_on_device(BufferHandle::new_host(
-                        Buffer::from(variadic_buffer_sizes).into_byte_buffer(),
-                    ))
-                    .await?,
-                ));
-
-                let n_buffers = i64::try_from(buffers.len())?;
-                let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
-                let sync_event = private_data.sync_event();
-                let arrow_array = ArrowArray {
-                    length: len as i64,
-                    null_count,
-                    offset: 0,
-                    // Arrow Utf8View/BinaryView layout: optional null bitmap, views, data buffers,
-                    // and trailing variadic buffer sizes.
-                    n_buffers,
-                    buffers: private_data.buffer_ptrs.as_mut_ptr(),
-                    n_children: 0,
-                    children: ptr::null_mut(),
-                    release: Some(release_array),
-                    dictionary: ptr::null_mut(),
-                    private_data: Box::into_raw(private_data).cast(),
-                };
-
-                Ok((arrow_array, sync_event))
+                export_varbinview(varbinview, ctx).await
             }
             c => vortex_bail!("unsupported Arrow Device export for {} array", c.dtype()),
         }
@@ -551,6 +512,62 @@ where
     })?;
 
     Ok(BufferHandle::new_device(Arc::new(output_device)))
+}
+
+/// Export Vortex binary views as an Arrow Device array with `Utf8View`/`BinaryView` layout.
+async fn export_varbinview(
+    varbinview: VarBinViewArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = varbinview.len();
+    let VarBinViewDataParts {
+        views,
+        buffers: data_buffers,
+        validity,
+        ..
+    } = varbinview.into_data_parts();
+
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+
+    let views = ctx.ensure_on_device(views).await?;
+    let mut buffers = Vec::with_capacity(data_buffers.len() + 3);
+    buffers.push(validity_buffer);
+    buffers.push(Some(views));
+    for buffer in data_buffers.iter() {
+        buffers.push(Some(ctx.ensure_on_device(buffer.clone()).await?));
+    }
+    // Nanoarrow's Utf8View/BinaryView C layout stores the variadic data buffer sizes
+    // as the final buffer slot, after the null bitmap, views, and data buffers.
+    let variadic_buffer_sizes = data_buffers
+        .iter()
+        .map(|buffer| i64::try_from(buffer.len()))
+        .collect::<Result<Vec<_>, _>>()?;
+    buffers.push(Some(
+        ctx.ensure_on_device(BufferHandle::new_host(
+            Buffer::from(variadic_buffer_sizes).into_byte_buffer(),
+        ))
+        .await?,
+    ));
+
+    let n_buffers = i64::try_from(buffers.len())?;
+    let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
+    let sync_event = private_data.sync_event();
+    let arrow_array = ArrowArray {
+        length: len as i64,
+        null_count,
+        offset: 0,
+        // Arrow Utf8View/BinaryView layout: optional null bitmap, views, data buffers,
+        // and trailing variadic buffer sizes.
+        n_buffers,
+        buffers: private_data.buffer_ptrs.as_mut_ptr(),
+        n_children: 0,
+        children: ptr::null_mut(),
+        release: Some(release_array),
+        dictionary: ptr::null_mut(),
+        private_data: Box::into_raw(private_data).cast(),
+    };
+
+    Ok((arrow_array, sync_event))
 }
 
 /// Export Vortex binary views as an Arrow Device array with standard `Utf8`/`Binary` layout.
@@ -1442,6 +1459,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::TemporalArray;
+    use vortex::array::arrays::VarBinArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::primitive::PrimitiveArrayExt;
     use vortex::array::arrays::varbinview::BinaryView;
@@ -1459,6 +1477,10 @@ mod tests {
     use vortex::dtype::PType;
     use vortex::dtype::half::f16;
     use vortex::dtype::i256;
+    use vortex::encodings::fsst::FSST;
+    use vortex::encodings::fsst::FSSTArrayExt;
+    use vortex::encodings::fsst::fsst_compress;
+    use vortex::encodings::fsst::fsst_train_compressor;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::error::vortex_bail;
@@ -1471,6 +1493,7 @@ mod tests {
     use crate::arrow::ArrowDeviceArray;
     use crate::arrow::DeviceArrayExt;
     use crate::arrow::PrivateData;
+    use crate::arrow::arrow_schema_for_array;
     use crate::arrow::canonical::export_arrow_validity_buffer;
     use crate::arrow::canonical::repack_arrow_validity_buffer;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
@@ -2443,6 +2466,44 @@ mod tests {
         assert_eq!(element_array.n_buffers, expected_element_n_buffers);
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // An FSST array whose decoded size exceeds Arrow's i32 offset range cannot use the
+    // offset-based layout, so its export schema must fall back to the view layout that
+    // `export_array` produces for it.
+    #[crate::test]
+    async fn test_oversized_fsst_schema_falls_back_to_view_layout() -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+
+        let varbin = VarBinArray::from_iter(
+            [Some(&b"short"[..]), Some(&b"another value"[..])],
+            DType::Utf8(Nullability::NonNullable),
+        )
+        .into_array();
+        let compressor = fsst_train_compressor(&varbin, ctx.execution_ctx())?;
+        let fsst = fsst_compress(&varbin, &compressor, ctx.execution_ctx())?;
+        let schema = arrow_schema_for_array(&fsst.clone().into_array(), &mut ctx)?;
+        assert_eq!(
+            Field::try_from(&schema)?,
+            Field::new("", DataType::Utf8, false)
+        );
+
+        // Same codes, but uncompressed lengths whose sum exceeds i32::MAX.
+        let oversized = FSST::try_new(
+            DType::Utf8(Nullability::NonNullable),
+            fsst.symbols().clone(),
+            fsst.symbol_lengths().clone(),
+            fsst.codes(),
+            PrimitiveArray::from_iter([i32::MAX, i32::MAX]).into_array(),
+            ctx.execution_ctx(),
+        )?
+        .into_array();
+        let schema = arrow_schema_for_array(&oversized, &mut ctx)?;
+        assert_eq!(
+            Field::try_from(&schema)?,
+            Field::new("", DataType::Utf8View, false)
+        );
         Ok(())
     }
 

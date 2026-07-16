@@ -48,6 +48,7 @@ use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
+use vortex::encodings::fsst::FSST;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
@@ -59,6 +60,7 @@ use vortex_arrow::ArrowSessionExt;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 use crate::VarBinExportLayout;
+use crate::kernel::fsst_varbin_offsets_fit;
 
 mod arrow_c_abi {
     #![allow(dead_code)]
@@ -784,6 +786,21 @@ fn arrow_device_export_field_for_array(
             ctx,
         )?;
         return Ok(Field::new_list(name, element, array.dtype().is_nullable()));
+    }
+
+    if let Ok(fsst) = array.clone().try_downcast::<FSST>() {
+        // An FSST array whose decoded size exceeds Arrow's i32 offset range cannot use the
+        // offset-based layout; `export_array` decodes it to views instead, so the schema must
+        // also fall back to the view layout for this array.
+        if ctx.cuda_session().varbin_export_layout() == VarBinExportLayout::VarBin
+            && !fsst_varbin_offsets_fit(&fsst, ctx.execution_ctx())?
+        {
+            return ctx
+                .execution_ctx()
+                .session()
+                .arrow()
+                .to_arrow_field(name, array.dtype());
+        }
     }
 
     arrow_device_export_field(name, &arrow_device_export_dtype(array.dtype()), ctx)
