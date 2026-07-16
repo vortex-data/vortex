@@ -16,7 +16,6 @@ use crate::OnPair;
 use crate::OnPairArraySlotsExt;
 use crate::decode::code_boundary_at;
 use crate::decode::collect_widened;
-use crate::decode::validate_codes;
 
 impl OperationsVTable<OnPair> for OnPair {
     fn scalar_at(
@@ -35,9 +34,6 @@ impl OperationsVTable<OnPair> for OnPair {
 
         let codes = collect_widened::<u16>(&array.codes().slice(row_start..row_end)?, ctx)?;
         let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
-        // The codes child is file-borne: reject out-of-range codes here so the
-        // decoder's panicking bounds check never fires on corrupt data.
-        validate_codes(codes.as_slice(), dict_offsets.len().saturating_sub(1))?;
         let dict =
             CompactDictionaryView::validate(array.dict_bytes().as_slice(), dict_offsets.as_slice())
                 .map_err(|e| vortex_err!(InvalidArgument: "Invalid OnPair dictionary: {e}"))?;

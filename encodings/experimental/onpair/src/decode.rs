@@ -47,23 +47,6 @@ pub(crate) fn code_boundary_at(
         .ok_or_else(|| vortex_err!("OnPair codes_offsets[{index}] is null"))
 }
 
-/// Ensure every code indexes the dictionary (`code < num_tokens`).
-///
-/// The slot children are file-borne, so a malformed `codes` child is a
-/// recoverable error, not a bug: checking up front keeps the upstream
-/// decoder/search primitives — which back their bounds checks with panics —
-/// off file-borne data they would panic on.
-pub(crate) fn validate_codes(codes: &[u16], num_tokens: usize) -> VortexResult<()> {
-    // `fold(max)` instead of `Iterator::max`: the latter's last-max-wins
-    // semantics defeat autovectorization, turning this scan scalar.
-    let max = codes.iter().fold(0u16, |acc, &c| acc.max(c));
-    vortex_ensure!(
-        codes.is_empty() || (max as usize) < num_tokens,
-        "OnPair code {max} out of range for dictionary of {num_tokens} tokens"
-    );
-    Ok(())
-}
-
 /// A validated, materialised window over an array's `codes`: the widened
 /// per-row `codes_offsets` boundaries plus the codes they bound.
 ///
@@ -88,9 +71,10 @@ impl CodesWindow {
     }
 }
 
-/// Materialise and validate the [`CodesWindow`] for every row of `array`:
-/// offsets must be nondecreasing and end within the `codes` child, and every
-/// code must index the dictionary (see [`validate_codes`]).
+/// Materialise the [`CodesWindow`] for every row of `array`: offsets must be
+/// nondecreasing and end within the `codes` child. Codes themselves are
+/// trusted to the upstream decoder/search primitives, which bounds-check them
+/// in-loop and panic on a malformed value.
 pub(crate) fn collect_codes_window(
     array: ArrayView<'_, OnPair>,
     ctx: &mut ExecutionCtx,
@@ -116,10 +100,6 @@ pub(crate) fn collect_codes_window(
         array.codes().len()
     );
     let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
-    validate_codes(
-        codes.as_slice(),
-        array.dict_offsets().len().saturating_sub(1),
-    )?;
     Ok(CodesWindow {
         offsets,
         codes,
