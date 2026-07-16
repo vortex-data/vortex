@@ -4,8 +4,10 @@
 use std::iter;
 use std::sync::Arc;
 
+use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -13,14 +15,18 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
+use crate::arrays::piecewise_sequence::validate_index_ranges;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 
 impl TakeExecute for VarBinView {
     /// Take involves creating a new array that references the old array, just with the given set of views.
@@ -29,6 +35,12 @@ impl TakeExecute for VarBinView {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+        {
+            return Ok(Some(taken));
+        }
+
         let validity = array.validity()?.take(indices)?;
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
@@ -54,6 +66,40 @@ impl TakeExecute for VarBinView {
                 .into_array(),
             ))
         }
+    }
+}
+
+fn take_piecewise_sequence(
+    array: ArrayView<'_, VarBinView>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    indices_ref: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
+        return Ok(None);
+    };
+    let views = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+            gather_piecewise_views(
+                array.views(),
+                starts.as_slice::<S>(),
+                lengths.as_slice::<L>(),
+                indices_ref.len(),
+            )?
+        })
+    });
+    let validity = array.validity()?.take(indices_ref)?;
+
+    // SAFETY: ranges were validated against the source views, and copied views still reference the
+    // same backing data buffers.
+    unsafe {
+        Ok(Some(VarBinViewArray::new_handle_unchecked(
+            BufferHandle::new_host(views.into_byte_buffer()),
+            Arc::clone(array.data_buffers()),
+            array.dtype().clone(),
+            validity,
+        )
+        .into_array()))
     }
 }
 
@@ -83,6 +129,28 @@ fn take_views<I: AsPrimitive<usize>>(
             }),
         ),
     }
+}
+
+fn gather_piecewise_views<S, L>(
+    source: &[BinaryView],
+    starts: &[S],
+    lengths: &[L],
+    output_len: usize,
+) -> VortexResult<Buffer<BinaryView>>
+where
+    S: crate::dtype::UnsignedPType,
+    L: crate::dtype::UnsignedPType,
+{
+    validate_index_ranges(source.len(), starts, lengths, output_len)?;
+
+    let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start = start.as_();
+        let length = length.as_();
+        views.extend_from_slice(&source[start..start + length]);
+    }
+
+    Ok(views.freeze())
 }
 
 #[cfg(test)]

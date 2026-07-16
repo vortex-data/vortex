@@ -7,16 +7,37 @@ use vortex_error::VortexResult;
 use vortex_session::registry::ReadContext;
 
 use crate::ArrayContext;
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
+use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::DecimalArray;
+use crate::arrays::FixedSizeListArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinViewArray;
 use crate::assert_arrays_eq;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::Nullability;
 use crate::serde::SerializeOptions;
 use crate::serde::SerializedArray;
+use crate::validity::Validity;
+
+fn piecewise_indices(
+    starts: impl IntoIterator<Item = u64>,
+    lengths: &[u64],
+) -> VortexResult<ArrayRef> {
+    let len = lengths.iter().map(|&length| length as usize).sum();
+    let starts = PrimitiveArray::from_iter(starts).into_array();
+    let lengths = PrimitiveArray::from_iter(lengths.iter().copied()).into_array();
+    let multipliers = ConstantArray::new(1u64, lengths.len()).into_array();
+    Ok(PiecewiseSequenceArray::try_new(starts, lengths, multipliers, len)?.into_array())
+}
 
 #[test]
 fn materializes_piecewise_indices() -> VortexResult<()> {
@@ -150,5 +171,100 @@ fn serde_roundtrip_preserves_piecewise_indices() -> VortexResult<()> {
         PrimitiveArray::from_iter([3u64, 5, 21, 24]).into_array(),
         &mut array_session().create_execution_ctx()
     );
+    Ok(())
+}
+
+#[test]
+fn primitive_take_consumes_piecewise_indices() -> VortexResult<()> {
+    let values = PrimitiveArray::from_iter(0i32..20).into_array();
+    let taken = values.take(piecewise_indices([3, 10], &[2, 3])?)?;
+
+    assert_arrays_eq!(
+        taken,
+        PrimitiveArray::from_iter([3i32, 4, 10, 11, 12]).into_array(),
+        &mut array_session().create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[test]
+fn bool_take_consumes_piecewise_indices() -> VortexResult<()> {
+    let values = BoolArray::from_iter([true, false, true, true, false, false]).into_array();
+    let taken = values.take(piecewise_indices([1, 4], &[2, 2])?)?;
+
+    assert_arrays_eq!(
+        taken,
+        BoolArray::from_iter([false, true, false, false]).into_array(),
+        &mut array_session().create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[test]
+fn decimal_take_consumes_piecewise_indices() -> VortexResult<()> {
+    let decimal_dtype = DecimalDType::new(19, 2);
+    let values = DecimalArray::from_iter([10i128, 20, 30, 40, 50, 60], decimal_dtype).into_array();
+    let taken = values.take(piecewise_indices([1, 4], &[2, 1])?)?;
+
+    assert_arrays_eq!(
+        taken,
+        DecimalArray::from_iter([20i128, 30, 50], decimal_dtype).into_array(),
+        &mut array_session().create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[test]
+fn varbinview_take_consumes_piecewise_indices() -> VortexResult<()> {
+    let values = VarBinViewArray::from_iter(
+        ["a", "bb", "ccc", "dddd", "eeeee"].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+    let taken = values.take(piecewise_indices([1, 3], &[2, 1])?)?;
+
+    assert_arrays_eq!(
+        taken,
+        VarBinViewArray::from_iter(
+            ["bb", "ccc", "dddd"].map(Some),
+            DType::Utf8(Nullability::NonNullable)
+        )
+        .into_array(),
+        &mut array_session().create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[test]
+fn varbin_take_consumes_piecewise_indices() -> VortexResult<()> {
+    let values = VarBinArray::from_iter(
+        ["a", "bb", "ccc", "dddd", "eeeee"].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+    let taken = values.take(piecewise_indices([1, 3], &[2, 1])?)?;
+
+    assert_arrays_eq!(
+        taken,
+        VarBinArray::from_iter(
+            ["bb", "ccc", "dddd"].map(Some),
+            DType::Utf8(Nullability::NonNullable)
+        )
+        .into_array(),
+        &mut array_session().create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[test]
+fn fixed_size_list_take_builds_piecewise_element_indices() -> VortexResult<()> {
+    let elements = PrimitiveArray::from_iter(0i32..12).into_array();
+    let array = FixedSizeListArray::new(elements, 3, Validity::NonNullable, 4).into_array();
+    let taken = array.take(buffer![1u64, 3].into_array())?;
+
+    let expected_elements = PrimitiveArray::from_iter([3i32, 4, 5, 9, 10, 11]).into_array();
+    let expected =
+        FixedSizeListArray::new(expected_elements, 3, Validity::NonNullable, 2).into_array();
+    assert_arrays_eq!(taken, expected, &mut array_session().create_execution_ctx());
     Ok(())
 }

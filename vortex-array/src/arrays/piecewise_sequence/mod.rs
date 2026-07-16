@@ -21,6 +21,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
+use crate::scalar::PValue;
 
 pub mod array;
 mod vtable;
@@ -63,6 +64,30 @@ pub(crate) fn execute_index_arrays(
     let multipliers = array.multipliers().clone().execute::<PrimitiveArray>(ctx)?;
     check_index_arrays(starts.as_ref(), lengths.as_ref(), multipliers.as_ref())?;
     Ok((starts, lengths, multipliers))
+}
+
+pub(crate) fn execute_unit_multiplier_index_arrays(
+    array: ArrayView<'_, PiecewiseSequence>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<(PrimitiveArray, PrimitiveArray)>> {
+    if !is_constant_multiplier_one(array.multipliers()) {
+        return Ok(None);
+    }
+
+    let starts = array.starts().clone().execute::<PrimitiveArray>(ctx)?;
+    let lengths = array.lengths().clone().execute::<PrimitiveArray>(ctx)?;
+    check_index_arrays(starts.as_ref(), lengths.as_ref(), array.multipliers())?;
+    Ok(Some((starts, lengths)))
+}
+
+pub(crate) fn is_constant_multiplier_one(multipliers: &ArrayRef) -> bool {
+    let Some(scalar) = multipliers.as_constant() else {
+        return false;
+    };
+    matches!(
+        scalar.as_primitive_opt().and_then(|scalar| scalar.pvalue()),
+        Some(PValue::U8(1) | PValue::U16(1) | PValue::U32(1) | PValue::U64(1))
+    )
 }
 
 fn check_index_array(name: &str, array: &ArrayRef) -> VortexResult<()> {
@@ -122,4 +147,37 @@ where
         );
     }
     Ok(values)
+}
+
+pub(crate) fn validate_index_ranges<S, L>(
+    source_len: usize,
+    starts: &[S],
+    lengths: &[L],
+    output_len: usize,
+) -> VortexResult<()>
+where
+    S: UnsignedPType,
+    L: UnsignedPType,
+{
+    let mut computed_len = 0usize;
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start: usize = start.as_();
+        let length: usize = length.as_();
+        let end = start.checked_add(length).ok_or_else(|| {
+            vortex_err!("PiecewiseSequenceArray range overflows usize")
+        })?;
+        vortex_ensure!(
+            end <= source_len,
+            "PiecewiseSequenceArray range {start}..{end} exceeds source length {source_len}"
+        );
+        computed_len = computed_len.checked_add(length).ok_or_else(|| {
+            vortex_err!("PiecewiseSequenceArray output length overflows usize")
+        })?;
+    }
+
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
+    Ok(())
 }

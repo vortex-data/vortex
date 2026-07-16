@@ -6,6 +6,7 @@ mod avx2;
 
 use std::sync::LazyLock;
 
+use itertools::Itertools as _;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -16,15 +17,19 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
+use crate::arrays::PiecewiseSequence;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
+use crate::arrays::piecewise_sequence::validate_index_ranges;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -79,6 +84,12 @@ impl TakeExecute for Primitive {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+        {
+            return Ok(Some(taken));
+        }
+
         let DType::Primitive(ptype, null) = indices.dtype() else {
             vortex_bail!("Invalid indices dtype: {}", indices.dtype())
         };
@@ -123,6 +134,31 @@ impl TakeExecute for Primitive {
     }
 }
 
+fn take_piecewise_sequence(
+    array: ArrayView<'_, Primitive>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    indices_ref: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
+        return Ok(None);
+    };
+    match_each_native_ptype!(array.ptype(), |T| {
+        match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+            match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+                let values = primitive_piecewise_values::<T, S, L>(
+                    array.as_slice::<T>(),
+                    starts.as_slice::<S>(),
+                    lengths.as_slice::<L>(),
+                    indices_ref.len(),
+                )?;
+                let validity = array.validity()?.take(indices_ref)?;
+                Ok(Some(PrimitiveArray::new(values, validity).into_array()))
+            })
+        })
+    })
+}
+
 // Compiler may see this as unused based on enabled features
 #[inline(always)]
 fn take_primitive_scalar<T: Copy, I: IntegerPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
@@ -142,6 +178,29 @@ fn take_primitive_scalar<T: Copy, I: IntegerPType>(buffer: &[T], indices: &[I]) 
     // SAFETY: We just wrote exactly `indices.len()` elements.
     unsafe { result.set_len(indices.len()) };
     result.freeze()
+}
+
+fn primitive_piecewise_values<T, S, L>(
+    source: &[T],
+    starts: &[S],
+    lengths: &[L],
+    output_len: usize,
+) -> VortexResult<Buffer<T>>
+where
+    T: Copy,
+    S: crate::dtype::UnsignedPType,
+    L: crate::dtype::UnsignedPType,
+{
+    validate_index_ranges(source.len(), starts, lengths, output_len)?;
+
+    let mut values = BufferMut::<T>::with_capacity(output_len);
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start = start.as_();
+        let length = length.as_();
+        values.extend_from_slice(&source[start..start + length]);
+    }
+
+    Ok(values.freeze())
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
