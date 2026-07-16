@@ -131,6 +131,7 @@ mod tests {
     use crate::vx_runtime_worker_count;
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn runtime_worker_pool_configuration() {
         assert_eq!(vx_runtime_worker_count(), 0);
         vx_runtime_set_worker_threads(2);
