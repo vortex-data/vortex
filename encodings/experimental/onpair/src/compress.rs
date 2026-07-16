@@ -88,17 +88,7 @@ where
         .map_err(|e| vortex_err!("OnPair compress failed: {e}"))?;
     let (dict, codes, row_offsets) = column.into_raw();
     let (dict_bytes, dict_offsets) = dict.into_raw();
-    let codes_offsets = Buffer::from(
-        row_offsets
-            .into_iter()
-            .map(|o| {
-                let value = o.to_usize();
-                u32::try_from(value)
-                    .map_err(|_| vortex_err!("OnPair code boundary {value} does not fit u32"))
-            })
-            .collect::<VortexResult<Vec<_>>>()?,
-    )
-    .into_array();
+    let codes_offsets = codes_offsets_array(&row_offsets, u32::MAX as usize);
     let codes = Buffer::from(codes).into_array();
     let dict_offsets = Buffer::from(dict_offsets).into_array();
 
@@ -133,6 +123,35 @@ fn dict_bytes_to_buffer(dict_bytes: Vec<u8>) -> BufferHandle {
     BufferHandle::new_host(aligned.freeze())
 }
 
+/// Build the `codes_offsets` child from the library's per-row code boundaries,
+/// storing the narrowest of `u32`/`u64` that holds the largest boundary.
+/// `row_offsets` is non-decreasing, so its last entry is that maximum and one
+/// bound check picks the width. `u32` covers the common case (the cascading
+/// compressor narrows it further to `u16`/`u8`); `u64` engages only when a
+/// single chunk carries more than `u32_max` tokens, matching the `u64` byte
+/// offsets accepted at compression. `u32_max` is a parameter so tests can drive
+/// the `u64` branch without a multi-GiB array.
+fn codes_offsets_array<O: Offset>(row_offsets: &[O], u32_max: usize) -> ArrayRef {
+    let total_tokens = row_offsets.last().map_or(0, |&o| o.to_usize());
+    if total_tokens <= u32_max {
+        Buffer::from(
+            row_offsets
+                .iter()
+                .map(|&o| u32::try_from(o.to_usize()).vortex_expect("code boundary fits u32"))
+                .collect::<Vec<u32>>(),
+        )
+        .into_array()
+    } else {
+        Buffer::from(
+            row_offsets
+                .iter()
+                .map(|&o| u64::try_from(o.to_usize()).vortex_expect("token count fits u64"))
+                .collect::<Vec<u64>>(),
+        )
+        .into_array()
+    }
+}
+
 /// Compress any [`ArrayRef`] whose canonical form is a string array, by first
 /// canonicalising to `VarBinViewArray`.
 pub fn onpair_compress(
@@ -142,4 +161,31 @@ pub fn onpair_compress(
 ) -> VortexResult<OnPairArray> {
     let view = array.clone().execute::<VarBinViewArray>(ctx)?;
     onpair_compress_varbinview::<u64>(view, config, ctx)
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+
+    use super::codes_offsets_array;
+
+    #[test]
+    fn codes_offsets_width_selection() {
+        // Largest boundary within the threshold is stored as u32.
+        let narrow = codes_offsets_array::<u64>(&[0, 3, 7], 7);
+        assert_eq!(narrow.len(), 3);
+        assert_eq!(
+            narrow.dtype(),
+            &DType::Primitive(PType::U32, Nullability::NonNullable)
+        );
+
+        // A boundary above the threshold widens the child to u64.
+        let wide = codes_offsets_array::<u64>(&[0, 3, 8], 7);
+        assert_eq!(
+            wide.dtype(),
+            &DType::Primitive(PType::U64, Nullability::NonNullable)
+        );
+    }
 }

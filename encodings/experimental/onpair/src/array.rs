@@ -104,8 +104,9 @@ pub struct OnPairSlots {
     /// Primitive integer token codes. Downstream integer compression may
     /// narrow or bit-pack this child independently of the OnPair metadata.
     pub codes: ArrayRef,
-    /// `PrimitiveArray<u32>`, length `num_rows + 1`. FoR / RunEnd / etc. apply
-    /// naturally via the cascading compressor.
+    /// `PrimitiveArray<u32>` (or `u64` when a chunk exceeds `u32::MAX` tokens),
+    /// length `num_rows + 1`. FoR / RunEnd / etc. apply naturally via the
+    /// cascading compressor.
     pub codes_offsets: ArrayRef,
     /// Integer `PrimitiveArray`, length `num_rows`. Used to size the canonical
     /// output buffer.

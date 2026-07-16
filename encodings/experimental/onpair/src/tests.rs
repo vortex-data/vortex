@@ -7,15 +7,19 @@ use onpair::CompactDictionaryView;
 use prost::Message;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -110,6 +114,67 @@ fn test_onpair_roundtrip() -> vortex_error::VortexResult<()> {
     assert_eq!(
         got[3].as_deref(),
         Some(b"ftp://files.example.com/x".as_ref())
+    );
+    Ok(())
+}
+
+/// The `u64` `codes_offsets` branch only engages past `u32::MAX` tokens (a
+/// multi-GiB chunk), so exercise the read path by widening a small array's
+/// `codes_offsets` child to `u64` by hand and asserting the decode paths
+/// (canonical and the compressed-domain equality compare, which builds a
+/// `CodesWindow`) treat it identically to the default `u32` width.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_u64_codes_offsets() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let narrow = onpair_compress(
+        &sample_input().into_array(),
+        DEFAULT_DICT12_CONFIG,
+        &mut ctx,
+    )?;
+
+    // Rebuild with only codes_offsets widened to u64; every other child is the
+    // input's, so the two arrays differ solely in codes_offsets width.
+    let wide = {
+        let view = narrow.as_view();
+        let wide_offsets = view
+            .codes_offsets()
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
+        OnPair::try_new(
+            view.dtype().clone(),
+            view.dict_bytes_handle().clone(),
+            view.dict_offsets().clone(),
+            view.codes().clone(),
+            wide_offsets,
+            view.uncompressed_lengths().clone(),
+            view.array_validity(),
+        )?
+    };
+    assert_eq!(
+        wide.as_view().codes_offsets().dtype(),
+        &DType::Primitive(PType::U64, Nullability::NonNullable)
+    );
+
+    // Canonical decode is byte-identical across the two widths.
+    let narrow_decoded = narrow.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+    let wide_decoded = wide
+        .clone()
+        .into_array()
+        .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(&wide_decoded, &narrow_decoded, &mut ctx);
+
+    // Equality compare drives CodesWindow over the u64 codes_offsets.
+    let needle = ConstantArray::new("https://www.example.com/page", wide.len()).into_array();
+    let eq = wide
+        .into_array()
+        .binary(needle, Operator::Eq)?
+        .execute::<BoolArray>(&mut ctx)?;
+    assert_arrays_eq!(
+        &eq,
+        &BoolArray::from_iter([true, false, false, false, true]),
+        &mut ctx
     );
     Ok(())
 }

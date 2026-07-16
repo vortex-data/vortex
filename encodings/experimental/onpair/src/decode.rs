@@ -12,6 +12,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -57,7 +58,7 @@ pub(crate) fn code_boundary_at(
 ///
 /// [`row`]: CodesWindow::row
 pub(crate) struct CodesWindow {
-    offsets: Buffer<u32>,
+    offsets: Buffer<u64>,
     codes: Buffer<u16>,
     code_start: usize,
 }
@@ -65,9 +66,13 @@ pub(crate) struct CodesWindow {
 impl CodesWindow {
     /// The codes for row `i`.
     pub(crate) fn row(&self, i: usize) -> &[u16] {
-        let start = self.offsets[i] as usize - self.code_start;
-        let end = self.offsets[i + 1] as usize - self.code_start;
-        &self.codes[start..end]
+        &self.codes[self.local(i)..self.local(i + 1)]
+    }
+
+    /// Offset `i` rebased into the window's local `codes` slice. Offsets are
+    /// bounded by `codes.len()` (a `usize`), so the conversion never truncates.
+    fn local(&self, i: usize) -> usize {
+        usize::try_from(self.offsets[i]).vortex_expect("code offset fits usize") - self.code_start
     }
 }
 
@@ -80,7 +85,7 @@ pub(crate) fn collect_codes_window(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<CodesWindow> {
     let len = array.len();
-    let offsets = collect_widened::<u32>(array.codes_offsets(), ctx)?;
+    let offsets = collect_widened::<u64>(array.codes_offsets(), ctx)?;
     vortex_ensure!(
         offsets.len() == len + 1,
         "OnPair codes_offsets has {} entries, expected len + 1 = {}",
@@ -91,8 +96,8 @@ pub(crate) fn collect_codes_window(
         offsets.is_sorted(),
         "OnPair codes_offsets must be nondecreasing"
     );
-    let code_start = offsets[0] as usize;
-    let code_end = offsets[len] as usize;
+    let code_start = usize::try_from(offsets[0]).vortex_expect("code offset fits usize");
+    let code_end = usize::try_from(offsets[len]).vortex_expect("code offset fits usize");
     vortex_ensure!(
         code_end <= array.codes().len(),
         "OnPair codes_offsets end {} exceeds codes len {}",
