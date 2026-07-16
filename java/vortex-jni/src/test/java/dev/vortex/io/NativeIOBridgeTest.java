@@ -83,11 +83,11 @@ public final class NativeIOBridgeTest {
         }
 
         @Override
-        public void readFully(long position, byte[] buffer, int offset, int len) throws IOException {
-            ByteBuffer target = ByteBuffer.wrap(buffer, offset, len);
+        public void readFully(long position, ByteBuffer buffer) throws IOException {
+            int len = buffer.remaining();
             long pos = position;
-            while (target.hasRemaining()) {
-                int read = channel.read(target, pos);
+            while (buffer.hasRemaining()) {
+                int read = channel.read(buffer, pos);
                 if (read < 0) {
                     throw new EOFException("EOF reading " + len + " bytes at position " + position);
                 }
@@ -304,7 +304,7 @@ public final class NativeIOBridgeTest {
             }
 
             @Override
-            public void readFully(long position, byte[] buffer, int offset, int length) throws IOException {
+            public void readFully(long position, ByteBuffer buffer) throws IOException {
                 throw new IOException("boom: injected read failure");
             }
 

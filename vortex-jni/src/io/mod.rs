@@ -51,13 +51,6 @@ pub(crate) fn with_jvm<T>(
     vm.attach_current_thread(f).map_err(VortexError::from)
 }
 
-/// View a mutable byte slice as `jbyte`s for JNI array-region calls.
-fn as_jbyte_slice_mut(bytes: &mut [u8]) -> &mut [i8] {
-    // SAFETY: `u8` and `i8` have identical size and alignment, and every bit
-    // pattern is valid for both.
-    unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr().cast::<i8>(), bytes.len()) }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use std::sync::Arc;

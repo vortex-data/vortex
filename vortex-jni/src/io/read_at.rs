@@ -57,8 +57,10 @@ impl UpcallLimiter {
 
 /// A [`VortexReadAt`] backed by a Java object implementing `dev.vortex.io.NativeReadable`.
 ///
-/// Positional reads are forwarded as blocking `readFully(long, byte[], int, int)`
-/// upcalls executed on the runtime's blocking pool. The file size is captured at
+/// Positional reads are forwarded as blocking `readFully(long, ByteBuffer)` upcalls
+/// executed on the runtime's blocking pool. The destination is a direct `ByteBuffer`
+/// wrapping the Rust-side allocation, so Java writes land in the buffer handed to the
+/// scan without a copy through a heap `byte[]`. The file size is captured at
 /// construction time (Java callers know it from metadata), so `size()` never crosses
 /// the JNI boundary.
 pub(crate) struct JavaReadable {
@@ -89,7 +91,7 @@ impl JavaReadable {
 
 impl VortexReadAt for JavaReadable {
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        // Upcalls have a fixed JNI + copy overhead and the backing storage is usually
+        // Upcalls have a fixed JNI overhead and the backing storage is usually
         // remote, so favor fewer, larger reads.
         Some(CoalesceConfig::object_storage())
     }
@@ -137,32 +139,54 @@ impl VortexReadAt for JavaReadable {
                     if end > len {
                         vortex_bail!("read {offset}..{end} out of bounds for file of length {len}");
                     }
-                    let jlength = i32::try_from(length).map_err(|_| {
-                        vortex_err!("read length {length} exceeds Java array limit")
-                    })?;
+                    // `java.nio.Buffer` capacities are Java ints.
+                    if i32::try_from(length).is_err() {
+                        vortex_bail!("read length {length} exceeds ByteBuffer limit");
+                    }
                     let joffset = i64::try_from(offset)
                         .map_err(|_| vortex_err!("read offset {offset} exceeds i64"))?;
 
                     let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
-                    // SAFETY: The write call is going to populate it or fail
-                    unsafe { buffer.set_len(length) };
                     with_jvm(&vm, |env| {
-                        let array = env.byte_array_from_slice(buffer.as_slice())?;
+                        // SAFETY: the pointer covers `length` bytes of live allocation, and
+                        // the direct buffer wrapping it does not outlive this call —
+                        // `readFully` is synchronous and the interface forbids retaining
+                        // the buffer after it returns.
+                        let dst = unsafe {
+                            env.new_direct_byte_buffer(
+                                buffer.spare_capacity_mut().as_mut_ptr().cast(),
+                                length,
+                            )?
+                        };
                         env.call_method(
                             readable.as_ref(),
                             jni::jni_str!("readFully"),
-                            jni::jni_sig!("(J[BII)V"),
-                            &[
-                                JValue::Long(joffset),
-                                JValue::Object(array.as_ref()),
-                                JValue::Int(0),
-                                JValue::Int(jlength),
-                            ],
+                            jni::jni_sig!("(JLjava/nio/ByteBuffer;)V"),
+                            &[JValue::Long(joffset), JValue::Object(dst.as_ref())],
                         )?;
+                        // Guard against implementations that return without filling the
+                        // buffer, which would hand uninitialized memory to the scan.
+                        let remaining = env
+                            .call_method(
+                                &dst,
+                                jni::jni_str!("remaining"),
+                                jni::jni_sig!("()I"),
+                                &[],
+                            )?
+                            .i()?;
+                        if remaining != 0 {
+                            return Err(vortex_err!(
+                                "readFully returned with {remaining} of {length} bytes unfilled"
+                            )
+                            .into());
+                        }
                         Ok(())
                     })
                     .map_err(|e| e.with_context("readFully upcall failed"))?;
 
+                    // SAFETY: `readFully` wrote all `length` bytes through the direct
+                    // buffer, verified by the `remaining()` check above.
+                    unsafe { buffer.set_len(length) };
                     Ok(BufferHandle::new_host(buffer.freeze()))
                 })
                 .await
