@@ -1452,6 +1452,7 @@ mod tests {
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
     use vortex::array::arrays::BoolArray;
+    use vortex::array::arrays::ChunkedArray;
     use vortex::array::arrays::DecimalArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::FixedSizeListArray;
@@ -2481,8 +2482,6 @@ mod tests {
         #[case] expected_element_type: DataType,
         #[case] expected_element_n_buffers: i64,
     ) -> VortexResult<()> {
-        use vortex::array::arrays::ChunkedArray;
-
         let mut ctx = cuda_ctx_with_varbin_layout(layout)?;
 
         let elements = VarBinViewArray::from_iter_str([
