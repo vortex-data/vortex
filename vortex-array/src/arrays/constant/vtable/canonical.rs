@@ -8,7 +8,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -32,6 +31,7 @@ use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
 use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::dtype::UnionVariants;
 use crate::match_each_decimal_value;
 use crate::match_each_decimal_value_type;
@@ -167,9 +167,12 @@ pub(crate) fn constant_canonicalize(
                 StructArray::new_unchecked(fields, struct_dtype.clone(), array.len(), validity)
             })
         }
-        DType::Union(variants) => {
-            Canonical::Union(constant_canonical_union(scalar, variants, array.len())?)
-        }
+        DType::Union(variants, nullability) => Canonical::Union(constant_canonical_union(
+            scalar,
+            variants,
+            *nullability,
+            array.len(),
+        )?),
         DType::Variant(_) => Canonical::Variant(VariantArray::try_new(
             array.array().clone().into_array(),
             None,
@@ -196,40 +199,30 @@ pub(crate) fn constant_canonicalize(
 fn constant_canonical_union(
     scalar: &Scalar,
     variants: &UnionVariants,
+    nullability: Nullability,
     len: usize,
 ) -> VortexResult<UnionArray> {
-    if scalar.is_null() {
-        vortex_bail!(
-            "Canonicalizing a null union scalar is not supported until null semantics are defined"
-        )
-    }
-    if variants.variants().any(|variant| variant.is_nullable()) {
-        vortex_bail!("Canonical UnionArray children must be non-nullable")
-    }
-
     let union = scalar.as_union();
-    let type_id = union
-        .type_id()
-        .vortex_expect("non-null union scalar must have a type ID");
-    let selected_child = union
-        .child_index()
-        .vortex_expect("validated union scalar must select a child");
-    let selected_value = union
-        .value()
-        .vortex_expect("non-null union scalar must have a value");
+    let selected = union.child_index().zip(union.value());
 
     let children = variants
         .variants()
         .enumerate()
         .map(|(index, dtype)| {
-            let value = if index == selected_child {
-                selected_value.clone()
-            } else {
-                Scalar::zero_value(&dtype)
+            let value = match selected {
+                Some((selected_child, selected_value)) if index == selected_child => {
+                    selected_value.clone()
+                }
+                _ => Scalar::default_value(&dtype),
             };
             ConstantArray::new(value, len).into_array()
         })
         .collect::<Vec<_>>();
+
+    let type_id = match union.type_id() {
+        Some(type_id) => Scalar::primitive(type_id, nullability),
+        None => Scalar::null(DType::Primitive(PType::U8, Nullability::Nullable)),
+    };
 
     UnionArray::try_new(
         ConstantArray::new(type_id, len).into_array(),

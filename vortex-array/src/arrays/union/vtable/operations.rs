@@ -17,12 +17,10 @@ impl OperationsVTable<Union> for Union {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let type_id = array
-            .type_ids()
-            .execute_scalar(index, ctx)?
-            .as_primitive()
-            .typed_value::<i8>()
-            .ok_or_else(|| vortex_err!("UnionArray type ID at index {index} is null"))?;
+        let type_id_scalar = array.type_ids().execute_scalar(index, ctx)?;
+        let Some(type_id) = type_id_scalar.as_primitive().typed_value::<u8>() else {
+            return Ok(Scalar::null(array.dtype().clone()));
+        };
         let child_index = array
             .variants()
             .tag_to_child_index(type_id)
@@ -32,6 +30,11 @@ impl OperationsVTable<Union> for Union {
             .ok_or_else(|| vortex_err!("UnionArray is missing child {child_index}"))?;
         let child_scalar = child.execute_scalar(index, ctx)?;
 
-        Scalar::union(array.variants().clone(), type_id, child_scalar)
+        Scalar::union(
+            array.variants().clone(),
+            type_id,
+            child_scalar,
+            array.dtype().nullability(),
+        )
     }
 }

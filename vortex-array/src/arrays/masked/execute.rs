@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::IntoArray;
@@ -18,6 +17,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::UnionArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::bool::BoolArrayExt;
@@ -25,6 +25,7 @@ use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::struct_::StructArrayExt;
+use crate::arrays::union::UnionArrayExt;
 use crate::arrays::variant::VariantArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
@@ -51,9 +52,7 @@ pub fn mask_validity_canonical(
             Canonical::FixedSizeList(mask_validity_fixed_size_list(a, validity)?)
         }
         Canonical::Struct(a) => Canonical::Struct(mask_validity_struct(a, validity)?),
-        Canonical::Union(_) => {
-            vortex_bail!("Masking UnionArray is not supported until null semantics are defined")
-        }
+        Canonical::Union(a) => Canonical::Union(mask_validity_union(a, validity)?),
         Canonical::Extension(a) => Canonical::Extension(mask_validity_extension(a, validity, ctx)?),
         Canonical::Variant(a) => Canonical::Variant(mask_validity_variant(a, validity, ctx)?),
     })
@@ -144,6 +143,19 @@ fn mask_validity_struct(array: StructArray, validity: Validity) -> VortexResult<
     let struct_fields = array.struct_fields();
     // SAFETY: We're only changing validity, not the data structure
     Ok(unsafe { StructArray::new_unchecked(fields, struct_fields.clone(), len, new_validity) })
+}
+
+fn mask_validity_union(array: UnionArray, validity: Validity) -> VortexResult<UnionArray> {
+    let type_ids = array
+        .type_ids()
+        .clone()
+        .mask(validity.to_array(array.len()))?;
+    let variants = array.variants().clone();
+    let children = array.children();
+
+    // SAFETY: Masking type IDs changes only outer validity. Values at newly-null positions are no
+    // longer selected, and every row-aligned component retains its length and dtype.
+    Ok(unsafe { UnionArray::new_unchecked(type_ids, variants, children) })
 }
 
 fn mask_validity_extension(

@@ -3,12 +3,10 @@
 
 //! Canonical sparse union arrays.
 //!
-//! A [`UnionArray`] stores one non-nullable `i8` type ID per row followed by one row-aligned child
-//! for each variant. The type ID selects which child's value is active for a row; values in all
-//! other children at that row are placeholders.
-//!
-//! Union nullability semantics are still being designed, so this encoding currently requires every
-//! variant child to be non-nullable.
+//! A [`UnionArray`] stores one `u8` type ID per row followed by one row-aligned child for each
+//! variant. The type ID selects which child's value is active for a row; values in all other
+//! children at that row are placeholders. Outer union nulls are stored as nulls in the type IDs
+//! child, independently of nulls in the selected variant child.
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -24,7 +22,9 @@ pub(crate) mod compute;
 mod vtable;
 pub use vtable::Union;
 
-pub(crate) const TYPE_IDS_DTYPE: DType = DType::Primitive(PType::I8, Nullability::NonNullable);
+pub(crate) fn type_ids_dtype(nullability: Nullability) -> DType {
+    DType::Primitive(PType::U8, nullability)
+}
 
 #[cfg(test)]
 mod tests;

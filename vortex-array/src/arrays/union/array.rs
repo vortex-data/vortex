@@ -19,8 +19,8 @@ use crate::array::EmptyArrayData;
 use crate::array::TypedArrayRef;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Union;
-use crate::arrays::union::TYPE_IDS_DTYPE;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::dtype::UnionVariants;
 use crate::legacy_session;
 
@@ -35,11 +35,18 @@ pub(super) fn make_union_parts(
     children: &[ArrayRef],
 ) -> ArrayParts<Union> {
     let len = type_ids.len();
+    let nullability = type_ids.dtype().nullability();
     let slots: ArraySlots = once(Some(type_ids))
         .chain(children.iter().cloned().map(Some))
         .collect();
 
-    ArrayParts::new(Union, DType::Union(variants), len, EmptyArrayData).with_slots(slots)
+    ArrayParts::new(
+        Union,
+        DType::Union(variants, nullability),
+        len,
+        EmptyArrayData,
+    )
+    .with_slots(slots)
 }
 
 /// Concrete parts of a [`UnionArray`](super::UnionArray).
@@ -57,12 +64,12 @@ pub trait UnionArrayExt: TypedArrayRef<Union> {
     /// The union's variant schema.
     fn variants(&self) -> &UnionVariants {
         match self.as_ref().dtype() {
-            DType::Union(variants) => variants,
+            DType::Union(variants, _) => variants,
             _ => unreachable!("UnionArrayExt requires a union dtype"),
         }
     }
 
-    /// The row-aligned non-nullable `i8` type IDs.
+    /// The row-aligned `u8` type IDs whose nulls represent outer union nulls.
     fn type_ids(&self) -> &ArrayRef {
         self.as_ref().slots()[TYPE_IDS_SLOT]
             .as_ref()
@@ -87,7 +94,7 @@ pub trait UnionArrayExt: TypedArrayRef<Union> {
     }
 
     /// Return a sparse child selected by a data-level type ID.
-    fn child_by_type_id(&self, type_id: i8) -> Option<&ArrayRef> {
+    fn child_by_type_id(&self, type_id: u8) -> Option<&ArrayRef> {
         self.child(self.variants().tag_to_child_index(type_id)?)
     }
 
@@ -118,13 +125,22 @@ fn validate_type_id_values(array: &Array<Union>) -> VortexResult<()> {
         return Ok(());
     }
 
+    let mut ctx = legacy_session().create_execution_ctx();
     let type_ids = array
         .type_ids()
         .clone()
-        .execute::<PrimitiveArray>(&mut legacy_session().create_execution_ctx())?;
-    for type_id in type_ids.as_slice::<i8>() {
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    let values = type_ids.as_slice::<u8>();
+    let validity = type_ids.validity()?.execute_mask(array.len(), &mut ctx)?;
+    let valid_indices: Box<dyn Iterator<Item = usize> + '_> = match &validity {
+        vortex_mask::Mask::AllTrue(_) => Box::new(0..values.len()),
+        vortex_mask::Mask::AllFalse(_) => Box::new(std::iter::empty()),
+        vortex_mask::Mask::Values(mask) => Box::new(mask.indices().iter().copied()),
+    };
+    for index in valid_indices {
+        let type_id = values[index];
         vortex_ensure!(
-            array.variants().tag_to_child_index(*type_id).is_some(),
+            array.variants().tag_to_child_index(type_id).is_some(),
             "UnionArray type ID {type_id} is not present in {:?}",
             array.variants().type_ids()
         );
@@ -150,8 +166,6 @@ impl Array<Union> {
 
     /// Try to construct a canonical sparse union array.
     ///
-    /// Until Union nullability semantics are settled, every child must be non-nullable.
-    ///
     /// # Errors
     ///
     /// Returns an error if the type IDs and sparse children do not match the variant schema or do
@@ -162,8 +176,11 @@ impl Array<Union> {
         children: impl Into<Arc<[ArrayRef]>>,
     ) -> VortexResult<Self> {
         vortex_ensure!(
-            type_ids.dtype() == &TYPE_IDS_DTYPE,
-            "UnionArray type_ids must be non-nullable i8, got {}",
+            matches!(
+                type_ids.dtype(),
+                DType::Primitive(crate::dtype::PType::U8, _)
+            ),
+            "UnionArray type_ids must be u8, got {}",
             type_ids.dtype()
         );
 
@@ -178,9 +195,9 @@ impl Array<Union> {
     ///
     /// # Safety
     ///
-    /// The caller must ensure the type IDs are non-nullable `i8` values declared by `variants`,
-    /// every child has the corresponding variant dtype, and all arrays have the same length. The
-    /// children must currently be non-nullable.
+    /// The caller must ensure every non-null type ID is a `u8` value declared by `variants`, every
+    /// child has the corresponding variant dtype, and all arrays have the same length. Null type
+    /// IDs represent outer union nulls.
     pub unsafe fn new_unchecked(
         type_ids: ArrayRef,
         variants: UnionVariants,
@@ -202,9 +219,9 @@ impl Array<Union> {
         }
     }
 
-    /// Create an empty array for a non-nullable union dtype.
-    pub(crate) fn empty(variants: UnionVariants) -> Self {
-        let type_ids = PrimitiveArray::from_iter(Vec::<i8>::new()).into_array();
+    /// Create an empty array for a union dtype.
+    pub(crate) fn empty(variants: UnionVariants, nullability: Nullability) -> Self {
+        let type_ids = PrimitiveArray::empty::<u8>(nullability).into_array();
         let children: Vec<_> = variants
             .variants()
             .map(|dtype| crate::Canonical::empty(&dtype).into_array())

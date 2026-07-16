@@ -25,8 +25,8 @@ use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrays::union::TYPE_IDS_DTYPE;
 use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::type_ids_dtype;
 use crate::arrays::variant::VariantArrayExt;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
@@ -105,7 +105,7 @@ fn pack_union_chunks(chunks: Vec<ArrayRef>, ctx: &mut ExecutionCtx) -> VortexRes
             .iter()
             .map(|chunk| chunk.type_ids().clone())
             .collect(),
-        TYPE_IDS_DTYPE,
+        type_ids_dtype(union_chunks[0].dtype().nullability()),
     )?
     .into_array();
     let children = variants

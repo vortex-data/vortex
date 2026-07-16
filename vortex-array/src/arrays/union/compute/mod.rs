@@ -4,6 +4,8 @@
 mod filter;
 pub(crate) use filter::filter_union;
 
+mod mask;
+
 pub(crate) mod rules;
 
 mod slice;

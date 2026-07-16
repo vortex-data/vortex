@@ -234,7 +234,9 @@ impl Canonical {
                     Validity::from(n),
                 )
             }),
-            DType::Union(variants) => Canonical::Union(UnionArray::empty(variants.clone())),
+            DType::Union(variants, nullability) => {
+                Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
+            }
             DType::Variant(_) => {
                 vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
             }

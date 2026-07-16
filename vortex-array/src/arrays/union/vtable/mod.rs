@@ -19,12 +19,12 @@ use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
-use crate::arrays::union::TYPE_IDS_DTYPE;
 use crate::arrays::union::UnionArrayExt;
 use crate::arrays::union::array::CHILDREN_OFFSET;
 use crate::arrays::union::array::TYPE_IDS_SLOT;
 use crate::arrays::union::array::make_union_parts;
 use crate::arrays::union::compute::rules::PARENT_RULES;
+use crate::arrays::union::type_ids_dtype;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -57,13 +57,9 @@ impl VTable for Union {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let DType::Union(variants) = dtype else {
+        let DType::Union(variants, nullability) = dtype else {
             vortex_bail!("Expected union dtype, found {dtype}")
         };
-        vortex_ensure!(
-            variants.variants().all(|variant| !variant.is_nullable()),
-            "UnionArray children must be non-nullable"
-        );
         vortex_ensure!(
             slots.len() == CHILDREN_OFFSET + variants.len(),
             "UnionArray has {} slots but expected {}",
@@ -74,9 +70,10 @@ impl VTable for Union {
         let type_ids = slots[TYPE_IDS_SLOT]
             .as_ref()
             .ok_or_else(|| vortex_err!("UnionArray is missing its type_ids slot"))?;
+        let expected_type_ids_dtype = type_ids_dtype(*nullability);
         vortex_ensure!(
-            type_ids.dtype() == &TYPE_IDS_DTYPE,
-            "UnionArray type_ids must be non-nullable i8, got {}",
+            type_ids.dtype() == &expected_type_ids_dtype,
+            "UnionArray type_ids must have dtype {expected_type_ids_dtype}, got {}",
             type_ids.dtype()
         );
         vortex_ensure!(
@@ -142,7 +139,7 @@ impl VTable for Union {
     ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(metadata.is_empty(), "UnionArray expects empty metadata");
         vortex_ensure!(buffers.is_empty(), "UnionArray expects no buffers");
-        let DType::Union(variants) = dtype else {
+        let DType::Union(variants, nullability) = dtype else {
             vortex_bail!("Expected union dtype, found {dtype}")
         };
         vortex_ensure!(
@@ -152,7 +149,7 @@ impl VTable for Union {
             children.len()
         );
 
-        let type_ids = children.get(TYPE_IDS_SLOT, &TYPE_IDS_DTYPE, len)?;
+        let type_ids = children.get(TYPE_IDS_SLOT, &type_ids_dtype(*nullability), len)?;
         let sparse_children = variants
             .variants()
             .enumerate()

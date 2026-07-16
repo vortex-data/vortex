@@ -20,6 +20,7 @@ use crate::ArrayView;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::Decimal;
@@ -28,8 +29,11 @@ use crate::arrays::FixedSizeList;
 use crate::arrays::ListView;
 use crate::arrays::Null;
 use crate::arrays::Primitive;
+use crate::arrays::UnionArray;
 use crate::arrays::VarBinView;
 use crate::arrays::struct_::compute::cast::struct_cast;
+use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::type_ids_dtype;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::expression::Expression;
@@ -185,14 +189,34 @@ fn cast_canonical(
         CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Struct(a) => struct_cast(a, dtype, ctx),
-        CanonicalView::Union(_) => {
-            vortex_bail!("Union arrays don't support casting yet")
-        }
+        CanonicalView::Union(a) => cast_union(a, dtype),
         CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),
         CanonicalView::Variant(_) => {
             vortex_bail!("Variant arrays don't support casting")
         }
     }
+}
+
+fn cast_union(
+    array: ArrayView<'_, crate::arrays::Union>,
+    dtype: &DType,
+) -> VortexResult<Option<ArrayRef>> {
+    let DType::Union(target_variants, target_nullability) = dtype else {
+        return Ok(None);
+    };
+    if array.variants() != target_variants {
+        return Ok(None);
+    }
+
+    let type_ids = array.type_ids().cast(type_ids_dtype(*target_nullability))?;
+    let children = array.children();
+
+    // SAFETY: Casting only the type IDs' nullability changes the outer union nullability. The
+    // variant schema, sparse child dtypes, and row alignment are unchanged.
+    Ok(Some(
+        unsafe { UnionArray::new_unchecked(type_ids, target_variants.clone(), children) }
+            .into_array(),
+    ))
 }
 
 /// Cast a constant array by dispatching to its [`CastReduce`] implementation.
