@@ -491,8 +491,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
         let write_options = write_options_for_schema(session, &write_schema);
 
+        let mut write = CountingVortexWrite::new(JavaWrite::new(vm, writable));
+        let bytes_written = write.counter();
         let handle = session.handle().spawn(async move {
-            let mut write = JavaWrite::new(vm, writable);
             let summary = write_options.write(&mut write, stream).await?;
             write.shutdown().await?;
             Ok(summary)
@@ -502,6 +503,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
             session.clone(),
             arrow_schema,
             write_schema,
+            bytes_written,
             handle,
             tx,
         ))

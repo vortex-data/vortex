@@ -13,6 +13,7 @@ import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.api.Session;
+import dev.vortex.api.VortexWriteSummary;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.jni.NativeLoader;
@@ -32,6 +33,7 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ViewVarCharVector;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -128,6 +130,7 @@ public final class NativeIOBridgeTest {
 
     private void writePeopleFile(Session session, BufferAllocator allocator, Path path) throws IOException {
         Schema schema = personSchema();
+        VortexWriteSummary summary;
         try (StreamWritable writable = new StreamWritable(path)) {
             try (VortexWriter writer = VortexWriter.create(session, writable, schema, allocator);
                     VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
@@ -148,8 +151,17 @@ public final class NativeIOBridgeTest {
                     Data.exportVectorSchemaRoot(allocator, root, null, arrowArray, arrowSchemaFfi);
                     writer.writeBatch(arrowArray.memoryAddress(), arrowSchemaFfi.memoryAddress());
                 }
+
+                // The byte counter must be live for stream writers too: bounded while
+                // the write task is still flushing, exact once finished.
+                long bytesWhileOpen = writer.bytesWritten();
+                summary = writer.finish();
+                assertTrue(bytesWhileOpen >= 0 && bytesWhileOpen <= summary.fileSize());
+                assertEquals(summary.fileSize(), writer.bytesWritten());
             }
         }
+        // Everything the writer counted must have reached the caller-provided sink.
+        assertEquals(Files.size(path), summary.fileSize());
     }
 
     @Test
@@ -172,7 +184,7 @@ public final class NativeIOBridgeTest {
                 try (ArrowReader reader = p.scanArrow(allocator)) {
                     while (reader.loadNextBatch()) {
                         VectorSchemaRoot root = reader.getVectorSchemaRoot();
-                        VarCharVector nameOut = (VarCharVector) root.getVector("name");
+                        ViewVarCharVector nameOut = (ViewVarCharVector) root.getVector("name");
                         IntVector ageOut = (IntVector) root.getVector("age");
                         if (rows == 0) {
                             assertEquals("Alice", nameOut.getObject(0).toString());
