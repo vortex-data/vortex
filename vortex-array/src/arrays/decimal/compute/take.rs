@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools as _;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -9,13 +11,17 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
+use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
+use crate::arrays::piecewise_sequence::validate_index_ranges;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 
 impl TakeExecute for Decimal {
     fn take(
@@ -23,6 +29,12 @@ impl TakeExecute for Decimal {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+        {
+            return Ok(Some(taken));
+        }
+
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let validity = array.validity()?.take(&indices.clone().into_array())?;
 
@@ -42,8 +54,63 @@ impl TakeExecute for Decimal {
     }
 }
 
+fn take_piecewise_sequence(
+    array: ArrayView<'_, Decimal>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    indices_ref: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
+        return Ok(None);
+    };
+    match_each_decimal_value_type!(array.values_type(), |D| {
+        match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+            match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+                let values = take_piecewise_to_buffer::<S, L, D>(
+                    starts.as_slice::<S>(),
+                    lengths.as_slice::<L>(),
+                    array.buffer::<D>().as_slice(),
+                    indices_ref.len(),
+                )?;
+                let validity = array.validity()?.take(indices_ref)?;
+
+                // SAFETY: contiguous gather preserves the decimal dtype and value representation.
+                Ok(
+                    Some(unsafe {
+                        DecimalArray::new_unchecked(values, array.decimal_dtype(), validity)
+                    }
+                    .into_array()),
+                )
+            })
+        })
+    })
+}
+
 fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(indices: &[I], values: &[T]) -> Buffer<T> {
     indices.iter().map(|idx| values[idx.as_()]).collect()
+}
+
+fn take_piecewise_to_buffer<S, L, T>(
+    starts: &[S],
+    lengths: &[L],
+    values: &[T],
+    output_len: usize,
+) -> VortexResult<Buffer<T>>
+where
+    S: crate::dtype::UnsignedPType,
+    L: crate::dtype::UnsignedPType,
+    T: NativeDecimalType,
+{
+    validate_index_ranges(values.len(), starts, lengths, output_len)?;
+
+    let mut result = BufferMut::<T>::with_capacity(output_len);
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start = start.as_();
+        let length = length.as_();
+        result.extend_from_slice(&values[start..start + length]);
+    }
+
+    Ok(result.freeze())
 }
 
 #[cfg(test)]

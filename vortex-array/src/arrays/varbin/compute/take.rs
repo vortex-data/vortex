@@ -1,21 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools as _;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
+use crate::arrays::piecewise_sequence::validate_index_ranges;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::dtype::DType;
@@ -43,6 +49,12 @@ impl TakeExecute for VarBin {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+        {
+            return Ok(Some(taken));
+        }
+
         // TODO(joe): Be lazy with execute
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let data = array.bytes();
@@ -110,6 +122,80 @@ impl TakeExecute for VarBin {
         });
 
         Ok(Some(array?.into_array()))
+    }
+}
+
+fn take_piecewise_sequence(
+    array: ArrayView<'_, VarBin>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    indices_ref: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
+        return Ok(None);
+    };
+    let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    let out_offset_ptype = taken_offset_ptype(offsets.ptype());
+    let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
+
+    let result = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+            match offsets.ptype() {
+                PType::U8 => gather_piecewise_varbin::<S, L, u8, u32>(
+                    array.dtype().clone(),
+                    offsets.as_slice::<u8>(),
+                    array.bytes().as_slice(),
+                    starts.as_slice::<S>(),
+                    lengths.as_slice::<L>(),
+                    indices_ref.len(),
+                    out_offset_ptype,
+                ),
+                PType::U16 => gather_piecewise_varbin::<S, L, u16, u32>(
+                    array.dtype().clone(),
+                    offsets.as_slice::<u16>(),
+                    array.bytes().as_slice(),
+                    starts.as_slice::<S>(),
+                    lengths.as_slice::<L>(),
+                    indices_ref.len(),
+                    out_offset_ptype,
+                ),
+                PType::U32 => gather_piecewise_varbin::<S, L, u32, u32>(
+                    array.dtype().clone(),
+                    offsets.as_slice::<u32>(),
+                    array.bytes().as_slice(),
+                    starts.as_slice::<S>(),
+                    lengths.as_slice::<L>(),
+                    indices_ref.len(),
+                    out_offset_ptype,
+                ),
+                PType::U64 => gather_piecewise_varbin::<S, L, u64, u64>(
+                    array.dtype().clone(),
+                    offsets.as_slice::<u64>(),
+                    array.bytes().as_slice(),
+                    starts.as_slice::<S>(),
+                    lengths.as_slice::<L>(),
+                    indices_ref.len(),
+                    out_offset_ptype,
+                ),
+                _ => unreachable!("offsets were reinterpreted to an unsigned integer ptype"),
+            }
+        })
+    })?;
+
+    let validity = array.validity()?.take(indices_ref)?;
+
+    // SAFETY: output offsets are built from valid input offsets, start at zero, are monotonically
+    // non-decreasing, and the copied data buffer has exactly the referenced byte length.
+    unsafe {
+        Ok(Some(
+            VarBinArray::new_unchecked(
+                result.offsets,
+                result.data.freeze(),
+                result.dtype,
+                validity,
+            )
+            .into_array(),
+        ))
     }
 }
 
@@ -181,6 +267,98 @@ fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
             array_validity,
         ))
     }
+}
+
+struct GatheredPiecewiseVarBin {
+    dtype: DType,
+    offsets: ArrayRef,
+    data: ByteBufferMut,
+}
+
+fn gather_piecewise_varbin<S, L, Offset, NewOffset>(
+    dtype: DType,
+    offsets: &[Offset],
+    data: &[u8],
+    starts: &[S],
+    lengths: &[L],
+    output_len: usize,
+    out_offset_ptype: PType,
+) -> VortexResult<GatheredPiecewiseVarBin>
+where
+    S: crate::dtype::UnsignedPType,
+    L: crate::dtype::UnsignedPType,
+    Offset: IntegerPType,
+    NewOffset: IntegerPType,
+{
+    validate_index_ranges(offsets.len() - 1, starts, lengths, output_len)?;
+
+    let mut new_offsets = BufferMut::<NewOffset>::with_capacity(output_len + 1);
+    new_offsets.push(NewOffset::zero());
+    let mut output_bytes = 0usize;
+
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start = start.as_();
+        let length = length.as_();
+        let end = start + length;
+        if length == 0 {
+            continue;
+        }
+
+        let byte_start = offsets[start].as_();
+        let byte_end = offsets[end].as_();
+        vortex_ensure!(
+            byte_start <= byte_end && byte_end <= data.len(),
+            "VarBin offsets range {byte_start}..{byte_end} exceeds data length {}",
+            data.len()
+        );
+
+        for &offset in &offsets[start + 1..=end] {
+            let offset = offset.as_();
+            let relative = offset.checked_sub(byte_start).ok_or_else(|| {
+                vortex_err!("VarBin offsets are not monotonic at offset {offset}")
+            })?;
+            let output_offset = output_bytes.checked_add(relative).ok_or_else(|| {
+                vortex_err!("PiecewiseSequence VarBin output byte length overflow")
+            })?;
+            new_offsets.push(new_offset_value::<NewOffset>(output_offset)?);
+        }
+
+        output_bytes = output_bytes
+            .checked_add(byte_end - byte_start)
+            .ok_or_else(|| vortex_err!("PiecewiseSequence VarBin output byte length overflow"))?;
+    }
+
+    let mut new_data = ByteBufferMut::with_capacity(output_bytes);
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start = start.as_();
+        let length = length.as_();
+        let end = start + length;
+        if length == 0 {
+            continue;
+        }
+
+        let byte_start = offsets[start].as_();
+        let byte_end = offsets[end].as_();
+        new_data.extend_from_slice(&data[byte_start..byte_end]);
+    }
+
+    let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
+        .reinterpret_cast(out_offset_ptype)
+        .into_array();
+    Ok(GatheredPiecewiseVarBin {
+        dtype,
+        offsets,
+        data: new_data,
+    })
+}
+
+fn new_offset_value<T: IntegerPType>(value: usize) -> VortexResult<T> {
+    T::from(value).ok_or_else(|| {
+        vortex_err!(
+            "PiecewiseSequence VarBin offset value {value} does not fit in {}",
+            T::PTYPE
+        )
+    })
 }
 
 fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
