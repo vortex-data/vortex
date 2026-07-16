@@ -76,6 +76,21 @@ vx_array_sink *vx_cuda_array_sink_open_file(const vx_session *session,
                                             vx_error **error_out);
 
 /**
+ * Scan a local CUDA-compatible Vortex file as an Arrow C Device stream.
+ *
+ * Files written by `vx_cuda_array_sink_open_file` are compatible with this path. Reusing the same
+ * CUDA session across calls also reuses the pinned host buffers used to stage file reads.
+ *
+ * On success returns 0 and writes an owned `ArrowDeviceArrayStream` to `out_stream`. The caller
+ * must release the stream and each produced `ArrowDeviceArray` through their embedded Arrow
+ * release callbacks. On error returns 1 and writes a `vx_error` to `error_out` when non-NULL.
+ */
+int vx_cuda_scan_path_arrow_device_stream(const vx_session *session,
+                                          vx_view path,
+                                          struct ArrowDeviceArrayStream *out_stream,
+                                          vx_error **error_out);
+
+/**
  * Export a borrowed Vortex array for cuDF's Arrow Device import path.
  *
  * On success returns 0 and writes independently releasable `out_schema` and `out_array`; the caller

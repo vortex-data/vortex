@@ -113,6 +113,15 @@ pub struct PinnedByteBufferPool {
     puts: AtomicU64,
 }
 
+impl std::fmt::Debug for PinnedByteBufferPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PinnedByteBufferPool")
+            .field("max_keep_per_size", &self.max_keep_per_size)
+            .field("stats", &self.stats())
+            .finish_non_exhaustive()
+    }
+}
+
 struct InflightPinnedBuffer {
     event: Arc<CudaEvent>,
     buffer: PinnedByteBuffer,

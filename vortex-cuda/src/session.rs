@@ -23,6 +23,7 @@ use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
 use crate::initialize_cuda;
 use crate::kernel::KernelLoader;
+use crate::pinned::PinnedByteBufferPool;
 use crate::stream::VortexCudaStream;
 use crate::stream_pool::VortexCudaStreamPool;
 
@@ -40,6 +41,7 @@ pub struct CudaSession {
     export_device_array: Arc<dyn ExportDeviceArray>,
     kernel_loader: Arc<KernelLoader>,
     stream_pool: Arc<VortexCudaStreamPool>,
+    pinned_buffer_pool: Arc<PinnedByteBufferPool>,
 }
 
 impl CudaSession {
@@ -57,12 +59,14 @@ impl CudaSession {
             Arc::clone(&context),
             stream_pool_capacity,
         ));
+        let pinned_buffer_pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(&context)));
         Self {
             context,
             kernels: Arc::new(DashMap::default()),
             kernel_loader: Arc::new(KernelLoader::new()),
             export_device_array: Arc::new(CanonicalDeviceArrayExport),
             stream_pool,
+            pinned_buffer_pool,
         }
     }
 
@@ -103,6 +107,11 @@ impl CudaSession {
     /// The pool reuses existing streams in round-robin fashion.
     pub fn stream(&self) -> VortexResult<VortexCudaStream> {
         self.stream_pool.stream()
+    }
+
+    /// Returns the session-scoped pool used for staging file reads in pinned host memory.
+    pub fn pinned_buffer_pool(&self) -> &Arc<PinnedByteBufferPool> {
+        &self.pinned_buffer_pool
     }
 
     /// Registers CUDA support for an array encoding.
