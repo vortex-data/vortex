@@ -28,6 +28,7 @@ use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::ConstantArray;
 use crate::arrays::List;
+use crate::arrays::ListArray;
 use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -338,7 +339,6 @@ pub trait ListArrayExt: TypedArrayRef<List> {
         let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {
             let compacted = elements
-                .clone()
                 .execute::<Canonical>(ctx)?
                 .compact(ctx)?
                 .into_array();
@@ -357,7 +357,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
             Operator::Sub,
         )?;
 
-        Array::<List>::try_new(elements, adjusted_offsets, self.list_validity())
+        Ok(unsafe { ListArray::new_unchecked(elements, adjusted_offsets, self.list_validity()) })
     }
 }
 impl<T: TypedArrayRef<List>> ListArrayExt for T {}
