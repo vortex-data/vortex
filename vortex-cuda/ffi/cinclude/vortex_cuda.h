@@ -64,6 +64,18 @@ struct ArrowDeviceArrayStream {
 vx_session *vx_cuda_session_new(vx_error **error_out);
 
 /**
+ * Open a Vortex file sink configured to produce CUDA-readable files.
+ *
+ * Push host-resident arrays and close or abort the returned sink with the standard
+ * `vx_array_sink_*` functions. This API configures the on-disk encodings and layout; it does not
+ * move arrays to the GPU during the write.
+ */
+vx_array_sink *vx_cuda_array_sink_open_file(const vx_session *session,
+                                            vx_view path,
+                                            const vx_dtype *dtype,
+                                            vx_error **error_out);
+
+/**
  * Export a borrowed Vortex array for cuDF's Arrow Device import path.
  *
  * On success returns 0 and writes independently releasable `out_schema` and `out_array`; the caller
