@@ -188,6 +188,26 @@ fn primitive_take_consumes_piecewise_indices() -> VortexResult<()> {
 }
 
 #[test]
+fn primitive_take_handles_non_unit_multiplier() -> VortexResult<()> {
+    let values = PrimitiveArray::from_iter(0i32..20).into_array();
+    let indices = PiecewiseSequenceArray::try_new(
+        buffer![3u64].into_array(),
+        buffer![3u64].into_array(),
+        buffer![2u64].into_array(),
+        3,
+    )?
+    .into_array();
+    let taken = values.take(indices)?;
+
+    assert_arrays_eq!(
+        taken,
+        PrimitiveArray::from_iter([3i32, 5, 7]).into_array(),
+        &mut array_session().create_execution_ctx()
+    );
+    Ok(())
+}
+
+#[test]
 fn bool_take_consumes_piecewise_indices() -> VortexResult<()> {
     let values = BoolArray::from_iter([true, false, true, true, false, false]).into_array();
     let taken = values.take(piecewise_indices([1, 4], &[2, 2])?)?;

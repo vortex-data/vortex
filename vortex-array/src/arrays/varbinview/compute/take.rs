@@ -93,13 +93,15 @@ fn take_piecewise_sequence(
     // SAFETY: ranges were validated against the source views, and copied views still reference the
     // same backing data buffers.
     unsafe {
-        Ok(Some(VarBinViewArray::new_handle_unchecked(
-            BufferHandle::new_host(views.into_byte_buffer()),
-            Arc::clone(array.data_buffers()),
-            array.dtype().clone(),
-            validity,
-        )
-        .into_array()))
+        Ok(Some(
+            VarBinViewArray::new_handle_unchecked(
+                BufferHandle::new_host(views.into_byte_buffer()),
+                Arc::clone(array.data_buffers()),
+                array.dtype().clone(),
+                validity,
+            )
+            .into_array(),
+        ))
     }
 }
 

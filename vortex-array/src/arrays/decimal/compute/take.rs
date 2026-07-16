@@ -75,12 +75,10 @@ fn take_piecewise_sequence(
                 let validity = array.validity()?.take(indices_ref)?;
 
                 // SAFETY: contiguous gather preserves the decimal dtype and value representation.
-                Ok(
-                    Some(unsafe {
-                        DecimalArray::new_unchecked(values, array.decimal_dtype(), validity)
-                    }
-                    .into_array()),
-                )
+                Ok(Some(
+                    unsafe { DecimalArray::new_unchecked(values, array.decimal_dtype(), validity) }
+                        .into_array(),
+                ))
             })
         })
     })

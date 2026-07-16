@@ -163,16 +163,16 @@ where
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start: usize = start.as_();
         let length: usize = length.as_();
-        let end = start.checked_add(length).ok_or_else(|| {
-            vortex_err!("PiecewiseSequenceArray range overflows usize")
-        })?;
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         vortex_ensure!(
             end <= source_len,
             "PiecewiseSequenceArray range {start}..{end} exceeds source length {source_len}"
         );
-        computed_len = computed_len.checked_add(length).ok_or_else(|| {
-            vortex_err!("PiecewiseSequenceArray output length overflows usize")
-        })?;
+        computed_len = computed_len
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
     }
 
     vortex_ensure!(

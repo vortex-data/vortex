@@ -26,7 +26,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
-use vortex_array::arrays::PiecewiseSequentialArray;
+use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::dtype::IntegerPType;
@@ -143,7 +143,7 @@ fn take_fsl_f16_force_per_index<const LIST_SIZE: usize>(bencher: Bencher, num_in
 }
 
 #[divan::bench(args = NUM_INDICES, consts = F16_STRATEGY_LIST_SIZES)]
-fn take_fsl_f16_force_piecewise_sequential<const LIST_SIZE: usize>(
+fn take_fsl_f16_force_piecewise_sequence<const LIST_SIZE: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
@@ -154,7 +154,7 @@ fn take_fsl_f16_force_piecewise_sequential<const LIST_SIZE: usize>(
         .counter(BytesCount::of_many::<f16>(num_indices * LIST_SIZE))
         .with_inputs(|| (&fsl, &indices, SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, execution_ctx)| {
-            take_fsl_f16_piecewise_sequential_strategy::<LIST_SIZE>(array, indices)
+            take_fsl_f16_piecewise_sequence_strategy::<LIST_SIZE>(array, indices)
                 .into_array()
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
@@ -211,7 +211,7 @@ fn take_fsl_f16_per_index_strategy<const LIST_SIZE: usize, E: IntegerPType>(
     }
 }
 
-fn take_fsl_f16_piecewise_sequential_strategy<const LIST_SIZE: usize>(
+fn take_fsl_f16_piecewise_sequence_strategy<const LIST_SIZE: usize>(
     array: &FixedSizeListArray,
     indices: &Buffer<u64>,
 ) -> FixedSizeListArray {
@@ -223,11 +223,17 @@ fn take_fsl_f16_piecewise_sequential_strategy<const LIST_SIZE: usize>(
     let run_count = starts.len();
     let starts = PrimitiveArray::from_iter(starts).into_array();
     let lengths = ConstantArray::new(LIST_SIZE as u64, run_count).into_array();
+    let multipliers = ConstantArray::new(1u64, run_count).into_array();
 
-    // SAFETY: benchmark indices are generated in-bounds, lengths is a non-nullable unsigned
-    // constant, and output length is exactly `indices.len() * LIST_SIZE`.
+    // SAFETY: benchmark indices are generated in-bounds; lengths and multiplier 1 are
+    // non-nullable unsigned constants; output length is exactly `indices.len() * LIST_SIZE`.
     let element_indices = unsafe {
-        PiecewiseSequentialArray::new_unchecked(starts, lengths, indices.len() * LIST_SIZE)
+        PiecewiseSequenceArray::new_unchecked(
+            starts,
+            lengths,
+            multipliers,
+            indices.len() * LIST_SIZE,
+        )
     }
     .into_array();
     let elements = array.elements().take(element_indices).unwrap();
