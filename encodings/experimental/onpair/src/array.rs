@@ -152,7 +152,11 @@ impl OnPairData {
         self.len == 0
     }
 
-    /// Bits per token code, derived from the dictionary size (not stored).
+    /// Minimum bits needed to address the dictionary (`ceil(log2(dict_size))`),
+    /// derived from the dictionary size rather than stored. This is a logical
+    /// lower bound, not the physical width of the `codes` child — that child is
+    /// stored as a U8/U16 primitive array and may be independently re-encoded by
+    /// the cascading compressor.
     pub fn bits(&self) -> u32 {
         u32::from(onpair::code_bits_for_num_tokens(self.dict_size as usize))
     }
