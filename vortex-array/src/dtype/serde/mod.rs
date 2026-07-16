@@ -187,12 +187,13 @@ mod test {
     fn test_serde_union_dtype_json_roundtrip() {
         let dtype = DType::Union(
             UnionVariants::new(["value"].into(), vec![DType::Utf8(Nullability::Nullable)]).unwrap(),
+            Nullability::Nullable,
         );
 
         let json = serde_json::to_string(&dtype).unwrap();
         assert_eq!(
             json,
-            r#"{"Union":{"names":["value"],"dtypes":[{"Utf8":true}],"type_ids":[0]}}"#
+            r#"{"Union":[{"names":["value"],"dtypes":[{"Utf8":true}],"type_ids":[0]},true]}"#
         );
         let mut deserializer = serde_json::Deserializer::from_str(&json);
         let deserialized: DType = DTypeSerde::<DType>::new(&SESSION)
