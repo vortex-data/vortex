@@ -10,7 +10,6 @@ use vortex_mask::Mask;
 
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::RecursiveCanonical;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PiecewiseSequenceArray;
@@ -286,6 +285,14 @@ impl ListViewArray {
             lengths,
             elements_len,
         } = ranges;
+        let constant_length = lengths
+            .first()
+            .copied()
+            .filter(|first| lengths.iter().all(|length| *length == *first));
+        let lengths = match constant_length {
+            Some(length) => ConstantArray::new(length, starts.len()).into_array(),
+            None => lengths.into_array(),
+        };
 
         // SAFETY: range starts and lengths are derived from valid ListView metadata; elements_len
         // is the sum of all generated range lengths. Multiplier 1 preserves contiguous ranges.
@@ -293,17 +300,12 @@ impl ListViewArray {
         let element_indices = unsafe {
             PiecewiseSequenceArray::new_unchecked(
                 starts.into_array(),
-                lengths.into_array(),
+                lengths,
                 multipliers,
                 elements_len,
             )
         };
-        let elements = self
-            .elements()
-            .take(element_indices.into_array())?
-            .execute::<RecursiveCanonical>(ctx)?
-            .0
-            .into_array();
+        let elements = self.elements().take(element_indices.into_array())?;
 
         // Built unsigned; reinterpret back to the signed-preserving result types.
         let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
