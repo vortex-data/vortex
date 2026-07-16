@@ -431,7 +431,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, UnionVariants> {
             {
                 let mut names: Option<FieldNames> = None;
                 let mut dtypes: Option<Vec<DType>> = None;
-                let mut type_ids: Option<Vec<i8>> = None;
+                let mut type_ids: Option<Vec<u8>> = None;
 
                 while let Some(key) = map.next_key::<Cow<'_, str>>()? {
                     match key.as_ref() {

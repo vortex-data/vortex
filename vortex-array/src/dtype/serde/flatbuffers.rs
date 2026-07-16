@@ -117,10 +117,11 @@ impl UnionVariants {
             })
             .collect::<Vec<_>>();
 
-        let type_ids: Vec<i8> = fb_union
+        let type_ids: Vec<u8> = fb_union
             .type_ids()
             .ok_or_else(|| vortex_err!("failed to parse union type_ids from flatbuffer"))?
             .iter()
+            .map(i8::cast_unsigned)
             .collect();
 
         UnionVariants::try_from_fields(names, dtypes, type_ids)
@@ -394,7 +395,15 @@ impl WriteFlatBuffer for DType {
                     .collect::<VortexResult<Vec<_>>>()?;
                 let dtypes = Some(fbb.create_vector(&dtypes));
 
-                let type_ids = Some(fbb.create_vector(uv.type_ids()));
+                // The FlatBuffers schema retains its original signed byte wire type for backwards
+                // compatibility. Reinterpreting the bits preserves the full u8 tag range.
+                let type_ids = uv
+                    .type_ids()
+                    .iter()
+                    .copied()
+                    .map(u8::cast_signed)
+                    .collect_vec();
+                let type_ids = Some(fbb.create_vector(&type_ids));
 
                 fb::Union::create(
                     fbb,
@@ -602,7 +611,7 @@ mod test {
                     DType::Utf8(Nullability::NonNullable),
                     DType::Bool(Nullability::NonNullable),
                 ],
-                vec![0, 5, 7],
+                vec![0, 5, u8::MAX],
             )
             .unwrap(),
         );
@@ -620,7 +629,7 @@ mod test {
         let DType::Union(uv) = &deserialized else {
             panic!("Expected Union");
         };
-        assert_eq!(uv.type_ids(), &[0, 5, 7]);
+        assert_eq!(uv.type_ids(), &[0, 5, u8::MAX]);
     }
 
     #[test]

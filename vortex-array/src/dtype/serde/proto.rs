@@ -98,8 +98,8 @@ impl DType {
                     .type_ids
                     .iter()
                     .map(|t| {
-                        i8::try_from(*t).map_err(|_| {
-                            vortex_err!("Union type_id {t} somehow does not fit in i8")
+                        u8::try_from(*t).map_err(|_| {
+                            vortex_err!("Union type_id {t} somehow does not fit in u8")
                         })
                     })
                     .collect::<VortexResult<Vec<_>>>()?;
@@ -469,8 +469,8 @@ mod tests {
                     pb::DType::try_from(&DType::Primitive(PType::I32, Nullability::NonNullable))
                         .unwrap(),
                 ],
-                // 200 does not fit in i8.
-                type_ids: vec![200],
+                // 256 does not fit in u8.
+                type_ids: vec![256],
             })),
         };
 
@@ -480,7 +480,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("does not fit in i8")
+                .contains("does not fit in u8")
         );
     }
 

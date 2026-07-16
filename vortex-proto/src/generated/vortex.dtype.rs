@@ -77,7 +77,7 @@ pub struct Union {
     pub names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, repeated, tag = "2")]
     pub dtypes: ::prost::alloc::vec::Vec<DType>,
-    /// length must equal dtypes.len(); each value must fit in int8
+    /// length must equal dtypes.len(); each value must fit in uint8
     #[prost(int32, repeated, tag = "3")]
     pub type_ids: ::prost::alloc::vec::Vec<i32>,
 }
