@@ -176,10 +176,9 @@ __device__ inline void fsst_write_view(const FSSTArgs<CodeOffsetT, OutputOffsetT
         return;
     }
 
-    const uint32_t prefix = (uint32_t)args.output_bytes[start] |
-                            ((uint32_t)args.output_bytes[start + 1] << 8u) |
-                            ((uint32_t)args.output_bytes[start + 2] << 16u) |
-                            ((uint32_t)args.output_bytes[start + 3] << 24u);
+    const uint32_t prefix =
+        (uint32_t)args.output_bytes[start] | ((uint32_t)args.output_bytes[start + 1] << 8u) |
+        ((uint32_t)args.output_bytes[start + 2] << 16u) | ((uint32_t)args.output_bytes[start + 3] << 24u);
     args.output_views[sid] = make_uint4(len, prefix, 0, (uint32_t)start);
 }
 
@@ -235,14 +234,13 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
     fsst_write_view(args, sid);
 }
 
-#define FSST_GRID_STRIDE_LOOP(CodeOffsetT, OutputOffsetT, args)                                             \
+#define FSST_GRID_STRIDE_LOOP(CodeOffsetT, OutputOffsetT, args)                                              \
     const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;                          \
     const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;                                  \
-    const uint64_t block_end = (block_start + elements_per_block < num_strings)                              \
-                                   ? (block_start + elements_per_block)                                      \
-                                   : num_strings;                                                            \
+    const uint64_t block_end =                                                                               \
+        (block_start + elements_per_block < num_strings) ? (block_start + elements_per_block) : num_strings; \
     for (uint64_t sid = block_start + threadIdx.x; sid < block_end; sid += blockDim.x) {                     \
-        fsst_decode_string<CodeOffsetT, OutputOffsetT>(args, sid);                                          \
+        fsst_decode_string<CodeOffsetT, OutputOffsetT>(args, sid);                                           \
     }
 
 #define GENERATE_FSST_VIEW_KERNEL(suffix, CodeOffsetT)                                                       \
@@ -256,14 +254,20 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
                                              uint4 *__restrict output_views,                                 \
                                              uint64_t num_strings) {                                         \
         const FSSTArgs<CodeOffsetT, uint64_t> args = {                                                       \
-            codes_bytes, codes_offsets, symbols, symbol_lengths, output_bytes, output_offsets,              \
-            validity_bits, output_views,                                                                     \
+            codes_bytes,                                                                                     \
+            codes_offsets,                                                                                   \
+            symbols,                                                                                         \
+            symbol_lengths,                                                                                  \
+            output_bytes,                                                                                    \
+            output_offsets,                                                                                  \
+            validity_bits,                                                                                   \
+            output_views,                                                                                    \
         };                                                                                                   \
         FSST_GRID_STRIDE_LOOP(CodeOffsetT, uint64_t, args)                                                   \
     }
 
 #define GENERATE_FSST_VARBIN_KERNEL(suffix, CodeOffsetT)                                                     \
-    extern "C" __global__ void fsst_varbin_##suffix(const uint8_t *__restrict codes_bytes,                  \
+    extern "C" __global__ void fsst_varbin_##suffix(const uint8_t *__restrict codes_bytes,                   \
                                                     const CodeOffsetT *__restrict codes_offsets,             \
                                                     const uint64_t *__restrict symbols,                      \
                                                     const uint8_t *__restrict symbol_lengths,                \
@@ -272,8 +276,14 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
                                                     uint8_t *__restrict output_bytes,                        \
                                                     uint64_t num_strings) {                                  \
         const FSSTArgs<CodeOffsetT, int32_t> args = {                                                        \
-            codes_bytes, codes_offsets, symbols, symbol_lengths, output_bytes, output_offsets,              \
-            validity_bits, nullptr,                                                                          \
+            codes_bytes,                                                                                     \
+            codes_offsets,                                                                                   \
+            symbols,                                                                                         \
+            symbol_lengths,                                                                                  \
+            output_bytes,                                                                                    \
+            output_offsets,                                                                                  \
+            validity_bits,                                                                                   \
+            nullptr,                                                                                         \
         };                                                                                                   \
         FSST_GRID_STRIDE_LOOP(CodeOffsetT, int32_t, args)                                                    \
     }
