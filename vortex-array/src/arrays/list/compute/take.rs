@@ -1,26 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools as _;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::List;
 use crate::arrays::ListArray;
+use crate::arrays::PiecewiseSequence;
+use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::list::ListArrayExt;
+use crate::arrays::piecewise_sequence::execute_index_arrays;
+use crate::arrays::piecewise_sequence::validate_index_ranges;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
 use crate::match_smallest_offset_type;
+use crate::validity::Validity;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
 // the `ListView::take` compute function once `ListView` is more stable.
@@ -37,6 +47,12 @@ impl TakeExecute for List {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+        {
+            return Ok(Some(taken));
+        }
+
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
@@ -125,6 +141,191 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
         array.validity()?.take(indices_array.array())?,
     )?
     .into_array())
+}
+
+fn take_piecewise_sequence(
+    array: ArrayView<'_, List>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    indices_ref: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let data_validity = array
+        .list_validity()
+        .execute_mask(array.as_ref().len(), ctx)?;
+    if !data_validity.all_true() {
+        return Ok(None);
+    }
+
+    let (starts, lengths) = execute_index_arrays(indices, ctx)?;
+    let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
+
+    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+            match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
+                take_piecewise_sequence_typed::<S, L, O>(
+                    array,
+                    starts.as_slice::<S>(),
+                    lengths.as_slice::<L>(),
+                    offsets.as_slice::<O>(),
+                    indices_ref,
+                )
+            })
+        })
+    })
+    .map(Some)
+}
+
+fn take_piecewise_sequence_typed<S, L, Offset>(
+    array: ArrayView<'_, List>,
+    starts: &[S],
+    lengths: &[L],
+    offsets: &[Offset],
+    indices_ref: &ArrayRef,
+) -> VortexResult<ArrayRef>
+where
+    S: UnsignedPType,
+    L: UnsignedPType,
+    Offset: UnsignedPType,
+{
+    validate_index_ranges(array.len(), starts, lengths, indices_ref.len())?;
+    let total_elements =
+        piecewise_list_elements_len(array.elements().len(), offsets, starts, lengths)?;
+
+    match_smallest_offset_type!(total_elements, |OutputOffset| {
+        let gathered = gather_piecewise_list::<S, L, Offset, OutputOffset>(
+            array.elements(),
+            offsets,
+            starts,
+            lengths,
+            indices_ref.len(),
+            total_elements,
+        )?;
+        let validity = array.validity()?.take(indices_ref)?;
+
+        // SAFETY: output offsets are rebuilt from valid monotonic source offsets; output elements
+        // are exactly the gathered child ranges referenced by those offsets; validity has one bit
+        // per output row.
+        Ok(
+            unsafe { ListArray::new_unchecked(gathered.elements, gathered.offsets, validity) }
+                .into_array(),
+        )
+    })
+}
+
+struct GatheredList {
+    elements: ArrayRef,
+    offsets: ArrayRef,
+}
+
+fn piecewise_list_elements_len<S, L, Offset>(
+    elements_len: usize,
+    offsets: &[Offset],
+    starts: &[S],
+    lengths: &[L],
+) -> VortexResult<usize>
+where
+    S: UnsignedPType,
+    L: UnsignedPType,
+    Offset: UnsignedPType,
+{
+    let mut total = 0usize;
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start: usize = start.as_();
+        let length: usize = length.as_();
+        let end = start + length;
+        if length == 0 {
+            continue;
+        }
+
+        let element_start: usize = offsets[start].as_();
+        let element_end: usize = offsets[end].as_();
+        vortex_ensure!(
+            element_start <= element_end && element_end <= elements_len,
+            "List offsets range {element_start}..{element_end} exceeds elements length {elements_len}",
+        );
+        total = total
+            .checked_add(element_end - element_start)
+            .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
+    }
+    Ok(total)
+}
+
+fn gather_piecewise_list<S, L, Offset, OutputOffset>(
+    elements: &ArrayRef,
+    offsets: &[Offset],
+    starts: &[S],
+    lengths: &[L],
+    output_len: usize,
+    total_elements: usize,
+) -> VortexResult<GatheredList>
+where
+    S: UnsignedPType,
+    L: UnsignedPType,
+    Offset: UnsignedPType,
+    OutputOffset: IntegerPType,
+{
+    let offsets_capacity = output_len
+        .checked_add(1)
+        .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
+    let mut new_offsets = BufferMut::<OutputOffset>::with_capacity(offsets_capacity);
+    let mut element_starts = BufferMut::<u64>::with_capacity(starts.len());
+    let mut element_lengths = BufferMut::<u64>::with_capacity(lengths.len());
+    let mut output_elements = 0usize;
+
+    new_offsets.push(OutputOffset::zero());
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start: usize = start.as_();
+        let length: usize = length.as_();
+        let end = start + length;
+        if length == 0 {
+            continue;
+        }
+
+        let element_start: usize = offsets[start].as_();
+        let element_end: usize = offsets[end].as_();
+        for &offset in &offsets[start + 1..=end] {
+            let offset: usize = offset.as_();
+            let relative = offset
+                .checked_sub(element_start)
+                .ok_or_else(|| vortex_err!("List offsets are not monotonic at offset {offset}"))?;
+            let output_offset = output_elements
+                .checked_add(relative)
+                .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
+            new_offsets.push(new_offset_value::<OutputOffset>(output_offset)?);
+        }
+
+        let element_length = element_end - element_start;
+        element_starts.push(element_start as u64);
+        element_lengths.push(element_length as u64);
+        output_elements = output_elements
+            .checked_add(element_length)
+            .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
+    }
+    debug_assert_eq!(output_elements, total_elements);
+
+    let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array();
+    // SAFETY: element ranges are derived from validated source list offsets, and total_elements is
+    // the sum of the gathered element range lengths.
+    let element_indices = unsafe {
+        PiecewiseSequenceArray::new_unchecked(
+            element_starts.into_array(),
+            element_lengths.into_array(),
+            total_elements,
+        )
+    };
+    let elements = elements.take(element_indices.into_array())?;
+
+    Ok(GatheredList { elements, offsets })
+}
+
+fn new_offset_value<T: IntegerPType>(value: usize) -> VortexResult<T> {
+    T::from_usize(value).ok_or_else(|| {
+        vortex_err!(
+            "List take offset value {value} does not fit in {}",
+            T::PTYPE
+        )
+    })
 }
 
 // Kept out-of-line: as a single-callsite generic helper it would otherwise be inlined into every
@@ -217,6 +418,7 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
+    use crate::arrays::PiecewiseSequenceArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
@@ -400,6 +602,53 @@ mod test {
                 .execute_scalar(2, &mut array_session().create_execution_ctx())
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)
+        );
+    }
+
+    #[test]
+    fn piecewise_sequence_take() {
+        let mut ctx = array_session().create_execution_ctx();
+        let list = ListArray::try_new(
+            buffer![0i32, 1, 2, 3, 4, 5, 6].into_array(),
+            buffer![0u32, 2, 5, 5, 7].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+        let idx = PiecewiseSequenceArray::try_new(
+            buffer![1u64, 0].into_array(),
+            buffer![2u64, 1].into_array(),
+            3,
+        )
+        .unwrap()
+        .into_array();
+
+        let result = list
+            .take(idx)
+            .unwrap()
+            .execute::<ListViewArray>(&mut ctx)
+            .unwrap();
+
+        let element_dtype: Arc<DType> = Arc::new(I32.into());
+        assert_eq!(
+            result.execute_scalar(0, &mut ctx).unwrap(),
+            Scalar::list(
+                Arc::clone(&element_dtype),
+                vec![2i32.into(), 3.into(), 4.into()],
+                Nullability::NonNullable
+            )
+        );
+        assert_eq!(
+            result.execute_scalar(1, &mut ctx).unwrap(),
+            Scalar::list(Arc::clone(&element_dtype), vec![], Nullability::NonNullable)
+        );
+        assert_eq!(
+            result.execute_scalar(2, &mut ctx).unwrap(),
+            Scalar::list(
+                element_dtype,
+                vec![0i32.into(), 1.into()],
+                Nullability::NonNullable
+            )
         );
     }
 
