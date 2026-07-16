@@ -18,10 +18,12 @@ use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
 use crate::arrays::piecewise_sequence::validate_index_ranges;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
+use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
+use crate::validity::Validity;
 
 impl TakeExecute for Decimal {
     fn take(
@@ -63,24 +65,65 @@ fn take_piecewise_sequence(
     let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
         return Ok(None);
     };
-    match_each_decimal_value_type!(array.values_type(), |D| {
-        match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-            match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-                let values = take_piecewise_to_buffer::<S, L, D>(
-                    starts.as_slice::<S>(),
-                    lengths.as_slice::<L>(),
-                    array.buffer::<D>().as_slice(),
-                    indices_ref.len(),
-                )?;
-                let validity = array.validity()?.take(indices_ref)?;
+    let validity = array.validity()?.take(indices_ref)?;
+    let output_len = indices_ref.len();
+    let taken = take_piecewise_sequence_lengths(array, &starts, &lengths, validity, output_len)?;
+    Ok(Some(taken))
+}
 
-                // SAFETY: contiguous gather preserves the decimal dtype and value representation.
-                Ok(Some(
-                    unsafe { DecimalArray::new_unchecked(values, array.decimal_dtype(), validity) }
-                        .into_array(),
-                ))
-            })
-        })
+fn take_piecewise_sequence_lengths(
+    array: ArrayView<'_, Decimal>,
+    starts: &PrimitiveArray,
+    lengths: &PrimitiveArray,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef> {
+    match_each_decimal_value_type!(array.values_type(), |D| {
+        take_piecewise_sequence_lengths_typed::<D>(array, starts, lengths, validity, output_len)
+    })
+}
+
+fn take_piecewise_sequence_lengths_typed<D>(
+    array: ArrayView<'_, Decimal>,
+    starts: &PrimitiveArray,
+    lengths: &PrimitiveArray,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef>
+where
+    D: NativeDecimalType,
+{
+    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        take_piecewise_sequence_lengths_start_typed::<D, S>(
+            array, starts, lengths, validity, output_len,
+        )
+    })
+}
+
+fn take_piecewise_sequence_lengths_start_typed<D, S>(
+    array: ArrayView<'_, Decimal>,
+    starts: &PrimitiveArray,
+    lengths: &PrimitiveArray,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef>
+where
+    D: NativeDecimalType,
+    S: UnsignedPType,
+{
+    match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+        let values = take_piecewise_to_buffer::<S, L, D>(
+            starts.as_slice::<S>(),
+            lengths.as_slice::<L>(),
+            array.buffer::<D>().as_slice(),
+            output_len,
+        )?;
+
+        // SAFETY: contiguous gather preserves the decimal dtype and value representation.
+        Ok(
+            unsafe { DecimalArray::new_unchecked(values, array.decimal_dtype(), validity) }
+                .into_array(),
+        )
     })
 }
 
@@ -95,8 +138,8 @@ fn take_piecewise_to_buffer<S, L, T>(
     output_len: usize,
 ) -> VortexResult<Buffer<T>>
 where
-    S: crate::dtype::UnsignedPType,
-    L: crate::dtype::UnsignedPType,
+    S: UnsignedPType,
+    L: UnsignedPType,
     T: NativeDecimalType,
 {
     validate_index_ranges(values.len(), starts, lengths, output_len)?;
