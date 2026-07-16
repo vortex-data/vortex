@@ -11,8 +11,8 @@ use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::ConstantArray;
-use crate::arrays::PiecewiseSequential;
-use crate::arrays::PiecewiseSequentialArray;
+use crate::arrays::PiecewiseSequence;
+use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::serde::SerializeOptions;
@@ -22,7 +22,7 @@ use crate::serde::SerializedArray;
 fn materializes_piecewise_indices() -> VortexResult<()> {
     let starts = buffer![3u64, 15, 21].into_array();
     let lengths = buffer![3u64, 3, 3].into_array();
-    let array = PiecewiseSequentialArray::try_new(starts, lengths, 9)?.into_array();
+    let array = PiecewiseSequenceArray::try_new(starts, lengths, 9)?.into_array();
 
     let expected = PrimitiveArray::from_iter([3u64, 4, 5, 15, 16, 17, 21, 22, 23]).into_array();
     assert_arrays_eq!(array, expected, &mut array_session().create_execution_ctx());
@@ -33,7 +33,7 @@ fn materializes_piecewise_indices() -> VortexResult<()> {
 fn materializes_repeated_and_empty_ranges() -> VortexResult<()> {
     let starts = buffer![5u64, 2, 5].into_array();
     let lengths = buffer![2u64, 0, 2].into_array();
-    let array = PiecewiseSequentialArray::try_new(starts, lengths, 4)?.into_array();
+    let array = PiecewiseSequenceArray::try_new(starts, lengths, 4)?.into_array();
 
     let expected = PrimitiveArray::from_iter([5u64, 6, 5, 6]).into_array();
     assert_arrays_eq!(array, expected, &mut array_session().create_execution_ctx());
@@ -44,7 +44,7 @@ fn materializes_repeated_and_empty_ranges() -> VortexResult<()> {
 fn supports_constant_lengths() -> VortexResult<()> {
     let starts = buffer![0u64, 10, 20].into_array();
     let lengths = ConstantArray::new(2u64, 3).into_array();
-    let array = PiecewiseSequentialArray::try_new(starts, lengths, 6)?.into_array();
+    let array = PiecewiseSequenceArray::try_new(starts, lengths, 6)?.into_array();
 
     let expected = PrimitiveArray::from_iter([0u64, 1, 10, 11, 20, 21]).into_array();
     assert_arrays_eq!(array, expected, &mut array_session().create_execution_ctx());
@@ -55,7 +55,7 @@ fn supports_constant_lengths() -> VortexResult<()> {
 fn scalar_at_maps_into_piece() -> VortexResult<()> {
     let starts = buffer![3u64, 15, 21].into_array();
     let lengths = buffer![3u64, 3, 3].into_array();
-    let array = PiecewiseSequentialArray::try_new(starts, lengths, 9)?.into_array();
+    let array = PiecewiseSequenceArray::try_new(starts, lengths, 9)?.into_array();
     let mut ctx = array_session().create_execution_ctx();
 
     assert_eq!(array.execute_scalar(0, &mut ctx)?, 3u64.into());
@@ -68,12 +68,15 @@ fn scalar_at_maps_into_piece() -> VortexResult<()> {
 fn constructor_defers_range_value_validation() -> VortexResult<()> {
     let starts = buffer![u64::MAX].into_array();
     let lengths = buffer![2u64].into_array();
-    let array = PiecewiseSequentialArray::try_new(starts, lengths, 2)?.into_array();
+    let array = PiecewiseSequenceArray::try_new(starts, lengths, 2)?.into_array();
 
+    let err = array
+        .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())
+        .unwrap_err();
     assert!(
-        array
-            .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())
-            .is_err()
+        err.to_string()
+            .contains("PiecewiseSequenceArray range overflows u64"),
+        "{err}"
     );
     Ok(())
 }
@@ -82,19 +85,22 @@ fn constructor_defers_range_value_validation() -> VortexResult<()> {
 fn execution_checks_declared_length() -> VortexResult<()> {
     let starts = buffer![0u64, 3].into_array();
     let lengths = buffer![2u64, 2].into_array();
-    let array = PiecewiseSequentialArray::try_new(starts, lengths, 3)?.into_array();
+    let array = PiecewiseSequenceArray::try_new(starts, lengths, 3)?.into_array();
 
+    let err = array
+        .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())
+        .unwrap_err();
     assert!(
-        array
-            .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())
-            .is_err()
+        err.to_string()
+            .contains("PiecewiseSequenceArray expanded length 4 does not match declared length 3"),
+        "{err}"
     );
     Ok(())
 }
 
 #[test]
 fn serde_roundtrip_preserves_piecewise_indices() -> VortexResult<()> {
-    let array = PiecewiseSequentialArray::try_new(
+    let array = PiecewiseSequenceArray::try_new(
         buffer![3u32, 15, 21].into_array(),
         buffer![2u16, 0, 2].into_array(),
         4,
@@ -119,7 +125,7 @@ fn serde_roundtrip_preserves_piecewise_indices() -> VortexResult<()> {
         &array_session(),
     )?;
 
-    assert!(decoded.is::<PiecewiseSequential>());
+    assert!(decoded.is::<PiecewiseSequence>());
     assert_arrays_eq!(
         decoded,
         PrimitiveArray::from_iter([3u64, 4, 21, 22]).into_array(),

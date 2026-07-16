@@ -26,12 +26,12 @@ use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::piecewise_sequential::array::PiecewiseSequentialArraySlotsExt;
-use crate::arrays::piecewise_sequential::array::PiecewiseSequentialSlots;
-use crate::arrays::piecewise_sequential::check_index_arrays;
-use crate::arrays::piecewise_sequential::index_value_to_u64;
-use crate::arrays::piecewise_sequential::index_value_to_usize;
-use crate::arrays::piecewise_sequential::materialize_ranges;
+use crate::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
+use crate::arrays::piecewise_sequence::array::PiecewiseSequenceSlots;
+use crate::arrays::piecewise_sequence::check_index_arrays;
+use crate::arrays::piecewise_sequence::index_value_to_u64;
+use crate::arrays::piecewise_sequence::index_value_to_usize;
+use crate::arrays::piecewise_sequence::materialize_ranges;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -41,11 +41,11 @@ use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
-/// A [`PiecewiseSequential`]-encoded Vortex index array.
-pub type PiecewiseSequentialArray = Array<PiecewiseSequential>;
+/// A [`PiecewiseSequence`]-encoded Vortex index array.
+pub type PiecewiseSequenceArray = Array<PiecewiseSequence>;
 
 #[derive(Clone, prost::Message)]
-struct PiecewiseSequentialMetadata {
+struct PiecewiseSequenceMetadata {
     #[prost(uint64, tag = "1")]
     num_pieces: u64,
     #[prost(enumeration = "PType", tag = "2")]
@@ -55,15 +55,15 @@ struct PiecewiseSequentialMetadata {
 }
 
 #[derive(Clone, Debug)]
-pub struct PiecewiseSequential;
+pub struct PiecewiseSequence;
 
-impl VTable for PiecewiseSequential {
+impl VTable for PiecewiseSequence {
     type TypedArrayData = EmptyArrayData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.piecewise-sequential");
+        static ID: CachedId = CachedId::new("vortex.piecewise-sequence");
         *ID
     }
 
@@ -76,23 +76,23 @@ impl VTable for PiecewiseSequential {
     ) -> VortexResult<()> {
         vortex_ensure!(
             dtype == &DType::from(PType::U64),
-            "PiecewiseSequentialArray dtype must be u64, got {dtype}"
+            "PiecewiseSequenceArray dtype must be u64, got {dtype}"
         );
         vortex_ensure!(
-            slots.len() == PiecewiseSequentialSlots::NAMES.len(),
-            "PiecewiseSequentialArray requires {} slots, got {}",
-            PiecewiseSequentialSlots::NAMES.len(),
+            slots.len() == PiecewiseSequenceSlots::NAMES.len(),
+            "PiecewiseSequenceArray requires {} slots, got {}",
+            PiecewiseSequenceSlots::NAMES.len(),
             slots.len()
         );
-        let starts = slots[PiecewiseSequentialSlots::STARTS]
+        let starts = slots[PiecewiseSequenceSlots::STARTS]
             .as_ref()
             .ok_or_else(|| {
-                vortex_error::vortex_err!("PiecewiseSequentialArray starts slot must be present")
+                vortex_error::vortex_err!("PiecewiseSequenceArray starts slot must be present")
             })?;
-        let lengths = slots[PiecewiseSequentialSlots::LENGTHS]
+        let lengths = slots[PiecewiseSequenceSlots::LENGTHS]
             .as_ref()
             .ok_or_else(|| {
-                vortex_error::vortex_err!("PiecewiseSequentialArray lengths slot must be present")
+                vortex_error::vortex_err!("PiecewiseSequenceArray lengths slot must be present")
             })?;
         check_index_arrays(starts, lengths)
     }
@@ -102,7 +102,7 @@ impl VTable for PiecewiseSequential {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
-        vortex_panic!("PiecewiseSequentialArray has no buffers")
+        vortex_panic!("PiecewiseSequenceArray has no buffers")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
@@ -118,7 +118,7 @@ impl VTable for PiecewiseSequential {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        PiecewiseSequentialSlots::NAMES[idx].to_string()
+        PiecewiseSequenceSlots::NAMES[idx].to_string()
     }
 
     fn serialize(
@@ -126,10 +126,10 @@ impl VTable for PiecewiseSequential {
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
-            PiecewiseSequentialMetadata {
+            PiecewiseSequenceMetadata {
                 num_pieces: u64::try_from(array.starts().len()).map_err(|_| {
                     vortex_err!(
-                        "PiecewiseSequentialArray piece count {} overflowed u64",
+                        "PiecewiseSequenceArray piece count {} overflowed u64",
                         array.starts().len()
                     )
                 })?,
@@ -149,36 +149,36 @@ impl VTable for PiecewiseSequential {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = PiecewiseSequentialMetadata::decode(metadata)?;
+        let metadata = PiecewiseSequenceMetadata::decode(metadata)?;
         vortex_ensure!(
             dtype == &DType::from(PType::U64),
-            "PiecewiseSequentialArray dtype must be u64, got {dtype}"
+            "PiecewiseSequenceArray dtype must be u64, got {dtype}"
         );
         vortex_ensure!(
             buffers.is_empty(),
-            "PiecewiseSequentialArray expects no buffers, got {}",
+            "PiecewiseSequenceArray expects no buffers, got {}",
             buffers.len()
         );
         vortex_ensure!(
-            children.len() == PiecewiseSequentialSlots::NAMES.len(),
-            "PiecewiseSequentialArray expects {} children, got {}",
-            PiecewiseSequentialSlots::NAMES.len(),
+            children.len() == PiecewiseSequenceSlots::NAMES.len(),
+            "PiecewiseSequenceArray expects {} children, got {}",
+            PiecewiseSequenceSlots::NAMES.len(),
             children.len()
         );
 
         let num_pieces = usize::try_from(metadata.num_pieces).map_err(|_| {
             vortex_err!(
-                "PiecewiseSequentialArray piece count {} does not fit in usize",
+                "PiecewiseSequenceArray piece count {} does not fit in usize",
                 metadata.num_pieces
             )
         })?;
         let starts = children.get(
-            PiecewiseSequentialSlots::STARTS,
+            PiecewiseSequenceSlots::STARTS,
             &metadata.starts_ptype().into(),
             num_pieces,
         )?;
         let lengths = children.get(
-            PiecewiseSequentialSlots::LENGTHS,
+            PiecewiseSequenceSlots::LENGTHS,
             &metadata.lengths_ptype().into(),
             num_pieces,
         )?;
@@ -205,9 +205,9 @@ impl VTable for PiecewiseSequential {
     }
 }
 
-impl OperationsVTable<PiecewiseSequential> for PiecewiseSequential {
+impl OperationsVTable<PiecewiseSequence> for PiecewiseSequence {
     fn scalar_at(
-        array: ArrayView<'_, PiecewiseSequential>,
+        array: ArrayView<'_, PiecewiseSequence>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -224,8 +224,8 @@ impl OperationsVTable<PiecewiseSequential> for PiecewiseSequential {
     }
 }
 
-impl ValidityVTable<PiecewiseSequential> for PiecewiseSequential {
-    fn validity(_array: ArrayView<'_, PiecewiseSequential>) -> VortexResult<Validity> {
+impl ValidityVTable<PiecewiseSequence> for PiecewiseSequence {
+    fn validity(_array: ArrayView<'_, PiecewiseSequence>) -> VortexResult<Validity> {
         Ok(Validity::NonNullable)
     }
 }
@@ -251,5 +251,5 @@ where
         }
         remaining -= length;
     }
-    vortex_bail!("PiecewiseSequentialArray index {index} out of bounds")
+    vortex_bail!("PiecewiseSequenceArray index {index} out of bounds")
 }
