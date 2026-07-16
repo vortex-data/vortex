@@ -288,11 +288,13 @@ impl ListViewArray {
         } = ranges;
 
         // SAFETY: range starts and lengths are derived from valid ListView metadata; elements_len
-        // is the sum of all generated range lengths.
+        // is the sum of all generated range lengths. Multiplier 1 preserves contiguous ranges.
+        let multipliers = ConstantArray::new(1u64, starts.len()).into_array();
         let element_indices = unsafe {
             PiecewiseSequenceArray::new_unchecked(
                 starts.into_array(),
                 lengths.into_array(),
+                multipliers,
                 elements_len,
             )
         };

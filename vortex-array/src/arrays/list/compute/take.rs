@@ -11,6 +11,7 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::ConstantArray;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::PiecewiseSequence;
@@ -19,7 +20,7 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::list::ListArrayExt;
-use crate::arrays::piecewise_sequence::execute_index_arrays;
+use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
 use crate::arrays::piecewise_sequence::validate_index_ranges;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::ArrayBuilder;
@@ -156,7 +157,9 @@ fn take_piecewise_sequence(
         return Ok(None);
     }
 
-    let (starts, lengths) = execute_index_arrays(indices, ctx)?;
+    let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
+        return Ok(None);
+    };
     let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
 
@@ -305,12 +308,14 @@ where
     debug_assert_eq!(output_elements, total_elements);
 
     let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array();
+    let multipliers = ConstantArray::new(1u64, element_starts.len()).into_array();
     // SAFETY: element ranges are derived from validated source list offsets, and total_elements is
-    // the sum of the gathered element range lengths.
+    // the sum of the gathered element range lengths. Multiplier 1 preserves contiguous ranges.
     let element_indices = unsafe {
         PiecewiseSequenceArray::new_unchecked(
             element_starts.into_array(),
             element_lengths.into_array(),
+            multipliers,
             total_elements,
         )
     };
@@ -416,6 +421,7 @@ mod test {
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PiecewiseSequenceArray;
@@ -618,6 +624,7 @@ mod test {
         let idx = PiecewiseSequenceArray::try_new(
             buffer![1u64, 0].into_array(),
             buffer![2u64, 1].into_array(),
+            ConstantArray::new(1u64, 2).into_array(),
             3,
         )
         .unwrap()
