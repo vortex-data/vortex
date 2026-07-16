@@ -116,7 +116,12 @@ impl Serialize for DType {
                 state.serialize_field(n)?;
                 state.end()
             }
-            DType::Union(uv) => serializer.serialize_newtype_variant("DType", 11, "Union", uv),
+            DType::Union(uv, n) => {
+                let mut state = serializer.serialize_tuple_variant("DType", 11, "Union", 2)?;
+                state.serialize_field(uv)?;
+                state.serialize_field(n)?;
+                state.end()
+            }
             DType::Variant(n) => serializer.serialize_newtype_variant("DType", 10, "Variant", n),
             DType::Extension(ext) => {
                 serializer.serialize_newtype_variant("DType", 9, "Extension", ext)
@@ -232,9 +237,9 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
                     "Struct" => access.newtype_variant_seed(StructFieldsSeed {
                         session: self.session,
                     }),
-                    "Union" => access
-                        .newtype_variant_seed(DTypeSerde::<UnionVariants>::new(self.session))
-                        .map(DType::Union),
+                    "Union" => access.newtype_variant_seed(UnionFieldsSeed {
+                        session: self.session,
+                    }),
                     "Variant" => {
                         let n = access.newtype_variant()?;
                         Ok(DType::Variant(n))
@@ -399,6 +404,51 @@ impl<'de> DeserializeSeed<'de> for StructFieldsSeed<'_> {
         deserializer.deserialize_tuple(
             2,
             StructVisitor {
+                session: self.session,
+            },
+        )
+    }
+}
+
+struct UnionFieldsSeed<'a> {
+    session: &'a VortexSession,
+}
+
+impl<'de> DeserializeSeed<'de> for UnionFieldsSeed<'_> {
+    type Value = DType;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct UnionVisitor<'a> {
+            session: &'a VortexSession,
+        }
+
+        impl<'de> Visitor<'de> for UnionVisitor<'_> {
+            type Value = DType;
+
+            fn expecting(&self, f: &mut Formatter) -> fmt::Result {
+                f.write_str("Union tuple (variants, nullability)")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let variants = seq
+                    .next_element_seed(DTypeSerde::<UnionVariants>::new(self.session))?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let nullability = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                Ok(DType::Union(variants, nullability))
+            }
+        }
+
+        deserializer.deserialize_tuple(
+            2,
+            UnionVisitor {
                 session: self.session,
             },
         )
