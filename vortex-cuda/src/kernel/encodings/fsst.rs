@@ -13,7 +13,6 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
@@ -113,35 +112,6 @@ impl CudaExecute for FSSTExecutor {
             decode_fsst::<U>(fsst, codes_offsets, lens, output_offsets, ctx).await
         })
     }
-}
-
-/// Returns whether the array's total decoded size fits Arrow's i32 offset range, i.e. whether
-/// [`decode_fsst_varbin`] can represent it. Oversized arrays must use the view layout, whose
-/// host rollover path splits the decoded heap across multiple data buffers.
-///
-/// The schema and data export paths both call this, so a given array always resolves to the
-/// same layout.
-pub(crate) fn fsst_varbin_offsets_fit(
-    fsst: &FSSTArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<bool> {
-    let lens = fsst
-        .uncompressed_lengths()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
-    let total_size = match_each_integer_ptype!(lens.ptype(), |P| {
-        let mut acc = 0u64;
-        #[allow(clippy::unnecessary_cast)]
-        for &length in lens.as_slice::<P>() {
-            let length = u64::try_from(length as i128)
-                .map_err(|_| vortex_err!("FSST uncompressed length cannot be negative"))?;
-            acc = acc
-                .checked_add(length)
-                .ok_or_else(|| vortex_err!("FSST decoded size overflow"))?;
-        }
-        VortexResult::Ok(acc)
-    })?;
-    Ok(i32::try_from(total_size).is_ok())
 }
 
 /// Decode FSST directly into Arrow-compatible i32 offsets and contiguous values on device.
@@ -497,31 +467,6 @@ mod tests {
 
         let host_result = gpu_result.into_host().await?.into_array();
         assert_arrays_eq!(fsst_array, host_result, &mut ctx);
-        Ok(())
-    }
-
-    #[crate::test]
-    async fn test_fsst_varbin_offsets_fit() -> VortexResult<()> {
-        let mut ctx = vortex_array::array_session().create_execution_ctx();
-        let varbin = VarBinArray::from_iter(
-            [Some(&b"short"[..]), Some(&b"another value"[..])],
-            DType::Utf8(Nullability::NonNullable),
-        )
-        .into_array();
-        let compressor = fsst_train_compressor(&varbin, &mut ctx)?;
-        let fsst = fsst_compress(&varbin, &compressor, &mut ctx)?;
-        assert!(fsst_varbin_offsets_fit(&fsst, &mut ctx)?);
-
-        // Same codes, but uncompressed lengths whose sum exceeds i32::MAX.
-        let oversized = FSST::try_new(
-            DType::Utf8(Nullability::NonNullable),
-            fsst.symbols().clone(),
-            fsst.symbol_lengths().clone(),
-            fsst.codes(),
-            PrimitiveArray::from_iter([i32::MAX, i32::MAX]).into_array(),
-            &mut ctx,
-        )?;
-        assert!(!fsst_varbin_offsets_fit(&oversized, &mut ctx)?);
         Ok(())
     }
 

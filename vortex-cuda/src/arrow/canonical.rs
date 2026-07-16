@@ -83,7 +83,6 @@ use crate::executor::CudaArrayExt;
 use crate::executor::execute_validity_cuda;
 use crate::kernel::FSSTVarBin;
 use crate::kernel::decode_fsst_varbin;
-use crate::kernel::fsst_varbin_offsets_fit;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
 /// first decoding the array on the GPU and then converting the canonical type to the nearest
@@ -230,17 +229,7 @@ fn export_array(
         // `CudaDispatchMode` only governs `execute_cuda`'s fused-vs-standalone planning.
         let array = match array.try_downcast::<FSST>() {
             Ok(fsst) if ctx.cuda_session().varbin_export_layout() == VarBinExportLayout::VarBin => {
-                if fsst_varbin_offsets_fit(&fsst, ctx.execution_ctx())? {
-                    return export_fsst_varbin(fsst, ctx).await;
-                }
-                // The decoded heap exceeds Arrow's i32 offset range, so decode to views and
-                // export the view layout, matching the per-array schema fallback in
-                // `arrow_device_export_field_for_array`.
-                let Canonical::VarBinView(varbinview) = fsst.into_array().execute_cuda(ctx).await?
-                else {
-                    vortex_bail!("FSST decode must produce a VarBinView canonical");
-                };
-                return export_varbinview(varbinview, ctx).await;
+                return export_fsst_varbin(fsst, ctx).await;
             }
             Ok(fsst) => fsst.into_array(),
             Err(array) => array,
@@ -2516,11 +2505,10 @@ mod tests {
         Ok(())
     }
 
-    // An FSST array whose decoded size exceeds Arrow's i32 offset range cannot use the
-    // offset-based layout, so its export schema must fall back to the view layout that
-    // `export_array` produces for it.
+    // Standard Arrow Utf8/Binary uses i32 offsets. Oversized FSST exports keep that stable schema
+    // and return a clear error rather than changing layout based on batch contents.
     #[crate::test]
-    async fn test_oversized_fsst_schema_falls_back_to_view_layout() -> VortexResult<()> {
+    async fn test_oversized_fsst_varbin_export_errors() -> VortexResult<()> {
         let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
 
         let varbin = VarBinArray::from_iter(
@@ -2530,11 +2518,6 @@ mod tests {
         .into_array();
         let compressor = fsst_train_compressor(&varbin, ctx.execution_ctx())?;
         let fsst = fsst_compress(&varbin, &compressor, ctx.execution_ctx())?;
-        let schema = arrow_schema_for_array(&fsst.clone().into_array(), &mut ctx)?;
-        assert_eq!(
-            Field::try_from(&schema)?,
-            Field::new("", DataType::Utf8, false)
-        );
 
         // Same codes, but uncompressed lengths whose sum exceeds i32::MAX.
         let oversized = FSST::try_new(
@@ -2549,7 +2532,18 @@ mod tests {
         let schema = arrow_schema_for_array(&oversized, &mut ctx)?;
         assert_eq!(
             Field::try_from(&schema)?,
-            Field::new("", DataType::Utf8View, false)
+            Field::new("", DataType::Utf8, false)
+        );
+
+        let error = oversized
+            .export_device_array(&mut ctx)
+            .await
+            .err()
+            .vortex_expect("oversized FSST varbin export must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("FSST decoded size exceeds Arrow i32 offset range")
         );
         Ok(())
     }

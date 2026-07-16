@@ -23,7 +23,6 @@ pub(crate) use for_::FoRExecutor;
 pub(crate) use fsst::FSSTExecutor;
 pub(crate) use fsst::FSSTVarBin;
 pub(crate) use fsst::decode_fsst_varbin;
-pub(crate) use fsst::fsst_varbin_offsets_fit;
 pub(crate) use runend::RunEndExecutor;
 pub(crate) use sequence::SequenceExecutor;
 pub(crate) use zigzag::ZigZagExecutor;
