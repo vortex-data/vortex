@@ -53,7 +53,9 @@
 // the next add (≤ 8 bytes) within the 24-byte capacity.
 //
 // `codes_offsets` is templated over the four unsigned integer widths
-// (u8/u16/u32/u64). `output_offsets` is uint64_t.
+// (u8/u16/u32/u64). `output_offsets` is uint64_t for the view kernels
+// (`fsst_*`, which also take an optional views pointer) and int32_t Arrow
+// varbin offsets for the bytes-only varbin kernels (`fsst_varbin_*`).
 
 // 24-byte scratch buffer split across three u64 lanes. `cursor` is the
 // number of bytes currently buffered and the next-push offset.

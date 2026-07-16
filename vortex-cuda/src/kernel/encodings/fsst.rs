@@ -241,7 +241,16 @@ where
         ctx.ensure_on_device(codes_offsets_buffer),
     )?;
 
+    // The kernel gates store widths on `out_pos % N` relative to the base, so the base must
+    // satisfy the widest store (u128 → 16).
     let output = ctx.device_alloc::<u8>(total_size)?;
+    let (output_base_ptr, _) = output.device_ptr(ctx.stream());
+    assert_eq!(
+        output_base_ptr % 16,
+        0,
+        "output base not 16-aligned: {output_base_ptr:#x}",
+    );
+
     let codes_bytes_view = codes_bytes.cuda_view::<u8>()?;
     let codes_offsets_view = codes_offsets.cuda_view::<U>()?;
     let symbols_view = symbols.cuda_view::<u64>()?;

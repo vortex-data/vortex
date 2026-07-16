@@ -226,6 +226,8 @@ fn export_array(
             Ok(list_view) => return export_list_view(list_view, ctx).await,
             Err(array) => array,
         };
+        // The offset-based FSST export always uses the standalone varbin kernel;
+        // `CudaDispatchMode` only governs `execute_cuda`'s fused-vs-standalone planning.
         let array = match array.try_downcast::<FSST>() {
             Ok(fsst) if ctx.cuda_session().varbin_export_layout() == VarBinExportLayout::VarBin => {
                 if fsst_varbin_offsets_fit(&fsst, ctx.execution_ctx())? {
