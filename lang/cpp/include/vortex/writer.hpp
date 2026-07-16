@@ -18,6 +18,8 @@ namespace vortex {
  *
  * finish() writes the footer and finalizes the file.
  * Not calling finish() leaves file corrupted.
+ *
+ * Writer methods are thread-unsafe.
  */
 class Writer {
 public:
@@ -32,7 +34,9 @@ public:
      * Append Array to output file.
      * Throws if "array"'s DataType doesn't match writer's DataType.
      */
+    void push(std::span<const Array> arrays);
     void push(const Array &array);
+    void push(std::initializer_list<Array> arrays);
 
     /*
      * Write footer and finalize the file.

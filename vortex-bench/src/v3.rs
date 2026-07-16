@@ -296,6 +296,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// | `Appian`                    | `appian`       | `None`              | `None`                                              | Static dataset; no scale factor. |
 /// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
 /// | `SpatialBench { scale_factor }` | `spatialbench` | `None`         | SF as string | Same canonicalization as TPC-H; no historical v2 records to merge with. |
+/// | `VortexQueries` | `vortex` | `None` | `None` | Own microbenchmarks |
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
     match d {
         BenchmarkDataset::TpcH { scale_factor } => (
@@ -331,6 +332,7 @@ pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, 
         BenchmarkDataset::Fineweb => ("fineweb".to_string(), None, None),
         BenchmarkDataset::GhArchive => ("gharchive".to_string(), None, None),
         BenchmarkDataset::Appian => ("appian".to_string(), None, None),
+        BenchmarkDataset::VortexQueries => ("vortex".to_string(), None, None),
     }
 }
 

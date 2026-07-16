@@ -35,3 +35,11 @@ cmake -Bbuild -DBUILD_EXAMPLES=ON
 cmake --build build -j
 ./build/examples/hello-vortex
 ```
+
+## Check coverage
+
+This will generate an LCOV directory `coverage`:
+
+```sh
+./gcov-report.sh generate
+```

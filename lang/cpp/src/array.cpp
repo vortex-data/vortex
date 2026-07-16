@@ -23,14 +23,17 @@ Validity::Validity(const Validity &other)
 }
 
 Validity::Validity(ValidityType type) : type_(type), array_(nullptr) {
-    if (type == ValidityType::Array) {
-        throw VortexException("Validity(ValidityType) called with ValidityType::Array",
+    if (type == ValidityType::FromArray) {
+        throw VortexException("Validity(ValidityType) called with ValidityType::FromArray",
                               ErrorCode::InvalidArgument);
     }
 }
 
 Validity Validity::from_array(const Array &bools) {
-    return {ValidityType::Array, vx_array_clone(Access::c_ptr(bools))};
+    if (!bools.has_dtype(DataTypeVariant::Bool)) {
+        throw VortexException("Validity array isn't a Bool array", ErrorCode::InvalidArgument);
+    }
+    return {ValidityType::FromArray, vx_array_clone(Access::c_ptr(bools))};
 }
 
 Validity::Validity(Validity &&other) noexcept : type_(other.type_), array_(other.array_) {
@@ -61,7 +64,7 @@ Validity::~Validity() {
 }
 
 Array Validity::array() const {
-    if (type_ != ValidityType::Array || array_ == nullptr) {
+    if (type_ != ValidityType::FromArray || array_ == nullptr) {
         throw VortexException("validity has no backing array", ErrorCode::InvalidArgument);
     }
     return Access::adopt<Array>(vx_array_clone(array_));
@@ -93,7 +96,7 @@ ValidityBits::ValidityBits(const Session &session, const vx_array *canonical) {
     case ValidityType::AllInvalid:
         all_invalid_ = true;
         return;
-    case ValidityType::Array:
+    case ValidityType::FromArray:
         break;
     }
 
@@ -163,7 +166,7 @@ Array Array::primitive_raw(vx_ptype ptype, const void *data, size_t len, const V
     std::optional<Array> keep_alive;
     vx_validity raw {};
     raw.type = static_cast<vx_validity_type>(validity.type());
-    if (validity.type() == ValidityType::Array) {
+    if (validity.type() == ValidityType::FromArray) {
         keep_alive = validity.array();
         raw.array = Access::c_ptr(*keep_alive);
     }
@@ -264,7 +267,7 @@ Array make_struct(std::span<const ColumnField> fields, const Validity &validity)
     raw.type = static_cast<vx_validity_type>(validity.type());
 
     std::optional<Array> keep_alive;
-    if (validity.type() == ValidityType::Array) {
+    if (validity.type() == ValidityType::FromArray) {
         keep_alive = validity.array();
         raw.array = Access::c_ptr(*keep_alive);
     }

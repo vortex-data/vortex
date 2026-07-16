@@ -185,9 +185,41 @@ impl BitBuffer {
     }
 
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new [`BitBuffer`].
+    ///
+    /// `f` is invoked exactly once per index, in ascending order, and the results are packed
+    /// with the baseline SIMD byte→bit instruction of the target.
+    ///
+    /// # Performance
+    ///
+    /// The packing is a few instructions per 64 bits, so evaluating `f` is usually the
+    /// bottleneck. In particular, a bounds-checked slice access in `f` (`|i| values[i] > x`)
+    /// blocks vectorization of the gather and can cost ~10x the packing itself. Since `f` only
+    /// ever sees indices `0..len`, callers reading from a slice with `len <= values.len()` may
+    /// soundly use `|i| unsafe { *values.get_unchecked(i) }`.
+    ///
+    /// Prefer this entry point for every predicate. Only switch to
+    /// [`Self::collect_bool_multiversioned`] after carefully checking that your specific `f`
+    /// meets its contract (a trivially cheap, bounds-check-free gather or comparison) —
+    /// ideally with a benchmark.
     #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         BitBufferMut::collect_bool(len, f).freeze()
+    }
+
+    /// Like [`Self::collect_bool`], but compiles the packing loop — with `f` inside it — once
+    /// per CPU feature level (AVX-512BW/AVX2/baseline) and selects a clone by runtime feature
+    /// detection.
+    ///
+    /// Calling this asserts that `f` is small and simple enough (e.g. a bounds-check-free slice
+    /// gather or comparison) that duplicating it per feature level and paying a
+    /// `#[target_feature]` call boundary beats inlining it once into your function. For any
+    /// non-trivial `f` that assertion is false — the boundary deoptimizes the predicate — so
+    /// unless you have carefully checked (ideally benchmarked) that your specific `f`
+    /// qualifies, use [`Self::collect_bool`]. See
+    /// [`collect_bool_words_multiversioned`](crate::bit::collect_bool_words_multiversioned).
+    #[inline]
+    pub fn collect_bool_multiversioned<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
+        BitBufferMut::collect_bool_multiversioned(len, f).freeze()
     }
 
     /// Maps over each bit in this buffer, calling `f(index, bit_value)` and collecting results.

@@ -19,6 +19,7 @@ use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldPath;
 use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
@@ -504,5 +505,30 @@ impl WriteSummary {
     /// The total number of rows in the written Vortex file.
     pub fn row_count(&self) -> u64 {
         self.footer.row_count()
+    }
+
+    /// Returns the compressed size in bytes of each top-level column in schema order.
+    ///
+    /// A column's size includes every physical segment attributed to its layout subtree,
+    /// including auxiliary segments such as zone maps and dictionaries; see
+    /// [`Footer::compressed_field_sizes`] for the exact attribution semantics and for sizes of
+    /// nested fields. Bytes not attributable to a specific column (e.g. top-level struct
+    /// validity) are not included in any column's size.
+    ///
+    /// For a non-struct file, the returned vector contains a single entry for the root column.
+    pub fn compressed_column_sizes(&self) -> VortexResult<Vec<u64>> {
+        let sizes = self.footer.compressed_field_sizes()?;
+        let Some(fields) = self.footer.dtype().as_struct_fields_opt() else {
+            return Ok(vec![sizes.total()]);
+        };
+        Ok(fields
+            .names()
+            .iter()
+            .map(|name| {
+                sizes
+                    .get(&FieldPath::from_name(name.clone()))
+                    .unwrap_or_default()
+            })
+            .collect())
     }
 }

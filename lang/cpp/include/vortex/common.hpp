@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #pragma once
 
+#include <bit>
 #include <cstdint>
 #include <span>
 #include <string_view>
@@ -13,9 +14,34 @@
 namespace vortex {
 struct float16_t {
     uint16_t bits;
-    friend bool operator==(float16_t, float16_t) = default;
+    constexpr friend bool operator==(float16_t, float16_t) = default;
     // NOLINTNEXTLINE
-    operator float() const;
+    constexpr operator float() const {
+        float result;
+        const uint32_t sign = (bits >> 15) & 1;
+        const uint32_t exponent = (bits >> 10) & 0x1F;
+        const uint32_t mantissa = bits & 0x3FF;
+
+        uint32_t out;
+        if (exponent == 0x1F) {
+            out = (sign << 31) | 0x7F800000 | (mantissa << 13);
+        } else if (exponent == 0) {
+            if (mantissa == 0) {
+                out = sign << 31;
+            } else {
+                uint32_t m = mantissa;
+                int e = -1;
+                do {
+                    m <<= 1;
+                    ++e;
+                } while ((m & 0x400) == 0);
+                out = (sign << 31) | ((127 - 15 - e) << 23) | ((m & 0x3FF) << 13);
+            }
+        } else {
+            out = (sign << 31) | ((exponent - 15 + 127) << 23) | (mantissa << 13);
+        }
+        return std::bit_cast<float>(out);
+    }
 };
 static_assert(sizeof(float16_t) == 2 && std::is_trivially_copyable_v<float16_t>);
 } // namespace vortex
@@ -64,6 +90,10 @@ constexpr vx_ptype to_ptype() {
         return PTYPE_I32;
     } else if constexpr (std::is_same_v<T, int64_t>) {
         return PTYPE_I64;
+#if __STDCPP_FLOAT16_T__ == 1
+    } else if constexpr (std::is_same_v<T, _Float16>) {
+        return PTYPE_F16;
+#endif
     } else if constexpr (std::is_same_v<T, float16_t>) {
         return PTYPE_F16;
     } else if constexpr (std::is_same_v<T, float>) {
@@ -79,7 +109,13 @@ inline constexpr bool is_numeric_element =
     std::is_same_v<T, uint8_t> || std::is_same_v<T, uint16_t> || std::is_same_v<T, uint32_t> ||
     std::is_same_v<T, uint64_t> || std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t> ||
     std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> || std::is_same_v<T, float> ||
-    std::is_same_v<T, double> || std::is_same_v<T, float16_t>;
+    std::is_same_v<T, double>
+#if __STDCPP_FLOAT16_T__ == 1
+    || std::is_same_v<T, _Float16>
+#else
+    || std::is_same_v<T, float16_t>
+#endif
+    ;
 } // namespace vortex::detail
 
 namespace vortex {

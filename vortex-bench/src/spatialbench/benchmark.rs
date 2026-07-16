@@ -96,6 +96,16 @@ impl Benchmark for SpatialBenchBenchmark {
                 crate::conversions::add_geoparquet_metadata(&zone_file, &geo).await?;
             }
         }
+
+        // Cluster the source parquet along a spatial curve so all lanes read the same layout and
+        // the geometry zone-map prune can skip chunks.
+        let derived_dirs = [
+            base_data_dir.join(Format::OnDiskVortex.name()),
+            base_data_dir.join(Format::VortexCompact.name()),
+            base_data_dir.join(NATIVE_DIR),
+        ];
+        datagen::spatially_sort_tables(&base_data_dir.join(Format::Parquet.name()), &derived_dirs)
+            .await?;
         Ok(())
     }
 

@@ -40,8 +40,8 @@ enum class ValidityType {
     AllValid = VX_VALIDITY_ALL_VALID,
     // All items are invalid
     AllInvalid = VX_VALIDITY_ALL_INVALID,
-    // Item validity is set in a boolean array: true = valid, false = invalid
-    Array = VX_VALIDITY_ARRAY,
+    // Item validity is set from a boolean array: true = valid, false = invalid
+    FromArray = VX_VALIDITY_ARRAY,
 };
 
 /**

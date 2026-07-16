@@ -17,14 +17,16 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::varbin::VarBinArrayExt;
-use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex::array::arrays::varbinview::build_views::build_views;
+use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_unsigned_integer_ptype;
+use vortex::array::validity::Validity;
 use vortex::buffer::Alignment;
-use vortex::buffer::Buffer;
+use vortex::buffer::ByteBuffer;
+use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::FSSTArray;
@@ -37,6 +39,34 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
+
+/// Device-resident offset-based result of FSST decompression.
+pub(crate) struct FSSTVarBin {
+    pub(crate) dtype: DType,
+    pub(crate) len: usize,
+    pub(crate) offsets: BufferHandle,
+    pub(crate) values: BufferHandle,
+    pub(crate) validity: Validity,
+}
+
+/// Returns validity backing bytes and the bit offset of the first row for the FSST kernels.
+///
+/// `BitBuffer` slices normalize whole-byte offsets but can retain a sub-byte offset. Passing that
+/// offset to CUDA lets the kernels address sliced validity directly without repacking it on host.
+fn cuda_validity(
+    validity: &Validity,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(u64, ByteBuffer)> {
+    let bits = validity
+        .clone()
+        .execute_mask(len, ctx.execution_ctx())?
+        .into_bit_buffer();
+    let (bit_offset, bit_len, bytes) = bits.into_inner();
+    debug_assert_eq!(bit_len, len);
+    let byte_len = (bit_offset + bit_len).div_ceil(8);
+    Ok((bit_offset as u64, bytes.slice(0..byte_len)))
+}
 
 /// CUDA decoder for FSST.
 #[derive(Debug)]
@@ -61,16 +91,15 @@ impl CudaExecute for FSSTExecutor {
         let dtype = fsst.dtype().clone();
         let validity = fsst.codes().validity()?;
 
-        if fsst.is_empty() || validity.definitely_all_null() {
-            let empty = unsafe {
-                VarBinViewArray::new_unchecked(
-                    Buffer::<BinaryView>::zeroed(fsst.len()),
-                    Arc::from([]),
-                    dtype,
-                    validity,
-                )
-            };
-            return Ok(Canonical::VarBinView(empty));
+        if fsst.is_empty() {
+            return Ok(Canonical::empty(&dtype));
+        }
+
+        if validity.definitely_all_null() {
+            let views = ctx.copy_to_device(vec![0i128; fsst.len()])?.await?;
+            return Ok(Canonical::VarBinView(unsafe {
+                VarBinViewArray::new_handle_unchecked(views, Arc::from([]), dtype, validity)
+            }));
         }
 
         let lens = fsst
@@ -105,6 +134,138 @@ impl CudaExecute for FSSTExecutor {
     }
 }
 
+/// Decode FSST directly into Arrow-compatible i32 offsets and contiguous values on device.
+pub(crate) async fn decode_fsst_varbin(
+    fsst: FSSTArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<FSSTVarBin> {
+    let dtype = fsst.dtype().clone();
+    let validity = fsst.codes().validity()?;
+    let len = fsst.len();
+    let lens = fsst
+        .uncompressed_lengths()
+        .clone()
+        .execute::<PrimitiveArray>(ctx.execution_ctx())?;
+    let codes_offsets = fsst
+        .codes()
+        .offsets()
+        .clone()
+        .execute::<PrimitiveArray>(ctx.execution_ctx())?;
+
+    let output_offsets = match_each_integer_ptype!(lens.ptype(), |P| {
+        let mut offsets = Vec::with_capacity(lens.len() + 1);
+        let mut acc = 0u64;
+        offsets.push(0i32);
+        #[allow(clippy::unnecessary_cast)]
+        for &length in lens.as_slice::<P>() {
+            let length = u64::try_from(length as i128)
+                .map_err(|_| vortex_err!("FSST uncompressed length cannot be negative"))?;
+            acc = acc
+                .checked_add(length)
+                .ok_or_else(|| vortex_err!("FSST decoded size overflow"))?;
+            offsets
+                .push(i32::try_from(acc).map_err(|_| {
+                    vortex_err!("FSST decoded size exceeds Arrow i32 offset range")
+                })?);
+        }
+        VortexResult::Ok(offsets)
+    })?;
+    let total_size = usize::try_from(
+        *output_offsets
+            .last()
+            .vortex_expect("output_offsets has at least one entry"),
+    )?;
+
+    if total_size == 0 {
+        let offsets = ctx.copy_to_device(output_offsets)?.await?;
+        let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?);
+        let values = BufferHandle::new_device(allocation.slice(0..0));
+        return Ok(FSSTVarBin {
+            dtype,
+            len,
+            offsets,
+            values,
+            validity,
+        });
+    }
+
+    match_each_unsigned_integer_ptype!(codes_offsets.ptype().to_unsigned(), |U| {
+        decode_fsst_varbin_typed::<U>(fsst, codes_offsets, output_offsets, total_size, ctx).await
+    })
+}
+
+async fn decode_fsst_varbin_typed<U>(
+    fsst: FSSTArray,
+    codes_offsets: PrimitiveArray,
+    output_offsets: Vec<i32>,
+    total_size: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<FSSTVarBin>
+where
+    U: NativePType + DeviceRepr + Send + Sync + 'static,
+{
+    let dtype = fsst.dtype().clone();
+    let validity = fsst.codes().validity()?;
+    let len = fsst.len();
+    let len_u64 = len as u64;
+    let symbols_u64: Vec<u64> = fsst.symbols().iter().map(|s| s.to_u64()).collect();
+    let symbol_lengths = fsst.symbol_lengths().clone();
+    let codes_bytes_handle = fsst.codes_bytes_handle().clone();
+    let PrimitiveDataParts {
+        buffer: codes_offsets_buffer,
+        ..
+    } = codes_offsets.into_data_parts();
+    let (validity_bit_offset, validity_bits) = cuda_validity(&validity, len, ctx)?;
+
+    let (symbols, symbol_lengths, output_offsets, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
+        ctx.copy_to_device(symbols_u64)?,
+        ctx.copy_to_device(symbol_lengths)?,
+        ctx.copy_to_device(output_offsets)?,
+        ctx.copy_to_device(validity_bits)?,
+        ctx.ensure_on_device(codes_bytes_handle),
+        ctx.ensure_on_device(codes_offsets_buffer),
+    )?;
+
+    // The kernel gates store widths on `out_pos % N` relative to the base, so the base must
+    // satisfy the widest store (u128 → 16).
+    let output = ctx.device_alloc::<u8>(total_size)?;
+    let (output_base_ptr, _) = output.device_ptr(ctx.stream());
+    assert_eq!(
+        output_base_ptr % 16,
+        0,
+        "output base not 16-aligned: {output_base_ptr:#x}",
+    );
+
+    let codes_bytes_view = codes_bytes.cuda_view::<u8>()?;
+    let codes_offsets_view = codes_offsets.cuda_view::<U>()?;
+    let symbols_view = symbols.cuda_view::<u64>()?;
+    let symbol_lengths_view = symbol_lengths.cuda_view::<u8>()?;
+    let output_offsets_view = output_offsets.cuda_view::<i32>()?;
+    let validity_view = validity_device.cuda_view::<u8>()?;
+    let ptype = U::PTYPE.to_string();
+    let cuda_function = ctx.load_function_with_suffixes("fsst", &["varbin", &ptype])?;
+
+    ctx.launch_kernel(&cuda_function, len, |args| {
+        args.arg(&codes_bytes_view)
+            .arg(&codes_offsets_view)
+            .arg(&symbols_view)
+            .arg(&symbol_lengths_view)
+            .arg(&output_offsets_view)
+            .arg(&validity_view)
+            .arg(&validity_bit_offset)
+            .arg(&output)
+            .arg(&len_u64);
+    })?;
+
+    Ok(FSSTVarBin {
+        dtype,
+        len,
+        offsets: output_offsets,
+        values: BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output))),
+        validity,
+    })
+}
+
 async fn decode_fsst<U>(
     fsst: FSSTArray,
     codes_offsets: PrimitiveArray,
@@ -126,6 +287,13 @@ where
     )
     .vortex_expect("total_size fits in usize");
 
+    if total_size == 0 {
+        let views = ctx.copy_to_device(vec![0i128; num_strings])?.await?;
+        return Ok(Canonical::VarBinView(unsafe {
+            VarBinViewArray::new_handle_unchecked(views, Arc::from([]), dtype, validity)
+        }));
+    }
+
     let symbols_u64: Vec<u64> = fsst.symbols().iter().map(|s| s.to_u64()).collect();
     let symbol_lengths = fsst.symbol_lengths().clone();
     let codes_bytes_handle = fsst.codes_bytes_handle().clone();
@@ -134,18 +302,13 @@ where
         ..
     } = codes_offsets.into_data_parts();
 
-    let (.., validity_bits) = validity
-        .clone()
-        .execute_mask(num_strings, ctx.execution_ctx())?
-        .into_bit_buffer()
-        .sliced()
-        .into_inner();
+    let (validity_bit_offset, validity_bits) = cuda_validity(&validity, num_strings, ctx)?;
 
     let (symbols, symbol_lengths, output_offsets, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
         ctx.copy_to_device(symbols_u64)?,
         ctx.copy_to_device(symbol_lengths)?,
         ctx.copy_to_device(output_offsets)?,
-        ctx.copy_to_device(validity_bits.to_vec())?,
+        ctx.copy_to_device(validity_bits)?,
         ctx.ensure_on_device(codes_bytes_handle),
         ctx.ensure_on_device(codes_offsets_buffer),
     )?;
@@ -153,6 +316,9 @@ where
     // The kernel checks store alignment relative to the base via
     // `out_pos % N`, so the base must satisfy the widest store (u128 → 16).
     let device_output = ctx.device_alloc::<u8>(total_size)?;
+    let device_views = (total_size <= MAX_BUFFER_LEN)
+        .then(|| ctx.device_alloc::<i128>(num_strings))
+        .transpose()?;
     let (output_base_ptr, _) = device_output.device_ptr(ctx.stream());
     assert_eq!(
         output_base_ptr % 16,
@@ -168,6 +334,7 @@ where
     let validity_view = validity_device.cuda_view::<u8>()?;
 
     let cuda_function = ctx.load_function("fsst", &[U::PTYPE])?;
+    let null_views = 0u64;
     ctx.launch_kernel(&cuda_function, num_strings, |args| {
         args.arg(&codes_bytes_view)
             .arg(&codes_offsets_view)
@@ -175,10 +342,29 @@ where
             .arg(&symbol_lengths_view)
             .arg(&output_offsets_view)
             .arg(&validity_view)
-            .arg(&device_output)
-            .arg(&num_strings_u64);
+            .arg(&validity_bit_offset)
+            .arg(&device_output);
+        if let Some(device_views) = device_views.as_ref() {
+            args.arg(device_views);
+        } else {
+            args.arg(&null_views);
+        }
+        args.arg(&num_strings_u64);
     })?;
 
+    // Fast path: the decoded heap fits in one BinaryView backing buffer, so the kernel wrote
+    // views directly and both buffers can remain on-device. Larger heaps use the host rollover
+    // path below to split decoded bytes across multiple backing buffers.
+    if let Some(device_views) = device_views {
+        let views = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_views)));
+        let bytes = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
+        return Ok(Canonical::VarBinView(unsafe {
+            VarBinViewArray::new_handle_unchecked(views, Arc::from([bytes]), dtype, validity)
+        }));
+    }
+
+    // BinaryView offsets are u32. Retain the host rollover path for decoded heaps
+    // that need multiple backing buffers; ordinary batches stay entirely on-device.
     let host_bytes = CudaDeviceBuffer::new(device_output)
         .copy_to_host(Alignment::new(1))?
         .await?;
@@ -200,10 +386,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::buffer::Buffer;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
     use vortex::encodings::fsst::fsst_compress;
@@ -213,34 +402,73 @@ mod tests {
 
     use super::*;
     use crate::CanonicalCudaExt;
+    use crate::arrow::DeviceArrayExt;
+    use crate::arrow::release_device_array;
+    use crate::arrow::release_schema;
     use crate::session::CudaSession;
+    use crate::session::VarBinExportLayout;
+
+    fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
+        let session = vortex::array::array_session()
+            .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
+        CudaSession::create_execution_ctx(&session)
+    }
+
+    fn assert_device_resident(canonical: &Canonical) {
+        let varbinview = canonical.as_varbinview();
+        assert!(varbinview.views_handle().is_on_device());
+        assert!(
+            varbinview
+                .data_buffers()
+                .iter()
+                .all(BufferHandle::is_on_device)
+        );
+    }
 
     #[rstest]
-    #[case::non_null(
+    #[case::binary_non_null(
         vec![Some(&b"the quick brown fox"[..]),
              Some(&b"jumps over the lazy dog"[..]),
              Some(&b"hello world"[..]),
              Some(&b"vortex fsst test string"[..])],
-        Nullability::NonNullable,
+        DType::Binary(Nullability::NonNullable),
     )]
-    #[case::partial_nulls(
+    #[case::utf8_non_null(
+        vec![Some(&b"the quick brown fox"[..]),
+             Some(&b"jumps over the lazy dog"[..]),
+             Some(&b"hello world"[..]),
+             Some(&b"vortex fsst test string"[..])],
+        DType::Utf8(Nullability::NonNullable),
+    )]
+    #[case::utf8_inline_boundary(
+        vec![Some(&b""[..]),
+             Some(&b"123456789012"[..]),
+             Some(&b"1234567890123"[..]),
+             Some(&b"this is another outlined value"[..])],
+        DType::Utf8(Nullability::NonNullable),
+    )]
+    #[case::utf8_partial_nulls(
         vec![Some(&b"alpha"[..]), None, Some(&b"gamma"[..]), None, Some(&b"epsilon"[..])],
-        Nullability::Nullable,
+        DType::Utf8(Nullability::Nullable),
     )]
-    #[case::all_nulls(
+    #[case::binary_all_empty(
+        vec![Some(&b""[..]), Some(&b""[..]), Some(&b""[..])],
+        DType::Binary(Nullability::NonNullable),
+    )]
+    #[case::binary_all_nulls(
         vec![None, None, None, None, None],
-        Nullability::Nullable,
+        DType::Binary(Nullability::Nullable),
     )]
     #[crate::test]
     async fn test_cuda_fsst_decompression_roundtrip(
         #[case] strings: Vec<Option<&'static [u8]>>,
-        #[case] nullability: Nullability,
+        #[case] dtype: DType,
     ) -> VortexResult<()> {
         let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
-        let varbin = VarBinArray::from_iter(strings, DType::Binary(nullability)).into_array();
+        let varbin = VarBinArray::from_iter(strings, dtype.clone()).into_array();
         let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
         let fsst_array =
             fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
@@ -248,12 +476,128 @@ mod tests {
         let gpu_result = FSSTExecutor
             .execute(fsst_array.clone(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
-            .into_host()
-            .await?
-            .into_array();
+            .vortex_expect("GPU decompression failed");
+        assert_eq!(gpu_result.dtype(), &dtype);
+        assert_device_resident(&gpu_result);
 
-        assert_arrays_eq!(fsst_array, gpu_result, &mut ctx);
+        let host_result = gpu_result.into_host().await?.into_array();
+        assert_arrays_eq!(fsst_array, host_result, &mut ctx);
+        Ok(())
+    }
+
+    /// Verifies that the view kernel applies a sliced validity bitmap's nonzero bit offset.
+    #[crate::test]
+    async fn test_cuda_fsst_decompression_sliced_validity() -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+        let values = [
+            Some(&b"before"[..]),
+            None,
+            Some(&b"gamma"[..]),
+            None,
+            Some(&b"after"[..]),
+        ];
+        let varbin =
+            VarBinArray::from_iter(values, DType::Utf8(Nullability::Nullable)).into_array();
+        let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
+        let fsst = fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
+        let sliced = fsst.slice(1..4)?;
+
+        let gpu_result = FSSTExecutor.execute(sliced.clone(), &mut cuda_ctx).await?;
+        assert_device_resident(&gpu_result);
+        let host_result = gpu_result.into_host().await?.into_array();
+        assert_arrays_eq!(sliced, host_result, &mut ctx);
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_cuda_fsst_direct_varbin_output() -> VortexResult<()> {
+        let mut cuda_ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+        let values: [&[u8]; 3] = [
+            b"",
+            b"short",
+            b"this value is stored directly in the values buffer",
+        ];
+        let varbin = VarBinArray::from_iter(
+            values.into_iter().map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        )
+        .into_array();
+        let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
+        let fsst = fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?;
+
+        let output = decode_fsst_varbin(fsst, &mut cuda_ctx).await?;
+        assert_eq!(output.dtype, DType::Utf8(Nullability::NonNullable));
+        assert_eq!(output.len, values.len());
+        assert!(output.offsets.is_on_device());
+        assert!(output.values.is_on_device());
+
+        let offsets = Buffer::<i32>::from_byte_buffer(output.offsets.try_to_host()?.await?);
+        assert_eq!(
+            offsets.as_slice(),
+            &[0, 0, 5, i32::try_from(5 + values[2].len())?,]
+        );
+        assert_eq!(
+            output.values.try_to_host()?.await?.as_ref(),
+            values.concat()
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::binary(
+        DType::Binary(Nullability::NonNullable),
+        VarBinExportLayout::VarBin,
+        DataType::Binary,
+        3
+    )]
+    #[case::utf8(
+        DType::Utf8(Nullability::NonNullable),
+        VarBinExportLayout::VarBin,
+        DataType::Utf8,
+        3
+    )]
+    #[case::binary_view(
+        DType::Binary(Nullability::NonNullable),
+        VarBinExportLayout::VarBinView,
+        DataType::BinaryView,
+        4
+    )]
+    #[case::utf8_view(
+        DType::Utf8(Nullability::NonNullable),
+        VarBinExportLayout::VarBinView,
+        DataType::Utf8View,
+        4
+    )]
+    #[crate::test]
+    async fn test_cuda_fsst_arrow_export_uses_dtype_layout(
+        #[case] dtype: DType,
+        #[case] layout: VarBinExportLayout,
+        #[case] expected_data_type: DataType,
+        #[case] expected_n_buffers: i64,
+    ) -> VortexResult<()> {
+        let mut cuda_ctx = cuda_ctx_with_varbin_layout(layout)?;
+        let values = [
+            Some(&b"short"[..]),
+            Some(&b"this value is stored out of line"[..]),
+        ];
+        let varbin = VarBinArray::from_iter(values, dtype).into_array();
+        let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
+        let fsst_array =
+            fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
+
+        let mut exported = fsst_array
+            .export_device_array_with_schema(&mut cuda_ctx)
+            .await?;
+        assert_eq!(
+            Field::try_from(&exported.schema)?,
+            Field::new("", expected_data_type, false)
+        );
+        assert_eq!(exported.array.array.n_buffers, expected_n_buffers);
+
+        release_device_array(&mut exported.array);
+        release_schema(&mut exported.schema);
         Ok(())
     }
 
@@ -271,12 +615,11 @@ mod tests {
         let gpu_result = FSSTExecutor
             .execute(fsst_array.clone(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
-            .into_host()
-            .await?
-            .into_array();
+            .vortex_expect("GPU decompression failed");
+        assert_device_resident(&gpu_result);
 
-        assert_arrays_eq!(fsst_array, gpu_result, &mut ctx);
+        let host_result = gpu_result.into_host().await?.into_array();
+        assert_arrays_eq!(fsst_array, host_result, &mut ctx);
         Ok(())
     }
 }

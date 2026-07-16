@@ -40,11 +40,14 @@ pub use point::*;
 pub use polygon::*;
 pub use rect::*;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
@@ -57,7 +60,7 @@ use vortex_error::vortex_err;
 pub use wkb::*;
 
 /// Whether `dtype` is one of the native geometry extension types the geo kernels operate on.
-fn is_native_geometry(dtype: &DType) -> bool {
+pub(crate) fn is_native_geometry(dtype: &DType) -> bool {
     dtype.as_extension_opt().is_some_and(|ext| {
         ext.is::<Point>()
             || ext.is::<LineString>()
@@ -83,6 +86,33 @@ pub(crate) fn validate_geometry_operands(dtypes: &[DType]) -> VortexResult<()> {
         );
     }
     Ok(())
+}
+
+/// Flatten a native geometry column into a single coordinate `Struct<x, y, ...>` containing
+/// every vertex of every geometry.
+pub(crate) fn flatten_coordinates(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<StructArray> {
+    if !is_native_geometry(array.dtype()) {
+        vortex_bail!(
+            "geo: operand is not a native geometry extension type, was {}",
+            array.dtype()
+        );
+    }
+    let mut node = array
+        .clone()
+        .execute::<ExtensionArray>(ctx)?
+        .storage_array()
+        .clone();
+    while matches!(node.dtype(), DType::List(..)) {
+        node = node
+            .execute::<Canonical>(ctx)?
+            .into_listview()
+            .elements()
+            .clone();
+    }
+    node.execute::<StructArray>(ctx)
 }
 
 /// Decode a native geometry column to `geo_types`. A non-geometry operand is an error.

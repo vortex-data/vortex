@@ -31,6 +31,7 @@ wkb = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-layout = { workspace = true }
 
 [lints]
 workspace = true

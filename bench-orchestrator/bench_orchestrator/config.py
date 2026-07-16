@@ -54,6 +54,7 @@ class Benchmark(Enum):
     PUBLIC_BI = "public-bi"
     STATPOPGEN = "statpopgen"
     SPATIALBENCH = "spatialbench"
+    VORTEX_QUERIES = "vortex"
 
 
 # Engine to supported formats mapping.

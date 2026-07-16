@@ -8,6 +8,7 @@
 //!
 //! The byte-level footer and postscript layout is part of the file-format spec; this module exposes
 //! the structured Rust representation and serializer/deserializer state machine.
+mod field_sizes;
 mod file_layout;
 mod file_statistics;
 mod postscript;
@@ -19,6 +20,7 @@ mod serializer;
 pub use serializer::*;
 mod deserializer;
 pub use deserializer::*;
+pub use field_sizes::CompressedFieldSizes;
 pub use file_statistics::FileStatistics;
 use flatbuffers::root;
 use itertools::Itertools;
@@ -144,6 +146,15 @@ impl Footer {
     /// Returns the statistics of the file.
     pub fn statistics(&self) -> Option<&FileStatistics> {
         self.statistics.as_ref()
+    }
+
+    /// Computes the compressed size in bytes of every field in the file, keyed by field path.
+    ///
+    /// Sizes are derived by attributing each segment in the [segment map][Self::segment_map] to a
+    /// field in the [layout tree][Self::layout]; see [`CompressedFieldSizes`] for the exact
+    /// attribution semantics. No IO is performed.
+    pub fn compressed_field_sizes(&self) -> VortexResult<CompressedFieldSizes> {
+        CompressedFieldSizes::try_new(&self.root_layout, &self.segments)
     }
 
     /// Returns the [`DType`] of the file.

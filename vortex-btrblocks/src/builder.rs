@@ -165,10 +165,14 @@ impl BtrBlocksCompressorBuilder {
         // dictionary expansion at decode time, which is incompatible with
         // pure-GPU decompression paths. Strip whichever string-fragment
         // scheme is enabled by feature.
-        #[cfg_attr(not(feature = "unstable_encodings"), allow(unused_mut))]
+        #[cfg_attr(
+            not(any(feature = "pco", feature = "unstable_encodings")),
+            allow(unused_mut)
+        )]
         let mut excluded: Vec<SchemeId> = vec![
             integer::SparseScheme.id(),
             integer::IntRLEScheme.id(),
+            float::ALPRDScheme.id(),
             float::FloatRLEScheme.id(),
             float::NullDominatedSparseScheme.id(),
             string::StringDictScheme.id(),
@@ -181,6 +185,8 @@ impl BtrBlocksCompressorBuilder {
         // is incompatible with pure-GPU decompression paths.
         #[cfg(feature = "unstable_encodings")]
         excluded.push(integer::DeltaScheme::default().id());
+        #[cfg(feature = "pco")]
+        excluded.extend([integer::PcoScheme.id(), float::PcoScheme.id()]);
         let builder = self.exclude_schemes(excluded);
 
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
@@ -222,5 +228,28 @@ mod tests {
     fn default_includes_all_schemes() {
         let builder = BtrBlocksCompressorBuilder::default();
         assert_eq!(builder.schemes.len(), ALL_SCHEMES.len());
+    }
+
+    #[test]
+    fn cuda_compatible_excludes_alprd() {
+        let builder = BtrBlocksCompressorBuilder::default().only_cuda_compatible();
+        assert!(
+            !builder
+                .schemes
+                .iter()
+                .any(|s| s.id() == float::ALPRDScheme.id())
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "pco")]
+    fn cuda_compatible_excludes_pco() {
+        let builder = BtrBlocksCompressorBuilder::default()
+            .with_new_scheme(&integer::PcoScheme)
+            .with_new_scheme(&float::PcoScheme)
+            .only_cuda_compatible();
+        for scheme in [integer::PcoScheme.id(), float::PcoScheme.id()] {
+            assert!(!builder.schemes.iter().any(|s| s.id() == scheme));
+        }
     }
 }

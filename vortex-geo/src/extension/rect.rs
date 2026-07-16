@@ -56,7 +56,7 @@ use super::coordinate::Dimension;
 use super::geo_metadata_from_arrow;
 use super::geoarrow_metadata;
 
-/// A bounding box (`geoarrow.box`), stored as `Struct<xmin, ymin[, ..], xmax, ymax[, ..]>`.
+/// An axis-aligned bounding box (`geoarrow.box`), stored as `Struct<xmin, ymin[, ..], xmax, ymax[, ..]>`.
 // Named `Rect`, not `Box`: matches `geo::Rect` / geoarrow-rs `RectArray`, and `Box` is a std name.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Rect;

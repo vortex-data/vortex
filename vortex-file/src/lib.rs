@@ -113,6 +113,7 @@ mod tests;
 pub mod v2;
 mod writer;
 
+pub use counting::CountingVortexWrite;
 pub use file::*;
 pub use footer::*;
 pub use forever_constant::*;

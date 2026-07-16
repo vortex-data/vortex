@@ -20,8 +20,9 @@
 namespace vortex {
 
 namespace detail {
+
 // range-for support for Scan and Partition
-template <class Source, class Item, auto Next>
+template <class Source, class Item, std::optional<Item> (Source::*Next)()>
 class PullRange {
 public:
     class iterator {
@@ -37,7 +38,7 @@ public:
             return *cur_;
         }
         iterator &operator++() {
-            cur_ = Next(src_);
+            cur_ = (src_->*Next)();
             return *this;
         }
         void operator++(int) {
@@ -55,7 +56,7 @@ public:
     explicit PullRange(Source &src) : src_(&src) {
     }
     iterator begin() {
-        return iterator(src_, Next(src_));
+        return iterator(src_, (src_->*Next)());
     }
     std::default_sentinel_t end() {
         return std::default_sentinel;

@@ -8,6 +8,7 @@
 #include "vortex/writer.hpp"
 #include "vortex/session.hpp"
 
+#include <initializer_list>
 #include <vortex.h>
 
 #include <string_view>
@@ -30,13 +31,23 @@ Writer Writer::open(const Session &session, std::string_view path, const DataTyp
     return Writer(sink);
 }
 
-void Writer::push(const Array &array) {
+void Writer::push(std::span<const Array> arrays) {
     if (handle_ == nullptr) {
         throw VortexException("null handle_", ErrorCode::InvalidArgument);
     }
     vx_error *error = nullptr;
-    vx_array_sink_push(handle_.get(), Access::c_ptr(array), &error);
-    throw_on_error(error);
+    for (const Array &array : arrays) {
+        vx_array_sink_push(handle_.get(), Access::c_ptr(array), &error);
+        throw_on_error(error);
+    }
+}
+
+void Writer::push(const Array &array) {
+    push(std::span {&array, 1});
+}
+
+void Writer::push(std::initializer_list<Array> arrays) {
+    push({arrays.begin(), arrays.end()});
 }
 
 void Writer::finish() {

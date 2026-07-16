@@ -10,27 +10,42 @@
 
 use std::os::raw::c_int;
 use std::ptr;
+use std::sync::Arc;
 
 use arrow_schema::ffi::FFI_ArrowSchema;
+use vortex::array::stream::ArrayStreamExt;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::file::WriteStrategyBuilder;
+use vortex::io::VortexReadAt;
+use vortex::io::runtime::BlockingRuntime;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::session::SessionExt;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
+use vortex_cuda::PooledFileReadAt;
 use vortex_cuda::arrow::ArrowDeviceArray;
 use vortex_cuda::arrow::ArrowDeviceArrayStream;
 use vortex_cuda::arrow::DeviceArrayExt;
 use vortex_cuda::arrow::DeviceArrayStreamExt;
+use vortex_cuda::layout::CudaFlatLayoutStrategy;
+use vortex_cuda::layout::register_cuda_layout;
 use vortex_ffi::ffi_runtime;
 use vortex_ffi::try_or;
 use vortex_ffi::vx_array;
 use vortex_ffi::vx_array_ref;
+use vortex_ffi::vx_array_sink;
+use vortex_ffi::vx_array_sink_open_file_with_strategy;
+use vortex_ffi::vx_dtype;
 use vortex_ffi::vx_error;
 use vortex_ffi::vx_partition;
 use vortex_ffi::vx_partition_into_array_stream;
 use vortex_ffi::vx_session;
 use vortex_ffi::vx_session_new_with;
 use vortex_ffi::vx_session_ref;
+use vortex_ffi::vx_view;
 
 const VX_CUDA_OK: c_int = 0;
 const VX_CUDA_ERR: c_int = 1;
@@ -41,6 +56,7 @@ const VX_CUDA_ERR: c_int = 1;
 /// returns a new session cloned from `session` with a default [`CudaSession`] attached.
 fn session_with_cuda(session: &VortexSession) -> VortexResult<VortexSession> {
     session.get::<CudaSession>();
+    register_cuda_layout(session);
     Ok(session.clone())
 }
 
@@ -59,8 +75,90 @@ pub unsafe extern "C-unwind" fn vx_cuda_session_new(
     try_or(error_out, ptr::null_mut(), || {
         let cuda_session = CudaSession::try_default()?;
         Ok(vx_session_new_with(|session| {
-            session.with_some(cuda_session)
+            let session = session.with_some(cuda_session);
+            register_cuda_layout(&session);
+            session
         }))
+    })
+}
+
+/// Open a Vortex file sink configured to produce CUDA-readable files.
+///
+/// Push host-resident arrays and close or abort the returned sink with the standard
+/// `vx_array_sink_*` functions. This function configures the on-disk encodings and layout; it does
+/// not move arrays to the GPU during the write.
+///
+/// # Safety
+///
+/// `session`, `path`, and `dtype` must satisfy the same requirements as
+/// `vx_array_sink_open_file`. If `error_out` is non-null, it must be valid for writing one error
+/// pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file(
+    session: *const vx_session,
+    path: vx_view,
+    dtype: *const vx_dtype,
+    error_out: *mut *mut vx_error,
+) -> *mut vx_array_sink {
+    try_or(error_out, ptr::null_mut(), || {
+        session_with_cuda(unsafe { vx_session_ref(session) }?)?;
+        let strategy = WriteStrategyBuilder::default()
+            .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().only_cuda_compatible())
+            .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
+            .build();
+        unsafe { vx_array_sink_open_file_with_strategy(session, path, dtype, strategy) }
+    })
+}
+
+/// Scan a local Vortex file through pinned host buffers and export an Arrow C Device stream.
+///
+/// The file must use encodings and layouts supported by the CUDA execution path, such as files
+/// written by [`vx_cuda_array_sink_open_file`]. Pinned staging buffers are reused across scans made
+/// with the same CUDA session.
+///
+/// On success returns `0` and writes an owned [`ArrowDeviceArrayStream`] to `out_stream`. The
+/// caller must release the stream and each array produced by it through their embedded Arrow
+/// release callbacks.
+///
+/// On error returns `1` and, when `error_out` is non-null, writes a `vx_error` (free with
+/// `vx_error_free`).
+///
+/// # Safety
+///
+/// `session` must be a valid borrowed handle created by `vortex-ffi`. `path` must be valid for the
+/// duration of this call and contain UTF-8. `out_stream` must be a valid writable pointer. If
+/// `error_out` is non-null, it must be valid for writing one error pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream(
+    session: *const vx_session,
+    path: vx_view,
+    out_stream: *mut ArrowDeviceArrayStream,
+    error_out: *mut *mut vx_error,
+) -> c_int {
+    try_or(error_out, VX_CUDA_ERR, || {
+        vortex_ensure!(!out_stream.is_null(), "null ArrowDeviceArrayStream output");
+
+        let path = unsafe { path.as_str() }?.to_owned();
+        let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
+        let cuda_session = session.get::<CudaSession>();
+        let stream = cuda_session.stream()?;
+        let pool = Arc::clone(cuda_session.pinned_buffer_pool());
+        drop(cuda_session);
+
+        let reader: Arc<dyn VortexReadAt> = Arc::new(PooledFileReadAt::open(
+            path,
+            session.handle(),
+            pool,
+            stream,
+        )?);
+        let array_stream = ffi_runtime().block_on(async {
+            let file = session.open_options().open(reader).await?;
+            Ok::<_, vortex::error::VortexError>(file.scan()?.into_array_stream()?.boxed())
+        })?;
+        let device_stream = array_stream.export_device_array_stream(&session, ffi_runtime())?;
+
+        unsafe { ptr::write(out_stream, device_stream) };
+        Ok(VX_CUDA_OK)
     })
 }
 

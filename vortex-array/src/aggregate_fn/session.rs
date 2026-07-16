@@ -10,6 +10,7 @@ use vortex_session::SessionVar;
 
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
@@ -44,6 +45,7 @@ use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
+use crate::dtype::DType;
 
 /// Session state for aggregate functions and encoding-specific aggregate kernels.
 ///
@@ -132,6 +134,22 @@ impl AggregateFnSession {
         let id = vtable.id();
         let pluginref = Arc::new(vtable) as AggregateFnPluginRef;
         self.registry.insert(id, pluginref);
+    }
+
+    /// The default per-chunk zone statistics for a column of `input_dtype`, collected from every
+    /// registered aggregate's `zone_stat_default`.
+    ///
+    /// Each call scans the whole plugin registry, so this is intended to be called once per
+    /// column when a zoned writer is opened, not per chunk or per row.
+    pub fn zone_stat_defaults(&self, input_dtype: &DType) -> Vec<AggregateFnRef> {
+        self.registry.read(|registry| {
+            let mut fns: Vec<AggregateFnRef> = registry
+                .values()
+                .filter_map(|plugin| plugin.zone_stat_default(input_dtype))
+                .collect();
+            fns.sort_by_key(|f| f.id());
+            fns
+        })
     }
 
     /// Returns the aggregate kernel registered for `array_id` and `agg_fn_id`, if any.
