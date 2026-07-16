@@ -357,6 +357,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
             Operator::Sub,
         )?;
 
+        // SAFETY: By resetting the offsets we simply "shift" everything left and discard trailing garbage, so all invariants remain the same.
         Ok(unsafe { ListArray::new_unchecked(elements, adjusted_offsets, self.list_validity()) })
     }
 }
