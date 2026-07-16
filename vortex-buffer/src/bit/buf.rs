@@ -461,8 +461,13 @@ impl BitBuffer {
             );
         }
 
-        // Allocate directly rather than clone + identity op which would fail try_into_mut.
-        bitwise_unary_op_copy(self, |a| a)
+        // An unaligned offset requires shifting every bit down to the buffer start;
+        // `append_buffer` performs the unaligned copy into an offset-0 buffer.
+        let mut target = BitBufferMut::with_capacity(self.len);
+        target.append_buffer(self);
+        let target = target.freeze();
+        assert_eq!(target.offset(), 0);
+        target
     }
 }
 
@@ -673,6 +678,25 @@ mod tests {
     use crate::ByteBuffer;
     use crate::bit::BitBuffer;
     use crate::buffer;
+
+    // `sliced` must shift the bits down when the offset is not byte-aligned, not just copy
+    // the backing bytes: consumers hand the raw bytes to FFI/device code that indexes from
+    // bit zero.
+    #[rstest]
+    #[case::unaligned(1..9)]
+    #[case::aligned(8..17)]
+    #[case::empty(3..3)]
+    fn test_sliced_resets_offset(#[case] range: std::ops::Range<usize>) {
+        let bits = BitBuffer::from_iter((0..20).map(|bit_index| bit_index % 3 == 0));
+        let view = bits.slice(range.clone());
+
+        let sliced = view.sliced();
+        assert_eq!(sliced.offset(), 0);
+        assert_eq!(sliced.len(), view.len());
+        for (bit_index, absolute_index) in range.enumerate() {
+            assert_eq!(sliced.value(bit_index), absolute_index % 3 == 0);
+        }
+    }
 
     #[test]
     fn test_bool() {
