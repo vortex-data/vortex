@@ -4,10 +4,13 @@
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_session::registry::ReadContext;
 
 use crate::ArrayContext;
+use crate::Canonical;
+use crate::CanonicalValidity;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
@@ -335,6 +338,121 @@ fn constant_union_builds_nested_union_placeholders() -> VortexResult<()> {
         array.child_by_name("nested")?.execute_scalar(0, &mut ctx)?,
         Scalar::zero_value(&nested_dtype)
     );
+
+    Ok(())
+}
+
+#[test]
+fn constant_union_builds_deeply_nested_union_placeholders() -> VortexResult<()> {
+    let nested_dtype = DType::Union(
+        UnionVariants::try_new(
+            ["value"].into(),
+            vec![DType::Primitive(PType::I64, Nullability::NonNullable)],
+            vec![3],
+        )?,
+        Nullability::NonNullable,
+    );
+    let wrapper_dtype =
+        DType::struct_([("nested", nested_dtype.clone())], Nullability::NonNullable);
+    let outer_variants = UnionVariants::try_new(
+        ["number", "wrapper"].into(),
+        vec![
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            wrapper_dtype,
+        ],
+        vec![5, 9],
+    )?;
+    let selected_number =
+        Scalar::union(outer_variants, 5, 42_i32.into(), Nullability::NonNullable)?;
+    let mut ctx = array_session().create_execution_ctx();
+    let array = ConstantArray::new(selected_number, 2)
+        .into_array()
+        .execute::<UnionArray>(&mut ctx)?;
+    let wrapper = array
+        .child_by_name("wrapper")?
+        .execute_scalar(0, &mut ctx)?;
+
+    assert_eq!(
+        wrapper.as_struct().field("nested"),
+        Some(Scalar::default_value(&nested_dtype))
+    );
+
+    Ok(())
+}
+
+#[test]
+fn constant_union_rejects_uninhabited_placeholders_without_panicking() -> VortexResult<()> {
+    let uninhabited = DType::Union(
+        UnionVariants::new(Default::default(), vec![])?,
+        Nullability::NonNullable,
+    );
+    let outer_variants = UnionVariants::try_new(
+        ["number", "uninhabited"].into(),
+        vec![
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            uninhabited,
+        ],
+        vec![5, 9],
+    )?;
+    let selected_number =
+        Scalar::union(outer_variants, 5, 42_i32.into(), Nullability::NonNullable)?;
+    let mut ctx = array_session().create_execution_ctx();
+
+    assert!(
+        ConstantArray::new(selected_number.clone(), 1)
+            .into_array()
+            .execute::<UnionArray>(&mut ctx)
+            .is_err()
+    );
+    assert_eq!(
+        ConstantArray::new(selected_number, 0)
+            .into_array()
+            .execute::<UnionArray>(&mut ctx)?
+            .len(),
+        0
+    );
+
+    Ok(())
+}
+
+#[test]
+fn empty_union_supports_variant_children() -> VortexResult<()> {
+    let variants = UnionVariants::try_new(
+        ["dynamic"].into(),
+        vec![DType::Variant(Nullability::NonNullable)],
+        vec![5],
+    )?;
+    let array = Canonical::empty(&DType::Union(variants, Nullability::NonNullable)).into_union();
+
+    assert_eq!(array.len(), 0);
+    assert_eq!(
+        array.child(0).map(|child| child.dtype()),
+        Some(&DType::Variant(Nullability::NonNullable))
+    );
+
+    Ok(())
+}
+
+#[test]
+fn canonical_validity_canonicalizes_union_type_ids() -> VortexResult<()> {
+    let array = UnionArray::try_new(
+        ConstantArray::new(Scalar::primitive(5_u8, Nullability::Nullable), 2).into_array(),
+        variants()?,
+        vec![
+            PrimitiveArray::from_iter([10_i32, 20]).into_array(),
+            BoolArray::from_iter([false, true]).into_array(),
+        ],
+    )?;
+    let mut ctx = array_session().create_execution_ctx();
+    let Canonical::Union(array) = array.into_array().execute::<CanonicalValidity>(&mut ctx)?.0
+    else {
+        return Err(vortex_err!(
+            "UnionArray must remain canonical Union storage"
+        ));
+    };
+
+    assert!(array.type_ids().is::<crate::arrays::Primitive>());
+    assert_eq!(array.dtype().nullability(), Nullability::Nullable);
 
     Ok(())
 }

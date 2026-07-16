@@ -21,6 +21,7 @@ use crate::array::ArrayView;
 use crate::array::child_to_validity;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::ChunkedArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Extension;
@@ -237,9 +238,15 @@ impl Canonical {
             DType::Union(variants, nullability) => {
                 Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
             }
-            DType::Variant(_) => {
-                vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
-            }
+            DType::Variant(_) => Canonical::Variant(
+                VariantArray::try_new(
+                    ChunkedArray::try_new(vec![], dtype.clone())
+                        .vortex_expect("empty Variant core storage must be valid")
+                        .into_array(),
+                    None,
+                )
+                .vortex_expect("empty VariantArray must be valid"),
+            ),
             DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
                 Canonical::empty(ext_dtype.storage_dtype()).into_array(),
@@ -678,7 +685,18 @@ impl Executable for CanonicalValidity {
                     StructArray::new_unchecked(fields, struct_fields, len, validity.execute(ctx)?)
                 })))
             }
-            union @ Canonical::Union(_) => Ok(CanonicalValidity(union)),
+            Canonical::Union(union) => {
+                let UnionDataParts {
+                    variants,
+                    type_ids,
+                    children,
+                } = union.into_data_parts();
+                let type_ids = type_ids.execute::<CanonicalValidity>(ctx)?.0.into_array();
+
+                Ok(CanonicalValidity(Canonical::Union(unsafe {
+                    UnionArray::new_unchecked(type_ids, variants, children)
+                })))
+            }
             Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension(
                 ExtensionArray::new(
                     ext.ext_dtype().clone(),

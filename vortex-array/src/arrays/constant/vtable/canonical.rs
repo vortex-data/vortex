@@ -8,6 +8,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -149,16 +150,22 @@ pub(crate) fn constant_canonicalize(
                     .collect(),
                 None => {
                     assert!(matches!(validity, Validity::AllInvalid));
-                    // The struct is entirely null, so fields just need placeholder values with the
-                    // correct dtype. We use `default_value` which returns a zero for non-nullable
-                    // dtypes and null for nullable dtypes, preserving each field's nullability.
                     struct_dtype
                         .fields()
                         .map(|dt| {
-                            let scalar = Scalar::default_value(&dt);
-                            ConstantArray::new(scalar, array.len()).into_array()
+                            if array.is_empty() {
+                                return Ok(Canonical::empty(&dt).into_array());
+                            }
+
+                            let scalar = Scalar::try_default_value(&dt).ok_or_else(|| {
+                                vortex_err!(
+                                    "cannot canonicalize null constant struct: field dtype {dt} \
+                                     has no default value"
+                                )
+                            })?;
+                            Ok(ConstantArray::new(scalar, array.len()).into_array())
                         })
-                        .collect()
+                        .collect::<VortexResult<Vec<_>>>()?
                 }
             };
             // SAFETY: Fields are constructed from the same struct scalar, all have same
@@ -202,6 +209,10 @@ fn constant_canonical_union(
     nullability: Nullability,
     len: usize,
 ) -> VortexResult<UnionArray> {
+    if len == 0 {
+        return Ok(UnionArray::empty(variants.clone(), nullability));
+    }
+
     let union = scalar.as_union();
     let selected = union.child_index().zip(union.value());
 
@@ -213,14 +224,17 @@ fn constant_canonical_union(
                 Some((selected_child, selected_value)) if index == selected_child => {
                     selected_value.clone()
                 }
-                _ if matches!(&dtype, DType::Union(_, Nullability::NonNullable)) => {
-                    Scalar::zero_value(&dtype)
-                }
-                _ => Scalar::default_value(&dtype),
+                _ => Scalar::try_default_value(&dtype).ok_or_else(|| {
+                    vortex_err!(
+                        "cannot canonicalize constant union: unselected variant {} ({dtype}) has \
+                         no default value",
+                        variants.names()[index]
+                    )
+                })?,
             };
-            ConstantArray::new(value, len).into_array()
+            Ok(ConstantArray::new(value, len).into_array())
         })
-        .collect::<Vec<_>>();
+        .collect::<VortexResult<Vec<_>>>()?;
 
     let type_id = match union.type_id() {
         Some(type_id) => Scalar::primitive(type_id, nullability),
