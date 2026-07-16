@@ -296,6 +296,50 @@ fn constant_union_executes_to_sparse_union() -> VortexResult<()> {
 }
 
 #[test]
+fn constant_union_builds_nested_union_placeholders() -> VortexResult<()> {
+    let nested_variants = UnionVariants::try_new(
+        ["value"].into(),
+        vec![DType::Primitive(PType::I64, Nullability::NonNullable)],
+        vec![3],
+    )?;
+    let nested_dtype = DType::Union(nested_variants, Nullability::NonNullable);
+    let outer_variants = UnionVariants::try_new(
+        ["number", "nested"].into(),
+        vec![
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            nested_dtype.clone(),
+        ],
+        vec![5, 9],
+    )?;
+    let mut ctx = array_session().create_execution_ctx();
+
+    let selected_number = Scalar::union(
+        outer_variants.clone(),
+        5,
+        42i32.into(),
+        Nullability::NonNullable,
+    )?;
+    let array = ConstantArray::new(selected_number, 2)
+        .into_array()
+        .execute::<UnionArray>(&mut ctx)?;
+    assert_eq!(
+        array.child_by_name("nested")?.execute_scalar(0, &mut ctx)?,
+        Scalar::zero_value(&nested_dtype)
+    );
+
+    let outer_null = Scalar::null(DType::Union(outer_variants, Nullability::Nullable));
+    let array = ConstantArray::new(outer_null, 2)
+        .into_array()
+        .execute::<UnionArray>(&mut ctx)?;
+    assert_eq!(
+        array.child_by_name("nested")?.execute_scalar(0, &mut ctx)?,
+        Scalar::zero_value(&nested_dtype)
+    );
+
+    Ok(())
+}
+
+#[test]
 fn chunked_union_packs_components() -> VortexResult<()> {
     let first = union_array()?.into_array().slice(0..1)?;
     let second = union_array()?.into_array().slice(1..3)?;

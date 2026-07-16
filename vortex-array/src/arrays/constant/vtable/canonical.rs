@@ -213,6 +213,9 @@ fn constant_canonical_union(
                 Some((selected_child, selected_value)) if index == selected_child => {
                     selected_value.clone()
                 }
+                _ if matches!(&dtype, DType::Union(_, Nullability::NonNullable)) => {
+                    Scalar::zero_value(&dtype)
+                }
                 _ => Scalar::default_value(&dtype),
             };
             ConstantArray::new(value, len).into_array()
