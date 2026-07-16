@@ -1,5 +1,22 @@
 # Vortex C bindings
 
+## Runtime threading
+
+The FFI uses a shared, caller-driven runtime. By default Vortex creates no runtime worker threads:
+the host threads currently executing FFI calls drive the runtime. Multiple host threads making
+concurrent FFI calls can drive runtime work in parallel while keeping thread ownership entirely in
+the host application.
+
+Applications that want a single FFI operation to make progress on additional threads may opt into
+Vortex-owned background workers with `vx_runtime_set_worker_threads`. This is a process-global
+setting shared by every FFI session. Calling it with a non-zero count changes the threading model
+from host-thread-only execution to a combination of host threads and Vortex-owned workers. Calling
+it with zero signals the background workers to stop and restores the host-thread-only
+configuration.
+
+Applications that already supply concurrency through their own host threads should leave the
+worker count at its default of zero to avoid oversubscription.
+
 ## Updating Headers
 
 If you're developing FFI and want to rebuild `cinclude/vortex.h`, run:
