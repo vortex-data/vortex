@@ -29,6 +29,7 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::session::SessionExt;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::PooledByteBufferReadAt;
