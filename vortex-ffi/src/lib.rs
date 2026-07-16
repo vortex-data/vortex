@@ -45,14 +45,35 @@ use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::runtime::current::CurrentThreadWorkerPool;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 /// A shared runtime for all FFI operations.
-// TODO(ngates): also create a CurrentThreadPool to manage background worker threads.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+
+/// Background workers that drive the shared FFI runtime.
+///
+/// The pool starts empty so existing callers retain current-thread execution until they opt in
+/// with [`vx_runtime_set_worker_threads`].
+static POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| RUNTIME.new_pool());
+
+/// Set the number of background worker threads driving the shared FFI runtime.
+///
+/// This setting is process-global. Passing zero disables background execution. Increasing the
+/// count starts workers immediately; decreasing it signals excess workers to stop.
+#[unsafe(no_mangle)]
+pub extern "C" fn vx_runtime_set_worker_threads(worker_threads: usize) {
+    POOL.set_workers(worker_threads);
+}
+
+/// Return the configured number of background worker threads driving the shared FFI runtime.
+#[unsafe(no_mangle)]
+pub extern "C" fn vx_runtime_worker_count() -> usize {
+    POOL.worker_count()
+}
 
 /// Return the shared FFI runtime for layered FFI crates that drive Vortex streams produced through
 /// `vortex-ffi`.
@@ -106,6 +127,17 @@ mod tests {
     use crate::sink::vx_array_sink_open_file;
     use crate::sink::vx_array_sink_push;
     use crate::string::vx_view;
+    use crate::vx_runtime_set_worker_threads;
+    use crate::vx_runtime_worker_count;
+
+    #[test]
+    fn runtime_worker_pool_configuration() {
+        assert_eq!(vx_runtime_worker_count(), 0);
+        vx_runtime_set_worker_threads(2);
+        assert_eq!(vx_runtime_worker_count(), 2);
+        vx_runtime_set_worker_threads(0);
+        assert_eq!(vx_runtime_worker_count(), 0);
+    }
 
     /// Panic if error is NULL. Free the error if it's not
     pub(crate) fn assert_error(error: *mut vx_error) {

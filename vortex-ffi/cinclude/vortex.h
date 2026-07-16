@@ -682,6 +682,19 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Set the number of background worker threads driving the shared FFI runtime.
+ *
+ * This setting is process-global. Passing zero disables background execution. Increasing the
+ * count starts workers immediately; decreasing it signals excess workers to stop.
+ */
+void vx_runtime_set_worker_threads(size_t worker_threads);
+
+/**
+ * Return the configured number of background worker threads driving the shared FFI runtime.
+ */
+size_t vx_runtime_worker_count(void);
+
+/**
  * Increase reference count on vx_array
  */
 const vx_array *vx_array_clone(const vx_array *ptr);
