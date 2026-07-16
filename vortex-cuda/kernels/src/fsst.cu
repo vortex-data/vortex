@@ -148,6 +148,8 @@ struct FSSTArgs {
     const OutputOffsetT *__restrict output_offsets;
     // Validity of each string.
     const uint8_t *__restrict validity_bits;
+    // Bit offset of string zero within the first validity byte (0..7).
+    uint64_t validity_bit_offset;
     // Optional output views, one 16-byte uint4 per string. A null pointer
     // requests bytes-only decoding for heaps that need the host rollover path.
     uint4 *__restrict output_views;
@@ -184,7 +186,8 @@ __device__ inline void fsst_write_view(const FSSTArgs<CodeOffsetT, OutputOffsetT
 
 template <typename CodeOffsetT, typename OutputOffsetT>
 __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffsetT> &args, uint64_t sid) {
-    if (((args.validity_bits[sid >> 3] >> (sid & 7u)) & 1u) == 0u) {
+    const uint64_t validity_index = sid + args.validity_bit_offset;
+    if (((args.validity_bits[validity_index >> 3] >> (validity_index & 7u)) & 1u) == 0u) {
         if (args.output_views != nullptr) {
             args.output_views[sid] = make_uint4(0, 0, 0, 0);
         }
@@ -250,6 +253,7 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
                                              const uint8_t *__restrict symbol_lengths,                       \
                                              const uint64_t *__restrict output_offsets,                      \
                                              const uint8_t *__restrict validity_bits,                        \
+                                             uint64_t validity_bit_offset,                                   \
                                              uint8_t *__restrict output_bytes,                               \
                                              uint4 *__restrict output_views,                                 \
                                              uint64_t num_strings) {                                         \
@@ -261,6 +265,7 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
             output_bytes,                                                                                    \
             output_offsets,                                                                                  \
             validity_bits,                                                                                   \
+            validity_bit_offset,                                                                             \
             output_views,                                                                                    \
         };                                                                                                   \
         FSST_GRID_STRIDE_LOOP(CodeOffsetT, uint64_t, args)                                                   \
@@ -273,6 +278,7 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
                                                     const uint8_t *__restrict symbol_lengths,                \
                                                     const int32_t *__restrict output_offsets,                \
                                                     const uint8_t *__restrict validity_bits,                 \
+                                                    uint64_t validity_bit_offset,                            \
                                                     uint8_t *__restrict output_bytes,                        \
                                                     uint64_t num_strings) {                                  \
         const FSSTArgs<CodeOffsetT, int32_t> args = {                                                        \
@@ -283,6 +289,7 @@ __device__ inline void fsst_decode_string(const FSSTArgs<CodeOffsetT, OutputOffs
             output_bytes,                                                                                    \
             output_offsets,                                                                                  \
             validity_bits,                                                                                   \
+            validity_bit_offset,                                                                             \
             nullptr,                                                                                         \
         };                                                                                                   \
         FSST_GRID_STRIDE_LOOP(CodeOffsetT, int32_t, args)                                                    \

@@ -25,6 +25,7 @@ use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::buffer::Alignment;
+use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::encodings::fsst::FSST;
@@ -46,6 +47,25 @@ pub(crate) struct FSSTVarBin {
     pub(crate) offsets: BufferHandle,
     pub(crate) values: BufferHandle,
     pub(crate) validity: Validity,
+}
+
+/// Returns validity backing bytes and the bit offset of the first row for the FSST kernels.
+///
+/// `BitBuffer` slices normalize whole-byte offsets but can retain a sub-byte offset. Passing that
+/// offset to CUDA lets the kernels address sliced validity directly without repacking it on host.
+fn cuda_validity(
+    validity: &Validity,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(u64, ByteBuffer)> {
+    let bits = validity
+        .clone()
+        .execute_mask(len, ctx.execution_ctx())?
+        .into_bit_buffer();
+    let (bit_offset, bit_len, bytes) = bits.into_inner();
+    debug_assert_eq!(bit_len, len);
+    let byte_len = (bit_offset + bit_len).div_ceil(8);
+    Ok((bit_offset as u64, bytes.slice(0..byte_len)))
 }
 
 /// CUDA decoder for FSST.
@@ -195,18 +215,13 @@ where
         buffer: codes_offsets_buffer,
         ..
     } = codes_offsets.into_data_parts();
-    let (.., validity_bits) = validity
-        .clone()
-        .execute_mask(len, ctx.execution_ctx())?
-        .into_bit_buffer()
-        .sliced()
-        .into_inner();
+    let (validity_bit_offset, validity_bits) = cuda_validity(&validity, len, ctx)?;
 
     let (symbols, symbol_lengths, output_offsets, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
         ctx.copy_to_device(symbols_u64)?,
         ctx.copy_to_device(symbol_lengths)?,
         ctx.copy_to_device(output_offsets)?,
-        ctx.copy_to_device(validity_bits.to_vec())?,
+        ctx.copy_to_device(validity_bits)?,
         ctx.ensure_on_device(codes_bytes_handle),
         ctx.ensure_on_device(codes_offsets_buffer),
     )?;
@@ -237,6 +252,7 @@ where
             .arg(&symbol_lengths_view)
             .arg(&output_offsets_view)
             .arg(&validity_view)
+            .arg(&validity_bit_offset)
             .arg(&output)
             .arg(&len_u64);
     })?;
@@ -286,18 +302,13 @@ where
         ..
     } = codes_offsets.into_data_parts();
 
-    let (.., validity_bits) = validity
-        .clone()
-        .execute_mask(num_strings, ctx.execution_ctx())?
-        .into_bit_buffer()
-        .sliced()
-        .into_inner();
+    let (validity_bit_offset, validity_bits) = cuda_validity(&validity, num_strings, ctx)?;
 
     let (symbols, symbol_lengths, output_offsets, validity_device, codes_bytes, codes_offsets) = futures::try_join!(
         ctx.copy_to_device(symbols_u64)?,
         ctx.copy_to_device(symbol_lengths)?,
         ctx.copy_to_device(output_offsets)?,
-        ctx.copy_to_device(validity_bits.to_vec())?,
+        ctx.copy_to_device(validity_bits)?,
         ctx.ensure_on_device(codes_bytes_handle),
         ctx.ensure_on_device(codes_offsets_buffer),
     )?;
@@ -331,6 +342,7 @@ where
             .arg(&symbol_lengths_view)
             .arg(&output_offsets_view)
             .arg(&validity_view)
+            .arg(&validity_bit_offset)
             .arg(&device_output);
         if let Some(device_views) = device_views.as_ref() {
             args.arg(device_views);
@@ -467,6 +479,32 @@ mod tests {
 
         let host_result = gpu_result.into_host().await?.into_array();
         assert_arrays_eq!(fsst_array, host_result, &mut ctx);
+        Ok(())
+    }
+
+    /// Verifies that the view kernel applies a sliced validity bitmap's nonzero bit offset.
+    #[crate::test]
+    async fn test_cuda_fsst_decompression_sliced_validity() -> VortexResult<()> {
+        let mut ctx = vortex_array::array_session().create_execution_ctx();
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
+            .vortex_expect("failed to create execution context");
+        let values = [
+            Some(&b"before"[..]),
+            None,
+            Some(&b"gamma"[..]),
+            None,
+            Some(&b"after"[..]),
+        ];
+        let varbin =
+            VarBinArray::from_iter(values, DType::Utf8(Nullability::Nullable)).into_array();
+        let compressor = fsst_train_compressor(&varbin, cuda_ctx.execution_ctx())?;
+        let fsst = fsst_compress(&varbin, &compressor, cuda_ctx.execution_ctx())?.into_array();
+        let sliced = fsst.slice(1..4)?;
+
+        let gpu_result = FSSTExecutor.execute(sliced.clone(), &mut cuda_ctx).await?;
+        assert_device_resident(&gpu_result);
+        let host_result = gpu_result.into_host().await?.into_array();
+        assert_arrays_eq!(sliced, host_result, &mut ctx);
         Ok(())
     }
 
