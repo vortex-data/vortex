@@ -17,6 +17,7 @@ use vortex_fsst::FSST;
 use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
+use crate::schemes::string::onpair::OnPairScheme;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
@@ -46,11 +47,9 @@ fn test_dict_compressed() -> VortexResult<()> {
     Ok(())
 }
 
-#[cfg(feature = "unstable_encodings")]
 #[test]
 fn test_onpair_in_default_scheme_list() {
     use crate::SchemeExt;
-    use crate::schemes::string::OnPairScheme;
 
     let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|s| s.id()).collect();
     assert!(
@@ -59,7 +58,6 @@ fn test_onpair_in_default_scheme_list() {
     );
 }
 
-#[cfg(feature = "unstable_encodings")]
 #[test]
 fn test_onpair_compressed() -> VortexResult<()> {
     // Dictionary-style string corpus: high lexical overlap, short rows.

@@ -165,7 +165,6 @@ mod forever_constant {
 pub fn register_default_encodings(session: &VortexSession) {
     vortex_bytebool::initialize(session);
     vortex_fsst::initialize(session);
-    #[cfg(feature = "unstable_encodings")]
     vortex_onpair::initialize(session);
     vortex_zigzag::initialize(session);
 
