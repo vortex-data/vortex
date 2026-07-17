@@ -11,6 +11,8 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -23,8 +25,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
 use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
-use crate::arrays::piecewise_sequence::validate_index_ranges;
-use crate::arrays::piecewise_sequence::validate_index_ranges_constant;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -241,15 +241,24 @@ where
     S: UnsignedPType,
     L: UnsignedPType,
 {
-    validate_index_ranges(source.len(), starts, lengths, output_len)?;
-
     let mut values = BufferMut::<T>::with_capacity(output_len);
+    let mut computed_len = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        values.extend_from_slice(&source[start..start + length]);
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+        computed_len = computed_len
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+        values.extend_from_slice(&source[start..end]);
     }
 
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
     Ok(values.freeze())
 }
 
@@ -296,12 +305,22 @@ where
     T: Copy,
     S: UnsignedPType,
 {
-    validate_index_ranges_constant(source.len(), starts, length, output_len)?;
+    let computed_len = starts
+        .len()
+        .checked_mul(length)
+        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
 
     let mut values = BufferMut::<T>::with_capacity(output_len);
     for &start in starts {
         let start = start.as_();
-        values.extend_from_slice(&source[start..start + length]);
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+        values.extend_from_slice(&source[start..end]);
     }
 
     Ok(values.freeze())

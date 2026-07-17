@@ -134,38 +134,6 @@ fn check_index_array(name: &str, array: &ArrayRef) -> VortexResult<()> {
     Ok(())
 }
 
-pub(crate) fn validate_index_ranges_constant<S>(
-    source_len: usize,
-    starts: &[S],
-    length: usize,
-    output_len: usize,
-) -> VortexResult<()>
-where
-    S: UnsignedPType,
-{
-    let computed_len = starts
-        .len()
-        .checked_mul(length)
-        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-    vortex_ensure!(
-        computed_len == output_len,
-        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
-    );
-
-    for &start in starts {
-        let start: usize = start.as_();
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
-        vortex_ensure!(
-            end <= source_len,
-            "PiecewiseSequenceArray range {start}..{end} exceeds source length {source_len}"
-        );
-    }
-
-    Ok(())
-}
-
 pub(crate) fn materialize_ranges<S, L, M>(
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
@@ -209,37 +177,4 @@ where
         );
     }
     Ok(values)
-}
-
-pub(crate) fn validate_index_ranges<S, L>(
-    source_len: usize,
-    starts: &[S],
-    lengths: &[L],
-    output_len: usize,
-) -> VortexResult<()>
-where
-    S: UnsignedPType,
-    L: UnsignedPType,
-{
-    let mut computed_len = 0usize;
-    for (&start, &length) in starts.iter().zip_eq(lengths) {
-        let start: usize = start.as_();
-        let length: usize = length.as_();
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
-        vortex_ensure!(
-            end <= source_len,
-            "PiecewiseSequenceArray range {start}..{end} exceeds source length {source_len}"
-        );
-        computed_len = computed_len
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-    }
-
-    vortex_ensure!(
-        computed_len == output_len,
-        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
-    );
-    Ok(())
 }

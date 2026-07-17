@@ -22,8 +22,6 @@ use crate::arrays::VarBinArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
 use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
-use crate::arrays::piecewise_sequence::validate_index_ranges;
-use crate::arrays::piecewise_sequence::validate_index_ranges_constant;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::dtype::DType;
@@ -424,7 +422,14 @@ where
     Offset: IntegerPType,
     NewOffset: IntegerPType,
 {
-    validate_index_ranges_constant(offsets.len() - 1, starts, length, output_len)?;
+    let computed_len = starts
+        .len()
+        .checked_mul(length)
+        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
 
     let mut new_offsets = BufferMut::<NewOffset>::with_capacity(output_len + 1);
     new_offsets.push(NewOffset::zero());
@@ -432,7 +437,9 @@ where
 
     for &start in starts {
         let start = start.as_();
-        let end = start + length;
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         if length == 0 {
             continue;
         }
@@ -464,7 +471,9 @@ where
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
     for &start in starts {
         let start = start.as_();
-        let end = start + length;
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         if length == 0 {
             continue;
         }
@@ -497,16 +506,20 @@ where
     Offset: IntegerPType,
     NewOffset: IntegerPType,
 {
-    validate_index_ranges(offsets.len() - 1, starts, lengths, output_len)?;
-
     let mut new_offsets = BufferMut::<NewOffset>::with_capacity(output_len + 1);
     new_offsets.push(NewOffset::zero());
     let mut output_bytes = 0usize;
+    let mut computed_len = 0usize;
 
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        let end = start + length;
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+        computed_len = computed_len
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
         if length == 0 {
             continue;
         }
@@ -534,12 +547,18 @@ where
             .checked_add(byte_end - byte_start)
             .ok_or_else(|| vortex_err!("PiecewiseSequence VarBin output byte length overflow"))?;
     }
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
 
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        let end = start + length;
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         if length == 0 {
             continue;
         }

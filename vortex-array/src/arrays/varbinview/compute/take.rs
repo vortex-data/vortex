@@ -9,6 +9,8 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
@@ -22,8 +24,6 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
 use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
-use crate::arrays::piecewise_sequence::validate_index_ranges;
-use crate::arrays::piecewise_sequence::validate_index_ranges_constant;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::dtype::UnsignedPType;
@@ -161,12 +161,22 @@ fn gather_view_slices_constant_length<S>(
 where
     S: UnsignedPType,
 {
-    validate_index_ranges_constant(source.len(), starts, length, output_len)?;
+    let computed_len = starts
+        .len()
+        .checked_mul(length)
+        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
 
     let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
     for &start in starts {
         let start = start.as_();
-        views.extend_from_slice(&source[start..start + length]);
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+        views.extend_from_slice(&source[start..end]);
     }
 
     Ok(views.freeze())
@@ -182,15 +192,24 @@ where
     S: UnsignedPType,
     L: UnsignedPType,
 {
-    validate_index_ranges(source.len(), starts, lengths, output_len)?;
-
     let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
+    let mut computed_len = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        views.extend_from_slice(&source[start..start + length]);
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+        computed_len = computed_len
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+        views.extend_from_slice(&source[start..end]);
     }
 
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
     Ok(views.freeze())
 }
 
