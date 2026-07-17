@@ -16,8 +16,8 @@ use crate::arrays::DecimalArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
-use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
+use crate::arrays::piecewise_sequence::ConstantOrArray;
+use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::UnsignedPType;
@@ -64,16 +64,16 @@ fn take_contiguous_ranges(
     indices_ref: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
         return Ok(None);
     };
     let validity = array.validity()?.take(indices_ref)?;
     let output_len = indices_ref.len();
     let taken = match lengths {
-        UnitMultiplierLengths::Constant(length) => {
+        ConstantOrArray::Constant(length) => {
             take_slices_constant_length(array, &starts, length, validity, output_len)?
         }
-        UnitMultiplierLengths::Array(lengths) => {
+        ConstantOrArray::Array(lengths) => {
             take_slices(array, &starts, &lengths, validity, output_len)?
         }
     };

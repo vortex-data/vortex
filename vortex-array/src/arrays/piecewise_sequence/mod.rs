@@ -67,15 +67,15 @@ pub(crate) fn execute_index_arrays(
     Ok((starts, lengths, multipliers))
 }
 
-pub(crate) enum UnitMultiplierLengths {
+pub(crate) enum ConstantOrArray {
     Constant(usize),
     Array(PrimitiveArray),
 }
 
-pub(crate) fn execute_unit_multiplier_index_arrays(
+pub(crate) fn maybe_contiguous_slices(
     array: ArrayView<'_, PiecewiseSequence>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<(PrimitiveArray, UnitMultiplierLengths)>> {
+) -> VortexResult<Option<(PrimitiveArray, ConstantOrArray)>> {
     if !is_constant_multiplier_one(array.multipliers()) {
         return Ok(None);
     }
@@ -84,12 +84,12 @@ pub(crate) fn execute_unit_multiplier_index_arrays(
     let starts = array.starts().clone().execute::<PrimitiveArray>(ctx)?;
     if let Some(length) = constant_unsigned_usize(array.lengths())? {
         check_index_arrays(starts.as_ref(), array.lengths(), array.multipliers())?;
-        return Ok(Some((starts, UnitMultiplierLengths::Constant(length))));
+        return Ok(Some((starts, ConstantOrArray::Constant(length))));
     }
 
     let lengths = array.lengths().clone().execute::<PrimitiveArray>(ctx)?;
     check_index_arrays(starts.as_ref(), lengths.as_ref(), array.multipliers())?;
-    Ok(Some((starts, UnitMultiplierLengths::Array(lengths))))
+    Ok(Some((starts, ConstantOrArray::Array(lengths))))
 }
 
 pub(crate) fn is_constant_multiplier_one(multipliers: &ArrayRef) -> bool {

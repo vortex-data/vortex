@@ -22,8 +22,8 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
-use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
+use crate::arrays::piecewise_sequence::ConstantOrArray;
+use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::dtype::UnsignedPType;
@@ -78,13 +78,13 @@ fn take_contiguous_ranges(
     indices_ref: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
         return Ok(None);
     };
     let source = array.views();
     let output_len = indices_ref.len();
     let views = match &lengths {
-        UnitMultiplierLengths::Constant(length) => {
+        ConstantOrArray::Constant(length) => {
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
                 gather_view_slices_constant_length(
                     source,
@@ -94,7 +94,7 @@ fn take_contiguous_ranges(
                 )?
             })
         }
-        UnitMultiplierLengths::Array(lengths) => {
+        ConstantOrArray::Array(lengths) => {
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
                 match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
                     gather_view_slices(

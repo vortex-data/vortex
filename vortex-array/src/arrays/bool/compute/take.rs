@@ -22,8 +22,8 @@ use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
-use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
+use crate::arrays::piecewise_sequence::ConstantOrArray;
+use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
@@ -75,13 +75,13 @@ fn take_contiguous_ranges(
     indices_ref: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
         return Ok(None);
     };
     let source = array.to_bit_buffer();
     let output_len = indices_ref.len();
     let buffer = match &lengths {
-        UnitMultiplierLengths::Constant(length) => {
+        ConstantOrArray::Constant(length) => {
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
                 take_bit_slices_constant_length(
                     &source,
@@ -91,7 +91,7 @@ fn take_contiguous_ranges(
                 )?
             })
         }
-        UnitMultiplierLengths::Array(lengths) => {
+        ConstantOrArray::Array(lengths) => {
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
                 match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
                     take_bit_slices(
