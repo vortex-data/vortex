@@ -102,6 +102,29 @@ fn test_take_with_gaps() {
 }
 
 #[test]
+fn test_take_null_source_row_zeros_offset_size_payloads() {
+    let elements = buffer![1i32, 2].into_array();
+    let offsets = buffer![0u32, 999].into_array();
+    let sizes = buffer![2u32, 999].into_array();
+    let validity = Validity::from_iter([true, false]);
+    let listview =
+        unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }.into_array();
+
+    let result = listview.take(buffer![1u32].into_array()).unwrap();
+    let result_list = result
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
+
+    assert_eq!(result_list.offset_at(0), 0);
+    assert_eq!(result_list.size_at(0), 0);
+    assert!(
+        result_list
+            .is_invalid(0, &mut SESSION.create_execution_ctx())
+            .unwrap()
+    );
+}
+
+#[test]
 fn test_take_constant_arrays() {
     // ListView-specific: Test with ConstantArray for offsets/sizes.
     let elements = buffer![100i32, 200, 300, 400, 500, 600, 700, 800].into_array();
