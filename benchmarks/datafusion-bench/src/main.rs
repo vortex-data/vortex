@@ -24,7 +24,11 @@ use datafusion_bench::tracer::set_labels;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
 use parking_lot::Mutex;
+use vortex::file::multi::MultiFileDataSource;
 use vortex::io::filesystem::FileSystemRef;
+use vortex::io::object_store::ObjectStoreFileSystem;
+use vortex::io::session::RuntimeSessionExt;
+use vortex::scan::DataSource as _;
 use vortex::scan::DataSourceRef;
 use vortex_arrow::ToArrowType;
 use vortex_bench::Benchmark;
@@ -46,6 +50,7 @@ use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::v3;
 use vortex_datafusion::metrics::VortexMetricsFinder;
+use vortex_datafusion::v2::VortexTable;
 
 /// Common arguments shared across benchmarks
 #[derive(Parser)]
@@ -253,42 +258,39 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     benchmark: &B,
     format: Format,
 ) -> anyhow::Result<()> {
-    match format {
-        _ if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) => {
-            register_v2_tables(session, benchmark, format).await
+    if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) {
+        register_v2_tables(session, benchmark, format).await
+    } else {
+        let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
+        let file_format = format_to_df_format(format);
+
+        for table in benchmark.table_specs().iter() {
+            let pattern = benchmark.pattern(table.name, format);
+            let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?;
+
+            let listing_options = ListingOptions::new(Arc::clone(&file_format))
+                .with_session_config_options(session.state().config());
+            let mut config =
+                ListingTableConfig::new(table_url).with_listing_options(listing_options);
+
+            config = match table.schema.as_ref() {
+                Some(schema) => config.with_schema(Arc::new(schema.clone())),
+                None => config.infer_schema(&session.state()).await?,
+            };
+
+            let listing_table = Arc::new(
+                ListingTable::try_new(config)?.with_cache(
+                    session
+                        .runtime_env()
+                        .cache_manager
+                        .get_file_statistic_cache(),
+                ),
+            );
+
+            session.register_table(table.name, listing_table)?;
         }
-        _ => {
-            let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-            let file_format = format_to_df_format(format);
 
-            for table in benchmark.table_specs().iter() {
-                let pattern = benchmark.pattern(table.name, format);
-                let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?;
-
-                let listing_options = ListingOptions::new(Arc::clone(&file_format))
-                    .with_session_config_options(session.state().config());
-                let mut config =
-                    ListingTableConfig::new(table_url).with_listing_options(listing_options);
-
-                config = match table.schema.as_ref() {
-                    Some(schema) => config.with_schema(Arc::new(schema.clone())),
-                    None => config.infer_schema(&session.state()).await?,
-                };
-
-                let listing_table = Arc::new(
-                    ListingTable::try_new(config)?.with_cache(
-                        session
-                            .runtime_env()
-                            .cache_manager
-                            .get_file_statistic_cache(),
-                    ),
-                );
-
-                session.register_table(table.name, listing_table)?;
-            }
-
-            Ok(())
-        }
+        Ok(())
     }
 }
 
@@ -298,12 +300,6 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
     benchmark: &B,
     format: Format,
 ) -> anyhow::Result<()> {
-    use vortex::file::multi::MultiFileDataSource;
-    use vortex::io::object_store::ObjectStoreFileSystem;
-    use vortex::io::session::RuntimeSessionExt;
-    use vortex::scan::DataSource as _;
-    use vortex_datafusion::v2::VortexTable;
-
     let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
 
     for table in benchmark.table_specs().iter() {
