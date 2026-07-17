@@ -20,8 +20,8 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::list::ListArrayExt;
-use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
-use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
+use crate::arrays::piecewise_sequence::ConstantOrArray;
+use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
@@ -157,7 +157,7 @@ fn take_piecewise_sequence(
         return Ok(None);
     }
 
-    let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
         return Ok(None);
     };
     let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
@@ -165,7 +165,7 @@ fn take_piecewise_sequence(
     let output_len = indices_ref.len();
 
     let taken = match &lengths {
-        UnitMultiplierLengths::Constant(length) => take_piecewise_sequence_constant_dispatch(
+        ConstantOrArray::Constant(length) => take_piecewise_sequence_constant_dispatch(
             array,
             &starts,
             *length,
@@ -173,7 +173,7 @@ fn take_piecewise_sequence(
             indices_ref,
             output_len,
         )?,
-        UnitMultiplierLengths::Array(lengths) => take_piecewise_sequence_lengths_dispatch(
+        ConstantOrArray::Array(lengths) => take_piecewise_sequence_lengths_dispatch(
             array,
             &starts,
             lengths,
