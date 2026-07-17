@@ -13,6 +13,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::InstrumentedSegmentCache;
@@ -326,7 +327,7 @@ impl VortexOpenOptions {
         // If the initial read happened to cover any segments, then we can populate the
         // segment cache
         let initial_offset = file_size - (deserializer.buffer().len() as u64);
-        self.populate_initial_segments(initial_offset, deserializer.buffer(), &footer);
+        self.populate_initial_segments(initial_offset, deserializer.buffer(), &footer)?;
 
         Ok(footer)
     }
@@ -337,7 +338,7 @@ impl VortexOpenOptions {
         initial_offset: u64,
         initial_read: &ByteBuffer,
         footer: &Footer,
-    ) {
+    ) -> VortexResult<()> {
         let first_idx = footer
             .segment_map()
             .partition_point(|segment| segment.offset < initial_offset);
@@ -349,12 +350,19 @@ impl VortexOpenOptions {
             let segment_id =
                 SegmentId::from(u32::try_from(idx).vortex_expect("Invalid segment ID"));
             let offset =
-                usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
-            let buffer = initial_read
-                .slice(offset..offset + (segment.length as usize))
-                .aligned(segment.alignment);
+                usize::try_from(segment.offset.checked_sub(initial_offset).ok_or_else(|| {
+                    vortex_err!(
+                        "Segment offset {} is smaller than file read offset {initial_offset}",
+                        segment.offset
+                    )
+                })?)?;
+            let buffer = offset
+                .checked_add(segment.length as usize)
+                .map(|end| initial_read.slice(offset..end).aligned(segment.alignment))
+                .ok_or_else(|| vortex_err!("Segment length exceeds usize {}", segment.length))?;
             initial_read_segments.insert(segment_id, buffer);
         }
+        Ok(())
     }
 }
 
