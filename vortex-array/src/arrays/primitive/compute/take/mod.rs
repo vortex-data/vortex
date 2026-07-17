@@ -25,6 +25,7 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
+use crate::arrays::piecewise_sequence::copy_slice_to_spare;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -245,17 +246,21 @@ where
     L: UnsignedPType,
 {
     let mut values = BufferMut::<T>::with_capacity(output_len);
+    let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        values.extend_from_slice(&source[start..][..length]);
+        cursor = copy_slice_to_spare(&mut values, cursor, &source[start..][..length], output_len)?;
     }
 
     vortex_ensure!(
-        values.len() == output_len,
+        cursor == output_len,
         "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
-        values.len()
+        cursor
     );
+    // SAFETY: `copy_slice_to_spare` checked every write against `output_len`, and `cursor ==
+    // output_len` proves all slots were initialized.
+    unsafe { values.set_len(output_len) };
     Ok(values.freeze())
 }
 
@@ -312,11 +317,19 @@ where
     );
 
     let mut values = BufferMut::<T>::with_capacity(output_len);
+    let mut cursor = 0usize;
     for &start in starts {
         let start = start.as_();
-        values.extend_from_slice(&source[start..][..length]);
+        cursor = copy_slice_to_spare(&mut values, cursor, &source[start..][..length], output_len)?;
     }
 
+    vortex_ensure!(
+        cursor == output_len,
+        "PiecewiseSequenceArray expanded length {cursor} does not match declared length {output_len}"
+    );
+    // SAFETY: `copy_slice_to_spare` checked every write against `output_len`, and `cursor ==
+    // output_len` proves all slots were initialized.
+    unsafe { values.set_len(output_len) };
     Ok(values.freeze())
 }
 

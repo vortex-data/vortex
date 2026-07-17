@@ -18,6 +18,7 @@ use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
+use crate::arrays::piecewise_sequence::copy_slice_to_spare;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
@@ -199,11 +200,19 @@ where
     );
 
     let mut result = BufferMut::<T>::with_capacity(output_len);
+    let mut cursor = 0usize;
     for &start in starts {
         let start = start.as_();
-        result.extend_from_slice(&values[start..][..length]);
+        cursor = copy_slice_to_spare(&mut result, cursor, &values[start..][..length], output_len)?;
     }
 
+    vortex_ensure!(
+        cursor == output_len,
+        "PiecewiseSequenceArray expanded length {cursor} does not match declared length {output_len}"
+    );
+    // SAFETY: `copy_slice_to_spare` checked every write against `output_len`, and `cursor ==
+    // output_len` proves all slots were initialized.
+    unsafe { result.set_len(output_len) };
     Ok(result.freeze())
 }
 
@@ -219,17 +228,21 @@ where
     T: NativeDecimalType,
 {
     let mut result = BufferMut::<T>::with_capacity(output_len);
+    let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        result.extend_from_slice(&values[start..][..length]);
+        cursor = copy_slice_to_spare(&mut result, cursor, &values[start..][..length], output_len)?;
     }
 
     vortex_ensure!(
-        result.len() == output_len,
+        cursor == output_len,
         "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
-        result.len()
+        cursor
     );
+    // SAFETY: `copy_slice_to_spare` checked every write against `output_len`, and `cursor ==
+    // output_len` proves all slots were initialized.
+    unsafe { result.set_len(output_len) };
     Ok(result.freeze())
 }
 

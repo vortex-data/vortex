@@ -8,6 +8,8 @@
 //! intended for take operations that can gather regular runs without materializing one index per
 //! element.
 
+use std::ptr;
+
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
@@ -90,6 +92,40 @@ pub(crate) fn is_constant_one(multipliers: &ArrayRef) -> bool {
         scalar.as_primitive_opt().and_then(|scalar| scalar.pvalue()),
         Some(PValue::U8(1) | PValue::U16(1) | PValue::U32(1) | PValue::U64(1))
     )
+}
+
+pub(crate) fn copy_slice_to_spare<T: Copy>(
+    buffer: &mut BufferMut<T>,
+    cursor: usize,
+    source: &[T],
+    output_len: usize,
+) -> VortexResult<usize> {
+    let end = cursor
+        .checked_add(source.len())
+        .ok_or_else(|| vortex_err!("slice copy output length overflows usize"))?;
+    vortex_ensure!(
+        end <= output_len,
+        "slice copy length {end} exceeds declared output length {output_len}"
+    );
+    vortex_ensure!(
+        buffer.is_empty(),
+        "slice copy buffer already has {} initialized values",
+        buffer.len()
+    );
+    vortex_ensure!(
+        output_len <= buffer.capacity(),
+        "slice copy output length {output_len} exceeds buffer capacity {}",
+        buffer.capacity()
+    );
+
+    // SAFETY: the checks above prove `cursor..end` is inside the spare capacity of an
+    // uninitialized buffer allocated for at least `output_len` values.
+    let dst = unsafe { buffer.spare_capacity_mut().get_unchecked_mut(cursor..end) };
+    // SAFETY: `dst` has exactly `source.len()` writable slots and does not overlap with `source`.
+    unsafe {
+        ptr::copy_nonoverlapping(source.as_ptr(), dst.as_mut_ptr().cast(), source.len());
+    }
+    Ok(end)
 }
 
 pub(crate) fn constant_unsigned_usize(array: &ConstantArray) -> usize {

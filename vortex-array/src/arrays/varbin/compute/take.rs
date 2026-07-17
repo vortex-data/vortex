@@ -22,6 +22,7 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
+use crate::arrays::piecewise_sequence::copy_slice_to_spare;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbin::VarBinArrayExt;
@@ -474,6 +475,7 @@ where
     }
 
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
+    let mut cursor = 0usize;
     for &start in starts {
         let start = start.as_();
         if length == 0 {
@@ -483,8 +485,20 @@ where
         let offset_range = &offsets[start..][..=length];
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
-        new_data.extend_from_slice(&data[byte_start..][..byte_end - byte_start]);
+        cursor = copy_slice_to_spare(
+            &mut new_data,
+            cursor,
+            &data[byte_start..][..byte_end - byte_start],
+            output_bytes,
+        )?;
     }
+    vortex_ensure!(
+        cursor == output_bytes,
+        "VarBin byte copy length {cursor} does not match computed byte length {output_bytes}"
+    );
+    // SAFETY: `copy_slice_to_spare` checked every write against `output_bytes`, and `cursor ==
+    // output_bytes` proves all bytes were initialized.
+    unsafe { new_data.set_len(output_bytes) };
 
     let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
         .reinterpret_cast(out_offset_ptype)
@@ -551,6 +565,7 @@ where
     );
 
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
+    let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
@@ -561,8 +576,20 @@ where
         let offset_range = &offsets[start..][..=length];
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
-        new_data.extend_from_slice(&data[byte_start..][..byte_end - byte_start]);
+        cursor = copy_slice_to_spare(
+            &mut new_data,
+            cursor,
+            &data[byte_start..][..byte_end - byte_start],
+            output_bytes,
+        )?;
     }
+    vortex_ensure!(
+        cursor == output_bytes,
+        "VarBin byte copy length {cursor} does not match computed byte length {output_bytes}"
+    );
+    // SAFETY: `copy_slice_to_spare` checked every write against `output_bytes`, and `cursor ==
+    // output_bytes` proves all bytes were initialized.
+    unsafe { new_data.set_len(output_bytes) };
 
     let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
         .reinterpret_cast(out_offset_ptype)
