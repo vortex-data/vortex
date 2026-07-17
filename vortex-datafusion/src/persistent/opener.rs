@@ -627,6 +627,7 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
+    /// Test-only expr used to test error reporting.
     #[derive(Debug, Eq, Hash, PartialEq)]
     struct SnapshotErrorExpr;
 
