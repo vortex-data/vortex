@@ -113,6 +113,9 @@ fn get_compressor(format: Format) -> Box<dyn Compressor> {
 /// The benchmark ID used for output path.
 const BENCHMARK_ID: &str = "compress";
 
+/// Repo-relative path of the suite explainer linked from CI benchmark PR comments.
+const DOC_PATH: &str = "benchmarks/compress-bench/README.md";
+
 async fn run_compress(
     iterations: usize,
     datasets_filter: Option<Regex>,
@@ -212,8 +215,8 @@ async fn run_compress(
             )
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(&mut writer, measurements.timings)?;
-            print_measurements_json(&mut writer, measurements.ratios)
+            print_measurements_json(&mut writer, measurements.timings, Some(DOC_PATH))?;
+            print_measurements_json(&mut writer, measurements.ratios, Some(DOC_PATH))
         }
     }
 }

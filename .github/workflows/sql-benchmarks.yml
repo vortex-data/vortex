@@ -20,7 +20,6 @@ on:
               "id": "clickbench-nvme",
               "subcommand": "clickbench",
               "name": "Clickbench on NVME",
-              "doc": "vortex-bench/sql/clickbench.md",
               "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "parquet"},
@@ -44,7 +43,6 @@ on:
               "id": "clickbench-sorted-nvme",
               "subcommand": "clickbench-sorted",
               "name": "Clickbench Sorted on NVME",
-              "doc": "vortex-bench/sql/clickbench.md#sorted-variant",
               "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "parquet"},
@@ -68,7 +66,6 @@ on:
               "id": "tpch-nvme",
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on NVME",
-              "doc": "vortex-bench/sql/tpch/README.md",
               "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "arrow"},
@@ -98,7 +95,6 @@ on:
               "id": "tpch-s3",
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on S3",
-              "doc": "vortex-bench/sql/tpch/README.md",
               "local_dir": "vortex-bench/data/tpch/1.0",
               "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
               "data_formats": ["parquet", "vortex", "vortex-compact"],
@@ -125,7 +121,6 @@ on:
               "id": "tpch-nvme-10",
               "subcommand": "tpch",
               "name": "TPC-H SF=10 on NVME",
-              "doc": "vortex-bench/sql/tpch/README.md",
               "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "arrow"},
@@ -155,7 +150,6 @@ on:
               "id": "tpch-s3-10",
               "subcommand": "tpch",
               "name": "TPC-H SF=10 on S3",
-              "doc": "vortex-bench/sql/tpch/README.md",
               "local_dir": "vortex-bench/data/tpch/10.0",
               "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
               "data_formats": ["parquet", "vortex", "vortex-compact"],
@@ -182,7 +176,6 @@ on:
               "id": "tpcds-nvme",
               "subcommand": "tpcds",
               "name": "TPC-DS SF=1 on NVME",
-              "doc": "vortex-bench/sql/tpcds/README.md",
               "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "parquet"},
@@ -208,7 +201,6 @@ on:
               "id": "statpopgen",
               "subcommand": "statpopgen",
               "name": "Statistical and Population Genetics",
-              "doc": "vortex-bench/sql/statpopgen.md",
               "local_dir": "vortex-bench/data/statpopgen",
               "data_formats": ["parquet", "vortex", "vortex-compact"],
               "pr_targets": [
@@ -227,7 +219,6 @@ on:
               "id": "fineweb",
               "subcommand": "fineweb",
               "name": "FineWeb NVMe",
-              "doc": "vortex-bench/sql/fineweb.md",
               "data_formats": ["parquet", "vortex", "vortex-compact"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "parquet"},
@@ -251,7 +242,6 @@ on:
               "id": "fineweb-s3",
               "subcommand": "fineweb",
               "name": "FineWeb S3",
-              "doc": "vortex-bench/sql/fineweb.md",
               "local_dir": "vortex-bench/data/fineweb",
               "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
               "data_formats": ["parquet", "vortex", "vortex-compact"],
@@ -277,7 +267,6 @@ on:
               "id": "polarsignals",
               "subcommand": "polarsignals",
               "name": "PolarSignals Profiling",
-              "doc": "vortex-bench/sql/polarsignals.md",
               "data_formats": ["vortex"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "vortex"}
@@ -291,7 +280,6 @@ on:
               "id": "appian-nvme",
               "subcommand": "appian",
               "name": "Appian on NVME",
-              "doc": "vortex-bench/sql/appian/README.md",
               "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "parquet"},
@@ -322,7 +310,6 @@ on:
               "id": "clickbench-nvme",
               "subcommand": "clickbench",
               "name": "Clickbench on NVME",
-              "doc": "vortex-bench/sql/clickbench.md",
               "data_formats": ["parquet", "vortex"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "parquet"},
@@ -342,7 +329,6 @@ on:
               "id": "clickbench-sorted-nvme",
               "subcommand": "clickbench-sorted",
               "name": "Clickbench Sorted on NVME",
-              "doc": "vortex-bench/sql/clickbench.md#sorted-variant",
               "data_formats": ["parquet", "vortex"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "parquet"},
@@ -362,7 +348,6 @@ on:
               "id": "tpch-nvme",
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on NVME",
-              "doc": "vortex-bench/sql/tpch/README.md",
               "data_formats": ["parquet", "vortex"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "arrow"},
@@ -386,7 +371,6 @@ on:
               "id": "tpch-s3",
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on S3",
-              "doc": "vortex-bench/sql/tpch/README.md",
               "local_dir": "vortex-bench/data/tpch/1.0",
               "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
               "data_formats": ["parquet", "vortex"],
@@ -409,7 +393,6 @@ on:
               "id": "tpch-nvme-10",
               "subcommand": "tpch",
               "name": "TPC-H SF=10 on NVME",
-              "doc": "vortex-bench/sql/tpch/README.md",
               "data_formats": ["parquet", "vortex"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "arrow"},
@@ -433,7 +416,6 @@ on:
               "id": "tpcds-nvme",
               "subcommand": "tpcds",
               "name": "TPC-DS SF=1 on NVME",
-              "doc": "vortex-bench/sql/tpcds/README.md",
               "data_formats": ["parquet", "vortex"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "parquet"},
@@ -453,7 +435,6 @@ on:
               "id": "statpopgen",
               "subcommand": "statpopgen",
               "name": "Statistical and Population Genetics",
-              "doc": "vortex-bench/sql/statpopgen.md",
               "local_dir": "vortex-bench/data/statpopgen",
               "data_formats": ["parquet", "vortex"],
               "pr_targets": [
@@ -470,7 +451,6 @@ on:
               "id": "fineweb",
               "subcommand": "fineweb",
               "name": "FineWeb NVMe",
-              "doc": "vortex-bench/sql/fineweb.md",
               "data_formats": ["parquet", "vortex"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "parquet"},
@@ -490,7 +470,6 @@ on:
               "id": "fineweb-s3",
               "subcommand": "fineweb",
               "name": "FineWeb S3",
-              "doc": "vortex-bench/sql/fineweb.md",
               "local_dir": "vortex-bench/data/fineweb",
               "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
               "data_formats": ["parquet", "vortex"],
@@ -512,7 +491,6 @@ on:
               "id": "polarsignals",
               "subcommand": "polarsignals",
               "name": "PolarSignals Profiling",
-              "doc": "vortex-bench/sql/polarsignals.md",
               "data_formats": ["vortex"],
               "pr_targets": [
                 {"engine": "datafusion", "format": "vortex"}
@@ -700,10 +678,8 @@ jobs:
           python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz > base.json
 
-          echo "# Benchmarks: ${{ matrix.name }}${{ matrix.doc && format(' [📖]({0}/{1}/blob/develop/{2})', github.server_url, github.repository, matrix.doc) || '' }}" > comment.md
-          echo '' >> comment.md
           uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
-            >> comment.md
+            > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR

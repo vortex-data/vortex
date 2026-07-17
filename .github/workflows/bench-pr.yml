@@ -30,11 +30,9 @@ jobs:
         benchmark:
           - id: random-access-bench
             name: Random Access
-            doc: benchmarks/random-access-bench/README.md
             build_args: "--features lance"
           - id: compress-bench
             name: Compression
-            doc: benchmarks/compress-bench/README.md
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false
@@ -115,10 +113,8 @@ jobs:
           python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz > base.json
 
-          echo '# Benchmarks: ${{ matrix.benchmark.name }}${{ matrix.benchmark.doc && format(' [📖]({0}/{1}/blob/develop/{2})', github.server_url, github.repository, matrix.benchmark.doc) || '' }}' > comment.md
-          echo '' >> comment.md
           uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.benchmark.name }}" \
-            >> comment.md
+            > comment.md
           cat comment.md >> $GITHUB_STEP_SUMMARY
 
       - name: Comment PR

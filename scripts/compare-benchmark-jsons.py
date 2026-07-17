@@ -12,6 +12,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import math
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -763,6 +764,24 @@ def format_within_engine_summary(analyses: dict[str, dict[str, Any]]) -> str | N
     return " · ".join(summaries)
 
 
+def format_title(benchmark_name: str, pr: pd.DataFrame) -> str:
+    """Render the comment title, linking the suite explainer doc emitted by the benchmark binary.
+
+    The doc path is a repo-relative markdown path carried on the PR result rows (the `doc`
+    field, populated from `Benchmark::doc_path` in Rust), so the benchmark code is the single
+    source of truth for where each suite is documented.
+    """
+
+    title = f"# Benchmarks: {benchmark_name}" if benchmark_name else "# Benchmarks"
+    if "doc" in pr.columns:
+        docs = pr["doc"].dropna().unique()
+        if len(docs) > 0:
+            server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+            repository = os.environ.get("GITHUB_REPOSITORY", "vortex-data/vortex")
+            title += f" [\N{OPEN BOOK}]({server_url}/{repository}/blob/develop/{docs[0]})"
+    return title
+
+
 def format_report_help() -> str:
     """Render explanatory markdown for the benchmark report headline fields."""
 
@@ -823,6 +842,7 @@ def main() -> None:
     benchmark_name = sys.argv[3] if len(sys.argv) > 3 else ""
 
     pr = pd.read_json(sys.argv[2], lines=True)
+    title = format_title(benchmark_name, pr)
     base = read_latest_baseline_rows(sys.argv[1], pr)
 
     base_commit_id = set(base["commit_id"].unique())
@@ -896,6 +916,8 @@ def main() -> None:
                 shifts += f" · Median polish {format_ratio_change(float(np.exp(polish.overall)))}"
         summary_fields.append(f"**Shifts**: {shifts}")
 
+    print(title)
+    print("")
     print("<br>".join(summary_fields))
     print("")
     print(format_report_help())
