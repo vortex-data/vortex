@@ -63,7 +63,7 @@ impl FilterKernel for OnPair {
             unsafe {
                 OnPair::new_unchecked(
                     array.dtype().clone(),
-                    array.dict_bytes_handle().clone(),
+                    array.data().clone(),
                     array.dict_offsets().clone(),
                     filtered_codes.elements().clone(),
                     filtered_codes.offsets().clone(),

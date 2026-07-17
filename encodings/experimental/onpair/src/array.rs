@@ -5,7 +5,10 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
+use onpair::CompactDictionaryView;
 use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -32,6 +35,7 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
+use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -43,6 +47,7 @@ use vortex_session::registry::CachedId;
 
 use crate::canonical::canonicalize_onpair;
 use crate::canonical::onpair_decode_views;
+use crate::decode::collect_widened;
 use crate::rules::RULES;
 
 /// An [`OnPair`]-encoded Vortex array.
@@ -124,12 +129,52 @@ pub struct OnPairData {
     /// including its trailing read padding.
     dict_bytes: BufferHandle,
     len: usize,
+    /// The `dict_offsets` child widened to `u32`, memoized on first use so the
+    /// child is decompressed and the dictionary content is validated at most
+    /// once per dictionary — never per operation. (`dict_bytes` needs no such
+    /// cache: it is a raw buffer, so access is already zero-cost.)
+    ///
+    /// INVARIANT: once populated, the offsets passed
+    /// [`CompactDictionaryView::validate`] against `dict_bytes` (or came from
+    /// the trainer via [`init_dict_offsets`](Self::init_dict_offsets)), and
+    /// they are the widened values of the array's `dict_offsets` child. The
+    /// `Arc` cell is shared only between arrays with identical `dict_bytes`
+    /// and logically identical `dict_offsets` (slice / filter / cast keep
+    /// both).
+    dict_offsets: Arc<OnceLock<Buffer<u32>>>,
 }
 
 impl OnPairData {
     /// Build [`OnPairData`] from the dictionary blob and the number of rows.
     pub fn new(dict_bytes: BufferHandle, len: usize) -> Self {
-        Self { dict_bytes, len }
+        Self {
+            dict_bytes,
+            len,
+            dict_offsets: Arc::new(OnceLock::new()),
+        }
+    }
+
+    /// Seed the widened-offsets cell with dictionary offsets that are already
+    /// known to be conformant, so the first operation skips validation.
+    ///
+    /// This is the crate-internal trust mint (the moral equivalent of
+    /// [`onpair::CompactDictionary::new_unchecked`]): compression seeds it
+    /// with the trainer's offsets, which are conformant by construction.
+    ///
+    /// # Safety
+    /// `(self.dict_bytes, offsets)` must satisfy every [`onpair`] compact
+    /// dictionary invariant (i.e. [`CompactDictionaryView::validate`] would
+    /// succeed on them), and `offsets` must be the widened values of the
+    /// array's `dict_offsets` child. [`dict_view`] relies on this to build
+    /// unchecked dictionary views.
+    pub(crate) unsafe fn init_dict_offsets(&self, offsets: Buffer<u32>) {
+        debug_assert!(
+            CompactDictionaryView::validate(self.dict_bytes().as_slice(), offsets.as_slice())
+                .is_ok(),
+            "init_dict_offsets called with a non-conformant dictionary"
+        );
+        // A benign race can only ever install another conformant value.
+        drop(self.dict_offsets.set(offsets));
     }
 
     /// Number of rows in the array.
@@ -151,6 +196,35 @@ impl OnPairData {
     pub fn dict_bytes_handle(&self) -> &BufferHandle {
         &self.dict_bytes
     }
+}
+
+/// A conformant [`CompactDictionaryView`] over `array`'s dictionary.
+///
+/// The first call per dictionary widens the `dict_offsets` child to `u32` and
+/// validates the dictionary content; both results are memoized in
+/// [`OnPairData`], so subsequent calls — including on arrays derived by
+/// slice / filter / cast, which share the cell — pay neither cost again.
+pub(crate) fn dict_view<'a>(
+    array: ArrayView<'a, OnPair>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<CompactDictionaryView<'a>> {
+    let data = array.data();
+    let offsets = match data.dict_offsets.get() {
+        Some(offsets) => offsets,
+        None => {
+            let widened = collect_widened::<u32>(array.dict_offsets(), ctx)?;
+            CompactDictionaryView::validate(data.dict_bytes().as_slice(), widened.as_slice())
+                .map_err(|e| vortex_err!(InvalidArgument: "Invalid OnPair dictionary: {e}"))?;
+            data.dict_offsets.get_or_init(|| widened)
+        }
+    };
+    // SAFETY: the cell only ever holds offsets that satisfy the compact
+    // dictionary invariants against this `dict_bytes` (validated above, or
+    // guaranteed by `init_dict_offsets`'s contract), and both buffers are
+    // immutable.
+    Ok(unsafe {
+        CompactDictionaryView::new_unchecked(data.dict_bytes().as_slice(), offsets.as_slice())
+    })
 }
 
 impl Display for OnPairData {
@@ -224,9 +298,17 @@ impl OnPair {
         })
     }
 
+    /// Build an [`OnPairArray`] without validation, carrying `data` — and with
+    /// it the memoized widened `dict_offsets` — from an existing array.
+    ///
+    /// # Safety
+    /// The parts must satisfy the same invariants [`try_new`](Self::try_new)
+    /// checks. If `data`'s widened-offsets cell is populated (or shared with a
+    /// live array), `dict_offsets` must hold the same logical offsets the cell
+    /// was built from.
     pub(crate) unsafe fn new_unchecked(
         dtype: DType,
-        dict_bytes: BufferHandle,
+        mut data: OnPairData,
         dict_offsets: ArrayRef,
         codes: ArrayRef,
         codes_offsets: ArrayRef,
@@ -234,7 +316,7 @@ impl OnPair {
         validity: Validity,
     ) -> OnPairArray {
         let len = uncompressed_lengths.len();
-        let data = OnPairData::new(dict_bytes, len);
+        data.len = len;
         let slots = OnPairSlots {
             dict_offsets,
             codes,
@@ -347,6 +429,10 @@ impl VTable for OnPair {
         );
         let mut data = array.data().clone();
         data.dict_bytes = buffers[0].clone();
+        // The replacement blob may differ from the one the memoized offsets
+        // were validated against, so drop the (shared) cell rather than
+        // carry a claim we can no longer prove.
+        data.dict_offsets = Arc::new(OnceLock::new());
         Ok(
             ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
                 .with_slots(array.slots().iter().cloned().collect()),

@@ -15,6 +15,7 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::assert_arrays_eq;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -81,6 +82,43 @@ fn test_onpair_rejects_100k_token_dictionary() -> vortex_error::VortexResult<()>
     dict_bytes.resize(dict_bytes.len() + onpair::MAX_TOKEN_SIZE, 0);
 
     assert!(CompactDictionaryView::validate(&dict_bytes, &dict_offsets).is_err());
+    Ok(())
+}
+
+/// Dictionary content is validated lazily — construction stays lightweight,
+/// and a corrupt dictionary is rejected by the first operation that decodes
+/// or searches through it, including on derived (sliced) arrays.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_corrupt_dictionary_rejected_on_first_use() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = compress_onpair(&sample_input().into_array(), &mut ctx)?;
+    let view = arr.as_view();
+
+    // Chop one byte off the blob so the trailing read-padding invariant fails.
+    let truncated = view.dict_bytes().slice(0..view.dict_bytes().len() - 1);
+    let corrupt = OnPair::try_new(
+        view.dtype().clone(),
+        BufferHandle::new_host(truncated),
+        view.dict_offsets().clone(),
+        view.codes().clone(),
+        view.codes_offsets().clone(),
+        view.uncompressed_lengths().clone(),
+        view.array_validity(),
+    )?;
+
+    let sliced = corrupt.clone().into_array().slice(1..3)?;
+    // Canonical decode, random access, and ops on a derived slice all pass
+    // through the same validation door.
+    assert!(
+        corrupt
+            .clone()
+            .into_array()
+            .execute::<VarBinViewArray>(&mut ctx)
+            .is_err()
+    );
+    assert!(corrupt.into_array().execute_scalar(0, &mut ctx).is_err());
+    assert!(sliced.execute::<VarBinViewArray>(&mut ctx).is_err());
     Ok(())
 }
 
@@ -425,7 +463,7 @@ fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPai
     unsafe {
         OnPair::new_unchecked(
             view.dtype().clone(),
-            view.dict_bytes_handle().clone(),
+            view.data().clone(),
             view.dict_offsets().clone(),
             view.codes().clone(),
             narrowed_array,

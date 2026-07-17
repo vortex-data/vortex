@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use onpair::CompactDictionaryView;
 use onpair::search;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -16,12 +15,11 @@ use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
+use crate::array::dict_view;
 use crate::decode::collect_codes_window;
-use crate::decode::collect_widened;
 
 impl CompareKernel for OnPair {
     fn compare(
@@ -68,12 +66,7 @@ impl CompareKernel for OnPair {
                 return Ok(None);
             }
 
-            let dict_offsets = collect_widened::<u32>(lhs.dict_offsets(), ctx)?;
-            let dict = CompactDictionaryView::validate(
-                lhs.dict_bytes().as_slice(),
-                dict_offsets.as_slice(),
-            )
-            .map_err(|e| vortex_err!(InvalidArgument: "Invalid OnPair dictionary: {e}"))?;
+            let dict = dict_view(lhs, ctx)?;
             let query = search::tokenize(&needle, dict);
             let window = collect_codes_window(lhs, ctx)?;
 

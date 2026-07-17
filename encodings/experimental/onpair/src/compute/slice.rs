@@ -28,7 +28,7 @@ impl SliceReduce for OnPair {
             unsafe {
                 OnPair::new_unchecked(
                     array.dtype().clone(),
-                    array.dict_bytes_handle().clone(),
+                    array.data().clone(),
                     array.dict_offsets().clone(),
                     array.codes().clone(),
                     codes_offsets,

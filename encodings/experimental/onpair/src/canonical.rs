@@ -9,7 +9,6 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use onpair::CompactDictionaryView;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -25,11 +24,11 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
+use crate::array::dict_view;
 use crate::decode::code_boundary_at;
 use crate::decode::collect_widened;
 
@@ -91,10 +90,7 @@ pub(crate) fn onpair_decode_views(
     // contiguous decoder walks `codes` in order and never reads the per-row
     // boundaries, so an empty boundary slice is sound.
     let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
-    let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
-    let dict =
-        CompactDictionaryView::validate(array.dict_bytes().as_slice(), dict_offsets.as_slice())
-            .map_err(|e| vortex_err!(InvalidArgument: "Invalid OnPair dictionary: {e}"))?;
+    let dict = dict_view(array, ctx)?;
 
     let mut out_bytes = ByteBufferMut::with_capacity(total_size);
     let written =

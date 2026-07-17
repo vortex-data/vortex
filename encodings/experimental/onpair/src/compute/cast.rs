@@ -24,7 +24,7 @@ fn build_with_validity(
     unsafe {
         OnPair::new_unchecked(
             dtype.clone(),
-            array.dict_bytes_handle().clone(),
+            array.data().clone(),
             array.dict_offsets().clone(),
             array.codes().clone(),
             array.codes_offsets().clone(),

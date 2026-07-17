@@ -96,20 +96,25 @@ pub fn onpair_compress(
     let (dict_bytes, dict_offsets) = dict.into_raw();
     let codes_offsets = codes_offsets_array(&row_offsets);
     let codes = Buffer::from(codes).into_array();
-    let dict_offsets = Buffer::from(dict_offsets).into_array();
+    // The `dict_offsets` child and the memoized widened-offsets cell share
+    // this buffer, so seeding below costs no copy.
+    let dict_offsets = Buffer::from(dict_offsets);
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
-    OnPair::try_new(
+    let encoded = OnPair::try_new(
         array.dtype().clone(),
         dict_bytes_to_buffer(dict_bytes),
-        dict_offsets,
+        dict_offsets.clone().into_array(),
         codes,
         codes_offsets,
         uncompressed_lengths,
         validity,
-    )
-    .map(IntoArray::into_array)
+    )?;
+    // SAFETY: the trainer's dictionary is conformant by construction, and
+    // `dict_offsets` is exactly the u32 child attached above.
+    unsafe { encoded.init_dict_offsets(dict_offsets) };
+    Ok(encoded.into_array())
 }
 
 fn view_bytes<'a>(view: &'a BinaryView, buffers: &'a [&ByteBuffer]) -> &'a [u8] {
