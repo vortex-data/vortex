@@ -505,14 +505,10 @@ where
     let mut new_offsets = BufferMut::<NewOffset>::with_capacity(output_len + 1);
     new_offsets.push(NewOffset::zero());
     let mut output_bytes = 0usize;
-    let mut computed_len = 0usize;
 
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        computed_len = computed_len
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
         if length == 0 {
             continue;
         }
@@ -542,8 +538,9 @@ where
             .ok_or_else(|| vortex_err!("PiecewiseSequence VarBin output byte length overflow"))?;
     }
     vortex_ensure!(
-        computed_len == output_len,
-        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+        new_offsets.len() == output_len + 1,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        new_offsets.len() - 1
     );
 
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);

@@ -190,19 +190,16 @@ where
     L: UnsignedPType,
 {
     let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
-    let mut computed_len = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        computed_len = computed_len
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
         views.extend_from_slice(&source[start..][..length]);
     }
 
     vortex_ensure!(
-        computed_len == output_len,
-        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+        views.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        views.len()
     );
     Ok(views.freeze())
 }

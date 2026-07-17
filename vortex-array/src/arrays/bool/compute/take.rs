@@ -175,19 +175,16 @@ where
     L: UnsignedPType,
 {
     let mut values = BitBufferMut::with_capacity(output_len);
-    let mut computed_len = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        computed_len = computed_len
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
         values.append_buffer(&source.slice(start..).slice(..length));
     }
 
     vortex_ensure!(
-        computed_len == output_len,
-        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+        values.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        values.len()
     );
     Ok(values.freeze())
 }
