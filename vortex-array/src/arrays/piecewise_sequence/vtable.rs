@@ -35,6 +35,7 @@ use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::dtype::UnsignedPType;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -245,9 +246,9 @@ fn scalar_at<S, L, M>(
     index: usize,
 ) -> VortexResult<u64>
 where
-    S: crate::dtype::UnsignedPType,
-    L: crate::dtype::UnsignedPType,
-    M: crate::dtype::UnsignedPType,
+    S: UnsignedPType,
+    L: UnsignedPType,
+    M: UnsignedPType,
 {
     let mut remaining = index;
     for ((&start, &length), &multiplier) in starts
