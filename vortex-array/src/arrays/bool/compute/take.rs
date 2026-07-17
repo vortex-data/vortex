@@ -38,7 +38,7 @@ impl TakeExecute for Bool {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+            && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
         {
             return Ok(Some(taken));
         }
@@ -69,7 +69,7 @@ impl TakeExecute for Bool {
     }
 }
 
-fn take_piecewise_sequence(
+fn take_contiguous_ranges(
     array: ArrayView<'_, Bool>,
     indices: ArrayView<'_, PiecewiseSequence>,
     indices_ref: &ArrayRef,
@@ -83,7 +83,7 @@ fn take_piecewise_sequence(
     let buffer = match &lengths {
         UnitMultiplierLengths::Constant(length) => {
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-                take_piecewise_bits_constant_length(
+                take_bit_slices_constant_length(
                     &source,
                     starts.as_slice::<S>(),
                     *length,
@@ -94,7 +94,7 @@ fn take_piecewise_sequence(
         UnitMultiplierLengths::Array(lengths) => {
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
                 match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-                    take_piecewise_bits(
+                    take_bit_slices(
                         &source,
                         starts.as_slice::<S>(),
                         lengths.as_slice::<L>(),
@@ -137,7 +137,7 @@ fn take_bool_impl<I: AsPrimitive<usize>>(bools: BitBufferView<'_>, indices: &[I]
     })
 }
 
-fn take_piecewise_bits_constant_length<S>(
+fn take_bit_slices_constant_length<S>(
     source: &BitBuffer,
     starts: &[S],
     length: usize,
@@ -157,7 +157,7 @@ where
     Ok(values.freeze())
 }
 
-fn take_piecewise_bits<S, L>(
+fn take_bit_slices<S, L>(
     source: &BitBuffer,
     starts: &[S],
     lengths: &[L],
