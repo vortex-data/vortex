@@ -214,7 +214,6 @@ impl Format {
 pub enum Engine {
     #[default]
     Vortex,
-    Arrow,
     #[clap(name = "datafusion")]
     #[serde(rename = "datafusion")]
     DataFusion,
@@ -229,7 +228,6 @@ impl Display for Engine {
             Engine::DataFusion => write!(f, "datafusion"),
             Engine::DuckDB => write!(f, "duckdb"),
             Engine::Vortex => write!(f, "vortex"),
-            Engine::Arrow => write!(f, "arrow"),
         }
     }
 }

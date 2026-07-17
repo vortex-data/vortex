@@ -141,7 +141,7 @@ pub struct QueryMeasurementRecord {
     pub query_idx: u32,
     /// Storage backend the run targeted (`nvme` or `s3`).
     pub storage: String,
-    /// Query engine (`datafusion`, `duckdb`, `vortex`, `arrow`).
+    /// Query engine (`datafusion`, `duckdb`, `vortex`).
     pub engine: String,
     /// On-disk format (`parquet`, `vortex-file-compressed`, `lance`, ...).
     pub format: String,
@@ -519,7 +519,6 @@ fn duration_as_ns(d: std::time::Duration) -> u64 {
 fn engine_label(engine: Engine) -> &'static str {
     match engine {
         Engine::Vortex => "vortex",
-        Engine::Arrow => "arrow",
         Engine::DataFusion => "datafusion",
         Engine::DuckDB => "duckdb",
     }
@@ -663,7 +662,7 @@ mod tests {
     fn snapshot_random_access_time() -> anyhow::Result<()> {
         let timing = TimingMeasurement {
             name: "random-access/taxi/uniform/parquet-tokio-local-disk".to_string(),
-            target: Target::new(Engine::Arrow, Format::Parquet),
+            target: Target::new(Engine::Vortex, Format::Parquet),
             storage: "nvme".to_string(),
             runs: vec![
                 Duration::from_nanos(800_000),
