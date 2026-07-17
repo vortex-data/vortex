@@ -204,13 +204,10 @@ impl AggregateFnVTable for GeometryAabb {
         };
         // Drop null rows before reading coordinates: a null geometry's storage holds placeholder
         // coordinates (e.g. `(0, 0)`) that would otherwise widen the zone box and drag it toward
-        // the origin.
+        // the origin. `filter` collapses an all-true mask back to the input, so a null-free batch
+        // passes through unchanged.
         let valid = array.validity()?.execute_mask(array.len(), ctx)?;
-        let array = if valid.all_true() {
-            array
-        } else {
-            array.filter(valid)?
-        };
+        let array = array.filter(valid)?;
         // Null rows are gone, so every coordinate below belongs to a present geometry — the
         // `unmasked_field_by_name` reads are therefore safe. Min/max the raw x/y buffers directly:
         // cheap, and avoids `to_geometry`'s panic on empty points (which decoding would hit).

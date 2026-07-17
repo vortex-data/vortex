@@ -188,13 +188,9 @@ where
 {
     let len = column.len();
     let valid = column.validity()?.execute_mask(len, ctx)?;
-    // Decode only the non-null rows, since a null row has no geometry to decode. The common
-    // all-valid case decodes the column directly and skips the filter.
-    let decoded = if valid.all_true() {
-        geometries(column, ctx)?
-    } else {
-        geometries(&column.filter(valid.clone())?, ctx)?
-    };
+    // Drop the null rows before decoding, since a null row has no geometry to decode. `filter`
+    // collapses an all-true mask, so an all-valid column passes through unchanged.
+    let decoded = geometries(&column.filter(valid.clone())?, ctx)?;
     let values = decoded.iter().map(f).collect();
     Ok(T::build_array(len, &valid, values, nullability))
 }
@@ -217,15 +213,10 @@ where
     let b_present = b.validity()?.execute_mask(len, ctx)?;
     // A row survives only where both columns are present.
     let valid = &a_present & &b_present;
-    // Keep only the rows valid in both columns, so decoding never sees a null geometry. The
-    // common all-valid case decodes the columns directly and skips the filter.
-    let (a, b) = if valid.all_true() {
-        (a.clone(), b.clone())
-    } else {
-        (a.filter(valid.clone())?, b.filter(valid.clone())?)
-    };
-    let ag = geometries(&a, ctx)?;
-    let bg = geometries(&b, ctx)?;
+    // Keep only the rows valid in both columns, so decoding never sees a null geometry. `filter`
+    // collapses an all-true mask, so all-valid columns pass through unchanged.
+    let ag = geometries(&a.filter(valid.clone())?, ctx)?;
+    let bg = geometries(&b.filter(valid.clone())?, ctx)?;
     let values = ag.iter().zip(&bg).map(|(x, y)| compute(x, y)).collect();
     Ok(T::build_array(len, &valid, values, nullability))
 }
