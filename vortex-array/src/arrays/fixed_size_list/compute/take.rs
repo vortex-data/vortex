@@ -24,7 +24,6 @@ use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
-use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::optimizer::ArrayOptimizer;
@@ -94,7 +93,7 @@ fn take_non_empty_fsl(
 ) -> VortexResult<ArrayRef> {
     debug_assert!(!array.is_empty());
 
-    let DType::Primitive(ptype, nullability) = indices.dtype() else {
+    let DType::Primitive(ptype, _) = indices.dtype() else {
         vortex_bail!("Invalid indices dtype: {}", indices.dtype())
     };
     if !ptype.is_int() {
@@ -107,13 +106,7 @@ fn take_non_empty_fsl(
 
     let indices_array = indices.clone().execute::<PrimitiveArray>(ctx)?;
     match_each_integer_ptype!(indices_array.ptype(), |I| {
-        take_non_empty_non_degenerate_fsl::<I>(
-            array,
-            indices,
-            indices_array.as_view(),
-            *nullability,
-            ctx,
-        )
+        take_non_empty_non_degenerate_fsl::<I>(array, indices, indices_array.as_view(), ctx)
     })
 }
 
@@ -154,7 +147,6 @@ fn take_non_empty_non_degenerate_fsl<I: IntegerPType>(
     array: ArrayView<'_, FixedSizeList>,
     indices: &ArrayRef,
     indices_array: ArrayView<'_, Primitive>,
-    indices_nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     debug_assert!(!array.is_empty());
@@ -162,14 +154,10 @@ fn take_non_empty_non_degenerate_fsl<I: IntegerPType>(
 
     let (new_elements, new_len) =
         take_non_empty_non_degenerate_elements::<I>(array, indices_array, ctx)?;
-    let new_validity = if array.dtype().is_nullable() || indices_nullability.is_nullable() {
-        array.validity()?.take(indices)?
-    } else {
-        Validity::NonNullable
-    };
+    let new_validity = array.validity()?.take(indices)?;
 
-    // SAFETY: `new_elements` has `new_len * list_size` elements. `new_validity` is either
-    // non-nullable or was produced by `Validity::take` for `new_len`.
+    // SAFETY: `new_elements` has `new_len * list_size` elements, and `Validity::take` produces
+    // validity for `new_len`.
     unsafe {
         FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
     }
