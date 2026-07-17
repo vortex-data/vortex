@@ -4,32 +4,23 @@
 use std::iter;
 use std::sync::Arc;
 
-use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
-use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::ConstantOrArray;
-use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
-use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
-use crate::match_each_unsigned_integer_ptype;
 
 impl TakeExecute for VarBinView {
     /// Take involves creating a new array that references the old array, just with the given set of views.
@@ -38,12 +29,6 @@ impl TakeExecute for VarBinView {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-            && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
-        {
-            return Ok(Some(taken));
-        }
-
         let validity = array.validity()?.take(indices)?;
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
@@ -69,58 +54,6 @@ impl TakeExecute for VarBinView {
                 .into_array(),
             ))
         }
-    }
-}
-
-fn take_contiguous_ranges(
-    array: ArrayView<'_, VarBinView>,
-    indices: ArrayView<'_, PiecewiseSequence>,
-    indices_ref: &ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
-    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
-        return Ok(None);
-    };
-    let source = array.views();
-    let output_len = indices_ref.len();
-    let views = match &lengths {
-        ConstantOrArray::Constant(length) => {
-            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-                gather_view_slices_constant_length(
-                    source,
-                    starts.as_slice::<S>(),
-                    *length,
-                    output_len,
-                )?
-            })
-        }
-        ConstantOrArray::Array(lengths) => {
-            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-                match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-                    gather_view_slices(
-                        source,
-                        starts.as_slice::<S>(),
-                        lengths.as_slice::<L>(),
-                        output_len,
-                    )?
-                })
-            })
-        }
-    };
-    let validity = array.validity()?.take(indices_ref)?;
-
-    // SAFETY: ranges were validated against the source views, and copied views still reference the
-    // same backing data buffers.
-    unsafe {
-        Ok(Some(
-            VarBinViewArray::new_handle_unchecked(
-                BufferHandle::new_host(views.into_byte_buffer()),
-                Arc::clone(array.data_buffers()),
-                array.dtype().clone(),
-                validity,
-            )
-            .into_array(),
-        ))
     }
 }
 
@@ -150,58 +83,6 @@ fn take_views<I: AsPrimitive<usize>>(
             }),
         ),
     }
-}
-
-fn gather_view_slices_constant_length<S>(
-    source: &[BinaryView],
-    starts: &[S],
-    length: usize,
-    output_len: usize,
-) -> VortexResult<Buffer<BinaryView>>
-where
-    S: UnsignedPType,
-{
-    let computed_len = starts
-        .len()
-        .checked_mul(length)
-        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-    vortex_ensure!(
-        computed_len == output_len,
-        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
-    );
-
-    let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
-    for &start in starts {
-        let start = start.as_();
-        views.extend_from_slice(&source[start..][..length]);
-    }
-
-    Ok(views.freeze())
-}
-
-fn gather_view_slices<S, L>(
-    source: &[BinaryView],
-    starts: &[S],
-    lengths: &[L],
-    output_len: usize,
-) -> VortexResult<Buffer<BinaryView>>
-where
-    S: UnsignedPType,
-    L: UnsignedPType,
-{
-    let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
-    for (&start, &length) in starts.iter().zip_eq(lengths) {
-        let start = start.as_();
-        let length = length.as_();
-        views.extend_from_slice(&source[start..][..length]);
-    }
-
-    vortex_ensure!(
-        views.len() == output_len,
-        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
-        views.len()
-    );
-    Ok(views.freeze())
 }
 
 #[cfg(test)]
@@ -292,9 +173,6 @@ mod tests {
     ))]
     #[case(VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)))]
     fn test_take_varbinview_conformance(#[case] array: VarBinViewArray) {
-        test_take_conformance(
-            &array.into_array(),
-            &mut array_session().create_execution_ctx(),
-        );
+        test_take_conformance(&array.into_array());
     }
 }
