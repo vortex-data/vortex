@@ -62,7 +62,7 @@ fn apply_take(array: ArrayView<'_, ListView>, indices: &ArrayRef) -> VortexResul
     });
     let new_sizes = match_each_integer_ptype!(nullable_new_sizes.dtype().as_ptype(), |S| {
         nullable_new_sizes
-            .mask(validity_array.clone())?
+            .mask(validity_array)?
             .fill_null(Scalar::primitive(S::zero(), Nullability::NonNullable))?
     });
 
