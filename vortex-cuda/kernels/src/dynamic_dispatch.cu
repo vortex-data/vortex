@@ -117,12 +117,8 @@ __shared__ uint64_t runend_cursors[BLOCK_SIZE];
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Apply one scalar operation to N values in registers.
-///
-/// `abs_pos` is the absolute output position of the first value to process.
-/// It is used by scalar operations that apply patches, e.g. ALP.
 template <typename T, uint32_t N>
-__device__ inline void
-scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t abs_pos = 0) {
+__device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem) {
     switch (op.op_code) {
     case ScalarOp::FOR: {
         const T ref = static_cast<T>(op.params.frame_of_ref.reference);
@@ -165,30 +161,9 @@ scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t 
                 values[i] = static_cast<T>(__double_as_longlong(r));
             }
         }
-        // Apply ALP patches: override positions whose float value couldn't
-        // be reconstructed through the ALP encode/decode cycle.
-        // Per-value cursor — with a slice offset, a tile's N values can
-        // straddle two FL chunks, so each value needs its own lookup.
-        if (op.params.alp.patches_ptr != 0) {
-            const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alp.patches_ptr);
-            const uint32_t chunk_start = patches.offset / FL_CHUNK;
-#pragma unroll
-            for (uint32_t i = 0; i < N; ++i) {
-                uint64_t my_pos = (N > 1) ? abs_pos + i * blockDim.x + threadIdx.x : abs_pos;
-                uint64_t orig = my_pos + patches.offset;
-                uint32_t chunk = static_cast<uint32_t>(orig / FL_CHUNK) - chunk_start;
-                uint32_t within = static_cast<uint32_t>(orig % FL_CHUNK);
-                PatchesCursor<T> cursor(patches, chunk, 0, 1);
-                auto patch = cursor.next();
-                while (patch.index != FL_CHUNK) {
-                    if (patch.index == within) {
-                        values[i] = patch.value;
-                        break;
-                    }
-                    patch = cursor.next();
-                }
-            }
-        }
+        // ALP patches are scattered cooperatively after the stage has decoded.
+        // Looking up patches here would restart a chunk cursor for every value,
+        // turning sparse exception handling into O(values * patches).
         break;
     }
     case ScalarOp::DICT: {
@@ -222,6 +197,58 @@ scatter_patches_chunk(const GPUPatches &patches, T *__restrict out, uint32_t chu
     while (patch.index != FL_CHUNK) {
         out[patch.index] = patch.value;
         patch = cursor.next();
+    }
+}
+
+/// Scatter patches overlapping a logical output range.
+///
+/// `logical_start` and `range_len` are relative to the sliced array represented by
+/// `patches`. Patch indices are stored in the coordinate space of the original array,
+/// so add `patches.offset` while locating chunks and subtract it when addressing `out`.
+/// Every thread cooperates on each overlapping FastLanes chunk.
+template <typename T>
+__device__ inline void scatter_patches_range(const GPUPatches &patches,
+                                             T *__restrict out,
+                                             uint64_t logical_start,
+                                             uint32_t range_len) {
+    if (range_len == 0) {
+        return;
+    }
+
+    const uint64_t original_start = logical_start + patches.offset;
+    const uint64_t original_end = original_start + range_len;
+    const uint32_t patch_chunk_start = patches.offset / FL_CHUNK;
+    const uint32_t first_chunk = static_cast<uint32_t>(original_start / FL_CHUNK);
+    const uint32_t last_chunk = static_cast<uint32_t>((original_end - 1) / FL_CHUNK);
+
+    for (uint32_t original_chunk = first_chunk; original_chunk <= last_chunk; ++original_chunk) {
+        const uint32_t chunk = original_chunk - patch_chunk_start;
+        PatchesCursor<T> cursor(patches, chunk, threadIdx.x, blockDim.x);
+        auto patch = cursor.next();
+        while (patch.index != FL_CHUNK) {
+            const uint64_t original_pos = static_cast<uint64_t>(original_chunk) * FL_CHUNK + patch.index;
+            if (original_pos >= original_start && original_pos < original_end) {
+                out[original_pos - patches.offset] = patch.value;
+            }
+            patch = cursor.next();
+        }
+    }
+}
+
+/// Apply patch payloads attached to scalar operations after their stage has decoded.
+template <typename T>
+__device__ inline void
+scatter_scalar_patches(const Stage &stage, T *__restrict out, uint64_t logical_start, uint32_t range_len) {
+    for (uint8_t op_idx = 0; op_idx < stage.num_scalar_ops; ++op_idx) {
+        const auto &op = stage.scalar_ops[op_idx];
+        if (op.op_code == ScalarOp::ALP && op.params.alp.patches_ptr != 0) {
+            const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alp.patches_ptr);
+            // All ordinary writes must complete before exception values overwrite them.
+            __syncthreads();
+            scatter_patches_range<T>(patches, out, logical_start, range_len);
+            // A later stage may consume this patched shared-memory output.
+            __syncthreads();
+        }
     }
 }
 
@@ -491,7 +518,7 @@ __device__ void execute_output_stage(T *__restrict output,
                                           smem);
 
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, VALUES_PER_TILE>(values, stage.scalar_ops[op], smem, tile_start);
+                scalar_op<T, VALUES_PER_TILE>(values, stage.scalar_ops[op], smem);
             }
 
 #pragma unroll
@@ -513,7 +540,7 @@ __device__ void execute_output_stage(T *__restrict output,
             source_op<T, 1>(&val, src, raw_input, ptype, smem_src, i, gpos, smem);
 
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, gpos);
+                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
             }
             __stcs(&output[gpos], val);
         }
@@ -525,6 +552,8 @@ __device__ void execute_output_stage(T *__restrict output,
         }
         elem_idx += chunk_len;
     }
+
+    scatter_scalar_patches<T>(stage, output, block_start, block_len);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -559,7 +588,7 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             for (uint32_t elem_idx = threadIdx.x; elem_idx < stage.len; elem_idx += blockDim.x) {
                 T val = smem_out[elem_idx];
                 for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, elem_idx);
+                    scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
                 }
                 smem_out[elem_idx] = val;
             }
@@ -583,7 +612,7 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             T val;
             source_op<T, 1>(&val, src, raw_input, stage.source_ptype, nullptr, 0, elem_idx, smem);
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
-                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem, elem_idx);
+                scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
             }
             smem_out[elem_idx] = val;
         }
@@ -591,6 +620,8 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
         // stages to read.
         __syncthreads();
     }
+
+    scatter_scalar_patches<T>(stage, smem_out, 0, stage.len);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -11,7 +11,7 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
+use vortex_error::vortex_bail;
 use vortex_session::registry::Id;
 
 use crate::IntoLayout;
@@ -88,14 +88,14 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
 
         // Validate that the builder function returned the expected values.
         if layout.row_count() != row_count {
-            vortex_panic!(
+            vortex_bail!(
                 "Layout row count mismatch: {} != {}",
                 layout.row_count(),
                 row_count
             );
         }
         if layout.dtype() != dtype {
-            vortex_panic!("Layout dtype mismatch: {} != {}", layout.dtype(), dtype);
+            vortex_bail!("Layout dtype mismatch: {} != {}", layout.dtype(), dtype);
         }
 
         Ok(layout.into_layout())

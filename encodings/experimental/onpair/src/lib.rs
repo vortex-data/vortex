@@ -2,11 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Vortex string array backed by the [OnPair][onpair] short-string
-//! compression library, with `cast` and `filter` pushdown.
+//! compression library, with pushdown for common string operations.
 //!
-//! The default training preset is `dict-12` (12 bits per token, dictionary
-//! capped at 4 096 entries). See [`onpair_compress`] for the entry point and
-//! [`OnPairArray`] for the resulting array type.
+//! See [`onpair_compress`] for the compression entry point and [`OnPairArray`]
+//! for the encoded representation of non-null inputs.
 //!
 //! [onpair]: https://arxiv.org/abs/2508.02280
 
@@ -23,9 +22,9 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
-pub use onpair::Bits;
 pub use onpair::Config;
 pub use onpair::Error as OnPairError;
+pub use onpair::MaxDictBits;
 pub use onpair::Threshold;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;

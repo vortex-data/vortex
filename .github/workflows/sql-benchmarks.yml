@@ -678,10 +678,8 @@ jobs:
           python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz > base.json
 
-          echo "# Benchmarks: ${{ matrix.name }}" > comment.md
-          echo '' >> comment.md
           uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
-            >> comment.md
+            > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment PR

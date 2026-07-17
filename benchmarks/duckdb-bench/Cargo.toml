@@ -17,6 +17,13 @@ publish = false
 [package.metadata.cargo-shear]
 ignored = ["vortex-cuda"]
 
+[[bin]]
+name = "duckdb-bench"
+test = false
+
+[lib]
+test = false
+
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }

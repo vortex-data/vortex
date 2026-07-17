@@ -121,6 +121,10 @@ impl AppianBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for AppianBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/appian/README.md"
+    }
+
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
         Ok(appian_queries().collect())
     }

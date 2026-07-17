@@ -12,6 +12,10 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[[bin]]
+name = "gpu-scan-cli"
+test = false
+
 [lints]
 workspace = true
 

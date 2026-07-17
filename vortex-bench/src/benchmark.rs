@@ -64,6 +64,10 @@ pub trait Benchmark: Send + Sync {
 
     fn dataset(&self) -> BenchmarkDataset;
 
+    /// Repo-relative path of the markdown explainer for this benchmark suite, linked from the
+    /// title of CI benchmark PR comments. Required: every suite must ship a doc.
+    fn doc_path(&self) -> &'static str;
+
     /// Get the name of the benchmark dataset
     fn dataset_name(&self) -> &str;
 

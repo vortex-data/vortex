@@ -3,7 +3,7 @@
 //
 //! Decode-path microbenchmarks for the OnPair Vortex array.
 //!
-//! * `decompress_into` — the upstream `onpair::decompress_into` decoder hot
+//! * `decode_into` — the upstream `onpair::decode_into` decoder hot
 //!   loop, fed by pre-materialised [`DecodeInputs`]. Measures the inner loop
 //!   only (no child `execute`, no allocation).
 //! * `canonicalize_to_varbinview` — the full Vortex
@@ -28,7 +28,7 @@ use std::mem::MaybeUninit;
 use std::sync::LazyLock;
 
 use divan::Bencher;
-use onpair::Parts;
+use onpair::CompactDictionaryView;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -38,12 +38,12 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::filter::FilterKernel;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_buffer::Buffer;
-use vortex_buffer::ByteBuffer;
 use vortex_mask::Mask;
 use vortex_onpair::DEFAULT_DICT12_CONFIG;
 use vortex_onpair::OnPair;
@@ -51,30 +51,32 @@ use vortex_onpair::OnPairArray;
 use vortex_onpair::OnPairArraySlotsExt;
 
 /// Host-resident decode inputs, materialised once so the decode-loop benchmark
-/// measures only `onpair::decompress_into` (not child `execute`/allocation).
+/// measures only `onpair::decode_into` (not child `execute`/allocation).
 struct DecodeInputs {
-    dict_bytes: ByteBuffer,
+    dict_bytes: BufferHandle,
     dict_offsets: Buffer<u32>,
     codes: Buffer<u16>,
-    bits: u32,
 }
 
 impl DecodeInputs {
-    fn as_parts(&self) -> Parts<'_> {
-        Parts {
-            dict_bytes: self.dict_bytes.as_slice(),
-            dict_offsets: self.dict_offsets.as_slice(),
-            bits: self.bits,
-            codes: self.codes.as_slice(),
+    fn dict(&self) -> CompactDictionaryView<'_> {
+        // SAFETY: `materialise` validates this borrowed dictionary once after
+        // widening offsets. The benchmark then keeps both buffers immutable.
+        unsafe {
+            CompactDictionaryView::new_unchecked(
+                self.dict_bytes.as_host().as_slice(),
+                self.dict_offsets.as_slice(),
+            )
         }
     }
 
-    fn decompressed_len(&self) -> usize {
-        onpair::decompressed_len(self.as_parts())
+    fn decoded_len(&self) -> usize {
+        onpair::decoded_len(self.codes.as_slice(), self.dict())
     }
 
-    fn decompress_into(&self, out: &mut [MaybeUninit<u8>]) -> usize {
-        onpair::decompress_into(self.as_parts(), out)
+    fn decode_into(&self, out: &mut [MaybeUninit<u8>]) -> usize {
+        // SAFETY: callers allocate `decoded_len + DECODE_PADDING` bytes.
+        unsafe { onpair::decode_into(self.codes.as_slice(), self.dict(), out) }
     }
 }
 use vortex_onpair::onpair_compress;
@@ -162,6 +164,8 @@ fn compress(n: usize, shape: Shape, ctx: &mut ExecutionCtx) -> OnPairArray {
     );
     onpair_compress(varbin.as_array(), DEFAULT_DICT12_CONFIG, ctx)
         .unwrap_or_else(|e| panic!("onpair_compress failed: {e}"))
+        .try_downcast::<OnPair>()
+        .unwrap_or_else(|array| panic!("expected OnPair array, got {}", array.encoding_id()))
 }
 
 /// Canonicalise a slot child to the decoder's native primitive width.
@@ -175,13 +179,16 @@ fn widen<T: NativePType>(arr: &ArrayRef, ctx: &mut ExecutionCtx) -> Buffer<T> {
 
 fn materialise(arr: &OnPairArray, ctx: &mut ExecutionCtx) -> (DecodeInputs, usize) {
     let view = arr.as_view();
+    let dict_offsets = widen::<u32>(view.dict_offsets(), ctx);
+    let dict_bytes = view.dict_bytes_handle().clone();
+    CompactDictionaryView::validate(dict_bytes.as_host().as_slice(), dict_offsets.as_slice())
+        .expect("valid OnPair dictionary");
     let inputs = DecodeInputs {
-        dict_bytes: view.dict_bytes().clone(),
-        dict_offsets: widen::<u32>(view.dict_offsets(), ctx),
+        dict_bytes,
+        dict_offsets,
         codes: widen::<u16>(view.codes(), ctx),
-        bits: view.bits(),
     };
-    let total = inputs.decompressed_len();
+    let total = inputs.decoded_len();
     (inputs, total)
 }
 
@@ -194,16 +201,16 @@ const CASES: &[(Shape, usize)] = &[
 ];
 
 /// Raw decode loop time, excluding child `execute` and the output allocation.
-/// Hits `onpair::decompress_into` directly.
+/// Hits `onpair::decode_into` directly.
 #[divan::bench(args = CASES)]
-fn decompress_into_bench(bencher: Bencher, case: (Shape, usize)) {
+fn decode_into_bench(bencher: Bencher, case: (Shape, usize)) {
     let mut ctx = SESSION.create_execution_ctx();
     let (shape, n) = case;
     let arr = compress(n, shape, &mut ctx);
     let (inputs, total) = materialise(&arr, &mut ctx);
     bencher.bench_local(|| {
-        let mut out: Vec<u8> = Vec::with_capacity(total);
-        let written = inputs.decompress_into(out.spare_capacity_mut());
+        let mut out: Vec<u8> = Vec::with_capacity(total + onpair::DECODE_PADDING);
+        let written = inputs.decode_into(out.spare_capacity_mut());
         unsafe { out.set_len(written) };
         divan::black_box(out);
     });

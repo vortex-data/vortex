@@ -105,9 +105,14 @@ pub fn render_table<W: Write, T: ToTable>(
 pub fn print_measurements_json<T: ToJson>(
     writer: &mut dyn Write,
     all_measurements: Vec<T>,
+    doc: &str,
 ) -> anyhow::Result<()> {
     for measurement in all_measurements {
-        writeln!(writer, "{}", measurement.to_json())?;
+        let mut json = measurement.to_json();
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("doc".to_string(), doc.into());
+        }
+        writeln!(writer, "{json}")?;
     }
 
     Ok(())

@@ -173,4 +173,14 @@ final class SparkToArrowSchemaTest {
                 assertThrows(UnsupportedOperationException.class, () -> SparkToArrowSchema.convert(schema));
         assertTrue(e.getMessage().contains("CalendarIntervalType"));
     }
+
+    @Test
+    @DisplayName("MapType is rejected rather than converted to a childless List")
+    void mapTypeIsRejected() {
+        StructType schema =
+                new StructType().add("m", DataTypes.createMapType(DataTypes.StringType, DataTypes.IntegerType));
+        UnsupportedOperationException e =
+                assertThrows(UnsupportedOperationException.class, () -> SparkToArrowSchema.convert(schema));
+        assertTrue(e.getMessage().contains("MapType"));
+    }
 }

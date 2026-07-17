@@ -80,6 +80,8 @@ pub struct Union {
     /// length must equal dtypes.len(); each value must fit in uint8
     #[prost(int32, repeated, tag = "3")]
     pub type_ids: ::prost::alloc::vec::Vec<i32>,
+    #[prost(bool, tag = "4")]
+    pub nullable: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DType {
