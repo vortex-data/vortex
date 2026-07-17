@@ -23,6 +23,7 @@ use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
 use crate::arrays::piecewise_sequence::validate_index_ranges;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
@@ -125,8 +126,8 @@ fn take_piecewise_bits<S, L>(
     output_len: usize,
 ) -> VortexResult<BitBuffer>
 where
-    S: crate::dtype::UnsignedPType,
-    L: crate::dtype::UnsignedPType,
+    S: UnsignedPType,
+    L: UnsignedPType,
 {
     validate_index_ranges(source.len(), starts, lengths, output_len)?;
 
