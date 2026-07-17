@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use arrow_array::RecordBatchOptions;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
@@ -460,9 +461,13 @@ impl FileOpener for VortexOpener {
                         batch.and_then(|b| projector.project_batch(&b))
                     }?;
 
-                    batch
-                        .with_schema(Arc::clone(&output_schema))
-                        .map_err(Into::into)
+                    let (_, columns, row_count) = batch.into_parts();
+                    RecordBatch::try_new_with_options(
+                        Arc::clone(&output_schema),
+                        columns,
+                        &RecordBatchOptions::new().with_row_count(Some(row_count)),
+                    )
+                    .map_err(Into::into)
                 })
                 .boxed();
 
@@ -577,6 +582,7 @@ mod tests {
     use arrow_schema::Fields;
     use arrow_schema::SchemaRef;
     use datafusion::arrow::array::DictionaryArray;
+    use datafusion::arrow::array::Int32Array;
     use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
@@ -872,6 +878,34 @@ mod tests {
             for batch in batches {
                 assert_eq!(batch.schema().as_ref(), expected_schema.as_ref());
             }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_all_valid_nullable_columns_with_nonnullable_table_schema()
+    -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "nullable/file.vortex";
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)])),
+            vec![Arc::new(Int32Array::from(vec![Some(1), Some(2), Some(3)]))],
+        )?;
+        let data_size = write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch).await?;
+
+        let expected_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+        let table_schema = TableSchema::from_file_schema(Arc::clone(&expected_schema));
+
+        for projection_pushdown in [false, true] {
+            let mut opener = make_opener(Arc::clone(&object_store), table_schema.clone(), None);
+            opener.projection_pushdown = projection_pushdown;
+
+            let file = PartitionedFile::new(file_path.to_string(), data_size);
+            let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+            assert_eq!(batches.len(), 1);
+            assert_eq!(batches[0].schema().as_ref(), expected_schema.as_ref());
         }
 
         Ok(())
