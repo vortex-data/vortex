@@ -23,6 +23,7 @@ use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::piecewise_sequence::ConstantOrArray;
+use crate::arrays::piecewise_sequence::copy_slice_to_spare;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
@@ -171,11 +172,19 @@ where
     );
 
     let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
+    let mut cursor = 0usize;
     for &start in starts {
         let start = start.as_();
-        views.extend_from_slice(&source[start..][..length]);
+        cursor = copy_slice_to_spare(&mut views, cursor, &source[start..][..length], output_len)?;
     }
 
+    vortex_ensure!(
+        cursor == output_len,
+        "PiecewiseSequenceArray expanded length {cursor} does not match declared length {output_len}"
+    );
+    // SAFETY: `copy_slice_to_spare` checked every write against `output_len`, and `cursor ==
+    // output_len` proves all slots were initialized.
+    unsafe { views.set_len(output_len) };
     Ok(views.freeze())
 }
 
@@ -190,17 +199,21 @@ where
     L: UnsignedPType,
 {
     let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
+    let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        views.extend_from_slice(&source[start..][..length]);
+        cursor = copy_slice_to_spare(&mut views, cursor, &source[start..][..length], output_len)?;
     }
 
     vortex_ensure!(
-        views.len() == output_len,
+        cursor == output_len,
         "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
-        views.len()
+        cursor
     );
+    // SAFETY: `copy_slice_to_spare` checked every write against `output_len`, and `cursor ==
+    // output_len` proves all slots were initialized.
+    unsafe { views.set_len(output_len) };
     Ok(views.freeze())
 }
 
