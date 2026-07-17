@@ -23,7 +23,7 @@ pub struct PiecewiseSequenceSlots {
     pub multipliers: ArrayRef,
 }
 
-/// Extension methods for [`crate::arrays::PiecewiseSequenceArray`].
+/// Extension methods for [`Array`] values using the [`PiecewiseSequence`] encoding.
 pub trait PiecewiseSequenceArrayExt:
     TypedArrayRef<PiecewiseSequence> + PiecewiseSequenceArraySlotsExt
 {
