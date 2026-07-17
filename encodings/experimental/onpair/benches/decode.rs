@@ -164,6 +164,8 @@ fn compress(n: usize, shape: Shape, ctx: &mut ExecutionCtx) -> OnPairArray {
     );
     onpair_compress(varbin.as_array(), DEFAULT_DICT12_CONFIG, ctx)
         .unwrap_or_else(|e| panic!("onpair_compress failed: {e}"))
+        .try_downcast::<OnPair>()
+        .unwrap_or_else(|array| panic!("expected OnPair array, got {}", array.encoding_id()))
 }
 
 /// Canonicalise a slot child to the decoder's native primitive width.

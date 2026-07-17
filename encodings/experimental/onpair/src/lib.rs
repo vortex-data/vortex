@@ -4,10 +4,8 @@
 //! Vortex string array backed by the [OnPair][onpair] short-string
 //! compression library, with pushdown for common string operations.
 //!
-//! The default training preset is `dict-12`: the trainer may build a dictionary
-//! with up to 4 096 tokens, while runtime code width is derived from the actual
-//! dictionary size. See [`onpair_compress`] for the entry point and
-//! [`OnPairArray`] for the resulting array type.
+//! See [`onpair_compress`] for the compression entry point and [`OnPairArray`]
+//! for the encoded representation of non-null inputs.
 //!
 //! [onpair]: https://arxiv.org/abs/2508.02280
 

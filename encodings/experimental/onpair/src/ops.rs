@@ -9,8 +9,8 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
@@ -46,21 +46,20 @@ impl OperationsVTable<OnPair> for OnPair {
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("OnPair uncompressed_lengths[{index}] is null"))?;
-        // Pad the row buffer with DECODE_PADDING to absorb the decoder's fixed
-        // per-token over-copy; the exact decoded size is checked below.
-        let mut buf: Vec<u8> = Vec::with_capacity(len + onpair::DECODE_PADDING);
-        let written = onpair::try_decode_into(codes.as_slice(), dict, buf.spare_capacity_mut())
-            .map_err(|_| {
-                vortex_err!(
+        let mut buf: Vec<u8> = Vec::with_capacity(len);
+        let written =
+            match onpair::try_decode_into(codes.as_slice(), dict, buf.spare_capacity_mut()) {
+                Ok(written) => written,
+                Err(_) => vortex_panic!(
                     "OnPair row {index} decodes to more bytes than uncompressed_lengths records"
-                )
-            })?;
-        vortex_ensure!(
-            written == len,
-            "OnPair row {index} decoded to {written} bytes but uncompressed_lengths records {len}"
-        );
-        // SAFETY: `try_decode_into` initialised `written` bytes of the spare
-        // capacity reserved above.
+                ),
+            };
+        if written != len {
+            vortex_panic!(
+                "OnPair row {index} decoded to {written} bytes but uncompressed_lengths records {len}"
+            );
+        }
+        // SAFETY: `try_decode_into` initialised exactly `written` bytes.
         unsafe { buf.set_len(written) };
         Ok(varbin_scalar(ByteBuffer::from(buf), array.dtype()))
     }

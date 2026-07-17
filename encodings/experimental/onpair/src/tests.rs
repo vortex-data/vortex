@@ -8,6 +8,7 @@ use prost::Message;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
@@ -33,6 +34,17 @@ use crate::compress::DEFAULT_DICT12_CONFIG;
 use crate::compress::onpair_compress;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+
+fn compress_onpair(
+    array: &vortex_array::ArrayRef,
+    ctx: &mut vortex_array::ExecutionCtx,
+) -> vortex_error::VortexResult<crate::OnPairArray> {
+    onpair_compress(array, DEFAULT_DICT12_CONFIG, ctx)?
+        .try_downcast::<OnPair>()
+        .map_err(|array| {
+            vortex_error::vortex_err!("expected OnPair array, got {}", array.encoding_id())
+        })
+}
 
 fn sample_input() -> VarBinArray {
     VarBinArray::from_iter(
@@ -80,7 +92,7 @@ fn test_onpair_metadata_golden() {
         &OnPairMetadata {
             uncompressed_lengths_ptype: PType::I32 as i32,
             dict_size: 4096,
-            total_tokens: 128_000,
+            codes_len: 128_000,
             dict_offsets_ptype: PType::U32 as i32,
             codes_ptype: PType::U16 as i32,
             codes_offsets_ptype: PType::U32 as i32,
@@ -127,11 +139,7 @@ fn test_onpair_roundtrip() -> vortex_error::VortexResult<()> {
 #[test]
 fn test_onpair_u64_codes_offsets() -> vortex_error::VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let narrow = onpair_compress(
-        &sample_input().into_array(),
-        DEFAULT_DICT12_CONFIG,
-        &mut ctx,
-    )?;
+    let narrow = compress_onpair(&sample_input().into_array(), &mut ctx)?;
 
     // Rebuild with only codes_offsets widened to u64; every other child is the
     // input's, so the two arrays differ solely in codes_offsets width.
@@ -311,8 +319,7 @@ fn test_onpair_empty() -> vortex_error::VortexResult<()> {
     Ok(())
 }
 
-/// All-null input has no training values, but still produces a valid OnPair
-/// array backed by an empty code stream and `len + 1` zero boundaries.
+/// All-null input is already represented optimally by a constant null array.
 #[cfg_attr(miri, ignore)]
 #[test]
 fn test_onpair_all_null() -> vortex_error::VortexResult<()> {
@@ -324,18 +331,8 @@ fn test_onpair_all_null() -> vortex_error::VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let arr = onpair_compress(&input, DEFAULT_DICT12_CONFIG, &mut ctx)?;
 
-    assert!(arr.codes().is_empty());
-    let codes_offsets = arr
-        .codes_offsets()
-        .clone()
-        .execute::<PrimitiveArray>(&mut ctx)?;
-    assert_eq!(codes_offsets.as_slice::<u32>(), &[0, 0, 0, 0]);
-    let uncompressed_lengths = arr
-        .uncompressed_lengths()
-        .clone()
-        .execute::<PrimitiveArray>(&mut ctx)?;
-    assert_eq!(uncompressed_lengths.as_slice::<i32>(), &[0, 0, 0]);
-    assert_arrays_eq!(arr.into_array(), input, &mut ctx);
+    assert!(arr.is::<Constant>());
+    assert_arrays_eq!(arr, input, &mut ctx);
     Ok(())
 }
 
@@ -354,7 +351,7 @@ fn test_onpair_filter_shares_dict() -> vortex_error::VortexResult<()> {
         DType::Utf8(Nullability::NonNullable),
     );
     let mut ctx = SESSION.create_execution_ctx();
-    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    let arr = compress_onpair(&varbin.into_array(), &mut ctx)?;
     let dict_bytes_before = arr.dict_bytes().clone();
     let dict_offsets_len_before = arr.dict_offsets().len();
 
@@ -457,7 +454,7 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u16() -> vortex_error::VortexR
         DType::Utf8(Nullability::NonNullable),
     );
     let mut ctx = SESSION.create_execution_ctx();
-    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    let arr = compress_onpair(&varbin.into_array(), &mut ctx)?;
 
     // Force `codes_offsets` to u16 so the panicking pre-fix
     // `as_slice::<u32>()` would fire.
@@ -513,7 +510,7 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u8() -> vortex_error::VortexRe
         DType::Utf8(Nullability::NonNullable),
     );
     let mut ctx = SESSION.create_execution_ctx();
-    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    let arr = compress_onpair(&varbin.into_array(), &mut ctx)?;
     let arr = narrow_codes_offsets(&arr, PType::U8);
     assert_eq!(arr.as_view().codes_offsets().dtype().as_ptype(), PType::U8);
 
