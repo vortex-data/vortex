@@ -25,10 +25,7 @@ use crate::arrays::list::ListArrayExt;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::builders::ArrayBuilder;
-use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
-use crate::dtype::Nullability;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
@@ -66,7 +63,7 @@ impl TakeExecute for List {
         match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
             match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
                 match_smallest_offset_type!(total_approx, |OutputOffsetType| {
-                    _take::<I, O, OutputOffsetType>(
+                    take_with_piecewise_elements::<I, O, OutputOffsetType>(
                         array,
                         offsets.as_view(),
                         indices.as_view(),
@@ -79,7 +76,11 @@ impl TakeExecute for List {
     }
 }
 
-fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
+fn take_with_piecewise_elements<
+    I: IntegerPType,
+    O: IntegerPType,
+    OutputOffsetType: IntegerPType,
+>(
     array: ArrayView<'_, List>,
     offsets_array: ArrayView<'_, Primitive>,
     indices_array: ArrayView<'_, Primitive>,
@@ -93,56 +94,78 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
         .vortex_expect("Failed to compute validity mask")
         .execute_mask(indices_array.as_ref().len(), ctx)?;
 
-    if !indices_validity.all_true() || !data_validity.all_true() {
-        return _take_nullable::<I, O, OutputOffsetType>(array, offsets_array, indices_array, ctx);
-    }
-
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
 
-    let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
-        Nullability::NonNullable,
-        indices.len(),
-    );
-    let mut elements_to_take =
-        PrimitiveBuilder::with_capacity(Nullability::NonNullable, 2 * indices.len());
+    let offsets_capacity = indices
+        .len()
+        .checked_add(1)
+        .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
+    let mut new_offsets = BufferMut::<OutputOffsetType>::with_capacity(offsets_capacity);
+    let mut element_starts = BufferMut::<u64>::with_capacity(indices.len());
+    let mut element_lengths = BufferMut::<u64>::with_capacity(indices.len());
 
-    let mut current_offset = OutputOffsetType::zero();
-    new_offsets.append_zero();
+    let mut current_offset = 0usize;
+    new_offsets.push(OutputOffsetType::zero());
 
-    for &data_idx in indices {
+    for (&data_idx, index_valid) in indices.iter().zip_eq(indices_validity.iter()) {
+        if !index_valid {
+            new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset)?);
+            element_starts.push(0);
+            element_lengths.push(0);
+            continue;
+        }
+
         let data_idx: usize = data_idx.as_();
+
+        if !data_validity.value(data_idx) {
+            new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset)?);
+            element_starts.push(0);
+            element_lengths.push(0);
+            continue;
+        }
 
         let start = offsets[data_idx];
         let stop = offsets[data_idx + 1];
+        let start: usize = start.as_();
+        let stop: usize = stop.as_();
+        let length = stop
+            .checked_sub(start)
+            .ok_or_else(|| vortex_err!("List offsets are not monotonic at offset {stop}"))?;
 
-        // Annoyingly, we can't turn (start..end) into a range, so we're doing that manually.
-        //
-        // We could convert start and end to usize, but that would impose a potentially
-        // harder constraint - now we don't care if they fit into usize as long as their
-        // difference does.
-        let additional: usize = (stop - start).as_();
-
-        // TODO(0ax1): optimize this
-        elements_to_take.reserve_exact(additional);
-        for i in 0..additional {
-            elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
-        }
-        current_offset +=
-            OutputOffsetType::from_usize((stop - start).as_()).vortex_expect("offset conversion");
-        new_offsets.append_value(current_offset);
+        current_offset = current_offset
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
+        new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset)?);
+        element_starts.push(start as u64);
+        element_lengths.push(length as u64);
     }
 
-    let elements_to_take = elements_to_take.finish();
-    let new_offsets = new_offsets.finish();
+    let new_offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array();
+    let multipliers = ConstantArray::new(1u64, element_starts.len()).into_array();
 
-    let new_elements = array.elements().take(elements_to_take)?;
+    // SAFETY: valid source rows contribute ranges derived from list offsets; null index/source
+    // rows contribute zero-length placeholder ranges. `current_offset` is the sum of all generated
+    // element lengths, and multiplier 1 preserves contiguous ranges.
+    let element_indices = unsafe {
+        PiecewiseSequenceArray::new_unchecked(
+            element_starts.into_array(),
+            element_lengths.into_array(),
+            multipliers,
+            current_offset,
+        )
+    };
+    let new_elements = array.elements().take(element_indices.into_array())?;
 
-    Ok(ListArray::try_new(
-        new_elements,
-        new_offsets,
-        array.validity()?.take(indices_array.array())?,
-    )?
+    // SAFETY: offsets are rebuilt from the gathered element ranges and have one entry per output
+    // row plus the leading zero; validity is produced by the usual take-validity path.
+    Ok(unsafe {
+        ListArray::new_unchecked(
+            new_elements,
+            new_offsets,
+            array.validity()?.take(indices_array.array())?,
+        )
+    }
     .into_array())
 }
 
@@ -840,83 +863,6 @@ fn gather_valid_piece<Offset, OutputOffset>(
 
 fn new_offset_value<T: IntegerPType>(value: usize) -> T {
     T::from_usize(value).vortex_expect("output offset fits selected offset type")
-}
-
-// Kept out-of-line: as a single-callsite generic helper it would otherwise be inlined into every
-// monomorphization of `_take`, duplicating the entire nullable path across all specializations.
-#[inline(never)]
-fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
-    array: ArrayView<'_, List>,
-    offsets_array: ArrayView<'_, Primitive>,
-    indices_array: ArrayView<'_, Primitive>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let offsets: &[O] = offsets_array.as_slice();
-    let indices: &[I] = indices_array.as_slice();
-    let data_validity = array
-        .list_validity()
-        .execute_mask(array.as_ref().len(), ctx)?;
-    let indices_validity = indices_array
-        .validity()
-        .vortex_expect("Failed to compute validity mask")
-        .execute_mask(indices_array.as_ref().len(), ctx)?;
-
-    let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
-        Nullability::NonNullable,
-        indices.len(),
-    );
-
-    // This will be the indices we push down to the child array to call `take` with.
-    //
-    // There are 2 things to note here:
-    // - We do not know how many elements we need to take from our child since lists are variable
-    //   size: thus we arbitrarily choose a capacity of `2 * # of indices`.
-    // - The type of the primitive builder needs to fit the largest offset of the (parent)
-    //   `ListArray`, so we make this `PrimitiveBuilder` generic over `O` (instead of `I`).
-    let mut elements_to_take =
-        PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, 2 * indices.len());
-
-    let mut current_offset = OutputOffsetType::zero();
-    new_offsets.append_zero();
-
-    for (data_idx, index_valid) in indices.iter().zip(indices_validity.iter()) {
-        if !index_valid {
-            new_offsets.append_value(current_offset);
-            continue;
-        }
-
-        let data_idx: usize = data_idx.as_();
-
-        if !data_validity.value(data_idx) {
-            new_offsets.append_value(current_offset);
-            continue;
-        }
-
-        let start = offsets[data_idx];
-        let stop = offsets[data_idx + 1];
-
-        // See the note in `_take` on the reasoning.
-        let additional: usize = (stop - start).as_();
-
-        elements_to_take.reserve_exact(additional);
-        for i in 0..additional {
-            elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
-        }
-        current_offset +=
-            OutputOffsetType::from_usize((stop - start).as_()).vortex_expect("offset conversion");
-        new_offsets.append_value(current_offset);
-    }
-
-    let elements_to_take = elements_to_take.finish();
-    let new_offsets = new_offsets.finish();
-    let new_elements = array.elements().take(elements_to_take)?;
-
-    Ok(ListArray::try_new(
-        new_elements,
-        new_offsets,
-        array.validity()?.take(indices_array.array())?,
-    )?
-    .into_array())
 }
 
 #[cfg(test)]
