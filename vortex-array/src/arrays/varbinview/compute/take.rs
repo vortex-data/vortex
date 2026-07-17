@@ -39,7 +39,7 @@ impl TakeExecute for VarBinView {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+            && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
         {
             return Ok(Some(taken));
         }
@@ -72,7 +72,7 @@ impl TakeExecute for VarBinView {
     }
 }
 
-fn take_piecewise_sequence(
+fn take_contiguous_ranges(
     array: ArrayView<'_, VarBinView>,
     indices: ArrayView<'_, PiecewiseSequence>,
     indices_ref: &ArrayRef,
@@ -86,7 +86,7 @@ fn take_piecewise_sequence(
     let views = match &lengths {
         UnitMultiplierLengths::Constant(length) => {
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-                gather_piecewise_views_constant_length(
+                gather_view_slices_constant_length(
                     source,
                     starts.as_slice::<S>(),
                     *length,
@@ -97,7 +97,7 @@ fn take_piecewise_sequence(
         UnitMultiplierLengths::Array(lengths) => {
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
                 match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-                    gather_piecewise_views(
+                    gather_view_slices(
                         source,
                         starts.as_slice::<S>(),
                         lengths.as_slice::<L>(),
@@ -152,7 +152,7 @@ fn take_views<I: AsPrimitive<usize>>(
     }
 }
 
-fn gather_piecewise_views_constant_length<S>(
+fn gather_view_slices_constant_length<S>(
     source: &[BinaryView],
     starts: &[S],
     length: usize,
@@ -172,7 +172,7 @@ where
     Ok(views.freeze())
 }
 
-fn gather_piecewise_views<S, L>(
+fn gather_view_slices<S, L>(
     source: &[BinaryView],
     starts: &[S],
     lengths: &[L],

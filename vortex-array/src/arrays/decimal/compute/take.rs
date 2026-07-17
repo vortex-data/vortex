@@ -34,7 +34,7 @@ impl TakeExecute for Decimal {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+            && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
         {
             return Ok(Some(taken));
         }
@@ -58,7 +58,7 @@ impl TakeExecute for Decimal {
     }
 }
 
-fn take_piecewise_sequence(
+fn take_contiguous_ranges(
     array: ArrayView<'_, Decimal>,
     indices: ArrayView<'_, PiecewiseSequence>,
     indices_ref: &ArrayRef,
@@ -71,16 +71,16 @@ fn take_piecewise_sequence(
     let output_len = indices_ref.len();
     let taken = match lengths {
         UnitMultiplierLengths::Constant(length) => {
-            take_piecewise_sequence_constant_length(array, &starts, length, validity, output_len)?
+            take_slices_constant_length(array, &starts, length, validity, output_len)?
         }
         UnitMultiplierLengths::Array(lengths) => {
-            take_piecewise_sequence_lengths(array, &starts, &lengths, validity, output_len)?
+            take_slices(array, &starts, &lengths, validity, output_len)?
         }
     };
     Ok(Some(taken))
 }
 
-fn take_piecewise_sequence_constant_length(
+fn take_slices_constant_length(
     array: ArrayView<'_, Decimal>,
     starts: &PrimitiveArray,
     length: usize,
@@ -88,13 +88,11 @@ fn take_piecewise_sequence_constant_length(
     output_len: usize,
 ) -> VortexResult<ArrayRef> {
     match_each_decimal_value_type!(array.values_type(), |D| {
-        take_piecewise_sequence_constant_length_typed::<D>(
-            array, starts, length, validity, output_len,
-        )
+        take_slices_constant_length_typed::<D>(array, starts, length, validity, output_len)
     })
 }
 
-fn take_piecewise_sequence_constant_length_typed<D>(
+fn take_slices_constant_length_typed<D>(
     array: ArrayView<'_, Decimal>,
     starts: &PrimitiveArray,
     length: usize,
@@ -105,7 +103,7 @@ where
     D: NativeDecimalType,
 {
     match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        let values = take_piecewise_constant_length_to_buffer::<S, D>(
+        let values = take_slices_constant_length_to_buffer::<S, D>(
             starts.as_slice::<S>(),
             length,
             array.buffer::<D>().as_slice(),
@@ -120,7 +118,7 @@ where
     })
 }
 
-fn take_piecewise_sequence_lengths(
+fn take_slices(
     array: ArrayView<'_, Decimal>,
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
@@ -128,11 +126,11 @@ fn take_piecewise_sequence_lengths(
     output_len: usize,
 ) -> VortexResult<ArrayRef> {
     match_each_decimal_value_type!(array.values_type(), |D| {
-        take_piecewise_sequence_lengths_typed::<D>(array, starts, lengths, validity, output_len)
+        take_slices_typed::<D>(array, starts, lengths, validity, output_len)
     })
 }
 
-fn take_piecewise_sequence_lengths_typed<D>(
+fn take_slices_typed<D>(
     array: ArrayView<'_, Decimal>,
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
@@ -143,13 +141,11 @@ where
     D: NativeDecimalType,
 {
     match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        take_piecewise_sequence_lengths_start_typed::<D, S>(
-            array, starts, lengths, validity, output_len,
-        )
+        take_slices_start_typed::<D, S>(array, starts, lengths, validity, output_len)
     })
 }
 
-fn take_piecewise_sequence_lengths_start_typed<D, S>(
+fn take_slices_start_typed<D, S>(
     array: ArrayView<'_, Decimal>,
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
@@ -161,7 +157,7 @@ where
     S: UnsignedPType,
 {
     match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-        let values = take_piecewise_to_buffer::<S, L, D>(
+        let values = take_slices_to_buffer::<S, L, D>(
             starts.as_slice::<S>(),
             lengths.as_slice::<L>(),
             array.buffer::<D>().as_slice(),
@@ -180,7 +176,7 @@ fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(indices: &[I], values: 
     indices.iter().map(|idx| values[idx.as_()]).collect()
 }
 
-fn take_piecewise_constant_length_to_buffer<S, T>(
+fn take_slices_constant_length_to_buffer<S, T>(
     starts: &[S],
     length: usize,
     values: &[T],
@@ -201,7 +197,7 @@ where
     Ok(result.freeze())
 }
 
-fn take_piecewise_to_buffer<S, L, T>(
+fn take_slices_to_buffer<S, L, T>(
     starts: &[S],
     lengths: &[L],
     values: &[T],

@@ -89,7 +89,7 @@ impl TakeExecute for Primitive {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+            && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
         {
             return Ok(Some(taken));
         }
@@ -138,7 +138,7 @@ impl TakeExecute for Primitive {
     }
 }
 
-fn take_piecewise_sequence(
+fn take_contiguous_ranges(
     array: ArrayView<'_, Primitive>,
     indices: ArrayView<'_, PiecewiseSequence>,
     indices_ref: &ArrayRef,
@@ -151,10 +151,10 @@ fn take_piecewise_sequence(
     let output_len = indices_ref.len();
     let taken = match lengths {
         UnitMultiplierLengths::Constant(length) => {
-            take_piecewise_sequence_constant_length(array, &starts, length, validity, output_len)?
+            take_slices_constant_length(array, &starts, length, validity, output_len)?
         }
         UnitMultiplierLengths::Array(lengths) => {
-            take_piecewise_sequence_lengths(array, &starts, &lengths, validity, output_len)?
+            take_slices(array, &starts, &lengths, validity, output_len)?
         }
     };
     Ok(Some(taken))
@@ -181,7 +181,7 @@ fn take_primitive_scalar<T: Copy, I: IntegerPType>(buffer: &[T], indices: &[I]) 
     result.freeze()
 }
 
-fn take_piecewise_sequence_lengths(
+fn take_slices(
     array: ArrayView<'_, Primitive>,
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
@@ -189,11 +189,11 @@ fn take_piecewise_sequence_lengths(
     output_len: usize,
 ) -> VortexResult<ArrayRef> {
     match_each_native_ptype!(array.ptype(), |T| {
-        take_piecewise_sequence_lengths_typed::<T>(array, starts, lengths, validity, output_len)
+        take_slices_typed::<T>(array, starts, lengths, validity, output_len)
     })
 }
 
-fn take_piecewise_sequence_lengths_typed<T>(
+fn take_slices_typed<T>(
     array: ArrayView<'_, Primitive>,
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
@@ -204,13 +204,11 @@ where
     T: NativePType,
 {
     match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        take_piecewise_sequence_lengths_start_typed::<T, S>(
-            array, starts, lengths, validity, output_len,
-        )
+        take_slices_start_typed::<T, S>(array, starts, lengths, validity, output_len)
     })
 }
 
-fn take_piecewise_sequence_lengths_start_typed<T, S>(
+fn take_slices_start_typed<T, S>(
     array: ArrayView<'_, Primitive>,
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
@@ -222,7 +220,7 @@ where
     S: UnsignedPType,
 {
     match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-        let values = primitive_piecewise_values::<T, S, L>(
+        let values = take_slices_to_buffer::<T, S, L>(
             array.as_slice::<T>(),
             starts.as_slice::<S>(),
             lengths.as_slice::<L>(),
@@ -232,7 +230,7 @@ where
     })
 }
 
-fn primitive_piecewise_values<T, S, L>(
+fn take_slices_to_buffer<T, S, L>(
     source: &[T],
     starts: &[S],
     lengths: &[L],
@@ -255,7 +253,7 @@ where
     Ok(values.freeze())
 }
 
-fn take_piecewise_sequence_constant_length(
+fn take_slices_constant_length(
     array: ArrayView<'_, Primitive>,
     starts: &PrimitiveArray,
     length: usize,
@@ -263,13 +261,11 @@ fn take_piecewise_sequence_constant_length(
     output_len: usize,
 ) -> VortexResult<ArrayRef> {
     match_each_native_ptype!(array.ptype(), |T| {
-        take_piecewise_sequence_constant_length_typed::<T>(
-            array, starts, length, validity, output_len,
-        )
+        take_slices_constant_length_typed::<T>(array, starts, length, validity, output_len)
     })
 }
 
-fn take_piecewise_sequence_constant_length_typed<T>(
+fn take_slices_constant_length_typed<T>(
     array: ArrayView<'_, Primitive>,
     starts: &PrimitiveArray,
     length: usize,
@@ -280,7 +276,7 @@ where
     T: NativePType,
 {
     match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        let values = primitive_piecewise_constant_length_values::<T, S>(
+        let values = take_slices_constant_length_to_buffer::<T, S>(
             array.as_slice::<T>(),
             starts.as_slice::<S>(),
             length,
@@ -290,7 +286,7 @@ where
     })
 }
 
-fn primitive_piecewise_constant_length_values<T, S>(
+fn take_slices_constant_length_to_buffer<T, S>(
     source: &[T],
     starts: &[S],
     length: usize,

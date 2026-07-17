@@ -53,7 +53,7 @@ impl TakeExecute for VarBin {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+            && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
         {
             return Ok(Some(taken));
         }
@@ -128,7 +128,7 @@ impl TakeExecute for VarBin {
     }
 }
 
-fn take_piecewise_sequence(
+fn take_contiguous_ranges(
     array: ArrayView<'_, VarBin>,
     indices: ArrayView<'_, PiecewiseSequence>,
     indices_ref: &ArrayRef,
@@ -146,7 +146,7 @@ fn take_piecewise_sequence(
     let output_len = indices_ref.len();
 
     let result = match &lengths {
-        UnitMultiplierLengths::Constant(length) => gather_piecewise_varbin_constant_dispatch(
+        UnitMultiplierLengths::Constant(length) => gather_slices_constant_dispatch(
             &starts,
             *length,
             &offsets,
@@ -154,7 +154,7 @@ fn take_piecewise_sequence(
             output_len,
             out_offset_ptype,
         )?,
-        UnitMultiplierLengths::Array(lengths) => gather_piecewise_varbin_dispatch(
+        UnitMultiplierLengths::Array(lengths) => gather_slices_dispatch(
             &starts,
             lengths,
             &offsets,
@@ -251,7 +251,7 @@ struct GatheredPiecewiseVarBin {
     data: ByteBufferMut,
 }
 
-fn gather_piecewise_varbin_constant_dispatch(
+fn gather_slices_constant_dispatch(
     starts: &PrimitiveArray,
     length: usize,
     offsets: &PrimitiveArray,
@@ -260,7 +260,7 @@ fn gather_piecewise_varbin_constant_dispatch(
     out_offset_ptype: PType,
 ) -> VortexResult<GatheredPiecewiseVarBin> {
     match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        gather_piecewise_varbin_constant_start_dispatch::<S>(
+        gather_slices_constant_start_dispatch::<S>(
             starts,
             length,
             offsets,
@@ -271,7 +271,7 @@ fn gather_piecewise_varbin_constant_dispatch(
     })
 }
 
-fn gather_piecewise_varbin_constant_start_dispatch<S>(
+fn gather_slices_constant_start_dispatch<S>(
     starts: &PrimitiveArray,
     length: usize,
     offsets: &PrimitiveArray,
@@ -283,7 +283,7 @@ where
     S: UnsignedPType,
 {
     match offsets.ptype() {
-        PType::U8 => gather_piecewise_varbin_constant_length::<S, u8, u32>(
+        PType::U8 => gather_slices_constant_length::<S, u8, u32>(
             offsets.as_slice::<u8>(),
             data,
             starts.as_slice::<S>(),
@@ -291,7 +291,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U16 => gather_piecewise_varbin_constant_length::<S, u16, u32>(
+        PType::U16 => gather_slices_constant_length::<S, u16, u32>(
             offsets.as_slice::<u16>(),
             data,
             starts.as_slice::<S>(),
@@ -299,7 +299,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U32 => gather_piecewise_varbin_constant_length::<S, u32, u32>(
+        PType::U32 => gather_slices_constant_length::<S, u32, u32>(
             offsets.as_slice::<u32>(),
             data,
             starts.as_slice::<S>(),
@@ -307,7 +307,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U64 => gather_piecewise_varbin_constant_length::<S, u64, u64>(
+        PType::U64 => gather_slices_constant_length::<S, u64, u64>(
             offsets.as_slice::<u64>(),
             data,
             starts.as_slice::<S>(),
@@ -319,7 +319,7 @@ where
     }
 }
 
-fn gather_piecewise_varbin_dispatch(
+fn gather_slices_dispatch(
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
     offsets: &PrimitiveArray,
@@ -328,7 +328,7 @@ fn gather_piecewise_varbin_dispatch(
     out_offset_ptype: PType,
 ) -> VortexResult<GatheredPiecewiseVarBin> {
     match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        gather_piecewise_varbin_start_dispatch::<S>(
+        gather_slices_start_dispatch::<S>(
             starts,
             lengths,
             offsets,
@@ -339,7 +339,7 @@ fn gather_piecewise_varbin_dispatch(
     })
 }
 
-fn gather_piecewise_varbin_start_dispatch<S>(
+fn gather_slices_start_dispatch<S>(
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
     offsets: &PrimitiveArray,
@@ -351,7 +351,7 @@ where
     S: UnsignedPType,
 {
     match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-        gather_piecewise_varbin_start_length_dispatch::<S, L>(
+        gather_slices_start_length_dispatch::<S, L>(
             starts,
             lengths,
             offsets,
@@ -362,7 +362,7 @@ where
     })
 }
 
-fn gather_piecewise_varbin_start_length_dispatch<S, L>(
+fn gather_slices_start_length_dispatch<S, L>(
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
     offsets: &PrimitiveArray,
@@ -375,7 +375,7 @@ where
     L: UnsignedPType,
 {
     match offsets.ptype() {
-        PType::U8 => gather_piecewise_varbin::<S, L, u8, u32>(
+        PType::U8 => gather_slices::<S, L, u8, u32>(
             offsets.as_slice::<u8>(),
             data,
             starts.as_slice::<S>(),
@@ -383,7 +383,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U16 => gather_piecewise_varbin::<S, L, u16, u32>(
+        PType::U16 => gather_slices::<S, L, u16, u32>(
             offsets.as_slice::<u16>(),
             data,
             starts.as_slice::<S>(),
@@ -391,7 +391,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U32 => gather_piecewise_varbin::<S, L, u32, u32>(
+        PType::U32 => gather_slices::<S, L, u32, u32>(
             offsets.as_slice::<u32>(),
             data,
             starts.as_slice::<S>(),
@@ -399,7 +399,7 @@ where
             output_len,
             out_offset_ptype,
         ),
-        PType::U64 => gather_piecewise_varbin::<S, L, u64, u64>(
+        PType::U64 => gather_slices::<S, L, u64, u64>(
             offsets.as_slice::<u64>(),
             data,
             starts.as_slice::<S>(),
@@ -411,7 +411,7 @@ where
     }
 }
 
-fn gather_piecewise_varbin_constant_length<S, Offset, NewOffset>(
+fn gather_slices_constant_length<S, Offset, NewOffset>(
     offsets: &[Offset],
     data: &[u8],
     starts: &[S],
@@ -483,7 +483,7 @@ where
     })
 }
 
-fn gather_piecewise_varbin<S, L, Offset, NewOffset>(
+fn gather_slices<S, L, Offset, NewOffset>(
     offsets: &[Offset],
     data: &[u8],
     starts: &[S],
