@@ -22,8 +22,6 @@ use crate::arrays::dict::TakeExecute;
 use crate::arrays::list::ListArrayExt;
 use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
 use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
-use crate::arrays::piecewise_sequence::validate_index_ranges;
-use crate::arrays::piecewise_sequence::validate_index_ranges_constant;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
@@ -309,7 +307,14 @@ where
     S: UnsignedPType,
     Offset: UnsignedPType,
 {
-    validate_index_ranges_constant(array.len(), starts, length, output_len)?;
+    let computed_len = starts
+        .len()
+        .checked_mul(length)
+        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
     let total_elements =
         piecewise_list_elements_len_constant(array.elements().len(), offsets, starts, length)?;
     let validity = array.validity()?.take(indices_ref)?;
@@ -347,7 +352,17 @@ where
     L: UnsignedPType,
     Offset: UnsignedPType,
 {
-    validate_index_ranges(array.len(), starts, lengths, output_len)?;
+    let mut computed_len = 0usize;
+    for &length in lengths {
+        let length: usize = length.as_();
+        computed_len = computed_len
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    }
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
     let total_elements =
         piecewise_list_elements_len(array.elements().len(), offsets, starts, lengths)?;
 
@@ -390,13 +405,13 @@ where
     let mut total = 0usize;
     for &start in starts {
         let start: usize = start.as_();
-        let end = start + length;
         if length == 0 {
             continue;
         }
 
-        let element_start: usize = offsets[start].as_();
-        let element_end: usize = offsets[end].as_();
+        let offset_range = &offsets[start..][..=length];
+        let element_start: usize = offset_range[0].as_();
+        let element_end: usize = offset_range[length].as_();
         vortex_ensure!(
             element_start <= element_end && element_end <= elements_len,
             "List offsets range {element_start}..{element_end} exceeds elements length {elements_len}",
@@ -423,13 +438,13 @@ where
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start: usize = start.as_();
         let length: usize = length.as_();
-        let end = start + length;
         if length == 0 {
             continue;
         }
 
-        let element_start: usize = offsets[start].as_();
-        let element_end: usize = offsets[end].as_();
+        let offset_range = &offsets[start..][..=length];
+        let element_start: usize = offset_range[0].as_();
+        let element_end: usize = offset_range[length].as_();
         vortex_ensure!(
             element_start <= element_end && element_end <= elements_len,
             "List offsets range {element_start}..{element_end} exceeds elements length {elements_len}",
@@ -465,14 +480,14 @@ where
     new_offsets.push(OutputOffset::zero());
     for &start in starts {
         let start: usize = start.as_();
-        let end = start + length;
         if length == 0 {
             continue;
         }
 
-        let element_start: usize = offsets[start].as_();
-        let element_end: usize = offsets[end].as_();
-        for &offset in &offsets[start + 1..=end] {
+        let offset_range = &offsets[start..][..=length];
+        let element_start: usize = offset_range[0].as_();
+        let element_end: usize = offset_range[length].as_();
+        for &offset in &offset_range[1..] {
             let offset: usize = offset.as_();
             let relative = offset
                 .checked_sub(element_start)
@@ -535,14 +550,14 @@ where
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start: usize = start.as_();
         let length: usize = length.as_();
-        let end = start + length;
         if length == 0 {
             continue;
         }
 
-        let element_start: usize = offsets[start].as_();
-        let element_end: usize = offsets[end].as_();
-        for &offset in &offsets[start + 1..=end] {
+        let offset_range = &offsets[start..][..=length];
+        let element_start: usize = offset_range[0].as_();
+        let element_end: usize = offset_range[length].as_();
+        for &offset in &offset_range[1..] {
             let offset: usize = offset.as_();
             let relative = offset
                 .checked_sub(element_start)
