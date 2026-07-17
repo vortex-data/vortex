@@ -13,7 +13,7 @@ nopen = "1.0.1"
 roaringbitmap = "1.6.14"
 slf4j = "2.0.18"
 spark3 = "3.5.8"
-spark4 = "4.1.1"
+spark4 = "4.1.2"
 s3mock = "5.0.0"
 testcontainers-jupiter = "1.21.4"
 
