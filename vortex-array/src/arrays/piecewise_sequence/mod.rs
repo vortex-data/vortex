@@ -9,6 +9,7 @@
 //! element.
 
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -66,18 +67,29 @@ pub(crate) fn execute_index_arrays(
     Ok((starts, lengths, multipliers))
 }
 
+pub(crate) enum UnitMultiplierLengths {
+    Constant(usize),
+    Array(PrimitiveArray),
+}
+
 pub(crate) fn execute_unit_multiplier_index_arrays(
     array: ArrayView<'_, PiecewiseSequence>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<(PrimitiveArray, PrimitiveArray)>> {
+) -> VortexResult<Option<(PrimitiveArray, UnitMultiplierLengths)>> {
     if !is_constant_multiplier_one(array.multipliers()) {
         return Ok(None);
     }
 
+    check_index_arrays(array.starts(), array.lengths(), array.multipliers())?;
     let starts = array.starts().clone().execute::<PrimitiveArray>(ctx)?;
+    if let Some(length) = constant_unsigned_usize(array.lengths())? {
+        check_index_arrays(starts.as_ref(), array.lengths(), array.multipliers())?;
+        return Ok(Some((starts, UnitMultiplierLengths::Constant(length))));
+    }
+
     let lengths = array.lengths().clone().execute::<PrimitiveArray>(ctx)?;
     check_index_arrays(starts.as_ref(), lengths.as_ref(), array.multipliers())?;
-    Ok(Some((starts, lengths)))
+    Ok(Some((starts, UnitMultiplierLengths::Array(lengths))))
 }
 
 pub(crate) fn is_constant_multiplier_one(multipliers: &ArrayRef) -> bool {
@@ -88,6 +100,24 @@ pub(crate) fn is_constant_multiplier_one(multipliers: &ArrayRef) -> bool {
         scalar.as_primitive_opt().and_then(|scalar| scalar.pvalue()),
         Some(PValue::U8(1) | PValue::U16(1) | PValue::U32(1) | PValue::U64(1))
     )
+}
+
+fn constant_unsigned_usize(array: &ArrayRef) -> VortexResult<Option<usize>> {
+    let Some(scalar) = array.as_constant() else {
+        return Ok(None);
+    };
+
+    let Some(pvalue) = scalar.as_primitive_opt().and_then(|scalar| scalar.pvalue()) else {
+        vortex_bail!("PiecewiseSequenceArray constant length must be an unsigned integer");
+    };
+
+    Ok(Some(match pvalue {
+        PValue::U8(value) => value as usize,
+        PValue::U16(value) => value as usize,
+        PValue::U32(value) => value as usize,
+        PValue::U64(value) => value.as_(),
+        _ => vortex_bail!("PiecewiseSequenceArray constant length must be an unsigned integer"),
+    }))
 }
 
 fn check_index_array(name: &str, array: &ArrayRef) -> VortexResult<()> {
@@ -101,6 +131,38 @@ fn check_index_array(name: &str, array: &ArrayRef) -> VortexResult<()> {
         "PiecewiseSequenceArray {name} must be non-nullable, got {}",
         array.dtype()
     );
+    Ok(())
+}
+
+pub(crate) fn validate_index_ranges_constant<S>(
+    source_len: usize,
+    starts: &[S],
+    length: usize,
+    output_len: usize,
+) -> VortexResult<()>
+where
+    S: UnsignedPType,
+{
+    let computed_len = starts
+        .len()
+        .checked_mul(length)
+        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
+
+    for &start in starts {
+        let start: usize = start.as_();
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+        vortex_ensure!(
+            end <= source_len,
+            "PiecewiseSequenceArray range {start}..{end} exceeds source length {source_len}"
+        );
+    }
+
     Ok(())
 }
 

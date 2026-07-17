@@ -14,8 +14,10 @@ use crate::arrays::DecimalArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
 use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
 use crate::arrays::piecewise_sequence::validate_index_ranges;
+use crate::arrays::piecewise_sequence::validate_index_ranges_constant;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::UnsignedPType;
@@ -67,8 +69,55 @@ fn take_piecewise_sequence(
     };
     let validity = array.validity()?.take(indices_ref)?;
     let output_len = indices_ref.len();
-    let taken = take_piecewise_sequence_lengths(array, &starts, &lengths, validity, output_len)?;
+    let taken = match lengths {
+        UnitMultiplierLengths::Constant(length) => {
+            take_piecewise_sequence_constant_length(array, &starts, length, validity, output_len)?
+        }
+        UnitMultiplierLengths::Array(lengths) => {
+            take_piecewise_sequence_lengths(array, &starts, &lengths, validity, output_len)?
+        }
+    };
     Ok(Some(taken))
+}
+
+fn take_piecewise_sequence_constant_length(
+    array: ArrayView<'_, Decimal>,
+    starts: &PrimitiveArray,
+    length: usize,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef> {
+    match_each_decimal_value_type!(array.values_type(), |D| {
+        take_piecewise_sequence_constant_length_typed::<D>(
+            array, starts, length, validity, output_len,
+        )
+    })
+}
+
+fn take_piecewise_sequence_constant_length_typed<D>(
+    array: ArrayView<'_, Decimal>,
+    starts: &PrimitiveArray,
+    length: usize,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef>
+where
+    D: NativeDecimalType,
+{
+    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        let values = take_piecewise_constant_length_to_buffer::<S, D>(
+            starts.as_slice::<S>(),
+            length,
+            array.buffer::<D>().as_slice(),
+            output_len,
+        )?;
+
+        // SAFETY: contiguous gather preserves the decimal dtype and value representation.
+        Ok(
+            unsafe { DecimalArray::new_unchecked(values, array.decimal_dtype(), validity) }
+                .into_array(),
+        )
+    })
 }
 
 fn take_piecewise_sequence_lengths(
@@ -129,6 +178,27 @@ where
 
 fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(indices: &[I], values: &[T]) -> Buffer<T> {
     indices.iter().map(|idx| values[idx.as_()]).collect()
+}
+
+fn take_piecewise_constant_length_to_buffer<S, T>(
+    starts: &[S],
+    length: usize,
+    values: &[T],
+    output_len: usize,
+) -> VortexResult<Buffer<T>>
+where
+    S: UnsignedPType,
+    T: NativeDecimalType,
+{
+    validate_index_ranges_constant(values.len(), starts, length, output_len)?;
+
+    let mut result = BufferMut::<T>::with_capacity(output_len);
+    for &start in starts {
+        let start = start.as_();
+        result.extend_from_slice(&values[start..start + length]);
+    }
+
+    Ok(result.freeze())
 }
 
 fn take_piecewise_to_buffer<S, L, T>(
