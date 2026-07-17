@@ -175,6 +175,22 @@ mod tests {
         GeoDistancePrune.falsify(&predicate, &StatsRewriteCtx::new(&session, &scope))
     }
 
+    /// A null geometry literal (`ST_Distance(geom, NULL) <= r`) declines cleanly instead of
+    /// erroring in the stats rewrite: the all-null predicate can never prune.
+    #[test]
+    fn null_literal_is_not_pruned() -> VortexResult<()> {
+        let session = geo_session();
+
+        let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let null_query = Scalar::null(scope.as_nullable());
+        let distance = GeoDistance.new_expr(EmptyOptions, [root(), lit(null_query)]);
+        let predicate = Binary.new_expr(Operator::Lte, [distance, lit(0.5f64)]);
+
+        let ctx = StatsRewriteCtx::new(&session, &scope);
+        assert!(GeoDistancePrune.falsify(&predicate, &ctx)?.is_none());
+        Ok(())
+    }
+
     /// All four distance comparisons prune (`<=`/`<` via min-distance, `>=`/`>` via max-distance);
     /// `==`/`!=` are left to the scan.
     #[rstest]

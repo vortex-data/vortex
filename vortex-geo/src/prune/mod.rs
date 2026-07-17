@@ -82,6 +82,10 @@ fn geometry_and_constant<'a>(
 /// Prove claims against this box rather than the constant itself: the constant lies inside it,
 /// so whatever holds for the box holds for the geometry.
 fn query_aabb(constant: &Scalar, ctx: &StatsRewriteCtx<'_>) -> VortexResult<Option<GeoRect<f64>>> {
+    // A null geometry literal has no extent to prove against, so it can never prune.
+    if constant.is_null() {
+        return Ok(None);
+    }
     // Decoding the constant into a concrete geometry runs through the compute stack, which needs
     // an execution context.
     let mut exec = ctx.session().create_execution_ctx();

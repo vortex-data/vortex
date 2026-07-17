@@ -6,14 +6,11 @@
 use geo::Contains;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::Constant;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::scalar::Scalar;
+use vortex_array::expr::Expression;
+use vortex_array::expr::union_child_validities;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -22,13 +19,11 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::extension::geometries;
-use crate::extension::single_geometry;
 use crate::extension::validate_geometry_operands;
+use crate::scalar_fn::execute::execute_null_propagating;
 
 /// OGC `ST_Contains` between two native geometry operands, each a column or a constant
 /// literal: true where operand `b` lies completely inside operand `a` (boundary contact alone
@@ -77,7 +72,8 @@ impl ScalarFnVTable for GeoContains {
 
     fn return_dtype(&self, _: &Self::Options, dtypes: &[DType]) -> VortexResult<DType> {
         validate_geometry_operands(dtypes)?;
-        Ok(DType::Bool(Nullability::NonNullable))
+        let nullability = Nullability::from(dtypes.iter().any(DType::is_nullable));
+        Ok(DType::Bool(nullability))
     }
 
     fn execute(
@@ -89,57 +85,20 @@ impl ScalarFnVTable for GeoContains {
         let a = args.get(0)?;
         let b = args.get(1)?;
         // Containment is not symmetric: `a` is always the container and `b` the contained.
-        match (a.as_opt::<Constant>(), b.as_opt::<Constant>()) {
-            (Some(qa), Some(qb)) => {
-                let ga = single_geometry(qa.scalar(), ctx)?;
-                let gb = single_geometry(qb.scalar(), ctx)?;
-                Ok(ConstantArray::new(
-                    Scalar::bool(ga.contains(&gb), Nullability::NonNullable),
-                    a.len(),
-                )
-                .into_array())
-            }
-            (Some(qa), None) => constant_contains_column(qa.scalar(), &b, ctx),
-            (None, Some(qb)) => column_contains_constant(&a, qb.scalar(), ctx),
-            (None, None) => {
-                vortex_ensure_eq!(
-                    a.len(),
-                    b.len(),
-                    "geo contains: operand length mismatch {} vs {}",
-                    a.len(),
-                    b.len()
-                );
-                let ag = geometries(&a, ctx)?;
-                let bg = geometries(&b, ctx)?;
-                let hits = ag.iter().zip(&bg).map(|(x, y)| x.contains(y));
-                Ok(BoolArray::from_iter(hits).into_array())
-            }
-        }
+        execute_null_propagating(&a, &b, |a, b| a.contains(b), ctx)
     }
-}
 
-/// Whether the constant `container` contains each row of `contained`.
-fn constant_contains_column(
-    container: &Scalar,
-    contained: &ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let container = single_geometry(container, ctx)?;
-    let geoms = geometries(contained, ctx)?;
-    let hits = geoms.iter().map(|g| container.contains(g));
-    Ok(BoolArray::from_iter(hits).into_array())
-}
+    fn validity(
+        &self,
+        _: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        union_child_validities(expression)
+    }
 
-/// Whether each row of `container` contains the constant `contained`.
-fn column_contains_constant(
-    container: &ArrayRef,
-    contained: &Scalar,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let contained = single_geometry(contained, ctx)?;
-    let geoms = geometries(container, ctx)?;
-    let hits = geoms.iter().map(|g| g.contains(&contained));
-    Ok(BoolArray::from_iter(hits).into_array())
+    fn is_null_sensitive(&self, _: &Self::Options) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -160,13 +119,17 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use wkb::writer::WriteOptions;
 
     use super::GeoContains;
+    use crate::test_harness::nullable_point_column;
     use crate::test_harness::point_column;
 
     /// A rectangle polygon with corners `(x0, y0)` and `(x1, y1)`, no holes.
@@ -286,12 +249,117 @@ mod tests {
         assert_contains(polygons, points, [true, false])
     }
 
-    /// Geometry arrays are never nullable, so a nullable operand dtype is rejected.
+    /// Output nullability mirrors the operands: nullable if any operand is nullable, otherwise
+    /// non-nullable.
     #[test]
-    fn nullable_operand_is_rejected() -> VortexResult<()> {
+    fn output_nullability_mirrors_operands() -> VortexResult<()> {
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
-        let result = GeoContains.return_dtype(&EmptyOptions, &[dtype.as_nullable(), dtype]);
-        assert!(result.is_err());
+        let non_nullable =
+            GeoContains.return_dtype(&EmptyOptions, &[dtype.clone(), dtype.clone()])?;
+        assert!(!non_nullable.is_nullable());
+        let nullable = GeoContains.return_dtype(&EmptyOptions, &[dtype.as_nullable(), dtype])?;
+        assert!(nullable.is_nullable());
+        Ok(())
+    }
+
+    /// A null row in the contained operand yields a null verdict; valid rows keep their verdict
+    /// (a strictly interior point is contained, an outside point is not).
+    #[test]
+    fn contains_propagates_null_rows() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let container = geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 3)?;
+        let points = nullable_point_column(vec![Some((2.0, 2.0)), None, Some((10.0, 10.0))])?;
+        let contains = GeoContains::try_new_array(container, points)?.into_array();
+
+        let expected = BoolArray::new(
+            BitBuffer::from_iter([true, false, false]),
+            Validity::from_iter([true, false, true]),
+        )
+        .into_array();
+        assert_arrays_eq!(contains, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A constant-null operand produces an all-null output.
+    #[test]
+    fn contains_constant_null_is_all_null() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
+        let null_const = ConstantArray::new(Scalar::null(point_dtype), 2).into_array();
+        let points = point_column(vec![2.0, 10.0], vec![2.0, 10.0])?;
+        let contains = GeoContains::try_new_array(null_const, points)?.into_array();
+
+        let expected =
+            BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
+        assert_arrays_eq!(contains, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Both operands nullable columns: containment (asymmetric) is null wherever either the
+    /// container or the contained row is null, and computed on the rows valid in both.
+    #[test]
+    fn contains_propagates_column_pair_nulls() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        // A point contains another point only when they are equal.
+        let container = nullable_point_column(vec![
+            Some((1.0, 1.0)),
+            None,
+            Some((2.0, 2.0)),
+            Some((3.0, 3.0)),
+        ])?;
+        let contained = nullable_point_column(vec![
+            Some((1.0, 1.0)),
+            Some((5.0, 5.0)),
+            None,
+            Some((4.0, 4.0)),
+        ])?;
+        let contains = GeoContains::try_new_array(container, contained)?.into_array();
+
+        let expected = BoolArray::new(
+            BitBuffer::from_iter([true, false, false, false]),
+            Validity::from_iter([true, false, false, true]),
+        )
+        .into_array();
+        assert_arrays_eq!(contains, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// An entirely-null geometry column yields an all-null output.
+    #[test]
+    fn contains_all_null_column_is_all_null() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let container = geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 2)?;
+        let points = nullable_point_column(vec![None, None])?;
+        let contains = GeoContains::try_new_array(container, points)?.into_array();
+
+        let expected =
+            BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
+        assert_arrays_eq!(contains, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Two nullable columns whose nulls never line up: the combined mask is empty, so the output
+    /// is all null.
+    #[test]
+    fn contains_column_pair_all_null() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let container = nullable_point_column(vec![Some((1.0, 1.0)), None])?;
+        let contained = nullable_point_column(vec![None, Some((2.0, 2.0))])?;
+        let contains = GeoContains::try_new_array(container, contained)?.into_array();
+
+        let expected =
+            BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
+        assert_arrays_eq!(contains, expected, &mut ctx);
         Ok(())
     }
 

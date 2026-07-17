@@ -72,17 +72,16 @@ pub(crate) fn is_native_geometry(dtype: &DType) -> bool {
     })
 }
 
-/// Validate the operands of a geo scalar function: each must be a native geometry type (so the
-/// kernel can decode it) and non-nullable (geometry arrays never carry nulls).
+/// Validate the operands of a geo scalar function: each must be a native geometry type so the
+/// kernel can decode it. The two operands need not share a geometry type — e.g. a `Point` against
+/// a `Polygon` is valid, since distance/containment/intersection across types is meaningful.
+/// Nullable operands are allowed; the kernels propagate nulls (a null geometry input yields a null
+/// result) rather than decoding null rows.
 pub(crate) fn validate_geometry_operands(dtypes: &[DType]) -> VortexResult<()> {
     for dtype in dtypes {
         vortex_ensure!(
             is_native_geometry(dtype),
             "geo: operand {dtype} is not a native geometry type"
-        );
-        vortex_ensure!(
-            !dtype.is_nullable(),
-            "geo: nullable operand {dtype} is unsupported"
         );
     }
     Ok(())
