@@ -121,9 +121,12 @@ fn take_cursor_copy_safe(
     let mut result = BufferMut::<u16>::with_capacity(output_len);
     let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip(lengths) {
+        let end = cursor.checked_add(length).unwrap();
+        assert!(end <= output_len);
         copy_to_spare(&mut result, cursor, &values[start..start + length]);
-        cursor += length;
+        cursor = end;
     }
+    assert_eq!(cursor, output_len);
 
     // SAFETY: the loop writes exactly `output_len` values into spare capacity.
     unsafe { result.set_len(output_len) };
@@ -136,7 +139,7 @@ fn take_preverify_extend_unchecked(
     lengths: &[usize],
     output_len: usize,
 ) -> Buffer<u16> {
-    preverify(values.len(), starts, lengths);
+    preverify(values.len(), starts, lengths, output_len);
 
     let mut result = BufferMut::<u16>::with_capacity(output_len);
     for (&start, &length) in starts.iter().zip(lengths) {
@@ -154,13 +157,14 @@ fn take_preverify_cursor_copy_unchecked(
     lengths: &[usize],
     output_len: usize,
 ) -> Buffer<u16> {
-    preverify(values.len(), starts, lengths);
+    preverify(values.len(), starts, lengths, output_len);
 
     let mut result = BufferMut::<u16>::with_capacity(output_len);
     let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip(lengths) {
         // SAFETY: `preverify` checked every source range.
         let source = unsafe { values.get_unchecked(start..start + length) };
+        // SAFETY: `preverify` checked the summed output length.
         unsafe { copy_to_spare_unchecked(&mut result, cursor, source) };
         cursor += length;
     }
@@ -170,11 +174,16 @@ fn take_preverify_cursor_copy_unchecked(
     result.freeze()
 }
 
-fn preverify(source_len: usize, starts: &[usize], lengths: &[usize]) {
+fn preverify(source_len: usize, starts: &[usize], lengths: &[usize], output_len: usize) {
+    assert_eq!(starts.len(), lengths.len());
+    let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip(lengths) {
         let end = start.checked_add(length).unwrap();
         assert!(end <= source_len);
+        cursor = cursor.checked_add(length).unwrap();
+        assert!(cursor <= output_len);
     }
+    assert_eq!(cursor, output_len);
 }
 
 fn copy_to_spare(result: &mut BufferMut<u16>, cursor: usize, source: &[u16]) {
