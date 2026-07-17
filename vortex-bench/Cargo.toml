@@ -13,6 +13,10 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[[bin]]
+name = "data-gen"
+test = false
+
 [lints]
 workspace = true
 

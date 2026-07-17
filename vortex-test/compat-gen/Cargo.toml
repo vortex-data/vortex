@@ -18,6 +18,7 @@ workspace = true
 [[bin]]
 name = "vortex-compat"
 path = "src/main.rs"
+test = false
 
 [dependencies]
 # Vortex crates
