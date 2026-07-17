@@ -39,6 +39,7 @@ crate-type = ["cdylib", "rlib"]
 name = "vx"
 path = "src/main.rs"
 required-features = ["native"]
+test = false
 
 [dependencies]
 # Shared dependencies

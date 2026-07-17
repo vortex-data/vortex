@@ -103,7 +103,7 @@ impl PartialOrd for StructScalar<'_> {
 
 impl Hash for StructScalar<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.dtype.hash(state);
+        self.dtype.hash_ignore_nullability(state);
         if let Some(fields) = self.fields_iter() {
             for f in fields {
                 f.hash(state);
@@ -329,6 +329,10 @@ impl Scalar {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hash;
+    use std::hash::Hasher;
+
     use super::*;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -612,6 +616,42 @@ mod tests {
 
         assert_eq!(scalar1.as_struct(), scalar2.as_struct());
         assert_ne!(scalar1.as_struct(), scalar3.as_struct());
+    }
+
+    #[test]
+    fn test_struct_hash_ignores_nested_nullability() {
+        let nullable_dtype = DType::Struct(
+            StructFields::new(
+                ["value"].into(),
+                vec![DType::Primitive(I32, Nullability::Nullable)],
+            ),
+            Nullability::NonNullable,
+        );
+        let non_nullable_dtype = DType::Struct(
+            StructFields::new(
+                ["value"].into(),
+                vec![DType::Primitive(I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
+        let nullable = Scalar::struct_(
+            nullable_dtype,
+            [Scalar::primitive(42_i32, Nullability::Nullable)],
+        );
+        let non_nullable = Scalar::struct_(
+            non_nullable_dtype,
+            [Scalar::primitive(42_i32, Nullability::NonNullable)],
+        );
+        let nullable = nullable.as_struct();
+        let non_nullable = non_nullable.as_struct();
+
+        assert_eq!(nullable, non_nullable);
+
+        let mut nullable_hasher = DefaultHasher::new();
+        nullable.hash(&mut nullable_hasher);
+        let mut non_nullable_hasher = DefaultHasher::new();
+        non_nullable.hash(&mut non_nullable_hasher);
+        assert_eq!(nullable_hasher.finish(), non_nullable_hasher.finish());
     }
 
     #[test]

@@ -19,6 +19,12 @@ fn main() {
         let _ = is_x86_feature_detected!("avx512vpopcntdq");
     }
 
+    // Pre-resolve the one-time CpuKernel selections for the count/select paths so
+    // no benchmark iteration pays the first-call cost.
+    let warm = BitBuffer::from_iter((0..512).map(|i| i % 3 == 0));
+    let _ = warm.true_count();
+    let _ = warm.select(1);
+
     divan::main();
 }
 

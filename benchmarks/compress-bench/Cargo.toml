@@ -37,5 +37,12 @@ vortex-bench = { workspace = true }
 lance = ["dep:lance-bench"]
 unstable_encodings = ["vortex/unstable_encodings"]
 
+[[bin]]
+name = "compress-bench"
+test = false
+
+[lib]
+test = false
+
 [lints]
 workspace = true

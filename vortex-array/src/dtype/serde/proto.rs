@@ -98,13 +98,13 @@ impl DType {
                     .type_ids
                     .iter()
                     .map(|t| {
-                        i8::try_from(*t).map_err(|_| {
-                            vortex_err!("Union type_id {t} somehow does not fit in i8")
+                        u8::try_from(*t).map_err(|_| {
+                            vortex_err!("Union type_id {t} somehow does not fit in u8")
                         })
                     })
                     .collect::<VortexResult<Vec<_>>>()?;
                 let variants = UnionVariants::try_new(names, dtypes, type_ids)?;
-                Ok(Self::Union(variants))
+                Ok(Self::Union(variants, u.nullable.into()))
             }
             DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
             DtypeType::Extension(e) => {
@@ -173,13 +173,14 @@ impl TryFrom<&DType> for pb::DType {
                         .collect::<VortexResult<Vec<_>>>()?,
                     nullable: (*null).into(),
                 }),
-                DType::Union(uv) => DtypeType::Union(pb::Union {
+                DType::Union(uv, null) => DtypeType::Union(pb::Union {
                     names: uv.names().iter().map(|n| n.as_ref().to_string()).collect(),
                     dtypes: uv
                         .variants()
                         .map(|d| Self::try_from(&d))
                         .collect::<VortexResult<Vec<_>>>()?,
                     type_ids: uv.type_ids().iter().map(|t| *t as i32).collect(),
+                    nullable: (*null).into(),
                 }),
                 DType::Variant(null) => DtypeType::Variant(pb::Variant {
                     nullable: (*null).into(),
@@ -416,22 +417,20 @@ mod tests {
             ],
         )
         .unwrap();
-        let dtype = DType::Union(variants);
+        let dtype = DType::Union(variants, Nullability::NonNullable);
         let converted = round_trip_dtype(&dtype);
         assert_eq!(dtype, converted);
     }
 
     #[test]
-    fn test_union_round_trip_proto_with_nullable_variant() {
+    fn test_union_round_trip_proto_with_inner_and_outer_nullability() {
         let variants = UnionVariants::new(
             ["null_variant", "str"].into(),
             vec![DType::Null, DType::Utf8(Nullability::NonNullable)],
         )
         .unwrap();
 
-        assert_eq!(variants.derived_nullability(), Nullability::Nullable);
-
-        let dtype = DType::Union(variants);
+        let dtype = DType::Union(variants, Nullability::Nullable);
         let converted = round_trip_dtype(&dtype);
         assert_eq!(dtype, converted);
     }
@@ -449,11 +448,11 @@ mod tests {
         )
         .unwrap();
 
-        let dtype = DType::Union(variants);
+        let dtype = DType::Union(variants, Nullability::Nullable);
         let converted = round_trip_dtype(&dtype);
         assert_eq!(dtype, converted);
 
-        let DType::Union(uv) = &converted else {
+        let DType::Union(uv, _) = &converted else {
             panic!("Expected Union");
         };
         assert_eq!(uv.type_ids(), &[0, 5, 7]);
@@ -469,8 +468,9 @@ mod tests {
                     pb::DType::try_from(&DType::Primitive(PType::I32, Nullability::NonNullable))
                         .unwrap(),
                 ],
-                // 200 does not fit in i8.
-                type_ids: vec![200],
+                // 256 does not fit in u8.
+                type_ids: vec![256],
+                nullable: false,
             })),
         };
 
@@ -480,7 +480,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("does not fit in i8")
+                .contains("does not fit in u8")
         );
     }
 
@@ -495,6 +495,7 @@ mod tests {
                 ],
             )
             .unwrap(),
+            Nullability::NonNullable,
         );
 
         let struct_with_union = DType::Struct(
@@ -511,6 +512,7 @@ mod tests {
                 vec![DType::Utf8(Nullability::NonNullable), struct_with_union],
             )
             .unwrap(),
+            Nullability::Nullable,
         );
 
         let converted = round_trip_dtype(&outer_union);

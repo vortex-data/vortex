@@ -14,6 +14,7 @@ mod count_ones;
 mod macros;
 mod meta;
 mod ops;
+mod pack;
 mod select;
 mod view;
 
@@ -27,29 +28,45 @@ pub use arrow_buffer::bit_iterator::BitSliceIterator;
 pub use buf::*;
 pub use buf_mut::*;
 pub use meta::*;
+pub use pack::*;
 pub use view::*;
 
 /// Packs up to 64 boolean values into a little-endian `u64` word.
+///
+/// This is [`collect_bool_words`] for a single word: a full 64-bit word is materialized as a
+/// `[bool; 64]` and packed with the baseline SIMD byte→bit instruction of the target; shorter
+/// lengths fall back to the bit-at-a-time [`collect_bool_word_scalar`] loop.
 #[inline]
-pub fn collect_bool_word<F>(len: usize, mut f: F) -> u64
+pub fn collect_bool_word<F>(len: usize, f: F) -> u64
 where
     F: FnMut(usize) -> bool,
 {
     assert!(len <= 64, "cannot pack {len} bits into a u64 word");
 
-    let mut packed = 0;
-    for bit_idx in 0..len {
-        packed |= (f(bit_idx) as u64) << bit_idx;
-    }
-    packed
+    let mut word = [0u64; 1];
+    collect_bool_words_inline(&mut word, len, f);
+    word[0]
 }
 
 /// Pack `len` boolean values returned by `f` into the prefix of `words`, LSB-first,
 /// 64 bits per `u64`. `words` must have capacity for at least `len.div_ceil(64)` entries.
 ///
+/// `f` is invoked exactly once per index, in ascending order `0..len`.
+///
 /// Writes via `=` (not `|=`), so the destination need not be zero-initialised.
+///
+/// The word loop packs with the baseline SIMD kernel of the target (SSE2 on x86-64, NEON on
+/// aarch64), which inlines fully into the caller together with the predicate and the
+/// `[bool; 64]` materialization — wider kernels would sit behind a non-inlinable
+/// `#[target_feature]` boundary that deoptimizes expensive predicates. See
+/// [`BitBuffer::collect_bool`] for the performance note on
+/// avoiding bounds checks in `f`.
+///
+/// Prefer this entry point for every predicate; only switch to
+/// [`collect_bool_words_multiversioned`] after carefully checking that your specific `f`
+/// meets its contract.
 #[inline]
-pub fn collect_bool_words<F>(words: &mut [u64], len: usize, mut f: F)
+pub fn collect_bool_words<F>(words: &mut [u64], len: usize, f: F)
 where
     F: FnMut(usize) -> bool,
 {
@@ -60,18 +77,7 @@ where
         words.len(),
     );
 
-    let full = len / 64;
-    let remainder = len % 64;
-
-    for word_idx in 0..full {
-        let offset = word_idx * 64;
-        words[word_idx] = collect_bool_word(64, |bit_idx| f(offset + bit_idx));
-    }
-
-    if remainder != 0 {
-        let offset = full * 64;
-        words[full] = collect_bool_word(remainder, |bit_idx| f(offset + bit_idx));
-    }
+    collect_bool_words_inline(words, len, f)
 }
 
 /// Read up to 8 bytes as a little-endian `u64`, zero-padding the high bytes when fewer than 8

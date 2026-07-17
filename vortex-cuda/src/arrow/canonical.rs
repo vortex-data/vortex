@@ -54,6 +54,8 @@ use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::i256;
+use vortex::encodings::fsst::FSST;
+use vortex::encodings::fsst::FSSTArray;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -63,6 +65,7 @@ use vortex::extension::datetime::AnyTemporal;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
+use crate::VarBinExportLayout;
 use crate::arrow::ARROW_DEVICE_CUDA;
 use crate::arrow::ArrowArray;
 use crate::arrow::ArrowDeviceArray;
@@ -78,6 +81,8 @@ use crate::cub::exclusive_sum_i32;
 use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
 use crate::executor::CudaArrayExt;
 use crate::executor::execute_validity_cuda;
+use crate::kernel::FSSTVarBin;
+use crate::kernel::decode_fsst_varbin;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
 /// first decoding the array on the GPU and then converting the canonical type to the nearest
@@ -220,6 +225,15 @@ fn export_array(
             Ok(list_view) => return export_list_view(list_view, ctx).await,
             Err(array) => array,
         };
+        // The offset-based FSST export always uses the standalone varbin kernel;
+        // `CudaDispatchMode` only governs `execute_cuda`'s fused-vs-standalone planning.
+        let array = match array.try_downcast::<FSST>() {
+            Ok(fsst) if ctx.cuda_session().varbin_export_layout() == VarBinExportLayout::VarBin => {
+                return export_fsst_varbin(fsst, ctx).await;
+            }
+            Ok(fsst) => fsst.into_array(),
+            Err(array) => array,
+        };
 
         let cuda_array = array.execute_cuda(ctx).await?;
         export_canonical(cuda_array, ctx).await
@@ -303,60 +317,10 @@ fn export_canonical(
                 export_fixed_size_list(fixed_size_list, ctx).await
             }
             Canonical::VarBinView(varbinview) => {
-                if matches!(varbinview.dtype(), DType::Binary(_)) {
-                    return export_binary(varbinview, ctx).await;
+                if ctx.cuda_session().varbin_export_layout() == VarBinExportLayout::VarBin {
+                    return export_varbin(varbinview, ctx).await;
                 }
-
-                let len = varbinview.len();
-                let VarBinViewDataParts {
-                    views,
-                    buffers: data_buffers,
-                    validity,
-                    ..
-                } = varbinview.into_data_parts();
-
-                let (validity_buffer, null_count) =
-                    export_arrow_validity_buffer(validity, len, 0, ctx).await?;
-
-                let views = ctx.ensure_on_device(views).await?;
-                let mut buffers = Vec::with_capacity(data_buffers.len() + 3);
-                buffers.push(validity_buffer);
-                buffers.push(Some(views));
-                for buffer in data_buffers.iter() {
-                    buffers.push(Some(ctx.ensure_on_device(buffer.clone()).await?));
-                }
-                // Nanoarrow's Utf8View/BinaryView C layout stores the variadic data buffer sizes
-                // as the final buffer slot, after the null bitmap, views, and data buffers.
-                let variadic_buffer_sizes = data_buffers
-                    .iter()
-                    .map(|buffer| i64::try_from(buffer.len()))
-                    .collect::<Result<Vec<_>, _>>()?;
-                buffers.push(Some(
-                    ctx.ensure_on_device(BufferHandle::new_host(
-                        Buffer::from(variadic_buffer_sizes).into_byte_buffer(),
-                    ))
-                    .await?,
-                ));
-
-                let n_buffers = i64::try_from(buffers.len())?;
-                let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
-                let sync_event = private_data.sync_event();
-                let arrow_array = ArrowArray {
-                    length: len as i64,
-                    null_count,
-                    offset: 0,
-                    // Arrow Utf8View/BinaryView layout: optional null bitmap, views, data buffers,
-                    // and trailing variadic buffer sizes.
-                    n_buffers,
-                    buffers: private_data.buffer_ptrs.as_mut_ptr(),
-                    n_children: 0,
-                    children: ptr::null_mut(),
-                    release: Some(release_array),
-                    dictionary: ptr::null_mut(),
-                    private_data: Box::into_raw(private_data).cast(),
-                };
-
-                Ok((arrow_array, sync_event))
+                export_varbinview(varbinview, ctx).await
             }
             c => vortex_bail!("unsupported Arrow Device export for {} array", c.dtype()),
         }
@@ -541,8 +505,64 @@ where
     Ok(BufferHandle::new_device(Arc::new(output_device)))
 }
 
-/// Export Vortex binary views as an Arrow Device array with standard `Binary` layout.
-async fn export_binary(
+/// Export Vortex binary views as an Arrow Device array with `Utf8View`/`BinaryView` layout.
+async fn export_varbinview(
+    varbinview: VarBinViewArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = varbinview.len();
+    let VarBinViewDataParts {
+        views,
+        buffers: data_buffers,
+        validity,
+        ..
+    } = varbinview.into_data_parts();
+
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+
+    let views = ctx.ensure_on_device(views).await?;
+    let mut buffers = Vec::with_capacity(data_buffers.len() + 3);
+    buffers.push(validity_buffer);
+    buffers.push(Some(views));
+    for buffer in data_buffers.iter() {
+        buffers.push(Some(ctx.ensure_on_device(buffer.clone()).await?));
+    }
+    // Nanoarrow's Utf8View/BinaryView C layout stores the variadic data buffer sizes
+    // as the final buffer slot, after the null bitmap, views, and data buffers.
+    let variadic_buffer_sizes = data_buffers
+        .iter()
+        .map(|buffer| i64::try_from(buffer.len()))
+        .collect::<Result<Vec<_>, _>>()?;
+    buffers.push(Some(
+        ctx.ensure_on_device(BufferHandle::new_host(
+            Buffer::from(variadic_buffer_sizes).into_byte_buffer(),
+        ))
+        .await?,
+    ));
+
+    let n_buffers = i64::try_from(buffers.len())?;
+    let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
+    let sync_event = private_data.sync_event();
+    let arrow_array = ArrowArray {
+        length: len as i64,
+        null_count,
+        offset: 0,
+        // Arrow Utf8View/BinaryView layout: optional null bitmap, views, data buffers,
+        // and trailing variadic buffer sizes.
+        n_buffers,
+        buffers: private_data.buffer_ptrs.as_mut_ptr(),
+        n_children: 0,
+        children: ptr::null_mut(),
+        release: Some(release_array),
+        dictionary: ptr::null_mut(),
+        private_data: Box::into_raw(private_data).cast(),
+    };
+
+    Ok((arrow_array, sync_event))
+}
+
+/// Export Vortex binary views as an Arrow Device array with standard `Utf8`/`Binary` layout.
+async fn export_varbin(
     varbinview: VarBinViewArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
@@ -558,16 +578,44 @@ async fn export_binary(
     let views = ctx.ensure_on_device(views).await?;
     let (offsets, values) =
         export_binary_buffers(&views, &data_buffers, validity_buffer.as_ref(), len, ctx).await?;
+    export_varbin_buffers(len, validity_buffer, null_count, offsets, values, ctx)
+}
 
+async fn export_fsst_varbin(
+    fsst: FSSTArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let FSSTVarBin {
+        dtype,
+        len,
+        offsets,
+        values,
+        validity,
+    } = decode_fsst_varbin(fsst, ctx).await?;
+    vortex_ensure!(
+        matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
+        "FSST produced invalid variable-length dtype {dtype}"
+    );
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+    export_varbin_buffers(len, validity_buffer, null_count, offsets, values, ctx)
+}
+
+fn export_varbin_buffers(
+    len: usize,
+    validity_buffer: Option<BufferHandle>,
+    null_count: i64,
+    offsets: BufferHandle,
+    values: BufferHandle,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
     let buffers = vec![validity_buffer, Some(offsets), Some(values)];
-
     let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
     let sync_event = private_data.sync_event();
     let arrow_array = ArrowArray {
         length: len as i64,
         null_count,
         offset: 0,
-        // Arrow Binary layout: optional null bitmap, i32 offsets, contiguous bytes.
+        // Arrow Utf8/Binary layout: optional null bitmap, i32 offsets, contiguous bytes.
         n_buffers: 3,
         buffers: private_data.buffer_ptrs.as_mut_ptr(),
         n_children: 0,
@@ -1393,6 +1441,7 @@ mod tests {
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
     use vortex::array::arrays::BoolArray;
+    use vortex::array::arrays::ChunkedArray;
     use vortex::array::arrays::DecimalArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::FixedSizeListArray;
@@ -1402,6 +1451,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::TemporalArray;
+    use vortex::array::arrays::VarBinArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::primitive::PrimitiveArrayExt;
     use vortex::array::arrays::varbinview::BinaryView;
@@ -1419,6 +1469,10 @@ mod tests {
     use vortex::dtype::PType;
     use vortex::dtype::half::f16;
     use vortex::dtype::i256;
+    use vortex::encodings::fsst::FSST;
+    use vortex::encodings::fsst::FSSTArrayExt;
+    use vortex::encodings::fsst::fsst_compress;
+    use vortex::encodings::fsst::fsst_train_compressor;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::error::vortex_bail;
@@ -1431,11 +1485,13 @@ mod tests {
     use crate::arrow::ArrowDeviceArray;
     use crate::arrow::DeviceArrayExt;
     use crate::arrow::PrivateData;
+    use crate::arrow::arrow_schema_for_array;
     use crate::arrow::canonical::export_arrow_validity_buffer;
     use crate::arrow::canonical::repack_arrow_validity_buffer;
     use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
     use crate::device_buffer::cuda_backing_allocation;
     use crate::session::CudaSession;
+    use crate::session::VarBinExportLayout;
 
     unsafe fn release_exported_array(array: *mut ArrowArray) {
         unsafe {
@@ -1443,6 +1499,58 @@ mod tests {
                 release(array);
             }
         }
+    }
+
+    fn cuda_ctx_with_varbin_layout(layout: VarBinExportLayout) -> VortexResult<CudaExecutionCtx> {
+        let session = vortex::array::array_session()
+            .with_some(CudaSession::try_default()?.with_varbin_export_layout(layout));
+        CudaSession::create_execution_ctx(&session)
+    }
+
+    // Compress values into a concrete FSST array so exports take the direct FSST path.
+    fn fsst_array_from(
+        values: &[Option<&'static [u8]>],
+        dtype: DType,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let varbin = VarBinArray::from_iter(values.iter().copied(), dtype).into_array();
+        let compressor = fsst_train_compressor(&varbin, ctx.execution_ctx())?;
+        Ok(fsst_compress(&varbin, &compressor, ctx.execution_ctx())?.into_array())
+    }
+
+    // Assert an exported varbin array against the logical values: offsets are the prefix sum
+    // of lengths (nulls contribute zero), values are the non-null bytes concatenated, and the
+    // Arrow null bitmap marks exactly the null slots.
+    fn assert_varbin_contents(
+        array: &ArrowArray,
+        values: &[Option<&'static [u8]>],
+    ) -> VortexResult<()> {
+        let mut expected_offsets = vec![0i32];
+        let mut expected_values = Vec::new();
+        for value in values {
+            if let Some(value) = value {
+                expected_values.extend_from_slice(value);
+            }
+            expected_offsets.push(i32::try_from(expected_values.len())?);
+        }
+        let null_count = values.iter().filter(|value| value.is_none()).count();
+
+        assert_binary_layout(
+            array,
+            i64::try_from(values.len())?,
+            i64::try_from(null_count)?,
+            &expected_offsets,
+            &expected_values,
+        )?;
+
+        if null_count > 0 {
+            let bitmap = private_data_buffer_bytes(array, 0)?;
+            for (index, value) in values.iter().enumerate() {
+                let bit = (bitmap.as_ref()[index / 8] >> (index % 8)) & 1;
+                assert_eq!(bit == 1, value.is_some(), "validity bit {index}");
+            }
+        }
+        Ok(())
     }
 
     // Assert Arrow Device metadata that consumers use before reading buffers.
@@ -1812,7 +1920,7 @@ mod tests {
             field,
             Field::new(
                 "",
-                DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8View)),
+                DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8)),
                 true,
             )
         );
@@ -1833,7 +1941,13 @@ mod tests {
         );
 
         let dictionary = unsafe { &*exported.array.array.dictionary };
-        assert_varbinview_layout(dictionary, 2, 0, &[out_of_line.len()])?;
+        assert_binary_layout(
+            dictionary,
+            2,
+            0,
+            &[0, 5, i32::try_from(5 + out_of_line.len())?],
+            ["alpha", out_of_line].concat().as_bytes(),
+        )?;
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -1894,7 +2008,7 @@ mod tests {
                 "",
                 DataType::Struct(Fields::from(vec![Field::new(
                     "dict",
-                    DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8View)),
+                    DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8)),
                     true,
                 )])),
                 false,
@@ -2182,9 +2296,8 @@ mod tests {
     }
 
     #[crate::test]
-    async fn test_export_varbinview() -> VortexResult<()> {
-        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
-            .vortex_expect("failed to create execution context");
+    async fn test_export_varbinview_opt_in() -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBinView)?;
 
         let out_of_line = "this is a longer string for out-of-line storage";
         let array = VarBinViewArray::from_iter_str(["hello", "world", out_of_line]).into_array();
@@ -2340,6 +2453,230 @@ mod tests {
         assert_eq!(elements.length, 5);
         assert_eq!(elements.n_buffers, 2);
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // Regression test: when the export schema is derived from the dtype alone (the top-level
+    // array is not one of the concretely-handled encodings), list element fields must still
+    // reflect the session's varbin export layout, or consumers would read the offset-based
+    // element data through a view-typed schema.
+    #[rstest]
+    #[case::varbin(VarBinExportLayout::VarBin, DataType::Utf8, 3)]
+    #[case::varbin_view(VarBinExportLayout::VarBinView, DataType::Utf8View, 4)]
+    #[crate::test]
+    async fn test_export_chunked_list_utf8_element_matches_schema(
+        #[case] layout: VarBinExportLayout,
+        #[case] expected_element_type: DataType,
+        #[case] expected_element_n_buffers: i64,
+    ) -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(layout)?;
+
+        let elements = VarBinViewArray::from_iter_str([
+            "hello",
+            "world",
+            "this is a longer string for out-of-line storage",
+        ])
+        .into_array();
+        let chunk = ListArray::try_new(
+            elements,
+            PrimitiveArray::from_iter([0i32, 2, 3]).into_array(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let dtype = chunk.dtype().clone();
+        let chunked = ChunkedArray::try_new(vec![chunk], dtype)?.into_array();
+
+        let mut exported = chunked.export_device_array_with_schema(&mut ctx).await?;
+
+        let field = Field::try_from(&exported.schema)?;
+        let DataType::List(element_field) = field.data_type() else {
+            vortex_bail!("expected List schema, got {:?}", field.data_type());
+        };
+        assert_eq!(element_field.data_type(), &expected_element_type);
+
+        assert_eq!(exported.array.array.n_children, 1);
+        let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        let element_array = unsafe { &*children[0] };
+        assert_eq!(element_array.n_buffers, expected_element_n_buffers);
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // Standard Arrow Utf8/Binary uses i32 offsets. Oversized FSST exports keep that stable schema
+    // and return a clear error rather than changing layout based on batch contents.
+    #[crate::test]
+    async fn test_oversized_fsst_varbin_export_errors() -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+
+        let varbin = VarBinArray::from_iter(
+            [Some(&b"short"[..]), Some(&b"another value"[..])],
+            DType::Utf8(Nullability::NonNullable),
+        )
+        .into_array();
+        let compressor = fsst_train_compressor(&varbin, ctx.execution_ctx())?;
+        let fsst = fsst_compress(&varbin, &compressor, ctx.execution_ctx())?;
+
+        // Same codes, but uncompressed lengths whose sum exceeds i32::MAX.
+        let oversized = FSST::try_new(
+            DType::Utf8(Nullability::NonNullable),
+            fsst.symbols().clone(),
+            fsst.symbol_lengths().clone(),
+            fsst.codes(),
+            PrimitiveArray::from_iter([i32::MAX, i32::MAX]).into_array(),
+            ctx.execution_ctx(),
+        )?
+        .into_array();
+        let schema = arrow_schema_for_array(&oversized, &mut ctx)?;
+        assert_eq!(
+            Field::try_from(&schema)?,
+            Field::new("", DataType::Utf8, false)
+        );
+
+        let error = oversized
+            .export_device_array(&mut ctx)
+            .await
+            .err()
+            .vortex_expect("oversized FSST varbin export must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("FSST decoded size exceeds Arrow i32 offset range")
+        );
+        Ok(())
+    }
+
+    // Content coverage for the direct FSST varbin export: offsets, values, and null bitmap,
+    // not just schema shape.
+    #[rstest]
+    #[case::utf8_inline_and_outlined(
+        vec![Some(&b""[..]),
+             Some(&b"short"[..]),
+             Some(&b"this value is stored out of line in the heap"[..])],
+        DType::Utf8(Nullability::NonNullable),
+    )]
+    #[case::partial_nulls(
+        vec![Some(&b"alpha"[..]), None, Some(&b"gamma"[..]), None, Some(&b"epsilon"[..])],
+        DType::Utf8(Nullability::Nullable),
+    )]
+    #[case::all_nulls(
+        vec![None, None, None, None, None],
+        DType::Binary(Nullability::Nullable),
+    )]
+    #[case::all_empty(
+        vec![Some(&b""[..]), Some(&b""[..]), Some(&b""[..])],
+        DType::Binary(Nullability::NonNullable),
+    )]
+    #[case::empty(vec![], DType::Utf8(Nullability::NonNullable))]
+    #[crate::test]
+    async fn test_export_fsst_varbin_contents(
+        #[case] values: Vec<Option<&'static [u8]>>,
+        #[case] dtype: DType,
+    ) -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+        let fsst = fsst_array_from(&values, dtype.clone(), &mut ctx)?;
+
+        let mut exported = fsst.export_device_array_with_schema(&mut ctx).await?;
+        let expected_data_type = if matches!(dtype, DType::Utf8(_)) {
+            DataType::Utf8
+        } else {
+            DataType::Binary
+        };
+        assert_eq!(
+            Field::try_from(&exported.schema)?,
+            Field::new("", expected_data_type, dtype.is_nullable())
+        );
+        assert_varbin_contents(&exported.array.array, &values)?;
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // A sliced FSST array keeps its encoding, so the direct varbin export must respect the
+    // slice's codes offsets and validity.
+    #[crate::test]
+    async fn test_export_sliced_fsst_varbin() -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+        let values: &[Option<&'static [u8]>] = &[
+            Some(&b"alpha"[..]),
+            Some(&b"this value is stored out of line in the heap"[..]),
+            None,
+            Some(&b"delta"[..]),
+            Some(&b"echo"[..]),
+        ];
+        let fsst = fsst_array_from(values, DType::Utf8(Nullability::Nullable), &mut ctx)?;
+        let sliced = fsst.slice(1..4)?;
+        assert!(sliced.as_opt::<FSST>().is_some());
+
+        let mut exported = sliced.export_device_array_with_schema(&mut ctx).await?;
+        assert_eq!(
+            Field::try_from(&exported.schema)?,
+            Field::new("", DataType::Utf8, true)
+        );
+        assert_varbin_contents(&exported.array.array, &values[1..4])?;
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // FSST fields inside a struct take the direct varbin export path through the child
+    // recursion, and the struct schema reflects the offset-based layout.
+    #[crate::test]
+    async fn test_export_struct_with_fsst_field() -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+        let values: &[Option<&'static [u8]>] = &[
+            Some(&b"short"[..]),
+            Some(&b"this value is stored out of line in the heap"[..]),
+        ];
+        let fsst = fsst_array_from(values, DType::Utf8(Nullability::NonNullable), &mut ctx)?;
+        let array = StructArray::new(
+            FieldNames::from_iter(["s"]),
+            vec![fsst],
+            values.len(),
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+        assert_eq!(
+            Schema::try_from(&exported.schema)?,
+            Schema::new(vec![Field::new("s", DataType::Utf8, false)])
+        );
+        assert_eq!(exported.array.array.n_children, 1);
+        let children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
+        assert_varbin_contents(unsafe { &*children[0] }, values)?;
+
+        unsafe { release_exported_array(&raw mut exported.array.array) };
+        Ok(())
+    }
+
+    // FSST dictionary values take the direct varbin export path, and the dictionary schema
+    // reflects the offset-based layout.
+    #[crate::test]
+    async fn test_export_dict_with_fsst_values() -> VortexResult<()> {
+        let mut ctx = cuda_ctx_with_varbin_layout(VarBinExportLayout::VarBin)?;
+        let values: &[Option<&'static [u8]>] = &[
+            Some(&b"alpha"[..]),
+            Some(&b"this dictionary value is stored out of line"[..]),
+        ];
+        let fsst = fsst_array_from(values, DType::Utf8(Nullability::NonNullable), &mut ctx)?;
+        let array = DictArray::try_new(PrimitiveArray::from_iter([0u8, 1, 0]).into_array(), fsst)?
+            .into_array();
+
+        let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
+        assert_eq!(
+            Field::try_from(&exported.schema)?,
+            Field::new(
+                "",
+                DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8)),
+                false,
+            )
+        );
+        assert!(!exported.array.array.dictionary.is_null());
+        let dictionary = unsafe { &*exported.array.array.dictionary };
+        assert_varbin_contents(dictionary, values)?;
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
@@ -2561,27 +2898,38 @@ mod tests {
     #[rstest]
     #[case::utf8(
         multi_buffer_varbinview(DType::Utf8(Nullability::NonNullable)),
-        DataType::Utf8View
+        VarBinExportLayout::VarBin,
+        DataType::Utf8
     )]
     #[case::binary(
         multi_buffer_varbinview(DType::Binary(Nullability::NonNullable)),
+        VarBinExportLayout::VarBin,
         DataType::Binary
+    )]
+    #[case::utf8_view(
+        multi_buffer_varbinview(DType::Utf8(Nullability::NonNullable)),
+        VarBinExportLayout::VarBinView,
+        DataType::Utf8View
+    )]
+    #[case::binary_view(
+        multi_buffer_varbinview(DType::Binary(Nullability::NonNullable)),
+        VarBinExportLayout::VarBinView,
+        DataType::BinaryView
     )]
     #[crate::test]
     async fn test_export_varbinview_multiple_variadic_buffers(
         #[case] fixture: (ArrayRef, [usize; 2]),
+        #[case] layout: VarBinExportLayout,
         #[case] expected_data_type: DataType,
     ) -> VortexResult<()> {
-        let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
-            .vortex_expect("failed to create execution context");
+        let mut ctx = cuda_ctx_with_varbin_layout(layout)?;
 
         let (array, expected_data_buffer_lengths) = fixture;
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let field = Field::try_from(&exported.schema)?;
-        let is_binary = expected_data_type == DataType::Binary;
         assert_eq!(field, Field::new("", expected_data_type, false));
-        if is_binary {
+        if layout == VarBinExportLayout::VarBin {
             assert_binary_layout(
                 &exported.array.array,
                 3,
@@ -2981,8 +3329,15 @@ mod tests {
         .slice(1..4)?;
         let mut exported = utf8.export_device_array_with_schema(&mut ctx).await?;
         let field = Field::try_from(&exported.schema)?;
-        assert_eq!(field, Field::new("", DataType::Utf8View, true));
-        assert_varbinview_shape(&exported.array.array, 3, 1)?;
+        assert_eq!(field, Field::new("", DataType::Utf8, true));
+        let sliced_out_of_line = "this out-of-line value remains in the slice";
+        assert_binary_layout(
+            &exported.array.array,
+            3,
+            1,
+            &[0, 5, 5, i32::try_from(5 + sliced_out_of_line.len())?],
+            ["hello", sliced_out_of_line].concat().as_bytes(),
+        )?;
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
         let private_data = unsafe { &*exported.array.array.private_data.cast::<PrivateData>() };
@@ -3389,7 +3744,7 @@ mod tests {
         Ok(())
     }
 
-    // Check nullable string-view exports include Arrow null bitmaps.
+    // Check nullable variable-length exports include Arrow null bitmaps.
     #[crate::test]
     async fn test_export_nullable_varbinview() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
@@ -3402,7 +3757,7 @@ mod tests {
                 Some("this is a longer string for out-of-line storage"),
             ])
             .into_array(),
-            4,
+            3,
             1,
             &mut ctx,
         )
@@ -3503,7 +3858,7 @@ mod tests {
         assert_eq!(nested_primitive_child.n_children, 0);
 
         let string_child = unsafe { &*nested_children[1] };
-        assert_eq!(string_child.n_buffers, 4);
+        assert_eq!(string_child.n_buffers, 3);
         assert_eq!(string_child.n_children, 0);
         let string_buffers = unsafe {
             std::slice::from_raw_parts(
@@ -3514,7 +3869,6 @@ mod tests {
         assert!(string_buffers[0].is_null());
         assert!(!string_buffers[1].is_null());
         assert!(!string_buffers[2].is_null());
-        assert!(!string_buffers[3].is_null());
 
         unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
@@ -3623,7 +3977,7 @@ mod tests {
             Schema::new(vec![
                 Field::new("a", DataType::UInt32, false),
                 Field::new("b", DataType::Int64, false),
-                Field::new("c", DataType::Utf8View, false),
+                Field::new("c", DataType::Utf8, false),
             ])
         );
         assert_eq!(exported.array.array.length, 5);
@@ -3654,7 +4008,7 @@ mod tests {
                     "nested",
                     DataType::Struct(Fields::from(vec![
                         Field::new("b", DataType::Int64, false),
-                        Field::new("c", DataType::Utf8View, false),
+                        Field::new("c", DataType::Utf8, false),
                     ])),
                     false,
                 ),
@@ -3749,23 +4103,35 @@ mod tests {
     }
 
     #[crate::test]
-    async fn test_export_varbinview_with_schema_uses_utf8_view_layout() -> VortexResult<()> {
+    async fn test_export_varbinview_with_schema_uses_utf8_layout() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
 
         let japanese = "こんにちは";
         let long_emoji = "🦀 and 🚀 make this string out-of-line";
-        let array = VarBinViewArray::from_iter_str(["", "hello", "é", "🦀", japanese, long_emoji])
-            .into_array();
+        let values = ["", "hello", "é", "🦀", japanese, long_emoji];
+        let array = VarBinViewArray::from_iter_str(values).into_array();
         let mut exported = array.export_device_array_with_schema(&mut ctx).await?;
 
         let field = Field::try_from(&exported.schema)?;
-        assert_eq!(field, Field::new("", DataType::Utf8View, false));
-        assert_varbinview_layout(
+        assert_eq!(field, Field::new("", DataType::Utf8, false));
+        let mut expected_offsets = Vec::with_capacity(values.len() + 1);
+        expected_offsets.push(0i32);
+        for value in values {
+            expected_offsets.push(
+                expected_offsets
+                    .last()
+                    .copied()
+                    .vortex_expect("offsets is non-empty")
+                    + i32::try_from(value.len())?,
+            );
+        }
+        assert_binary_layout(
             &exported.array.array,
             6,
             0,
-            &[japanese.len() + long_emoji.len()],
+            &expected_offsets,
+            values.concat().as_bytes(),
         )?;
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 

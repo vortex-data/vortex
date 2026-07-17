@@ -158,7 +158,12 @@ impl BooleanKernel for ByteBool {
 
 fn truthy_bit_buffer(array: ArrayView<'_, ByteBool>) -> BitBuffer {
     let bytes = array.truthy_bytes();
-    BitBuffer::collect_bool(bytes.len(), |idx| bytes[idx] != 0)
+    // SAFETY: `collect_bool_multiversioned` invokes the predicate with indices `0..bytes.len()` only;
+    // the trivially cheap unchecked gather vectorizes inside the wide pack loop.
+    BitBuffer::collect_bool_multiversioned(
+        bytes.len(),
+        |idx| unsafe { *bytes.get_unchecked(idx) } != 0,
+    )
 }
 
 #[cfg(test)]

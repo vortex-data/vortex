@@ -75,6 +75,14 @@ impl ExtDTypeRef {
                 .eq_ignore_nullability(other.storage_dtype())
     }
 
+    /// Hash this extension dtype using the same equivalence relation as
+    /// [`Self::eq_ignore_nullability`].
+    pub(crate) fn hash_ignore_nullability<H: Hasher>(&self, state: &mut H) {
+        self.id().hash(state);
+        self.0.metadata_hash(state);
+        self.storage_dtype().hash_ignore_nullability(state);
+    }
+
     // TODO(connor): We should add a different type that returns something that can be serialized.
     /// Serialize the metadata into a byte vector.
     pub fn serialize_metadata(&self) -> VortexResult<Vec<u8>> {

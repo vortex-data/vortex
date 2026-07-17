@@ -224,6 +224,7 @@ compile_commands.json
 
 # AI Agents
 .agents/settings.local.json
+.agents/scheduled_tasks.lock
 .claude/settings.local.json
 .opencode
 

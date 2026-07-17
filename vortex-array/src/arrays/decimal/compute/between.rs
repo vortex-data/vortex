@@ -132,8 +132,10 @@ fn between_impl<T: NativeDecimalType>(
 ) -> ArrayRef {
     let buffer = arr.buffer::<T>();
     BoolArray::new(
-        BitBuffer::collect_bool(buffer.len(), |idx| {
-            let value = buffer[idx];
+        BitBuffer::collect_bool_multiversioned(buffer.len(), |idx| {
+            // SAFETY: `collect_bool_multiversioned` invokes the predicate with indices
+            // `0..buffer.len()` only.
+            let value = unsafe { *buffer.get_unchecked(idx) };
             lower.is_none_or(|l| lower_op(l, value)) & upper.is_none_or(|u| upper_op(value, u))
         }),
         arr.validity()
