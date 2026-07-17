@@ -20,8 +20,8 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
-use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
+use crate::arrays::piecewise_sequence::ConstantOrArray;
+use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::dtype::DType;
@@ -132,7 +132,7 @@ fn take_contiguous_ranges(
     indices_ref: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
         return Ok(None);
     };
     let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
@@ -144,7 +144,7 @@ fn take_contiguous_ranges(
     let output_len = indices_ref.len();
 
     let result = match &lengths {
-        UnitMultiplierLengths::Constant(length) => gather_slices_constant_dispatch(
+        ConstantOrArray::Constant(length) => gather_slices_constant_dispatch(
             &starts,
             *length,
             &offsets,
@@ -152,7 +152,7 @@ fn take_contiguous_ranges(
             output_len,
             out_offset_ptype,
         )?,
-        UnitMultiplierLengths::Array(lengths) => gather_slices_dispatch(
+        ConstantOrArray::Array(lengths) => gather_slices_dispatch(
             &starts,
             lengths,
             &offsets,
