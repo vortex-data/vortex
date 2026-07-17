@@ -76,7 +76,7 @@ pub(crate) fn maybe_contiguous_slices(
     array: ArrayView<'_, PiecewiseSequence>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<(PrimitiveArray, ConstantOrArray)>> {
-    if !is_constant_multiplier_one(array.multipliers()) {
+    if !is_constant_one(array.multipliers()) {
         return Ok(None);
     }
 
@@ -92,7 +92,7 @@ pub(crate) fn maybe_contiguous_slices(
     Ok(Some((starts, ConstantOrArray::Array(lengths))))
 }
 
-pub(crate) fn is_constant_multiplier_one(multipliers: &ArrayRef) -> bool {
+pub(crate) fn is_constant_one(multipliers: &ArrayRef) -> bool {
     let Some(scalar) = multipliers.as_constant() else {
         return false;
     };
