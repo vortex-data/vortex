@@ -27,6 +27,7 @@ use crate::arrays::varbin::VarBinArrayExt;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::PType;
+use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
@@ -285,8 +286,8 @@ fn gather_piecewise_varbin<S, L, Offset, NewOffset>(
     out_offset_ptype: PType,
 ) -> VortexResult<GatheredPiecewiseVarBin>
 where
-    S: crate::dtype::UnsignedPType,
-    L: crate::dtype::UnsignedPType,
+    S: UnsignedPType,
+    L: UnsignedPType,
     Offset: IntegerPType,
     NewOffset: IntegerPType,
 {
