@@ -200,17 +200,17 @@ scatter_patches_chunk(const GPUPatches &patches, T *__restrict out, uint32_t chu
     }
 }
 
-/// Scatter ALP patches overlapping a logical output range.
+/// Scatter patches overlapping a logical output range.
 ///
 /// `logical_start` and `range_len` are relative to the sliced array represented by
 /// `patches`. Patch indices are stored in the coordinate space of the original array,
 /// so add `patches.offset` while locating chunks and subtract it when addressing `out`.
 /// Every thread cooperates on each overlapping FastLanes chunk.
 template <typename T>
-__device__ __forceinline__ void scatter_alp_patches_range(const GPUPatches &patches,
-                                                          T *__restrict out,
-                                                          uint64_t logical_start,
-                                                          uint32_t range_len) {
+__device__ inline void scatter_patches_range(const GPUPatches &patches,
+                                             T *__restrict out,
+                                             uint64_t logical_start,
+                                             uint32_t range_len) {
     if (range_len == 0) {
         return;
     }
@@ -237,7 +237,7 @@ __device__ __forceinline__ void scatter_alp_patches_range(const GPUPatches &patc
 
 /// Apply patch payloads attached to scalar operations after their stage has decoded.
 template <typename T>
-__device__ __forceinline__ void
+__device__ inline void
 scatter_scalar_patches(const Stage &stage, T *__restrict out, uint64_t logical_start, uint32_t range_len) {
     for (uint8_t op_idx = 0; op_idx < stage.num_scalar_ops; ++op_idx) {
         const auto &op = stage.scalar_ops[op_idx];
@@ -245,7 +245,7 @@ scatter_scalar_patches(const Stage &stage, T *__restrict out, uint64_t logical_s
             const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alp.patches_ptr);
             // All ordinary writes must complete before exception values overwrite them.
             __syncthreads();
-            scatter_alp_patches_range<T>(patches, out, logical_start, range_len);
+            scatter_patches_range<T>(patches, out, logical_start, range_len);
             // A later stage may consume this patched shared-memory output.
             __syncthreads();
         }
