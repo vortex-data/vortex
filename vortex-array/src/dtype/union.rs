@@ -3,6 +3,7 @@
 
 use std::fmt;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -133,10 +134,33 @@ impl PartialEq for UnionVariantsInner {
 impl Eq for UnionVariantsInner {}
 
 impl Hash for UnionVariantsInner {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.names.hash(state);
         self.dtypes.hash(state);
         self.type_ids.hash(state);
+    }
+}
+
+impl UnionVariants {
+    /// Check if these union variants are equal, ignoring variant dtype nullability recursively.
+    pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+            || (self.0.names == other.0.names
+                && self
+                    .variants()
+                    .zip_eq(other.variants())
+                    .all(|(lhs, rhs)| lhs.eq_ignore_nullability(&rhs))
+                && self.0.type_ids == other.0.type_ids)
+    }
+
+    /// Hash these union variants using the same equivalence relation as
+    /// [`Self::eq_ignore_nullability`].
+    pub(crate) fn hash_ignore_nullability<H: Hasher>(&self, state: &mut H) {
+        self.0.names.hash(state);
+        for variant in self.variants() {
+            variant.hash_ignore_nullability(state);
+        }
+        self.0.type_ids.hash(state);
     }
 }
 
