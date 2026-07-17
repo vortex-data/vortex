@@ -642,6 +642,7 @@ mod test {
     use crate::arrays::ListViewArray;
     use crate::arrays::PiecewiseSequenceArray;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -728,6 +729,55 @@ mod test {
                 .unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn null_index_ignores_out_of_bounds_payload() {
+        let mut ctx = array_session().create_execution_ctx();
+        let list = ListArray::try_new(
+            buffer![1i32, 2, 3, 4].into_array(),
+            buffer![0u32, 2, 4].into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+
+        let idx = PrimitiveArray::new(
+            buffer![1u32, 99, 0],
+            Validity::from_iter([true, false, true]),
+        )
+        .into_array();
+        let result = list.take(idx).unwrap();
+
+        let expected = ListArray::new(
+            buffer![3i32, 4, 1, 2].into_array(),
+            buffer![0u32, 2, 2, 4].into_array(),
+            Validity::from_iter([true, false, true]),
+        );
+        assert_arrays_eq!(expected, result, &mut ctx);
+    }
+
+    #[test]
+    fn null_source_row_ignores_invalid_offset_payload() {
+        let mut ctx = array_session().create_execution_ctx();
+        let list = unsafe {
+            ListArray::new_unchecked(
+                buffer![1i32, 2].into_array(),
+                buffer![0u32, 2, 999].into_array(),
+                Validity::from_iter([true, false]),
+            )
+        }
+        .into_array();
+
+        let idx = buffer![0u32, 1].into_array();
+        let result = list.take(idx).unwrap();
+
+        let expected = ListArray::new(
+            buffer![1i32, 2].into_array(),
+            buffer![0u32, 2, 2].into_array(),
+            Validity::from_iter([true, false]),
+        );
+        assert_arrays_eq!(expected, result, &mut ctx);
     }
 
     #[test]
