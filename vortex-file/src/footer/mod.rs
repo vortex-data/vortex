@@ -74,14 +74,14 @@ impl Footer {
 
     /// Read the [`Footer`] from a flatbuffer.
     pub(crate) fn from_flatbuffer(
-        footer_bytes: FlatBuffer,
+        footer_bytes: &[u8],
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let approx_byte_size = footer_bytes.len() + layout_bytes.len();
-        let fb_footer = root::<fb::Footer>(&footer_bytes)?;
+        let fb_footer = root::<fb::Footer>(footer_bytes)?;
 
         // Create a LayoutContext from the registry.
         let layout_specs = fb_footer.layout_specs();
