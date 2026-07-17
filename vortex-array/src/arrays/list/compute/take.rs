@@ -402,13 +402,13 @@ where
     S: UnsignedPType,
     Offset: UnsignedPType,
 {
+    if length == 0 {
+        return Ok(0);
+    }
+
     let mut total = 0usize;
     for &start in starts {
         let start: usize = start.as_();
-        if length == 0 {
-            continue;
-        }
-
         let offset_range = &offsets[start..][..=length];
         let element_start: usize = offset_range[0].as_();
         let element_end: usize = offset_range[length].as_();
@@ -438,10 +438,6 @@ where
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start: usize = start.as_();
         let length: usize = length.as_();
-        if length == 0 {
-            continue;
-        }
-
         let offset_range = &offsets[start..][..=length];
         let element_start: usize = offset_range[0].as_();
         let element_end: usize = offset_range[length].as_();
