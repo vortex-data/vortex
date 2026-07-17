@@ -21,8 +21,10 @@ use crate::arrays::PiecewiseSequence;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
 use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
 use crate::arrays::piecewise_sequence::validate_index_ranges;
+use crate::arrays::piecewise_sequence::validate_index_ranges_constant;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -147,7 +149,14 @@ fn take_piecewise_sequence(
     };
     let validity = array.validity()?.take(indices_ref)?;
     let output_len = indices_ref.len();
-    let taken = take_piecewise_sequence_lengths(array, &starts, &lengths, validity, output_len)?;
+    let taken = match lengths {
+        UnitMultiplierLengths::Constant(length) => {
+            take_piecewise_sequence_constant_length(array, &starts, length, validity, output_len)?
+        }
+        UnitMultiplierLengths::Array(lengths) => {
+            take_piecewise_sequence_lengths(array, &starts, &lengths, validity, output_len)?
+        }
+    };
     Ok(Some(taken))
 }
 
@@ -240,6 +249,62 @@ where
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
+        values.extend_from_slice(&source[start..start + length]);
+    }
+
+    Ok(values.freeze())
+}
+
+fn take_piecewise_sequence_constant_length(
+    array: ArrayView<'_, Primitive>,
+    starts: &PrimitiveArray,
+    length: usize,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef> {
+    match_each_native_ptype!(array.ptype(), |T| {
+        take_piecewise_sequence_constant_length_typed::<T>(
+            array, starts, length, validity, output_len,
+        )
+    })
+}
+
+fn take_piecewise_sequence_constant_length_typed<T>(
+    array: ArrayView<'_, Primitive>,
+    starts: &PrimitiveArray,
+    length: usize,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType,
+{
+    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        let values = primitive_piecewise_constant_length_values::<T, S>(
+            array.as_slice::<T>(),
+            starts.as_slice::<S>(),
+            length,
+            output_len,
+        )?;
+        Ok(PrimitiveArray::new(values, validity).into_array())
+    })
+}
+
+fn primitive_piecewise_constant_length_values<T, S>(
+    source: &[T],
+    starts: &[S],
+    length: usize,
+    output_len: usize,
+) -> VortexResult<Buffer<T>>
+where
+    T: Copy,
+    S: UnsignedPType,
+{
+    validate_index_ranges_constant(source.len(), starts, length, output_len)?;
+
+    let mut values = BufferMut::<T>::with_capacity(output_len);
+    for &start in starts {
+        let start = start.as_();
         values.extend_from_slice(&source[start..start + length]);
     }
 

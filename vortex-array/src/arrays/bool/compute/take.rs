@@ -20,8 +20,10 @@ use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
 use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
 use crate::arrays::piecewise_sequence::validate_index_ranges;
+use crate::arrays::piecewise_sequence::validate_index_ranges_constant;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
@@ -76,16 +78,32 @@ fn take_piecewise_sequence(
     let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
         return Ok(None);
     };
-    let buffer = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-            take_piecewise_bits(
-                &array.to_bit_buffer(),
-                starts.as_slice::<S>(),
-                lengths.as_slice::<L>(),
-                indices_ref.len(),
-            )?
-        })
-    });
+    let source = array.to_bit_buffer();
+    let output_len = indices_ref.len();
+    let buffer = match &lengths {
+        UnitMultiplierLengths::Constant(length) => {
+            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                take_piecewise_bits_constant_length(
+                    &source,
+                    starts.as_slice::<S>(),
+                    *length,
+                    output_len,
+                )?
+            })
+        }
+        UnitMultiplierLengths::Array(lengths) => {
+            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+                    take_piecewise_bits(
+                        &source,
+                        starts.as_slice::<S>(),
+                        lengths.as_slice::<L>(),
+                        output_len,
+                    )?
+                })
+            })
+        }
+    };
 
     Ok(Some(
         BoolArray::new(buffer, array.validity()?.take(indices_ref)?).into_array(),
@@ -117,6 +135,26 @@ fn take_bool_impl<I: AsPrimitive<usize>>(bools: BitBufferView<'_>, indices: &[I]
         let idx = unsafe { indices.get_unchecked(idx).as_() };
         get_bit(buffer, bools.offset() + idx)
     })
+}
+
+fn take_piecewise_bits_constant_length<S>(
+    source: &BitBuffer,
+    starts: &[S],
+    length: usize,
+    output_len: usize,
+) -> VortexResult<BitBuffer>
+where
+    S: UnsignedPType,
+{
+    validate_index_ranges_constant(source.len(), starts, length, output_len)?;
+
+    let mut values = BitBufferMut::with_capacity(output_len);
+    for &start in starts {
+        let start = start.as_();
+        values.append_buffer(&source.slice(start..start + length));
+    }
+
+    Ok(values.freeze())
 }
 
 fn take_piecewise_bits<S, L>(

@@ -43,6 +43,20 @@ fn piecewise_indices(
     Ok(PiecewiseSequenceArray::try_new(starts, lengths, multipliers, len)?.into_array())
 }
 
+fn piecewise_indices_constant_length(
+    starts: impl IntoIterator<Item = u64>,
+    length: u64,
+) -> VortexResult<ArrayRef> {
+    let starts = starts.into_iter().collect::<Vec<_>>();
+    let length_usize: usize = length.as_();
+    let len = starts.len() * length_usize;
+    let piece_count = starts.len();
+    let starts = PrimitiveArray::from_iter(starts).into_array();
+    let lengths = ConstantArray::new(length, piece_count).into_array();
+    let multipliers = ConstantArray::new(1u64, piece_count).into_array();
+    Ok(PiecewiseSequenceArray::try_new(starts, lengths, multipliers, len)?.into_array())
+}
+
 #[test]
 fn materializes_piecewise_indices() -> VortexResult<()> {
     let starts = buffer![3u64, 15, 21].into_array();
@@ -277,6 +291,66 @@ fn varbin_take_consumes_piecewise_indices() -> VortexResult<()> {
         .into_array(),
         &mut array_session().create_execution_ctx()
     );
+    Ok(())
+}
+
+#[test]
+fn contiguous_take_consumers_support_constant_piecewise_lengths() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let indices = piecewise_indices_constant_length([1, 3], 2)?;
+
+    let primitive = PrimitiveArray::from_iter(0i32..10).into_array();
+    assert_arrays_eq!(
+        primitive.take(indices.clone())?,
+        PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array(),
+        &mut ctx
+    );
+
+    let bools = BoolArray::from_iter([false, true, false, true, false]).into_array();
+    assert_arrays_eq!(
+        bools.take(indices.clone())?,
+        BoolArray::from_iter([true, false, true, false]).into_array(),
+        &mut ctx
+    );
+
+    let decimal_dtype = DecimalDType::new(19, 2);
+    let decimals = DecimalArray::from_iter([10i128, 20, 30, 40, 50], decimal_dtype).into_array();
+    assert_arrays_eq!(
+        decimals.take(indices.clone())?,
+        DecimalArray::from_iter([20i128, 30, 40, 50], decimal_dtype).into_array(),
+        &mut ctx
+    );
+
+    let varbinview = VarBinViewArray::from_iter(
+        ["a", "bb", "ccc", "dddd", "eeeee"].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+    assert_arrays_eq!(
+        varbinview.take(indices.clone())?,
+        VarBinViewArray::from_iter(
+            ["bb", "ccc", "dddd", "eeeee"].map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        )
+        .into_array(),
+        &mut ctx
+    );
+
+    let varbin = VarBinArray::from_iter(
+        ["a", "bb", "ccc", "dddd", "eeeee"].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+    assert_arrays_eq!(
+        varbin.take(indices)?,
+        VarBinArray::from_iter(
+            ["bb", "ccc", "dddd", "eeeee"].map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        )
+        .into_array(),
+        &mut ctx
+    );
+
     Ok(())
 }
 

@@ -20,8 +20,10 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::UnitMultiplierLengths;
 use crate::arrays::piecewise_sequence::execute_unit_multiplier_index_arrays;
 use crate::arrays::piecewise_sequence::validate_index_ranges;
+use crate::arrays::piecewise_sequence::validate_index_ranges_constant;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::dtype::UnsignedPType;
@@ -79,16 +81,32 @@ fn take_piecewise_sequence(
     let Some((starts, lengths)) = execute_unit_multiplier_index_arrays(indices, ctx)? else {
         return Ok(None);
     };
-    let views = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-            gather_piecewise_views(
-                array.views(),
-                starts.as_slice::<S>(),
-                lengths.as_slice::<L>(),
-                indices_ref.len(),
-            )?
-        })
-    });
+    let source = array.views();
+    let output_len = indices_ref.len();
+    let views = match &lengths {
+        UnitMultiplierLengths::Constant(length) => {
+            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                gather_piecewise_views_constant_length(
+                    source,
+                    starts.as_slice::<S>(),
+                    *length,
+                    output_len,
+                )?
+            })
+        }
+        UnitMultiplierLengths::Array(lengths) => {
+            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+                    gather_piecewise_views(
+                        source,
+                        starts.as_slice::<S>(),
+                        lengths.as_slice::<L>(),
+                        output_len,
+                    )?
+                })
+            })
+        }
+    };
     let validity = array.validity()?.take(indices_ref)?;
 
     // SAFETY: ranges were validated against the source views, and copied views still reference the
@@ -132,6 +150,26 @@ fn take_views<I: AsPrimitive<usize>>(
             }),
         ),
     }
+}
+
+fn gather_piecewise_views_constant_length<S>(
+    source: &[BinaryView],
+    starts: &[S],
+    length: usize,
+    output_len: usize,
+) -> VortexResult<Buffer<BinaryView>>
+where
+    S: UnsignedPType,
+{
+    validate_index_ranges_constant(source.len(), starts, length, output_len)?;
+
+    let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
+    for &start in starts {
+        let start = start.as_();
+        views.extend_from_slice(&source[start..start + length]);
+    }
+
+    Ok(views.freeze())
 }
 
 fn gather_piecewise_views<S, L>(
