@@ -103,8 +103,8 @@ impl StatPopGenBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for StatPopGenBenchmark {
-    fn doc_path(&self) -> Option<&'static str> {
-        Some("vortex-bench/sql/statpopgen.md")
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/statpopgen.md"
     }
 
     fn queries(&self) -> Result<Vec<(usize, String)>> {

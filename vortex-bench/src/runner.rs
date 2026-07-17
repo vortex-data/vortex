@@ -75,7 +75,7 @@ pub struct SqlBenchmarkRunner {
     formats: Vec<Format>,
     memory_tracker: Option<BenchmarkMemoryTracker>,
     hide_progress_bar: bool,
-    doc: Option<&'static str>,
+    doc: &'static str,
     query_measurements: Vec<QueryMeasurement>,
     memory_measurements: Vec<MemoryMeasurement>,
 }
@@ -462,7 +462,7 @@ pub fn export_results<W: Write>(
     display_format: &DisplayFormat,
     engine: Engine,
     formats: &[Format],
-    doc: Option<&str>,
+    doc: &str,
     mut output: W,
 ) -> anyhow::Result<()> {
     let targets = formats

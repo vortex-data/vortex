@@ -530,6 +530,10 @@ impl PublicBiBenchmark {
 
 #[async_trait]
 impl Benchmark for PublicBiBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/public-bi.md"
+    }
+
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
         self.pbi_benchmark().queries()
     }

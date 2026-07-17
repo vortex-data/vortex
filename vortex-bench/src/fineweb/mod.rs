@@ -53,8 +53,8 @@ impl FinewebBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for FinewebBenchmark {
-    fn doc_path(&self) -> Option<&'static str> {
-        Some("vortex-bench/sql/fineweb.md")
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/fineweb.md"
     }
 
     /// Some basic string-focused queries, numbered from Q0 in `sql/fineweb.sql` file order.

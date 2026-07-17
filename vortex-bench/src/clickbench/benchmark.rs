@@ -76,8 +76,8 @@ fn read_clickbench_queries(queries_file: Option<&str>) -> Result<Vec<(usize, Str
 
 #[async_trait::async_trait]
 impl Benchmark for ClickBenchBenchmark {
-    fn doc_path(&self) -> Option<&'static str> {
-        Some("vortex-bench/sql/clickbench.md")
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/clickbench.md"
     }
 
     fn queries(&self) -> Result<Vec<(usize, String)>> {
@@ -124,8 +124,8 @@ impl Benchmark for ClickBenchBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for ClickBenchSortedBenchmark {
-    fn doc_path(&self) -> Option<&'static str> {
-        Some("vortex-bench/sql/clickbench.md#sorted-variant")
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/clickbench.md#sorted-variant"
     }
 
     fn queries(&self) -> Result<Vec<(usize, String)>> {

@@ -89,8 +89,8 @@ impl VortexBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for VortexBenchmark {
-    fn doc_path(&self) -> Option<&'static str> {
-        Some("vortex-bench/sql/vortex/README.md")
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/vortex/README.md"
     }
 
     fn queries(&self) -> Result<Vec<(usize, String)>> {

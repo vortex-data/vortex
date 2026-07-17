@@ -503,7 +503,7 @@ async fn run_random_access(config: RunConfig) -> Result<()> {
         }
         DisplayFormat::GhJson => {
             let timings: Vec<TimingMeasurement> = runs.into_iter().map(|r| r.timing).collect();
-            print_measurements_json(&mut writer, timings, Some(DOC_PATH))?;
+            print_measurements_json(&mut writer, timings, DOC_PATH)?;
         }
     }
 

@@ -215,8 +215,8 @@ async fn run_compress(
             )
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(&mut writer, measurements.timings, Some(DOC_PATH))?;
-            print_measurements_json(&mut writer, measurements.ratios, Some(DOC_PATH))
+            print_measurements_json(&mut writer, measurements.timings, DOC_PATH)?;
+            print_measurements_json(&mut writer, measurements.ratios, DOC_PATH)
         }
     }
 }

@@ -75,8 +75,8 @@ impl TpcHBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for TpcHBenchmark {
-    fn doc_path(&self) -> Option<&'static str> {
-        Some("vortex-bench/sql/tpch/README.md")
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/tpch/README.md"
     }
 
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {

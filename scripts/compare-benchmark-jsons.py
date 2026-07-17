@@ -769,7 +769,8 @@ def format_title(benchmark_name: str, pr: pd.DataFrame) -> str:
 
     The doc path is a repo-relative markdown path carried on the PR result rows (the `doc`
     field, populated from `Benchmark::doc_path` in Rust), so the benchmark code is the single
-    source of truth for where each suite is documented.
+    source of truth for where each suite is documented. The link pins the PR's own commit so
+    it resolves before the PR merges and stays valid afterwards.
     """
 
     title = f"# Benchmarks: {benchmark_name}" if benchmark_name else "# Benchmarks"
@@ -778,7 +779,9 @@ def format_title(benchmark_name: str, pr: pd.DataFrame) -> str:
         if len(docs) > 0:
             server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
             repository = os.environ.get("GITHUB_REPOSITORY", "vortex-data/vortex")
-            title += f" [\N{OPEN BOOK}]({server_url}/{repository}/blob/develop/{docs[0]})"
+            commits = pr["commit_id"].dropna().unique() if "commit_id" in pr.columns else []
+            ref = commits[0] if len(commits) > 0 else "develop"
+            title += f" [\N{OPEN BOOK}]({server_url}/{repository}/blob/{ref}/{docs[0]})"
     return title
 
 
