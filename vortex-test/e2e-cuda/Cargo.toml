@@ -15,6 +15,10 @@ version = { workspace = true }
 [lib]
 crate-type = ["cdylib"]
 
+[[bin]]
+name = "cudf_harness_runner"
+test = false
+
 [lints]
 workspace = true
 
