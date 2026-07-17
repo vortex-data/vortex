@@ -3,7 +3,6 @@
 
 use itertools::Itertools as _;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -25,11 +24,13 @@ use crate::arrays::list::ListArrayExt;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::IntegerPType;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
 use crate::match_smallest_offset_type;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
@@ -53,10 +54,16 @@ impl TakeExecute for List {
             return Ok(Some(taken));
         }
 
-        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let new_validity = array.validity()?.take(indices)?;
+        let normalized_indices = indices
+            .clone()
+            .mask(new_validity.to_array(indices.len()))?
+            .fill_null(Scalar::from(0).cast(indices.dtype())?)?;
+        let indices = normalized_indices.execute::<PrimitiveArray>(ctx)?;
         let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
+        let validity_mask = new_validity.execute_mask(indices.len(), ctx)?;
         // This is an over-approximation of the total number of elements in the resulting array.
         let total_approx = array.elements().len().saturating_mul(indices.len());
 
@@ -67,7 +74,8 @@ impl TakeExecute for List {
                         array,
                         offsets.as_view(),
                         indices.as_view(),
-                        ctx,
+                        new_validity,
+                        &validity_mask,
                     )
                     .map(Some)
                 })
@@ -84,16 +92,9 @@ fn take_with_piecewise_elements<
     array: ArrayView<'_, List>,
     offsets_array: ArrayView<'_, Primitive>,
     indices_array: ArrayView<'_, Primitive>,
-    ctx: &mut ExecutionCtx,
+    new_validity: Validity,
+    validity_mask: &Mask,
 ) -> VortexResult<ArrayRef> {
-    let data_validity = array
-        .list_validity()
-        .execute_mask(array.as_ref().len(), ctx)?;
-    let indices_validity = indices_array
-        .validity()
-        .vortex_expect("Failed to compute validity mask")
-        .execute_mask(indices_array.as_ref().len(), ctx)?;
-
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
 
@@ -108,8 +109,8 @@ fn take_with_piecewise_elements<
     let mut current_offset = 0usize;
     new_offsets.push(OutputOffsetType::zero());
 
-    for (&data_idx, index_valid) in indices.iter().zip_eq(indices_validity.iter()) {
-        if !index_valid {
+    for (&data_idx, is_valid) in indices.iter().zip_eq(validity_mask.iter()) {
+        if !is_valid {
             new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset)?);
             element_starts.push(0);
             element_lengths.push(0);
@@ -117,13 +118,6 @@ fn take_with_piecewise_elements<
         }
 
         let data_idx: usize = data_idx.as_();
-
-        if !data_validity.value(data_idx) {
-            new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset)?);
-            element_starts.push(0);
-            element_lengths.push(0);
-            continue;
-        }
 
         let start = offsets[data_idx];
         let stop = offsets[data_idx + 1];
@@ -159,14 +153,7 @@ fn take_with_piecewise_elements<
 
     // SAFETY: offsets are rebuilt from the gathered element ranges and have one entry per output
     // row plus the leading zero; validity is produced by the usual take-validity path.
-    Ok(unsafe {
-        ListArray::new_unchecked(
-            new_elements,
-            new_offsets,
-            array.validity()?.take(indices_array.array())?,
-        )
-    }
-    .into_array())
+    Ok(unsafe { ListArray::new_unchecked(new_elements, new_offsets, new_validity) }.into_array())
 }
 
 fn take_slices(
