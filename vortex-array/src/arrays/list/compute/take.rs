@@ -23,13 +23,11 @@ use crate::arrays::list::ListArrayExt;
 use crate::arrays::piecewise_sequence::ConstantOrArray;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::IntegerPType;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
 use crate::match_smallest_offset_type;
-use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
@@ -54,11 +52,7 @@ impl TakeExecute for List {
         }
 
         let new_validity = array.validity()?.take(indices)?;
-        let normalized_indices = indices
-            .clone()
-            .mask(new_validity.to_array(indices.len()))?
-            .fill_null(Scalar::from(0).cast(indices.dtype())?)?;
-        let indices = normalized_indices.execute::<PrimitiveArray>(ctx)?;
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
