@@ -56,7 +56,10 @@ pub fn calculate_physical_schema(
         })
         .collect::<DFResult<Vec<_>>>()?;
 
-    Ok(Schema::new(fields))
+    Ok(Schema::new_with_metadata(
+        fields,
+        reference_logical_schema.metadata().clone(),
+    ))
 }
 
 /// Calculate the physical Arrow type for a field, preferring the logical type when the
@@ -244,6 +247,32 @@ mod tests {
             physical_schema.field(0).data_type(),
             &DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
         );
+    }
+
+    #[test]
+    fn test_schema_metadata_preserved() -> DFResult<()> {
+        let logical_schema = Schema::new_with_metadata(
+            vec![Field::new("col", DataType::Int32, false)],
+            [("table".to_string(), "metadata".to_string())]
+                .into_iter()
+                .collect(),
+        );
+        let dtype = DType::Struct(
+            StructFields::from_iter([(
+                "col",
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )]),
+            Nullability::NonNullable,
+        );
+
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default())?;
+
+        assert_eq!(
+            physical_schema.metadata().get("table"),
+            Some(&"metadata".to_string())
+        );
+        Ok(())
     }
 
     #[test]

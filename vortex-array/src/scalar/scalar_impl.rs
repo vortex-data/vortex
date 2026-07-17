@@ -282,7 +282,7 @@ impl Scalar {
 /// values have equal hashes.
 impl Hash for Scalar {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.dtype.as_nonnullable().hash(state);
+        self.dtype.hash_ignore_nullability(state);
         self.value.hash(state);
     }
 }

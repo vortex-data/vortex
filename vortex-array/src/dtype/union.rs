@@ -3,6 +3,7 @@
 
 use std::fmt;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -14,7 +15,6 @@ use vortex_error::vortex_ensure_eq;
 use crate::dtype::DType;
 use crate::dtype::FieldDType;
 use crate::dtype::FieldNames;
-use crate::dtype::Nullability;
 
 /// Type information for a union array.
 ///
@@ -134,10 +134,33 @@ impl PartialEq for UnionVariantsInner {
 impl Eq for UnionVariantsInner {}
 
 impl Hash for UnionVariantsInner {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.names.hash(state);
         self.dtypes.hash(state);
         self.type_ids.hash(state);
+    }
+}
+
+impl UnionVariants {
+    /// Check if these union variants are equal, ignoring variant dtype nullability recursively.
+    pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+            || (self.0.names == other.0.names
+                && self
+                    .variants()
+                    .zip_eq(other.variants())
+                    .all(|(lhs, rhs)| lhs.eq_ignore_nullability(&rhs))
+                && self.0.type_ids == other.0.type_ids)
+    }
+
+    /// Hash these union variants using the same equivalence relation as
+    /// [`Self::eq_ignore_nullability`].
+    pub(crate) fn hash_ignore_nullability<H: Hasher>(&self, state: &mut H) {
+        self.0.names.hash(state);
+        for variant in self.variants() {
+            variant.hash_ignore_nullability(state);
+        }
+        self.0.type_ids.hash(state);
     }
 }
 
@@ -344,20 +367,10 @@ impl UnionVariants {
     pub fn child_index_to_tag(&self, index: usize) -> u8 {
         self.0.type_ids[index]
     }
-
-    /// Returns the runtime-derived nullability of the union.
-    ///
-    /// This is not a zero-cost accessor: it scans every variant and materializes each
-    /// [`FieldDType`], which may be expensive when variants are still flatbuffer-backed views.
-    pub fn derived_nullability(&self) -> Nullability {
-        self.variants().any(|dtype| dtype.is_nullable()).into()
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
@@ -476,39 +489,11 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[rstest]
-    #[case::nullable_with_null_child(
-        vec![
-            DType::Null,
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-        ],
-        Nullability::Nullable,
-    )]
-    #[case::nullable_with_nullable_child(
-        vec![
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-            DType::Utf8(Nullability::Nullable),
-        ],
-        Nullability::Nullable,
-    )]
-    #[case::nonnullable(
-        vec![
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-            DType::Utf8(Nullability::NonNullable),
-        ],
-        Nullability::NonNullable,
-    )]
-    #[case::empty(vec![], Nullability::NonNullable)]
-    fn test_derived_nullability(#[case] dtypes: Vec<DType>, #[case] expected: Nullability) {
-        let names: Vec<&str> = (0..dtypes.len()).map(|i| ["a", "b", "c", "d"][i]).collect();
-        let variants = UnionVariants::new(names.as_slice().into(), dtypes).unwrap();
-        assert_eq!(variants.derived_nullability(), expected);
-    }
-
     #[test]
-    fn test_nested_union_nullability() {
+    fn test_nested_union_nullability_is_independent() {
         let inner = DType::Union(
             UnionVariants::new(["value"].into(), vec![DType::Utf8(Nullability::Nullable)]).unwrap(),
+            Nullability::NonNullable,
         );
         let outer = DType::Union(
             UnionVariants::new(
@@ -519,28 +504,35 @@ mod tests {
                 ],
             )
             .unwrap(),
+            Nullability::Nullable,
         );
 
         assert_eq!(outer.nullability(), Nullability::Nullable);
+        let variants = outer.as_union_variants_opt().unwrap();
+        assert_eq!(
+            variants.variant_by_index(0).unwrap().nullability(),
+            Nullability::NonNullable
+        );
     }
 
     #[test]
-    fn test_with_nullability_does_not_change_union_variants() {
-        let nonnullable = DType::Union(i32_variants());
-        assert_eq!(nonnullable.as_nullable(), nonnullable);
+    fn test_with_nullability_changes_only_outer_union() {
+        let nonnullable = DType::Union(i32_variants(), Nullability::NonNullable);
         assert_eq!(nonnullable.nullability(), Nullability::NonNullable);
 
-        let nullable = DType::Union(
-            UnionVariants::new(["value"].into(), vec![DType::Utf8(Nullability::Nullable)]).unwrap(),
-        );
-        assert_eq!(nullable.as_nonnullable(), nullable);
+        let nullable = nonnullable.as_nullable();
         assert_eq!(nullable.nullability(), Nullability::Nullable);
+        assert_eq!(
+            nullable.as_union_variants_opt(),
+            nonnullable.as_union_variants_opt()
+        );
+        assert_eq!(nullable.as_nonnullable(), nonnullable);
     }
 
     #[test]
     fn test_display() {
         let variants = i32_variants();
-        let dtype = DType::Union(variants);
+        let dtype = DType::Union(variants, Nullability::NonNullable);
         assert_eq!(dtype.to_string(), "union(int=i32, str=utf8)");
 
         let nullable = DType::Union(
@@ -552,8 +544,13 @@ mod tests {
                 ],
             )
             .unwrap(),
+            Nullability::Nullable,
         );
         assert_eq!(nullable.to_string(), "union(int=i32, maybe_str=utf8?)?");
+        assert_eq!(
+            nullable.as_nonnullable().to_string(),
+            "union(int=i32, maybe_str=utf8?)"
+        );
     }
 
     #[test]
@@ -568,7 +565,7 @@ mod tests {
             vec![0, 5, 7],
         )
         .unwrap();
-        let dtype = DType::Union(variants);
+        let dtype = DType::Union(variants, Nullability::NonNullable);
         assert_eq!(dtype.to_string(), "union(a@0=i32, b@5=utf8, c@7=bool)");
     }
 

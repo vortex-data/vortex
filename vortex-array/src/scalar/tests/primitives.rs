@@ -5,6 +5,9 @@
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hash;
+    use std::hash::Hasher;
     use std::sync::Arc;
 
     use vortex_buffer::ByteBuffer;
@@ -23,6 +26,12 @@ mod tests {
     use crate::scalar::PrimitiveScalar;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+
+    fn scalar_hash(scalar: &Scalar) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        scalar.hash(&mut hasher);
+        hasher.finish()
+    }
 
     #[test]
     fn default_value_for_complex_dtype() {
@@ -410,6 +419,23 @@ mod tests {
         // Test that different values hash differently
         set.insert(Scalar::primitive(43i32, Nullability::NonNullable));
         assert_eq!(set.len(), 5);
+    }
+
+    #[test]
+    fn test_scalar_hash_ignores_nested_nullability() {
+        let nullable = Scalar::list(
+            DType::Primitive(PType::I32, Nullability::Nullable),
+            vec![Scalar::primitive(42_i32, Nullability::Nullable)],
+            Nullability::NonNullable,
+        );
+        let non_nullable = Scalar::list(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            vec![Scalar::primitive(42_i32, Nullability::NonNullable)],
+            Nullability::NonNullable,
+        );
+
+        assert_eq!(nullable, non_nullable);
+        assert_eq!(scalar_hash(&nullable), scalar_hash(&non_nullable));
     }
 
     #[test]

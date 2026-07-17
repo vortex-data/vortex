@@ -2,14 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
 //! Convert an [`OnPairArray`] to its canonical `VarBinViewArray` by handing
-//! the materialised parts to `onpair::decompress_into`.
+//! the materialised parts to `onpair::try_decode_into`.
 //!
 //! [`OnPairArray`]: crate::OnPairArray
 
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use onpair::Parts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -25,9 +24,11 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 
 use crate::OnPair;
 use crate::OnPairArraySlotsExt;
+use crate::array::dict_view;
 use crate::decode::code_boundary_at;
 use crate::decode::collect_widened;
 
@@ -89,21 +90,22 @@ pub(crate) fn onpair_decode_views(
     // contiguous decoder walks `codes` in order and never reads the per-row
     // boundaries, so an empty boundary slice is sound.
     let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
-    let dict_offsets = collect_widened::<u32>(array.dict_offsets(), ctx)?;
+    let dict = dict_view(array, ctx)?;
 
     let mut out_bytes = ByteBufferMut::with_capacity(total_size);
-    let written = onpair::decompress_into(
-        Parts {
-            dict_bytes: array.dict_bytes().as_slice(),
-            dict_offsets: dict_offsets.as_slice(),
-            bits: array.bits(),
-            codes: codes.as_slice(),
-        },
-        out_bytes.spare_capacity_mut(),
-    );
-    debug_assert_eq!(written, total_size);
-    // SAFETY: `decompress_into` initialised exactly `written` bytes of the
-    // spare capacity reserved above.
+    let written =
+        match onpair::try_decode_into(codes.as_slice(), dict, out_bytes.spare_capacity_mut()) {
+            Ok(written) => written,
+            Err(_) => {
+                vortex_panic!("OnPair codes decode to more bytes than uncompressed_lengths records")
+            }
+        };
+    if written != total_size {
+        vortex_panic!(
+            "OnPair codes decoded to {written} bytes but uncompressed_lengths records {total_size}"
+        );
+    }
+    // SAFETY: `try_decode_into` initialised exactly `written` bytes.
     unsafe { out_bytes.set_len(written) };
 
     match_each_integer_ptype!(lengths.ptype(), |P| {

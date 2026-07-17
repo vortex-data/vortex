@@ -23,7 +23,6 @@ import org.apache.spark.sql.types.DoubleType;
 import org.apache.spark.sql.types.FloatType;
 import org.apache.spark.sql.types.IntegerType;
 import org.apache.spark.sql.types.LongType;
-import org.apache.spark.sql.types.MapType;
 import org.apache.spark.sql.types.ShortType;
 import org.apache.spark.sql.types.StringType;
 import org.apache.spark.sql.types.StructField;
@@ -125,9 +124,6 @@ public final class SparkToArrowSchema {
             return new ArrowType.List();
         } else if (sparkType instanceof StructType) {
             return new ArrowType.Struct();
-        } else if (sparkType instanceof MapType) {
-            // Map is represented as List<Struct<key, value>> in Arrow
-            return new ArrowType.List();
         } else {
             throw new UnsupportedOperationException("Unsupported Spark type for Arrow conversion: "
                     + sparkType.getClass().getName());

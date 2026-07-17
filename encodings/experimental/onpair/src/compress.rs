@@ -4,7 +4,6 @@
 //! Train + compress entry points for the OnPair encoding.
 
 use onpair::Config;
-use onpair::Offset;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -12,7 +11,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::validity::Validity;
+use vortex_array::scalar::Scalar;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -24,7 +23,6 @@ use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 
 use crate::OnPair;
-use crate::OnPairArray;
 
 /// Default OnPair training configuration: 12-bit codes ("dict-12").
 pub const DEFAULT_DICT12_CONFIG: Config = Config {
@@ -32,34 +30,32 @@ pub const DEFAULT_DICT12_CONFIG: Config = Config {
     ..onpair::DEFAULT_CONFIG
 };
 
-fn onpair_compress_varbinview<O>(
-    array: VarBinViewArray,
+/// Compress any [`ArrayRef`] whose canonical form is a string array.
+///
+/// All-null inputs are returned as a [`ConstantArray`].
+pub fn onpair_compress(
+    array: &ArrayRef,
     config: Config,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<OnPairArray>
-where
-    O: Offset,
-{
+) -> VortexResult<ArrayRef> {
+    let array = array.clone().execute::<VarBinViewArray>(ctx)?;
     let len = array.len();
-    let mask = array.validity()?.execute_mask(len, ctx)?;
-    if mask.all_false() {
-        return OnPair::try_new(
-            array.dtype().clone(),
-            BufferHandle::new_host(ByteBuffer::empty()),
-            ConstantArray::new(0, len).into_array(),
-            ConstantArray::new(0u16, len).into_array(),
-            ConstantArray::new(0u32, len + 1).into_array(),
-            ConstantArray::new(0i32, len).into_array(),
-            Validity::AllInvalid,
-            9,
-        );
+    let validity = array.validity()?;
+    let mask = validity.execute_mask(len, ctx)?;
+    if matches!(mask.bit_buffer(), AllOr::None) {
+        // CascadingCompressor handles this earlier, but direct callers can reach it.
+        return Ok(ConstantArray::new(Scalar::null(array.dtype().clone()), len).into_array());
     }
 
-    let mut flat: Vec<u8> = Vec::with_capacity(len * 16);
-    let mut offsets: Vec<O> = Vec::with_capacity(len + 1);
-    let mut uncompressed_lengths: BufferMut<i32> = BufferMut::with_capacity(len);
-    offsets.push(O::from_usize(0));
     let views = array.views();
+    let flat_bytes: usize = views.iter().map(|v| v.len() as usize).sum();
+
+    // TODO(francesco): we flatten because onpair training needs a contiguous `(bytes, offsets)`
+    // pair. Allowing onpair to train on a slice-of-slices would let us skip this copy.
+    let mut flat: Vec<u8> = Vec::with_capacity(flat_bytes);
+    let mut offsets: Vec<u64> = Vec::with_capacity(len + 1);
+    let mut uncompressed_lengths: BufferMut<i32> = BufferMut::with_capacity(len);
+    offsets.push(0);
     let buffers = array
         .data_buffers()
         .as_ref()
@@ -72,24 +68,22 @@ where
             for view in views {
                 let bytes = view_bytes(view, &buffers);
                 flat.extend_from_slice(bytes);
-                offsets.push(O::from_usize(flat.len()));
+                offsets.push(u64::try_from(flat.len()).vortex_expect("offset must fit in u64"));
                 uncompressed_lengths
                     .push(i32::try_from(view.len()).vortex_expect("must fit in i32"));
             }
         }
-        AllOr::None => {
-            unreachable!("all_false() should have been caught earlier");
-        }
+        AllOr::None => unreachable!("all-null input handled above"),
         AllOr::Some(validity) => {
             for (view, valid) in views.iter().zip(validity.iter()) {
                 if valid {
                     let bytes = view_bytes(view, &buffers);
                     flat.extend_from_slice(bytes);
-                    offsets.push(O::from_usize(flat.len()));
+                    offsets.push(u64::try_from(flat.len()).vortex_expect("offset must fit in u64"));
                     uncompressed_lengths
                         .push(i32::try_from(view.len()).vortex_expect("must fit in i32"));
                 } else {
-                    offsets.push(O::from_usize(flat.len()));
+                    offsets.push(u64::try_from(flat.len()).vortex_expect("offset must fit in u64"));
                     uncompressed_lengths.push(0);
                 }
             }
@@ -98,25 +92,29 @@ where
 
     let column = onpair::compress(&flat, &offsets, config)
         .map_err(|e| vortex_err!("OnPair compress failed: {e}"))?;
-    let bits = column.bits;
-    let dict_bytes = dict_bytes_to_buffer(column.dict_bytes);
-    let codes_offsets =
-        build_codes_offsets(&column.codes, &column.dict_offsets, &offsets)?.into_array();
-    let codes = Buffer::from(column.codes).into_array();
-    let dict_offsets = Buffer::from(column.dict_offsets).into_array();
+    let (dict, codes, row_offsets) = column.into_raw();
+    let (dict_bytes, dict_offsets) = dict.into_raw();
+    let codes_offsets = codes_offsets_array(&row_offsets);
+    let codes = Buffer::from(codes).into_array();
+    // The `dict_offsets` child and the memoized widened-offsets cell share
+    // this buffer, so seeding below costs no copy.
+    let dict_offsets = Buffer::from(dict_offsets);
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
-    OnPair::try_new(
+    let encoded = OnPair::try_new(
         array.dtype().clone(),
-        dict_bytes,
-        dict_offsets,
+        dict_bytes_to_buffer(dict_bytes),
+        dict_offsets.clone().into_array(),
         codes,
         codes_offsets,
         uncompressed_lengths,
-        array.validity()?,
-        bits,
-    )
+        validity,
+    )?;
+    // SAFETY: the trainer's dictionary is conformant by construction, and
+    // `dict_offsets` is exactly the u32 child attached above.
+    unsafe { encoded.init_dict_offsets(dict_offsets) };
+    Ok(encoded.into_array())
 }
 
 fn view_bytes<'a>(view: &'a BinaryView, buffers: &'a [&ByteBuffer]) -> &'a [u8] {
@@ -128,66 +126,33 @@ fn view_bytes<'a>(view: &'a BinaryView, buffers: &'a [&ByteBuffer]) -> &'a [u8] 
     }
 }
 
-/// Lift compressed dictionary bytes into the Vortex buffer slot.
 fn dict_bytes_to_buffer(dict_bytes: Vec<u8>) -> BufferHandle {
-    // Pad the dictionary blob with MAX_TOKEN_SIZE zero bytes so the
-    // over-copy decoder can issue a fixed 16-byte load for every token
-    // without risking an OOB read on the last entry.
-    //
     // Align dict_bytes to 8 bytes so the segment that ultimately holds the
-    // OnPair tree starts at an 8-aligned in-memory address. Without this
-    // anchor, the per-buffer padding the serializer inserts is only
-    // *relative* to the segment start; if the segment lands at a u8-aligned
-    // heap address, downstream `PrimitiveArray<u32>::deserialize` panics
-    // with `Misaligned buffer cannot be used to build PrimitiveArray of u32`.
-    let mut padded = ByteBufferMut::with_capacity_aligned(
-        dict_bytes.len() + onpair::MAX_TOKEN_SIZE,
-        Alignment::new(8),
-    );
-    padded.extend_from_slice(&dict_bytes);
-    unsafe { padded.push_n_unchecked(0, dict_bytes.len() + onpair::MAX_TOKEN_SIZE - padded.len()) };
-    BufferHandle::new_host(padded.freeze())
+    // OnPair tree starts at an 8-aligned in-memory address. Without this anchor,
+    // downstream primitive children may deserialize from a misaligned segment.
+    let mut aligned = ByteBufferMut::with_capacity_aligned(dict_bytes.len(), Alignment::new(8));
+    aligned.extend_from_slice(&dict_bytes);
+    BufferHandle::new_host(aligned.freeze())
 }
 
-/// Reconstruct the per-row `codes_offsets` from the flat `codes`, the
-/// dictionary `dict_offsets` (token byte lengths) and the per-row decoded byte
-/// boundaries. Returns `nrows + 1` cumulative code counts (`u32`).
-// TODO(joe): can we compute this while compressing the array, yes but a worse API.
-fn build_codes_offsets<O: Offset>(
-    codes: &[u16],
-    dict_offsets: &[u32],
-    row_byte_offsets: &[O],
-) -> VortexResult<Buffer<u32>> {
-    let nrows = row_byte_offsets.len() - 1;
-    let mut codes_offsets = BufferMut::with_capacity(nrows + 1);
-    codes_offsets.push(0u32);
-    let mut decoded_bytes: u64 = 0;
-    let mut code_idx: usize = 0;
-    for r in 0..nrows {
-        let target = row_byte_offsets[r + 1]
-            .to_usize()
-            .ok_or_else(|| vortex_err!("OnPair row byte offset does not fit usize"))?
-            as u64;
-        while decoded_bytes < target {
-            let code = codes[code_idx] as usize;
-            decoded_bytes += u64::from(dict_offsets[code + 1] - dict_offsets[code]);
-            code_idx += 1;
-        }
-        codes_offsets.push(
-            u32::try_from(code_idx)
-                .map_err(|_| vortex_err!("OnPair: code boundary {code_idx} does not fit u32"))?,
-        );
+/// Build the `codes_offsets` child from the library's per-row code boundaries,
+/// storing the narrowest of `u32`/`u64` that holds the largest boundary.
+/// `row_offsets` is non-decreasing, so its last entry is that maximum and one
+/// bound check picks the width. `u32` covers the common case (the cascading
+/// compressor narrows it further to `u16`/`u8`); `u64` engages only when a
+/// single chunk carries more than `u32::MAX` tokens, matching the `u64` byte
+/// offsets accepted at compression.
+fn codes_offsets_array(row_offsets: &[u64]) -> ArrayRef {
+    let total_tokens = row_offsets.last().copied().unwrap_or(0);
+    if u32::try_from(total_tokens).is_ok() {
+        Buffer::from(
+            row_offsets
+                .iter()
+                .map(|&o| u32::try_from(o).vortex_expect("code boundary fits u32"))
+                .collect::<Vec<u32>>(),
+        )
+        .into_array()
+    } else {
+        Buffer::from(row_offsets.to_vec()).into_array()
     }
-    Ok(codes_offsets.freeze())
-}
-
-/// Compress any [`ArrayRef`] whose canonical form is a string array, by first
-/// canonicalising to `VarBinViewArray`.
-pub fn onpair_compress(
-    array: &ArrayRef,
-    config: Config,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<OnPairArray> {
-    let view = array.clone().execute::<VarBinViewArray>(ctx)?;
-    onpair_compress_varbinview::<u64>(view, config, ctx)
 }

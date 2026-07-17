@@ -3,17 +3,25 @@
 
 use std::sync::LazyLock;
 
+use onpair::CompactDictionaryView;
 use prost::Message;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::filter::FilterKernel;
+use vortex_array::assert_arrays_eq;
+use vortex_array::buffer::BufferHandle;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::test_harness::check_metadata;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -28,6 +36,17 @@ use crate::compress::onpair_compress;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
+fn compress_onpair(
+    array: &vortex_array::ArrayRef,
+    ctx: &mut vortex_array::ExecutionCtx,
+) -> vortex_error::VortexResult<crate::OnPairArray> {
+    onpair_compress(array, DEFAULT_DICT12_CONFIG, ctx)?
+        .try_downcast::<OnPair>()
+        .map_err(|array| {
+            vortex_error::vortex_err!("expected OnPair array, got {}", array.encoding_id())
+        })
+}
+
 fn sample_input() -> VarBinArray {
     VarBinArray::from_iter(
         [
@@ -41,6 +60,68 @@ fn sample_input() -> VarBinArray {
     )
 }
 
+#[test]
+fn test_onpair_rejects_100k_token_dictionary() -> vortex_error::VortexResult<()> {
+    let num_tokens = 100_000usize;
+    let mut tokens = Vec::with_capacity(num_tokens);
+    tokens.extend((u8::MIN..=u8::MAX).map(|byte| vec![byte]));
+    let additional_tokens = u32::try_from(num_tokens - tokens.len())?;
+    tokens.extend((0..additional_tokens).map(|value| {
+        let bytes = value.to_be_bytes();
+        bytes[1..].to_vec()
+    }));
+    tokens.sort_unstable();
+
+    let mut dict_bytes = Vec::new();
+    let mut dict_offsets = Vec::with_capacity(num_tokens + 1);
+    dict_offsets.push(0u32);
+    for token in tokens {
+        dict_bytes.extend_from_slice(&token);
+        dict_offsets.push(u32::try_from(dict_bytes.len())?);
+    }
+    dict_bytes.resize(dict_bytes.len() + onpair::MAX_TOKEN_SIZE, 0);
+
+    assert!(CompactDictionaryView::validate(&dict_bytes, &dict_offsets).is_err());
+    Ok(())
+}
+
+/// Dictionary content is validated lazily — construction stays lightweight,
+/// and a corrupt dictionary is rejected by the first operation that decodes
+/// or searches through it, including on derived (sliced) arrays.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_corrupt_dictionary_rejected_on_first_use() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = compress_onpair(&sample_input().into_array(), &mut ctx)?;
+    let view = arr.as_view();
+
+    // Chop one byte off the blob so the trailing read-padding invariant fails.
+    let truncated = view.dict_bytes().slice(0..view.dict_bytes().len() - 1);
+    let corrupt = OnPair::try_new(
+        view.dtype().clone(),
+        BufferHandle::new_host(truncated),
+        view.dict_offsets().clone(),
+        view.codes().clone(),
+        view.codes_offsets().clone(),
+        view.uncompressed_lengths().clone(),
+        view.array_validity(),
+    )?;
+
+    let sliced = corrupt.clone().into_array().slice(1..3)?;
+    // Canonical decode, random access, and ops on a derived slice all pass
+    // through the same validation door.
+    assert!(
+        corrupt
+            .clone()
+            .into_array()
+            .execute::<VarBinViewArray>(&mut ctx)
+            .is_err()
+    );
+    assert!(corrupt.into_array().execute_scalar(0, &mut ctx).is_err());
+    assert!(sliced.execute::<VarBinViewArray>(&mut ctx).is_err());
+    Ok(())
+}
+
 #[cfg_attr(miri, ignore)]
 #[test]
 fn test_onpair_metadata_golden() {
@@ -48,9 +129,8 @@ fn test_onpair_metadata_golden() {
         "onpair.metadata",
         &OnPairMetadata {
             uncompressed_lengths_ptype: PType::I32 as i32,
-            bits: 12,
             dict_size: 4096,
-            total_tokens: 128_000,
+            codes_len: 128_000,
             dict_offsets_ptype: PType::U32 as i32,
             codes_ptype: PType::U16 as i32,
             codes_offsets_ptype: PType::U32 as i32,
@@ -84,6 +164,63 @@ fn test_onpair_roundtrip() -> vortex_error::VortexResult<()> {
     assert_eq!(
         got[3].as_deref(),
         Some(b"ftp://files.example.com/x".as_ref())
+    );
+    Ok(())
+}
+
+/// The `u64` `codes_offsets` branch only engages past `u32::MAX` tokens (a
+/// multi-GiB chunk), so exercise the read path by widening a small array's
+/// `codes_offsets` child to `u64` by hand and asserting the decode paths
+/// (canonical and the compressed-domain equality compare, which builds a
+/// `CodesWindow`) treat it identically to the default `u32` width.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_u64_codes_offsets() -> vortex_error::VortexResult<()> {
+    let mut ctx = SESSION.create_execution_ctx();
+    let narrow = compress_onpair(&sample_input().into_array(), &mut ctx)?;
+
+    // Rebuild with only codes_offsets widened to u64; every other child is the
+    // input's, so the two arrays differ solely in codes_offsets width.
+    let wide = {
+        let view = narrow.as_view();
+        let wide_offsets = view
+            .codes_offsets()
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array();
+        OnPair::try_new(
+            view.dtype().clone(),
+            view.dict_bytes_handle().clone(),
+            view.dict_offsets().clone(),
+            view.codes().clone(),
+            wide_offsets,
+            view.uncompressed_lengths().clone(),
+            view.array_validity(),
+        )?
+    };
+    assert_eq!(
+        wide.as_view().codes_offsets().dtype(),
+        &DType::Primitive(PType::U64, Nullability::NonNullable)
+    );
+
+    // Canonical decode is byte-identical across the two widths.
+    let narrow_decoded = narrow.into_array().execute::<VarBinViewArray>(&mut ctx)?;
+    let wide_decoded = wide
+        .clone()
+        .into_array()
+        .execute::<VarBinViewArray>(&mut ctx)?;
+    assert_arrays_eq!(&wide_decoded, &narrow_decoded, &mut ctx);
+
+    // Equality compare drives CodesWindow over the u64 codes_offsets.
+    let needle = ConstantArray::new("https://www.example.com/page", wide.len()).into_array();
+    let eq = wide
+        .into_array()
+        .binary(needle, Operator::Eq)?
+        .execute::<BoolArray>(&mut ctx)?;
+    assert_arrays_eq!(
+        &eq,
+        &BoolArray::from_iter([true, false, false, false, true]),
+        &mut ctx
     );
     Ok(())
 }
@@ -220,6 +357,23 @@ fn test_onpair_empty() -> vortex_error::VortexResult<()> {
     Ok(())
 }
 
+/// All-null input is already represented optimally by a constant null array.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_all_null() -> vortex_error::VortexResult<()> {
+    let input = VarBinArray::from_iter(
+        [None::<&str>, None, None],
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = onpair_compress(&input, DEFAULT_DICT12_CONFIG, &mut ctx)?;
+
+    assert!(arr.is::<Constant>());
+    assert_arrays_eq!(arr, input, &mut ctx);
+    Ok(())
+}
+
 /// Filter must share the dictionary — never recompress (this is the
 /// regression cause on TPC-H Q22 SF=10). Exercise both selectivities
 /// and check that the result is bit-exact and still an OnPairArray.
@@ -235,7 +389,7 @@ fn test_onpair_filter_shares_dict() -> vortex_error::VortexResult<()> {
         DType::Utf8(Nullability::NonNullable),
     );
     let mut ctx = SESSION.create_execution_ctx();
-    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    let arr = compress_onpair(&varbin.into_array(), &mut ctx)?;
     let dict_bytes_before = arr.dict_bytes().clone();
     let dict_offsets_len_before = arr.dict_offsets().len();
 
@@ -309,13 +463,12 @@ fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPai
     unsafe {
         OnPair::new_unchecked(
             view.dtype().clone(),
-            view.dict_bytes_handle().clone(),
+            view.data().clone(),
             view.dict_offsets().clone(),
             view.codes().clone(),
             narrowed_array,
             view.uncompressed_lengths().clone(),
             view.array_validity(),
-            view.bits(),
         )
     }
 }
@@ -339,7 +492,7 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u16() -> vortex_error::VortexR
         DType::Utf8(Nullability::NonNullable),
     );
     let mut ctx = SESSION.create_execution_ctx();
-    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    let arr = compress_onpair(&varbin.into_array(), &mut ctx)?;
 
     // Force `codes_offsets` to u16 so the panicking pre-fix
     // `as_slice::<u32>()` would fire.
@@ -395,7 +548,7 @@ fn test_onpair_filter_with_narrowed_codes_offsets_u8() -> vortex_error::VortexRe
         DType::Utf8(Nullability::NonNullable),
     );
     let mut ctx = SESSION.create_execution_ctx();
-    let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
+    let arr = compress_onpair(&varbin.into_array(), &mut ctx)?;
     let arr = narrow_codes_offsets(&arr, PType::U8);
     assert_eq!(arr.as_view().codes_offsets().dtype().as_ptype(), PType::U8);
 

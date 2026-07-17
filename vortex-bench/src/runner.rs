@@ -75,6 +75,7 @@ pub struct SqlBenchmarkRunner {
     formats: Vec<Format>,
     memory_tracker: Option<BenchmarkMemoryTracker>,
     hide_progress_bar: bool,
+    doc: &'static str,
     query_measurements: Vec<QueryMeasurement>,
     memory_measurements: Vec<MemoryMeasurement>,
 }
@@ -106,6 +107,7 @@ impl SqlBenchmarkRunner {
             formats,
             memory_tracker,
             hide_progress_bar,
+            doc: benchmark.doc_path(),
             query_measurements: Vec::new(),
             memory_measurements: Vec::new(),
         })
@@ -223,6 +225,7 @@ impl SqlBenchmarkRunner {
                     display_format,
                     self.engine,
                     &self.formats,
+                    self.doc,
                     f,
                 )
             }
@@ -232,6 +235,7 @@ impl SqlBenchmarkRunner {
                 display_format,
                 self.engine,
                 &self.formats,
+                self.doc,
                 std::io::stdout().lock(),
             ),
         }
@@ -249,6 +253,7 @@ impl SqlBenchmarkRunner {
             display_format,
             self.engine,
             &self.formats,
+            self.doc,
             output,
         )
     }
@@ -457,6 +462,7 @@ pub fn export_results<W: Write>(
     display_format: &DisplayFormat,
     engine: Engine,
     formats: &[Format],
+    doc: &str,
     mut output: W,
 ) -> anyhow::Result<()> {
     let targets = formats
@@ -467,13 +473,13 @@ pub fn export_results<W: Write>(
     if !memory.is_empty() {
         match display_format {
             DisplayFormat::Table => render_table(&mut output, memory, &targets)?,
-            DisplayFormat::GhJson => print_measurements_json(&mut output, memory)?,
+            DisplayFormat::GhJson => print_measurements_json(&mut output, memory, doc)?,
         };
     }
 
     match display_format {
         DisplayFormat::Table => render_table(&mut output, queries, &targets)?,
-        DisplayFormat::GhJson => print_measurements_json(&mut output, queries)?,
+        DisplayFormat::GhJson => print_measurements_json(&mut output, queries, doc)?,
     };
 
     Ok(())

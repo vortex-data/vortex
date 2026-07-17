@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -83,7 +84,7 @@ impl PartialEq for FieldDTypeInner {
 impl Eq for FieldDTypeInner {}
 
 impl Hash for FieldDTypeInner {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
             FieldDTypeInner::Owned(owned) => {
                 owned.hash(state);
@@ -255,9 +256,30 @@ impl PartialEq for StructFieldsInner {
 impl Eq for StructFieldsInner {}
 
 impl Hash for StructFieldsInner {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.names.hash(state);
         self.dtypes.hash(state);
+    }
+}
+
+impl StructFields {
+    /// Check if these struct fields are equal, ignoring field dtype nullability recursively.
+    pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+            || (self.0.names == other.0.names
+                && self
+                    .fields()
+                    .zip_eq(other.fields())
+                    .all(|(lhs, rhs)| lhs.eq_ignore_nullability(&rhs)))
+    }
+
+    /// Hash these struct fields using the same equivalence relation as
+    /// [`Self::eq_ignore_nullability`].
+    pub(crate) fn hash_ignore_nullability<H: Hasher>(&self, state: &mut H) {
+        self.0.names.hash(state);
+        for field in self.fields() {
+            field.hash_ignore_nullability(state);
+        }
     }
 }
 

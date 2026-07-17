@@ -58,6 +58,10 @@ impl SpatialBenchBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for SpatialBenchBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/spatialbench.md"
+    }
+
     /// All SpatialBench queries, numbered started at Q1 in `spatialbench.sql` file order.
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
         // `;`-separated; a `;` must not appear in a comment, or it would split a statement in two.

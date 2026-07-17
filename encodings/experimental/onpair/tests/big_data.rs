@@ -76,10 +76,9 @@ fn smoke_100k_rows() -> vortex_error::VortexResult<()> {
     let t0 = Instant::now();
     let arr = onpair_compress(&varbin.into_array(), DEFAULT_DICT12_CONFIG, &mut ctx)?;
     let compress_elapsed = t0.elapsed();
-    let bits = arr.bits();
     eprintln!(
-        "compressed {} rows ({} raw bytes) in {:?}, bits={}",
-        n, raw_bytes, compress_elapsed, bits
+        "compressed {} rows ({} raw bytes) in {:?}",
+        n, raw_bytes, compress_elapsed
     );
 
     let arr_ref = arr.into_array();

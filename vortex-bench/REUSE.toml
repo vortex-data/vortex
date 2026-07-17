@@ -10,6 +10,12 @@ path = "**/*.csv"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
 
+# Benchmark suite explainer docs linked from CI PR comments.
+[[annotations]]
+path = "sql/**/*.md"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # `insta` snapshot files do not allow leading comment lines.
 [[annotations]]
 path = "src/snapshots/**.snap"
