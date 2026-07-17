@@ -46,15 +46,15 @@ def test_resolve_axis_targets_offers_vortex_native_on_duckdb_only() -> None:
 def test_resolve_axis_targets_filters_unsupported_combinations() -> None:
     targets, warnings = resolve_axis_targets(
         [Engine.DATAFUSION, Engine.DUCKDB],
-        [Format.ARROW, Format.PARQUET],
+        [Format.LANCE, Format.PARQUET],
     )
 
     assert targets == [
-        BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.ARROW),
+        BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE),
         BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.PARQUET),
         BenchmarkTarget(engine=Engine.DUCKDB, format=Format.PARQUET),
     ]
-    assert warnings == ["Format arrow is not supported by engine duckdb"]
+    assert warnings == ["Format lance is not supported by engine duckdb"]
 
 
 def test_resolve_axis_targets_skips_engines_a_benchmark_cannot_run() -> None:

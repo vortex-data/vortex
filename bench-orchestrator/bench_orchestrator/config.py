@@ -31,7 +31,6 @@ class Engine(Enum):
 class Format(Enum):
     """Data formats for benchmarks."""
 
-    ARROW = "arrow"
     PARQUET = "parquet"
     VORTEX = "vortex"
     VORTEX_COMPACT = "vortex-compact"
@@ -60,7 +59,6 @@ class Benchmark(Enum):
 # Engine to supported formats mapping.
 ENGINE_FORMATS: dict[Engine, list[Format]] = {
     Engine.DATAFUSION: [
-        Format.ARROW,
         Format.PARQUET,
         Format.VORTEX,
         Format.VORTEX_COMPACT,

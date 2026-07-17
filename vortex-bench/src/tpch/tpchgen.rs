@@ -193,7 +193,7 @@ fn generate_table_files(
     options: TpchGenOptions,
 ) -> Result<Vec<BoxFuture<'static, Result<()>>>> {
     let write_format = match options.format {
-        Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => Format::Parquet,
+        Format::Parquet | Format::OnDiskDuckDB => Format::Parquet,
         Format::OnDiskVortex => Format::OnDiskVortex,
         Format::VortexCompact => Format::VortexCompact,
         f => {

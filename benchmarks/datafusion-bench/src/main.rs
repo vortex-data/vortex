@@ -15,7 +15,6 @@ use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
-use datafusion::parquet::arrow::ParquetRecordBatchStreamBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
@@ -24,9 +23,7 @@ use datafusion_bench::tracer::get_static_tracer;
 use datafusion_bench::tracer::set_labels;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
-use futures::StreamExt;
 use parking_lot::Mutex;
-use tokio::fs::File;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::scan::DataSourceRef;
 use vortex_arrow::ToArrowType;
@@ -257,7 +254,6 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     format: Format,
 ) -> anyhow::Result<()> {
     match format {
-        Format::Arrow => register_arrow_tables(session, benchmark).await,
         _ if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) => {
             register_v2_tables(session, benchmark, format).await
         }
@@ -340,63 +336,6 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
 
         let table_provider = Arc::new(VortexTable::new(data_source, SESSION.clone(), arrow_schema));
         session.register_table(table.name, table_provider)?;
-    }
-
-    Ok(())
-}
-
-/// Load Arrow IPC files into in-memory DataFusion tables.
-async fn register_arrow_tables<B: Benchmark + ?Sized>(
-    session: &SessionContext,
-    benchmark: &B,
-) -> anyhow::Result<()> {
-    use datafusion::datasource::MemTable;
-
-    let parquet_dir = benchmark
-        .data_url()
-        .to_file_path()
-        .map_err(|_| anyhow::anyhow!("Arrow format requires local file path"))?
-        .join(Format::Parquet.name());
-
-    // Read all arrow files from the directory
-    let data_files = std::fs::read_dir(&parquet_dir)?.collect::<Result<Vec<_>, _>>()?;
-
-    for table in benchmark.table_specs().iter() {
-        let pattern = benchmark.pattern(table.name, Format::Parquet);
-
-        // Find files matching this table's pattern
-        let matching_files: Vec<_> = data_files
-            .iter()
-            .filter(|entry| {
-                let filename = entry.file_name();
-                let filename_str = filename.to_str().unwrap_or("");
-                match &pattern {
-                    Some(p) => p.matches(filename_str),
-                    None => filename_str == format!("{}.{}", table.name, Format::Parquet.ext()),
-                }
-            })
-            .collect();
-
-        // Load all matching files into memory
-        let mut all_batches = Vec::new();
-        let mut schema = None;
-
-        for dir_entry in matching_files {
-            let file = File::open(dir_entry.path()).await?;
-            let mut reader = ParquetRecordBatchStreamBuilder::new(file).await?.build()?;
-            if schema.is_none() {
-                schema = Some(reader.schema()).cloned();
-            }
-
-            while let Some(batch) = reader.next().await {
-                all_batches.push(batch?);
-            }
-        }
-
-        if let Some(schema) = schema {
-            let mem_table = MemTable::try_new(schema, vec![all_batches])?;
-            session.register_table(table.name, Arc::new(mem_table))?;
-        }
     }
 
     Ok(())

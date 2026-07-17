@@ -141,8 +141,6 @@ impl Display for Target {
 pub enum Format {
     #[clap(name = "csv")]
     Csv,
-    #[clap(name = "arrow")]
-    Arrow,
     #[clap(name = "parquet")]
     Parquet,
     #[clap(name = "vortex")]
@@ -189,7 +187,6 @@ impl Format {
     pub fn name(&self) -> &'static str {
         match self {
             Format::Csv => "csv",
-            Format::Arrow => "arrow",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
@@ -202,7 +199,6 @@ impl Format {
     pub fn ext(&self) -> &'static str {
         match self {
             Format::Csv => "csv",
-            Format::Arrow => "arrow",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
