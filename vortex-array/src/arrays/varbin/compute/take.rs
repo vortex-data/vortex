@@ -437,22 +437,20 @@ where
 
     for &start in starts {
         let start = start.as_();
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         if length == 0 {
             continue;
         }
 
-        let byte_start = offsets[start].as_();
-        let byte_end = offsets[end].as_();
+        let offset_range = &offsets[start..][..=length];
+        let byte_start = offset_range[0].as_();
+        let byte_end = offset_range[length].as_();
         vortex_ensure!(
             byte_start <= byte_end && byte_end <= data.len(),
             "VarBin offsets range {byte_start}..{byte_end} exceeds data length {}",
             data.len()
         );
 
-        for &offset in &offsets[start + 1..=end] {
+        for &offset in &offset_range[1..] {
             let offset = offset.as_();
             let relative = offset.checked_sub(byte_start).ok_or_else(|| {
                 vortex_err!("VarBin offsets are not monotonic at offset {offset}")
@@ -471,16 +469,14 @@ where
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
     for &start in starts {
         let start = start.as_();
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         if length == 0 {
             continue;
         }
 
-        let byte_start = offsets[start].as_();
-        let byte_end = offsets[end].as_();
-        new_data.extend_from_slice(&data[byte_start..byte_end]);
+        let offset_range = &offsets[start..][..=length];
+        let byte_start = offset_range[0].as_();
+        let byte_end = offset_range[length].as_();
+        new_data.extend_from_slice(&data[byte_start..][..byte_end - byte_start]);
     }
 
     let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
@@ -514,9 +510,6 @@ where
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         computed_len = computed_len
             .checked_add(length)
             .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
@@ -524,15 +517,16 @@ where
             continue;
         }
 
-        let byte_start = offsets[start].as_();
-        let byte_end = offsets[end].as_();
+        let offset_range = &offsets[start..][..=length];
+        let byte_start = offset_range[0].as_();
+        let byte_end = offset_range[length].as_();
         vortex_ensure!(
             byte_start <= byte_end && byte_end <= data.len(),
             "VarBin offsets range {byte_start}..{byte_end} exceeds data length {}",
             data.len()
         );
 
-        for &offset in &offsets[start + 1..=end] {
+        for &offset in &offset_range[1..] {
             let offset = offset.as_();
             let relative = offset.checked_sub(byte_start).ok_or_else(|| {
                 vortex_err!("VarBin offsets are not monotonic at offset {offset}")
@@ -556,16 +550,14 @@ where
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         if length == 0 {
             continue;
         }
 
-        let byte_start = offsets[start].as_();
-        let byte_end = offsets[end].as_();
-        new_data.extend_from_slice(&data[byte_start..byte_end]);
+        let offset_range = &offsets[start..][..=length];
+        let byte_start = offset_range[0].as_();
+        let byte_end = offset_range[length].as_();
+        new_data.extend_from_slice(&data[byte_start..][..byte_end - byte_start]);
     }
 
     let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)

@@ -198,10 +198,7 @@ where
     let mut result = BufferMut::<T>::with_capacity(output_len);
     for &start in starts {
         let start = start.as_();
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
-        result.extend_from_slice(&values[start..end]);
+        result.extend_from_slice(&values[start..][..length]);
     }
 
     Ok(result.freeze())
@@ -223,13 +220,10 @@ where
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         computed_len = computed_len
             .checked_add(length)
             .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-        result.extend_from_slice(&values[start..end]);
+        result.extend_from_slice(&values[start..][..length]);
     }
 
     vortex_ensure!(

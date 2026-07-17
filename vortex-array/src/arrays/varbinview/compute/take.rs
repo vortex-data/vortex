@@ -173,10 +173,7 @@ where
     let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
     for &start in starts {
         let start = start.as_();
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
-        views.extend_from_slice(&source[start..end]);
+        views.extend_from_slice(&source[start..][..length]);
     }
 
     Ok(views.freeze())
@@ -197,13 +194,10 @@ where
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        let end = start
-            .checked_add(length)
-            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
         computed_len = computed_len
             .checked_add(length)
             .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
-        views.extend_from_slice(&source[start..end]);
+        views.extend_from_slice(&source[start..][..length]);
     }
 
     vortex_ensure!(
