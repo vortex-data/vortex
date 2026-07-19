@@ -1,10 +1,8 @@
-# SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: Copyright (c) 2024 Development Seed
-
 # TODO: move to reusable types package
+import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Self, TypeAlias, Unpack, overload
+from typing import Any, overload
 
 from ._aws import S3Config as S3Config
 from ._aws import S3Credential as S3Credential
@@ -25,6 +23,16 @@ from ._gcs import GCSStore as GCSStore
 from ._http import HTTPStore as HTTPStore
 from ._retry import BackoffConfig as BackoffConfig
 from ._retry import RetryConfig as RetryConfig
+
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
+
+if sys.version_info >= (3, 11):
+    from typing import Self, Unpack
+else:
+    from typing_extensions import Self, Unpack
 
 @overload
 def from_url(
@@ -72,38 +80,32 @@ def from_url(  # type: ignore[misc] # docstring in pyi file
     config: S3Config | GCSConfig | AzureConfig | None = None,
     client_options: ClientConfig | None = None,
     retry_config: RetryConfig | None = None,
-    credential_provider: Callable[..., object] | None = None,
-    **kwargs: object,
+    credential_provider: Callable | None = None,
+    **kwargs: Any,
 ) -> ObjectStore:
     """Easy construction of store by URL, identifying the relevant store.
 
     This will defer to a store-specific `from_url` constructor based on the provided
     `url`. E.g. passing `"s3://bucket/path"` will defer to
-    [`S3Store.from_url`][vortex.store.S3Store.from_url].
+    [`S3Store.from_url`][obstore.store.S3Store.from_url].
 
     Supported formats:
 
-    - `file:///path/to/my/file` -> [`LocalStore`][vortex.store.LocalStore]
-    - `memory:///` -> [`MemoryStore`][vortex.store.MemoryStore]
-    - `s3://bucket/path` -> [`S3Store`][vortex.store.S3Store] (also supports `s3a`)
-    - `gs://bucket/path` -> [`GCSStore`][vortex.store.GCSStore]
-    - `az://account/container/path` -> [`AzureStore`][vortex.store.AzureStore] (also
+    - `file:///path/to/my/file` -> [`LocalStore`][obstore.store.LocalStore]
+    - `memory:///` -> [`MemoryStore`][obstore.store.MemoryStore]
+    - `s3://bucket/path` -> [`S3Store`][obstore.store.S3Store] (also supports `s3a`)
+    - `gs://bucket/path` -> [`GCSStore`][obstore.store.GCSStore]
+    - `az://account/container/path` -> [`AzureStore`][obstore.store.AzureStore] (also
       supports `adl`, `azure`, `abfs`, `abfss`)
-    - `cos://bucket/path` -> OpenDAL-backed Tencent Cloud COS store (requires the
-      `opendal` feature; configure via environment variables such as
-      `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` and `COS_ENDPOINT`)
-    - `oss://bucket/path` -> OpenDAL-backed Alibaba Cloud OSS store (requires the
-      `opendal` feature; configure via `ALIBABACLOUD_ACCESS_KEY_ID` /
-      `ALIBABACLOUD_ACCESS_KEY_SECRET` and `OSS_ENDPOINT`)
-    - `http://mydomain/path` -> [`HTTPStore`][vortex.store.HTTPStore]
-    - `https://mydomain/path` -> [`HTTPStore`][vortex.store.HTTPStore]
+    - `http://mydomain/path` -> [`HTTPStore`][obstore.store.HTTPStore]
+    - `https://mydomain/path` -> [`HTTPStore`][obstore.store.HTTPStore]
 
     There are also special cases for AWS and Azure for `https://{host?}/path` paths:
 
     - `dfs.core.windows.net`, `blob.core.windows.net`, `dfs.fabric.microsoft.com`,
-      `blob.fabric.microsoft.com` -> [`AzureStore`][vortex.store.AzureStore]
-    - `amazonaws.com` -> [`S3Store`][vortex.store.S3Store]
-    - `r2.cloudflarestorage.com` -> [`S3Store`][vortex.store.S3Store]
+      `blob.fabric.microsoft.com` -> [`AzureStore`][obstore.store.AzureStore]
+    - `amazonaws.com` -> [`S3Store`][obstore.store.S3Store]
+    - `r2.cloudflarestorage.com` -> [`S3Store`][obstore.store.S3Store]
 
     !!! note
         For best static typing, use the constructors on individual store classes
@@ -136,13 +138,13 @@ class LocalStore:
     ```
     """
 
-    def __new__(
+    def __init__(
         self,
         prefix: str | Path | None = None,
         *,
         automatic_cleanup: bool = False,
         mkdir: bool = False,
-    ) -> Self:
+    ) -> None:
         """Create a new LocalStore.
 
         Args:
@@ -181,8 +183,8 @@ class LocalStore:
         ```
         """
 
-    def __eq__(self, value: object, /) -> bool: ...  # pyright: ignore[reportImplicitOverride]
-    def __getnewargs_ex__(self) -> tuple[tuple[()], dict[str, object]]: ...
+    def __eq__(self, value: object) -> bool: ...
+    def __getnewargs_ex__(self): ...
     @property
     def prefix(self) -> Path | None:
         """Get the prefix applied to all operations in this store, if any."""
@@ -198,7 +200,9 @@ class MemoryStore:
 
     def __init__(self) -> None: ...
 
-ObjectStore: TypeAlias = AzureStore | GCSStore | HTTPStore | S3Store | LocalStore | MemoryStore
+ObjectStore: TypeAlias = (
+    AzureStore | GCSStore | HTTPStore | S3Store | LocalStore | MemoryStore
+)
 """All supported ObjectStore implementations.
 
 !!! warning "Not importable at runtime"
@@ -209,6 +213,6 @@ ObjectStore: TypeAlias = AzureStore | GCSStore | HTTPStore | S3Store | LocalStor
     from __future__ import annotations
     from typing import TYPE_CHECKING
     if TYPE_CHECKING:
-        from vortex.store import ObjectStore
+        from obstore.store import ObjectStore
     ```
 """

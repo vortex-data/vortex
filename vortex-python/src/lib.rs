@@ -25,6 +25,8 @@ mod file;
 mod io;
 mod iter;
 mod object_store;
+#[cfg(feature = "opendal")]
+mod opendal_store;
 mod python_repr;
 mod registry;
 mod runtime;
@@ -80,6 +82,8 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     file::init(py, m)?;
     io::init(py, m)?;
     iter::init(py, m)?;
+    #[cfg(feature = "opendal")]
+    opendal_store::init(py, m)?;
     runtime::init(py, m)?;
     store::init(py, m)?;
     registry::init(py, m)?;

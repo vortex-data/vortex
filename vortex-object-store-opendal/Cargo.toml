@@ -1,0 +1,26 @@
+[package]
+name = "vortex-object-store-opendal"
+description = "OpenDAL-backed object store (Tencent COS) for Vortex"
+publish = false
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+
+[dependencies]
+object_store = { workspace = true, features = ["cloud"] }
+opendal = { version = "0.57.0", default-features = false, features = [
+    "services-cos",
+] }
+object_store_opendal = "0.57.0"
+url = { workspace = true }
+vortex-utils = { workspace = true }
+
+[lints]
+workspace = true

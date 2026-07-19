@@ -19,6 +19,8 @@ use object_store::path::PathPart;
 use object_store::registry::ObjectStoreRegistry;
 use parking_lot::RwLock;
 use url::Url;
+#[cfg(feature = "opendal")]
+use vortex::utils::aliases::hash_map::HashMap as VortexHashMap;
 
 #[derive(Debug, Default)]
 struct PathEntry {
@@ -75,6 +77,27 @@ impl ObjectStoreRegistry for Registry {
 
     fn resolve(&self, to_resolve: &Url) -> object_store::Result<(Arc<dyn ObjectStore>, Path)> {
         let key = url_key(to_resolve);
+
+        // OpenDAL-backed stores (Tencent COS) use schemes that the `object_store`
+        // crate does not recognize. Resolve them via the optional `opendal` feature, relying on
+        // OpenDAL's environment-variable configuration (e.g. `TENCENTCLOUD_SECRET_ID`).
+        #[cfg(feature = "opendal")]
+        if matches!(to_resolve.scheme(), "cos") {
+            let store =
+                vortex_object_store_opendal::make_opendal_store(to_resolve, &VortexHashMap::new())
+                    .map_err(|e| object_store::Error::Generic {
+                        store: "OpenDAL",
+                        source: Box::new(e),
+                    })?;
+            let path = Path::from_url_path(to_resolve.path()).map_err(|e| {
+                object_store::Error::Generic {
+                    store: "OpenDAL",
+                    source: Box::new(e),
+                }
+            })?;
+            return Ok((store, path));
+        }
+
         {
             let map = self.map.read();
 
