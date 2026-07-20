@@ -269,7 +269,20 @@ impl FooterDeserializer {
             layout_segment,
         )?);
 
-        Footer::from_flatbuffer(footer_bytes, layout_bytes, dtype, file_stats, &self.session)
+        // The file size is always known by the time we parse the footer, since `deserialize`
+        // returns `NeedFileSize` before reaching this point when it is missing.
+        let file_size = self
+            .file_size
+            .vortex_expect("file size is required before parsing the footer");
+
+        Footer::from_flatbuffer(
+            footer_bytes,
+            layout_bytes,
+            dtype,
+            file_stats,
+            file_size,
+            &self.session,
+        )
     }
 }
 
