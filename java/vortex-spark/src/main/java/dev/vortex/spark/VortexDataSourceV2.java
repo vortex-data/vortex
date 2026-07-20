@@ -62,7 +62,7 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      *
      * @param options the data source options containing file paths
      * @return the inferred Spark SQL schema
-     * @throws RuntimeException if required path options are missing
+     * @throws IllegalArgumentException if no Vortex files can be found under the supplied paths
      * @throws RuntimeException if there's an error reading the file or converting the schema
      */
     @Override
@@ -87,7 +87,11 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
                             .findFirst();
 
             if (firstFile.isEmpty()) {
-                throw new RuntimeException(String.format("UNABLE_TO_INFER_SCHEMA format: %s", shortName()));
+                throw new IllegalArgumentException(String.format(
+                        "Unable to infer schema for %s: no .vortex files found under path %s. "
+                                + "Check that the path is correct and contains at least one Vortex file, "
+                                + "or provide an explicit schema.",
+                        shortName(), pathToInfer));
             } else {
                 pathToInfer = firstFile.get();
             }
