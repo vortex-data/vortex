@@ -138,16 +138,6 @@ impl VTable for Patched {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            PatchedSlots::INNER => array.inner().clone(),
-            PatchedSlots::LANE_OFFSETS => array.lane_offsets().clone(),
-            PatchedSlots::PATCH_INDICES => array.patch_indices().clone(),
-            PatchedSlots::PATCH_VALUES => array.patch_values().clone(),
-            _ => vortex_panic!("invalid child index for PatchedArray: {idx}"),
-        }
-    }
-
     fn serialize(
         array: ArrayView<'_, Self>,
         _session: &VortexSession,
