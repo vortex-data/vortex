@@ -146,6 +146,9 @@ pub mod compressor {
 }
 
 /// Logical Vortex data types.
+/// Vortex editions: named, frozen sets of encodings with a read-compatibility guarantee.
+pub mod editions;
+
 pub mod dtype {
     pub use vortex_array::dtype::*;
 }
@@ -305,6 +308,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<MemorySession>()
             .with::<RuntimeSession>();
         vortex_arrow::initialize(&session);
+        editions::register_default_editions(&session);
 
         // `MultiFileSession` holds a `moka` cache whose clock reads `std::time::Instant::now()`
         // when constructed. `Instant` is unsupported on `wasm32` and panics with "time not

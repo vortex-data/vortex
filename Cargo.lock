@@ -9613,6 +9613,7 @@ dependencies = [
  "vortex-bytebool",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
+ "vortex-edition",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-file",
@@ -10092,6 +10093,14 @@ dependencies = [
  "vortex-utils",
  "wkb",
  "zip",
+]
+
+[[package]]
+name = "vortex-edition"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "vortex-session",
 ]
 
 [[package]]
