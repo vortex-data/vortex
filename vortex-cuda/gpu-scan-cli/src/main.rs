@@ -31,9 +31,9 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::SessionExt;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaOpenOptionsExt;
 use vortex_cuda::CudaSession;
 use vortex_cuda::PooledByteBufferReadAt;
-use vortex_cuda::PooledFileReadAt;
 use vortex_cuda::TracingLaunchStrategy;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda::layout::CudaFlatLayoutStrategy;
@@ -158,11 +158,9 @@ async fn cmd_scan(path: PathBuf, gpu_file: bool, json_output: bool) -> VortexRes
     let pool = Arc::clone(cuda_session.pinned_buffer_pool());
     let cuda_stream = cuda_session.stream()?;
     drop(cuda_session);
-    let handle = session.handle();
 
     let gpu_file_handle = if gpu_file {
-        let reader = PooledFileReadAt::open(&path, handle, Arc::clone(&pool), cuda_stream)?;
-        session.open_options().open(Arc::new(reader)).await?
+        session.open_options().with_cuda().open_path(&path).await?
     } else {
         let (recompressed, footer) = recompress_for_gpu(&path, &session).await?;
         let reader = PooledByteBufferReadAt::new(recompressed, Arc::clone(&pool), cuda_stream);

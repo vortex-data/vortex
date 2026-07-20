@@ -71,6 +71,23 @@ pub struct VortexOpenOptions {
     cache_layout_reader: bool,
 }
 
+impl Clone for VortexOpenOptions {
+    fn clone(&self) -> Self {
+        Self {
+            session: self.session.clone(),
+            segment_cache: self.segment_cache.clone(),
+            initial_read_size: self.initial_read_size,
+            file_size: self.file_size,
+            dtype: self.dtype.clone(),
+            footer: self.footer.clone(),
+            initial_read_segments: RwLock::new(self.initial_read_segments.read().clone()),
+            metrics_registry: self.metrics_registry.clone(),
+            labels: self.labels.clone(),
+            cache_layout_reader: self.cache_layout_reader,
+        }
+    }
+}
+
 /// Extension trait for constructing [`VortexOpenOptions`] from a session.
 pub trait OpenOptionsSessionExt:
     ArraySessionExt + LayoutSessionExt + RuntimeSessionExt + MemorySessionExt
@@ -97,6 +114,11 @@ impl<S: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt + MemorySessionEx
 }
 
 impl VortexOpenOptions {
+    /// Return the session this opener is bound to.
+    pub fn session(&self) -> &VortexSession {
+        &self.session
+    }
+
     /// Configure how many bytes to read from the end of the file before parsing the footer.
     ///
     /// The actual read is at least large enough to contain the maximum postscript and EOF marker,
@@ -122,6 +144,15 @@ impl VortexOpenOptions {
     /// initial footer read are also inserted into an internal first-read cache.
     pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
         self.segment_cache = Some(segment_cache);
+        self
+    }
+
+    /// Disable the configured segment cache.
+    ///
+    /// This is useful when deriving an opener for a source whose buffers have different memory
+    /// placement requirements from the configured host cache.
+    pub fn without_segment_cache(mut self) -> Self {
+        self.segment_cache = None;
         self
     }
 

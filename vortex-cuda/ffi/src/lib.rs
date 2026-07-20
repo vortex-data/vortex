@@ -19,13 +19,11 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
-use vortex::io::VortexReadAt;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::session::SessionExt;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaOpenOptionsExt;
 use vortex_cuda::CudaSession;
-use vortex_cuda::PooledFileReadAt;
 use vortex_cuda::arrow::ArrowDeviceArray;
 use vortex_cuda::arrow::ArrowDeviceArrayStream;
 use vortex_cuda::arrow::DeviceArrayExt;
@@ -110,7 +108,10 @@ pub unsafe extern "C-unwind" fn vx_cuda_array_sink_open_file(
     })
 }
 
-/// Scan a local Vortex file through pinned host buffers and export an Arrow C Device stream.
+/// Scan a local Vortex file and export an Arrow C Device stream.
+///
+/// Footer and zone-map reads remain on the host. Data segments are staged through pinned host
+/// buffers and transferred directly to the GPU.
 ///
 /// The file must use encodings and layouts supported by the CUDA execution path, such as files
 /// written by [`vx_cuda_array_sink_open_file`]. Pinned staging buffers are reused across scans made
@@ -140,19 +141,8 @@ pub unsafe extern "C-unwind" fn vx_cuda_scan_path_arrow_device_stream(
 
         let path = unsafe { path.as_str() }?.to_owned();
         let session = session_with_cuda(unsafe { vx_session_ref(session) }?)?;
-        let cuda_session = session.get::<CudaSession>();
-        let stream = cuda_session.stream()?;
-        let pool = Arc::clone(cuda_session.pinned_buffer_pool());
-        drop(cuda_session);
-
-        let reader: Arc<dyn VortexReadAt> = Arc::new(PooledFileReadAt::open(
-            path,
-            session.handle(),
-            pool,
-            stream,
-        )?);
         let array_stream = ffi_runtime().block_on(async {
-            let file = session.open_options().open(reader).await?;
+            let file = session.open_options().with_cuda().open_path(path).await?;
             Ok::<_, vortex::error::VortexError>(file.scan()?.into_array_stream()?.boxed())
         })?;
         let device_stream = array_stream.export_device_array_stream(&session, ffi_runtime())?;
