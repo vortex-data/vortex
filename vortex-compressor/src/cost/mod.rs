@@ -47,5 +47,10 @@ mod model;
 pub use model::Cost;
 pub use model::CostModel;
 
+mod workload;
+pub use workload::OperationCosts;
+pub use workload::OperationWeights;
+pub use workload::WorkloadCost;
+
 mod size;
 pub use size::SizeCost;

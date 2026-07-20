@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -75,6 +76,30 @@ const MIN_CONCURRENCY: u64 = 1;
 /// Maximum number of concurrent conversion streams. This is somewhat arbitary.
 const MAX_CONCURRENCY: u64 = 16;
 
+/// Compression objective used while generating Vortex benchmark files.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WriteProfile {
+    /// Use the production size-oriented compressor.
+    #[default]
+    Default,
+    /// Use field-specific equality and `LIKE` profiles for the FineWeb query suite.
+    FinewebQueries,
+}
+
+impl FromStr for WriteProfile {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "default" => Ok(Self::Default),
+            "fineweb-queries" => Ok(Self::FinewebQueries),
+            _ => anyhow::bail!(
+                "unknown write profile {value:?}; expected default or fineweb-queries"
+            ),
+        }
+    }
+}
+
 /// Returns the available system memory in bytes.
 fn available_memory_bytes() -> u64 {
     System::new_all().available_memory()
@@ -141,6 +166,22 @@ pub async fn convert_parquet_file_to_vortex(
     output_path: &Path,
     compaction: CompactionStrategy,
 ) -> anyhow::Result<()> {
+    convert_parquet_file_to_vortex_with_profile(
+        parquet_path,
+        output_path,
+        compaction,
+        WriteProfile::Default,
+    )
+    .await
+}
+
+/// Convert a single Parquet file to Vortex format with a benchmark-only write profile.
+pub async fn convert_parquet_file_to_vortex_with_profile(
+    parquet_path: &Path,
+    output_path: &Path,
+    compaction: CompactionStrategy,
+    profile: WriteProfile,
+) -> anyhow::Result<()> {
     let file = File::open(parquet_path).await?;
     let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
 
@@ -157,7 +198,7 @@ pub async fn convert_parquet_file_to_vortex(
         .open(output_path)
         .await?;
 
-    write_options_for(compaction, &dtype, is_spatialbench(parquet_path))
+    write_options_for(compaction, profile, &dtype, is_spatialbench(parquet_path))
         .write(
             &mut output_file,
             ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, stream)),
@@ -179,6 +220,7 @@ fn is_spatialbench(path: &Path) -> bool {
 /// unique, so the dictionary builder balloons memory (tens of GB) for zero gain.
 fn write_options_for(
     compaction: CompactionStrategy,
+    profile: WriteProfile,
     dtype: &DType,
     skip_binary_dict: bool,
 ) -> VortexWriteOptions {
@@ -192,14 +234,30 @@ fn write_options_for(
             .collect(),
         _ => Vec::new(),
     };
-    if binary_fields.is_empty() {
+    if binary_fields.is_empty() && profile == WriteProfile::Default {
         return compaction.apply_options(SESSION.write_options());
     }
 
-    let mut builder = WriteStrategyBuilder::default();
-    if matches!(compaction, CompactionStrategy::Compact) {
-        builder =
-            builder.with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
+    let compressor = compressor_builder(compaction);
+    let compressor = match profile {
+        WriteProfile::Default => compressor,
+        WriteProfile::FinewebQueries => compressor.with_like_strings(),
+    };
+    let mut builder = WriteStrategyBuilder::default()
+        .with_btrblocks_builder(compressor)
+        // Layout dictionary eligibility is outside the scheme cost-model boundary. Preserve the
+        // production size-based probe so this experiment changes leaf encodings, not file shape.
+        .with_probe_compressor(compressor_builder(compaction).build());
+    if profile == WriteProfile::FinewebQueries {
+        for name in ["dump", "language"] {
+            builder = builder.with_field_writer(
+                FieldPath::from_name(name),
+                profiled_layout(
+                    compaction,
+                    compressor_builder(compaction).with_equality_strings(),
+                ),
+            );
+        }
     }
     for name in binary_fields {
         builder = builder.with_field_writer(FieldPath::from_name(name), no_dict_layout());
@@ -207,12 +265,33 @@ fn write_options_for(
     SESSION.write_options().with_strategy(builder.build())
 }
 
-/// A chunked + compressed layout that skips dictionary encoding for opaque `Binary` blobs.
-fn no_dict_layout() -> Arc<dyn LayoutStrategy> {
+fn compressor_builder(compaction: CompactionStrategy) -> BtrBlocksCompressorBuilder {
+    match compaction {
+        CompactionStrategy::Compact => BtrBlocksCompressorBuilder::default().with_compact(),
+        CompactionStrategy::Default => BtrBlocksCompressorBuilder::default(),
+    }
+}
+
+fn profiled_layout(
+    compaction: CompactionStrategy,
+    compressor: BtrBlocksCompressorBuilder,
+) -> Arc<dyn LayoutStrategy> {
+    WriteStrategyBuilder::default()
+        .with_btrblocks_builder(compressor)
+        .with_probe_compressor(compressor_builder(compaction).build())
+        .build()
+}
+
+fn compressed_layout(builder: BtrBlocksCompressorBuilder) -> Arc<dyn LayoutStrategy> {
     Arc::new(CompressingStrategy::new(
         ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
-        BtrBlocksCompressorBuilder::default().build(),
+        builder.build(),
     ))
+}
+
+/// A chunked + compressed layout that skips dictionary encoding for opaque `Binary` blobs.
+fn no_dict_layout() -> Arc<dyn LayoutStrategy> {
+    compressed_layout(BtrBlocksCompressorBuilder::default())
 }
 
 /// Convert all Parquet files in a directory to Vortex format.
@@ -225,6 +304,16 @@ fn no_dict_layout() -> Arc<dyn LayoutStrategy> {
 pub async fn convert_parquet_directory_to_vortex(
     input_path: &Path,
     compaction: CompactionStrategy,
+) -> anyhow::Result<()> {
+    convert_parquet_directory_to_vortex_with_profile(input_path, compaction, WriteProfile::Default)
+        .await
+}
+
+/// Convert all Parquet files in a directory using a benchmark-only write profile.
+pub async fn convert_parquet_directory_to_vortex_with_profile(
+    input_path: &Path,
+    compaction: CompactionStrategy,
+    profile: WriteProfile,
 ) -> anyhow::Result<()> {
     let (format, dir_name) = match compaction {
         CompactionStrategy::Compact => (Format::VortexCompact, Format::VortexCompact.name()),
@@ -264,8 +353,13 @@ pub async fn convert_parquet_directory_to_vortex(
                             "Processing file '{filename}' with {:?} strategy",
                             compaction
                         );
-                        convert_parquet_file_to_vortex(&parquet_file_path, &vtx_file, compaction)
-                            .await
+                        convert_parquet_file_to_vortex_with_profile(
+                            &parquet_file_path,
+                            &vtx_file,
+                            compaction,
+                            profile,
+                        )
+                        .await
                     })
                     .await
                     .expect("Failed to write Vortex file")

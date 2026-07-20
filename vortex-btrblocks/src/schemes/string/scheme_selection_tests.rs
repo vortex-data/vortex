@@ -17,6 +17,7 @@ use vortex_fsst::FSST;
 use vortex_session::VortexSession;
 
 use crate::BtrBlocksCompressor;
+use crate::BtrBlocksCompressorBuilder;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
 
@@ -43,6 +44,31 @@ fn test_dict_compressed() -> VortexResult<()> {
     let compressed =
         BtrBlocksCompressor::default().compress(&array_ref, &mut SESSION.create_execution_ctx())?;
     assert!(compressed.is::<Dict>());
+    Ok(())
+}
+
+#[test]
+fn query_profiles_split_low_cardinality_string_selection() -> VortexResult<()> {
+    let array = || {
+        VarBinViewArray::from_iter_str((0..1 << 14).map(|index| {
+            format!(
+                "tenant-{:06}-event-checkout-completed-region-us-east",
+                index % 3
+            )
+        }))
+        .into_array()
+    };
+    let equality = BtrBlocksCompressorBuilder::default()
+        .with_equality_strings()
+        .build()
+        .compress(&array(), &mut SESSION.create_execution_ctx())?;
+    let like = BtrBlocksCompressorBuilder::default()
+        .with_like_strings()
+        .build()
+        .compress(&array(), &mut SESSION.create_execution_ctx())?;
+
+    assert!(equality.is::<Dict>());
+    assert!(like.is::<FSST>());
     Ok(())
 }
 
@@ -87,7 +113,6 @@ fn test_onpair_compressed() -> VortexResult<()> {
 /// FSST-only builder still produces an FSST array.
 #[test]
 fn test_fsst_in_default_scheme_list() -> VortexResult<()> {
-    use crate::BtrBlocksCompressorBuilder;
     use crate::SchemeExt;
     use crate::schemes::string::FSSTScheme;
 

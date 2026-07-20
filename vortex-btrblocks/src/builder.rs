@@ -3,10 +3,15 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
+use std::sync::Arc;
+
+use vortex_compressor::cost::CostModel;
+use vortex_compressor::cost::SizeCost;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
 use crate::CascadingCompressor;
+use crate::PredicateStringCost;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::SchemeId;
@@ -68,8 +73,9 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
-/// By default, all schemes in [`ALL_SCHEMES`] are enabled in a deterministic order. Feature-gated
-/// schemes (Pco, Zstd) are not in `ALL_SCHEMES` and must be added explicitly via
+/// By default, all schemes in [`ALL_SCHEMES`] are enabled in a deterministic order and ranked by
+/// [`SizeCost`]. Feature-gated schemes (Pco, Zstd) are not in `ALL_SCHEMES` and must be added
+/// explicitly via
 /// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or `with_compact` when the
 /// `zstd` feature is enabled.
 ///
@@ -90,12 +96,14 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: Vec<&'static dyn Scheme>,
+    cost_model: Arc<dyn CostModel>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
             schemes: ALL_SCHEMES.to_vec(),
+            cost_model: Arc::new(SizeCost),
         }
     }
 }
@@ -107,6 +115,7 @@ impl BtrBlocksCompressorBuilder {
     pub fn empty() -> Self {
         Self {
             schemes: Vec::new(),
+            cost_model: Arc::new(SizeCost),
         }
     }
 
@@ -208,9 +217,33 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
+    /// Uses a custom model to rank compression candidates.
+    pub fn with_cost_model(mut self, cost_model: Arc<dyn CostModel>) -> Self {
+        self.cost_model = cost_model;
+        self
+    }
+
+    /// Optimizes string selection for a static mix of equality and `LIKE` predicates.
+    ///
+    /// This is an experimental, opt-in profile. All non-string candidate selection retains the
+    /// default size objective.
+    pub fn with_predicate_strings(self) -> Self {
+        self.with_cost_model(Arc::new(PredicateStringCost::default()))
+    }
+
+    /// Optimizes string selection for scalar equality predicates.
+    pub fn with_equality_strings(self) -> Self {
+        self.with_cost_model(Arc::new(PredicateStringCost::equality()))
+    }
+
+    /// Optimizes string selection for `LIKE` predicates and selective materialization.
+    pub fn with_like_strings(self) -> Self {
+        self.with_cost_model(Arc::new(PredicateStringCost::like()))
+    }
+
     /// Builds the configured [`BtrBlocksCompressor`].
     pub fn build(self) -> BtrBlocksCompressor {
-        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
+        BtrBlocksCompressor(CascadingCompressor::new(self.schemes).with_cost_model(self.cost_model))
     }
 }
 

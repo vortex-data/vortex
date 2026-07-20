@@ -30,8 +30,8 @@
 //!
 //! Each `Scheme` implementation declares whether it [`matches`](Scheme::matches) a given
 //! canonical form and, if so, estimates the compression ratio (often by compressing a ~1%
-//! sample). There is no dynamic registry — the set of schemes is fixed at build time via
-//! [`ALL_SCHEMES`].
+//! sample). The configured cost model ranks those estimates. There is no dynamic registry — the
+//! set of schemes is fixed at build time via [`ALL_SCHEMES`].
 //!
 //! Schemes can produce arrays that are themselves further compressed (e.g. FoR then BitPacking),
 //! up to [`MAX_CASCADE`] (3) layers deep. Descendant exclusion rules for of [`SchemeId`] prevents
@@ -68,6 +68,7 @@
 
 mod builder;
 mod canonical_compressor;
+mod predicate_string_cost;
 /// Compression scheme implementations.
 pub mod schemes;
 
@@ -76,8 +77,15 @@ pub mod schemes;
 pub use builder::ALL_SCHEMES;
 pub use builder::BtrBlocksCompressorBuilder;
 pub use canonical_compressor::BtrBlocksCompressor;
+pub use predicate_string_cost::PredicateStringCost;
 pub use schemes::patches::compress_patches;
 pub use vortex_compressor::CascadingCompressor;
+pub use vortex_compressor::cost::Cost;
+pub use vortex_compressor::cost::CostModel;
+pub use vortex_compressor::cost::OperationCosts;
+pub use vortex_compressor::cost::OperationWeights;
+pub use vortex_compressor::cost::SizeCost;
+pub use vortex_compressor::cost::WorkloadCost;
 pub use vortex_compressor::scheme::CompressorContext;
 pub use vortex_compressor::scheme::MAX_CASCADE;
 pub use vortex_compressor::scheme::Scheme;

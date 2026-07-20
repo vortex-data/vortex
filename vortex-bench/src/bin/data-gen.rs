@@ -20,7 +20,8 @@ use vortex_bench::Format;
 use vortex_bench::LogFormat;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
-use vortex_bench::conversions::convert_parquet_directory_to_vortex;
+use vortex_bench::conversions::WriteProfile;
+use vortex_bench::conversions::convert_parquet_directory_to_vortex_with_profile;
 use vortex_bench::create_benchmark;
 use vortex_bench::generate_duckdb_registration_sql;
 use vortex_bench::setup_logging_and_tracing_with_format;
@@ -58,6 +59,9 @@ async fn main() -> anyhow::Result<()> {
     setup_logging_and_tracing_with_format(args.verbose, args.tracing, args.log_format)?;
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
+    let write_profile = opts
+        .get_as::<WriteProfile>("write-profile")
+        .unwrap_or_default();
 
     // Generate base Parquet data - this is the source for all other formats
     benchmark.generate_base_data().await?;
@@ -74,7 +78,12 @@ async fn main() -> anyhow::Result<()> {
             .iter()
             .any(|f| matches!(f, Format::OnDiskVortex))
         {
-            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Default).await?;
+            convert_parquet_directory_to_vortex_with_profile(
+                &base_path,
+                CompactionStrategy::Default,
+                write_profile,
+            )
+            .await?;
         }
 
         if args
@@ -82,7 +91,12 @@ async fn main() -> anyhow::Result<()> {
             .iter()
             .any(|f| matches!(f, Format::VortexCompact))
         {
-            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact).await?;
+            convert_parquet_directory_to_vortex_with_profile(
+                &base_path,
+                CompactionStrategy::Compact,
+                write_profile,
+            )
+            .await?;
         }
 
         if args

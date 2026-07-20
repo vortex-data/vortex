@@ -141,8 +141,15 @@ pub mod buffer {
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    pub use vortex_btrblocks::Cost;
+    pub use vortex_btrblocks::CostModel;
+    pub use vortex_btrblocks::OperationCosts;
+    pub use vortex_btrblocks::OperationWeights;
+    pub use vortex_btrblocks::PredicateStringCost;
     pub use vortex_btrblocks::Scheme;
     pub use vortex_btrblocks::SchemeId;
+    pub use vortex_btrblocks::SizeCost;
+    pub use vortex_btrblocks::WorkloadCost;
 }
 
 /// Logical Vortex data types.

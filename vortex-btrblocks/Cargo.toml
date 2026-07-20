@@ -64,3 +64,8 @@ test = false
 name = "compress_listview"
 harness = false
 test = false
+
+[[bench]]
+name = "predicate_strings"
+harness = false
+test = false

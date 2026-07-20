@@ -236,7 +236,8 @@ on:
                 {"engine": "duckdb", "format": "vortex"},
                 {"engine": "duckdb", "format": "vortex-compact"}
               ],
-              "scale_factor": "100"
+              "scale_factor": "100",
+              "write_profile": "fineweb-queries"
             },
             {
               "id": "fineweb-s3",
@@ -261,7 +262,8 @@ on:
                 {"engine": "duckdb", "format": "vortex"},
                 {"engine": "duckdb", "format": "vortex-compact"}
               ],
-              "scale_factor": "100"
+              "scale_factor": "100",
+              "write_profile": "fineweb-queries"
             },
             {
               "id": "polarsignals",
@@ -576,10 +578,12 @@ jobs:
           RUSTFLAGS: "-C target-cpu=native"
         run: |
           packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
+          features=()
           if [ "${{ inputs.mode }}" != "pr" ]; then
             packages+=(--bin lance-bench)
+            features+=(--features unstable_encodings)
           fi
-          cargo build "${packages[@]}" --profile release_debug --features unstable_encodings
+          cargo build "${packages[@]}" "${features[@]}" --profile release_debug
 
       - name: Generate data
         shell: bash
@@ -588,7 +592,8 @@ jobs:
         run: |
           uv run --project bench-orchestrator vx-bench prepare-data "${{ matrix.subcommand }}" \
             --formats-json '${{ toJSON(matrix.data_formats) }}' \
-            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
+            ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }} \
+            ${{ matrix.write_profile && format('--opt write-profile={0}', matrix.write_profile) || '' }}
 
       - name: Setup AWS CLI
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
