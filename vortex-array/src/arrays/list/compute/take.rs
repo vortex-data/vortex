@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Columnar;
@@ -151,16 +152,12 @@ fn take_slices(
     indices_ref: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let data_validity = array
-        .list_validity()
-        .execute_mask(array.as_ref().len(), ctx)?;
-    if !data_validity.all_true() {
-        return Ok(None);
-    }
-
     let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
         return Ok(None);
     };
+    let data_validity = array
+        .list_validity()
+        .execute_mask(array.as_ref().len(), ctx)?;
     let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
     let output_len = indices_ref.len();
@@ -175,11 +172,20 @@ fn take_slices(
                 &offsets,
                 indices_ref,
                 output_len,
+                &data_validity,
             )?
         }
         Columnar::Canonical(lengths) => {
             let lengths = lengths.into_primitive();
-            take_slices_start_dispatch(array, &starts, &lengths, &offsets, indices_ref, output_len)?
+            take_slices_start_dispatch(
+                array,
+                &starts,
+                &lengths,
+                &offsets,
+                indices_ref,
+                output_len,
+                &data_validity,
+            )?
         }
     };
     Ok(Some(taken))
@@ -192,6 +198,7 @@ fn take_slices_constant_start_dispatch(
     offsets: &PrimitiveArray,
     indices_ref: &ArrayRef,
     output_len: usize,
+    data_validity: &Mask,
 ) -> VortexResult<ArrayRef> {
     match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
         take_slices_constant_offset_dispatch::<S>(
@@ -201,6 +208,7 @@ fn take_slices_constant_start_dispatch(
             offsets,
             indices_ref,
             output_len,
+            data_validity,
         )
     })
 }
@@ -212,6 +220,7 @@ fn take_slices_constant_offset_dispatch<S>(
     offsets: &PrimitiveArray,
     indices_ref: &ArrayRef,
     output_len: usize,
+    data_validity: &Mask,
 ) -> VortexResult<ArrayRef>
 where
     S: UnsignedPType,
@@ -224,6 +233,7 @@ where
             offsets.as_slice::<O>(),
             indices_ref,
             output_len,
+            data_validity,
         )
     })
 }
@@ -235,9 +245,18 @@ fn take_slices_start_dispatch(
     offsets: &PrimitiveArray,
     indices_ref: &ArrayRef,
     output_len: usize,
+    data_validity: &Mask,
 ) -> VortexResult<ArrayRef> {
     match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        take_slices_length_dispatch::<S>(array, starts, lengths, offsets, indices_ref, output_len)
+        take_slices_length_dispatch::<S>(
+            array,
+            starts,
+            lengths,
+            offsets,
+            indices_ref,
+            output_len,
+            data_validity,
+        )
     })
 }
 
@@ -248,6 +267,7 @@ fn take_slices_length_dispatch<S>(
     offsets: &PrimitiveArray,
     indices_ref: &ArrayRef,
     output_len: usize,
+    data_validity: &Mask,
 ) -> VortexResult<ArrayRef>
 where
     S: UnsignedPType,
@@ -260,6 +280,7 @@ where
             offsets,
             indices_ref,
             output_len,
+            data_validity,
         )
     })
 }
@@ -271,6 +292,7 @@ fn take_slices_offset_dispatch<S, L>(
     offsets: &PrimitiveArray,
     indices_ref: &ArrayRef,
     output_len: usize,
+    data_validity: &Mask,
 ) -> VortexResult<ArrayRef>
 where
     S: UnsignedPType,
@@ -284,6 +306,7 @@ where
             offsets.as_slice::<O>(),
             indices_ref,
             output_len,
+            data_validity,
         )
     })
 }
@@ -295,6 +318,7 @@ fn take_slices_constant_length<S, Offset>(
     offsets: &[Offset],
     indices_ref: &ArrayRef,
     output_len: usize,
+    data_validity: &Mask,
 ) -> VortexResult<ArrayRef>
 where
     S: UnsignedPType,
@@ -308,18 +332,35 @@ where
         computed_len == output_len,
         "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
     );
-    let total_elements = piecewise_list_elements_len_constant(offsets, starts, length)?;
+    let all_valid = data_validity.all_true();
+    let total_elements = if all_valid {
+        piecewise_list_elements_len_constant(offsets, starts, length)?
+    } else {
+        piecewise_list_elements_len_constant_validity(offsets, starts, length, data_validity)?
+    };
     let validity = array.validity()?.take(indices_ref)?;
 
     match_smallest_offset_type!(total_elements, |OutputOffset| {
-        let gathered = gather_piecewise_list_constant_length::<S, Offset, OutputOffset>(
-            array.elements(),
-            offsets,
-            starts,
-            length,
-            output_len,
-            total_elements,
-        )?;
+        let gathered = if all_valid {
+            gather_piecewise_list_constant_length::<S, Offset, OutputOffset>(
+                array.elements(),
+                offsets,
+                starts,
+                length,
+                output_len,
+                total_elements,
+            )?
+        } else {
+            gather_piecewise_list_constant_length_validity::<S, Offset, OutputOffset>(
+                array.elements(),
+                offsets,
+                starts,
+                length,
+                output_len,
+                total_elements,
+                data_validity,
+            )?
+        };
 
         // SAFETY: output offsets are rebuilt from valid monotonic source offsets; output elements
         // are exactly the gathered child ranges referenced by those offsets; validity has one bit
@@ -338,6 +379,7 @@ fn take_slices_typed<S, L, Offset>(
     offsets: &[Offset],
     indices_ref: &ArrayRef,
     output_len: usize,
+    data_validity: &Mask,
 ) -> VortexResult<ArrayRef>
 where
     S: UnsignedPType,
@@ -355,17 +397,34 @@ where
         computed_len == output_len,
         "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
     );
-    let total_elements = piecewise_list_elements_len(offsets, starts, lengths)?;
+    let all_valid = data_validity.all_true();
+    let total_elements = if all_valid {
+        piecewise_list_elements_len(offsets, starts, lengths)?
+    } else {
+        piecewise_list_elements_len_validity(offsets, starts, lengths, data_validity)?
+    };
 
     match_smallest_offset_type!(total_elements, |OutputOffset| {
-        let gathered = gather_piecewise_list::<S, L, Offset, OutputOffset>(
-            array.elements(),
-            offsets,
-            starts,
-            lengths,
-            output_len,
-            total_elements,
-        )?;
+        let gathered = if all_valid {
+            gather_piecewise_list::<S, L, Offset, OutputOffset>(
+                array.elements(),
+                offsets,
+                starts,
+                lengths,
+                output_len,
+                total_elements,
+            )?
+        } else {
+            gather_piecewise_list_validity::<S, L, Offset, OutputOffset>(
+                array.elements(),
+                offsets,
+                starts,
+                lengths,
+                output_len,
+                total_elements,
+                data_validity,
+            )?
+        };
         let validity = array.validity()?.take(indices_ref)?;
 
         // SAFETY: output offsets are rebuilt from valid monotonic source offsets; output elements
@@ -409,6 +468,31 @@ where
     Ok(total)
 }
 
+fn piecewise_list_elements_len_constant_validity<S, Offset>(
+    offsets: &[Offset],
+    starts: &[S],
+    length: usize,
+    data_validity: &Mask,
+) -> VortexResult<usize>
+where
+    S: UnsignedPType,
+    Offset: UnsignedPType,
+{
+    if length == 0 {
+        return Ok(0);
+    }
+
+    let mut total = 0usize;
+    for &start in starts {
+        let start: usize = start.as_();
+        let additional = valid_piece_elements_len(offsets, data_validity, start, length)?;
+        total = total
+            .checked_add(additional)
+            .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
+    }
+    Ok(total)
+}
+
 fn piecewise_list_elements_len<S, L, Offset>(
     offsets: &[Offset],
     starts: &[S],
@@ -426,6 +510,53 @@ where
         let offset_range = &offsets[start..][..=length];
         let element_start: usize = offset_range[0].as_();
         let element_end: usize = offset_range[length].as_();
+        total = total
+            .checked_add(element_end - element_start)
+            .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
+    }
+    Ok(total)
+}
+
+fn piecewise_list_elements_len_validity<S, L, Offset>(
+    offsets: &[Offset],
+    starts: &[S],
+    lengths: &[L],
+    data_validity: &Mask,
+) -> VortexResult<usize>
+where
+    S: UnsignedPType,
+    L: UnsignedPType,
+    Offset: UnsignedPType,
+{
+    let mut total = 0usize;
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start: usize = start.as_();
+        let length: usize = length.as_();
+        let additional = valid_piece_elements_len(offsets, data_validity, start, length)?;
+        total = total
+            .checked_add(additional)
+            .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
+    }
+    Ok(total)
+}
+
+fn valid_piece_elements_len<Offset>(
+    offsets: &[Offset],
+    data_validity: &Mask,
+    start: usize,
+    length: usize,
+) -> VortexResult<usize>
+where
+    Offset: UnsignedPType,
+{
+    let offset_range = &offsets[start..][..=length];
+    let mut total = 0usize;
+    for (data_idx, window) in (start..).zip(offset_range.windows(2)) {
+        if !data_validity.value(data_idx) {
+            continue;
+        }
+        let element_start: usize = window[0].as_();
+        let element_end: usize = window[1].as_();
         total = total
             .checked_add(element_end - element_start)
             .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
@@ -482,6 +613,65 @@ where
     let multipliers = ConstantArray::new(1u64, element_starts.len()).into_array();
     // SAFETY: element ranges are derived from validated source list offsets, and total_elements is
     // the sum of the gathered element range lengths. Multiplier 1 preserves contiguous ranges.
+    let element_indices = unsafe {
+        PiecewiseSequenceArray::new_unchecked(
+            element_starts.into_array(),
+            element_lengths.into_array(),
+            multipliers,
+            total_elements,
+        )
+    };
+    let elements = elements.take(element_indices.into_array())?;
+
+    Ok(GatheredList { elements, offsets })
+}
+
+fn gather_piecewise_list_constant_length_validity<S, Offset, OutputOffset>(
+    elements: &ArrayRef,
+    offsets: &[Offset],
+    starts: &[S],
+    length: usize,
+    output_len: usize,
+    total_elements: usize,
+    data_validity: &Mask,
+) -> VortexResult<GatheredList>
+where
+    S: UnsignedPType,
+    Offset: UnsignedPType,
+    OutputOffset: IntegerPType,
+{
+    let offsets_capacity = output_len
+        .checked_add(1)
+        .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
+    let mut new_offsets = BufferMut::<OutputOffset>::with_capacity(offsets_capacity);
+    let mut element_starts = BufferMut::<u64>::with_capacity(output_len);
+    let mut element_lengths = BufferMut::<u64>::with_capacity(output_len);
+    let mut output_elements = 0usize;
+
+    new_offsets.push(OutputOffset::zero());
+    for &start in starts {
+        let start: usize = start.as_();
+        if length == 0 {
+            continue;
+        }
+
+        gather_valid_piece(
+            offsets,
+            data_validity,
+            start,
+            length,
+            &mut new_offsets,
+            &mut element_starts,
+            &mut element_lengths,
+            &mut output_elements,
+        );
+    }
+    debug_assert_eq!(output_elements, total_elements);
+
+    let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array();
+    let multipliers = ConstantArray::new(1u64, element_starts.len()).into_array();
+    // SAFETY: element ranges come only from valid source list rows. Source list construction
+    // validated those row offsets, and null source rows produce no element range.
     let element_indices = unsafe {
         PiecewiseSequenceArray::new_unchecked(
             element_starts.into_array(),
@@ -557,6 +747,99 @@ where
     let elements = elements.take(element_indices.into_array())?;
 
     Ok(GatheredList { elements, offsets })
+}
+
+fn gather_piecewise_list_validity<S, L, Offset, OutputOffset>(
+    elements: &ArrayRef,
+    offsets: &[Offset],
+    starts: &[S],
+    lengths: &[L],
+    output_len: usize,
+    total_elements: usize,
+    data_validity: &Mask,
+) -> VortexResult<GatheredList>
+where
+    S: UnsignedPType,
+    L: UnsignedPType,
+    Offset: UnsignedPType,
+    OutputOffset: IntegerPType,
+{
+    let offsets_capacity = output_len
+        .checked_add(1)
+        .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
+    let mut new_offsets = BufferMut::<OutputOffset>::with_capacity(offsets_capacity);
+    let mut element_starts = BufferMut::<u64>::with_capacity(output_len);
+    let mut element_lengths = BufferMut::<u64>::with_capacity(output_len);
+    let mut output_elements = 0usize;
+
+    new_offsets.push(OutputOffset::zero());
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start: usize = start.as_();
+        let length: usize = length.as_();
+        if length == 0 {
+            continue;
+        }
+
+        gather_valid_piece(
+            offsets,
+            data_validity,
+            start,
+            length,
+            &mut new_offsets,
+            &mut element_starts,
+            &mut element_lengths,
+            &mut output_elements,
+        );
+    }
+    debug_assert_eq!(output_elements, total_elements);
+
+    let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array();
+    let multipliers = ConstantArray::new(1u64, element_starts.len()).into_array();
+    // SAFETY: element ranges come only from valid source list rows. Source list construction
+    // validated those row offsets, and null source rows produce no element range.
+    let element_indices = unsafe {
+        PiecewiseSequenceArray::new_unchecked(
+            element_starts.into_array(),
+            element_lengths.into_array(),
+            multipliers,
+            total_elements,
+        )
+    };
+    let elements = elements.take(element_indices.into_array())?;
+
+    Ok(GatheredList { elements, offsets })
+}
+
+fn gather_valid_piece<Offset, OutputOffset>(
+    offsets: &[Offset],
+    data_validity: &Mask,
+    start: usize,
+    length: usize,
+    new_offsets: &mut BufferMut<OutputOffset>,
+    element_starts: &mut BufferMut<u64>,
+    element_lengths: &mut BufferMut<u64>,
+    output_elements: &mut usize,
+) where
+    Offset: UnsignedPType,
+    OutputOffset: IntegerPType,
+{
+    let offset_range = &offsets[start..][..=length];
+    for (data_idx, window) in (start..).zip(offset_range.windows(2)) {
+        if !data_validity.value(data_idx) {
+            new_offsets.push(new_offset_value::<OutputOffset>(*output_elements));
+            continue;
+        }
+
+        let element_start: usize = window[0].as_();
+        let element_end: usize = window[1].as_();
+        let element_length = element_end - element_start;
+        if element_length != 0 {
+            element_starts.push(element_start as u64);
+            element_lengths.push(element_length as u64);
+            *output_elements += element_length;
+        }
+        new_offsets.push(new_offset_value::<OutputOffset>(*output_elements));
+    }
 }
 
 fn new_offset_value<T: IntegerPType>(value: usize) -> T {
@@ -646,6 +929,7 @@ mod test {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray as _;
     use crate::VortexSessionExecute;
@@ -656,6 +940,7 @@ mod test {
     use crate::arrays::ListViewArray;
     use crate::arrays::PiecewiseSequenceArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::listview::ListViewArrayExt;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -887,6 +1172,104 @@ mod test {
                 Nullability::NonNullable
             )
         );
+    }
+
+    #[test]
+    fn piecewise_sequence_take_nullable_list_constant_lengths() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let list = ListArray::try_new(
+            buffer![0i32, 1, 99, 100, 2, 3, 4, 5].into_array(),
+            buffer![0u32, 2, 4, 7, 8].into_array(),
+            Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array()),
+        )?
+        .into_array();
+        let idx = PiecewiseSequenceArray::try_new(
+            buffer![0u64].into_array(),
+            ConstantArray::new(4u64, 1).into_array(),
+            ConstantArray::new(1u64, 1).into_array(),
+            4,
+        )?
+        .into_array();
+
+        let result = list.take(idx)?.execute::<ListViewArray>(&mut ctx)?;
+        assert_eq!(result.offset_at(0), 0);
+        assert_eq!(result.size_at(0), 2);
+        assert_eq!(result.offset_at(1), 2);
+        assert_eq!(result.size_at(1), 0);
+        assert_eq!(result.offset_at(2), 2);
+        assert_eq!(result.size_at(2), 3);
+        assert_eq!(result.offset_at(3), 5);
+        assert_eq!(result.size_at(3), 1);
+
+        let element_dtype: Arc<DType> = Arc::new(I32.into());
+        assert_eq!(
+            result.execute_scalar(0, &mut ctx)?,
+            Scalar::list(
+                Arc::clone(&element_dtype),
+                vec![0i32.into(), 1.into()],
+                Nullability::Nullable
+            )
+        );
+        assert!(result.is_invalid(1, &mut ctx)?);
+        assert_eq!(
+            result.execute_scalar(2, &mut ctx)?,
+            Scalar::list(
+                Arc::clone(&element_dtype),
+                vec![2i32.into(), 3.into(), 4.into()],
+                Nullability::Nullable
+            )
+        );
+        assert_eq!(
+            result.execute_scalar(3, &mut ctx)?,
+            Scalar::list(element_dtype, vec![5i32.into()], Nullability::Nullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn piecewise_sequence_take_nullable_list_array_lengths() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let list = ListArray::try_new(
+            buffer![0i32, 1, 99, 100, 2, 3, 4, 5].into_array(),
+            buffer![0u32, 2, 4, 7, 8].into_array(),
+            Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array()),
+        )?
+        .into_array();
+        let idx = PiecewiseSequenceArray::try_new(
+            buffer![1u64, 0].into_array(),
+            buffer![2u64, 1].into_array(),
+            ConstantArray::new(1u64, 2).into_array(),
+            3,
+        )?
+        .into_array();
+
+        let result = list.take(idx)?.execute::<ListViewArray>(&mut ctx)?;
+        assert_eq!(result.offset_at(0), 0);
+        assert_eq!(result.size_at(0), 0);
+        assert_eq!(result.offset_at(1), 0);
+        assert_eq!(result.size_at(1), 3);
+        assert_eq!(result.offset_at(2), 3);
+        assert_eq!(result.size_at(2), 2);
+
+        let element_dtype: Arc<DType> = Arc::new(I32.into());
+        assert!(result.is_invalid(0, &mut ctx)?);
+        assert_eq!(
+            result.execute_scalar(1, &mut ctx)?,
+            Scalar::list(
+                Arc::clone(&element_dtype),
+                vec![2i32.into(), 3.into(), 4.into()],
+                Nullability::Nullable
+            )
+        );
+        assert_eq!(
+            result.execute_scalar(2, &mut ctx)?,
+            Scalar::list(
+                element_dtype,
+                vec![0i32.into(), 1.into()],
+                Nullability::Nullable
+            )
+        );
+        Ok(())
     }
 
     #[test]
