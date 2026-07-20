@@ -24,8 +24,8 @@ use crate::arrays::PiecewiseSequence;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::SpareBufferWriter;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
-use crate::arrays::piecewise_sequence::copy_slice_to_spare;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -246,21 +246,13 @@ where
     L: UnsignedPType,
 {
     let mut values = BufferMut::<T>::with_capacity(output_len);
-    let mut cursor = 0usize;
+    let mut writer = SpareBufferWriter::new(&mut values, output_len)?;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        cursor = copy_slice_to_spare(&mut values, cursor, &source[start..][..length], output_len)?;
+        writer.copy_slice(&source[start..][..length])?;
     }
-
-    vortex_ensure!(
-        cursor == output_len,
-        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
-        cursor
-    );
-    // SAFETY: `copy_slice_to_spare` checked every write against `output_len`, and `cursor ==
-    // output_len` proves all slots were initialized.
-    unsafe { values.set_len(output_len) };
+    writer.finish()?;
     Ok(values.freeze())
 }
 
@@ -317,19 +309,14 @@ where
     );
 
     let mut values = BufferMut::<T>::with_capacity(output_len);
-    let mut cursor = 0usize;
+    let mut writer = SpareBufferWriter::new(&mut values, output_len)?;
     for &start in starts {
         let start = start.as_();
-        cursor = copy_slice_to_spare(&mut values, cursor, &source[start..][..length], output_len)?;
+        // SAFETY: `computed_len == output_len` proves that all fixed-length slices fit in the
+        // output buffer.
+        unsafe { writer.copy_slice_unchecked(&source[start..][..length]) };
     }
-
-    vortex_ensure!(
-        cursor == output_len,
-        "PiecewiseSequenceArray expanded length {cursor} does not match declared length {output_len}"
-    );
-    // SAFETY: `copy_slice_to_spare` checked every write against `output_len`, and `cursor ==
-    // output_len` proves all slots were initialized.
-    unsafe { values.set_len(output_len) };
+    writer.finish()?;
     Ok(values.freeze())
 }
 

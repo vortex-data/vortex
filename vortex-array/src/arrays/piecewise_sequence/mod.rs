@@ -94,38 +94,78 @@ pub(crate) fn is_constant_one(multipliers: &ArrayRef) -> bool {
     )
 }
 
-pub(crate) fn copy_slice_to_spare<T: Copy>(
-    buffer: &mut BufferMut<T>,
-    cursor: usize,
-    source: &[T],
+pub(crate) struct SpareBufferWriter<'a, T> {
+    buffer: &'a mut BufferMut<T>,
+    next: *mut T,
+    remaining: usize,
     output_len: usize,
-) -> VortexResult<usize> {
-    let end = cursor
-        .checked_add(source.len())
-        .ok_or_else(|| vortex_err!("slice copy output length overflows usize"))?;
-    vortex_ensure!(
-        end <= output_len,
-        "slice copy length {end} exceeds declared output length {output_len}"
-    );
-    vortex_ensure!(
-        buffer.is_empty(),
-        "slice copy buffer already has {} initialized values",
-        buffer.len()
-    );
-    vortex_ensure!(
-        output_len <= buffer.capacity(),
-        "slice copy output length {output_len} exceeds buffer capacity {}",
-        buffer.capacity()
-    );
+}
 
-    // SAFETY: the checks above prove `cursor..end` is inside the spare capacity of an
-    // uninitialized buffer allocated for at least `output_len` values.
-    let dst = unsafe { buffer.spare_capacity_mut().get_unchecked_mut(cursor..end) };
-    // SAFETY: `dst` has exactly `source.len()` writable slots and does not overlap with `source`.
-    unsafe {
-        ptr::copy_nonoverlapping(source.as_ptr(), dst.as_mut_ptr().cast(), source.len());
+impl<'a, T: Copy> SpareBufferWriter<'a, T> {
+    pub(crate) fn new(buffer: &'a mut BufferMut<T>, output_len: usize) -> VortexResult<Self> {
+        vortex_ensure!(
+            buffer.is_empty(),
+            "slice copy buffer already has {} initialized values",
+            buffer.len()
+        );
+        vortex_ensure!(
+            output_len <= buffer.capacity(),
+            "slice copy output length {output_len} exceeds buffer capacity {}",
+            buffer.capacity()
+        );
+
+        let next = buffer.spare_capacity_mut().as_mut_ptr().cast();
+        Ok(Self {
+            buffer,
+            next,
+            remaining: output_len,
+            output_len,
+        })
     }
-    Ok(end)
+
+    #[inline]
+    pub(crate) fn copy_slice(&mut self, source: &[T]) -> VortexResult<()> {
+        vortex_ensure!(
+            source.len() <= self.remaining,
+            "slice copy length {} exceeds remaining output length {}",
+            source.len(),
+            self.remaining
+        );
+        // SAFETY: the check above proves that `source` fits in the remaining output slots.
+        unsafe { self.copy_slice_unchecked(source) };
+        Ok(())
+    }
+
+    /// Copies `source` to the next output slots without checking the remaining output length.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `source.len()` does not exceed the remaining output length.
+    #[inline]
+    pub(crate) unsafe fn copy_slice_unchecked(&mut self, source: &[T]) {
+        debug_assert!(source.len() <= self.remaining);
+        // SAFETY: `next` points to the first unwritten slot, the caller guarantees the source fits
+        // in the remaining capacity, and the mutable buffer borrow prevents reallocation.
+        unsafe {
+            ptr::copy_nonoverlapping(source.as_ptr(), self.next, source.len());
+            self.next = self.next.add(source.len());
+        }
+        self.remaining -= source.len();
+    }
+
+    pub(crate) fn finish(self) -> VortexResult<()> {
+        vortex_ensure!(
+            self.remaining == 0,
+            "slice copy length {} does not match declared output length {}",
+            self.output_len - self.remaining,
+            self.output_len
+        );
+        // SAFETY: successful calls to the copy methods initialized exactly `output_len` slots.
+        unsafe {
+            self.buffer.set_len(self.output_len);
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn constant_unsigned_usize(array: &ConstantArray) -> usize {
