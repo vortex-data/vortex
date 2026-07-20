@@ -5,10 +5,13 @@ use itertools::Itertools as _;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
@@ -20,7 +23,7 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::list::ListArrayExt;
-use crate::arrays::piecewise_sequence::ConstantOrArray;
+use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::ArrayBuilder;
@@ -164,23 +167,34 @@ fn take_piecewise_sequence(
     let offsets = offsets.reinterpret_cast(offsets.ptype().to_unsigned());
     let output_len = indices_ref.len();
 
-    let taken = match &lengths {
-        ConstantOrArray::Constant(length) => take_piecewise_sequence_constant_dispatch(
-            array,
-            &starts,
-            *length,
-            &offsets,
-            indices_ref,
-            output_len,
-        )?,
-        ConstantOrArray::Array(lengths) => take_piecewise_sequence_lengths_dispatch(
-            array,
-            &starts,
-            lengths,
-            &offsets,
-            indices_ref,
-            output_len,
-        )?,
+    let taken = match lengths {
+        Columnar::Constant(lengths) => {
+            let length = constant_unsigned_usize(&lengths)?;
+            take_piecewise_sequence_constant_dispatch(
+                array,
+                &starts,
+                length,
+                &offsets,
+                indices_ref,
+                output_len,
+            )?
+        }
+        Columnar::Canonical(Canonical::Primitive(lengths)) => {
+            take_piecewise_sequence_lengths_dispatch(
+                array,
+                &starts,
+                &lengths,
+                &offsets,
+                indices_ref,
+                output_len,
+            )?
+        }
+        Columnar::Canonical(lengths) => {
+            vortex_bail!(
+                "PiecewiseSequenceArray lengths must be primitive or constant, got {}",
+                lengths.dtype()
+            )
+        }
     };
     Ok(Some(taken))
 }
