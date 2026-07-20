@@ -121,12 +121,7 @@ pub(super) fn prepare_mask_for_reuse(mask: &MaskValues, consumers: usize) {
         return;
     }
 
-    let first = mask.bit_buffer().select(0);
-    let last = mask.bit_buffer().select(mask.true_count() - 1);
-    if first
-        .zip(last)
-        .is_some_and(|(first, last)| last - first + 1 == mask.true_count())
-    {
+    if super::contiguous_values_range(mask).is_some() {
         return;
     }
 

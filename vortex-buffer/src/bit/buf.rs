@@ -429,6 +429,36 @@ impl BitBuffer {
         bit_select(self.buffer.as_slice(), self.offset, self.len, nth)
     }
 
+    /// Returns the index of the last set bit, or `None` if every bit is unset.
+    ///
+    /// This scans from the end a word at a time, avoiding the full forward scan required by
+    /// [`Self::select`] when selecting the final set bit.
+    #[inline]
+    pub fn last_set_index(&self) -> Option<usize> {
+        let chunks = self.unaligned_chunks();
+        let lead = chunks.lead_padding();
+        let prefix_words = usize::from(chunks.prefix().is_some());
+
+        if let Some(word) = chunks.suffix()
+            && word != 0
+        {
+            let word_index = prefix_words + chunks.chunks().len();
+            return Some(word_index * 64 + 63 - word.leading_zeros() as usize - lead);
+        }
+
+        for (index, &word) in chunks.chunks().iter().enumerate().rev() {
+            if word != 0 {
+                let word_index = prefix_words + index;
+                return Some(word_index * 64 + 63 - word.leading_zeros() as usize - lead);
+            }
+        }
+
+        chunks.prefix().filter(|word| *word != 0).map(|word| {
+            debug_assert!(word.trailing_zeros() as usize >= lead);
+            63 - word.leading_zeros() as usize - lead
+        })
+    }
+
     /// Get the number of unset bits in the buffer.
     #[inline]
     pub fn false_count(&self) -> usize {
@@ -827,6 +857,39 @@ mod tests {
     #[should_panic(expected = "index 5 exceeds len 5")]
     fn test_from_indices_out_of_bounds() {
         BitBuffer::from_indices(5, [0, 5]);
+    }
+
+    #[test]
+    fn last_set_index_handles_offsets_and_padding() {
+        type Pattern = fn(usize) -> bool;
+
+        let patterns: [Pattern; 5] = [
+            |_| false,
+            |index| index == 0,
+            |index| index % 97 == 0,
+            |index| index % 3 == 1,
+            |index| (64..96).contains(&index),
+        ];
+
+        for offset in [0, 3, 8, 13, 67] {
+            for len in [0, 1, 7, 8, 63, 64, 65, 127, 128, 151] {
+                for pattern in patterns {
+                    let backing = BitBuffer::from_iter(
+                        std::iter::repeat_n(true, offset)
+                            .chain((0..len).map(pattern))
+                            .chain(std::iter::repeat_n(true, 7)),
+                    );
+                    let buffer = BitBuffer::new_with_offset(backing.inner().clone(), len, offset);
+                    let expected = (0..len).rfind(|&index| pattern(index));
+
+                    assert_eq!(
+                        buffer.last_set_index(),
+                        expected,
+                        "offset={offset} len={len}"
+                    );
+                }
+            }
+        }
     }
 
     #[rstest]

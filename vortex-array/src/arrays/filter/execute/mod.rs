@@ -50,9 +50,43 @@ pub(crate) fn filter_validity(validity: Validity, mask: &MaskValuesRef) -> Valid
 }
 
 pub(super) fn contiguous_filter_range(mask: &Mask) -> Option<Range<usize>> {
-    let start = mask.first()?;
-    let end = mask.last()?.checked_add(1)?;
-    (end - start == mask.true_count()).then_some(start..end)
+    match mask {
+        Mask::AllTrue(len) => (*len > 0).then_some(0..*len),
+        Mask::AllFalse(_) => None,
+        Mask::Values(values) => contiguous_values_range(values),
+    }
+}
+
+fn contiguous_values_range(mask: &MaskValues) -> Option<Range<usize>> {
+    if let Some(slices) = mask.cached_slices() {
+        return match slices {
+            [(start, end)] => Some(*start..*end),
+            _ => None,
+        };
+    }
+
+    if let Some(indices) = mask.cached_indices() {
+        let start = *indices.first()?;
+        let end = indices.last()?.checked_add(1)?;
+        return (end - start == indices.len()).then_some(start..end);
+    }
+
+    let true_count = mask.true_count();
+    let start = mask.bit_buffer().set_indices().next()?;
+    let end = start.checked_add(true_count)?;
+    if end > mask.len() {
+        return None;
+    }
+
+    // Probe from the cheaper side: count the candidate run for sparse masks, or find the final
+    // set bit from the end for dense masks. This bounds the uncached work by the smaller half of
+    // the bitmap while retaining the zero-copy path.
+    let contiguous = if true_count <= mask.len() / 2 {
+        mask.bit_buffer().count_range(start, end) == true_count
+    } else {
+        mask.bit_buffer().last_set_index() == Some(end - 1)
+    };
+    contiguous.then_some(start..end)
 }
 
 pub(super) fn prepare_mask_for_reuse(mask: &MaskValues, consumers: usize) {
@@ -131,6 +165,7 @@ fn filter_map(array: &MapArray, mask: &MaskValuesRef) -> MapArray {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
 
     use super::*;
@@ -154,8 +189,67 @@ mod tests {
     }
 
     #[test]
+    fn uncached_contiguous_filter_executes_as_zero_copy_slice() -> VortexResult<()> {
+        let array = PrimitiveArray::from_iter(0i32..128);
+        let original = array.to_buffer::<i32>();
+        let mask = Mask::from_buffer(BitBuffer::from_iter(
+            (0..128).map(|index| (37..91).contains(&index)),
+        ));
+        assert!(mask.values().is_some_and(|values| {
+            values.cached_indices().is_none() && values.cached_slices().is_none()
+        }));
+
+        let filtered = array
+            .into_array()
+            .filter(mask)?
+            .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
+        let filtered_values = filtered.to_buffer::<i32>();
+
+        assert_eq!(filtered_values.as_slice(), &(37..91).collect::<Vec<_>>());
+        assert_eq!(filtered_values.as_ptr(), original.as_ptr().wrapping_add(37));
+        Ok(())
+    }
+
+    #[test]
     fn fragmented_filter_is_not_a_contiguous_range() {
         let mask = Mask::from_indices(8, [1, 2, 5, 6]);
         assert_eq!(contiguous_filter_range(&mask), None);
+    }
+
+    #[test]
+    fn uncached_contiguous_range_handles_sparse_and_dense_masks() {
+        let cases = [
+            (
+                Mask::from_buffer(BitBuffer::from_iter(
+                    (0..128).map(|index| (37..41).contains(&index)),
+                )),
+                Some(37..41),
+            ),
+            (
+                Mask::from_buffer(BitBuffer::from_iter(
+                    (0..128).map(|index| (3..125).contains(&index)),
+                )),
+                Some(3..125),
+            ),
+            (
+                Mask::from_buffer(BitBuffer::from_iter(
+                    (0..128).map(|index| matches!(index, 1 | 40 | 90)),
+                )),
+                None,
+            ),
+            (
+                Mask::from_buffer(BitBuffer::from_iter(
+                    (0..128).map(|index| !matches!(index, 17 | 63)),
+                )),
+                None,
+            ),
+        ];
+
+        for (mask, expected) in cases {
+            assert!(mask.values().is_some_and(|values| {
+                values.cached_indices().is_none() && values.cached_slices().is_none()
+            }));
+            assert_eq!(contiguous_filter_range(&mask), expected);
+        }
     }
 }
