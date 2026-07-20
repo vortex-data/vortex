@@ -7,12 +7,15 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::PiecewiseSequence;
@@ -20,7 +23,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::ConstantOrArray;
+use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::varbin::VarBinArrayExt;
@@ -143,23 +146,32 @@ fn take_contiguous_ranges(
     let dtype = array.dtype().clone();
     let output_len = indices_ref.len();
 
-    let result = match &lengths {
-        ConstantOrArray::Constant(length) => gather_slices_constant_dispatch(
+    let result = match lengths {
+        Columnar::Constant(lengths) => {
+            let length = constant_unsigned_usize(&lengths)?;
+            gather_slices_constant_dispatch(
+                &starts,
+                length,
+                &offsets,
+                data,
+                output_len,
+                out_offset_ptype,
+            )?
+        }
+        Columnar::Canonical(Canonical::Primitive(lengths)) => gather_slices_dispatch(
             &starts,
-            *length,
+            &lengths,
             &offsets,
             data,
             output_len,
             out_offset_ptype,
         )?,
-        ConstantOrArray::Array(lengths) => gather_slices_dispatch(
-            &starts,
-            lengths,
-            &offsets,
-            data,
-            output_len,
-            out_offset_ptype,
-        )?,
+        Columnar::Canonical(lengths) => {
+            vortex_bail!(
+                "PiecewiseSequenceArray lengths must be primitive or constant, got {}",
+                lengths.dtype()
+            )
+        }
     };
 
     let validity = array.validity()?.take(indices_ref)?;
