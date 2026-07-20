@@ -73,15 +73,11 @@ impl Footer {
     }
 
     /// Read the [`Footer`] from a flatbuffer.
-    ///
-    /// `file_size` is the total size of the file in bytes and is used to validate that every
-    /// segment declared in the footer lies within the file.
     pub(crate) fn from_flatbuffer(
         footer_bytes: &[u8],
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
-        file_size: u64,
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let approx_byte_size = footer_bytes.len() + layout_bytes.len();
@@ -127,11 +123,6 @@ impl Footer {
         if !segments.is_sorted_by_key(|segment| segment.offset) {
             vortex_bail!("Segment offsets are not ordered");
         }
-
-        // A corrupt or malicious file can declare a segment whose offset or length extends past
-        // the end of the file. Reject such files here so that later slicing of the backing buffer
-        // returns a `VortexError` rather than panicking (see issue #8819).
-        validate_segments_within_file(&segments, file_size)?;
 
         Ok(Self {
             root_layout,
@@ -179,6 +170,11 @@ impl Footer {
     /// Returns the number of rows in the file.
     pub fn row_count(&self) -> u64 {
         self.root_layout.row_count()
+    }
+
+    /// Validate that every segment declared in the footer lies within a file of `file_size` bytes.
+    pub(crate) fn validate_file_size(&self, file_size: u64) -> VortexResult<()> {
+        validate_segments_within_file(&self.segments, file_size)
     }
 
     /// Returns a serializer for this footer.

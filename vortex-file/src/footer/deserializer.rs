@@ -40,8 +40,8 @@ pub struct FooterDeserializer {
 
     // Internal state that we accumulate
 
-    // The file size, possibly provided externally.
-    file_size: Option<u64>,
+    // The size of the byte stream containing the serialized footer.
+    stream_size: Option<u64>,
     // The postscript, once we've parsed it.
     postscript: Option<Postscript>,
 }
@@ -52,7 +52,7 @@ impl FooterDeserializer {
             buffer: initial_read,
             session,
             dtype: None,
-            file_size: None,
+            stream_size: None,
             postscript: None,
         }
     }
@@ -71,15 +71,19 @@ impl FooterDeserializer {
         self
     }
 
-    /// Provide the total file size.
-    pub fn with_size(mut self, file_size: u64) -> Self {
-        self.file_size = Some(file_size);
+    /// Provide the total size of the byte stream containing this serialized footer.
+    ///
+    /// For a footer read from the end of a Vortex file, this is the file size. For a standalone
+    /// blob created by [`crate::footer::FooterSerializer`] with its default offset, this is the
+    /// size of that blob, not the size of the data file described by the footer.
+    pub fn with_size(mut self, stream_size: u64) -> Self {
+        self.stream_size = Some(stream_size);
         self
     }
 
-    /// Provide or clear the total file size.
-    pub fn with_some_size(mut self, file_size: Option<u64>) -> Self {
-        self.file_size = file_size;
+    /// Provide or clear the total size of the byte stream containing this serialized footer.
+    pub fn with_some_size(mut self, stream_size: Option<u64>) -> Self {
+        self.stream_size = stream_size;
         self
     }
 
@@ -120,11 +124,18 @@ impl FooterDeserializer {
         // The other postscript segments are required, so now we figure out our the offset that
         // contains all the required segments.
 
-        // The initial offset is the file size - the size of our initial read.
-        let Some(file_size) = self.file_size else {
+        // The initial offset is the byte stream size minus the size of our initial read.
+        let Some(stream_size) = self.stream_size else {
             return Ok(DeserializeStep::NeedFileSize);
         };
-        let initial_offset = file_size - (self.buffer.len() as u64);
+        let initial_offset = stream_size
+            .checked_sub(self.buffer.len() as u64)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Footer buffer length {} exceeds declared byte stream size {stream_size}",
+                    self.buffer.len()
+                )
+            })?;
 
         let mut read_more_offset = initial_offset;
         if let Some(dtype_segment) = &dtype_segment {
@@ -269,20 +280,7 @@ impl FooterDeserializer {
             layout_segment,
         )?);
 
-        // The file size is always known by the time we parse the footer, since `deserialize`
-        // returns `NeedFileSize` before reaching this point when it is missing.
-        let file_size = self
-            .file_size
-            .vortex_expect("file size is required before parsing the footer");
-
-        Footer::from_flatbuffer(
-            footer_bytes,
-            layout_bytes,
-            dtype,
-            file_stats,
-            file_size,
-            &self.session,
-        )
+        Footer::from_flatbuffer(footer_bytes, layout_bytes, dtype, file_stats, &self.session)
     }
 }
 
@@ -386,6 +384,25 @@ mod tests {
         assert!(err.to_string().contains("out of bounds"), "{err}");
         Ok(())
     }
+
+    #[test]
+    fn deserialize_rejects_buffer_larger_than_declared_size() -> VortexResult<()> {
+        let postscript = Postscript {
+            dtype: None,
+            layout: segment(0, 1),
+            statistics: None,
+            footer: segment(1, 1),
+        };
+        let buffer = eof_buffer(&postscript)?;
+        let declared_size = buffer.len() as u64 - 1;
+
+        let mut deserializer = FooterDeserializer::new(buffer, array_session())
+            .with_dtype(DType::Primitive(PType::I32, Nullability::NonNullable))
+            .with_size(declared_size);
+        let err = deserializer.deserialize().unwrap_err();
+        assert!(err.to_string().contains("exceeds declared"), "{err}");
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -398,7 +415,7 @@ pub enum DeserializeStep {
         /// Number of bytes to read and prefix into the deserializer.
         len: usize,
     },
-    /// The total file size is required before offsets can be resolved.
+    /// The total size of the byte stream is required before offsets can be resolved.
     NeedFileSize,
     /// Footer deserialization is complete.
     Done(Footer),

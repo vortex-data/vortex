@@ -218,6 +218,7 @@ impl VortexOpenOptions {
             Some(footer) => footer,
             None => block_on(opts.read_footer(&buffer))?,
         };
+        footer.validate_file_size(buffer.len() as u64)?;
 
         let segment_source = Arc::new(BufferSegmentSource::new(
             buffer,
@@ -246,6 +247,9 @@ impl VortexOpenOptions {
             .unwrap_or_else(|| Arc::new(DefaultMetricsRegistry::default()));
 
         let footer = if let Some(footer) = self.footer {
+            if let Some(file_size) = self.file_size {
+                footer.validate_file_size(file_size)?;
+            }
             footer
         } else {
             self.read_footer(&reader).await?
@@ -324,6 +328,11 @@ impl VortexOpenOptions {
             }
         }?;
 
+        // Segment specs describe the data file, not necessarily the byte stream used to
+        // deserialize a standalone cached footer. Validate them here, where we know this is the
+        // size of the actual data source (see issue #8819).
+        footer.validate_file_size(file_size)?;
+
         // If the initial read happened to cover any segments, then we can populate the
         // segment cache
         let initial_offset = file_size - (deserializer.buffer().len() as u64);
@@ -351,9 +360,9 @@ impl VortexOpenOptions {
                 SegmentId::from(u32::try_from(idx).vortex_expect("Invalid segment ID"));
             let offset =
                 usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
-            // The segment map is validated against the file size when the footer is parsed, but we
-            // still bounds-check here so slicing never depends on that distant validation for
-            // panic safety (see issue #8819).
+            // The segment map is validated against the file size before this method is called, but
+            // still bounds-check here so slicing never depends on that distant validation for panic
+            // safety (see issue #8819).
             let end = offset
                 .checked_add(segment.length as usize)
                 .filter(|end| *end <= initial_read.len())
@@ -617,6 +626,54 @@ mod tests {
             err.to_string().contains("out of bounds"),
             "unexpected error: {err}"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn standalone_footer_round_trip() -> VortexResult<()> {
+        let session = test_session();
+
+        let mut file_bytes = ByteBufferMut::empty();
+        let values = (0i32..65_536)
+            .map(|value| value.wrapping_mul(1_664_525).wrapping_add(1_013_904_223))
+            .collect::<Vec<_>>();
+        let array = Buffer::from(values).into_array();
+        session
+            .write_options()
+            .write(&mut file_bytes, array.to_array_stream())
+            .await?;
+        let file_bytes = ByteBuffer::from(file_bytes);
+
+        let footer = session
+            .open_options()
+            .open_buffer(file_bytes.clone())?
+            .footer()
+            .clone();
+        let last_segment_end = footer
+            .segment_map()
+            .iter()
+            .map(|segment| segment.offset + u64::from(segment.length))
+            .max()
+            .unwrap_or_default();
+        let serialized_footer = footer.into_serializer().serialize()?;
+        let serialized_footer_size = serialized_footer.iter().map(ByteBuffer::len).sum();
+        assert!(last_segment_end > serialized_footer_size as u64);
+        let mut footer_bytes = ByteBufferMut::with_capacity(serialized_footer_size);
+        for buffer in serialized_footer {
+            footer_bytes.extend_from_slice(&buffer);
+        }
+
+        let mut deserializer = Footer::deserializer(footer_bytes.freeze(), session.clone())
+            .with_size(serialized_footer_size as u64);
+        let DeserializeStep::Done(cached_footer) = deserializer.deserialize()? else {
+            vortex_bail!("standalone footer bytes must be sufficient for deserialization");
+        };
+
+        session
+            .open_options()
+            .with_footer(cached_footer)
+            .open_buffer(file_bytes)?;
 
         Ok(())
     }
