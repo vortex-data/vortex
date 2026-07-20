@@ -32,7 +32,7 @@ table Postscript {
     /// Segment containing the 'Footer' flatbuffer (required)
     footer: PostscriptSegment;
     /// User-defined metadata segments keyed by string. Keys must be unique, non-empty, and at most
-    /// 32 UTF-8 bytes; readers reject postscripts that violate these limits.
+    /// 64 UTF-8 bytes; readers reject postscripts that violate these limits.
     metadata: [PostscriptMetadata];
 }
 

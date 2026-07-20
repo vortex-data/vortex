@@ -415,7 +415,7 @@ impl<'a> Postscript<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_FOOTER, None)}
   }
   /// User-defined metadata segments keyed by string. Keys must be unique, non-empty, and at most
-  /// 32 UTF-8 bytes; readers reject postscripts that violate these limits.
+  /// 64 UTF-8 bytes; readers reject postscripts that violate these limits.
   #[inline]
   pub fn metadata(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PostscriptMetadata<'a>>>> {
     // Safety:

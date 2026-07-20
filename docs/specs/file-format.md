@@ -54,7 +54,7 @@ The postscript contains the locations of:
 2. a `layout` segment containing the root `Layout`
 3. a `statistics` segment containing file-level per-field statistics (e.g., minima and maxima of each field/column, for whole-file pruning)
 4. a `footer` segment containing a dictionary-encoded _segment map_, and other shared configuration such as compression and encryption schemes
-5. up to 16 user-defined `metadata` segments, each identified by a unique, non-empty UTF-8 key of at most 32 bytes
+5. up to 16 user-defined `metadata` segments, each identified by a unique, non-empty UTF-8 key of at most 64 bytes
 
 The postscript carries a locator (offset, length, and alignment) for each metadata segment that is
 present; a file written without user metadata (and any file predating this feature) carries none.
