@@ -50,20 +50,14 @@ fn apply_take(array: ArrayView<'_, ListView>, indices: &ArrayRef) -> VortexResul
     // duplicates.
     let nullable_new_offsets = offsets.take(indices.clone())?;
     let nullable_new_sizes = sizes.take(indices.clone())?;
-    let validity_array = new_validity.to_array(indices.len());
 
-    // Null output rows may carry arbitrary physical offset/size payloads from either the indices
-    // or the source rows. Mask with the final validity before filling so metadata placeholders are
-    // safe and non-nullable.
+    // `take` returns nullable arrays; cast back to non-nullable (filling with zeros to represent
+    // the null lists caused by null indices; the validity mask tracks nullness separately).
     let new_offsets = match_each_integer_ptype!(nullable_new_offsets.dtype().as_ptype(), |O| {
-        nullable_new_offsets
-            .mask(validity_array.clone())?
-            .fill_null(Scalar::primitive(O::zero(), Nullability::NonNullable))?
+        nullable_new_offsets.fill_null(Scalar::primitive(O::zero(), Nullability::NonNullable))?
     });
     let new_sizes = match_each_integer_ptype!(nullable_new_sizes.dtype().as_ptype(), |S| {
-        nullable_new_sizes
-            .mask(validity_array)?
-            .fill_null(Scalar::primitive(S::zero(), Nullability::NonNullable))?
+        nullable_new_sizes.fill_null(Scalar::primitive(S::zero(), Nullability::NonNullable))?
     });
 
     // SAFETY: Take operation maintains all `ListViewArray` invariants:
