@@ -5,10 +5,13 @@ use itertools::Itertools as _;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Decimal;
@@ -16,7 +19,7 @@ use crate::arrays::DecimalArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::ConstantOrArray;
+use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
@@ -70,11 +73,18 @@ fn take_contiguous_ranges(
     let validity = array.validity()?.take(indices_ref)?;
     let output_len = indices_ref.len();
     let taken = match lengths {
-        ConstantOrArray::Constant(length) => {
+        Columnar::Constant(lengths) => {
+            let length = constant_unsigned_usize(&lengths)?;
             take_slices_constant_length(array, &starts, length, validity, output_len)?
         }
-        ConstantOrArray::Array(lengths) => {
+        Columnar::Canonical(Canonical::Primitive(lengths)) => {
             take_slices(array, &starts, &lengths, validity, output_len)?
+        }
+        Columnar::Canonical(lengths) => {
+            vortex_bail!(
+                "PiecewiseSequenceArray lengths must be primitive or constant, got {}",
+                lengths.dtype()
+            )
         }
     };
     Ok(Some(taken))

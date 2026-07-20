@@ -8,11 +8,14 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::BitBufferView;
 use vortex_buffer::get_bit;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
@@ -22,7 +25,7 @@ use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::ConstantOrArray;
+use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::UnsignedPType;
@@ -80,18 +83,19 @@ fn take_contiguous_ranges(
     };
     let source = array.to_bit_buffer();
     let output_len = indices_ref.len();
-    let buffer = match &lengths {
-        ConstantOrArray::Constant(length) => {
+    let buffer = match lengths {
+        Columnar::Constant(lengths) => {
+            let length = constant_unsigned_usize(&lengths)?;
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
                 take_bit_slices_constant_length(
                     &source,
                     starts.as_slice::<S>(),
-                    *length,
+                    length,
                     output_len,
                 )?
             })
         }
-        ConstantOrArray::Array(lengths) => {
+        Columnar::Canonical(Canonical::Primitive(lengths)) => {
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
                 match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
                     take_bit_slices(
@@ -102,6 +106,12 @@ fn take_contiguous_ranges(
                     )?
                 })
             })
+        }
+        Columnar::Canonical(lengths) => {
+            vortex_bail!(
+                "PiecewiseSequenceArray lengths must be primitive or constant, got {}",
+                lengths.dtype()
+            )
         }
     };
 

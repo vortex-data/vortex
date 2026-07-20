@@ -17,9 +17,12 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::array::ArrayView;
+use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
+use crate::dtype::DType;
 use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::scalar::PValue;
@@ -67,29 +70,26 @@ pub(crate) fn execute_index_arrays(
     Ok((starts, lengths, multipliers))
 }
 
-pub(crate) enum ConstantOrArray {
-    Constant(usize),
-    Array(PrimitiveArray),
-}
-
 pub(crate) fn maybe_contiguous_slices(
     array: ArrayView<'_, PiecewiseSequence>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<(PrimitiveArray, ConstantOrArray)>> {
+) -> VortexResult<Option<(PrimitiveArray, Columnar)>> {
     if !is_constant_one(array.multipliers()) {
         return Ok(None);
     }
 
     check_index_arrays(array.starts(), array.lengths(), array.multipliers())?;
     let starts = array.starts().clone().execute::<PrimitiveArray>(ctx)?;
-    if let Some(length) = constant_unsigned_usize(array.lengths())? {
-        check_index_arrays(starts.as_ref(), array.lengths(), array.multipliers())?;
-        return Ok(Some((starts, ConstantOrArray::Constant(length))));
-    }
-
-    let lengths = array.lengths().clone().execute::<PrimitiveArray>(ctx)?;
-    check_index_arrays(starts.as_ref(), lengths.as_ref(), array.multipliers())?;
-    Ok(Some((starts, ConstantOrArray::Array(lengths))))
+    let lengths = array.lengths().clone().execute::<Columnar>(ctx)?;
+    check_index_array("starts", starts.as_ref())?;
+    check_index_columnar("lengths", &lengths)?;
+    vortex_ensure!(
+        starts.len() == lengths.len(),
+        "PiecewiseSequenceArray starts length {} does not match lengths length {}",
+        starts.len(),
+        lengths.len()
+    );
+    Ok(Some((starts, lengths)))
 }
 
 pub(crate) fn is_constant_one(multipliers: &ArrayRef) -> bool {
@@ -102,34 +102,39 @@ pub(crate) fn is_constant_one(multipliers: &ArrayRef) -> bool {
     )
 }
 
-fn constant_unsigned_usize(array: &ArrayRef) -> VortexResult<Option<usize>> {
-    let Some(scalar) = array.as_constant() else {
-        return Ok(None);
-    };
-
+pub(crate) fn constant_unsigned_usize(array: &ConstantArray) -> VortexResult<usize> {
+    let scalar = array.scalar();
     let Some(pvalue) = scalar.as_primitive_opt().and_then(|scalar| scalar.pvalue()) else {
         vortex_bail!("PiecewiseSequenceArray constant length must be an unsigned integer");
     };
 
-    Ok(Some(match pvalue {
+    Ok(match pvalue {
         PValue::U8(value) => value as usize,
         PValue::U16(value) => value as usize,
         PValue::U32(value) => value as usize,
         PValue::U64(value) => value.as_(),
         _ => vortex_bail!("PiecewiseSequenceArray constant length must be an unsigned integer"),
-    }))
+    })
 }
 
 fn check_index_array(name: &str, array: &ArrayRef) -> VortexResult<()> {
+    check_index_dtype(name, array.dtype())
+}
+
+fn check_index_columnar(name: &str, columnar: &Columnar) -> VortexResult<()> {
+    check_index_dtype(name, columnar.dtype())
+}
+
+fn check_index_dtype(name: &str, dtype: &DType) -> VortexResult<()> {
     vortex_ensure!(
-        array.dtype().is_unsigned_int(),
+        dtype.is_unsigned_int(),
         "PiecewiseSequenceArray {name} must have unsigned integer dtype, got {}",
-        array.dtype()
+        dtype
     );
     vortex_ensure!(
-        !array.dtype().is_nullable(),
+        !dtype.is_nullable(),
         "PiecewiseSequenceArray {name} must be non-nullable, got {}",
-        array.dtype()
+        dtype
     );
     Ok(())
 }
