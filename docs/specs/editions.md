@@ -1,17 +1,18 @@
 # Editions
 
-An **edition** is a named grouping of encodings: it records exactly which encodings a Vortex
-file may contain, and when each encoding joined the set. The current edition,
-[`core2026.07.0`](#core2026070), groups the 32 encodings the default file writer emits today.
+Vortex defines an evergrowing set of serializable array encodings, once written this can be read back by any future
+version of vortex.
+**Editions** are used to keep track of these encodings and talk about groups of encodings.
 
-Editions make compatibility concrete. Because every edition is published and frozen, "written
-under `core2026.07.0`" says precisely which encodings a reader must support — and every Vortex
-release supports every edition published before it, so files written under an edition remain
-readable, and queryable, by all future versions of Vortex.
+The edition `core2026.07.0` (coming soon) is the first such edition containing all encodings currently
+enabled by the writer.
+Editions are additive so an edition that comes after a previous one contains all the encodings from the previous one
+and more.
+The writer can be configured with a set of different editions (e.g. `core2026.07.0` and `unstable2026.05.0` all stable
+encoding released before July 2026 and all unstable encodings from May 2026).
 
-Editions constrain writing, not reading: a reader needs no configuration and always
-understands every published edition. The only time an edition surfaces on the read path is in
-the error described next.
+Editions can be used to constrain your minimum required vortex reader, since latest version over vortex across all
+editions is the earliest version of vortex required to read that file.
 
 ## Resolving an unknown-encoding error
 
@@ -28,8 +29,9 @@ it does not support. Find the encoding ID in the [registry](#edition-registry) b
 
 ## Writing with an edition
 
-By default the writer targets the latest `core` edition — there is nothing to configure, and
-every file you write carries the read-forever guarantee. If a file would contain an encoding
+The default the writer targets a `core` edition lagging the latest vortex release by a few version giving delay before
+writing the latest vortex encodings to disk.
+Every file you write carries the read-forever guarantee. If a file would contain an encoding
 outside the targeted edition, the write fails immediately; edition violations never surface as
 someone else's read error later.
 
@@ -42,12 +44,8 @@ Two knobs exist when the default is not what you want:
   and may emit any encoding in their union; each encoding belongs to exactly one family.
 
 You can also opt out of editions entirely to write custom or experimental encodings. Doing so
-is an explicit choice that gives up the portability guarantee — only readers that know your
+is an explicit choice that gives up the standardization guarantee — only readers that know your
 encodings can read those files.
-
-Compression presets (the default writer, the compact preset, CUDA-oriented presets) choose
-*within* the targeted edition, so switching presets never changes which readers can read a
-file.
 
 ## How editions change
 
@@ -57,72 +55,6 @@ edition; each encoding's registry entry records the edition it joined in. In the
 encoding may be *deprecated*, meaning writers stop emitting it — but readers keep decoding it
 indefinitely, so deprecation never invalidates existing files.
 
-Editions are also distinct from the file format version (the `u16` tag in the file's
-end-of-file marker): the format version describes the structure of the file container, the
-edition describes which encodings may appear inside it.
-
 ## Edition registry
 
-| Edition | Status | Frozen on | Encodings |
-|---|---|---|---|
-| [core2026.07.0](#core2026070) | current | 2026-07 | 32 |
-| [core2026.10.0](#core2026100) | draft | — | 32 |
-
-The registry is verified continuously: real `.vortex` files written by previous releases are
-re-read and checked against known-good values, and published editions are pinned by tests so
-no code change can silently alter a frozen set. The guarantee assumes a default-feature build
-of Vortex; disabling default cargo features (e.g. `zstd`) removes the corresponding decoders.
-
-### core2026.07.0
-
-| | |
-|---|---|
-| **Status** | current |
-| **Frozen on** | 2026-07 |
-| **Required Vortex release** | the first release that includes this edition |
-| **Encodings** | 32 |
-
-| Encoding ID | Since |
-|---|---|
-| `fastlanes.bitpacked` | core2026.07.0 |
-| `fastlanes.delta` | core2026.07.0 |
-| `fastlanes.for` | core2026.07.0 |
-| `fastlanes.rle` | core2026.07.0 |
-| `vortex.alp` | core2026.07.0 |
-| `vortex.alprd` | core2026.07.0 |
-| `vortex.bool` | core2026.07.0 |
-| `vortex.bytebool` | core2026.07.0 |
-| `vortex.chunked` | core2026.07.0 |
-| `vortex.constant` | core2026.07.0 |
-| `vortex.datetimeparts` | core2026.07.0 |
-| `vortex.decimal` | core2026.07.0 |
-| `vortex.decimal_byte_parts` | core2026.07.0 |
-| `vortex.dict` | core2026.07.0 |
-| `vortex.ext` | core2026.07.0 |
-| `vortex.fixed_size_list` | core2026.07.0 |
-| `vortex.fsst` | core2026.07.0 |
-| `vortex.list` | core2026.07.0 |
-| `vortex.listview` | core2026.07.0 |
-| `vortex.masked` | core2026.07.0 |
-| `vortex.null` | core2026.07.0 |
-| `vortex.pco` | core2026.07.0 |
-| `vortex.primitive` | core2026.07.0 |
-| `vortex.runend` | core2026.07.0 |
-| `vortex.sequence` | core2026.07.0 |
-| `vortex.sparse` | core2026.07.0 |
-| `vortex.struct` | core2026.07.0 |
-| `vortex.varbin` | core2026.07.0 |
-| `vortex.varbinview` | core2026.07.0 |
-| `vortex.variant` | core2026.07.0 |
-| `vortex.zigzag` | core2026.07.0 |
-| `vortex.zstd` | core2026.07.0 |
-
-Not included, because they are experimental and their serialized forms may still change:
-`vortex.onpair`, `vortex.zstd_buffers`, `vortex.patched`, `vortex.piecewise-sequence`, and
-everything behind the `unstable_encodings` feature flag. Writing them requires opting out of
-the edition.
-
-### core2026.10.0
-
-The draft staging area for the next `core` edition: no guarantee until frozen, contents may
-change freely. No changes relative to [core2026.07.0](#core2026070) yet.
+Coming soon..
