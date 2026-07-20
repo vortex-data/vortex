@@ -141,10 +141,10 @@ impl ListViewArray {
         // for sizes as well.
         match_each_unsigned_integer_ptype!(sizes_ptype.to_unsigned(), |S| {
             match offsets_ptype.to_unsigned() {
-                PType::U8 => self.rebuild_with_take_or_piecewise::<u8, u32, S>(ctx),
-                PType::U16 => self.rebuild_with_take_or_piecewise::<u16, u32, S>(ctx),
-                PType::U32 => self.rebuild_with_take_or_piecewise::<u32, u32, S>(ctx),
-                PType::U64 => self.rebuild_with_take_or_piecewise::<u64, u64, S>(ctx),
+                PType::U8 => self.naive_rebuild::<u8, u32, S>(ctx),
+                PType::U16 => self.naive_rebuild::<u16, u32, S>(ctx),
+                PType::U32 => self.naive_rebuild::<u32, u32, S>(ctx),
+                PType::U64 => self.naive_rebuild::<u64, u64, S>(ctx),
                 _ => unreachable!("invalid offsets PType"),
             }
         })
@@ -152,7 +152,7 @@ impl ListViewArray {
 
     /// Picks between [`rebuild_with_take`](Self::rebuild_with_take) and
     /// [`rebuild_with_piecewise`](Self::rebuild_with_piecewise) based on average list size.
-    fn rebuild_with_take_or_piecewise<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
+    fn naive_rebuild<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ListViewArray> {
