@@ -55,6 +55,8 @@ use crate::MAGIC_BYTES;
 use crate::WriteStrategyBuilder;
 use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
+use crate::footer::MAX_METADATA_KEY_BYTES;
+use crate::footer::MAX_METADATA_SEGMENTS;
 use crate::segments::writer::BufferedSegmentSink;
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
@@ -130,9 +132,8 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Add a user-defined metadata entry (keyed, opaque bytes); a repeated key replaces the
-    /// previous value. All entries are serialized into a single metadata segment; keys must be
-    /// non-empty.
+    /// Add a user-defined metadata segment (keyed, opaque bytes); a repeated key replaces the
+    /// previous value. Keys and the segment count are validated against `MAX_METADATA_*`.
     pub fn with_metadata_segment(
         mut self,
         key: impl Into<String>,
@@ -276,7 +277,7 @@ impl VortexWriteOptions {
         );
 
         // Emit the footer buffers and EOF.
-        let (footer_buffers, metadata_locator, approx_byte_size) = footer
+        let (footer_buffers, metadata, approx_byte_size) = footer
             .clone()
             .into_serializer()
             .with_metadata_segments(self.metadata)
@@ -284,7 +285,7 @@ impl VortexWriteOptions {
             .with_exclude_dtype(self.exclude_dtype)
             .serialize_with_metadata()?;
         footer = footer
-            .with_metadata_segment(metadata_locator)
+            .with_metadata_segments(metadata)
             .with_approx_byte_size(approx_byte_size);
 
         for buffer in footer_buffers {
@@ -326,9 +327,31 @@ impl VortexWriteOptions {
 }
 
 fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexResult<()> {
+    if metadata.len() > MAX_METADATA_SEGMENTS {
+        vortex_bail!(
+            "Vortex files may contain at most {} metadata segments; got {} metadata segments. Metadata keys must be non-empty and at most {} bytes",
+            MAX_METADATA_SEGMENTS,
+            metadata.len(),
+            MAX_METADATA_KEY_BYTES
+        );
+    }
+
     for key in metadata.keys() {
         if key.is_empty() {
-            vortex_bail!("Vortex metadata keys must be non-empty");
+            vortex_bail!(
+                "Vortex metadata keys must be non-empty and at most {} bytes; files may contain at most {} metadata segments",
+                MAX_METADATA_KEY_BYTES,
+                MAX_METADATA_SEGMENTS
+            );
+        }
+
+        let key_bytes = key.len();
+        if key_bytes > MAX_METADATA_KEY_BYTES {
+            vortex_bail!(
+                "Vortex metadata key {key:?} is {key_bytes} bytes, but keys must be at most {} bytes; files may contain at most {} metadata segments",
+                MAX_METADATA_KEY_BYTES,
+                MAX_METADATA_SEGMENTS
+            );
         }
     }
 

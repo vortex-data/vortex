@@ -290,7 +290,6 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
 mod tests {
     use std::fmt;
 
-    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::array_session;
     use vortex_buffer::ByteBuffer;
@@ -336,15 +335,7 @@ mod tests {
         }
     }
 
-    // A cached footer carries only the metadata locator, so metadata resolution is independent of
-    // whether the file was first opened with or without `include_metadata`.
-    #[rstest]
-    #[case(true)]
-    #[case(false)]
-    #[tokio::test]
-    async fn test_cached_footer_metadata_order_independent(
-        #[case] default_first: bool,
-    ) -> VortexResult<()> {
+    async fn assert_cached_footer_metadata_order(default_first: bool) -> VortexResult<()> {
         let session = array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>()
@@ -368,25 +359,35 @@ mod tests {
         let default_options = |options: VortexOpenOptions| options;
         let metadata_options = |options: VortexOpenOptions| options.include_metadata();
 
-        // Open the same file twice through the cache, requesting metadata in the order set by
-        // `default_first`. The include-open must resolve the value and the default-open must see
-        // none, whichever comes first (the cached footer holds only the locator).
-        let (included, default) = if default_first {
+        if default_first {
             let default = open_file(&fs, &listing, &session, &default_options).await?;
+            assert!(default.metadata_segment("key").is_none());
             let included = open_file(&fs, &listing, &session, &metadata_options).await?;
-            (included, default)
+            assert_eq!(
+                included.metadata_segment("key").map(ByteBuffer::as_slice),
+                Some(expected.as_slice())
+            );
         } else {
             let included = open_file(&fs, &listing, &session, &metadata_options).await?;
+            assert_eq!(
+                included.metadata_segment("key").map(ByteBuffer::as_slice),
+                Some(expected.as_slice())
+            );
             let default = open_file(&fs, &listing, &session, &default_options).await?;
-            (included, default)
-        };
-        assert_eq!(
-            included.metadata_segment("key").map(ByteBuffer::as_slice),
-            Some(expected.as_slice())
-        );
-        assert!(default.metadata_segment("key").is_none());
+            assert!(default.metadata_segment("key").is_none());
+        }
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cached_footer_default_then_metadata_is_order_independent() -> VortexResult<()> {
+        assert_cached_footer_metadata_order(true).await
+    }
+
+    #[tokio::test]
+    async fn test_cached_footer_metadata_then_default_is_order_independent() -> VortexResult<()> {
+        assert_cached_footer_metadata_order(false).await
     }
 
     struct TwoFileSystem {
