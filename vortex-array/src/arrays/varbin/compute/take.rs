@@ -485,8 +485,7 @@ where
         let offset_range = &offsets[start..][..=length];
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
-        // SAFETY: the first pass computed `output_bytes` from these same byte ranges.
-        unsafe { writer.copy_slice_unchecked(&data[byte_start..][..byte_end - byte_start]) };
+        writer.copy_slice(&data[byte_start..][..byte_end - byte_start])?;
     }
     writer.finish()?;
 
@@ -566,8 +565,7 @@ where
         let offset_range = &offsets[start..][..=length];
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
-        // SAFETY: the first pass computed `output_bytes` from these same byte ranges.
-        unsafe { writer.copy_slice_unchecked(&data[byte_start..][..byte_end - byte_start]) };
+        writer.copy_slice(&data[byte_start..][..byte_end - byte_start])?;
     }
     writer.finish()?;
 

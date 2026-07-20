@@ -178,9 +178,7 @@ where
     let mut writer = SpareBufferWriter::new(&mut views, output_len)?;
     for &start in starts {
         let start = start.as_();
-        // SAFETY: `computed_len == output_len` proves that all fixed-length slices fit in the
-        // output buffer.
-        unsafe { writer.copy_slice_unchecked(&source[start..][..length]) };
+        writer.copy_slice(&source[start..][..length])?;
     }
     writer.finish()?;
     Ok(views.freeze())

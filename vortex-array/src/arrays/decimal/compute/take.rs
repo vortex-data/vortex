@@ -203,9 +203,7 @@ where
     let mut writer = SpareBufferWriter::new(&mut result, output_len)?;
     for &start in starts {
         let start = start.as_();
-        // SAFETY: `computed_len == output_len` proves that all fixed-length slices fit in the
-        // output buffer.
-        unsafe { writer.copy_slice_unchecked(&values[start..][..length]) };
+        writer.copy_slice(&values[start..][..length])?;
     }
     writer.finish()?;
     Ok(result.freeze())

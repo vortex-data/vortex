@@ -12,10 +12,19 @@ use crate::BufferMut;
 ///
 /// This is useful when the caller knows the final output length up front and wants to avoid
 /// repeatedly growing the initialized length while copying contiguous source slices.
+///
+/// All writes are bounds-checked against the declared output length; the check is a single
+/// well-predicted branch per slice and is dominated by the copy itself. The unsafety is
+/// contained to the copy into the bounds-checked spare-capacity range and the final
+/// [`set_len`], which [`finish`] justifies from the writer's invariant that copies initialize
+/// a contiguous prefix of the spare capacity.
+///
+/// [`set_len`]: BufferMut::set_len
+/// [`finish`]: SpareBufferWriter::finish
+#[must_use = "call `finish` to set the buffer length after writing"]
 pub struct SpareBufferWriter<'a, T> {
     buffer: &'a mut BufferMut<T>,
-    next: *mut T,
-    remaining: usize,
+    written: usize,
     output_len: usize,
 }
 
@@ -35,11 +44,9 @@ impl<'a, T: Copy> SpareBufferWriter<'a, T> {
             buffer.capacity()
         );
 
-        let next = buffer.spare_capacity_mut().as_mut_ptr().cast();
         Ok(Self {
             buffer,
-            next,
-            remaining: output_len,
+            written: 0,
             output_len,
         })
     }
@@ -48,42 +55,33 @@ impl<'a, T: Copy> SpareBufferWriter<'a, T> {
     #[inline]
     pub fn copy_slice(&mut self, source: &[T]) -> VortexResult<()> {
         vortex_ensure!(
-            source.len() <= self.remaining,
+            source.len() <= self.output_len - self.written,
             "slice copy length {} exceeds remaining output length {}",
             source.len(),
-            self.remaining
+            self.output_len - self.written
         );
-        // SAFETY: the check above proves that `source` fits in the remaining output slots.
-        unsafe { self.copy_slice_unchecked(source) };
-        Ok(())
-    }
-
-    /// Copies `source` to the next output slots without checking the remaining output length.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `source.len()` does not exceed the remaining output length.
-    #[inline]
-    pub unsafe fn copy_slice_unchecked(&mut self, source: &[T]) {
-        debug_assert!(source.len() <= self.remaining);
-        // SAFETY: `next` points to the first unwritten slot, the caller guarantees the source fits
-        // in the remaining capacity, and the mutable buffer borrow prevents reallocation.
+        let end = self.written + source.len();
+        let dst = &mut self.buffer.spare_capacity_mut()[self.written..end];
+        // SAFETY: `MaybeUninit<T>` has the same layout as `T`, `dst` and `source` have equal
+        // lengths, and `dst` lives in the exclusively borrowed buffer so the two cannot overlap.
+        // This is `<[MaybeUninit<T>]>::write_copy_of_slice`, which is not yet stable.
         unsafe {
-            ptr::copy_nonoverlapping(source.as_ptr(), self.next, source.len());
-            self.next = self.next.add(source.len());
+            ptr::copy_nonoverlapping(source.as_ptr(), dst.as_mut_ptr().cast::<T>(), source.len());
         }
-        self.remaining -= source.len();
+        self.written = end;
+        Ok(())
     }
 
     /// Sets the target buffer length after exactly `output_len` values have been written.
     pub fn finish(self) -> VortexResult<()> {
         vortex_ensure!(
-            self.remaining == 0,
+            self.written == self.output_len,
             "slice copy length {} does not match declared output length {}",
-            self.output_len - self.remaining,
+            self.written,
             self.output_len
         );
-        // SAFETY: successful calls to the copy methods initialized exactly `output_len` slots.
+        // SAFETY: `copy_slice` initializes the contiguous prefix `0..written` of the spare
+        // capacity, and `new` checked that `output_len` does not exceed the capacity.
         unsafe {
             self.buffer.set_len(self.output_len);
         }
