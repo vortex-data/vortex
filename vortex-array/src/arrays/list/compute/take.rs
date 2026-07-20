@@ -50,7 +50,7 @@ impl TakeExecute for List {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-            && let Some(taken) = take_piecewise_sequence(array, piecewise_indices, indices, ctx)?
+            && let Some(taken) = take_slices(array, piecewise_indices, indices, ctx)?
         {
             return Ok(Some(taken));
         }
@@ -145,7 +145,7 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     .into_array())
 }
 
-fn take_piecewise_sequence(
+fn take_slices(
     array: ArrayView<'_, List>,
     indices: ArrayView<'_, PiecewiseSequence>,
     indices_ref: &ArrayRef,
@@ -168,7 +168,7 @@ fn take_piecewise_sequence(
     let taken = match lengths {
         Columnar::Constant(lengths) => {
             let length = constant_unsigned_usize(&lengths);
-            take_piecewise_sequence_constant_dispatch(
+            take_slices_constant_start_dispatch(
                 array,
                 &starts,
                 length,
@@ -179,20 +179,13 @@ fn take_piecewise_sequence(
         }
         Columnar::Canonical(lengths) => {
             let lengths = lengths.into_primitive();
-            take_piecewise_sequence_lengths_dispatch(
-                array,
-                &starts,
-                &lengths,
-                &offsets,
-                indices_ref,
-                output_len,
-            )?
+            take_slices_start_dispatch(array, &starts, &lengths, &offsets, indices_ref, output_len)?
         }
     };
     Ok(Some(taken))
 }
 
-fn take_piecewise_sequence_constant_dispatch(
+fn take_slices_constant_start_dispatch(
     array: ArrayView<'_, List>,
     starts: &PrimitiveArray,
     length: usize,
@@ -201,7 +194,7 @@ fn take_piecewise_sequence_constant_dispatch(
     output_len: usize,
 ) -> VortexResult<ArrayRef> {
     match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        take_piecewise_sequence_constant_start_dispatch::<S>(
+        take_slices_constant_offset_dispatch::<S>(
             array,
             starts,
             length,
@@ -212,7 +205,7 @@ fn take_piecewise_sequence_constant_dispatch(
     })
 }
 
-fn take_piecewise_sequence_constant_start_dispatch<S>(
+fn take_slices_constant_offset_dispatch<S>(
     array: ArrayView<'_, List>,
     starts: &PrimitiveArray,
     length: usize,
@@ -224,7 +217,7 @@ where
     S: UnsignedPType,
 {
     match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
-        take_piecewise_sequence_constant_length::<S, O>(
+        take_slices_constant_length::<S, O>(
             array,
             starts.as_slice::<S>(),
             length,
@@ -235,7 +228,7 @@ where
     })
 }
 
-fn take_piecewise_sequence_lengths_dispatch(
+fn take_slices_start_dispatch(
     array: ArrayView<'_, List>,
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
@@ -244,18 +237,11 @@ fn take_piecewise_sequence_lengths_dispatch(
     output_len: usize,
 ) -> VortexResult<ArrayRef> {
     match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
-        take_piecewise_sequence_lengths_start_dispatch::<S>(
-            array,
-            starts,
-            lengths,
-            offsets,
-            indices_ref,
-            output_len,
-        )
+        take_slices_length_dispatch::<S>(array, starts, lengths, offsets, indices_ref, output_len)
     })
 }
 
-fn take_piecewise_sequence_lengths_start_dispatch<S>(
+fn take_slices_length_dispatch<S>(
     array: ArrayView<'_, List>,
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
@@ -267,7 +253,7 @@ where
     S: UnsignedPType,
 {
     match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
-        take_piecewise_sequence_lengths_start_length_dispatch::<S, L>(
+        take_slices_offset_dispatch::<S, L>(
             array,
             starts,
             lengths,
@@ -278,7 +264,7 @@ where
     })
 }
 
-fn take_piecewise_sequence_lengths_start_length_dispatch<S, L>(
+fn take_slices_offset_dispatch<S, L>(
     array: ArrayView<'_, List>,
     starts: &PrimitiveArray,
     lengths: &PrimitiveArray,
@@ -291,7 +277,7 @@ where
     L: UnsignedPType,
 {
     match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
-        take_piecewise_sequence_typed::<S, L, O>(
+        take_slices_typed::<S, L, O>(
             array,
             starts.as_slice::<S>(),
             lengths.as_slice::<L>(),
@@ -302,7 +288,7 @@ where
     })
 }
 
-fn take_piecewise_sequence_constant_length<S, Offset>(
+fn take_slices_constant_length<S, Offset>(
     array: ArrayView<'_, List>,
     starts: &[S],
     length: usize,
@@ -345,7 +331,7 @@ where
     })
 }
 
-fn take_piecewise_sequence_typed<S, L, Offset>(
+fn take_slices_typed<S, L, Offset>(
     array: ArrayView<'_, List>,
     starts: &[S],
     lengths: &[L],
