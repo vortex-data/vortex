@@ -34,15 +34,10 @@ use crate::array::ArrayId;
 use crate::array::ArrayInner;
 use crate::array::ArraySlots;
 use crate::array::DynArrayData;
-use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
-use crate::arrays::Null;
-use crate::arrays::Primitive;
 use crate::arrays::SliceArray;
-use crate::arrays::VarBin;
-use crate::arrays::VarBinView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -441,15 +436,6 @@ impl ArrayRef {
             }
         }
         nbytes
-    }
-
-    /// Returns whether this array is an arrow encoding.
-    pub fn is_arrow(&self) -> bool {
-        self.is::<Null>()
-            || self.is::<Bool>()
-            || self.is::<Primitive>()
-            || self.is::<VarBin>()
-            || self.is::<VarBinView>()
     }
 
     /// Whether the array is of a canonical encoding.
