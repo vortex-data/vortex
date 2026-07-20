@@ -39,9 +39,9 @@ pub(super) fn filter_slice_by_bitmap<T: Copy>(
 ) -> Option<Buffer<T>> {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     {
-        return x86::filter(values, mask);
+        x86::filter(values, mask)
     }
-    #[allow(unreachable_code)]
+    #[cfg(any(not(target_arch = "x86_64"), miri))]
     {
         let _ = (values, mask);
         None
@@ -56,9 +56,9 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(
 ) -> Option<usize> {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     {
-        return x86::filter_mut(values, mask);
+        x86::filter_mut(values, mask)
     }
-    #[allow(unreachable_code)]
+    #[cfg(any(not(target_arch = "x86_64"), miri))]
     {
         let _ = (values, mask);
         None
