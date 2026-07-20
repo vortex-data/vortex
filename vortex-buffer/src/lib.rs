@@ -53,6 +53,7 @@ pub use buffer_mut::*;
 pub use bytes::*;
 pub use r#const::*;
 pub use dispatch::*;
+pub use spare_buffer_writer::*;
 pub use string::*;
 mod alignment;
 #[cfg(feature = "arrow")]
@@ -69,6 +70,7 @@ mod macros;
 mod memmap2;
 #[cfg(feature = "serde")]
 mod serde;
+mod spare_buffer_writer;
 mod string;
 /// Trusted-length iterator trait and adapters for safe pre-allocation.
 pub mod trusted_len;
