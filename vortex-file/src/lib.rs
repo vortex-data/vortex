@@ -200,6 +200,7 @@ mod default_encoding_tests {
     use vortex_array::optimizer::kernels::ArrayKernelsExt as _;
     use vortex_array::session::ArraySessionExt as _;
     use vortex_fsst::FSST;
+    use vortex_onpair::OnPair;
 
     use crate::register_default_encodings;
 
@@ -214,5 +215,17 @@ mod default_encoding_tests {
 
         assert!(session.arrays().registry().find(&FSST.id()).is_some());
         assert!(session.kernels().has_execute_parent(Filter.id(), FSST.id()));
+        assert!(session.arrays().registry().find(&OnPair.id()).is_some());
+        assert!(
+            session
+                .kernels()
+                .has_execute_parent(Filter.id(), OnPair.id())
+        );
+    }
+
+    #[cfg(not(feature = "unstable_encodings"))]
+    #[test]
+    fn default_writer_does_not_allow_onpair() {
+        assert!(!crate::ALLOWED_ENCODINGS.contains(&OnPair.id()));
     }
 }

@@ -11,6 +11,7 @@ mod zstd;
 #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
 mod zstd_buffers;
 
+#[cfg(feature = "unstable_encodings")]
 mod onpair;
 
 pub use fsst::FSSTScheme;
