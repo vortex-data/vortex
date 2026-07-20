@@ -176,7 +176,12 @@ fn slice_arrow_buffer(bencher: Bencher, length: usize) {
         });
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+/// A 128-bit `true_count` is a popcount over two `u64` words, so the measurement is fixed
+/// dispatch and harness overhead plus binary code layout rather than the count itself. Only
+/// sizes where the popcount loop dominates are worth measuring.
+const TRUE_COUNT_INPUT_SIZE: &[usize] = &[1024, 2048, 16_384, 65_536];
+
+#[divan::bench(args = TRUE_COUNT_INPUT_SIZE)]
 fn true_count_vortex_buffer(bencher: Bencher, length: usize) {
     let buffer = BitBuffer::from_iter((0..length).map(true_count_pattern));
 
@@ -185,7 +190,7 @@ fn true_count_vortex_buffer(bencher: Bencher, length: usize) {
         .bench_refs(|buffer| buffer.true_count())
 }
 
-#[divan::bench(args = INPUT_SIZE)]
+#[divan::bench(args = TRUE_COUNT_INPUT_SIZE)]
 fn true_count_arrow_buffer(bencher: Bencher, length: usize) {
     let buffer = Arrow(BooleanBuffer::from_iter(
         (0..length).map(true_count_pattern),
