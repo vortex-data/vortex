@@ -5,12 +5,10 @@ use itertools::Itertools as _;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
@@ -169,7 +167,7 @@ fn take_piecewise_sequence(
 
     let taken = match lengths {
         Columnar::Constant(lengths) => {
-            let length = constant_unsigned_usize(&lengths)?;
+            let length = constant_unsigned_usize(&lengths);
             take_piecewise_sequence_constant_dispatch(
                 array,
                 &starts,
@@ -179,7 +177,8 @@ fn take_piecewise_sequence(
                 output_len,
             )?
         }
-        Columnar::Canonical(Canonical::Primitive(lengths)) => {
+        Columnar::Canonical(lengths) => {
+            let lengths = lengths.into_primitive();
             take_piecewise_sequence_lengths_dispatch(
                 array,
                 &starts,
@@ -188,12 +187,6 @@ fn take_piecewise_sequence(
                 indices_ref,
                 output_len,
             )?
-        }
-        Columnar::Canonical(lengths) => {
-            vortex_bail!(
-                "PiecewiseSequenceArray lengths must be primitive or constant, got {}",
-                lengths.dtype()
-            )
         }
     };
     Ok(Some(taken))
@@ -329,8 +322,7 @@ where
         computed_len == output_len,
         "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
     );
-    let total_elements =
-        piecewise_list_elements_len_constant(array.elements().len(), offsets, starts, length)?;
+    let total_elements = piecewise_list_elements_len_constant(offsets, starts, length)?;
     let validity = array.validity()?.take(indices_ref)?;
 
     match_smallest_offset_type!(total_elements, |OutputOffset| {
@@ -377,8 +369,7 @@ where
         computed_len == output_len,
         "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
     );
-    let total_elements =
-        piecewise_list_elements_len(array.elements().len(), offsets, starts, lengths)?;
+    let total_elements = piecewise_list_elements_len(offsets, starts, lengths)?;
 
     match_smallest_offset_type!(total_elements, |OutputOffset| {
         let gathered = gather_piecewise_list::<S, L, Offset, OutputOffset>(
@@ -407,7 +398,6 @@ struct GatheredList {
 }
 
 fn piecewise_list_elements_len_constant<S, Offset>(
-    elements_len: usize,
     offsets: &[Offset],
     starts: &[S],
     length: usize,
@@ -426,10 +416,6 @@ where
         let offset_range = &offsets[start..][..=length];
         let element_start: usize = offset_range[0].as_();
         let element_end: usize = offset_range[length].as_();
-        vortex_ensure!(
-            element_start <= element_end && element_end <= elements_len,
-            "List offsets range {element_start}..{element_end} exceeds elements length {elements_len}",
-        );
         total = total
             .checked_add(element_end - element_start)
             .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
@@ -438,7 +424,6 @@ where
 }
 
 fn piecewise_list_elements_len<S, L, Offset>(
-    elements_len: usize,
     offsets: &[Offset],
     starts: &[S],
     lengths: &[L],
@@ -455,10 +440,6 @@ where
         let offset_range = &offsets[start..][..=length];
         let element_start: usize = offset_range[0].as_();
         let element_end: usize = offset_range[length].as_();
-        vortex_ensure!(
-            element_start <= element_end && element_end <= elements_len,
-            "List offsets range {element_start}..{element_end} exceeds elements length {elements_len}",
-        );
         total = total
             .checked_add(element_end - element_start)
             .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
@@ -499,21 +480,15 @@ where
         let element_end: usize = offset_range[length].as_();
         for &offset in &offset_range[1..] {
             let offset: usize = offset.as_();
-            let relative = offset
-                .checked_sub(element_start)
-                .ok_or_else(|| vortex_err!("List offsets are not monotonic at offset {offset}"))?;
-            let output_offset = output_elements
-                .checked_add(relative)
-                .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
-            new_offsets.push(new_offset_value::<OutputOffset>(output_offset)?);
+            let relative = offset - element_start;
+            let output_offset = output_elements + relative;
+            new_offsets.push(new_offset_value::<OutputOffset>(output_offset));
         }
 
         let element_length = element_end - element_start;
         element_starts.push(element_start as u64);
         element_lengths.push(element_length as u64);
-        output_elements = output_elements
-            .checked_add(element_length)
-            .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
+        output_elements += element_length;
     }
     debug_assert_eq!(output_elements, total_elements);
 
@@ -569,21 +544,15 @@ where
         let element_end: usize = offset_range[length].as_();
         for &offset in &offset_range[1..] {
             let offset: usize = offset.as_();
-            let relative = offset
-                .checked_sub(element_start)
-                .ok_or_else(|| vortex_err!("List offsets are not monotonic at offset {offset}"))?;
-            let output_offset = output_elements
-                .checked_add(relative)
-                .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
-            new_offsets.push(new_offset_value::<OutputOffset>(output_offset)?);
+            let relative = offset - element_start;
+            let output_offset = output_elements + relative;
+            new_offsets.push(new_offset_value::<OutputOffset>(output_offset));
         }
 
         let element_length = element_end - element_start;
         element_starts.push(element_start as u64);
         element_lengths.push(element_length as u64);
-        output_elements = output_elements
-            .checked_add(element_length)
-            .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
+        output_elements += element_length;
     }
     debug_assert_eq!(output_elements, total_elements);
 
@@ -604,13 +573,8 @@ where
     Ok(GatheredList { elements, offsets })
 }
 
-fn new_offset_value<T: IntegerPType>(value: usize) -> VortexResult<T> {
-    T::from_usize(value).ok_or_else(|| {
-        vortex_err!(
-            "List take offset value {value} does not fit in {}",
-            T::PTYPE
-        )
-    })
+fn new_offset_value<T: IntegerPType>(value: usize) -> T {
+    T::from_usize(value).vortex_expect("output offset fits selected offset type")
 }
 
 // Kept out-of-line: as a single-callsite generic helper it would otherwise be inlined into every
