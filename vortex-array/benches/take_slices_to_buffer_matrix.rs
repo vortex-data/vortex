@@ -20,6 +20,7 @@ use rand_distr::Distribution;
 use rand_distr::Normal;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::SpareBufferWriter;
 
 fn main() {
     divan::main();
@@ -190,22 +191,12 @@ fn take_advancing_ptr_safe(
     output_len: usize,
 ) -> Buffer<u16> {
     let mut result = BufferMut::<u16>::with_capacity(output_len);
-    let mut dst = result.spare_capacity_mut().as_mut_ptr().cast::<u16>();
-    let mut remaining = output_len;
+    let mut writer = SpareBufferWriter::new(&mut result, output_len).unwrap();
     for (&start, &length) in starts.iter().zip(lengths) {
         let source = &values[start..start + length];
-        assert!(length <= remaining);
-        // SAFETY: `remaining` tracks the writable slots starting at `dst`.
-        unsafe {
-            copy_to_uninit(dst, source);
-            dst = dst.add(length);
-        }
-        remaining -= length;
+        writer.copy_slice(source).unwrap();
     }
-    assert_eq!(remaining, 0);
-
-    // SAFETY: the loop writes exactly `output_len` values into spare capacity.
-    unsafe { result.set_len(output_len) };
+    writer.finish().unwrap();
     result.freeze()
 }
 
@@ -259,18 +250,15 @@ fn take_preverify_advancing_ptr_unchecked(
     preverify(values.len(), starts, lengths, output_len);
 
     let mut result = BufferMut::<u16>::with_capacity(output_len);
-    let mut dst = result.spare_capacity_mut().as_mut_ptr().cast::<u16>();
+    let mut writer = SpareBufferWriter::new(&mut result, output_len).unwrap();
     for (&start, &length) in starts.iter().zip(lengths) {
         // SAFETY: `preverify` checked every source range and the summed output length.
         unsafe {
             let source = values.get_unchecked(start..start + length);
-            copy_to_uninit(dst, source);
-            dst = dst.add(length);
+            writer.copy_slice_unchecked(source);
         }
     }
-
-    // SAFETY: `preverify` proved that the loop writes exactly `output_len` values.
-    unsafe { result.set_len(output_len) };
+    writer.finish().unwrap();
     result.freeze()
 }
 
