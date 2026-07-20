@@ -12,6 +12,7 @@ use vortex_buffer::Buffer;
 use vortex_mask::MaskValues;
 
 use crate::arrays::filter::execute::byte_compress;
+use crate::arrays::filter::execute::simd_compress;
 use crate::arrays::filter::execute::slice;
 
 const CACHED_INDICES_MAX_DENSITY: f64 = 0.5;
@@ -21,8 +22,8 @@ const MIN_SLICES_AVERAGE_RUN_LENGTH: usize = 8;
 /// Filter a [`Buffer<T>`] by [`MaskValues`], returning a new buffer.
 ///
 /// Dense uniquely owned buffers are compacted in place. Shared and sparse buffers allocate an
-/// exact-sized output and choose between cached indices, cached long ranges, bitmap iteration,
-/// and byte-compress based on the mask and element width.
+/// exact-sized output and choose between cached indices, cached long ranges, SIMD compress,
+/// bitmap iteration, and byte-compress based on the mask, element width, and CPU features.
 pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
     assert_eq!(buffer.len(), mask.len());
 
@@ -53,6 +54,10 @@ fn filter_slice<T: Copy>(values: &[T], mask: &MaskValues) -> Buffer<T> {
         return slice::filter_slice_by_indices(values, indices);
     }
 
+    if let Some(filtered) = simd_compress::filter_slice_by_bitmap(values, mask) {
+        return filtered;
+    }
+
     if mask.density() >= byte_compress_density_threshold::<T>() {
         byte_compress::filter_buffer(values, mask)
     } else {
@@ -69,6 +74,10 @@ fn filter_slice_in_place<T: Copy>(values: &mut [T], mask: &MaskValues) -> usize 
         && let Some(indices) = mask.cached_indices()
     {
         return slice::filter_slice_mut_by_indices(values, indices);
+    }
+
+    if let Some(new_len) = simd_compress::filter_slice_mut_by_bitmap(values, mask) {
+        return new_len;
     }
 
     slice::filter_slice_mut_by_bitmap(values, mask)

@@ -12,8 +12,10 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_mask::MaskValues;
 
-#[inline]
-fn for_each_mask_word(mask: &MaskValues, mut f: impl FnMut(u64, usize, usize)) {
+/// Invoke `f` with each `(word, word_start, word_len)` of the mask bitmap, where `word` holds
+/// the mask bits for elements `word_start..word_start + word_len` in its low `word_len` bits.
+#[inline(always)]
+pub(super) fn for_each_mask_word(mask: &MaskValues, mut f: impl FnMut(u64, usize, usize)) {
     let bits = mask.bit_buffer();
     let unaligned = bits.unaligned_chunks();
     let lead = unaligned.lead_padding();
@@ -39,8 +41,9 @@ fn for_each_mask_word(mask: &MaskValues, mut f: impl FnMut(u64, usize, usize)) {
     debug_assert_eq!(base, mask.len());
 }
 
+/// A `u64` with the low `len` bits set.
 #[inline]
-fn low_bits_mask(len: usize) -> u64 {
+pub(super) fn low_bits_mask(len: usize) -> u64 {
     debug_assert!(len <= 64);
     if len == 64 {
         u64::MAX

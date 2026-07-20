@@ -35,6 +35,7 @@ pub(crate) mod buffer;
 pub(crate) mod byte_compress;
 mod fixed_size_list;
 mod listview;
+mod simd_compress;
 mod slice;
 mod struct_;
 mod take;
