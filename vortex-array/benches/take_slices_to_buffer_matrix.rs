@@ -4,8 +4,10 @@
 //! Microbenchmarks for primitive `take_slices_to_buffer` copy-loop variants.
 //!
 //! The matrix covers:
-//! - append via `BufferMut::extend_from_slice` vs direct cursor copy into spare output capacity
+//! - append via `BufferMut::extend_from_slice`, indexed cursor copy, and advancing pointer copy
+//!   into spare output capacity
 //! - ordinary checked slicing vs a preverification pass followed by unchecked slicing
+//! - fixed-width short slices at the run counts used by the FSL take benchmarks
 
 #![allow(clippy::cast_possible_truncation)]
 #![expect(clippy::unwrap_used)]
@@ -25,6 +27,8 @@ fn main() {
 
 const SOURCE_LENS: &[usize] = &[1_000, 10_000, 100_000];
 const SLICE_COUNT: usize = 50;
+const FIXED_16_SLICE_COUNTS: &[usize] = &[100, 1_000];
+const FIXED_16_SOURCE_RUNS: usize = 500;
 
 type TakeSlicesFn = fn(&[u16], &[usize], &[usize], usize) -> Buffer<u16>;
 
@@ -49,6 +53,12 @@ fn cursor_copy_safe(bencher: Bencher, source_len: usize) {
 }
 
 #[divan::bench(args = SOURCE_LENS)]
+fn advancing_ptr_safe(bencher: Bencher, source_len: usize) {
+    let case = Case::new(source_len);
+    bench_case(bencher, case, take_advancing_ptr_safe);
+}
+
+#[divan::bench(args = SOURCE_LENS)]
 fn preverify_extend_unchecked(bencher: Bencher, source_len: usize) {
     let case = Case::new(source_len);
     bench_case(bencher, case, take_preverify_extend_unchecked);
@@ -58,6 +68,30 @@ fn preverify_extend_unchecked(bencher: Bencher, source_len: usize) {
 fn preverify_cursor_copy_unchecked(bencher: Bencher, source_len: usize) {
     let case = Case::new(source_len);
     bench_case(bencher, case, take_preverify_cursor_copy_unchecked);
+}
+
+#[divan::bench(args = SOURCE_LENS)]
+fn preverify_advancing_ptr_unchecked(bencher: Bencher, source_len: usize) {
+    let case = Case::new(source_len);
+    bench_case(bencher, case, take_preverify_advancing_ptr_unchecked);
+}
+
+#[divan::bench(args = FIXED_16_SLICE_COUNTS)]
+fn fixed_16_extend_safe(bencher: Bencher, slice_count: usize) {
+    let case = Case::fixed_width(slice_count, 16);
+    bench_case(bencher, case, take_extend_safe);
+}
+
+#[divan::bench(args = FIXED_16_SLICE_COUNTS)]
+fn fixed_16_cursor_copy_safe(bencher: Bencher, slice_count: usize) {
+    let case = Case::fixed_width(slice_count, 16);
+    bench_case(bencher, case, take_cursor_copy_safe);
+}
+
+#[divan::bench(args = FIXED_16_SLICE_COUNTS)]
+fn fixed_16_advancing_ptr_safe(bencher: Bencher, slice_count: usize) {
+    let case = Case::fixed_width(slice_count, 16);
+    bench_case(bencher, case, take_advancing_ptr_safe);
 }
 
 fn bench_case(bencher: Bencher, case: Case, f: TakeSlicesFn) {
@@ -97,6 +131,22 @@ impl Case {
             output_len,
         }
     }
+
+    fn fixed_width(slice_count: usize, width: usize) -> Self {
+        let mut rng = StdRng::seed_from_u64(slice_count as u64 ^ 0x05ee_df16);
+        let source_len = FIXED_16_SOURCE_RUNS * width;
+        let values = (0..source_len).map(|_| rng.random::<u16>()).collect();
+        let starts = (0..slice_count)
+            .map(|_| rng.random_range(0..FIXED_16_SOURCE_RUNS) * width)
+            .collect();
+        let lengths = vec![width; slice_count];
+        Self {
+            values,
+            starts,
+            lengths,
+            output_len: slice_count * width,
+        }
+    }
 }
 
 fn take_extend_safe(
@@ -127,6 +177,32 @@ fn take_cursor_copy_safe(
         cursor = end;
     }
     assert_eq!(cursor, output_len);
+
+    // SAFETY: the loop writes exactly `output_len` values into spare capacity.
+    unsafe { result.set_len(output_len) };
+    result.freeze()
+}
+
+fn take_advancing_ptr_safe(
+    values: &[u16],
+    starts: &[usize],
+    lengths: &[usize],
+    output_len: usize,
+) -> Buffer<u16> {
+    let mut result = BufferMut::<u16>::with_capacity(output_len);
+    let mut dst = result.spare_capacity_mut().as_mut_ptr().cast::<u16>();
+    let mut remaining = output_len;
+    for (&start, &length) in starts.iter().zip(lengths) {
+        let source = &values[start..start + length];
+        assert!(length <= remaining);
+        // SAFETY: `remaining` tracks the writable slots starting at `dst`.
+        unsafe {
+            copy_to_uninit(dst, source);
+            dst = dst.add(length);
+        }
+        remaining -= length;
+    }
+    assert_eq!(remaining, 0);
 
     // SAFETY: the loop writes exactly `output_len` values into spare capacity.
     unsafe { result.set_len(output_len) };
@@ -170,6 +246,30 @@ fn take_preverify_cursor_copy_unchecked(
     }
 
     // SAFETY: the loop writes exactly `output_len` values into spare capacity.
+    unsafe { result.set_len(output_len) };
+    result.freeze()
+}
+
+fn take_preverify_advancing_ptr_unchecked(
+    values: &[u16],
+    starts: &[usize],
+    lengths: &[usize],
+    output_len: usize,
+) -> Buffer<u16> {
+    preverify(values.len(), starts, lengths, output_len);
+
+    let mut result = BufferMut::<u16>::with_capacity(output_len);
+    let mut dst = result.spare_capacity_mut().as_mut_ptr().cast::<u16>();
+    for (&start, &length) in starts.iter().zip(lengths) {
+        // SAFETY: `preverify` checked every source range and the summed output length.
+        unsafe {
+            let source = values.get_unchecked(start..start + length);
+            copy_to_uninit(dst, source);
+            dst = dst.add(length);
+        }
+    }
+
+    // SAFETY: `preverify` proved that the loop writes exactly `output_len` values.
     unsafe { result.set_len(output_len) };
     result.freeze()
 }
