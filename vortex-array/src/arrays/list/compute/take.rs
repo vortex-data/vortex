@@ -442,6 +442,13 @@ struct GatheredList {
     offsets: ArrayRef,
 }
 
+struct ValidPieceGather<OutputOffset> {
+    new_offsets: BufferMut<OutputOffset>,
+    element_starts: BufferMut<u64>,
+    element_lengths: BufferMut<u64>,
+    output_elements: usize,
+}
+
 fn piecewise_list_elements_len_constant<S, Offset>(
     offsets: &[Offset],
     starts: &[S],
@@ -643,39 +650,33 @@ where
     let offsets_capacity = output_len
         .checked_add(1)
         .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
-    let mut new_offsets = BufferMut::<OutputOffset>::with_capacity(offsets_capacity);
-    let mut element_starts = BufferMut::<u64>::with_capacity(output_len);
-    let mut element_lengths = BufferMut::<u64>::with_capacity(output_len);
-    let mut output_elements = 0usize;
+    let mut gather = ValidPieceGather {
+        new_offsets: BufferMut::<OutputOffset>::with_capacity(offsets_capacity),
+        element_starts: BufferMut::<u64>::with_capacity(output_len),
+        element_lengths: BufferMut::<u64>::with_capacity(output_len),
+        output_elements: 0,
+    };
 
-    new_offsets.push(OutputOffset::zero());
+    gather.new_offsets.push(OutputOffset::zero());
     for &start in starts {
         let start: usize = start.as_();
         if length == 0 {
             continue;
         }
 
-        gather_valid_piece(
-            offsets,
-            data_validity,
-            start,
-            length,
-            &mut new_offsets,
-            &mut element_starts,
-            &mut element_lengths,
-            &mut output_elements,
-        );
+        gather_valid_piece(offsets, data_validity, start, length, &mut gather);
     }
-    debug_assert_eq!(output_elements, total_elements);
+    debug_assert_eq!(gather.output_elements, total_elements);
 
-    let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array();
-    let multipliers = ConstantArray::new(1u64, element_starts.len()).into_array();
+    let offsets =
+        PrimitiveArray::new(gather.new_offsets.freeze(), Validity::NonNullable).into_array();
+    let multipliers = ConstantArray::new(1u64, gather.element_starts.len()).into_array();
     // SAFETY: element ranges come only from valid source list rows. Source list construction
     // validated those row offsets, and null source rows produce no element range.
     let element_indices = unsafe {
         PiecewiseSequenceArray::new_unchecked(
-            element_starts.into_array(),
-            element_lengths.into_array(),
+            gather.element_starts.into_array(),
+            gather.element_lengths.into_array(),
             multipliers,
             total_elements,
         )
@@ -767,12 +768,14 @@ where
     let offsets_capacity = output_len
         .checked_add(1)
         .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
-    let mut new_offsets = BufferMut::<OutputOffset>::with_capacity(offsets_capacity);
-    let mut element_starts = BufferMut::<u64>::with_capacity(output_len);
-    let mut element_lengths = BufferMut::<u64>::with_capacity(output_len);
-    let mut output_elements = 0usize;
+    let mut gather = ValidPieceGather {
+        new_offsets: BufferMut::<OutputOffset>::with_capacity(offsets_capacity),
+        element_starts: BufferMut::<u64>::with_capacity(output_len),
+        element_lengths: BufferMut::<u64>::with_capacity(output_len),
+        output_elements: 0,
+    };
 
-    new_offsets.push(OutputOffset::zero());
+    gather.new_offsets.push(OutputOffset::zero());
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start: usize = start.as_();
         let length: usize = length.as_();
@@ -780,27 +783,19 @@ where
             continue;
         }
 
-        gather_valid_piece(
-            offsets,
-            data_validity,
-            start,
-            length,
-            &mut new_offsets,
-            &mut element_starts,
-            &mut element_lengths,
-            &mut output_elements,
-        );
+        gather_valid_piece(offsets, data_validity, start, length, &mut gather);
     }
-    debug_assert_eq!(output_elements, total_elements);
+    debug_assert_eq!(gather.output_elements, total_elements);
 
-    let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable).into_array();
-    let multipliers = ConstantArray::new(1u64, element_starts.len()).into_array();
+    let offsets =
+        PrimitiveArray::new(gather.new_offsets.freeze(), Validity::NonNullable).into_array();
+    let multipliers = ConstantArray::new(1u64, gather.element_starts.len()).into_array();
     // SAFETY: element ranges come only from valid source list rows. Source list construction
     // validated those row offsets, and null source rows produce no element range.
     let element_indices = unsafe {
         PiecewiseSequenceArray::new_unchecked(
-            element_starts.into_array(),
-            element_lengths.into_array(),
+            gather.element_starts.into_array(),
+            gather.element_lengths.into_array(),
             multipliers,
             total_elements,
         )
@@ -815,10 +810,7 @@ fn gather_valid_piece<Offset, OutputOffset>(
     data_validity: &Mask,
     start: usize,
     length: usize,
-    new_offsets: &mut BufferMut<OutputOffset>,
-    element_starts: &mut BufferMut<u64>,
-    element_lengths: &mut BufferMut<u64>,
-    output_elements: &mut usize,
+    gather: &mut ValidPieceGather<OutputOffset>,
 ) where
     Offset: UnsignedPType,
     OutputOffset: IntegerPType,
@@ -826,7 +818,9 @@ fn gather_valid_piece<Offset, OutputOffset>(
     let offset_range = &offsets[start..][..=length];
     for (data_idx, window) in (start..).zip(offset_range.windows(2)) {
         if !data_validity.value(data_idx) {
-            new_offsets.push(new_offset_value::<OutputOffset>(*output_elements));
+            gather
+                .new_offsets
+                .push(new_offset_value::<OutputOffset>(gather.output_elements));
             continue;
         }
 
@@ -834,11 +828,13 @@ fn gather_valid_piece<Offset, OutputOffset>(
         let element_end: usize = window[1].as_();
         let element_length = element_end - element_start;
         if element_length != 0 {
-            element_starts.push(element_start as u64);
-            element_lengths.push(element_length as u64);
-            *output_elements += element_length;
+            gather.element_starts.push(element_start as u64);
+            gather.element_lengths.push(element_length as u64);
+            gather.output_elements += element_length;
         }
-        new_offsets.push(new_offset_value::<OutputOffset>(*output_elements));
+        gather
+            .new_offsets
+            .push(new_offset_value::<OutputOffset>(gather.output_elements));
     }
 }
 
