@@ -2,10 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
-use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
-use vortex_session::registry::ReadContext;
 
 use crate::ArrayContext;
 use crate::ArrayRef;
@@ -16,7 +14,6 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::PiecewiseSequence;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
@@ -26,7 +23,6 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::serde::SerializeOptions;
-use crate::serde::SerializedArray;
 use crate::validity::Validity;
 
 fn piecewise_indices(
@@ -156,7 +152,7 @@ fn execution_checks_declared_length() -> VortexResult<()> {
 }
 
 #[test]
-fn serde_roundtrip_preserves_piecewise_indices() -> VortexResult<()> {
+fn serialization_is_not_supported() -> VortexResult<()> {
     let array = PiecewiseSequenceArray::try_new(
         buffer![3u32, 15, 21].into_array(),
         buffer![2u16, 0, 2].into_array(),
@@ -164,30 +160,18 @@ fn serde_roundtrip_preserves_piecewise_indices() -> VortexResult<()> {
         4,
     )?
     .into_array();
-    let dtype = array.dtype().clone();
-    let len = array.len();
 
-    let array_ctx = ArrayContext::empty();
-    let serialized = array.serialize(&array_ctx, &array_session(), &SerializeOptions::default())?;
-
-    let mut concat = ByteBufferMut::empty();
-    for buffer in serialized {
-        concat.extend_from_slice(buffer.as_ref());
-    }
-
-    let parts = SerializedArray::try_from(concat.freeze())?;
-    let decoded = parts.decode(
-        &dtype,
-        len,
-        &ReadContext::new(array_ctx.to_ids()),
-        &array_session(),
-    )?;
-
-    assert!(decoded.is::<PiecewiseSequence>());
-    assert_arrays_eq!(
-        decoded,
-        PrimitiveArray::from_iter([3u64, 5, 21, 24]).into_array(),
-        &mut array_session().create_execution_ctx()
+    let err = array
+        .serialize(
+            &ArrayContext::empty(),
+            &array_session(),
+            &SerializeOptions::default(),
+        )
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Array vortex.piecewise-sequence does not support serialization"),
+        "{err}"
     );
     Ok(())
 }

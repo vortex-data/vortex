@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use prost::Message;
-use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -26,7 +24,6 @@ use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::piecewise_sequence::array::PiecewiseSequenceArraySlotsExt;
 use crate::arrays::piecewise_sequence::array::PiecewiseSequenceSlots;
 use crate::arrays::piecewise_sequence::check_index_arrays;
 use crate::arrays::piecewise_sequence::execute_index_arrays;
@@ -43,18 +40,6 @@ use crate::validity::Validity;
 
 /// A [`PiecewiseSequence`]-encoded Vortex index array.
 pub type PiecewiseSequenceArray = Array<PiecewiseSequence>;
-
-#[derive(Clone, prost::Message)]
-struct PiecewiseSequenceMetadata {
-    #[prost(uint64, tag = "1")]
-    num_pieces: u64,
-    #[prost(enumeration = "PType", tag = "2")]
-    starts_ptype: i32,
-    #[prost(enumeration = "PType", tag = "3")]
-    lengths_ptype: i32,
-    #[prost(enumeration = "PType", tag = "4")]
-    multipliers_ptype: i32,
-}
 
 #[derive(Clone, Debug)]
 pub struct PiecewiseSequence;
@@ -125,77 +110,22 @@ impl VTable for PiecewiseSequence {
     }
 
     fn serialize(
-        array: ArrayView<'_, Self>,
+        _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            PiecewiseSequenceMetadata {
-                num_pieces: u64::try_from(array.starts().len()).map_err(|_| {
-                    vortex_err!(
-                        "PiecewiseSequenceArray piece count {} overflowed u64",
-                        array.starts().len()
-                    )
-                })?,
-                starts_ptype: PType::try_from(array.starts().dtype())? as i32,
-                lengths_ptype: PType::try_from(array.lengths().dtype())? as i32,
-                multipliers_ptype: PType::try_from(array.multipliers().dtype())? as i32,
-            }
-            .encode_to_vec(),
-        ))
+        Ok(None)
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = PiecewiseSequenceMetadata::decode(metadata)?;
-        vortex_ensure!(
-            dtype == &DType::from(PType::U64),
-            "PiecewiseSequenceArray dtype must be u64, got {dtype}"
-        );
-        vortex_ensure!(
-            buffers.is_empty(),
-            "PiecewiseSequenceArray expects no buffers, got {}",
-            buffers.len()
-        );
-        vortex_ensure!(
-            children.len() == PiecewiseSequenceSlots::NAMES.len(),
-            "PiecewiseSequenceArray expects {} children, got {}",
-            PiecewiseSequenceSlots::NAMES.len(),
-            children.len()
-        );
-
-        let num_pieces = usize::try_from(metadata.num_pieces).map_err(|_| {
-            vortex_err!(
-                "PiecewiseSequenceArray piece count {} does not fit in usize",
-                metadata.num_pieces
-            )
-        })?;
-        let starts = children.get(
-            PiecewiseSequenceSlots::STARTS,
-            &metadata.starts_ptype().into(),
-            num_pieces,
-        )?;
-        let lengths = children.get(
-            PiecewiseSequenceSlots::LENGTHS,
-            &metadata.lengths_ptype().into(),
-            num_pieces,
-        )?;
-        let multipliers = children.get(
-            PiecewiseSequenceSlots::MULTIPLIERS,
-            &metadata.multipliers_ptype().into(),
-            num_pieces,
-        )?;
-
-        Ok(
-            ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(smallvec![Some(starts), Some(lengths), Some(multipliers)]),
-        )
+        vortex_bail!("PiecewiseSequenceArray is not serializable")
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
