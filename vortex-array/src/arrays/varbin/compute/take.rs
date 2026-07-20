@@ -7,14 +7,12 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
@@ -148,7 +146,7 @@ fn take_contiguous_ranges(
 
     let result = match lengths {
         Columnar::Constant(lengths) => {
-            let length = constant_unsigned_usize(&lengths)?;
+            let length = constant_unsigned_usize(&lengths);
             gather_slices_constant_dispatch(
                 &starts,
                 length,
@@ -158,19 +156,16 @@ fn take_contiguous_ranges(
                 out_offset_ptype,
             )?
         }
-        Columnar::Canonical(Canonical::Primitive(lengths)) => gather_slices_dispatch(
-            &starts,
-            &lengths,
-            &offsets,
-            data,
-            output_len,
-            out_offset_ptype,
-        )?,
         Columnar::Canonical(lengths) => {
-            vortex_bail!(
-                "PiecewiseSequenceArray lengths must be primitive or constant, got {}",
-                lengths.dtype()
-            )
+            let lengths = lengths.into_primitive();
+            gather_slices_dispatch(
+                &starts,
+                &lengths,
+                &offsets,
+                data,
+                output_len,
+                out_offset_ptype,
+            )?
         }
     };
 

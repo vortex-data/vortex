@@ -9,14 +9,12 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
@@ -88,7 +86,7 @@ fn take_contiguous_ranges(
     let output_len = indices_ref.len();
     let views = match lengths {
         Columnar::Constant(lengths) => {
-            let length = constant_unsigned_usize(&lengths)?;
+            let length = constant_unsigned_usize(&lengths);
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
                 gather_view_slices_constant_length(
                     source,
@@ -98,7 +96,8 @@ fn take_contiguous_ranges(
                 )?
             })
         }
-        Columnar::Canonical(Canonical::Primitive(lengths)) => {
+        Columnar::Canonical(lengths) => {
+            let lengths = lengths.into_primitive();
             match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
                 match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
                     gather_view_slices(
@@ -109,12 +108,6 @@ fn take_contiguous_ranges(
                     )?
                 })
             })
-        }
-        Columnar::Canonical(lengths) => {
-            vortex_bail!(
-                "PiecewiseSequenceArray lengths must be primitive or constant, got {}",
-                lengths.dtype()
-            )
         }
     };
     let validity = array.validity()?.take(indices_ref)?;
