@@ -3,10 +3,9 @@
 
 use std::ptr;
 
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-
-use crate::BufferMut;
 
 /// Writes slices sequentially into the spare capacity of an empty [`BufferMut`].
 ///
@@ -22,7 +21,7 @@ use crate::BufferMut;
 /// [`set_len`]: BufferMut::set_len
 /// [`finish`]: SpareBufferWriter::finish
 #[must_use = "call `finish` to set the buffer length after writing"]
-pub struct SpareBufferWriter<'a, T> {
+pub(crate) struct SpareBufferWriter<'a, T> {
     buffer: &'a mut BufferMut<T>,
     written: usize,
     output_len: usize,
@@ -32,7 +31,7 @@ impl<'a, T: Copy> SpareBufferWriter<'a, T> {
     /// Creates a writer for `output_len` values in `buffer`'s spare capacity.
     ///
     /// The target buffer must be empty and have capacity for at least `output_len` values.
-    pub fn new(buffer: &'a mut BufferMut<T>, output_len: usize) -> VortexResult<Self> {
+    pub(crate) fn new(buffer: &'a mut BufferMut<T>, output_len: usize) -> VortexResult<Self> {
         vortex_ensure!(
             buffer.is_empty(),
             "slice copy buffer already has {} initialized values",
@@ -53,7 +52,7 @@ impl<'a, T: Copy> SpareBufferWriter<'a, T> {
 
     /// Copies `source` into the next output slots.
     #[inline]
-    pub fn copy_slice(&mut self, source: &[T]) -> VortexResult<()> {
+    pub(crate) fn copy_slice(&mut self, source: &[T]) -> VortexResult<()> {
         vortex_ensure!(
             source.len() <= self.output_len - self.written,
             "slice copy length {} exceeds remaining output length {}",
@@ -73,7 +72,7 @@ impl<'a, T: Copy> SpareBufferWriter<'a, T> {
     }
 
     /// Sets the target buffer length after exactly `output_len` values have been written.
-    pub fn finish(self) -> VortexResult<()> {
+    pub(crate) fn finish(self) -> VortexResult<()> {
         vortex_ensure!(
             self.written == self.output_len,
             "slice copy length {} does not match declared output length {}",
@@ -91,10 +90,10 @@ impl<'a, T: Copy> SpareBufferWriter<'a, T> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
 
     use super::SpareBufferWriter;
-    use crate::BufferMut;
 
     #[test]
     fn writes_slices_into_spare_capacity() -> VortexResult<()> {
