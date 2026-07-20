@@ -8,6 +8,7 @@ members = [
     "vortex-mask",
     "vortex-utils",
     "vortex-session",
+    "vortex-edition",
     "vortex-flatbuffers",
     "vortex-metrics",
     "vortex-io",
@@ -295,6 +296,7 @@ vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-feature
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
+vortex-edition = { version = "0.1.0", path = "./vortex-edition", default-features = false }
 vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = false }
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }

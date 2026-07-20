@@ -10094,6 +10094,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-edition"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "vortex-error"
 version = "0.1.0"
 dependencies = [
@@ -11277,6 +11285,7 @@ dependencies = [
  "anyhow",
  "clap",
  "prost-build",
+ "vortex-edition",
  "xshell",
 ]
 

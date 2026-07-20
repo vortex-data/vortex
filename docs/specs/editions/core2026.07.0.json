@@ -1,0 +1,170 @@
+{
+  "id": "core2026.07.0",
+  "family": "core",
+  "status": "current",
+  "frozen": "2026-07",
+  "required_vortex_release": null,
+  "supersedes": null,
+  "encodings": [
+    {
+      "id": "fastlanes.bitpacked",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "fastlanes.delta",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "fastlanes.for",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "fastlanes.rle",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.alp",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.alprd",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.bool",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.bytebool",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.chunked",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.constant",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.datetimeparts",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.decimal",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.decimal_byte_parts",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.dict",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.ext",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.fixed_size_list",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.fsst",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.list",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.listview",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.masked",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.null",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.pco",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.primitive",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.runend",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.sequence",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.sparse",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.struct",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.varbin",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.varbinview",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.variant",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.zigzag",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    },
+    {
+      "id": "vortex.zstd",
+      "since": "core2026.07.0",
+      "required_vortex_release": null
+    }
+  ]
+}

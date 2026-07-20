@@ -23,6 +23,7 @@ test = false
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 prost-build = { workspace = true }
+vortex-edition = { workspace = true }
 xshell = { workspace = true }
 
 [lints]
