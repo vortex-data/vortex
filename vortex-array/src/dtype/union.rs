@@ -3,6 +3,7 @@
 
 use std::fmt;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -14,16 +15,15 @@ use vortex_error::vortex_ensure_eq;
 use crate::dtype::DType;
 use crate::dtype::FieldDType;
 use crate::dtype::FieldNames;
-use crate::dtype::Nullability;
 
 /// Type information for a union array.
 ///
 /// A `UnionVariants` describes the possible alternative types for each row of a union, along with a
-/// per-variant `i8` type tag. We use the term **variants** (rather than "fields") because a union
+/// per-variant `u8` type tag. We use the term **variants** (rather than "fields") because a union
 /// is a sum type: each row chooses exactly one alternative.
 ///
-/// Per Arrow's spec, the per-row type tag is an `int8`. By default, tag `i` selects the child at
-/// offset `i` (`type_ids = [0, 1, ..., N-1]`).
+/// By default, tag `i` selects the child at offset `i` (`type_ids = [0, 1, ..., N-1]`). Vortex uses
+/// unsigned tags and supports up to 256 variants.
 ///
 /// Schemas may also use non-consecutive tags (e.g. `[0, 5, 7]`), in which case the value of
 /// `type_ids[i]` is the tag used in the data to select the child at offset `i`. Supporting
@@ -112,11 +112,11 @@ struct UnionVariantsInner {
     /// consecutive offsets is `[0, 1, ..., N-1]`.
     ///
     /// For schemas with explicit `typeIds` indirection (e.g. `[0, 5, 7]`), this stores those tags.
-    type_ids: Arc<[i8]>,
+    type_ids: Arc<[u8]>,
 }
 
 impl UnionVariantsInner {
-    fn from_fields(names: FieldNames, dtypes: Arc<[FieldDType]>, type_ids: Arc<[i8]>) -> Self {
+    fn from_fields(names: FieldNames, dtypes: Arc<[FieldDType]>, type_ids: Arc<[u8]>) -> Self {
         Self {
             names,
             dtypes,
@@ -134,10 +134,33 @@ impl PartialEq for UnionVariantsInner {
 impl Eq for UnionVariantsInner {}
 
 impl Hash for UnionVariantsInner {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.names.hash(state);
         self.dtypes.hash(state);
         self.type_ids.hash(state);
+    }
+}
+
+impl UnionVariants {
+    /// Check if these union variants are equal, ignoring variant dtype nullability recursively.
+    pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+            || (self.0.names == other.0.names
+                && self
+                    .variants()
+                    .zip_eq(other.variants())
+                    .all(|(lhs, rhs)| lhs.eq_ignore_nullability(&rhs))
+                && self.0.type_ids == other.0.type_ids)
+    }
+
+    /// Hash these union variants using the same equivalence relation as
+    /// [`Self::eq_ignore_nullability`].
+    pub(crate) fn hash_ignore_nullability<H: Hasher>(&self, state: &mut H) {
+        self.0.names.hash(state);
+        for variant in self.variants() {
+            variant.hash_ignore_nullability(state);
+        }
+        self.0.type_ids.hash(state);
     }
 }
 
@@ -158,7 +181,7 @@ impl UnionVariants {
     }
 
     /// Validate that `names`, `dtypes`, and `type_ids` are mutually consistent.
-    fn validate_shape(names: &FieldNames, n_dtypes: usize, type_ids: &[i8]) -> VortexResult<()> {
+    fn validate_shape(names: &FieldNames, n_dtypes: usize, type_ids: &[u8]) -> VortexResult<()> {
         vortex_ensure_eq!(
             names.len(),
             n_dtypes,
@@ -180,6 +203,12 @@ impl UnionVariants {
             type_ids
         );
         vortex_ensure!(
+            type_ids.len() <= u8::MAX as usize + 1,
+            "union supports at most {} variants, got {}",
+            u8::MAX as usize + 1,
+            type_ids.len()
+        );
+        vortex_ensure!(
             names.iter().all_unique(),
             "union variant names must be distinct, got {:?}",
             names
@@ -193,12 +222,12 @@ impl UnionVariants {
     /// # Errors
     ///
     /// Returns an error if names, dtypes, or type IDs do not all have the same length, or if there
-    /// are any duplicate names or type ids.
-    pub fn try_new(names: FieldNames, dtypes: Vec<DType>, type_ids: Vec<i8>) -> VortexResult<Self> {
+    /// are any duplicate names or type IDs, or if there are more than 256 variants.
+    pub fn try_new(names: FieldNames, dtypes: Vec<DType>, type_ids: Vec<u8>) -> VortexResult<Self> {
         Self::validate_shape(&names, dtypes.len(), &type_ids)?;
 
         let dtypes: Arc<[FieldDType]> = dtypes.into_iter().map(FieldDType::from).collect();
-        let type_ids: Arc<[i8]> = Arc::from(type_ids);
+        let type_ids: Arc<[u8]> = Arc::from(type_ids);
 
         Ok(Self(Arc::new(UnionVariantsInner::from_fields(
             names, dtypes, type_ids,
@@ -210,21 +239,21 @@ impl UnionVariants {
     /// # Errors
     ///
     /// `names` and `dtypes` must have the same length, and `names.len()` cannot be more than
-    /// `i8::MAX as usize + 1` (128).
+    /// `u8::MAX as usize + 1` (256).
     pub fn new(names: FieldNames, dtypes: Vec<DType>) -> VortexResult<Self> {
-        const MAX_CONSECUTIVE: usize = i8::MAX as usize + 1;
+        const MAX_VARIANTS: usize = u8::MAX as usize + 1;
         vortex_ensure!(
-            names.len() <= MAX_CONSECUTIVE,
+            names.len() <= MAX_VARIANTS,
             "union supports at most {} consecutive variants, got {}",
-            MAX_CONSECUTIVE,
+            MAX_VARIANTS,
             names.len()
         );
 
         #[expect(
             clippy::cast_possible_truncation,
-            reason = "the MAX_CONSECUTIVE bound above guarantees `i as i8` is in range"
+            reason = "the MAX_VARIANTS bound above guarantees `i as u8` is in range"
         )]
-        let type_ids: Vec<i8> = (0..names.len()).map(|i| i as i8).collect();
+        let type_ids: Vec<u8> = (0..names.len()).map(|i| i as u8).collect();
 
         Self::try_new(names, dtypes, type_ids)
     }
@@ -237,11 +266,11 @@ impl UnionVariants {
     /// # Errors
     ///
     /// Returns an error if names, dtypes, or type IDs do not all have the same length, or if there
-    /// are any duplicate names or type ids.
+    /// are any duplicate names or type IDs, or if there are more than 256 variants.
     pub(crate) fn try_from_fields(
         names: FieldNames,
         dtypes: Vec<FieldDType>,
-        type_ids: Vec<i8>,
+        type_ids: Vec<u8>,
     ) -> VortexResult<Self> {
         Self::validate_shape(&names, dtypes.len(), &type_ids)?;
 
@@ -269,7 +298,7 @@ impl UnionVariants {
 
     /// Returns the per-variant type tag vector. Entry `i` is the tag that the data uses to
     /// select the variant at offset `i`.
-    pub fn type_ids(&self) -> &[i8] {
+    pub fn type_ids(&self) -> &[u8] {
         &self.0.type_ids
     }
 
@@ -279,12 +308,12 @@ impl UnionVariants {
             .type_ids
             .iter()
             .enumerate()
-            .all(|(i, &tag)| i8::try_from(i).is_ok_and(|i| i == tag))
+            .all(|(i, &tag)| u8::try_from(i).is_ok_and(|i| i == tag))
     }
 
     /// Find the offset of a variant by name. Returns `None` if no variant has the name.
     ///
-    /// This is a linear scan over [`Self::names`]. A union has at most 128 variants (and usually
+    /// This is a linear scan over [`Self::names`]. A union has at most 256 variants (and usually
     /// far fewer), so a linear scan beats building and probing a `HashMap` in practice.
     pub fn find(&self, name: impl AsRef<str>) -> Option<usize> {
         let name = name.as_ref();
@@ -324,9 +353,9 @@ impl UnionVariants {
     /// `type_ids`.
     ///
     /// This is a linear scan over [`Self::type_ids`]. The number of variants is bounded by
-    /// `i8::MAX + 1 = 128`, which fits in two cache lines, so a linear scan is faster than a
-    /// `HashMap` lookup in practice.
-    pub fn tag_to_child_index(&self, tag: i8) -> Option<usize> {
+    /// 256, so a linear scan is faster than a `HashMap` lookup in practice for the
+    /// small unions typically encountered.
+    pub fn tag_to_child_index(&self, tag: u8) -> Option<usize> {
         self.0.type_ids.iter().position(|&t| t == tag)
     }
 
@@ -335,23 +364,13 @@ impl UnionVariants {
     /// # Panics
     ///
     /// Panics if `index >= self.len()`.
-    pub fn child_index_to_tag(&self, index: usize) -> i8 {
+    pub fn child_index_to_tag(&self, index: usize) -> u8 {
         self.0.type_ids[index]
-    }
-
-    /// Returns the runtime-derived nullability of the union.
-    ///
-    /// This is not a zero-cost accessor: it scans every variant and materializes each
-    /// [`FieldDType`], which may be expensive when variants are still flatbuffer-backed views.
-    pub fn derived_nullability(&self) -> Nullability {
-        self.variants().any(|dtype| dtype.is_nullable()).into()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
@@ -430,6 +449,17 @@ mod tests {
     }
 
     #[test]
+    fn test_high_type_id() {
+        let variants = UnionVariants::try_new(
+            ["high"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            vec![u8::MAX],
+        )
+        .unwrap();
+        assert_eq!(variants.type_ids(), &[u8::MAX]);
+    }
+
+    #[test]
     fn test_length_mismatch_rejected() {
         let result = UnionVariants::try_new(
             ["a", "b"].into(),
@@ -459,39 +489,11 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[rstest]
-    #[case::nullable_with_null_child(
-        vec![
-            DType::Null,
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-        ],
-        Nullability::Nullable,
-    )]
-    #[case::nullable_with_nullable_child(
-        vec![
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-            DType::Utf8(Nullability::Nullable),
-        ],
-        Nullability::Nullable,
-    )]
-    #[case::nonnullable(
-        vec![
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-            DType::Utf8(Nullability::NonNullable),
-        ],
-        Nullability::NonNullable,
-    )]
-    #[case::empty(vec![], Nullability::NonNullable)]
-    fn test_derived_nullability(#[case] dtypes: Vec<DType>, #[case] expected: Nullability) {
-        let names: Vec<&str> = (0..dtypes.len()).map(|i| ["a", "b", "c", "d"][i]).collect();
-        let variants = UnionVariants::new(names.as_slice().into(), dtypes).unwrap();
-        assert_eq!(variants.derived_nullability(), expected);
-    }
-
     #[test]
-    fn test_nested_union_nullability() {
+    fn test_nested_union_nullability_is_independent() {
         let inner = DType::Union(
             UnionVariants::new(["value"].into(), vec![DType::Utf8(Nullability::Nullable)]).unwrap(),
+            Nullability::NonNullable,
         );
         let outer = DType::Union(
             UnionVariants::new(
@@ -502,28 +504,35 @@ mod tests {
                 ],
             )
             .unwrap(),
+            Nullability::Nullable,
         );
 
         assert_eq!(outer.nullability(), Nullability::Nullable);
+        let variants = outer.as_union_variants_opt().unwrap();
+        assert_eq!(
+            variants.variant_by_index(0).unwrap().nullability(),
+            Nullability::NonNullable
+        );
     }
 
     #[test]
-    fn test_with_nullability_does_not_change_union_variants() {
-        let nonnullable = DType::Union(i32_variants());
-        assert_eq!(nonnullable.as_nullable(), nonnullable);
+    fn test_with_nullability_changes_only_outer_union() {
+        let nonnullable = DType::Union(i32_variants(), Nullability::NonNullable);
         assert_eq!(nonnullable.nullability(), Nullability::NonNullable);
 
-        let nullable = DType::Union(
-            UnionVariants::new(["value"].into(), vec![DType::Utf8(Nullability::Nullable)]).unwrap(),
-        );
-        assert_eq!(nullable.as_nonnullable(), nullable);
+        let nullable = nonnullable.as_nullable();
         assert_eq!(nullable.nullability(), Nullability::Nullable);
+        assert_eq!(
+            nullable.as_union_variants_opt(),
+            nonnullable.as_union_variants_opt()
+        );
+        assert_eq!(nullable.as_nonnullable(), nonnullable);
     }
 
     #[test]
     fn test_display() {
         let variants = i32_variants();
-        let dtype = DType::Union(variants);
+        let dtype = DType::Union(variants, Nullability::NonNullable);
         assert_eq!(dtype.to_string(), "union(int=i32, str=utf8)");
 
         let nullable = DType::Union(
@@ -535,8 +544,13 @@ mod tests {
                 ],
             )
             .unwrap(),
+            Nullability::Nullable,
         );
         assert_eq!(nullable.to_string(), "union(int=i32, maybe_str=utf8?)?");
+        assert_eq!(
+            nullable.as_nonnullable().to_string(),
+            "union(int=i32, maybe_str=utf8?)"
+        );
     }
 
     #[test]
@@ -551,29 +565,27 @@ mod tests {
             vec![0, 5, 7],
         )
         .unwrap();
-        let dtype = DType::Union(variants);
+        let dtype = DType::Union(variants, Nullability::NonNullable);
         assert_eq!(dtype.to_string(), "union(a@0=i32, b@5=utf8, c@7=bool)");
     }
 
     #[test]
     fn test_new_max_size() {
-        // 128 variants is the maximum for consecutive type_ids: tags 0..=127 all fit in i8.
-        let names: Vec<String> = (0..128).map(|i| format!("v{i}")).collect();
-        let dtypes: Vec<DType> = (0..128)
+        let names: Vec<String> = (0..256).map(|i| format!("v{i}")).collect();
+        let dtypes: Vec<DType> = (0..256)
             .map(|_| DType::Primitive(PType::I32, Nullability::NonNullable))
             .collect();
         let names: FieldNames = names.into_iter().collect();
         let variants = UnionVariants::new(names, dtypes).unwrap();
-        assert_eq!(variants.len(), 128);
-        assert_eq!(variants.type_ids()[127], 127);
+        assert_eq!(variants.len(), 256);
+        assert_eq!(variants.type_ids()[255], 255);
         assert!(variants.is_consecutive());
     }
 
     #[test]
     fn test_new_too_large_rejected() {
-        // 129 variants exceeds i8::MAX + 1 = 128.
-        let names: Vec<String> = (0..129).map(|i| format!("v{i}")).collect();
-        let dtypes: Vec<DType> = (0..129)
+        let names: Vec<String> = (0..257).map(|i| format!("v{i}")).collect();
+        let dtypes: Vec<DType> = (0..257)
             .map(|_| DType::Primitive(PType::I32, Nullability::NonNullable))
             .collect();
         let names: FieldNames = names.into_iter().collect();
@@ -583,7 +595,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("at most 128 consecutive variants")
+                .contains("at most 256 consecutive variants")
         );
     }
 
@@ -592,7 +604,7 @@ mod tests {
         let v = UnionVariants::empty();
         assert!(v.is_empty());
         assert_eq!(v.len(), 0);
-        assert_eq!(v.type_ids(), &[] as &[i8]);
+        assert_eq!(v.type_ids(), &[] as &[u8]);
         assert!(v.is_consecutive());
     }
 }

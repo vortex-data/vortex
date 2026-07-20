@@ -9,8 +9,8 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
-use vortex_compressor::estimate::CompressionEstimate;
-use vortex_compressor::estimate::DeferredEstimate;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::SchemeId;
 use vortex_error::VortexResult;
 use vortex_onpair::DEFAULT_DICT12_CONFIG;
@@ -49,7 +49,7 @@ impl Scheme for OnPairScheme {
 
     /// 4 primitive slot children flow through the cascading compressor:
     /// `dict_offsets` (u32 → typically `FoR`/`BitPacked`), `codes` (u16 →
-    /// `FastLanes::BitPacked` to exactly `bits` = 12 by default),
+    /// usually `FastLanes::BitPacked` after scheme selection),
     /// `codes_offsets` (u32 → `FoR`), `uncompressed_lengths` (i32 → narrow
     /// + `FoR`). Validity stays untouched.
     fn num_children(&self) -> usize {
@@ -73,7 +73,10 @@ impl Scheme for OnPairScheme {
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let utf8 = data.array_as_varbinview().into_owned();
-        let onpair_array = onpair_compress(utf8.as_array(), DEFAULT_DICT12_CONFIG, exec_ctx)?;
+        let encoded = onpair_compress(utf8.as_array(), DEFAULT_DICT12_CONFIG, exec_ctx)?;
+        let Some(onpair_array) = encoded.as_opt::<OnPair>() else {
+            return Ok(encoded);
+        };
 
         let dict_offsets = compress_offsets_child(
             compressor,
@@ -116,7 +119,6 @@ impl Scheme for OnPairScheme {
             codes_offsets,
             uncompressed_lengths,
             onpair_array.array_validity(),
-            onpair_array.bits(),
         )?
         .into_array())
     }

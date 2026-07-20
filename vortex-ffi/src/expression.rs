@@ -63,6 +63,17 @@ pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
     vx_expression::new(root())
 }
 
+/// Reference-clone a vx_expression
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_expression_clone(
+    ptr: *const vx_expression,
+) -> *mut vx_expression {
+    if ptr.is_null() {
+        return ptr::null_mut();
+    }
+    vx_expression::new(vx_expression::as_ref(ptr).clone())
+}
+
 /// Create a literal expression from a scalar.
 ///
 /// Literal expressions are useful for constants in expression trees, especially scan
@@ -260,9 +271,9 @@ pub unsafe extern "C" fn vx_expression_binary(
 ///
 /// Returns the logical negation of the input boolean expression.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vx_expression_not(child: *const vx_expression) -> *const vx_expression {
+pub unsafe extern "C" fn vx_expression_not(child: *const vx_expression) -> *mut vx_expression {
     if child.is_null() {
-        return child;
+        return ptr::null_mut();
     }
     vx_expression::new(not(vx_expression::as_ref(child).clone()))
 }

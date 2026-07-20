@@ -5,6 +5,7 @@
 #include "data.hpp"
 #include "error.hpp"
 #include "scalar_fn_pushdown.hpp"
+#include "spatial_overrides.hpp"
 #include "cast_pushdown.hpp"
 #include "vortex_duckdb.h"
 
@@ -276,7 +277,7 @@ static void VortexOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<Lo
 }
 
 static void VortexPreOptimizeFunction(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
-    RestoreStDWithin(input.context, *plan);
+    RestoreSpatialOverrides(input.context, *plan);
 }
 
 struct VortexOptimizerExtension final : OptimizerExtension {

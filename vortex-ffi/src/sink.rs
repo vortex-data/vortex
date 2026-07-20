@@ -1,29 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use futures::SinkExt;
 use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
+use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex::file::VortexFile;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::LayoutStrategy;
 
 use crate::RUNTIME;
+use crate::arc_wrapper;
 use crate::array::vx_array;
 use crate::dtype::vx_dtype;
 use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::session::vx_session;
 use crate::string::vx_view;
+
+arc_wrapper!(
+    /// A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
+    VortexFile,
+    vx_file
+);
 
 #[expect(non_camel_case_types)]
 /// The `sink` interface is used to collect array chunks and place them into a resource
@@ -42,6 +55,53 @@ use crate::string::vx_view;
 pub struct vx_array_sink {
     sink: Sender<VortexResult<ArrayRef>>,
     writer: Task<VortexResult<WriteSummary>>,
+    dtype: DType,
+}
+
+/// Open a file sink with an explicit layout strategy.
+///
+/// This is a Rust API for FFI crates layered on top of `vortex-ffi`; the base C API continues to
+/// use the default write strategy. File creation and write errors are reported when the returned
+/// sink is closed.
+///
+/// # Safety
+///
+/// `session`, `path`, and `dtype` must satisfy the same requirements as
+/// `vx_array_sink_open_file`.
+pub unsafe fn vx_array_sink_open_file_with_strategy(
+    session: *const vx_session,
+    path: vx_view,
+    dtype: *const vx_dtype,
+    strategy: Arc<dyn LayoutStrategy>,
+) -> VortexResult<*mut vx_array_sink> {
+    let session = vx_session::as_ref(session).clone();
+
+    if path.ptr.is_null() {
+        vortex_bail!("null path");
+    }
+    let path = unsafe { path.as_str() }?.to_string();
+
+    let file_dtype = vx_dtype::as_ref(dtype);
+    // The channel size 32 was chosen arbitrarily.
+    let (sink, rx) = mpsc::channel(32);
+    let dtype = file_dtype.clone();
+    let array_stream = ArrayStreamAdapter::new(dtype.clone(), rx.into_stream());
+
+    let writer_session = session.clone();
+    let writer = session.handle().spawn(async move {
+        let mut file = async_fs::File::create(path).await?;
+        writer_session
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut file, array_stream)
+            .await
+    });
+
+    Ok(Box::into_raw(Box::new(vx_array_sink {
+        sink,
+        writer,
+        dtype,
+    })))
 }
 
 /// Opens a writable array stream, where sink is used to push values into the stream.
@@ -55,29 +115,15 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
     try_or_default(error_out, || {
-        let session = vx_session::as_ref(session);
-
-        if path.ptr.is_null() {
-            vortex_bail!("null path");
-        }
-        let path = unsafe { path.as_str() }?.to_string();
-
-        let file_dtype = vx_dtype::as_ref(dtype);
-        // The channel size 32 was chosen arbitrarily.
-        let (sink, rx) = mpsc::channel(32);
-        let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), rx.into_stream());
-
-        let writer = session.handle().spawn(async move {
-            let mut file = async_fs::File::create(path).await?;
-            session.write_options().write(&mut file, array_stream).await
-        });
-
-        Ok(Box::into_raw(Box::new(vx_array_sink { sink, writer })))
+        let strategy = WriteStrategyBuilder::default().build();
+        unsafe { vx_array_sink_open_file_with_strategy(session, path, dtype, strategy) }
     })
 }
 
 /// Push an array into a file sink.
-/// Does not take ownership of array
+/// Does not take ownership of array.
+///
+/// Errors if array's DType doesn't match sink's DType.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_sink_push(
     sink: *mut vx_array_sink,
@@ -90,6 +136,13 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
 
         let array = vx_array::as_ref(array);
         let sink = unsafe { &mut *sink };
+
+        vortex_ensure!(
+            *array.dtype() == sink.dtype,
+            "array dtype {} does not match sink dtype {}",
+            array.dtype(),
+            sink.dtype
+        );
         RUNTIME
             .block_on(sink.sink.send(Ok(array.clone())))
             .map_err(|e| vortex_err!("Send error: {e}"))
@@ -104,7 +157,11 @@ pub unsafe extern "C-unwind" fn vx_array_sink_close(
     error_out: *mut *mut vx_error,
 ) {
     try_or_default(error_out, || {
-        let vx_array_sink { sink, writer } = *unsafe { Box::from_raw(sink) };
+        let vx_array_sink {
+            sink,
+            writer,
+            dtype: _,
+        } = *unsafe { Box::from_raw(sink) };
         drop(sink);
 
         RUNTIME.block_on(async {

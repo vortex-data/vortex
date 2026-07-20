@@ -7,6 +7,7 @@
 
 mod bench_config;
 
+use std::f64::consts::PI;
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::os::raw::c_void;
@@ -39,6 +40,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
+use vortex::encodings::alp::ALPArrayOwnedExt;
 use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::Exponents;
@@ -745,40 +747,50 @@ fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
     for (len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<f64>()) as u64));
 
-        // Generate f64 values that ALP-encode without patches.
-        let floats: Vec<f64> = (0..*len)
-            .map(|i| <f64 as ALPFloat>::decode_single(10 + (i as i64 % 64), exponents))
-            .collect();
-        let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
+        for (patch_interval, benchmark_name) in [
+            (None, "cuda/alp_for_bp_6bw_f64/dispatch_f64"),
+            (
+                Some(100),
+                "cuda/alp_for_bp_6bw_f64_1pct_patches/dispatch_f64",
+            ),
+        ] {
+            let floats: Vec<f64> = (0..*len)
+                .map(|i| {
+                    if patch_interval.is_some_and(|interval| i % interval == 0) {
+                        PI
+                    } else {
+                        <f64 as ALPFloat>::decode_single(10 + (i as i64 % 64), exponents)
+                    }
+                })
+                .collect();
+            let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
 
-        // Encode: ALP → FoR → BitPacked
-        let alp =
-            alp_encode(float_prim.as_view(), Some(exponents), &mut ctx).vortex_expect("alp_encode");
-        assert!(alp.patches().is_none());
-        let for_arr = FoRData::encode(
-            alp.encoded()
-                .clone()
-                .execute::<PrimitiveArray>(&mut ctx)
-                .vortex_expect("to primitive"),
-            &mut ctx,
-        )
-        .vortex_expect("for encode");
-        let bp = BitPackedData::encode(for_arr.encoded(), bit_width, &mut ctx)
-            .vortex_expect("bitpack encode");
+            // Encode: ALP → FoR → BitPacked, preserving ALP's exception patches.
+            let alp = alp_encode(float_prim.as_view(), Some(exponents), &mut ctx)
+                .vortex_expect("alp_encode");
+            assert_eq!(alp.patches().is_some(), patch_interval.is_some());
+            let (encoded, alp_exponents, patches) = alp.into_parts();
+            let for_arr = FoRData::encode(
+                encoded
+                    .execute::<PrimitiveArray>(&mut ctx)
+                    .vortex_expect("to primitive"),
+                &mut ctx,
+            )
+            .vortex_expect("for encode");
+            let bp = BitPackedData::encode(for_arr.encoded(), bit_width, &mut ctx)
+                .vortex_expect("bitpack encode");
+            assert!(bp.patches().is_none(), "expected only ALP patches");
 
-        let tree = ALP::new(
-            FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())
-                .vortex_expect("for_new")
-                .into_array(),
-            exponents,
-            None,
-        );
-        let array = tree.into_array();
+            let tree = ALP::new(
+                FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())
+                    .vortex_expect("for_new")
+                    .into_array(),
+                alp_exponents,
+                patches,
+            );
+            let array = tree.into_array();
 
-        group.bench_with_input(
-            BenchmarkId::new("cuda/alp_for_bp_6bw_f64/dispatch_f64", len_str),
-            len,
-            |b, &n| {
+            group.bench_with_input(BenchmarkId::new(benchmark_name, len_str), len, |b, &n| {
                 let mut cuda_ctx =
                     CudaSession::create_execution_ctx(&cuda_session()).vortex_expect("ctx");
 
@@ -791,8 +803,8 @@ fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
                     }
                     total_time
                 });
-            },
-        );
+            });
+        }
     }
 
     group.finish();

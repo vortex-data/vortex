@@ -82,17 +82,17 @@ impl StructReader {
                 .collect()
         });
 
-        let mut dtypes: Vec<DType> = struct_dt.fields().collect();
-        let mut names: Vec<Arc<str>> = struct_dt
-            .names()
-            .iter()
-            .map(|x| Arc::clone(x.inner()))
-            .collect();
+        let nullable = layout.dtype.is_nullable();
+        let extra = nullable as usize;
 
-        if layout.dtype.is_nullable() {
-            dtypes.insert(0, DType::Bool(Nullability::NonNullable));
-            names.insert(0, Arc::from("validity"));
+        let mut dtypes: Vec<DType> = Vec::with_capacity(struct_dt.nfields() + extra);
+        let mut names: Vec<Arc<str>> = Vec::with_capacity(struct_dt.nfields() + extra);
+        if nullable {
+            dtypes.push(DType::Bool(Nullability::NonNullable));
+            names.push(Arc::from("validity"));
         }
+        dtypes.extend(struct_dt.fields());
+        names.extend(struct_dt.names().iter().map(|x| Arc::clone(x.inner())));
 
         let lazy_children = LazyReaderChildren::new(
             Arc::clone(&layout.children),

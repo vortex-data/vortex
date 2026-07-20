@@ -14,6 +14,7 @@ import dev.vortex.api.Partition;
 import dev.vortex.api.Scan;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.api.Session;
+import dev.vortex.api.VortexWriteSummary;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.arrow.ArrowAllocation;
 import java.io.IOException;
@@ -30,6 +31,7 @@ import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ViewVarCharVector;
 import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
@@ -157,6 +159,8 @@ public final class JNIWriterTest {
         Schema schema = personSchema();
 
         Session session = Session.create();
+        VortexWriteSummary summary;
+        long bytesWhileOpen;
         try (VortexWriter writer = VortexWriter.create(session, writePath, schema, new HashMap<>(), allocator);
                 VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
             VarCharVector nameVec = (VarCharVector) root.getVector("name");
@@ -179,9 +183,25 @@ public final class JNIWriterTest {
                 Data.exportVectorSchemaRoot(allocator, root, null, arrowArray, arrowSchemaFfi);
                 writer.writeBatch(arrowArray.memoryAddress(), arrowSchemaFfi.memoryAddress());
             }
+            bytesWhileOpen = writer.bytesWritten();
+            summary = writer.finish();
+            assertEquals(summary.fileSize(), writer.bytesWritten());
         }
 
         assertTrue(Files.exists(outputPath), "output file should exist");
+        assertTrue(bytesWhileOpen >= 0);
+        assertTrue(bytesWhileOpen <= summary.fileSize());
+        assertEquals(Files.size(outputPath), summary.fileSize());
+        assertEquals(3L, summary.rowCount());
+        assertEquals(2, summary.columnStatistics().size());
+        assertEquals(0, summary.columnStatistics().get(0).columnIndex());
+        assertTrue(summary.columnStatistics().get(0).compressedSize() > 0);
+        assertEquals(3L, summary.columnStatistics().get(0).valueCount());
+        assertEquals(0L, summary.columnStatistics().get(0).nullValueCount().orElseThrow());
+        assertEquals("Alice", summary.columnStatistics().get(0).lowerBound().orElseThrow());
+        assertEquals("Carol", summary.columnStatistics().get(0).upperBound().orElseThrow());
+        assertEquals(25, summary.columnStatistics().get(1).lowerBound().orElseThrow());
+        assertEquals(40, summary.columnStatistics().get(1).upperBound().orElseThrow());
 
         DataSource ds = DataSource.open(session, writePath);
         assertEquals(new DataSource.RowCount.Exact(3L), ds.rowCount());
@@ -192,7 +212,7 @@ public final class JNIWriterTest {
             try (ArrowReader reader = p.scanArrow(allocator)) {
                 reader.loadNextBatch();
                 VectorSchemaRoot resultRoot = reader.getVectorSchemaRoot();
-                VarCharVector nameOut = (VarCharVector) resultRoot.getVector("name");
+                ViewVarCharVector nameOut = (ViewVarCharVector) resultRoot.getVector("name");
                 IntVector ageOut = (IntVector) resultRoot.getVector("age");
                 assertEquals("Alice", nameOut.getObject(0).toString());
                 assertEquals("Bob", nameOut.getObject(1).toString());

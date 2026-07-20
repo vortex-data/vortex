@@ -5,11 +5,13 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use arrow_array::RecordBatchOptions;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
+use datafusion_common::Statistics;
 use datafusion_common::arrow::array::AsArray;
 use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
@@ -23,11 +25,13 @@ use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
 use datafusion_physical_expr::split_conjunction;
+use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr::utils::reassign_expr_columns;
 use datafusion_physical_expr_adapter::PhysicalExprAdapterFactory;
 use datafusion_physical_expr_adapter::replace_columns_with_literals;
-use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
-use datafusion_physical_plan::metrics::Count;
+use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion_physical_plan::metrics::MetricBuilder;
+use datafusion_physical_plan::metrics::MetricCategory;
 use datafusion_pruning::FilePruner;
 use futures::FutureExt;
 use futures::StreamExt;
@@ -83,12 +87,12 @@ pub(crate) struct VortexOpener {
     /// This is the table's schema without partition columns. It may contain fields which do
     /// not exist in the file, and are supplied by the `schema_adapter_factory`.
     pub table_schema: TableSchema,
-    /// A hint for the desired row count of record batches returned from the scan.
-    pub batch_size: usize,
     /// If provided, the scan will not return more than this many rows.
     pub limit: Option<u64>,
     /// A metrics object for tracking performance of the scan.
     pub metrics_registry: Arc<dyn MetricsRegistry>,
+    /// DataFusion-native metrics exposed through `DataSourceExec`.
+    pub df_metrics: ExecutionPlanMetricsSet,
     /// A shared cache of file readers.
     ///
     /// To save on the overhead of reparsing FlatBuffers and rebuilding the layout tree, we cache
@@ -108,6 +112,12 @@ pub(crate) struct VortexOpener {
 
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
+        // Calculate the output schema before replacing partition columns with literals so it
+        // retains the table and partition-field metadata declared by the plan.
+        let output_schema = Arc::new(
+            self.projection
+                .project_schema(self.table_schema.table_schema())?,
+        );
         let session = self.session.clone();
         let metrics_registry = Arc::clone(&self.metrics_registry);
         let labels = vec![
@@ -123,12 +133,11 @@ impl FileOpener for VortexOpener {
         let reader =
             InstrumentedReadAt::new_with_labels(reader, metrics_registry.as_ref(), labels.clone());
 
-        let file_pruning_predicate = self.file_pruning_predicate.clone();
+        let mut file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = Arc::clone(&self.expr_adapter_factory);
         let file_metadata_cache = self.file_metadata_cache.clone();
 
         let unified_file_schema = Arc::clone(self.table_schema.file_schema());
-        let batch_size = self.batch_size;
         let limit = self.limit;
         let layout_readers = Arc::clone(&self.layout_readers);
         let natural_split_ranges = Arc::clone(&self.natural_split_ranges);
@@ -137,6 +146,10 @@ impl FileOpener for VortexOpener {
 
         let expr_convertor = Arc::clone(&self.expression_convertor);
         let projection_pushdown = self.projection_pushdown;
+
+        let predicate_creation_errors = MetricBuilder::new(&self.df_metrics)
+            .with_category(MetricCategory::Rows)
+            .global_counter("num_predicate_creation_errors");
 
         // Replace column access for partition columns with literals
         #[expect(clippy::disallowed_types)]
@@ -149,6 +162,13 @@ impl FileOpener for VortexOpener {
             .zip(file.partition_values.clone())
             .collect::<std::collections::HashMap<String, ScalarValue>>();
 
+        let predicate_uses_partition_columns =
+            file_pruning_predicate.as_ref().is_some_and(|predicate| {
+                collect_columns(predicate)
+                    .iter()
+                    .any(|column| literal_value_cols.contains_key(column.name()))
+            });
+
         if !literal_value_cols.is_empty() {
             projection = projection.try_map_exprs(|expr| {
                 replace_columns_with_literals(Arc::clone(&expr), &literal_value_cols)
@@ -156,24 +176,30 @@ impl FileOpener for VortexOpener {
             filter = filter
                 .map(|p| replace_columns_with_literals(p, &literal_value_cols))
                 .transpose()?;
+            file_pruning_predicate = file_pruning_predicate
+                .map(|p| replace_columns_with_literals(p, &literal_value_cols))
+                .transpose()?;
         }
 
         Ok(async move {
-            // Create FilePruner when we have a predicate and either dynamic expressions
-            // or file statistics available. The pruner can eliminate files without
-            // opening them based on File-level statistics (min/max values per column)
+            // FilePruner requires a statistics object even when the rewritten predicate
+            // only contains partition literals. Supply unknown file-column statistics in
+            // that case so static and dynamic partition predicates can still prune.
+            let synthetic_statistics = (!file.has_statistics() && predicate_uses_partition_columns)
+                .then(|| {
+                    file.clone()
+                        .with_statistics(Arc::new(Statistics::new_unknown(&unified_file_schema)))
+                });
+            let pruning_file = synthetic_statistics.as_ref().unwrap_or(&file);
+
             let mut file_pruner = file_pruning_predicate
-                .filter(|p| {
-                    // Only create pruner if we have dynamic expressions or file statistics
-                    // to work with. Static predicates without stats won't benefit from pruning.
-                    is_dynamic_physical_expr(p) || file.has_statistics()
-                })
+                .filter(|_| file.has_statistics() || predicate_uses_partition_columns)
                 .and_then(|predicate| {
                     FilePruner::try_new(
                         Arc::clone(&predicate),
                         &unified_file_schema,
-                        &file,
-                        Count::default(),
+                        pruning_file,
+                        predicate_creation_errors,
                     )
                 });
 
@@ -240,8 +266,6 @@ impl FileOpener for VortexOpener {
                 &session.arrow(),
             )?);
 
-            let projected_physical_schema = projection.project_schema(&unified_file_schema)?;
-
             let expr_adapter = expr_adapter_factory.create(
                 Arc::clone(&unified_file_schema),
                 Arc::clone(&this_file_schema),
@@ -268,7 +292,7 @@ impl FileOpener for VortexOpener {
                 expr_convertor.split_projection(
                     projection.clone(),
                     &this_file_schema,
-                    &projected_physical_schema,
+                    output_schema.as_ref(),
                 )?
             } else {
                 // When projection pushdown is disabled, read only the required columns
@@ -285,7 +309,7 @@ impl FileOpener for VortexOpener {
             // When projection pushdown is enabled, the scan outputs the projected columns.
             // When disabled, the scan outputs raw columns and the projection is applied after.
             let scan_reference_schema = if projection_pushdown {
-                projected_physical_schema
+                (*output_schema).clone()
             } else {
                 // Build schema from the raw columns being read
                 let column_indices = projection.column_indices();
@@ -293,7 +317,7 @@ impl FileOpener for VortexOpener {
                     .into_iter()
                     .map(|idx| this_file_schema.field(idx).clone())
                     .collect();
-                Schema::new(fields)
+                Schema::new_with_metadata(fields, this_file_schema.metadata().clone())
             };
             let stream_schema =
                 calculate_physical_schema(&scan_dtype, &scan_reference_schema, &session.arrow())?;
@@ -424,40 +448,26 @@ impl FileOpener for VortexOpener {
                 })
                 .into_stream()
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
-                .map_ok(move |rb| {
-                    // We try and slice the stream into respecting datafusion's configured batch size.
-                    stream::iter(
-                        (0..rb.num_rows().div_ceil(batch_size * 2))
-                            .flat_map(move |block_idx| {
-                                let offset = block_idx * batch_size * 2;
-
-                                // If we have less than two batches worth of rows left, we keep them together as a single batch.
-                                if rb.num_rows() - offset < 2 * batch_size {
-                                    let length = rb.num_rows() - offset;
-                                    [Some(rb.slice(offset, length)), None].into_iter()
-                                } else {
-                                    let first = rb.slice(offset, batch_size);
-                                    let second = rb.slice(offset + batch_size, batch_size);
-                                    [Some(first), Some(second)].into_iter()
-                                }
-                            })
-                            .flatten()
-                            .map(Ok),
-                    )
-                })
                 .map_err(move |e: VortexError| {
                     DataFusionError::External(Box::new(e.with_context(format!(
                         "Failed to read Vortex file: {}",
                         file.object_meta.location
                     ))))
                 })
-                .try_flatten()
                 .map(move |batch| {
-                    if projector.projection().as_ref().is_empty() {
+                    let batch = if projector.projection().as_ref().is_empty() {
                         batch
                     } else {
                         batch.and_then(|b| projector.project_batch(&b))
-                    }
+                    }?;
+
+                    let (_, columns, row_count) = batch.into_parts();
+                    RecordBatch::try_new_with_options(
+                        Arc::clone(&output_schema),
+                        columns,
+                        &RecordBatchOptions::new().with_row_count(Some(row_count)),
+                    )
+                    .map_err(Into::into)
                 })
                 .boxed();
 
@@ -564,6 +574,7 @@ fn split_midpoint_to_byte(split_range: &Range<u64>, row_count: u64, total_size: 
 
 #[cfg(test)]
 mod tests {
+    use std::fmt;
     use std::sync::Arc;
     use std::sync::LazyLock;
 
@@ -571,6 +582,7 @@ mod tests {
     use arrow_schema::Fields;
     use arrow_schema::SchemaRef;
     use datafusion::arrow::array::DictionaryArray;
+    use datafusion::arrow::array::Int32Array;
     use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
@@ -585,9 +597,12 @@ mod tests {
     use datafusion::physical_expr::planner::logical2physical;
     use datafusion::physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
     use datafusion::scalar::ScalarValue;
+    use datafusion_common::stats::Precision;
     use datafusion_execution::cache::DefaultFilesMetadataCache;
     use datafusion_expr::Operator;
+    use datafusion_physical_expr::PhysicalExpr;
     use datafusion_physical_expr::expressions as df_expr;
+    use datafusion_physical_expr::expressions::DynamicFilterPhysicalExpr;
     use datafusion_physical_expr::projection::ProjectionExpr;
     use insta::assert_snapshot;
     use itertools::Itertools;
@@ -611,6 +626,54 @@ mod tests {
     use crate::persistent::reader::DefaultVortexReaderFactory;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+
+    /// Test-only expr used to test error reporting.
+    #[derive(Debug, Eq, Hash, PartialEq)]
+    struct SnapshotErrorExpr;
+
+    impl fmt::Display for SnapshotErrorExpr {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "snapshot_error")
+        }
+    }
+
+    impl PhysicalExpr for SnapshotErrorExpr {
+        fn data_type(&self, _input_schema: &Schema) -> DFResult<DataType> {
+            Ok(DataType::Boolean)
+        }
+
+        fn nullable(&self, _input_schema: &Schema) -> DFResult<bool> {
+            Ok(false)
+        }
+
+        fn fmt_sql(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            fmt::Display::fmt(self, f)
+        }
+
+        fn evaluate(&self, _batch: &RecordBatch) -> DFResult<datafusion_expr::ColumnarValue> {
+            Err(DataFusionError::Internal(
+                "intentional snapshot error".to_owned(),
+            ))
+        }
+
+        fn children(&self) -> Vec<&PhysicalExprRef> {
+            Vec::new()
+        }
+
+        fn with_new_children(
+            self: Arc<Self>,
+            children: Vec<PhysicalExprRef>,
+        ) -> DFResult<PhysicalExprRef> {
+            assert!(children.is_empty());
+            Ok(self)
+        }
+
+        fn snapshot(&self) -> DFResult<Option<PhysicalExprRef>> {
+            Err(DataFusionError::Internal(
+                "intentional snapshot error".to_owned(),
+            ))
+        }
+    }
 
     #[rstest]
     #[case(0..3, 10, vec![0..2, 2..5, 5..10], Some(0..2))]
@@ -700,9 +763,9 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
             has_output_ordering: false,
@@ -762,6 +825,165 @@ mod tests {
         let num_batches = data.len();
         let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
         assert_eq!((num_batches, num_rows), (0, 0));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_preserves_declared_schema_metadata() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "part=1/file.vortex";
+        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)]))?;
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let file_schema = Arc::new(
+            batch.schema().as_ref().clone().with_metadata(
+                [("table".to_string(), "metadata".to_string())]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+        let table_schema = TableSchema::new(
+            file_schema,
+            vec![Arc::new(
+                Field::new("part", DataType::Int32, false).with_metadata(
+                    [("partition".to_string(), "metadata".to_string())]
+                        .into_iter()
+                        .collect(),
+                ),
+            )],
+        );
+        let projection = ProjectionExprs::from_indices(&[0, 1], table_schema.table_schema());
+        let expected_schema = Arc::new(projection.project_schema(table_schema.table_schema())?);
+
+        assert_eq!(
+            expected_schema.metadata().get("table"),
+            Some(&"metadata".to_string())
+        );
+        assert_eq!(
+            expected_schema.field(1).metadata().get("partition"),
+            Some(&"metadata".to_string())
+        );
+
+        for projection_pushdown in [false, true] {
+            let mut opener = make_opener(Arc::clone(&object_store), table_schema.clone(), None);
+            opener.projection = projection.clone();
+            opener.projection_pushdown = projection_pushdown;
+
+            let mut file = PartitionedFile::new(file_path.to_string(), data_size);
+            file.partition_values = vec![ScalarValue::Int32(Some(1))];
+            let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+            assert!(!batches.is_empty());
+            for batch in batches {
+                assert_eq!(batch.schema().as_ref(), expected_schema.as_ref());
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_all_valid_nullable_columns_with_nonnullable_table_schema()
+    -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "nullable/file.vortex";
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, true)])),
+            vec![Arc::new(Int32Array::from(vec![Some(1), Some(2), Some(3)]))],
+        )?;
+        let data_size = write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch).await?;
+
+        let expected_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+        let table_schema = TableSchema::from_file_schema(Arc::clone(&expected_schema));
+
+        for projection_pushdown in [false, true] {
+            let mut opener = make_opener(Arc::clone(&object_store), table_schema.clone(), None);
+            opener.projection_pushdown = projection_pushdown;
+
+            let file = PartitionedFile::new(file_path.to_string(), data_size);
+            let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+            assert_eq!(batches.len(), 1);
+            assert_eq!(batches[0].schema().as_ref(), expected_schema.as_ref());
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_file_pruning_replaces_partition_columns_without_file_statistics()
+    -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+        let table_schema = TableSchema::new(
+            Arc::clone(&file_schema),
+            vec![Arc::new(Field::new("part", DataType::Int32, false))],
+        );
+
+        let partition_column = Arc::new(df_expr::Column::new("part", 1)) as PhysicalExprRef;
+        let predicate = Arc::new(df_expr::BinaryExpr::new(
+            Arc::clone(&partition_column),
+            Operator::Gt,
+            df_expr::lit(ScalarValue::Int32(Some(1))),
+        )) as PhysicalExprRef;
+        let dynamic_predicate = Arc::new(DynamicFilterPhysicalExpr::new(
+            vec![partition_column],
+            predicate,
+        )) as PhysicalExprRef;
+
+        let mut opener = make_opener(object_store, table_schema, None);
+        opener.file_pruning_predicate = Some(dynamic_predicate);
+        let df_metrics = opener.df_metrics.clone();
+
+        // The file does not exist and has no statistics. Replacing `part` with 1
+        // makes the predicate false, so pruning must happen before any file I/O.
+        let mut file = PartitionedFile::new("missing.vortex", 1);
+        file.partition_values = vec![ScalarValue::Int32(Some(1))];
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+        assert!(batches.is_empty());
+        assert_eq!(
+            df_metrics
+                .clone_inner()
+                .sum_by_name("num_predicate_creation_errors")
+                .map(|metric| metric.as_usize()),
+            Some(0)
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_file_pruning_creation_errors_are_reported() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "metrics/file.vortex";
+        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+        let mut statistics = Statistics::new_unknown(batch.schema().as_ref());
+        statistics.column_statistics[0].null_count = Precision::Exact(0);
+        let file = PartitionedFile::new(file_path, data_size).with_statistics(Arc::new(statistics));
+
+        let mut opener = make_opener(
+            object_store,
+            TableSchema::from_file_schema(batch.schema()),
+            None,
+        );
+        opener.file_pruning_predicate = Some(Arc::new(SnapshotErrorExpr));
+        let df_metrics = opener.df_metrics.clone();
+
+        let batches = opener.open(file)?.await?.try_collect::<Vec<_>>().await?;
+
+        assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 3);
+        assert_eq!(
+            df_metrics
+                .clone_inner()
+                .sum_by_name("num_predicate_creation_errors")
+                .map(|metric| metric.as_usize()),
+            Some(1)
+        );
 
         Ok(())
     }
@@ -872,9 +1094,9 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
             has_output_ordering: false,
@@ -959,9 +1181,9 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from_file_schema(Arc::clone(&table_schema)),
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
             has_output_ordering: false,
@@ -1116,9 +1338,9 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: table_schema.clone(),
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
             has_output_ordering: false,
@@ -1176,9 +1398,9 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema: TableSchema::from_file_schema(schema),
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
             has_output_ordering: false,
@@ -1385,9 +1607,9 @@ mod tests {
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
             table_schema,
-            batch_size: 100,
             limit: None,
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
+            df_metrics: ExecutionPlanMetricsSet::new(),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
             has_output_ordering: false,

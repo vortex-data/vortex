@@ -35,5 +35,3 @@ struct ScalarFnReplace final : LogicalOperatorVisitor {
     ExpressionPtr VisitReplace(BoundColumnRefExpression &expr, ExpressionPtr *ptr) override;
     ExpressionPtr VisitReplace(BoundFunctionExpression &expr, ExpressionPtr *ptr) override;
 };
-
-void RestoreStDWithin(ClientContext &context, LogicalOperator &plan);

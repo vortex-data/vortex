@@ -3,21 +3,31 @@
 
 use std::sync::Arc;
 
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
+use vortex_array::stats::session::StatsSessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_session::VortexSession;
 
+use crate::aggregate_fn::GeometryAabb;
 use crate::extension::LineString;
 use crate::extension::MultiLineString;
 use crate::extension::MultiPoint;
 use crate::extension::MultiPolygon;
 use crate::extension::Point;
 use crate::extension::Polygon;
+use crate::extension::Rect;
 use crate::extension::WellKnownBinary;
+use crate::prune::GeoDistancePrune;
+use crate::prune::GeoIntersectsPrune;
+use crate::scalar_fn::contains::GeoContains;
 use crate::scalar_fn::distance::GeoDistance;
+use crate::scalar_fn::intersects::GeoIntersects;
 
+pub mod aggregate_fn;
 pub mod extension;
+pub mod prune;
 pub mod scalar_fn;
 #[cfg(test)]
 mod test_harness;
@@ -48,7 +58,20 @@ pub fn initialize(session: &VortexSession) {
     session.dtypes().register(MultiPolygon);
     session.arrow().register_exporter(Arc::new(MultiPolygon));
     session.arrow().register_importer(Arc::new(MultiPolygon));
+    session.dtypes().register(Rect);
+    session.arrow().register_exporter(Arc::new(Rect));
+    session.arrow().register_importer(Arc::new(Rect));
 
     // Register the geometry scalar functions.
+    session.scalar_fns().register(GeoContains);
     session.scalar_fns().register(GeoDistance);
+    session.scalar_fns().register(GeoIntersects);
+
+    // The axis-aligned bounding-box (AABB) aggregate; self-declares as a per-chunk zone stat for
+    // geometry columns.
+    session.aggregate_fns().register(GeometryAabb);
+
+    // Register the spatial pruning rules that use that AABB.
+    session.stats().register_rewrite(GeoDistancePrune);
+    session.stats().register_rewrite(GeoIntersectsPrune);
 }

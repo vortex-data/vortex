@@ -8,6 +8,7 @@ mod multipoint;
 mod multipolygon;
 mod point;
 mod polygon;
+mod rect;
 mod wkb;
 
 use std::fmt::Display;
@@ -37,20 +38,81 @@ pub use multipoint::*;
 pub use multipolygon::*;
 pub use point::*;
 pub use polygon::*;
+pub use rect::*;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_arrow::FromArrowArray;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 pub use wkb::*;
+
+/// Whether `dtype` is one of the native geometry extension types the geo kernels operate on.
+pub(crate) fn is_native_geometry(dtype: &DType) -> bool {
+    dtype.as_extension_opt().is_some_and(|ext| {
+        ext.is::<Point>()
+            || ext.is::<LineString>()
+            || ext.is::<MultiPoint>()
+            || ext.is::<Polygon>()
+            || ext.is::<MultiLineString>()
+            || ext.is::<MultiPolygon>()
+            || ext.is::<Rect>()
+    })
+}
+
+/// Validate the operands of a geo scalar function: each must be a native geometry type so the
+/// kernel can decode it. The two operands need not share a geometry type — e.g. a `Point` against
+/// a `Polygon` is valid, since distance/containment/intersection across types is meaningful.
+/// Nullable operands are allowed; the kernels propagate nulls (a null geometry input yields a null
+/// result) rather than decoding null rows.
+pub(crate) fn validate_geometry_operands(dtypes: &[DType]) -> VortexResult<()> {
+    for dtype in dtypes {
+        vortex_ensure!(
+            is_native_geometry(dtype),
+            "geo: operand {dtype} is not a native geometry type"
+        );
+    }
+    Ok(())
+}
+
+/// Flatten a native geometry column into a single coordinate `Struct<x, y, ...>` containing
+/// every vertex of every geometry.
+pub(crate) fn flatten_coordinates(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<StructArray> {
+    if !is_native_geometry(array.dtype()) {
+        vortex_bail!(
+            "geo: operand is not a native geometry extension type, was {}",
+            array.dtype()
+        );
+    }
+    let mut node = array
+        .clone()
+        .execute::<ExtensionArray>(ctx)?
+        .storage_array()
+        .clone();
+    while matches!(node.dtype(), DType::List(..)) {
+        node = node
+            .execute::<Canonical>(ctx)?
+            .into_listview()
+            .elements()
+            .clone();
+    }
+    node.execute::<StructArray>(ctx)
+}
 
 /// Decode a native geometry column to `geo_types`. A non-geometry operand is an error.
 pub(crate) fn geometries(
@@ -80,6 +142,8 @@ pub(crate) fn geometries(
         multilinestring_geometries(&storage, ctx)
     } else if ext.is::<MultiPolygon>() {
         multipolygon_geometries(&storage, ctx)
+    } else if ext.is::<Rect>() {
+        rect_geometries(&storage, ctx)
     } else {
         vortex_bail!("geo: unsupported geometry extension {}", array.dtype())
     }

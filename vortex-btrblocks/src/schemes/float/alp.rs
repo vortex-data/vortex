@@ -15,9 +15,9 @@ use vortex_array::arrays::Patched;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
-use vortex_compressor::estimate::CompressionEstimate;
-use vortex_compressor::estimate::DeferredEstimate;
-use vortex_compressor::estimate::EstimateVerdict;
+use vortex_compressor::scheme::CompressionEstimate;
+use vortex_compressor::scheme::DeferredEstimate;
+use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;

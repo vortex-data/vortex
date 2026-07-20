@@ -7,12 +7,16 @@ package dev.vortex.spark.read;
 import com.jakewharton.nopen.annotation.Open;
 import dev.vortex.relocated.org.apache.arrow.vector.*;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.ListVector;
+import dev.vortex.relocated.org.apache.arrow.vector.complex.ListViewVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.MapVector;
 import dev.vortex.relocated.org.apache.arrow.vector.complex.StructVector;
 import dev.vortex.relocated.org.apache.arrow.vector.holders.NullableLargeVarCharHolder;
 import dev.vortex.relocated.org.apache.arrow.vector.holders.NullableVarCharHolder;
+import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
+import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.spark.ArrowUtils;
 import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Decimal;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarArray;
@@ -23,12 +27,17 @@ import org.apache.spark.unsafe.types.UTF8String;
  * Spark ColumnVector implementation that wraps Apache Arrow vectors from Vortex data.
  * <p>
  * This class provides a bridge between Vortex's Arrow-based data representation and Spark's
- * ColumnVector interface. It supports all major Arrow data types including primitives, strings,
- * binary data, decimals, dates, timestamps, arrays, maps, and structs.
+ * ColumnVector interface. It supports the same Arrow vector types as Spark 4.1's own
+ * {@code ArrowColumnVector} — booleans, signed integers, single/double floats, 128-bit decimals,
+ * strings and binary (regular and large), day dates, timestamps of every unit with and without
+ * timezone (normalized to microseconds), microsecond durations, year-month and month-day-nano
+ * intervals, nulls, lists, maps, and structs — plus the Arrow view types (Utf8View, BinaryView,
+ * ListView) that Vortex produces natively.
  * <p>
- * The implementation uses type-specific accessors to efficiently retrieve values from the
- * underlying Arrow vectors while maintaining Spark's expected API contract.
- * 
+ * Arrow types outside that set (unsigned integers, half floats, 256-bit decimals,
+ * non-microsecond durations, Time, fixed-size binary and lists, large lists, unions, run-end and
+ * dictionary encodings) are rejected with a descriptive {@link UnsupportedOperationException}.
+ *
  * @see ColumnVector
  * @see ValueVector
  */
@@ -39,7 +48,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the underlying Apache Arrow ValueVector wrapped by this column vector.
-     * 
+     *
      * @return the Arrow ValueVector containing the actual data
      */
     public ValueVector getValueVector() {
@@ -48,7 +57,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns whether this column contains any null values.
-     * 
+     *
      * @return true if the column contains at least one null value, false otherwise
      */
     @Override
@@ -58,7 +67,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the total number of null values in this column.
-     * 
+     *
      * @return the count of null values
      */
     @Override
@@ -76,7 +85,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns whether the value at the specified row is null.
-     * 
+     *
      * @param rowId the row index to check
      * @return true if the value at rowId is null, false otherwise
      */
@@ -87,7 +96,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the boolean value at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the boolean value at rowId
      * @throws UnsupportedOperationException if this column is not of boolean type
@@ -99,7 +108,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the byte value at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the byte value at rowId
      * @throws UnsupportedOperationException if this column is not of byte type
@@ -111,7 +120,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the short value at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the short value at rowId
      * @throws UnsupportedOperationException if this column is not of short type
@@ -123,7 +132,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the int value at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the int value at rowId
      * @throws UnsupportedOperationException if this column is not of int type
@@ -135,7 +144,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the long value at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the long value at rowId
      * @throws UnsupportedOperationException if this column is not of long type
@@ -147,7 +156,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the float value at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the float value at rowId
      * @throws UnsupportedOperationException if this column is not of float type
@@ -159,7 +168,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the double value at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the double value at rowId
      * @throws UnsupportedOperationException if this column is not of double type
@@ -171,7 +180,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the decimal value at the specified row with the given precision and scale.
-     * 
+     *
      * @param rowId the row index
      * @param precision the precision of the decimal
      * @param scale the scale of the decimal
@@ -186,7 +195,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the UTF8String value at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the UTF8String value at rowId, or null if the value is null
      * @throws UnsupportedOperationException if this column is not of string type
@@ -199,7 +208,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the binary data (byte array) at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the byte array at rowId, or null if the value is null
      * @throws UnsupportedOperationException if this column is not of binary type
@@ -212,7 +221,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the array value at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the ColumnarArray at rowId, or null if the value is null
      * @throws UnsupportedOperationException if this column is not of array type
@@ -225,7 +234,7 @@ public class VortexArrowColumnVector extends ColumnVector {
 
     /**
      * Returns the map value at the specified row.
-     * 
+     *
      * @param rowId the row index
      * @return the ColumnarMap at rowId, or null if the value is null
      * @throws UnsupportedOperationException if this column is not of map type
@@ -240,8 +249,9 @@ public class VortexArrowColumnVector extends ColumnVector {
      * Returns the child column at the specified ordinal.
      * <p>
      * This is used for complex types like structs where each field is represented
-     * as a child column.
-     * 
+     * as a child column. For month-day-nano interval columns, the children follow the
+     * months/days/microseconds protocol documented on {@link ColumnVector#getInterval(int)}.
+     *
      * @param ordinal the index of the child column
      * @return the child VortexArrowColumnVector at the specified ordinal
      * @throws ArrayIndexOutOfBoundsException if ordinal is out of bounds
@@ -256,7 +266,7 @@ public class VortexArrowColumnVector extends ColumnVector {
      * <p>
      * This constructor is used internally for creating column vectors before
      * the underlying Arrow vector is available.
-     * 
+     *
      * @param type the Spark DataType for this column
      */
     VortexArrowColumnVector(DataType type) {
@@ -268,7 +278,7 @@ public class VortexArrowColumnVector extends ColumnVector {
      * <p>
      * This constructor automatically determines the appropriate Spark DataType from
      * the Arrow field and initializes the type-specific accessor.
-     * 
+     *
      * @param vector the Arrow ValueVector to wrap
      * @throws UnsupportedOperationException if the vector type is not supported
      */
@@ -277,59 +287,78 @@ public class VortexArrowColumnVector extends ColumnVector {
         initAccessor(vector);
     }
 
+    private static VortexArrowColumnVector withAccessor(DataType type, ArrowVectorAccessor accessor) {
+        VortexArrowColumnVector column = new VortexArrowColumnVector(type);
+        column.accessor = accessor;
+        return column;
+    }
+
     void initAccessor(ValueVector vector) {
-        if (vector instanceof BitVector) {
-            accessor = new VortexArrowColumnVector.BooleanAccessor((BitVector) vector);
-        } else if (vector instanceof TinyIntVector) {
-            accessor = new VortexArrowColumnVector.ByteAccessor((TinyIntVector) vector);
-        } else if (vector instanceof SmallIntVector) {
-            accessor = new VortexArrowColumnVector.ShortAccessor((SmallIntVector) vector);
-        } else if (vector instanceof IntVector) {
-            accessor = new VortexArrowColumnVector.IntAccessor((IntVector) vector);
-        } else if (vector instanceof BigIntVector) {
-            accessor = new VortexArrowColumnVector.LongAccessor((BigIntVector) vector);
-        } else if (vector instanceof Float4Vector) {
-            accessor = new VortexArrowColumnVector.FloatAccessor((Float4Vector) vector);
-        } else if (vector instanceof Float8Vector) {
-            accessor = new VortexArrowColumnVector.DoubleAccessor((Float8Vector) vector);
-        } else if (vector instanceof DecimalVector) {
-            accessor = new VortexArrowColumnVector.DecimalAccessor((DecimalVector) vector);
-        } else if (vector instanceof VarCharVector) {
-            accessor = new VortexArrowColumnVector.StringAccessor((VarCharVector) vector);
-        } else if (vector instanceof LargeVarCharVector) {
-            accessor = new VortexArrowColumnVector.LargeStringAccessor((LargeVarCharVector) vector);
-        } else if (vector instanceof VarBinaryVector) {
-            accessor = new VortexArrowColumnVector.BinaryAccessor((VarBinaryVector) vector);
-        } else if (vector instanceof LargeVarBinaryVector) {
-            accessor = new VortexArrowColumnVector.LargeBinaryAccessor((LargeVarBinaryVector) vector);
-        } else if (vector instanceof DateDayVector) {
-            accessor = new VortexArrowColumnVector.DateAccessor((DateDayVector) vector);
-        } else if (vector instanceof TimeStampMicroTZVector) {
-            accessor = new VortexArrowColumnVector.TimestampAccessor((TimeStampMicroTZVector) vector);
-        } else if (vector instanceof TimeStampMicroVector) {
-            accessor = new VortexArrowColumnVector.TimestampNTZAccessor((TimeStampMicroVector) vector);
-        } else if (vector instanceof MapVector) {
-            MapVector mapVector = (MapVector) vector;
+        if (vector instanceof BitVector bitVector) {
+            accessor = new VortexArrowColumnVector.BooleanAccessor(bitVector);
+        } else if (vector instanceof TinyIntVector tinyIntVector) {
+            accessor = new VortexArrowColumnVector.ByteAccessor(tinyIntVector);
+        } else if (vector instanceof SmallIntVector smallIntVector) {
+            accessor = new VortexArrowColumnVector.ShortAccessor(smallIntVector);
+        } else if (vector instanceof IntVector intVector) {
+            accessor = new VortexArrowColumnVector.IntAccessor(intVector);
+        } else if (vector instanceof BigIntVector bigIntVector) {
+            accessor = new VortexArrowColumnVector.LongAccessor(bigIntVector);
+        } else if (vector instanceof Float4Vector float4Vector) {
+            accessor = new VortexArrowColumnVector.FloatAccessor(float4Vector);
+        } else if (vector instanceof Float8Vector float8Vector) {
+            accessor = new VortexArrowColumnVector.DoubleAccessor(float8Vector);
+        } else if (vector instanceof DecimalVector decimalVector) {
+            accessor = new VortexArrowColumnVector.DecimalAccessor(decimalVector);
+        } else if (vector instanceof VarCharVector varCharVector) {
+            accessor = new VortexArrowColumnVector.StringAccessor(varCharVector);
+        } else if (vector instanceof LargeVarCharVector largeVarCharVector) {
+            accessor = new VortexArrowColumnVector.LargeStringAccessor(largeVarCharVector);
+        } else if (vector instanceof ViewVarCharVector viewVarCharVector) {
+            accessor = new VortexArrowColumnVector.StringViewAccessor(viewVarCharVector);
+        } else if (vector instanceof VarBinaryVector varBinaryVector) {
+            accessor = new VortexArrowColumnVector.BinaryAccessor(varBinaryVector);
+        } else if (vector instanceof LargeVarBinaryVector largeVarBinaryVector) {
+            accessor = new VortexArrowColumnVector.LargeBinaryAccessor(largeVarBinaryVector);
+        } else if (vector instanceof ViewVarBinaryVector viewVarBinaryVector) {
+            accessor = new VortexArrowColumnVector.BinaryViewAccessor(viewVarBinaryVector);
+        } else if (vector instanceof DateDayVector dateDayVector) {
+            accessor = new VortexArrowColumnVector.DateAccessor(dateDayVector);
+        } else if (vector instanceof TimeStampVector timeStampVector) {
+            // Covers all eight unit/timezone variants; values are normalized to microseconds.
+            accessor = new VortexArrowColumnVector.TimestampAccessor(timeStampVector);
+        } else if (vector instanceof MapVector mapVector) {
+            // MapVector extends ListVector, so this check must come first.
             accessor = new VortexArrowColumnVector.MapAccessor(mapVector);
-        } else if (vector instanceof ListVector) {
-            ListVector listVector = (ListVector) vector;
+        } else if (vector instanceof ListVector listVector) {
             accessor = new VortexArrowColumnVector.ArrayAccessor(listVector);
-        } else if (vector instanceof StructVector) {
-            StructVector structVector = (StructVector) vector;
+        } else if (vector instanceof ListViewVector listViewVector) {
+            accessor = new VortexArrowColumnVector.ListViewAccessor(listViewVector);
+        } else if (vector instanceof StructVector structVector) {
             accessor = new VortexArrowColumnVector.StructAccessor(structVector);
 
             childColumns = new VortexArrowColumnVector[structVector.size()];
             for (int i = 0; i < childColumns.length; ++i) {
                 childColumns[i] = new VortexArrowColumnVector(structVector.getVectorById(i));
             }
-        } else if (vector instanceof NullVector) {
-            accessor = new VortexArrowColumnVector.NullAccessor((NullVector) vector);
-        } else if (vector instanceof IntervalYearVector) {
-            accessor = new VortexArrowColumnVector.IntervalYearAccessor((IntervalYearVector) vector);
-        } else if (vector instanceof DurationVector) {
-            accessor = new VortexArrowColumnVector.DurationAccessor((DurationVector) vector);
+        } else if (vector instanceof NullVector nullVector) {
+            accessor = new VortexArrowColumnVector.NullAccessor(nullVector);
+        } else if (vector instanceof IntervalYearVector intervalYearVector) {
+            accessor = new VortexArrowColumnVector.IntervalYearAccessor(intervalYearVector);
+        } else if (vector instanceof IntervalMonthDayNanoVector intervalMonthDayNanoVector) {
+            accessor = new VortexArrowColumnVector.IntervalMonthDayNanoAccessor(intervalMonthDayNanoVector);
+            // CalendarInterval values are read through ColumnVector.getInterval, which uses the
+            // months/days/microseconds child column protocol.
+            childColumns = new VortexArrowColumnVector[] {
+                withAccessor(DataTypes.IntegerType, new IntervalMonthsAccessor(intervalMonthDayNanoVector)),
+                withAccessor(DataTypes.IntegerType, new IntervalDaysAccessor(intervalMonthDayNanoVector)),
+                withAccessor(DataTypes.LongType, new IntervalMicrosAccessor(intervalMonthDayNanoVector)),
+            };
+        } else if (vector instanceof DurationVector durationVector) {
+            accessor = new VortexArrowColumnVector.DurationAccessor(durationVector);
         } else {
-            throw new UnsupportedOperationException();
+            throw new UnsupportedOperationException("Unsupported Arrow vector type: "
+                    + vector.getClass().getSimpleName() + " for field " + vector.getField());
         }
     }
 
@@ -579,6 +608,24 @@ public class VortexArrowColumnVector extends ColumnVector {
     }
 
     @Open
+    static class StringViewAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
+
+        private final ViewVarCharVector accessor;
+
+        StringViewAccessor(ViewVarCharVector vector) {
+            super(vector);
+            this.accessor = vector;
+        }
+
+        @Override
+        final UTF8String getUTF8String(int rowId) {
+            // View values may be inlined in the view buffer rather than contiguous in a data
+            // buffer, so copy out rather than aliasing vector memory.
+            return UTF8String.fromBytes(accessor.get(rowId));
+        }
+    }
+
+    @Open
     static class BinaryAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
 
         private final VarBinaryVector accessor;
@@ -611,6 +658,22 @@ public class VortexArrowColumnVector extends ColumnVector {
     }
 
     @Open
+    static class BinaryViewAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
+
+        private final ViewVarBinaryVector accessor;
+
+        BinaryViewAccessor(ViewVarBinaryVector vector) {
+            super(vector);
+            this.accessor = vector;
+        }
+
+        @Override
+        final byte[] getBinary(int rowId) {
+            return accessor.getObject(rowId);
+        }
+    }
+
+    @Open
     static class DateAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
 
         private final DateDayVector accessor;
@@ -626,35 +689,33 @@ public class VortexArrowColumnVector extends ColumnVector {
         }
     }
 
+    /**
+     * Reads any of the eight timestamp vector variants (four units, with or without timezone),
+     * normalizing values to the microseconds Spark expects for TimestampType and TimestampNTZType.
+     * Seconds and milliseconds fail on overflow rather than silently wrapping; nanoseconds floor
+     * towards negative infinity, matching Spark's nanosecond-to-microsecond conversions.
+     */
     @Open
     static class TimestampAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
 
-        private final TimeStampMicroTZVector accessor;
+        private final TimeStampVector accessor;
+        private final TimeUnit unit;
 
-        TimestampAccessor(TimeStampMicroTZVector vector) {
+        TimestampAccessor(TimeStampVector vector) {
             super(vector);
             this.accessor = vector;
+            this.unit = ((ArrowType.Timestamp) vector.getField().getType()).getUnit();
         }
 
         @Override
         final long getLong(int rowId) {
-            return accessor.get(rowId);
-        }
-    }
-
-    @Open
-    static class TimestampNTZAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
-
-        private final TimeStampMicroVector accessor;
-
-        TimestampNTZAccessor(TimeStampMicroVector vector) {
-            super(vector);
-            this.accessor = vector;
-        }
-
-        @Override
-        final long getLong(int rowId) {
-            return accessor.get(rowId);
+            long value = accessor.get(rowId);
+            return switch (unit) {
+                case SECOND -> Math.multiplyExact(value, 1_000_000L);
+                case MILLISECOND -> Math.multiplyExact(value, 1_000L);
+                case MICROSECOND -> value;
+                case NANOSECOND -> Math.floorDiv(value, 1_000L);
+            };
         }
     }
 
@@ -665,6 +726,26 @@ public class VortexArrowColumnVector extends ColumnVector {
         private final VortexArrowColumnVector arrayData;
 
         ArrayAccessor(ListVector vector) {
+            super(vector);
+            this.accessor = vector;
+            this.arrayData = new VortexArrowColumnVector(vector.getDataVector());
+        }
+
+        @Override
+        final ColumnarArray getArray(int rowId) {
+            int start = accessor.getElementStartIndex(rowId);
+            int end = accessor.getElementEndIndex(rowId);
+            return new ColumnarArray(arrayData, start, end - start);
+        }
+    }
+
+    @Open
+    static class ListViewAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
+
+        private final ListViewVector accessor;
+        private final VortexArrowColumnVector arrayData;
+
+        ListViewAccessor(ListViewVector vector) {
             super(vector);
             this.accessor = vector;
             this.arrayData = new VortexArrowColumnVector(vector.getDataVector());
@@ -737,6 +818,68 @@ public class VortexArrowColumnVector extends ColumnVector {
         @Override
         int getInt(int rowId) {
             return accessor.get(rowId);
+        }
+    }
+
+    /**
+     * Accessor for the {@code MONTH_DAY_NANO} interval vector itself. Values are read through
+     * {@link ColumnVector#getInterval(int)}, which uses the months/days/microseconds child
+     * columns; this accessor only provides null tracking.
+     */
+    @Open
+    static class IntervalMonthDayNanoAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
+
+        IntervalMonthDayNanoAccessor(IntervalMonthDayNanoVector vector) {
+            super(vector);
+        }
+    }
+
+    @Open
+    static class IntervalMonthsAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
+
+        private final IntervalMonthDayNanoVector accessor;
+
+        IntervalMonthsAccessor(IntervalMonthDayNanoVector vector) {
+            super(vector);
+            this.accessor = vector;
+        }
+
+        @Override
+        final int getInt(int rowId) {
+            return IntervalMonthDayNanoVector.getMonths(accessor.getDataBuffer(), rowId);
+        }
+    }
+
+    @Open
+    static class IntervalDaysAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
+
+        private final IntervalMonthDayNanoVector accessor;
+
+        IntervalDaysAccessor(IntervalMonthDayNanoVector vector) {
+            super(vector);
+            this.accessor = vector;
+        }
+
+        @Override
+        final int getInt(int rowId) {
+            return IntervalMonthDayNanoVector.getDays(accessor.getDataBuffer(), rowId);
+        }
+    }
+
+    @Open
+    static class IntervalMicrosAccessor extends VortexArrowColumnVector.ArrowVectorAccessor {
+
+        private final IntervalMonthDayNanoVector accessor;
+
+        IntervalMicrosAccessor(IntervalMonthDayNanoVector vector) {
+            super(vector);
+            this.accessor = vector;
+        }
+
+        @Override
+        final long getLong(int rowId) {
+            // Truncating division matches Spark's ArrowColumnVector month-day-nano handling.
+            return IntervalMonthDayNanoVector.getNanoseconds(accessor.getDataBuffer(), rowId) / 1_000L;
         }
     }
 

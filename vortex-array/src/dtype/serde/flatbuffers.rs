@@ -117,10 +117,11 @@ impl UnionVariants {
             })
             .collect::<Vec<_>>();
 
-        let type_ids: Vec<i8> = fb_union
+        let type_ids: Vec<u8> = fb_union
             .type_ids()
             .ok_or_else(|| vortex_err!("failed to parse union type_ids from flatbuffer"))?
             .iter()
+            .map(i8::cast_unsigned)
             .collect();
 
         UnionVariants::try_from_fields(names, dtypes, type_ids)
@@ -234,7 +235,7 @@ impl TryFrom<ViewedDType> for DType {
                     .ok_or_else(|| vortex_err!("failed to parse union from flatbuffer"))?;
                 let variants =
                     UnionVariants::from_fb(fb_union, vfdt.buffer().clone(), vfdt.session.clone())?;
-                Ok(Self::Union(variants))
+                Ok(Self::Union(variants, fb_union.nullable().into()))
             }
             fb::Type::Variant => {
                 let fb_variant = fb
@@ -380,7 +381,7 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
-            Self::Union(uv) => {
+            Self::Union(uv, n) => {
                 let names = uv
                     .names()
                     .iter()
@@ -394,7 +395,15 @@ impl WriteFlatBuffer for DType {
                     .collect::<VortexResult<Vec<_>>>()?;
                 let dtypes = Some(fbb.create_vector(&dtypes));
 
-                let type_ids = Some(fbb.create_vector(uv.type_ids()));
+                // The FlatBuffers schema retains its original signed byte wire type for backwards
+                // compatibility. Reinterpreting the bits preserves the full u8 tag range.
+                let type_ids = uv
+                    .type_ids()
+                    .iter()
+                    .copied()
+                    .map(u8::cast_signed)
+                    .collect_vec();
+                let type_ids = Some(fbb.create_vector(&type_ids));
 
                 fb::Union::create(
                     fbb,
@@ -402,6 +411,7 @@ impl WriteFlatBuffer for DType {
                         names,
                         dtypes,
                         type_ids,
+                        nullable: (*n).into(),
                     },
                 )
                 .as_union_value()
@@ -572,6 +582,7 @@ mod test {
                 ],
             )
             .unwrap(),
+            Nullability::NonNullable,
         )
     }
 
@@ -588,6 +599,7 @@ mod test {
                 vec![DType::Null, DType::Utf8(Nullability::NonNullable)],
             )
             .unwrap(),
+            Nullability::NonNullable,
         );
         roundtrip_dtype(dtype);
     }
@@ -602,9 +614,10 @@ mod test {
                     DType::Utf8(Nullability::NonNullable),
                     DType::Bool(Nullability::NonNullable),
                 ],
-                vec![0, 5, 7],
+                vec![0, 5, u8::MAX],
             )
             .unwrap(),
+            Nullability::Nullable,
         );
 
         let bytes = dtype.write_flatbuffer_bytes().unwrap();
@@ -617,10 +630,10 @@ mod test {
 
         let deserialized = DType::try_from(view).unwrap();
         assert_eq!(dtype, deserialized);
-        let DType::Union(uv) = &deserialized else {
+        let DType::Union(uv, _) = &deserialized else {
             panic!("Expected Union");
         };
-        assert_eq!(uv.type_ids(), &[0, 5, 7]);
+        assert_eq!(uv.type_ids(), &[0, 5, u8::MAX]);
     }
 
     #[test]
@@ -640,6 +653,7 @@ mod test {
                 vec![DType::Utf8(Nullability::NonNullable), struct_with_union],
             )
             .unwrap(),
+            Nullability::Nullable,
         );
 
         roundtrip_dtype(outer_union);
@@ -695,6 +709,7 @@ mod test {
                 names: Some(names),
                 dtypes: Some(dtypes),
                 type_ids: Some(type_ids),
+                nullable: false,
             },
         );
 

@@ -10,6 +10,11 @@ use vortex_buffer::BitBuffer;
 use vortex_mask::Mask;
 
 fn main() {
+    // Pre-resolve the one-time CpuKernel selections on the rank/select path so no
+    // benchmark iteration pays the first-call cost.
+    let warm = create_mask(512, 0.5);
+    let _ = warm.rank(warm.true_count() / 2);
+
     divan::main();
 }
 

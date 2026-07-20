@@ -8,6 +8,7 @@ maxdepth: 2
 ---
 
 file-format
+editions
 ipc-format
 dtype-format
 scalar-format

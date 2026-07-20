@@ -61,8 +61,8 @@ impl vx_view {
     ///
     /// # Safety
     ///
-    /// Same requirements as in as_bytes
-    pub(crate) unsafe fn as_str<'a>(&self) -> VortexResult<&'a str> {
+    /// `self.ptr` must be valid for `self.len` reads, or null when `self.len` is zero.
+    pub unsafe fn as_str<'a>(&self) -> VortexResult<&'a str> {
         str::from_utf8(unsafe { self.as_bytes() }?).map_err(|e| vortex_err!("invalid utf-8: {e}"))
     }
 }

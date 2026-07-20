@@ -56,8 +56,12 @@ pub trait IdempotentPath {
     fn to_data_path(&self) -> PathBuf;
 }
 
+pub fn bench_dir() -> PathBuf {
+    workspace_root().join("vortex-bench")
+}
+
 pub fn data_dir() -> PathBuf {
-    workspace_root().join("vortex-bench").join("data")
+    bench_dir().join("data")
 }
 
 /// Find the workspace's root by looking for Cargo's lock file

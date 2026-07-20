@@ -17,7 +17,9 @@ definition that allows efficiently querying the layout.
 
 Other considerations for the Vortex file format include:
 
-* Backwards compatibility, and (coming soon) forwards compatibility.
+* Backwards compatibility, and (coming soon) forwards compatibility. The set of encodings a
+  writer may put in a file — and the resulting read-compatibility promise — is governed by
+  [Editions](/specs/editions).
 * Fine-grained encryption.
 * Efficient access for both local disk and cloud storage.
 * Minimal overhead reading few columns or rows from wide or long arrays.

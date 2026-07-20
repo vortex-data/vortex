@@ -6,25 +6,35 @@ mod avx2;
 
 use std::sync::LazyLock;
 
+use itertools::Itertools as _;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
+use crate::arrays::PiecewiseSequence;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::constant_unsigned_usize;
+use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::dtype::NativePType;
+use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -79,6 +89,12 @@ impl TakeExecute for Primitive {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+            && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
+        {
+            return Ok(Some(taken));
+        }
+
         let DType::Primitive(ptype, null) = indices.dtype() else {
             vortex_bail!("Invalid indices dtype: {}", indices.dtype())
         };
@@ -123,6 +139,30 @@ impl TakeExecute for Primitive {
     }
 }
 
+fn take_contiguous_ranges(
+    array: ArrayView<'_, Primitive>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    indices_ref: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
+        return Ok(None);
+    };
+    let validity = array.validity()?.take(indices_ref)?;
+    let output_len = indices_ref.len();
+    let taken = match lengths {
+        Columnar::Constant(lengths) => {
+            let length = constant_unsigned_usize(&lengths);
+            take_slices_constant_length(array, &starts, length, validity, output_len)?
+        }
+        Columnar::Canonical(lengths) => {
+            let lengths = lengths.into_primitive();
+            take_slices(array, &starts, &lengths, validity, output_len)?
+        }
+    };
+    Ok(Some(taken))
+}
+
 // Compiler may see this as unused based on enabled features
 #[inline(always)]
 fn take_primitive_scalar<T: Copy, I: IntegerPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
@@ -142,6 +182,142 @@ fn take_primitive_scalar<T: Copy, I: IntegerPType>(buffer: &[T], indices: &[I]) 
     // SAFETY: We just wrote exactly `indices.len()` elements.
     unsafe { result.set_len(indices.len()) };
     result.freeze()
+}
+
+fn take_slices(
+    array: ArrayView<'_, Primitive>,
+    starts: &PrimitiveArray,
+    lengths: &PrimitiveArray,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef> {
+    match_each_native_ptype!(array.ptype(), |T| {
+        take_slices_typed::<T>(array, starts, lengths, validity, output_len)
+    })
+}
+
+fn take_slices_typed<T>(
+    array: ArrayView<'_, Primitive>,
+    starts: &PrimitiveArray,
+    lengths: &PrimitiveArray,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType,
+{
+    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        take_slices_start_typed::<T, S>(array, starts, lengths, validity, output_len)
+    })
+}
+
+fn take_slices_start_typed<T, S>(
+    array: ArrayView<'_, Primitive>,
+    starts: &PrimitiveArray,
+    lengths: &PrimitiveArray,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType,
+    S: UnsignedPType,
+{
+    match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+        let values = take_slices_to_buffer::<T, S, L>(
+            array.as_slice::<T>(),
+            starts.as_slice::<S>(),
+            lengths.as_slice::<L>(),
+            output_len,
+        )?;
+        Ok(PrimitiveArray::new(values, validity).into_array())
+    })
+}
+
+fn take_slices_to_buffer<T, S, L>(
+    source: &[T],
+    starts: &[S],
+    lengths: &[L],
+    output_len: usize,
+) -> VortexResult<Buffer<T>>
+where
+    T: Copy,
+    S: UnsignedPType,
+    L: UnsignedPType,
+{
+    let mut values = BufferMut::<T>::with_capacity(output_len);
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start = start.as_();
+        let length = length.as_();
+        values.extend_from_slice(&source[start..][..length]);
+    }
+
+    vortex_ensure!(
+        values.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        values.len()
+    );
+    Ok(values.freeze())
+}
+
+fn take_slices_constant_length(
+    array: ArrayView<'_, Primitive>,
+    starts: &PrimitiveArray,
+    length: usize,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef> {
+    match_each_native_ptype!(array.ptype(), |T| {
+        take_slices_constant_length_typed::<T>(array, starts, length, validity, output_len)
+    })
+}
+
+fn take_slices_constant_length_typed<T>(
+    array: ArrayView<'_, Primitive>,
+    starts: &PrimitiveArray,
+    length: usize,
+    validity: Validity,
+    output_len: usize,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType,
+{
+    match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        let values = take_slices_constant_length_to_buffer::<T, S>(
+            array.as_slice::<T>(),
+            starts.as_slice::<S>(),
+            length,
+            output_len,
+        )?;
+        Ok(PrimitiveArray::new(values, validity).into_array())
+    })
+}
+
+fn take_slices_constant_length_to_buffer<T, S>(
+    source: &[T],
+    starts: &[S],
+    length: usize,
+    output_len: usize,
+) -> VortexResult<Buffer<T>>
+where
+    T: Copy,
+    S: UnsignedPType,
+{
+    let computed_len = starts
+        .len()
+        .checked_mul(length)
+        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
+
+    let mut values = BufferMut::<T>::with_capacity(output_len);
+    for &start in starts {
+        let start = start.as_();
+        values.extend_from_slice(&source[start..][..length]);
+    }
+
+    Ok(values.freeze())
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]

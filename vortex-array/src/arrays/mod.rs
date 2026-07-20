@@ -88,6 +88,10 @@ pub mod patched;
 pub use patched::Patched;
 pub use patched::PatchedArray;
 
+pub mod piecewise_sequence;
+pub use piecewise_sequence::PiecewiseSequence;
+pub use piecewise_sequence::PiecewiseSequenceArray;
+
 pub mod primitive;
 pub use primitive::Primitive;
 pub use primitive::PrimitiveArray;

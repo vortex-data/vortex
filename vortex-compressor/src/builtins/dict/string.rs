@@ -21,12 +21,12 @@ use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
 use crate::builtins::IntDictScheme;
-use crate::ctx::CompressorContext;
-use crate::estimate::CompressionEstimate;
-use crate::estimate::DeferredEstimate;
-use crate::estimate::EstimateVerdict;
 use crate::scheme::ChildSelection;
+use crate::scheme::CompressionEstimate;
+use crate::scheme::CompressorContext;
+use crate::scheme::DeferredEstimate;
 use crate::scheme::DescendantExclusion;
+use crate::scheme::EstimateVerdict;
 use crate::scheme::Scheme;
 use crate::scheme::SchemeExt;
 use crate::stats::ArrayAndStats;

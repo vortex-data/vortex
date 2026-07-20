@@ -146,7 +146,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      # sync: false — the test runs via `uv run --no-project` and needs no workspace
+      # packages; the default `uv sync` builds the vortex-data Rust extension (~6 min).
       - uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
       - name: Pytest - measurement_id golden vectors
         run: |
           uv run --no-project --with pytest --with xxhash \
@@ -211,7 +215,7 @@ jobs:
           # including all private docs.
           cargo doc --profile ci --no-deps --document-private-items --workspace --exclude vortex-python --exclude vortex-python-cuda
           # nextest doesn't support doc tests, so we run it here
-          cargo test --profile ci --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
+          cargo test --profile ci --doc --workspace --all-features --exclude vortex-jni --exclude vortex-ffi --exclude xtask --exclude vortex-python-cuda --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -355,7 +359,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
       - name: C/C++ Lint - clang-format
         run: |
-          git ls-files vortex-cuda vortex-duckdb vortex-ffi \
+          git ls-files lang/cpp vortex-cuda vortex-duckdb vortex-ffi \
             | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
             | grep -v 'arrow/reference/arrow_c_device\.h$' \
             | grep -v 'kernels/src/bit_unpack_.*\.cu$' \
@@ -414,6 +418,10 @@ jobs:
             --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
             --exclude gpu-scan-cli --exclude vortex-sqllogictest
+
+      - name: sccache stats
+        if: always() && github.repository == 'vortex-data/vortex'
+        run: sccache --show-stats
 
       - name: Alert incident.io
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/develop'
@@ -522,6 +530,43 @@ jobs:
         with:
           command: check ${{ matrix.checks }}
 
+  cxx-api:
+    name: "C++ API"
+    timeout-minutes: 5
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=cxx-build', github.run_id)
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
+      - name: Install Rust nightly toolchain
+        run: |
+          rustup toolchain install $NIGHTLY_TOOLCHAIN
+          rustup component add --toolchain $NIGHTLY_TOOLCHAIN rust-src rustfmt clippy llvm-tools-preview
+      - name: Build FFI library (asan)
+        run: |
+          RUSTFLAGS="-A warnings -Cunsafe-allow-abi-mismatch=sanitizer \
+                -C debuginfo=2 -C opt-level=0 -C strip=none -Zexternal-clangrt \
+                -Zsanitizer=address,leak" \
+          cargo +$NIGHTLY_TOOLCHAIN build --locked --no-default-features \
+            --target x86_64-unknown-linux-gnu -Zbuild-std \
+            -p vortex-ffi
+      - name: Build C++ library (asan)
+        run: |
+          mkdir -p build
+          cmake -S lang/cpp -Bbuild -DSANITIZER=asan -DBUILD_TESTS=1 -DTARGET_TRIPLE="x86_64-unknown-linux-gnu"
+          cmake --build build --parallel $(nproc)
+      - name: Run C++ tests
+        run: |
+          build/tests/vortex_cxx_test
+
   sqllogic-test:
     name: "SQL logic tests"
     needs: duckdb-ready
@@ -550,14 +595,23 @@ jobs:
 
   wasm-integration:
     name: "WASM integration smoke test"
-    runs-on: ubuntu-latest
     timeout-minutes: 30
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/extras=s3-cache/tag=wasm-integration', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
-      - uses: ./.github/actions/setup-rust
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          sccache: s3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: ./.github/actions/setup-prebuild
+        with:
+          enable-sccache: "true"
           targets: "wasm32-wasip1"
+      - name: Install wasm32-wasip1 target
+        run: rustup target add wasm32-wasip1
       - name: Setup Wasmer
         shell: bash
         run: |

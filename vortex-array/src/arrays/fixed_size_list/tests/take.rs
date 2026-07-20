@@ -147,6 +147,28 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
     assert_arrays_eq!(expected, result, &mut ctx);
 }
 
+#[test]
+fn test_take_fsl_null_index_ignores_out_of_bounds_payload() {
+    let mut ctx = array_session().create_execution_ctx();
+    let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
+    let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
+
+    let indices = PrimitiveArray::new(
+        buffer![1u32, 99, 2],
+        Validity::from_iter([true, false, true]),
+    )
+    .into_array();
+    let result = fsl.take(indices).unwrap();
+
+    let expected = FixedSizeListArray::new(
+        buffer![3i32, 4, 0, 0, 5, 6].into_array(),
+        2,
+        Validity::from_iter([true, false, true]),
+        3,
+    );
+    assert_arrays_eq!(expected, result, &mut ctx);
+}
+
 // Element index overflow: with u8 indices and list_size=16, data_idx=16 produces element index
 // 16*16=256 which overflows u8. The take kernel must widen the element index type.
 #[rstest]

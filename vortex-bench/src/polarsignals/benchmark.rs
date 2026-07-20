@@ -59,6 +59,10 @@ impl PolarSignalsBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for PolarSignalsBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/polarsignals.md"
+    }
+
     fn queries(&self) -> Result<Vec<(usize, String)>> {
         let queries_file = workspace_root()
             .join("vortex-bench")

@@ -50,7 +50,7 @@ jobs:
 
       - name: Install DuckDB
         run: |
-          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.3/duckdb_cli-linux-amd64.zip | funzip > duckdb
+          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.4/duckdb_cli-linux-amd64.zip | funzip > duckdb
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
 
@@ -113,10 +113,8 @@ jobs:
           python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz > base.json
 
-          echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
-          echo '' >> comment.md
           uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.benchmark.name }}" \
-            >> comment.md
+            > comment.md
           cat comment.md >> $GITHUB_STEP_SUMMARY
 
       - name: Comment PR

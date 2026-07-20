@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![expect(clippy::missing_safety_doc)]
+#![forbid(clippy::todo)]
+#![forbid(clippy::unimplemented)]
 
 use std::ffi::c_char;
 use std::ffi::c_void;

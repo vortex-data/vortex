@@ -31,7 +31,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
-use vortex_array::expr::and;
+use vortex_array::expr::union_child_validities;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -256,10 +256,7 @@ impl ScalarFnVTable for L2Denorm {
         _options: &Self::Options,
         expression: &Expression,
     ) -> VortexResult<Option<Expression>> {
-        let normalized_validity = expression.child(0).validity()?;
-        let norms_validity = expression.child(1).validity()?;
-
-        Ok(Some(and(normalized_validity, norms_validity)))
+        union_child_validities(expression)
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

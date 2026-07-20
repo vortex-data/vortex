@@ -93,6 +93,12 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Returns `None` if the aggregate function cannot be applied to the input dtype.
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType>;
 
+    /// If this aggregate should be computed as a default zone statistic for `input_dtype`, return
+    /// the bound aggregate to store. Default: not a zone-map default.
+    fn zone_stat_default(&self, _input_dtype: &DType) -> Option<AggregateFnRef> {
+        None
+    }
+
     /// DType of the intermediate partial accumulator state.
     ///
     /// Use a struct dtype when multiple fields are needed

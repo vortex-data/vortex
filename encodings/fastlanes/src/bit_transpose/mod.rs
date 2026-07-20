@@ -28,6 +28,10 @@ mod x86;
 mod validity;
 
 pub use validity::*;
+use vortex_buffer::CpuKernel;
+
+/// Signature shared by all 1024-bit transpose kernels.
+type TransposeKernel = unsafe fn(&[u8; 128], &mut [u8; 128]);
 
 /// Base indices for the first 64 output bytes (lanes 0-7).
 /// Each entry indicates the starting input byte index for that output byte group.
@@ -45,56 +49,64 @@ const TRANSPOSE_8X8: u64 = 0x0000_0000_F0F0_F0F0;
 
 /// Transpose 1024-bits into FastLanes layout.
 ///
-/// Dispatch to the best available implementation at runtime.
+/// Dispatch to the best available implementation, selected once on first call.
 #[inline]
 pub fn transpose_bits(input: &[u8; 128], output: &mut [u8; 128]) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        // VBMI is fastest
-        if x86::has_vbmi() {
-            unsafe { x86::transpose_bits_vbmi(input, output) };
-            return;
+    static KERNEL: CpuKernel<TransposeKernel> = CpuKernel::new(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            // VBMI is fastest
+            if x86::has_vbmi() {
+                return x86::transpose_bits_vbmi;
+            }
+            if x86::has_bmi2() {
+                return x86::transpose_bits_bmi2;
+            }
         }
-        if x86::has_bmi2() {
-            unsafe { x86::transpose_bits_bmi2(input, output) };
-            return;
+        // NEON is architecturally guaranteed on aarch64, so it needs no probe.
+        #[cfg(target_arch = "aarch64")]
+        return aarch64::transpose_bits_neon;
+        // The aarch64 arm above returns unconditionally, making this portable default
+        // unreachable there.
+        #[allow(unreachable_code)]
+        {
+            scalar::transpose_bits_scalar
         }
-        // Fall back to scalar
-        scalar::transpose_bits_scalar(input, output);
-    }
-    #[cfg(target_arch = "aarch64")]
-    {
-        unsafe { aarch64::transpose_bits_neon(input, output) };
-    }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    scalar::transpose_bits_scalar(input, output);
+    });
+    // SAFETY: the selector only returns kernels that are safe or whose required CPU
+    // features were probed before selection.
+    unsafe { KERNEL.get()(input, output) }
 }
 
 /// Untranspose 1024-bits from FastLanes layout.
 ///
-/// Dispatch untranspose to the best available implementation at runtime.
+/// Dispatch untranspose to the best available implementation, selected once on first call.
 #[inline]
 pub fn untranspose_bits(input: &[u8; 128], output: &mut [u8; 128]) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        // VBMI is fastest
-        if x86::has_vbmi() {
-            unsafe { x86::untranspose_bits_vbmi(input, output) };
-            return;
+    static KERNEL: CpuKernel<TransposeKernel> = CpuKernel::new(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            // VBMI is fastest
+            if x86::has_vbmi() {
+                return x86::untranspose_bits_vbmi;
+            }
+            if x86::has_bmi2() {
+                return x86::untranspose_bits_bmi2;
+            }
         }
-        if x86::has_bmi2() {
-            unsafe { x86::untranspose_bits_bmi2(input, output) };
-            return;
+        // NEON is architecturally guaranteed on aarch64, so it needs no probe.
+        #[cfg(target_arch = "aarch64")]
+        return aarch64::untranspose_bits_neon;
+        // The aarch64 arm above returns unconditionally, making this portable default
+        // unreachable there.
+        #[allow(unreachable_code)]
+        {
+            scalar::untranspose_bits_scalar
         }
-        // Fall back to scalar
-        scalar::untranspose_bits_scalar(input, output);
-    }
-    #[cfg(target_arch = "aarch64")]
-    {
-        unsafe { aarch64::untranspose_bits_neon(input, output) };
-    }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    scalar::untranspose_bits_scalar(input, output);
+    });
+    // SAFETY: the selector only returns kernels that are safe or whose required CPU
+    // features were probed before selection.
+    unsafe { KERNEL.get()(input, output) }
 }
 
 #[cfg(test)]

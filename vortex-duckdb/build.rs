@@ -23,16 +23,17 @@ const DUCKDB_RELEASES_URL: &str = "https://ci-builds.vortex.dev";
 
 const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archive/refs/tags";
 const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive";
-const DEFAULT_DUCKDB_VERSION: &str = "1.5.3";
+const DEFAULT_DUCKDB_VERSION: &str = "1.5.4";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 
-const SOURCE_FILES: [&str; 10] = [
+const SOURCE_FILES: [&str; 11] = [
     "cpp/vortex_duckdb.cpp",
     "cpp/copy_function.cpp",
     "cpp/expr.cpp",
     "cpp/optimizer.cpp",
     "cpp/scalar_fn_pushdown.cpp",
+    "cpp/spatial_overrides.cpp",
     "cpp/cast_pushdown.cpp",
     "cpp/aggregate_fn_pushdown.cpp",
     "cpp/table_filter.cpp",
@@ -178,9 +179,10 @@ const DUCKDB_C_API_FUNCTIONS: [&str; 133] = [
     "duckdb_vector_size",
 ];
 
-const DUCKDB_C_API_HEADERS: [&str; 6] = [
+const DUCKDB_C_API_HEADERS: [&str; 7] = [
     "cpp/include/vortex_duckdb.h",
     "cpp/include/expr.h",
+    "cpp/include/spatial_overrides.h",
     "cpp/include/table_filter.h",
     "cpp/include/vector.h",
     "cpp/include/copy_function.h",

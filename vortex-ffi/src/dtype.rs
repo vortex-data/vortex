@@ -211,7 +211,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -
 
 /// If "dtype" is DTYPE_STRUCT, return owned vx_struct_fields for this struct,
 /// return NULL otherwise. Returned vx_struct_fields must be released with
-/// vx_dtype_free.
+/// vx_struct_fields_free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     dtype: *const vx_dtype,

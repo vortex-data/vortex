@@ -105,7 +105,7 @@ where
 {
     let slice = arr.as_slice::<T>();
     BoolArray::new(
-        BitBuffer::collect_bool(slice.len(), |idx| {
+        BitBuffer::collect_bool_multiversioned(slice.len(), |idx| {
             // We only iterate upto arr len and |arr| == |slice|.
             let i = unsafe { *slice.get_unchecked(idx) };
             lower_fn(lower, i) & upper_fn(i, upper)

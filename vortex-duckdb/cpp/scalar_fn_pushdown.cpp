@@ -2,9 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #include "scalar_fn_pushdown.hpp"
 
-#include "duckdb/catalog/catalog.hpp"
-#include "duckdb/catalog/catalog_entry/scalar_function_catalog_entry.hpp"
-#include "duckdb/function/function_binder.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 
@@ -121,68 +118,4 @@ ScalarFnCollect::ScalarFnCollect(Analyses &analyses, const Projections &projecti
 
 ScalarFnReplace::ScalarFnReplace(Analyses &analyses, const Projections &projections)
     : analyses(analyses), projections(projections) {
-}
-
-namespace {
-
-// See RestoreStDWithin: rebinding through spatial's own entry lets spatial build its own bind
-// data, so nothing here depends on its internals.
-class StDWithinRestore final : public LogicalOperatorVisitor {
-public:
-    explicit StDWithinRestore(ClientContext &context) : context(context) {
-    }
-
-    // Restore join conditions, filters must keep the radius visible so
-    // DuckDB's filter pushdown can offer them to Vortex scans.
-    void VisitOperator(LogicalOperator &op) override {
-        using enum LogicalOperatorType;
-        switch (op.type) {
-        case LOGICAL_COMPARISON_JOIN:
-        case LOGICAL_ANY_JOIN:
-        case LOGICAL_DELIM_JOIN:
-        case LOGICAL_ASOF_JOIN:
-            VisitOperatorExpressions(op);
-            break;
-        default:
-            break;
-        }
-        VisitOperatorChildren(op);
-    }
-
-    ExpressionPtr VisitReplace(BoundFunctionExpression &expr, ExpressionPtr *) override {
-        if (expr.children.size() != 3 || expr.function.name != "st_dwithin") {
-            return nullptr; // Not the override's shape: keep it and descend into its children.
-        }
-        // The system catalog holds spatial's original; the user-catalog override cannot shadow
-        // this lookup.
-        auto original = Catalog::GetSystemCatalog(context).GetEntry<ScalarFunctionCatalogEntry>(
-            context,
-            DEFAULT_SCHEMA,
-            "st_dwithin",
-            OnEntryNotFound::RETURN_NULL);
-        if (!original) {
-            return nullptr;
-        }
-        vector<ExpressionPtr> children;
-        children.reserve(expr.children.size());
-        for (const auto &child : expr.children) {
-            children.push_back(child->Copy());
-        }
-        ErrorData error;
-        FunctionBinder binder(context);
-        auto bound = binder.BindScalarFunction(*original, std::move(children), error);
-        if (!bound) {
-            return nullptr; // No matching overload: keep the executable 3-argument form.
-        }
-        return bound;
-    }
-
-private:
-    ClientContext &context;
-};
-
-} // namespace
-
-void RestoreStDWithin(ClientContext &context, LogicalOperator &plan) {
-    StDWithinRestore(context).VisitOperator(plan);
 }

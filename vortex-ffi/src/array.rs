@@ -5,6 +5,7 @@
 //! FFI interface for working with Vortex Arrays.
 use std::ffi::c_void;
 use std::ptr;
+use std::ptr::NonNull;
 use std::sync::Arc;
 
 use arrow_array::array::make_array;
@@ -304,11 +305,18 @@ unsafe fn primitive_from_raw<T: vortex::dtype::NativePType>(
     ptr: *const T,
     len: usize,
     validity: &vx_validity,
+    error: *mut *mut vx_error,
 ) -> *const vx_array {
-    let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
-    let buffer = Buffer::copy_from(slice);
-    let array = PrimitiveArray::new(buffer, validity.into());
-    vx_array::new(Arc::new(array.into_array()))
+    try_or_default(error, || {
+        let slice = if ptr.is_null() {
+            unsafe { std::slice::from_raw_parts(NonNull::dangling().as_ptr(), len) }
+        } else {
+            unsafe { std::slice::from_raw_parts(ptr, len) }
+        };
+        let buffer = Buffer::copy_from(slice);
+        let array = PrimitiveArray::try_new(buffer, validity.into())?;
+        Ok(vx_array::new(Arc::new(array.into_array())))
+    })
 }
 
 /// Create a new primitive array from an existing buffer.
@@ -340,17 +348,35 @@ pub extern "C-unwind" fn vx_array_new_primitive(
     let validity = unsafe { &*validity };
 
     match ptype {
-        vx_ptype::PTYPE_U8 => unsafe { primitive_from_raw(ptr as *const u8, len, validity) },
-        vx_ptype::PTYPE_U16 => unsafe { primitive_from_raw(ptr as *const u16, len, validity) },
-        vx_ptype::PTYPE_U32 => unsafe { primitive_from_raw(ptr as *const u32, len, validity) },
-        vx_ptype::PTYPE_U64 => unsafe { primitive_from_raw(ptr as *const u64, len, validity) },
-        vx_ptype::PTYPE_I8 => unsafe { primitive_from_raw(ptr as *const i8, len, validity) },
-        vx_ptype::PTYPE_I16 => unsafe { primitive_from_raw(ptr as *const i16, len, validity) },
-        vx_ptype::PTYPE_I32 => unsafe { primitive_from_raw(ptr as *const i32, len, validity) },
-        vx_ptype::PTYPE_I64 => unsafe { primitive_from_raw(ptr as *const i64, len, validity) },
-        vx_ptype::PTYPE_F16 => unsafe { primitive_from_raw(ptr as *const f16, len, validity) },
-        vx_ptype::PTYPE_F32 => unsafe { primitive_from_raw(ptr as *const f32, len, validity) },
-        vx_ptype::PTYPE_F64 => unsafe { primitive_from_raw(ptr as *const f64, len, validity) },
+        vx_ptype::PTYPE_U8 => unsafe { primitive_from_raw(ptr as *const u8, len, validity, error) },
+        vx_ptype::PTYPE_U16 => unsafe {
+            primitive_from_raw(ptr as *const u16, len, validity, error)
+        },
+        vx_ptype::PTYPE_U32 => unsafe {
+            primitive_from_raw(ptr as *const u32, len, validity, error)
+        },
+        vx_ptype::PTYPE_U64 => unsafe {
+            primitive_from_raw(ptr as *const u64, len, validity, error)
+        },
+        vx_ptype::PTYPE_I8 => unsafe { primitive_from_raw(ptr as *const i8, len, validity, error) },
+        vx_ptype::PTYPE_I16 => unsafe {
+            primitive_from_raw(ptr as *const i16, len, validity, error)
+        },
+        vx_ptype::PTYPE_I32 => unsafe {
+            primitive_from_raw(ptr as *const i32, len, validity, error)
+        },
+        vx_ptype::PTYPE_I64 => unsafe {
+            primitive_from_raw(ptr as *const i64, len, validity, error)
+        },
+        vx_ptype::PTYPE_F16 => unsafe {
+            primitive_from_raw(ptr as *const f16, len, validity, error)
+        },
+        vx_ptype::PTYPE_F32 => unsafe {
+            primitive_from_raw(ptr as *const f32, len, validity, error)
+        },
+        vx_ptype::PTYPE_F64 => unsafe {
+            primitive_from_raw(ptr as *const f64, len, validity, error)
+        },
     }
 }
 

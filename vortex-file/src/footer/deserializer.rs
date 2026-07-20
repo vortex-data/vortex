@@ -268,9 +268,11 @@ impl FooterDeserializer {
         initial_read: &[u8],
         segment: &PostscriptSegment,
     ) -> VortexResult<DType> {
-        let offset = usize::try_from(segment.offset - initial_offset)?;
-        let sliced_buffer =
-            FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
+        let sliced_buffer = FlatBuffer::copy_from(checked_segment_slice(
+            initial_read,
+            initial_offset,
+            segment,
+        )?);
         DType::from_flatbuffer(sliced_buffer, &self.session)
     }
 
@@ -283,11 +285,9 @@ impl FooterDeserializer {
         dtype: &DType,
         session: &VortexSession,
     ) -> VortexResult<FileStatistics> {
-        let offset = usize::try_from(segment.offset - initial_offset)?;
-        let sliced_buffer =
-            FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
+        let sliced_buffer = checked_segment_slice(initial_read, initial_offset, segment)?;
 
-        let fb = root::<vortex_flatbuffers::footer::FileStatistics>(&sliced_buffer)?;
+        let fb = root::<vortex_flatbuffers::footer::FileStatistics>(sliced_buffer)?;
         FileStatistics::from_flatbuffer(&fb, dtype, session)
     }
 
@@ -302,16 +302,14 @@ impl FooterDeserializer {
         metadata: Arc<[(String, SegmentSpec)]>,
     ) -> VortexResult<Footer> {
         let footer_segment = &postscript.footer;
-        let footer_offset = usize::try_from(footer_segment.offset - initial_offset)?;
-        let footer_bytes = FlatBuffer::copy_from(
-            &initial_read[footer_offset..footer_offset + (footer_segment.length as usize)],
-        );
+        let footer_bytes = checked_segment_slice(initial_read, initial_offset, footer_segment)?;
 
         let layout_segment = &postscript.layout;
-        let layout_offset = usize::try_from(layout_segment.offset - initial_offset)?;
-        let layout_bytes = FlatBuffer::copy_from(
-            &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
-        );
+        let layout_bytes = FlatBuffer::copy_from(checked_segment_slice(
+            initial_read,
+            initial_offset,
+            layout_segment,
+        )?);
 
         Footer::from_flatbuffer(
             footer_bytes,
@@ -321,6 +319,109 @@ impl FooterDeserializer {
             metadata,
             &self.session,
         )
+    }
+}
+
+fn checked_segment_slice<'a>(
+    read: &'a [u8],
+    read_offset: u64,
+    segment: &PostscriptSegment,
+) -> VortexResult<&'a [u8]> {
+    let offset = usize::try_from(segment.offset.checked_sub(read_offset).ok_or_else(|| {
+        vortex_err!(
+            "Segment offset {} is smaller than file read offset {read_offset}",
+            segment.offset
+        )
+    })?)?;
+    offset
+        .checked_add(segment.length as usize)
+        .and_then(|end| read.get(offset..end))
+        .ok_or_else(|| {
+            vortex_err!(
+                "Segment length {} (at offset {}) out of bounds of slice of length {}",
+                segment.length,
+                offset,
+                read.len()
+            )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::array_session;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_flatbuffers::WriteFlatBufferExt;
+
+    use super::*;
+
+    fn segment(offset: u64, length: u32) -> PostscriptSegment {
+        PostscriptSegment {
+            offset,
+            length,
+            alignment: FlatBuffer::alignment(),
+        }
+    }
+
+    #[test]
+    fn in_bounds_segment_slice() -> VortexResult<()> {
+        let read: Vec<u8> = (0u8..10).collect();
+        let sliced = checked_segment_slice(&read, 100, &segment(104, 4))?;
+        assert_eq!(sliced, &read[4..8]);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::offset_before_read_start(100, 99, 4, "smaller than file read offset")]
+    #[case::end_past_buffer(100, 105, 6, "out of bounds")]
+    #[case::offset_past_buffer(100, 120, 1, "out of bounds")]
+    #[case::end_overflows_usize(0, u64::MAX, u32::MAX, "out of bounds")]
+    fn out_of_bounds_segment_slice(
+        #[case] read_offset: u64,
+        #[case] segment_offset: u64,
+        #[case] segment_length: u32,
+        #[case] expected: &str,
+    ) {
+        let read = [0u8; 10];
+        let err =
+            checked_segment_slice(&read, read_offset, &segment(segment_offset, segment_length))
+                .unwrap_err();
+        assert!(err.to_string().contains(expected), "{err}");
+    }
+
+    fn eof_buffer(postscript: &Postscript) -> VortexResult<ByteBuffer> {
+        let postscript_bytes = postscript.write_flatbuffer_bytes()?;
+        let mut buffer = ByteBufferMut::with_capacity(postscript_bytes.len() + EOF_SIZE);
+        buffer.extend_from_slice(&postscript_bytes);
+        buffer.extend_from_slice(&VERSION.to_le_bytes());
+        buffer.extend_from_slice(&u16::try_from(postscript_bytes.len())?.to_le_bytes());
+        buffer.extend_from_slice(&MAGIC_BYTES);
+        Ok(buffer.freeze())
+    }
+
+    #[rstest]
+    #[case::length_past_eof(segment(0, u32::MAX))]
+    #[case::offset_overflow(segment(u64::MAX, u32::MAX))]
+    fn deserialize_rejects_out_of_bounds_footer_segment(
+        #[case] footer_segment: PostscriptSegment,
+    ) -> VortexResult<()> {
+        let postscript = Postscript {
+            dtype: None,
+            layout: segment(0, 1),
+            statistics: None,
+            footer: footer_segment,
+            metadata: Vec::new(),
+        };
+        let buffer = eof_buffer(&postscript)?;
+        let file_size = buffer.len() as u64;
+
+        let mut deserializer = FooterDeserializer::new(buffer, array_session())
+            .with_dtype(DType::Primitive(PType::I32, Nullability::NonNullable))
+            .with_size(file_size);
+        let err = deserializer.deserialize().unwrap_err();
+        assert!(err.to_string().contains("out of bounds"), "{err}");
+        Ok(())
     }
 }
 

@@ -36,6 +36,7 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::spatialbench::SpatialBenchBenchmark;
+use crate::vortex_queries::VortexBenchmark;
 
 pub mod appian;
 pub mod benchmark;
@@ -61,6 +62,7 @@ pub mod tpch;
 pub mod utils;
 pub mod v3;
 pub mod vector_dataset;
+pub mod vortex_queries;
 
 pub use benchmark::Benchmark;
 pub use benchmark::TableSpec;
@@ -281,6 +283,8 @@ pub enum BenchmarkArg {
     PublicBi,
     #[clap(name = "spatialbench")]
     SpatialBench,
+    #[clap(name = "vortex")]
+    VortexQueries,
 }
 
 /// Default scale factor for TPC-related benchmarks
@@ -351,6 +355,13 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = SpatialBenchBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::VortexQueries => {
+            let mut benchmark = VortexBenchmark::new()?;
+            if let Some(query) = opts.get("query") {
+                benchmark = benchmark.with_query(query)?;
+            }
             Ok(Box::new(benchmark) as _)
         }
     }

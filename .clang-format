@@ -25,7 +25,7 @@ DerivePointerAlignment: false
 IncludeBlocks: Regroup
 InsertBraces: true
 Language: Cpp
-NamespaceIndentation: Inner
+NamespaceIndentation: None
 PointerAlignment: Right
 SpaceBeforeCpp11BracedList: true
 SpaceBeforeCtorInitializerColon: true

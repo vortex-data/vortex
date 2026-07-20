@@ -16,6 +16,7 @@ use jni::objects::JLongArray;
 use jni::objects::JObject;
 use jni::objects::JObjectArray;
 use jni::objects::JString;
+use jni::sys::jint;
 use jni::sys::jlong;
 use url::Url;
 use vortex::error::VortexResult;
@@ -33,6 +34,7 @@ use crate::RUNTIME;
 use crate::dtype::export_dtype_to_arrow;
 use crate::errors::try_or_throw;
 use crate::file::extract_properties;
+use crate::io::JavaFileSystem;
 use crate::object_store::object_store_fs;
 use crate::session::session_ref;
 
@@ -106,6 +108,77 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_open(
                 .cloned()
                 .unwrap_or_else(|| unreachable!("fs cached for every base url"));
             builder = builder.with_glob(glob_url.path(), Some(fs));
+        }
+
+        let inner = RUNTIME
+            .block_on(builder.build())
+            .map(|ds| Arc::new(ds) as DataSourceRef)?;
+        Ok(Box::new(NativeDataSource { inner }).into_raw())
+    })
+}
+
+/// Open a data source over caller-provided `dev.vortex.io.NativeReadable` objects.
+///
+/// Unlike [`Java_dev_vortex_jni_NativeDataSource_open`], no storage client is created
+/// on the native side: every read is an upcall into the corresponding Java object.
+/// `paths` are opaque identifiers (typically the original file locations) used for
+/// debugging and deduplication, `lengths` are the known file sizes in bytes.
+/// `read_concurrency` caps in-flight `readFully` upcalls across *all* files of the
+/// data source; values `<= 0` select the library default.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_openFiles(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    readables: JObjectArray,
+    paths: JObjectArray,
+    lengths: JLongArray,
+    read_concurrency: jint,
+) -> jlong {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+
+        let count = readables.len(env)?;
+        if count == 0 {
+            throw_runtime!("no readables provided");
+        }
+        if paths.len(env)? != count || lengths.len(env)? != count {
+            throw_runtime!("readables, paths, and lengths must have equal length");
+        }
+
+        let mut sizes = vec![0 as jlong; count];
+        lengths.get_region(env, 0, &mut sizes)?;
+
+        let vm = env.get_java_vm()?;
+        let concurrency = usize::try_from(read_concurrency).ok().filter(|c| *c > 0);
+        let mut fs = JavaFileSystem::new(vm, session.handle(), concurrency);
+        let mut ordered_paths = Vec::with_capacity(count);
+        for idx in 0..count {
+            let path_obj = paths.get_element(env, idx)?;
+            let path: String = env.cast_local::<JString>(path_obj)?.try_to_string(env)?;
+            if path.contains(['*', '?', '[']) {
+                throw_runtime!("path '{path}' contains glob characters, which are unsupported");
+            }
+            let size = u64::try_from(sizes[idx])
+                .map_err(|_| vortex_err!("negative length for path '{path}'"))?;
+
+            let readable = readables.get_element(env, idx)?;
+            if readable.is_null() {
+                throw_runtime!("null readable for path '{path}'");
+            }
+            let readable = Arc::new(env.new_global_ref(&readable)?);
+
+            // `MultiFileDataSource::with_glob` strips leading slashes (object-store paths
+            // are bucket-relative), so key the registry by the same normalized form.
+            let key = path.trim_start_matches('/').to_string();
+            fs.insert(key.clone(), readable, size)?;
+            ordered_paths.push(key);
+        }
+
+        let fs: FileSystemRef = Arc::new(fs);
+        let mut builder = MultiFileDataSource::new(session.clone());
+        for path in ordered_paths {
+            builder = builder.with_glob(path, Some(Arc::clone(&fs)));
         }
 
         let inner = RUNTIME

@@ -66,6 +66,10 @@ impl GithubArchiveBenchmark {
 
 #[async_trait::async_trait]
 impl Benchmark for GithubArchiveBenchmark {
+    fn doc_path(&self) -> &'static str {
+        "vortex-bench/sql/gharchive.md"
+    }
+
     /// GitHub Archive queries, numbered from Q0 in `sql/gharchive.sql` file order.
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
         // `;`-separated; a `;` must not appear in a comment, or it would split a statement in two.

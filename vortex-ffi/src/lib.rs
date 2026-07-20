@@ -11,7 +11,6 @@ mod data_source;
 mod dtype;
 mod error;
 mod expression;
-mod file;
 mod log;
 mod macros;
 mod ptype;
@@ -28,6 +27,7 @@ use std::sync::LazyLock;
 
 pub use array::vx_array;
 pub use array::vx_array_ref;
+pub use dtype::vx_dtype;
 pub use error::try_or;
 pub use error::vx_error;
 pub use error::vx_error_free;
@@ -38,12 +38,13 @@ pub use session::vx_session;
 pub use session::vx_session_free;
 pub use session::vx_session_new_with;
 pub use session::vx_session_ref;
+pub use sink::vx_array_sink;
+pub use sink::vx_array_sink_open_file_with_strategy;
+pub use string::vx_view;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::io::runtime::current::CurrentThreadRuntime;
-
-use crate::string::vx_view;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]

@@ -170,10 +170,17 @@ fn slice_tight_loop_arrow(bencher: Bencher, len: usize) {
     });
 }
 
+/// Loops like `slice_tight_loop_vortex` above: a single empty slice is a few nanoseconds, far
+/// below the measurement noise floor, so the loop amortizes fixed overhead until the slice
+/// itself dominates.
 #[divan::bench]
-fn slice_empty_vortex(bencher: Bencher) {
+fn slice_empty_tight_loop_vortex(bencher: Bencher) {
     let buf = Buffer::<i32>::from_iter((0..1024).map(|i| i % i32::MAX));
-    bencher.bench(|| divan::black_box(buf.slice(8..8)));
+    bencher.bench(|| {
+        for _ in 0..1024 {
+            divan::black_box(buf.slice(8..8));
+        }
+    });
 }
 
 #[divan::bench(args = INPUT_SIZE)]

@@ -682,12 +682,12 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Clone a vx_array
+ * Increase reference count on vx_array
  */
 const vx_array *vx_array_clone(const vx_array *ptr);
 
 /**
- * Free an owned [`vx_array`] object.
+ * Decrease reference count on vx_array or free if there are no other references
  */
 void vx_array_free(const vx_array *ptr);
 
@@ -909,7 +909,7 @@ const void *vx_array_data_ptr_bool(const vx_array *array, size_t *bit_offset_out
 const vx_array *vx_array_apply(const vx_array *array, const vx_expression *expression, vx_error **error);
 
 /**
- * Free an owned [`vx_array_iterator`] object.
+ * Free a vx_array_iterator
  */
 void vx_array_iterator_free(const vx_array_iterator *ptr);
 
@@ -924,12 +924,12 @@ void vx_array_iterator_free(const vx_array_iterator *ptr);
 const vx_array *vx_array_iterator_next(vx_array_iterator *iter, vx_error **error_out);
 
 /**
- * Clone a vx_data_source. Returned handle must be release with vx_data_source_free
+ * Increase reference count on vx_data_source
  */
 const vx_data_source *vx_data_source_clone(const vx_data_source *ptr);
 
 /**
- * Free a vx_data_source
+ * Decrease reference count on vx_data_source or free if there are no other references
  */
 void vx_data_source_free(const vx_data_source *ptr);
 
@@ -966,12 +966,12 @@ const vx_dtype *vx_data_source_dtype(const vx_data_source *ds);
 void vx_data_source_get_row_count(const vx_data_source *ds, vx_estimate *row_count);
 
 /**
- * Clone a vx_dtype
+ * Increase reference count on vx_dtype
  */
 const vx_dtype *vx_dtype_clone(const vx_dtype *ptr);
 
 /**
- * Free an owned [`vx_dtype`] object.
+ * Decrease reference count on vx_dtype or free if there are no other references
  */
 void vx_dtype_free(const vx_dtype *ptr);
 
@@ -1054,7 +1054,7 @@ int8_t vx_dtype_decimal_scale(const vx_dtype *dtype);
 /**
  * If "dtype" is DTYPE_STRUCT, return owned vx_struct_fields for this struct,
  * return NULL otherwise. Returned vx_struct_fields must be released with
- * vx_dtype_free.
+ * vx_struct_fields_free.
  */
 const vx_struct_fields *vx_dtype_struct_dtype(const vx_dtype *dtype);
 
@@ -1123,7 +1123,7 @@ int vx_dtype_to_arrow_schema(const vx_dtype *dtype, FFI_ArrowSchema *schema, vx_
 const vx_dtype *vx_dtype_from_arrow_schema(FFI_ArrowSchema *schema, vx_error **err);
 
 /**
- * Free an owned [`vx_error`] object.
+ * Free a vx_error
  */
 void vx_error_free(const vx_error *ptr);
 
@@ -1139,7 +1139,7 @@ vx_view vx_error_message(const vx_error *error);
 vx_error_code vx_error_get_code(const vx_error *error);
 
 /**
- * Free an owned [`vx_expression`] object.
+ * Free a vx_expression
  */
 void vx_expression_free(const vx_expression *ptr);
 
@@ -1160,6 +1160,11 @@ void vx_expression_free(const vx_expression *ptr);
  * vx_array_free(array);
  */
 vx_expression *vx_expression_root(void);
+
+/**
+ * Reference-clone a vx_expression
+ */
+vx_expression *vx_expression_clone(const vx_expression *ptr);
 
 /**
  * Create a literal expression from a scalar.
@@ -1253,7 +1258,7 @@ vx_expression_binary(vx_binary_operator operator_, const vx_expression *lhs, con
  *
  * Returns the logical negation of the input boolean expression.
  */
-const vx_expression *vx_expression_not(const vx_expression *child);
+vx_expression *vx_expression_not(const vx_expression *child);
 
 /**
  * Create an expression that checks for null values.
@@ -1285,21 +1290,6 @@ vx_expression *vx_expression_get_item(vx_view item, const vx_expression *child);
 vx_expression *vx_expression_list_contains(const vx_expression *list, const vx_expression *value);
 
 /**
- * Clone a vx_file
- */
-const vx_file *vx_file_clone(const vx_file *ptr);
-
-/**
- * Free an owned [`vx_file`] object.
- */
-void vx_file_free(const vx_file *ptr);
-
-void vx_file_write_array(const vx_session *session,
-                         vx_view path,
-                         const vx_array *array,
-                         vx_error **error_out);
-
-/**
  * Set the stderr logger to output at the specified level.
  *
  * The logger will only be installed on the first call.
@@ -1307,7 +1297,7 @@ void vx_file_write_array(const vx_session *session,
 void vx_set_log_level(vx_log_level level);
 
 /**
- * Free an owned [`vx_scalar`] object.
+ * Free a vx_scalar
  */
 void vx_scalar_free(const vx_scalar *ptr);
 
@@ -1526,12 +1516,12 @@ vx_scalar *vx_scalar_new_struct(const vx_dtype *struct_dtype,
                                 vx_error **err);
 
 /**
- * Free an owned [`vx_scan`] object.
+ * Free a vx_scan
  */
 void vx_scan_free(const vx_scan *ptr);
 
 /**
- * Free an owned [`vx_partition`] object.
+ * Free a vx_partition
  */
 void vx_partition_free(const vx_partition *ptr);
 
@@ -1611,7 +1601,7 @@ int vx_partition_scan_arrow(const vx_session *session,
 const vx_array *vx_partition_next(vx_partition *partition, vx_error **err);
 
 /**
- * Free an owned [`vx_session`] object.
+ * Free a vx_session
  */
 void vx_session_free(const vx_session *ptr);
 
@@ -1630,6 +1620,16 @@ vx_session *vx_session_new(void);
 vx_session *vx_session_clone(const vx_session *session);
 
 /**
+ * Increase reference count on vx_file
+ */
+const vx_file *vx_file_clone(const vx_file *ptr);
+
+/**
+ * Decrease reference count on vx_file or free if there are no other references
+ */
+void vx_file_free(const vx_file *ptr);
+
+/**
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
  * "path" is copied.
@@ -1639,7 +1639,9 @@ vx_array_sink_open_file(const vx_session *session, vx_view path, const vx_dtype 
 
 /**
  * Push an array into a file sink.
- * Does not take ownership of array
+ * Does not take ownership of array.
+ *
+ * Errors if array's DType doesn't match sink's DType.
  */
 void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **error_out);
 
@@ -1656,7 +1658,7 @@ void vx_array_sink_close(vx_array_sink *sink, vx_error **error_out);
 void vx_array_sink_abort(vx_array_sink *sink);
 
 /**
- * Free an owned [`vx_struct_column_builder`] object.
+ * Free a vx_struct_column_builder
  */
 void vx_struct_column_builder_free(const vx_struct_column_builder *ptr);
 
@@ -1707,7 +1709,7 @@ void vx_struct_column_builder_add_field(vx_struct_column_builder *builder,
 const vx_array *vx_struct_column_builder_finalize(vx_struct_column_builder *builder, vx_error **error);
 
 /**
- * Free an owned [`vx_struct_fields`] object.
+ * Free a vx_struct_fields
  */
 void vx_struct_fields_free(const vx_struct_fields *ptr);
 
@@ -1731,7 +1733,7 @@ vx_view vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
 const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, size_t idx);
 
 /**
- * Free an owned [`vx_struct_fields_builder`] object.
+ * Free a vx_struct_fields_builder
  */
 void vx_struct_fields_builder_free(const vx_struct_fields_builder *ptr);
 

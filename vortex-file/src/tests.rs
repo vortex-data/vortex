@@ -16,6 +16,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
@@ -1673,6 +1674,75 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
         ]
     );
 
+    Ok(())
+}
+
+/// Write `array` with list decomposition forced on (through the full compress/zone pipeline) and
+/// read the whole thing back.
+async fn write_read_roundtrip(array: ArrayRef) -> VortexResult<ArrayRef> {
+    let strategy = crate::strategy::WriteStrategyBuilder::default()
+        .with_list_layout()
+        .build();
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await
+}
+
+/// A `list<list<i32>>` column round-trips through the `TableStrategy` dispatcher, exercising list
+/// decomposition recursing into itself (the outer list's `elements` are themselves lists).
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn nested_list_of_list_roundtrip() -> VortexResult<()> {
+    let inner = ListArray::try_new(
+        buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+        buffer![0u32, 2, 5, 5, 6].into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let outer = ListArray::try_new(
+        inner,
+        buffer![0u32, 2, 4].into_array(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+    let st = StructArray::from_fields(&[("nested", outer)])?.into_array();
+
+    let result = write_read_roundtrip(st.clone()).await?;
+    assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+/// A `struct<{ items: list<struct<{a,b}>>? }>` column round-trips, exercising list decomposition
+/// recursing into struct decomposition (list `elements` are structs) plus a nullable list validity
+/// child.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn nested_struct_list_struct_roundtrip() -> VortexResult<()> {
+    let inner_struct = StructArray::from_fields(&[
+        ("a", buffer![1i32, 2, 3, 4, 5].into_array()),
+        ("b", buffer![10i32, 20, 30, 40, 50].into_array()),
+    ])?
+    .into_array();
+    let items = ListArray::try_new(
+        inner_struct,
+        buffer![0u32, 2, 5, 5].into_array(),
+        Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
+    )?
+    .into_array();
+    let st = StructArray::from_fields(&[("items", items)])?.into_array();
+
+    let result = write_read_roundtrip(st.clone()).await?;
+    assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
     Ok(())
 }
 

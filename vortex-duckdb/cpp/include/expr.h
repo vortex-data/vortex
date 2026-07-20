@@ -14,11 +14,6 @@ typedef struct duckdb_vx_agg_func_ *duckdb_vx_agg_func;
 
 const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func);
 
-/// Shadow `ST_DWithin` with a copy that keeps the radius as the third argument, so
-/// radius filters can push into Vortex scans. See `RestoreStDWithin` in
-/// scalar_fn_pushdown.hpp for the override/restore example.
-duckdb_state duckdb_vx_register_st_dwithin_override(duckdb_database ffi_db);
-
 typedef struct duckdb_vx_expr_ *duckdb_vx_expr;
 
 const char *duckdb_vx_agg_func_name(duckdb_vx_agg_func func);

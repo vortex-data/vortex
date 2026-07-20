@@ -4,23 +4,32 @@
 use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::BitBufferView;
 use vortex_buffer::get_bit;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::piecewise_sequence::constant_unsigned_usize;
+use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::UnsignedPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::Scalar;
 
 impl TakeExecute for Bool {
@@ -29,6 +38,12 @@ impl TakeExecute for Bool {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+            && let Some(taken) = take_contiguous_ranges(array, piecewise_indices, indices, ctx)?
+        {
+            return Ok(Some(taken));
+        }
+
         let indices_nulls_zeroed = match indices.validity()?.execute_mask(indices.len(), ctx)? {
             Mask::AllTrue(_) => indices.clone(),
             Mask::AllFalse(_) => {
@@ -53,6 +68,49 @@ impl TakeExecute for Bool {
             BoolArray::new(buffer, array.validity()?.take(indices)?).into_array(),
         ))
     }
+}
+
+fn take_contiguous_ranges(
+    array: ArrayView<'_, Bool>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    indices_ref: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
+        return Ok(None);
+    };
+    let source = array.to_bit_buffer();
+    let output_len = indices_ref.len();
+    let buffer = match lengths {
+        Columnar::Constant(lengths) => {
+            let length = constant_unsigned_usize(&lengths);
+            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                take_bit_slices_constant_length(
+                    &source,
+                    starts.as_slice::<S>(),
+                    length,
+                    output_len,
+                )?
+            })
+        }
+        Columnar::Canonical(lengths) => {
+            let lengths = lengths.into_primitive();
+            match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+                match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+                    take_bit_slices(
+                        &source,
+                        starts.as_slice::<S>(),
+                        lengths.as_slice::<L>(),
+                        output_len,
+                    )?
+                })
+            })
+        }
+    };
+
+    Ok(Some(
+        BoolArray::new(buffer, array.validity()?.take(indices_ref)?).into_array(),
+    ))
 }
 
 fn take_valid_indices<I: AsPrimitive<usize>>(bools: BitBufferView<'_>, indices: &[I]) -> BitBuffer {
@@ -80,6 +138,58 @@ fn take_bool_impl<I: AsPrimitive<usize>>(bools: BitBufferView<'_>, indices: &[I]
         let idx = unsafe { indices.get_unchecked(idx).as_() };
         get_bit(buffer, bools.offset() + idx)
     })
+}
+
+fn take_bit_slices_constant_length<S>(
+    source: &BitBuffer,
+    starts: &[S],
+    length: usize,
+    output_len: usize,
+) -> VortexResult<BitBuffer>
+where
+    S: UnsignedPType,
+{
+    let computed_len = starts
+        .len()
+        .checked_mul(length)
+        .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
+    vortex_ensure!(
+        computed_len == output_len,
+        "PiecewiseSequenceArray expanded length {computed_len} does not match declared length {output_len}"
+    );
+
+    let mut values = BitBufferMut::with_capacity(output_len);
+    for &start in starts {
+        let start = start.as_();
+        values.append_buffer(&source.slice(start..).slice(..length));
+    }
+
+    Ok(values.freeze())
+}
+
+fn take_bit_slices<S, L>(
+    source: &BitBuffer,
+    starts: &[S],
+    lengths: &[L],
+    output_len: usize,
+) -> VortexResult<BitBuffer>
+where
+    S: UnsignedPType,
+    L: UnsignedPType,
+{
+    let mut values = BitBufferMut::with_capacity(output_len);
+    for (&start, &length) in starts.iter().zip_eq(lengths) {
+        let start = start.as_();
+        let length = length.as_();
+        values.append_buffer(&source.slice(start..).slice(..length));
+    }
+
+    vortex_ensure!(
+        values.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        values.len()
+    );
+    Ok(values.freeze())
 }
 
 #[cfg(test)]
