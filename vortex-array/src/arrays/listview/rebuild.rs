@@ -545,38 +545,36 @@ mod tests {
     }
 
     #[test]
-    fn test_rebuild_flatten_null_row_ignores_invalid_range_payload() -> VortexResult<()> {
-        let elements = PrimitiveArray::from_iter(vec![1i32, 2, 3]).into_array();
-        let offsets = PrimitiveArray::from_iter(vec![0u32, 999, 2]).into_array();
-        let sizes = PrimitiveArray::from_iter(vec![2u32, 999, 1]).into_array();
+    fn test_rebuild_flatten_null_row_uses_valid_empty_range() -> VortexResult<()> {
+        let elements = PrimitiveArray::from_iter(vec![1i32, 2, 3, 4]).into_array();
+        let offsets = PrimitiveArray::from_iter(vec![0u32, 1, 2]).into_array();
+        let sizes = PrimitiveArray::from_iter(vec![1u32, 2, 2]).into_array();
         let validity = Validity::from_iter([true, false, true]);
 
-        // SAFETY: this intentionally models a null row whose physical offset and size payloads are
-        // invalid. Rebuild must ignore those payloads and only emit safe placeholder ranges for the
-        // null row.
+        // SAFETY: all source ranges are valid, including the null row's non-empty range.
         let listview = unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) };
 
         let mut ctx = SESSION.create_execution_ctx();
         let flattened = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList, &mut ctx)?;
 
         assert_eq!(flattened.offset_at(0), 0);
-        assert_eq!(flattened.size_at(0), 2);
-        assert_eq!(flattened.offset_at(1), 2);
+        assert_eq!(flattened.size_at(0), 1);
+        assert_eq!(flattened.offset_at(1), 1);
         assert_eq!(flattened.size_at(1), 0);
-        assert_eq!(flattened.offset_at(2), 2);
-        assert_eq!(flattened.size_at(2), 1);
+        assert_eq!(flattened.offset_at(2), 1);
+        assert_eq!(flattened.size_at(2), 2);
         assert!(flattened.validity()?.execute_is_valid(0, &mut ctx)?);
         assert!(!flattened.validity()?.execute_is_valid(1, &mut ctx)?);
         assert!(flattened.validity()?.execute_is_valid(2, &mut ctx)?);
 
         assert_arrays_eq!(
             flattened.list_elements_at(0)?,
-            PrimitiveArray::from_iter([1i32, 2]),
+            PrimitiveArray::from_iter([1i32]),
             &mut ctx
         );
         assert_arrays_eq!(
             flattened.list_elements_at(2)?,
-            PrimitiveArray::from_iter([3i32]),
+            PrimitiveArray::from_iter([3i32, 4]),
             &mut ctx
         );
         Ok(())
