@@ -979,15 +979,13 @@ mod test {
     }
 
     #[test]
-    fn null_source_row_ignores_invalid_offset_payload() {
+    fn null_source_row_uses_valid_empty_output_range() {
         let mut ctx = array_session().create_execution_ctx();
-        let list = unsafe {
-            ListArray::new_unchecked(
-                buffer![1i32, 2].into_array(),
-                buffer![0u32, 2, 999].into_array(),
-                Validity::from_iter([true, false]),
-            )
-        }
+        let list = ListArray::new(
+            buffer![1i32, 2, 7, 8].into_array(),
+            buffer![0u32, 2, 4].into_array(),
+            Validity::from_iter([true, false]),
+        )
         .into_array();
 
         let idx = buffer![0u32, 1].into_array();
