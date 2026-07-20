@@ -52,7 +52,7 @@ fn apply_take(array: ArrayView<'_, ListView>, indices: &ArrayRef) -> VortexResul
     let nullable_new_sizes = sizes.take(indices.clone())?;
 
     // `take` returns nullable arrays; cast back to non-nullable (filling with zeros to represent
-    // the null lists caused by null indices; the validity mask tracks nullness separately).
+    // the null lists — the validity mask tracks nullness separately).
     let new_offsets = match_each_integer_ptype!(nullable_new_offsets.dtype().as_ptype(), |O| {
         nullable_new_offsets.fill_null(Scalar::primitive(O::zero(), Nullability::NonNullable))?
     });
