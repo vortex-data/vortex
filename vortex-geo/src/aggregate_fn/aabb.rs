@@ -206,6 +206,11 @@ impl AggregateFnVTable for GeometryAabb {
         // coordinates (e.g. `(0, 0)`) that would otherwise widen the zone box and drag it toward
         // the origin. `filter` collapses an all-true mask back to the input, so a null-free batch
         // passes through unchanged.
+        //
+        // TODO(perf): on nullable data this `filter` compacts the whole column even for a single
+        // null before we min/max it. A validity-aware min/max straight over the raw x/y buffers
+        // would skip that copy. Left as-is for now: this is a write-time zone stat, and the common
+        // non-nullable case already costs nothing (the all-true mask makes `filter` a no-op).
         let valid = array.validity()?.execute_mask(array.len(), ctx)?;
         let array = array.filter(valid)?;
         // Null rows are gone, so every coordinate below belongs to a present geometry — the
