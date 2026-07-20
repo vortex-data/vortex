@@ -3,6 +3,7 @@
 
 use itertools::Itertools as _;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -105,7 +106,7 @@ fn take_with_piecewise_elements<
 
     for (&data_idx, is_valid) in indices.iter().zip_eq(validity_mask.iter()) {
         if !is_valid {
-            new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset)?);
+            new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset));
             element_starts.push(0);
             element_lengths.push(0);
             continue;
@@ -117,14 +118,12 @@ fn take_with_piecewise_elements<
         let stop = offsets[data_idx + 1];
         let start: usize = start.as_();
         let stop: usize = stop.as_();
-        let length = stop
-            .checked_sub(start)
-            .ok_or_else(|| vortex_err!("List offsets are not monotonic at offset {stop}"))?;
+        let length = stop - start;
 
         current_offset = current_offset
             .checked_add(length)
             .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
-        new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset)?);
+        new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset));
         element_starts.push(start as u64);
         element_lengths.push(length as u64);
     }
