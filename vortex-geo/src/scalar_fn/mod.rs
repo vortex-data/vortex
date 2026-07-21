@@ -5,5 +5,6 @@
 
 pub mod contains;
 pub mod distance;
+pub mod envelope;
 mod execute;
 pub mod intersects;

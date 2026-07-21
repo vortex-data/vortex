@@ -13,8 +13,6 @@ use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::AggregateFnVTableExt;
 use vortex_array::aggregate_fn::EmptyOptions;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
@@ -29,6 +27,7 @@ use crate::extension::GeoMetadata;
 use crate::extension::Rect;
 use crate::extension::box_storage_dtype;
 use crate::extension::coordinate::Dimension;
+use crate::extension::coordinate::f64_field;
 use crate::extension::flatten_coordinates;
 use crate::extension::is_native_geometry;
 
@@ -217,14 +216,8 @@ impl AggregateFnVTable for GeometryAabb {
         // `unmasked_field_by_name` reads are therefore safe. Min/max the raw x/y buffers directly:
         // cheap, and avoids `to_geometry`'s panic on empty points (which decoding would hit).
         let coords = flatten_coordinates(&array, ctx)?;
-        let xs = coords
-            .unmasked_field_by_name("x")?
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
-        let ys = coords
-            .unmasked_field_by_name("y")?
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
+        let xs = f64_field(&coords, "x", ctx)?;
+        let ys = f64_field(&coords, "y", ctx)?;
         if let Some(rect) = aabb_of(xs.as_slice::<f64>(), ys.as_slice::<f64>()) {
             partial.merge(rect);
         }

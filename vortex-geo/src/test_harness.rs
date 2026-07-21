@@ -180,6 +180,33 @@ pub(crate) fn multipolygon_column(multipolygons: Vec<MultiPolygonRings>) -> Vort
     )
 }
 
+/// A nullable `MultiPolygon` column: `None` rows are null (an empty-list placeholder in storage).
+pub(crate) fn nullable_multipolygon_column(
+    multipolygons: Vec<Option<MultiPolygonRings>>,
+) -> VortexResult<ArrayRef> {
+    let rows: Vec<MultiPolygonRings> = multipolygons
+        .iter()
+        .map(|row| row.clone().unwrap_or_default())
+        .collect();
+    let polygons: Vec<Vec<Vec<(f64, f64)>>> = rows.iter().flatten().cloned().collect();
+    let mut offsets = vec![0i32];
+    let mut len = 0usize;
+    for row in &rows {
+        len += row.len();
+        offsets.push(offset(len)?);
+    }
+    let storage = ListArray::try_new(
+        vertex_list_lists(&polygons)?,
+        PrimitiveArray::from_iter(offsets).into_array(),
+        Validity::from_iter(multipolygons.iter().map(Option::is_some)),
+    )?
+    .into_array();
+    geo_column::<MultiPolygon>(
+        storage,
+        multipolygon_storage_dtype(Dimension::Xy, Nullability::Nullable),
+    )
+}
+
 /// A 2D `Rect` (`geoarrow.box`) column over `(xmin, ymin, xmax, ymax)` boxes, stored as
 /// `Struct<xmin, ymin, xmax, ymax>`.
 pub(crate) fn rect_column(boxes: Vec<(f64, f64, f64, f64)>) -> VortexResult<ArrayRef> {
@@ -197,6 +224,35 @@ pub(crate) fn rect_column(boxes: Vec<(f64, f64, f64, f64)>) -> VortexResult<Arra
         storage,
         box_storage_dtype(Dimension::Xy, Nullability::NonNullable),
     )
+}
+
+/// A nullable 2D `Rect` (`geoarrow.box`) column: `None` rows are null boxes (placeholder ordinates
+/// in storage). Tagged with default metadata, matching the `envelope` scalar fn and `GeometryAabb`
+/// stat outputs.
+pub(crate) fn nullable_rect_column(
+    boxes: Vec<Option<(f64, f64, f64, f64)>>,
+) -> VortexResult<ArrayRef> {
+    let len = boxes.len();
+    let field = |select: fn(&(f64, f64, f64, f64)) -> f64| {
+        PrimitiveArray::from_iter(boxes.iter().map(|b| b.as_ref().map_or(0.0, select))).into_array()
+    };
+    let storage = StructArray::try_new(
+        FieldNames::from(["xmin", "ymin", "xmax", "ymax"]),
+        vec![
+            field(|b| b.0),
+            field(|b| b.1),
+            field(|b| b.2),
+            field(|b| b.3),
+        ],
+        len,
+        Validity::from_iter(boxes.iter().map(Option::is_some)),
+    )?
+    .into_array();
+    let ext = ExtDType::<Rect>::try_new(
+        GeoMetadata::default(),
+        box_storage_dtype(Dimension::Xy, Nullability::Nullable),
+    )?;
+    Ok(ExtensionArray::try_new(ext.erased(), storage)?.into_array())
 }
 
 /// Decode a [`Coordinate`] from an extension-typed point scalar (unwrapped to its coordinate

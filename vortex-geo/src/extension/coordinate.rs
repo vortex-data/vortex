@@ -15,6 +15,10 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use geoarrow::datatypes::Dimension as GeoArrowDimension;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
@@ -187,6 +191,19 @@ pub(crate) fn coordinate_from_struct(scalar: &Scalar) -> VortexResult<Coordinate
         z: optional("z")?,
         m: optional("m")?,
     })
+}
+
+/// Materialize a named non-nullable `f64` field of a coordinate `Struct` column as a
+/// [`PrimitiveArray`], for bulk per-ordinate reads.
+pub(crate) fn f64_field(
+    coords: &StructArray,
+    name: &str,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    coords
+        .unmasked_field_by_name(name)?
+        .clone()
+        .execute::<PrimitiveArray>(ctx)
 }
 
 #[cfg(test)]
