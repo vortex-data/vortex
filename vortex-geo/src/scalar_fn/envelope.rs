@@ -178,6 +178,18 @@ impl ScalarFnVTable for GeoEnvelope {
                 .map(|name| coords.unmasked_field_by_name(name).cloned())
                 .collect::<VortexResult<Vec<_>>>()?;
             (corners, array.validity()?.into_nullable())
+        } else if !matches!(storage.dtype(), DType::List(..)) {
+            // Point storage is the coordinate `Struct` itself: every row owns exactly one
+            // coordinate, so its box is degenerate and the corner columns are the ordinate
+            // arrays, zero-copy. No row can be empty, so the output validity is exactly the
+            // operand's, kept lazy.
+            let coords = storage.execute::<StructArray>(ctx)?;
+            let x = coords.unmasked_field_by_name("x")?.clone();
+            let y = coords.unmasked_field_by_name("y")?.clone();
+            (
+                vec![x.clone(), y.clone(), x, y],
+                array.validity()?.into_nullable(),
+            )
         } else {
             row_boxes(storage, ctx)?
         };
@@ -411,6 +423,19 @@ mod tests {
         let expected =
             nullable_rect_column(vec![Some((1.0, 2.0, 3.0, 4.0)), Some((5.0, 6.0, 5.0, 6.0))])?;
         assert_arrays_eq!(boxes(multipoints.slice(1..3)?)?, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// The zero-copy point fast path respects slicing: corners come from the slice window only.
+    #[test]
+    fn sliced_point_column_keeps_rows_aligned() -> VortexResult<()> {
+        let session = crate::test_harness::geo_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let points = point_column(vec![9.0, 1.0, 3.0], vec![8.0, 2.0, 4.0])?;
+        let expected =
+            nullable_rect_column(vec![Some((1.0, 2.0, 1.0, 2.0)), Some((3.0, 4.0, 3.0, 4.0))])?;
+        assert_arrays_eq!(boxes(points.slice(1..3)?)?, expected, &mut ctx);
         Ok(())
     }
 
