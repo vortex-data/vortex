@@ -47,12 +47,18 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::listview::list_from_list_view;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
 use vortex_arrow::FromArrowArray;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -112,6 +118,47 @@ pub(crate) fn flatten_coordinates(
             .clone();
     }
     node.execute::<StructArray>(ctx)
+}
+
+/// Flatten a native geometry `storage` array to its leaf coordinates, keeping track of which
+/// row owns which coordinates.
+///
+/// Returns the flat coordinate `Struct` plus `row_offsets` (one entry per row plus a final
+/// cap): row `r`'s coordinates are `coordinates[row_offsets[r]..row_offsets[r + 1]]`, an empty
+/// range if the row has none.
+///
+/// Row boundaries are pushed down one `List` level at a time. A boundary at list `e` moves to
+/// `offsets[e]`, where that list's children start. For example, a 2-row `MultiPolygon` column —
+/// row 0 = one polygon of two rings (3 + 4 vertices), row 1 = one polygon of one ring (5
+/// vertices):
+///
+/// ```text
+/// level                offsets       row_offsets after the level
+/// rows     → polygons  [0,1,2]       [0,1,2]    row 1 starts at polygon 1
+/// polygons → rings     [0,2,3]       [0,2,3]    row 1 starts at ring 2
+/// rings    → vertices  [0,3,7,12]    [0,7,12]   row 1 starts at vertex 7
+/// ```
+pub(crate) fn flatten_row_offsets(
+    storage: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Vec<usize>, StructArray)> {
+    // At the outermost level, row `r` starts at element `r`; the extra entry caps the last row.
+    let mut row_offsets: Vec<usize> = (0..=storage.len()).collect();
+    let mut level = storage;
+    while matches!(level.dtype(), DType::List(..)) {
+        let list = list_from_list_view(level.execute::<Canonical>(ctx)?.into_listview(), ctx)?;
+        let offsets = list
+            .offsets()
+            .clone()
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))?
+            .execute::<Buffer<u64>>(ctx)?;
+        for row_offset in &mut row_offsets {
+            *row_offset = usize::try_from(offsets[*row_offset])
+                .map_err(|_| vortex_err!("geo: list offset exceeds usize"))?;
+        }
+        level = list.elements().clone();
+    }
+    Ok((row_offsets, level.execute::<StructArray>(ctx)?))
 }
 
 /// Decode a native geometry column to `geo_types`. A non-geometry operand is an error.

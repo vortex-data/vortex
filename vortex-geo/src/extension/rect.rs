@@ -93,7 +93,7 @@ impl ExtVTable for Rect {
 
 /// The `geoarrow.box` storage field names for `dim`: the lower corner's ordinates followed by the
 /// upper corner's.
-fn box_field_names(dim: Dimension) -> &'static [&'static str] {
+pub(crate) fn box_field_names(dim: Dimension) -> &'static [&'static str] {
     match dim {
         Dimension::Xy => &["xmin", "ymin", "xmax", "ymax"],
         Dimension::Xyz => &["xmin", "ymin", "zmin", "xmax", "ymax", "zmax"],

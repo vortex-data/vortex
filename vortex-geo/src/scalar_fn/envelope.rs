@@ -7,20 +7,16 @@
 //! reads the resulting box column back row by row.
 
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrays::listview::ListViewArrayExt;
-use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::expr::Expression;
 use vortex_array::scalar_fn::Arity;
@@ -31,16 +27,21 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::extension::GeoMetadata;
 use crate::extension::Rect;
+use crate::extension::box_field_names;
 use crate::extension::box_storage_dtype;
 use crate::extension::coordinate::Dimension;
-use crate::extension::coordinate::f64_field;
+use crate::extension::coordinate::box_corners;
+use crate::extension::coordinate::ordinates;
+use crate::extension::flatten_row_offsets;
 use crate::extension::validate_geometry_operands;
 
 /// `envelope`: the axis-aligned bounding box of each geometry in a native geometry operand (a column
@@ -62,120 +63,62 @@ impl GeoEnvelope {
     }
 }
 
-/// The output extension type: a nullable native 2-D `geoarrow.box` ([`Rect`]). Nullable because a
-/// null row has no box. Metadata is defaulted.
-fn output_ext_dtype() -> VortexResult<ExtDType<Rect>> {
+/// The output dtype: a nullable native 2-D box ([`Rect`], `geoarrow.box`) column. Nullable
+/// because rows without a box — null or empty geometries — are null. Metadata is defaulted.
+fn output_box_dtype() -> VortexResult<ExtDType<Rect>> {
     ExtDType::<Rect>::try_new(
         GeoMetadata::default(),
         box_storage_dtype(Dimension::Xy, Nullability::Nullable),
     )
 }
 
-/// The per-row 2-D bounding box of `array` as a nullable `Rect` (`geoarrow.box`) column, computed
-/// directly over the native coordinate storage — no decode to `geo_types`, no Arrow round-trip.
+/// Compute each row's 2-D bounding box: the smallest rectangle covering all of the row's
+/// coordinates.
 ///
-/// Walks the nested `List` storage down to the leaf coordinate `Struct`, carrying which top-level
-/// row owns each coordinate, then min/maxes x/y per row over the raw `f64` buffers. The ring/part
-/// nesting is irrelevant to a bounding box, only which coordinates belong to a row matters. A null
-/// row, or a valid row that owns no coordinate (an empty geometry), yields a null box.
-fn envelopes(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-    let len = array.len();
-    let valid = array.validity()?.execute_mask(len, ctx)?;
-    let ext = array
-        .dtype()
-        .as_extension_opt()
-        .ok_or_else(|| vortex_err!("geo: envelope operand is not a geometry extension type"))?;
-    let storage = array
-        .clone()
-        .execute::<ExtensionArray>(ctx)?
-        .storage_array()
-        .clone();
+/// The output is columnar: four `f64` corner columns in `geoarrow.box` field order
+/// (`xmin, ymin, xmax, ymax`), plus the output validity.
+///
+/// The output validity narrows the input mask `valid`: a row's box is null when the input row
+/// is null, but also when a valid row owns no coordinates: an empty geometry (e.g.
+/// `MULTIPOLYGON EMPTY`) has no extent, and a box cannot represent "empty". Null boxes hold
+/// placeholder `0.0` corners.
+fn row_boxes(
+    storage: ArrayRef,
+    valid: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Vec<ArrayRef>, Validity)> {
+    let len = valid.len();
+    let (row_offsets, coords) = flatten_row_offsets(storage, ctx)?;
+    let xs = ordinates(&coords, "x", ctx)?;
+    let ys = ordinates(&coords, "y", ctx)?;
 
-    // Per-row min/max accumulators; `seen[r]` marks a row that owns at least one coordinate.
-    let mut lo = vec![(f64::INFINITY, f64::INFINITY); len];
-    let mut hi = vec![(f64::NEG_INFINITY, f64::NEG_INFINITY); len];
-    let mut seen = vec![false; len];
-
-    if ext.is::<Rect>() {
-        // The bounding box of a box is itself: read its min/max fields straight from storage.
-        let coords = storage.execute::<StructArray>(ctx)?;
-        let xmin = f64_field(&coords, "xmin", ctx)?;
-        let ymin = f64_field(&coords, "ymin", ctx)?;
-        let xmax = f64_field(&coords, "xmax", ctx)?;
-        let ymax = f64_field(&coords, "ymax", ctx)?;
-        let (xmin, ymin) = (xmin.as_slice::<f64>(), ymin.as_slice::<f64>());
-        let (xmax, ymax) = (xmax.as_slice::<f64>(), ymax.as_slice::<f64>());
-        for r in 0..len {
-            lo[r] = (xmin[r], ymin[r]);
-            hi[r] = (xmax[r], ymax[r]);
-            seen[r] = true;
-        }
-    } else {
-        // Walk any `List` nesting down to the leaf coordinate `Struct`, mapping each element to the
-        // top-level row that owns it. `ListView` offsets/sizes are arbitrary integer types and need
-        // not be contiguous, so map every element explicitly rather than composing offset arrays.
-        let u64_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-        let mut owner: Vec<usize> = (0..len).collect();
-        let mut node = storage;
-        while matches!(node.dtype(), DType::List(..)) {
-            let list = node.execute::<Canonical>(ctx)?.into_listview();
-            let offsets = list
-                .offsets()
-                .clone()
-                .cast(u64_dtype.clone())?
-                .execute::<PrimitiveArray>(ctx)?;
-            let sizes = list
-                .sizes()
-                .clone()
-                .cast(u64_dtype.clone())?
-                .execute::<PrimitiveArray>(ctx)?;
-            let (offsets, sizes) = (offsets.as_slice::<u64>(), sizes.as_slice::<u64>());
-            let elements = list.elements().clone();
-            let mut child = vec![0usize; elements.len()];
-            for (i, &row) in owner.iter().enumerate() {
-                let start = usize::try_from(offsets[i])
-                    .map_err(|_| vortex_err!("geo: list offset exceeds usize"))?;
-                let size = usize::try_from(sizes[i])
-                    .map_err(|_| vortex_err!("geo: list size exceeds usize"))?;
-                child[start..start + size].fill(row);
-            }
-            owner = child;
-            node = elements;
-        }
-        let coords = node.execute::<StructArray>(ctx)?;
-        let xs = f64_field(&coords, "x", ctx)?;
-        let ys = f64_field(&coords, "y", ctx)?;
-        for ((&r, &x), &y) in owner
-            .iter()
-            .zip(xs.as_slice::<f64>())
-            .zip(ys.as_slice::<f64>())
-        {
-            lo[r] = (lo[r].0.min(x), lo[r].1.min(y));
-            hi[r] = (hi[r].0.max(x), hi[r].1.max(y));
-            seen[r] = true;
+    // The output's four columns (xmin, ymin, xmax, ymax), built by transposing each row's
+    // corners into them (a box column is stored as one flat column per corner field).
+    let mut corner_columns: [BufferMut<f64>; 4] =
+        std::array::from_fn(|_| BufferMut::with_capacity(len));
+    let mut has_boxes = Vec::with_capacity(len);
+    for r in 0..len {
+        let (start, end) = (row_offsets[r], row_offsets[r + 1]);
+        // A valid input row with at least one coordinate has a box; a null input row or an
+        // empty geometry (`start == end`) does not.
+        let has_box = valid.value(r) && start < end;
+        let corners = if has_box {
+            box_corners(&xs[start..end], &ys[start..end])
+        } else {
+            [0.0; 4]
+        };
+        has_boxes.push(has_box);
+        for (column, corner) in corner_columns.iter_mut().zip(corners) {
+            column.push(corner);
         }
     }
-
-    // Build the nullable `Rect` column straight from the accumulators: a row is present iff it owns
-    // a coordinate and its operand row is valid; absent rows are null (physical placeholder `0.0`).
-    let present: Vec<bool> = (0..len).map(|r| seen[r] && valid.value(r)).collect();
-    let ordinate = |src: &[(f64, f64)], axis: fn((f64, f64)) -> f64| {
-        PrimitiveArray::from_iter((0..len).map(|r| if present[r] { axis(src[r]) } else { 0.0 }))
-            .into_array()
-    };
-    let storage = StructArray::try_new(
-        FieldNames::from(["xmin", "ymin", "xmax", "ymax"]),
-        vec![
-            ordinate(&lo, |c| c.0),
-            ordinate(&lo, |c| c.1),
-            ordinate(&hi, |c| c.0),
-            ordinate(&hi, |c| c.1),
-        ],
-        len,
-        Validity::from_iter(present.iter().copied()),
-    )?
-    .into_array();
-    Ok(ExtensionArray::try_new(output_ext_dtype()?.erased(), storage)?.into_array())
+    Ok((
+        corner_columns
+            .into_iter()
+            .map(|column| column.freeze().into_array())
+            .collect(),
+        Validity::from_iter(has_boxes),
+    ))
 }
 
 impl ScalarFnVTable for GeoEnvelope {
@@ -209,9 +152,12 @@ impl ScalarFnVTable for GeoEnvelope {
         validate_geometry_operands(dtypes)?;
         // Always nullable: an empty geometry has no box, so nulls can appear even over a
         // non-nullable operand.
-        Ok(DType::Extension(output_ext_dtype()?.erased()))
+        Ok(DType::Extension(output_box_dtype()?.erased()))
     }
 
+    /// Compute each row's box directly over the native coordinate storage — no decode to
+    /// `geo_types`, no Arrow round-trip. A null row, or a valid row that owns no coordinate (an
+    /// empty geometry), yields a null box.
     fn execute(
         &self,
         _: &Self::Options,
@@ -219,7 +165,42 @@ impl ScalarFnVTable for GeoEnvelope {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let array = args.get(0)?;
-        envelopes(&array, ctx)
+        let len = array.len();
+        let ext = array
+            .dtype()
+            .as_extension_opt()
+            .ok_or_else(|| vortex_err!("geo: envelope operand is not a geometry extension type"))?;
+        let storage = array
+            .clone()
+            .execute::<ExtensionArray>(ctx)?
+            .storage_array()
+            .clone();
+
+        let (corners, output_validity) = if ext.is::<Rect>() {
+            // A box is its own envelope: project the 2-D corner fields straight out of storage
+            // (dropping any z/m bounds). A stored box cannot be empty, so the output validity
+            // is exactly the operand's, kept lazy.
+            let coords = storage.execute::<StructArray>(ctx)?;
+            let corners = box_field_names(Dimension::Xy)
+                .iter()
+                .map(|name| coords.unmasked_field_by_name(name).cloned())
+                .collect::<VortexResult<Vec<_>>>()?;
+            (corners, array.validity()?.into_nullable())
+        } else {
+            let valid = array.validity()?.execute_mask(len, ctx)?;
+            row_boxes(storage, &valid, ctx)?
+        };
+
+        // Nullness lives at the box (struct) level: the corner fields stay non-nullable `f64`,
+        // holding `0.0` placeholders under null rows.
+        let storage = StructArray::try_new(
+            FieldNames::from(box_field_names(Dimension::Xy)),
+            corners,
+            len,
+            output_validity,
+        )?
+        .into_array();
+        Ok(ExtensionArray::try_new(output_box_dtype()?.erased(), storage)?.into_array())
     }
 
     fn validity(&self, _: &Self::Options, _: &Expression) -> VortexResult<Option<Expression>> {
@@ -239,16 +220,24 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::ExtensionArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTable;
     use vortex_error::VortexResult;
 
     use super::GeoEnvelope;
+    use crate::extension::GeoMetadata;
+    use crate::extension::Rect;
+    use crate::extension::box_storage_dtype;
+    use crate::extension::coordinate::Dimension;
     use crate::test_harness::linestring_column;
     use crate::test_harness::multilinestring_column;
     use crate::test_harness::multipoint_column;
@@ -311,6 +300,34 @@ mod tests {
         Ok(())
     }
 
+    /// The `Rect` fast path projects the 2-D corners by name, so a 3-D box — whose `zmin`/`zmax`
+    /// fields are interleaved between them in storage — yields its XY extent as a 2-D box.
+    #[test]
+    fn xyz_rect_drops_z_bounds() -> VortexResult<()> {
+        let session = crate::test_harness::geo_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let ordinate = |value: f64| PrimitiveArray::from_iter([value]).into_array();
+        let storage = StructArray::from_fields(&[
+            ("xmin", ordinate(0.0)),
+            ("ymin", ordinate(1.0)),
+            ("zmin", ordinate(-9.0)),
+            ("xmax", ordinate(2.0)),
+            ("ymax", ordinate(3.0)),
+            ("zmax", ordinate(9.0)),
+        ])?
+        .into_array();
+        let ext = ExtDType::<Rect>::try_new(
+            GeoMetadata::default(),
+            box_storage_dtype(Dimension::Xyz, Nullability::NonNullable),
+        )?;
+        let rects = ExtensionArray::try_new(ext.erased(), storage)?.into_array();
+
+        let expected = nullable_rect_column(vec![Some((0.0, 1.0, 2.0, 3.0))])?;
+        assert_arrays_eq!(boxes(rects)?, expected, &mut ctx);
+        Ok(())
+    }
+
     /// Every multi-vertex native type over the same vertex set yields that set's box, so the whole
     /// type family is covered (`Point` has its own degenerate-box test above).
     #[test]
@@ -333,6 +350,29 @@ mod tests {
         Ok(())
     }
 
+    /// Intermediate list levels with more than one part per row keep coordinates attributed to
+    /// the right rows: row 0 owns two polygons (the first with two rings) whose extremes live in
+    /// the second polygon, so composed bounds diverging from loop positions shows up here.
+    #[test]
+    fn uneven_nesting_keeps_rows_aligned() -> VortexResult<()> {
+        let session = crate::test_harness::geo_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let multipolygons = multipolygon_column(vec![
+            vec![
+                vec![vec![(0.0, 0.0), (1.0, 1.0)], vec![(0.2, 0.2), (0.8, 0.8)]],
+                vec![vec![(5.0, -3.0), (6.0, 7.0)]],
+            ],
+            vec![vec![vec![(10.0, 10.0), (11.0, 12.0)]]],
+        ])?;
+        let expected = nullable_rect_column(vec![
+            Some((0.0, -3.0, 6.0, 7.0)),
+            Some((10.0, 10.0, 11.0, 12.0)),
+        ])?;
+        assert_arrays_eq!(boxes(multipolygons)?, expected, &mut ctx);
+        Ok(())
+    }
+
     /// An empty geometry (here a zero-part multipolygon) has no extent and yields a null box; other
     /// rows keep their boxes.
     #[test]
@@ -346,6 +386,40 @@ mod tests {
         ])?;
         let expected = nullable_rect_column(vec![Some((0.0, 0.0, 1.0, 1.0)), None])?;
         assert_arrays_eq!(boxes(multipolygons)?, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A geometry empty only at an inner level — here a polygon whose single ring has zero
+    /// vertices, in the first row — has no box, exactly like one empty at the outer level.
+    #[test]
+    fn inner_empty_ring_yields_null_box() -> VortexResult<()> {
+        let session = crate::test_harness::geo_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let polygons = polygon_column(vec![
+            vec![vec![]],
+            vec![vec![(1.0, 2.0), (3.0, 4.0), (1.0, 4.0)]],
+        ])?;
+        let expected = nullable_rect_column(vec![None, Some((1.0, 2.0, 3.0, 4.0))])?;
+        assert_arrays_eq!(boxes(polygons)?, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A sliced operand keeps per-row boxes aligned: coordinates outside the slice window (still
+    /// present in the sliced list's element buffer) must not leak into any row's box.
+    #[test]
+    fn sliced_operand_ignores_out_of_slice_coordinates() -> VortexResult<()> {
+        let session = crate::test_harness::geo_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let multipoints = multipoint_column(vec![
+            vec![(-100.0, -100.0), (100.0, 100.0)],
+            vec![(1.0, 2.0), (3.0, 4.0)],
+            vec![(5.0, 6.0)],
+        ])?;
+        let expected =
+            nullable_rect_column(vec![Some((1.0, 2.0, 3.0, 4.0)), Some((5.0, 6.0, 5.0, 6.0))])?;
+        assert_arrays_eq!(boxes(multipoints.slice(1..3)?)?, expected, &mut ctx);
         Ok(())
     }
 

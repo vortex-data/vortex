@@ -27,7 +27,8 @@ use crate::extension::GeoMetadata;
 use crate::extension::Rect;
 use crate::extension::box_storage_dtype;
 use crate::extension::coordinate::Dimension;
-use crate::extension::coordinate::f64_field;
+use crate::extension::coordinate::box_corners;
+use crate::extension::coordinate::ordinates;
 use crate::extension::flatten_coordinates;
 use crate::extension::is_native_geometry;
 
@@ -77,18 +78,10 @@ fn aabb_storage_dtype() -> DType {
 
 /// The AABB of the raw `x`/`y` slices, or `None` when empty.
 fn aabb_of(xs: &[f64], ys: &[f64]) -> Option<GeoRect<f64>> {
-    if xs.is_empty() {
-        return None;
-    }
-    let min_max = |vals: &[f64]| {
-        vals.iter()
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
-                (lo.min(v), hi.max(v))
-            })
-    };
-    let (xmin, xmax) = min_max(xs);
-    let (ymin, ymax) = min_max(ys);
-    Some(GeoRect::new((xmin, ymin), (xmax, ymax)))
+    (!xs.is_empty()).then(|| {
+        let [xmin, ymin, xmax, ymax] = box_corners(xs, ys);
+        GeoRect::new((xmin, ymin), (xmax, ymax))
+    })
 }
 
 /// Read an AABB stat scalar (a nullable native `geoarrow.box`) into a [`GeoRect`], or `None` when
@@ -216,9 +209,9 @@ impl AggregateFnVTable for GeometryAabb {
         // `unmasked_field_by_name` reads are therefore safe. Min/max the raw x/y buffers directly:
         // cheap, and avoids `to_geometry`'s panic on empty points (which decoding would hit).
         let coords = flatten_coordinates(&array, ctx)?;
-        let xs = f64_field(&coords, "x", ctx)?;
-        let ys = f64_field(&coords, "y", ctx)?;
-        if let Some(rect) = aabb_of(xs.as_slice::<f64>(), ys.as_slice::<f64>()) {
+        let xs = ordinates(&coords, "x", ctx)?;
+        let ys = ordinates(&coords, "y", ctx)?;
+        if let Some(rect) = aabb_of(&xs, &ys) {
             partial.merge(rect);
         }
         Ok(())

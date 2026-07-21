@@ -16,7 +16,6 @@ use std::fmt::Formatter;
 
 use geoarrow::datatypes::Dimension as GeoArrowDimension;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
@@ -25,6 +24,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::scalar::Scalar;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -193,17 +193,31 @@ pub(crate) fn coordinate_from_struct(scalar: &Scalar) -> VortexResult<Coordinate
     })
 }
 
-/// Materialize a named non-nullable `f64` field of a coordinate `Struct` column as a
-/// [`PrimitiveArray`], for bulk per-ordinate reads.
-pub(crate) fn f64_field(
+/// Materialize the named ordinate (`x`, `y`, ...) of a coordinate `Struct` column as a flat
+/// [`Buffer`] for bulk reads.
+pub(crate) fn ordinates(
     coords: &StructArray,
     name: &str,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
+) -> VortexResult<Buffer<f64>> {
     coords
         .unmasked_field_by_name(name)?
         .clone()
-        .execute::<PrimitiveArray>(ctx)
+        .execute::<Buffer<f64>>(ctx)
+}
+
+/// The corners of the box containing the `(xs, ys)` coordinates, in
+/// `[xmin, ymin, xmax, ymax]` order.
+pub(crate) fn box_corners(xs: &[f64], ys: &[f64]) -> [f64; 4] {
+    let (mut xmin, mut ymin) = (f64::INFINITY, f64::INFINITY);
+    let (mut xmax, mut ymax) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for (&x, &y) in xs.iter().zip(ys) {
+        xmin = xmin.min(x);
+        ymin = ymin.min(y);
+        xmax = xmax.max(x);
+        ymax = ymax.max(y);
+    }
+    [xmin, ymin, xmax, ymax]
 }
 
 #[cfg(test)]
