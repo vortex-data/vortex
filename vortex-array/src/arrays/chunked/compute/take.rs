@@ -108,8 +108,7 @@ fn take_chunked_via_sort(
     let chunk_offsets = array.chunk_offset_values();
     let nchunks = array.nchunks();
     let mut flattener = ChunkFlattener::new(array.dtype(), pairs.len());
-    let mut final_take = BufferMut::<u64>::with_capacity(n);
-    final_take.push_n(0u64, n);
+    let mut final_take = BufferMut::<u64>::zeroed(n);
     let mut cursor = 0usize;
     let mut dedup_idx = 0u64;
 
@@ -228,11 +227,8 @@ fn take_chunked(
     }
 
     let mut flattener = ChunkFlattener::new(array.dtype(), indices_mask.true_count());
-    let mut final_take = (!monotonic || indices.dtype().is_nullable()).then(|| {
-        let mut final_take = BufferMut::<u64>::with_capacity(n);
-        final_take.push_n(0u64, n);
-        final_take
-    });
+    let mut final_take =
+        (!monotonic || indices.dtype().is_nullable()).then(|| BufferMut::<u64>::zeroed(n));
     let mut grouped_position = 0u64;
 
     for (chunk_idx, bucket) in buckets.into_iter().enumerate() {
