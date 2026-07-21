@@ -180,9 +180,7 @@ where
     for &start in starts {
         let start = start.as_();
         let src = &source[start..][..length];
-        // SAFETY: `MaybeUninit<BinaryView>` has the same layout as `BinaryView`, source and
-        // destination have equal lengths, and `spare` exclusively borrows the output buffer so
-        // they cannot overlap.
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
         unsafe {
             ptr::copy_nonoverlapping(
                 src.as_ptr(),
@@ -194,9 +192,13 @@ where
         }
         cursor += src.len();
     }
-    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity, and
-    // `computed_len == output_len` proves the loop filled exactly `output_len` slots.
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { views.set_len(cursor) };
+    vortex_ensure!(
+        views.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        views.len()
+    );
     Ok(views.freeze())
 }
 
@@ -217,9 +219,7 @@ where
         let start = start.as_();
         let length = length.as_();
         let src = &source[start..][..length];
-        // SAFETY: `MaybeUninit<BinaryView>` has the same layout as `BinaryView`, source and
-        // destination have equal lengths, and `spare` exclusively borrows the output buffer so
-        // they cannot overlap.
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
         unsafe {
             ptr::copy_nonoverlapping(
                 src.as_ptr(),

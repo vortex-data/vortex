@@ -206,8 +206,7 @@ where
     for &start in starts {
         let start = start.as_();
         let src = &values[start..][..length];
-        // SAFETY: `MaybeUninit<T>` has the same layout as `T`, source and destination have equal
-        // lengths, and `spare` exclusively borrows the output buffer so they cannot overlap.
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
         unsafe {
             ptr::copy_nonoverlapping(
                 src.as_ptr(),
@@ -217,9 +216,13 @@ where
         }
         cursor += src.len();
     }
-    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity, and
-    // `computed_len == output_len` proves the loop filled exactly `output_len` slots.
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { result.set_len(cursor) };
+    vortex_ensure!(
+        result.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        result.len()
+    );
     Ok(result.freeze())
 }
 
@@ -241,8 +244,7 @@ where
         let start = start.as_();
         let length = length.as_();
         let src = &values[start..][..length];
-        // SAFETY: `MaybeUninit<T>` has the same layout as `T`, source and destination have equal
-        // lengths, and `spare` exclusively borrows the output buffer so they cannot overlap.
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
         unsafe {
             ptr::copy_nonoverlapping(
                 src.as_ptr(),
@@ -254,6 +256,11 @@ where
     }
     // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { result.set_len(cursor) };
+    vortex_ensure!(
+        result.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        result.len()
+    );
     Ok(result.freeze())
 }
 

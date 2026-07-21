@@ -488,9 +488,7 @@ where
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
         let src = &data[byte_start..][..byte_end - byte_start];
-        // SAFETY: `MaybeUninit<u8>` has the same layout as `u8`, source and destination have
-        // equal lengths, and `spare` exclusively borrows the output buffer so they cannot
-        // overlap.
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
         unsafe {
             ptr::copy_nonoverlapping(
                 src.as_ptr(),
@@ -500,9 +498,13 @@ where
         }
         cursor += src.len();
     }
-    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity, and the first
-    // pass over the same offsets computed `output_bytes` as the sum of the copied slice lengths.
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { new_data.set_len(cursor) };
+    vortex_ensure!(
+        new_data.len() == output_bytes,
+        "PiecewiseSequenceArray gathered byte length {} does not match declared byte length {output_bytes}",
+        new_data.len()
+    );
 
     let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
         .reinterpret_cast(out_offset_ptype)
@@ -582,9 +584,7 @@ where
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
         let src = &data[byte_start..byte_end];
-        // SAFETY: `MaybeUninit<u8>` has the same layout as `u8`, source and destination have
-        // equal lengths, and `spare` exclusively borrows the output buffer so they cannot
-        // overlap.
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
         unsafe {
             ptr::copy_nonoverlapping(
                 src.as_ptr(),
@@ -594,9 +594,13 @@ where
         }
         cursor += src.len();
     }
-    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity, and the first
-    // pass over the same offsets computed `output_bytes` as the sum of the copied slice lengths.
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
     unsafe { new_data.set_len(cursor) };
+    vortex_ensure!(
+        new_data.len() == output_bytes,
+        "PiecewiseSequenceArray gathered byte length {} does not match declared byte length {output_bytes}",
+        new_data.len()
+    );
 
     let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
         .reinterpret_cast(out_offset_ptype)
