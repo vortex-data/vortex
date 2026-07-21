@@ -13,6 +13,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::InstrumentedSegmentCache;
@@ -217,6 +218,7 @@ impl VortexOpenOptions {
             Some(footer) => footer,
             None => block_on(opts.read_footer(&buffer))?,
         };
+        footer.validate_file_size(buffer.len() as u64)?;
 
         let segment_source = Arc::new(BufferSegmentSource::new(
             buffer,
@@ -245,6 +247,9 @@ impl VortexOpenOptions {
             .unwrap_or_else(|| Arc::new(DefaultMetricsRegistry::default()));
 
         let footer = if let Some(footer) = self.footer {
+            if let Some(file_size) = self.file_size {
+                footer.validate_file_size(file_size)?;
+            }
             footer
         } else {
             self.read_footer(&reader).await?
@@ -323,10 +328,15 @@ impl VortexOpenOptions {
             }
         }?;
 
+        // Segment specs describe the data file, not necessarily the byte stream used to
+        // deserialize a standalone cached footer. Validate them here, where we know this is the
+        // size of the actual data source (see issue #8819).
+        footer.validate_file_size(file_size)?;
+
         // If the initial read happened to cover any segments, then we can populate the
         // segment cache
         let initial_offset = file_size - (deserializer.buffer().len() as u64);
-        self.populate_initial_segments(initial_offset, deserializer.buffer(), &footer);
+        self.populate_initial_segments(initial_offset, deserializer.buffer(), &footer)?;
 
         Ok(footer)
     }
@@ -337,7 +347,7 @@ impl VortexOpenOptions {
         initial_offset: u64,
         initial_read: &ByteBuffer,
         footer: &Footer,
-    ) {
+    ) -> VortexResult<()> {
         let first_idx = footer
             .segment_map()
             .partition_point(|segment| segment.offset < initial_offset);
@@ -350,11 +360,26 @@ impl VortexOpenOptions {
                 SegmentId::from(u32::try_from(idx).vortex_expect("Invalid segment ID"));
             let offset =
                 usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
-            let buffer = initial_read
-                .slice(offset..offset + (segment.length as usize))
-                .aligned(segment.alignment);
+            // The segment map is validated against the file size before this method is called, but
+            // still bounds-check here so slicing never depends on that distant validation for panic
+            // safety (see issue #8819).
+            let end = offset
+                .checked_add(segment.length as usize)
+                .filter(|end| *end <= initial_read.len())
+                .ok_or_else(|| {
+                    vortex_err!(
+                        "Segment at offset {} with length {} is out of bounds of the \
+                         {}-byte initial read",
+                        segment.offset,
+                        segment.length,
+                        initial_read.len(),
+                    )
+                })?;
+            let buffer = initial_read.slice(offset..end).aligned(segment.alignment);
             initial_read_segments.insert(segment_id, buffer);
         }
+
+        Ok(())
     }
 }
 
@@ -396,11 +421,23 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
+    use vortex_error::vortex_bail;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
+    use vortex_session::registry::Id;
+    use vortex_session::registry::ReadContext;
 
     use super::*;
     use crate::WriteOptionsSessionExt;
+    use crate::footer::SegmentSpec;
+
+    fn test_session() -> VortexSession {
+        let session = vortex_array::array_session()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>();
+        crate::register_default_encodings(&session);
+        session
+    }
 
     #[derive(Clone)]
     // Define CountingRead struct
@@ -543,5 +580,101 @@ mod tests {
             allocations.load(Ordering::Relaxed) > 0,
             "expected at least one host allocation from MemorySession"
         );
+    }
+
+    /// `populate_initial_segments` must bounds-check the segment map against the initial read rather
+    /// than slicing unchecked, so a segment larger than the read returns an error (see issue #8819).
+    #[tokio::test]
+    async fn populate_initial_segments_rejects_out_of_bounds_segment() -> VortexResult<()> {
+        let session = test_session();
+
+        // A valid root layout is obtained by writing and parsing a small file.
+        // `populate_initial_segments` only consults the segment map, so the layout is irrelevant.
+        let mut buf = ByteBufferMut::empty();
+        let array = Buffer::from((0i32..16).collect::<Vec<i32>>()).into_array();
+        session
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+        let footer = session
+            .open_options()
+            .read_footer(&ByteBuffer::from(buf))
+            .await?;
+
+        // Build a footer whose sole segment is far larger than the initial read below.
+        let bad_segments: Arc<[SegmentSpec]> = Arc::from([SegmentSpec {
+            offset: 0,
+            length: 1024,
+            alignment: Alignment::none(),
+        }]);
+        let bad_footer = Footer::new(
+            Arc::clone(footer.layout()),
+            bad_segments,
+            None,
+            ReadContext::new(Vec::<Id>::new()),
+        );
+
+        let initial_read = ByteBuffer::zeroed(16);
+        let Err(err) =
+            session
+                .open_options()
+                .populate_initial_segments(0, &initial_read, &bad_footer)
+        else {
+            vortex_bail!("populating an out-of-bounds segment must return an error");
+        };
+        assert!(
+            err.to_string().contains("out of bounds"),
+            "unexpected error: {err}"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn standalone_footer_round_trip() -> VortexResult<()> {
+        let session = test_session();
+
+        let mut file_bytes = ByteBufferMut::empty();
+        let values = (0i32..65_536)
+            .map(|value| value.wrapping_mul(1_664_525).wrapping_add(1_013_904_223))
+            .collect::<Vec<_>>();
+        let array = Buffer::from(values).into_array();
+        session
+            .write_options()
+            .write(&mut file_bytes, array.to_array_stream())
+            .await?;
+        let file_bytes = ByteBuffer::from(file_bytes);
+
+        let footer = session
+            .open_options()
+            .open_buffer(file_bytes.clone())?
+            .footer()
+            .clone();
+        let last_segment_end = footer
+            .segment_map()
+            .iter()
+            .map(|segment| segment.offset + u64::from(segment.length))
+            .max()
+            .unwrap_or_default();
+        let serialized_footer = footer.into_serializer().serialize()?;
+        let serialized_footer_size = serialized_footer.iter().map(ByteBuffer::len).sum();
+        assert!(last_segment_end > serialized_footer_size as u64);
+        let mut footer_bytes = ByteBufferMut::with_capacity(serialized_footer_size);
+        for buffer in serialized_footer {
+            footer_bytes.extend_from_slice(&buffer);
+        }
+
+        let mut deserializer = Footer::deserializer(footer_bytes.freeze(), session.clone())
+            .with_size(serialized_footer_size as u64);
+        let DeserializeStep::Done(cached_footer) = deserializer.deserialize()? else {
+            vortex_bail!("standalone footer bytes must be sufficient for deserialization");
+        };
+
+        session
+            .open_options()
+            .with_footer(cached_footer)
+            .open_buffer(file_bytes)?;
+
+        Ok(())
     }
 }

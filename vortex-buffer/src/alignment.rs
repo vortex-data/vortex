@@ -6,6 +6,8 @@ use std::ops::Deref;
 
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 /// The alignment of a buffer.
@@ -119,6 +121,22 @@ impl Alignment {
     #[inline]
     pub const fn from_exponent(exponent: u8) -> Self {
         Self::new(1 << exponent)
+    }
+
+    /// Create from the log2 exponent of the alignment, returning an error rather than panicking if
+    /// `1 << exponent` would overflow `usize`.
+    ///
+    /// Prefer this over [`from_exponent`](Self::from_exponent) when the exponent originates from
+    /// untrusted input such as a serialized file, where a too-large value must not panic.
+    #[inline]
+    pub fn try_from_exponent(exponent: u8) -> VortexResult<Self> {
+        if u32::from(exponent) >= usize::BITS {
+            vortex_bail!(
+                "Alignment exponent {exponent} is too large for a {}-bit usize",
+                usize::BITS
+            );
+        }
+        Ok(Self::new(1 << exponent))
     }
 }
 
@@ -234,6 +252,18 @@ mod test {
         }
         assert!(Alignment::try_from(0u32).is_err());
         assert!(Alignment::try_from(3u32).is_err());
+    }
+
+    #[test]
+    fn try_from_exponent() {
+        match Alignment::try_from_exponent(10) {
+            Ok(alignment) => assert_eq!(alignment, Alignment::new(1024)),
+            Err(err) => panic!("valid exponent should succeed: {err}"),
+        }
+        // Exponents whose `1 << exponent` would overflow a usize must error rather than panic.
+        // 64 is `>= usize::BITS` on both 32- and 64-bit targets.
+        assert!(Alignment::try_from_exponent(64).is_err());
+        assert!(Alignment::try_from_exponent(u8::MAX).is_err());
     }
 
     #[test]
