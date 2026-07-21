@@ -478,7 +478,7 @@ where
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
     let spare = &mut new_data.spare_capacity_mut()[..output_bytes];
     let mut cursor = 0usize;
-    for &start in starts {
+    for start in starts {
         let start = start.as_();
         if length == 0 {
             continue;
@@ -487,7 +487,7 @@ where
         let offset_range = &offsets[start..][..=length];
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
-        let src = &data[byte_start..][..byte_end - byte_start];
+        let src = &data[byte_start..byte_end];
         // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
         unsafe {
             ptr::copy_nonoverlapping(
