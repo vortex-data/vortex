@@ -57,7 +57,7 @@ pub struct EditionId {
 
 impl EditionId {
     /// Create an edition identifier. Validated by [`EditionId::validate`], which
-    /// [`test_harness::validate_edition`](crate::test_harness::validate_edition) exercises
+    /// [`test_harness::validate_edition`] exercises
     /// per edition in unit tests.
     pub const fn new(family: &'static str, year: u16, month: u8, version: u8) -> Self {
         Self {
@@ -78,7 +78,7 @@ impl EditionId {
     /// Validate the identifier's form: a non-empty lowercase family, a four-digit year,
     /// and a month in 01-12. Checked for every declared edition by
     /// [`EditionSession::validate`] and per edition by
-    /// [`test_harness::validate_edition`](crate::test_harness::validate_edition).
+    /// [`test_harness::validate_edition`].
     pub fn validate(&self) -> Result<(), EditionError> {
         if self.family.is_empty() || !self.family.chars().all(|c| c.is_ascii_lowercase()) {
             return Err(EditionError::new(format!(

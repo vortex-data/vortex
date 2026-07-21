@@ -16,7 +16,7 @@
 //! these declarations that alters a frozen set fails CI. New encodings are staged into the
 //! newest draft edition.
 //!
-//! Note this is currently unsued but a future PR will make this public and gate the writer behind
+//! Note this is currently unused but a future PR will make this public and gate the writer behind
 //! editions.
 
 pub mod core;
