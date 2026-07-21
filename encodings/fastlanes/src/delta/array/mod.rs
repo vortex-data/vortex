@@ -13,6 +13,8 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::Delta;
+
 pub mod delta_compress;
 pub mod delta_decompress;
 
@@ -97,7 +99,7 @@ pub trait DeltaArrayExt: DeltaArraySlotsExt {
     }
 }
 
-impl<T: TypedArrayRef<crate::Delta>> DeltaArrayExt for T {}
+impl<T: TypedArrayRef<Delta>> DeltaArrayExt for T {}
 
 impl DeltaData {
     pub fn try_new(offset: usize) -> VortexResult<Self> {
