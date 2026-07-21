@@ -2805,9 +2805,8 @@ mod tests {
         Ok(())
     }
 
-    // Regression test: with an average list size >= 128 the host list-view rebuild picks its
-    // list-by-list strategy, which may canonicalize Dict elements. The schema must describe the
-    // rebuilt child layout.
+    // Regression test: the host list-view rebuild uses a take for large lists, which preserves
+    // dictionary elements. The schema must describe the rebuilt child layout.
     #[crate::test]
     async fn test_export_host_large_lists_dictionary_list_view_schema_matches_rebuilt_child()
     -> VortexResult<()> {
@@ -2836,7 +2835,17 @@ mod tests {
             field,
             Field::new_list(
                 "",
-                Field::new(Field::LIST_FIELD_DEFAULT_NAME, DataType::Int32, true),
+                Field::new(
+                    Field::LIST_FIELD_DEFAULT_NAME,
+                    DataType::Dictionary(
+                        Box::new(DataType::Int64),
+                        Box::new(DataType::Dictionary(
+                            Box::new(DataType::Int16),
+                            Box::new(DataType::Int32),
+                        )),
+                    ),
+                    true,
+                ),
                 false,
             )
         );
@@ -2846,9 +2855,11 @@ mod tests {
         );
         let list_children = unsafe { std::slice::from_raw_parts(exported.array.array.children, 1) };
         let child = unsafe { &*list_children[0] };
-        assert!(child.dictionary.is_null());
+        assert!(!child.dictionary.is_null());
         assert_eq!(child.length, 256);
         assert_eq!(child.n_buffers, 2);
+        let nested_dict = unsafe { &*child.dictionary };
+        assert!(!nested_dict.dictionary.is_null());
 
         unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
