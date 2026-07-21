@@ -31,9 +31,14 @@ vortex-session = { workspace = true }
 wkb = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-layout = { workspace = true }
+
+[[bench]]
+name = "envelope_write"
+harness = false
 
 [lints]
 workspace = true

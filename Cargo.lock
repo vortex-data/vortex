@@ -10265,6 +10265,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 58.3.0",
  "arrow-schema 58.3.0",
+ "codspeed-divan-compat",
  "geo",
  "geo-traits",
  "geo-types",
