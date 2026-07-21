@@ -39,7 +39,7 @@ use crate::extension::multipolygon_storage_dtype;
 use crate::extension::polygon_storage_dtype;
 
 /// A fresh session with the geospatial types, functions, and pruning rules registered.
-pub(crate) fn geo_session() -> VortexSession {
+pub fn geo_session() -> VortexSession {
     let session = vortex_array::array_session();
     crate::initialize(&session);
     session
@@ -106,7 +106,7 @@ fn geo_column<V: ExtVTable<Metadata = GeoMetadata> + Default>(
 }
 
 /// A `Point` column over the given x/y coordinates, stored as `Struct<x, y>`.
-pub(crate) fn point_column(xs: Vec<f64>, ys: Vec<f64>) -> VortexResult<ArrayRef> {
+pub fn point_column(xs: Vec<f64>, ys: Vec<f64>) -> VortexResult<ArrayRef> {
     let storage = xy_struct(xs, ys)?;
     let storage_dtype = storage.dtype().clone();
     geo_column::<Point>(storage, storage_dtype)
@@ -114,7 +114,7 @@ pub(crate) fn point_column(xs: Vec<f64>, ys: Vec<f64>) -> VortexResult<ArrayRef>
 
 /// A nullable `Point` column: `None` rows are null. Null rows carry placeholder coordinates in
 /// storage that the geo kernels must never decode (they filter nulls before decoding).
-pub(crate) fn nullable_point_column(points: Vec<Option<(f64, f64)>>) -> VortexResult<ArrayRef> {
+pub fn nullable_point_column(points: Vec<Option<(f64, f64)>>) -> VortexResult<ArrayRef> {
     let len = points.len();
     let valid = points.iter().map(Option::is_some);
     let xs = points.iter().map(|p| p.map_or(0.0, |(x, _)| x));
@@ -134,7 +134,7 @@ pub(crate) fn nullable_point_column(points: Vec<Option<(f64, f64)>>) -> VortexRe
 }
 
 /// A `LineString` column: each line a list of `(x, y)` vertices, stored as `List<Struct<x, y>>`.
-pub(crate) fn linestring_column(lines: Vec<Vec<(f64, f64)>>) -> VortexResult<ArrayRef> {
+pub fn linestring_column(lines: Vec<Vec<(f64, f64)>>) -> VortexResult<ArrayRef> {
     geo_column::<LineString>(
         vertex_lists(&lines)?,
         linestring_storage_dtype(Dimension::Xy, Nullability::NonNullable),
@@ -142,7 +142,7 @@ pub(crate) fn linestring_column(lines: Vec<Vec<(f64, f64)>>) -> VortexResult<Arr
 }
 
 /// A `MultiPoint` column: each row a list of `(x, y)` points, stored as `List<Struct<x, y>>`.
-pub(crate) fn multipoint_column(points: Vec<Vec<(f64, f64)>>) -> VortexResult<ArrayRef> {
+pub fn multipoint_column(points: Vec<Vec<(f64, f64)>>) -> VortexResult<ArrayRef> {
     geo_column::<MultiPoint>(
         vertex_lists(&points)?,
         multipoint_storage_dtype(Dimension::Xy, Nullability::NonNullable),
@@ -151,7 +151,7 @@ pub(crate) fn multipoint_column(points: Vec<Vec<(f64, f64)>>) -> VortexResult<Ar
 
 /// A `Polygon` column: each polygon a list of rings, each ring a list of `(x, y)` vertices,
 /// stored as `List<List<Struct<x, y>>>`.
-pub(crate) fn polygon_column(polygons: Vec<Vec<Vec<(f64, f64)>>>) -> VortexResult<ArrayRef> {
+pub fn polygon_column(polygons: Vec<Vec<Vec<(f64, f64)>>>) -> VortexResult<ArrayRef> {
     geo_column::<Polygon>(
         vertex_list_lists(&polygons)?,
         polygon_storage_dtype(Dimension::Xy, Nullability::NonNullable),
@@ -159,9 +159,7 @@ pub(crate) fn polygon_column(polygons: Vec<Vec<Vec<(f64, f64)>>>) -> VortexResul
 }
 
 /// A `MultiLineString` column: each row a list of lines, stored as `List<List<Struct<x, y>>>`.
-pub(crate) fn multilinestring_column(
-    multilines: Vec<Vec<Vec<(f64, f64)>>>,
-) -> VortexResult<ArrayRef> {
+pub fn multilinestring_column(multilines: Vec<Vec<Vec<(f64, f64)>>>) -> VortexResult<ArrayRef> {
     geo_column::<MultiLineString>(
         vertex_list_lists(&multilines)?,
         multilinestring_storage_dtype(Dimension::Xy, Nullability::NonNullable),
@@ -169,10 +167,10 @@ pub(crate) fn multilinestring_column(
 }
 
 /// One multipolygon: polygons → rings → `(x, y)` vertices.
-pub(crate) type MultiPolygonRings = Vec<Vec<Vec<(f64, f64)>>>;
+pub type MultiPolygonRings = Vec<Vec<Vec<(f64, f64)>>>;
 
 /// A `MultiPolygon` column, stored as `List<List<List<Struct<x, y>>>>`.
-pub(crate) fn multipolygon_column(multipolygons: Vec<MultiPolygonRings>) -> VortexResult<ArrayRef> {
+pub fn multipolygon_column(multipolygons: Vec<MultiPolygonRings>) -> VortexResult<ArrayRef> {
     let polygons: Vec<Vec<Vec<(f64, f64)>>> = multipolygons.iter().flatten().cloned().collect();
     geo_column::<MultiPolygon>(
         nest(&multipolygons, vertex_list_lists(&polygons)?)?,
@@ -181,7 +179,7 @@ pub(crate) fn multipolygon_column(multipolygons: Vec<MultiPolygonRings>) -> Vort
 }
 
 /// A nullable `MultiPolygon` column: `None` rows are null (an empty-list placeholder in storage).
-pub(crate) fn nullable_multipolygon_column(
+pub fn nullable_multipolygon_column(
     multipolygons: Vec<Option<MultiPolygonRings>>,
 ) -> VortexResult<ArrayRef> {
     let rows: Vec<MultiPolygonRings> = multipolygons
@@ -209,7 +207,7 @@ pub(crate) fn nullable_multipolygon_column(
 
 /// A 2D `Rect` (`geoarrow.box`) column over `(xmin, ymin, xmax, ymax)` boxes, stored as
 /// `Struct<xmin, ymin, xmax, ymax>`.
-pub(crate) fn rect_column(boxes: Vec<(f64, f64, f64, f64)>) -> VortexResult<ArrayRef> {
+pub fn rect_column(boxes: Vec<(f64, f64, f64, f64)>) -> VortexResult<ArrayRef> {
     let field = |select: fn(&(f64, f64, f64, f64)) -> f64| {
         PrimitiveArray::from_iter(boxes.iter().map(select)).into_array()
     };
@@ -229,9 +227,7 @@ pub(crate) fn rect_column(boxes: Vec<(f64, f64, f64, f64)>) -> VortexResult<Arra
 /// A nullable 2D `Rect` (`geoarrow.box`) column: `None` rows are null boxes (placeholder ordinates
 /// in storage). Tagged with default metadata, matching the `envelope` scalar fn and `GeometryAabb`
 /// stat outputs.
-pub(crate) fn nullable_rect_column(
-    boxes: Vec<Option<(f64, f64, f64, f64)>>,
-) -> VortexResult<ArrayRef> {
+pub fn nullable_rect_column(boxes: Vec<Option<(f64, f64, f64, f64)>>) -> VortexResult<ArrayRef> {
     let len = boxes.len();
     let field = |select: fn(&(f64, f64, f64, f64)) -> f64| {
         PrimitiveArray::from_iter(boxes.iter().map(|b| b.as_ref().map_or(0.0, select))).into_array()
@@ -257,7 +253,7 @@ pub(crate) fn nullable_rect_column(
 
 /// Decode a [`Coordinate`] from an extension-typed point scalar (unwrapped to its coordinate
 /// storage) or a bare coordinate `Struct` scalar — used to read back a single point in assertions.
-pub(crate) fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate> {
+pub fn coordinate_from_scalar(scalar: &Scalar) -> VortexResult<Coordinate> {
     match scalar.as_extension_opt() {
         Some(ext_scalar) => coordinate_from_struct(&ext_scalar.to_storage_scalar()),
         None => coordinate_from_struct(scalar),

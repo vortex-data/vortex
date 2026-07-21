@@ -30,8 +30,8 @@ pub mod aggregate_fn;
 pub mod extension;
 pub mod prune;
 pub mod scalar_fn;
-#[cfg(test)]
-mod test_harness;
+#[cfg(any(test, feature = "_test-harness"))]
+pub mod test_harness;
 #[cfg(test)]
 mod tests;
 
