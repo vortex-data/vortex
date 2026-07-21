@@ -122,21 +122,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         array.slots().iter().filter(|s| s.is_some()).count()
     }
 
-    /// Returns the child at the given index.
-    ///
-    /// The default returns the `idx`-th non-None slot.
-    ///
-    /// # Panics
-    /// Panics if `idx >= nchildren(array)`.
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        array
-            .slots()
-            .iter()
-            .filter_map(|s| s.clone())
-            .nth(idx)
-            .vortex_expect("child index out of bounds")
-    }
-
     /// Returns the name of the child at the given index.
     ///
     /// The default returns the slot name of the `idx`-th non-None slot.

@@ -268,8 +268,8 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn children(&self, this: &ArrayRef) -> Vec<ArrayRef> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        (0..V::nchildren(view)).map(|i| V::child(view, i)).collect()
+        let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        view.slots().iter().filter_map(|s| s.clone()).collect()
     }
 
     fn nchildren(&self, this: &ArrayRef) -> usize {
@@ -278,8 +278,12 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn nth_child(&self, this: &ArrayRef, idx: usize) -> Option<ArrayRef> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        (idx < V::nchildren(view)).then(|| V::child(view, idx))
+        let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        view.slots()
+            .iter()
+            .filter_map(|s| s.as_ref())
+            .nth(idx)
+            .cloned()
     }
 
     fn children_names(&self, this: &ArrayRef) -> Vec<String> {
@@ -290,9 +294,12 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn named_children(&self, this: &ArrayRef) -> Vec<(String, ArrayRef)> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        (0..V::nchildren(view))
-            .map(|i| (V::child_name(view, i), V::child(view, i)))
+        let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        view.slots()
+            .iter()
+            .filter_map(|s| s.as_ref())
+            .enumerate()
+            .map(|(i, child)| (V::child_name(view, i), child.clone()))
             .collect()
     }
 
