@@ -20,6 +20,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::Union;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::dtype::UnionVariants;
 
 /// The row-aligned array of type IDs selecting a union child.
@@ -144,10 +145,7 @@ impl Array<Union> {
         children: impl Into<Arc<[ArrayRef]>>,
     ) -> VortexResult<Self> {
         vortex_ensure!(
-            matches!(
-                type_ids.dtype(),
-                DType::Primitive(crate::dtype::PType::U8, _)
-            ),
+            matches!(type_ids.dtype(), DType::Primitive(PType::U8, _)),
             "UnionArray type_ids must be u8, got {}",
             type_ids.dtype()
         );

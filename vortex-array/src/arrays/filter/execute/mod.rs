@@ -28,17 +28,21 @@ use crate::arrays::variant::VariantArrayExt;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
-mod bitbuffer;
-mod bool;
-mod buffer;
 pub(crate) mod byte_compress;
+
+mod slice;
+mod take;
+
+mod bitbuffer;
+mod buffer;
+
+mod bool;
 mod decimal;
 mod fixed_size_list;
 mod listview;
 mod primitive;
-mod slice;
 mod struct_;
-pub mod take;
+mod union;
 mod varbinview;
 
 /// A helper function that lazily filters a [`Validity`] with selection mask values.
@@ -95,9 +99,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
             Canonical::FixedSizeList(fixed_size_list::filter_fixed_size_list(&a, mask))
         }
         Canonical::Struct(a) => Canonical::Struct(struct_::filter_struct(&a, mask)),
-        Canonical::Union(_) => {
-            todo!("TODO(connor)[Union]: implement filter for Union arrays")
-        }
+        Canonical::Union(a) => Canonical::Union(union::filter_union(&a, mask)),
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage_array()

@@ -54,7 +54,10 @@ pub(crate) fn take_canonical(
         }
         Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
         Canonical::Union(_) => {
-            todo!("TODO(connor)[Union]: implement dictionary execution for Union arrays")
+            todo!(
+                "TODO(connor)[Union]: implement dictionary execution after Union take supports \
+                 nullable indices and outer null propagation"
+            )
         }
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes, ctx)),
         Canonical::Variant(a) => {
