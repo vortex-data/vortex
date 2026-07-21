@@ -685,19 +685,26 @@ impl ArrayRef {
 
     // ArrayVisitor delegation methods
 
+    /// Returns an iterator over the children of the array: its non-None slots in order.
+    pub fn children_iter(&self) -> impl Iterator<Item = &ArrayRef> {
+        self.0.slots.iter().filter_map(|s| s.as_ref())
+    }
+
     /// Returns the children of the array.
     pub fn children(&self) -> Vec<ArrayRef> {
-        self.0.data.children(self)
+        self.children_iter().cloned().collect()
     }
 
     /// Returns the number of children of the array.
     pub fn nchildren(&self) -> usize {
-        self.0.data.nchildren(self)
+        self.children_iter().count()
     }
 
     /// Returns the nth child of the array without allocating a Vec.
+    ///
+    /// Returns `None` if the index is out of bounds.
     pub fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        self.0.data.nth_child(self, idx)
+        self.children_iter().nth(idx).cloned()
     }
 
     /// Returns the names of the children of the array.
@@ -707,7 +714,10 @@ impl ArrayRef {
 
     /// Returns the array's children with their names.
     pub fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        self.0.data.named_children(self)
+        self.children_names()
+            .into_iter()
+            .zip(self.children_iter().cloned())
+            .collect()
     }
 
     /// Returns the data buffers of the array.

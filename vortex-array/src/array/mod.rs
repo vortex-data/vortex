@@ -80,22 +80,8 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
 
     // --- Visitor methods (formerly in ArrayVisitor) ---
 
-    /// Returns the children of the array.
-    fn children(&self, this: &ArrayRef) -> Vec<ArrayRef>;
-
-    /// Returns the number of children of the array.
-    fn nchildren(&self, this: &ArrayRef) -> usize;
-
-    /// Returns the nth child of the array without allocating a Vec.
-    ///
-    /// Returns `None` if the index is out of bounds.
-    fn nth_child(&self, this: &ArrayRef, idx: usize) -> Option<ArrayRef>;
-
     /// Returns the names of the children of the array.
     fn children_names(&self, this: &ArrayRef) -> Vec<String>;
-
-    /// Returns the array's children with their names.
-    fn named_children(&self, this: &ArrayRef) -> Vec<(String, ArrayRef)>;
 
     /// Returns the buffers of the array.
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer>;
@@ -267,42 +253,10 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         Ok(())
     }
 
-    fn children(&self, this: &ArrayRef) -> Vec<ArrayRef> {
-        let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        view.slots().iter().filter_map(|s| s.clone()).collect()
-    }
-
-    fn nchildren(&self, this: &ArrayRef) -> usize {
-        let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        view.slots().iter().filter(|s| s.is_some()).count()
-    }
-
-    fn nth_child(&self, this: &ArrayRef, idx: usize) -> Option<ArrayRef> {
-        let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        view.slots()
-            .iter()
-            .filter_map(|s| s.as_ref())
-            .nth(idx)
-            .cloned()
-    }
-
     fn children_names(&self, this: &ArrayRef) -> Vec<String> {
         let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        view.slots()
-            .iter()
-            .filter(|s| s.is_some())
-            .enumerate()
-            .map(|(i, _)| V::child_name(view, i))
-            .collect()
-    }
-
-    fn named_children(&self, this: &ArrayRef) -> Vec<(String, ArrayRef)> {
-        let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        view.slots()
-            .iter()
-            .filter_map(|s| s.as_ref())
-            .enumerate()
-            .map(|(i, child)| (V::child_name(view, i), child.clone()))
+        (0..this.nchildren())
+            .map(|i| V::child_name(view, i))
             .collect()
     }
 
