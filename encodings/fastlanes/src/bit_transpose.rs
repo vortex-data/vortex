@@ -10,63 +10,52 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
-pub fn transpose_bitbuffer(bits: BitBuffer) -> BitBuffer {
-    let (offset, len, bytes) = bits.into_inner();
+use crate::FL_CHUNK_SIZE;
 
-    if bytes.len().is_multiple_of(128) {
+/// Transposes `bits` into FastLanes order, padding the result to whole 1,024-bit chunks.
+pub fn transpose_bitbuffer(bits: BitBuffer) -> BitBuffer {
+    bits_op(bits, fastlanes::transpose_bits)
+}
+
+/// Untransposes whole 1,024-bit FastLanes chunks back into sequential bit order.
+pub fn untranspose_bitbuffer(bits: BitBuffer) -> BitBuffer {
+    assert!(
+        bits.len().is_multiple_of(FL_CHUNK_SIZE),
+        "Transposed BitBuffer length must be a multiple of {FL_CHUNK_SIZE}"
+    );
+    bits_op(bits, fastlanes::untranspose_bits::<u64>)
+}
+
+fn bits_op<F: Fn(&[u64; 16], &mut [u64; 16])>(bits: BitBuffer, op: F) -> BitBuffer {
+    // Normalize to offset 0 with no bytes outside the logical range, so that byte-buffer chunk
+    // boundaries line up with logical 1,024-bit chunks regardless of how the buffer was sliced.
+    let bits = bits.sliced();
+    let (_offset, len, bytes) = bits.into_inner();
+
+    if len.is_multiple_of(FL_CHUNK_SIZE) && bytes.is_aligned(Alignment::of::<u64>()) {
         match bytes.try_into_mut() {
             Ok(mut bytes_mut) => {
-                // We can ignore the spare trailer capacity that can be an artifact of allocator as we requested 128 multiple chunks
                 let (chunks, _) = bytes_mut.as_chunks_mut::<128>();
                 let mut tmp = [0u64; 16];
                 for chunk in chunks {
+                    // SAFETY: the buffer is u64-aligned and chunks start at 128-byte multiples.
                     let chunk_u64 =
                         unsafe { mem::transmute::<&mut [u8; 128], &mut [u64; 16]>(chunk) };
-                    fastlanes::transpose_bits(chunk_u64, &mut tmp);
+                    op(chunk_u64, &mut tmp);
                     chunk_u64.copy_from_slice(&tmp);
                 }
-                BitBuffer::new_with_offset(bytes_mut.freeze().into_byte_buffer(), len, offset)
+                BitBuffer::new(bytes_mut.freeze().into_byte_buffer(), len)
             }
-            Err(bytes) => bits_op_with_copy(bytes, len, offset, fastlanes::transpose_bits),
+            Err(bytes) => bits_op_with_copy(bytes, len, op),
         }
     } else {
-        bits_op_with_copy(bytes, len, offset, fastlanes::transpose_bits)
-    }
-}
-
-pub fn untranspose_bitbuffer(bits: BitBuffer) -> BitBuffer {
-    assert!(
-        bits.inner().len().is_multiple_of(128),
-        "Transpose BitBuffer byte length must be a multiple of 128"
-    );
-    assert!(
-        bits.inner().is_aligned(Alignment::of::<u64>()),
-        "Transposed buffer must be 8 byte aligned"
-    );
-    let (offset, len, bytes) = bits.into_inner();
-    match bytes.try_into_mut() {
-        Ok(mut bytes_mut) => {
-            let (prefix, middle, trailer) = unsafe { bytes_mut.align_to_mut::<u64>() };
-            assert!(
-                prefix.is_empty() && trailer.is_empty(),
-                "Transposed buffer must be 8 byte aligned"
-            );
-            let (chunks, _) = middle.as_chunks_mut::<16>();
-            let mut tmp = [0u64; 16];
-            for chunk in chunks {
-                fastlanes::untranspose_bits::<u64>(chunk, &mut tmp);
-                chunk.copy_from_slice(&tmp);
-            }
-            BitBuffer::new_with_offset(bytes_mut.freeze().into_byte_buffer(), len, offset)
-        }
-        Err(bytes) => bits_op_with_copy(bytes, len, offset, fastlanes::untranspose_bits::<u64>),
+        bits_op_with_copy(bytes, len, op)
     }
 }
 
 fn bits_op_with_copy<F: Fn(&[u64; 16], &mut [u64; 16])>(
     bytes: ByteBuffer,
     len: usize,
-    offset: usize,
     op: F,
 ) -> BitBuffer {
     let output_len = bytes.len().div_ceil(8).next_multiple_of(16);
@@ -83,17 +72,14 @@ fn bits_op_with_copy<F: Fn(&[u64; 16], &mut [u64; 16])>(
     .as_chunks_mut::<16>();
 
     for (input, output) in input_chunks.iter().zip(output_chunks.iter_mut()) {
-        op(
-            unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(input) },
-            output,
-        );
+        op(&load_chunk_unaligned(input), output);
     }
 
     if !input_trailer.is_empty() {
         let mut padded_input = [0u8; 128];
         padded_input[0..input_trailer.len()].clone_from_slice(input_trailer);
         op(
-            unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(&padded_input) },
+            &load_chunk_unaligned(&padded_input),
             output_chunks
                 .last_mut()
                 .vortex_expect("Output wasn't a multiple of 128 bytes"),
@@ -101,11 +87,24 @@ fn bits_op_with_copy<F: Fn(&[u64; 16], &mut [u64; 16])>(
     }
 
     unsafe { output.set_len(output_len) };
-    BitBuffer::new_with_offset(
+    BitBuffer::new(
         output.freeze().into_byte_buffer(),
-        len.next_multiple_of(1024),
-        offset,
+        len.next_multiple_of(FL_CHUNK_SIZE),
     )
+}
+
+/// Loads a 128-byte chunk into a `[u64; 16]` without requiring the input to be 8-byte aligned.
+///
+/// Native endianness is required: this must produce the same words as the aligned in-place path,
+/// which reinterprets the buffer as host-endian `u64`s.
+#[allow(clippy::host_endian_bytes)]
+fn load_chunk_unaligned(chunk: &[u8; 128]) -> [u64; 16] {
+    let mut words = [0u64; 16];
+    let (bytes, _) = chunk.as_chunks::<8>();
+    for (word, bytes) in words.iter_mut().zip(bytes) {
+        *word = u64::from_ne_bytes(*bytes);
+    }
+    words
 }
 
 #[cfg(test)]
@@ -113,6 +112,7 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::ByteBuffer;
+    use vortex_buffer::ByteBufferMut;
 
     use super::*;
 
@@ -181,5 +181,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Regression: buffers that are not 8-byte aligned (e.g. views into file segments) must not
+    /// panic and must produce the same result as the aligned path.
+    #[test]
+    fn untranspose_unaligned_buffer() {
+        let bits = make_validity_bits(2048);
+        let transposed = transpose_bitbuffer(bits.clone());
+        let expected = untranspose_bitbuffer(transposed.clone());
+
+        // Rebuild the transposed bytes at an odd offset within a larger allocation so the
+        // resulting buffer is misaligned for u64.
+        let (_, _, transposed_bytes) = transposed.sliced().into_inner();
+        let mut shifted = ByteBufferMut::with_capacity(transposed_bytes.len() + 1);
+        shifted.push(0xFF);
+        shifted.extend_from_slice(&transposed_bytes);
+        let misaligned = shifted.freeze().slice(1..transposed_bytes.len() + 1);
+        assert!(!misaligned.is_aligned(Alignment::of::<u64>()));
+
+        let untransposed = untranspose_bitbuffer(BitBuffer::new(misaligned, 2048));
+        assert_eq!(untransposed, expected);
+        assert_eq!(untransposed.slice(0..2048), bits);
+    }
+
+    /// Regression: a bit-offset view of transposed chunks (a sliced validity) must untranspose
+    /// only the viewed chunks rather than assuming the buffer starts at a chunk boundary.
+    #[test]
+    fn untranspose_chunk_aligned_bit_offset() {
+        let bits = make_validity_bits(3 * FL_CHUNK_SIZE);
+        let transposed = transpose_bitbuffer(bits.clone());
+
+        let view = transposed.slice(FL_CHUNK_SIZE..3 * FL_CHUNK_SIZE);
+        let untransposed = untranspose_bitbuffer(view);
+        assert_eq!(untransposed, bits.slice(FL_CHUNK_SIZE..3 * FL_CHUNK_SIZE));
     }
 }
