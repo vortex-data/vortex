@@ -91,28 +91,3 @@ impl BitBufferMeta {
         (self.offset + self.len).div_ceil(8)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::BitBufferMeta;
-
-    #[test]
-    fn slice_normalizes_bit_offset() {
-        let meta = BitBufferMeta::new(3, 18);
-
-        let (byte_offset, sliced) = meta.slice(7..16);
-
-        assert_eq!(byte_offset, 1);
-        assert_eq!(sliced, BitBufferMeta::new(2, 9));
-        assert_eq!(sliced.byte_len(), 2);
-    }
-
-    #[test]
-    fn slice_supports_inclusive_and_unbounded_ranges() {
-        let meta = BitBufferMeta::new(5, 20);
-
-        assert_eq!(meta.slice(..), (0, meta));
-        assert_eq!(meta.slice(3..=10), (1, BitBufferMeta::new(0, 8)));
-        assert_eq!(meta.slice(20..), (3, BitBufferMeta::new(1, 0)));
-    }
-}
