@@ -59,6 +59,11 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
+name = "bit_transpose"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
 name = "bitpack_compare"
 harness = false
 

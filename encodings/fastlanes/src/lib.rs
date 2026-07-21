@@ -30,7 +30,6 @@ pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
-pub use transposed_bool::*;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::bool::BoolArrayExt;
@@ -44,7 +43,6 @@ mod bitpacking;
 mod delta;
 mod r#for;
 mod rle;
-mod transposed_bool;
 
 pub const FL_CHUNK_SIZE: usize = 1024;
 
@@ -72,7 +70,6 @@ pub fn initialize(session: &VortexSession) {
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);
-    session.arrays().register(TransposedBool);
     bitpacking::initialize(session);
     r#for::initialize(session);
     rle::initialize(session);
