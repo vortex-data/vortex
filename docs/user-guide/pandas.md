@@ -38,11 +38,11 @@ convert:
 ... {'name': 'Mikhail', 'age': 57},
 ... ])
 >>> struct_arr.to_pandas()
-      age      name
-   0   25    Joseph
-   1   31  Narendra
-   2   33    Angela
-   3   57   Mikhail
+       name  age
+0    Joseph   25
+1  Narendra   31
+2    Angela   33
+3   Mikhail   57
 ```
 
 {func}`~vortex.array` converts from a Pandas DataFrame into a Vortex array:

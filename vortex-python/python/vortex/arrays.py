@@ -86,11 +86,11 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     ... ])
     >>> array.to_arrow_table()
     pyarrow.Table
-    age: int64
     name: string
+    age: int64
     ----
-    age: [[25,31,33,57]]
     name: [["Joseph","Narendra","Angela","Mikhail"]]
+    age: [[25,31,33,57]]
 
     """
     array = self.to_arrow_array()
@@ -125,11 +125,11 @@ def _Array_to_pandas(self: _arrays.Array) -> pandas.DataFrame:
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
     >>> array.to_pandas()
-       age      name
-    0   25    Joseph
-    1   31  Narendra
-    2   33    Angela
-    3   57   Mikhail
+           name  age
+    0    Joseph   25
+    1  Narendra   31
+    2    Angela   33
+    3   Mikhail   57
 
     """
     import pandas
@@ -172,16 +172,16 @@ def _Array_to_polars_dataframe(
     ... ])
     >>> array.to_polars_dataframe()
     shape: (4, 2)
-    ┌─────┬──────────┐
-    │ age ┆ name     │
-    │ --- ┆ ---      │
-    │ i64 ┆ str      │
-    ╞═════╪══════════╡
-    │ 25  ┆ Joseph   │
-    │ 31  ┆ Narendra │
-    │ 33  ┆ Angela   │
-    │ 57  ┆ Mikhail  │
-    └─────┴──────────┘
+    ┌──────────┬─────┐
+    │ name     ┆ age │
+    │ ---      ┆ --- │
+    │ str      ┆ i64 │
+    ╞══════════╪═════╡
+    │ Joseph   ┆ 25  │
+    │ Narendra ┆ 31  │
+    │ Angela   ┆ 33  │
+    │ Mikhail  ┆ 57  │
+    └──────────┴─────┘
 
     """
     import polars
@@ -245,10 +245,10 @@ def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # brea
     shape: (4,)
     Series: '' [struct[2]]
     [
-        {25,"Joseph"}
-        {31,"Narendra"}
-        {33,"Angela"}
-        {57,"Mikhail"}
+        {"Joseph",25}
+        {"Narendra",31}
+        {"Angela",33}
+        {"Mikhail",57}
     ]
 
     """
@@ -307,7 +307,7 @@ def _Array_to_pylist(self: _arrays.Array) -> list[Any]:  # pyright: ignore[repor
     ...     {'name': 'Angela', 'age': 33},
     ... ])
     >>> array.to_pylist()
-    [{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': 'Narendra'}, {'age': 33, 'name': 'Angela'}]
+    [{'name': 'Joseph', 'age': 25}, {'name': 'Narendra', 'age': 31}, {'name': 'Angela', 'age': 33}]
 
     """
     return self.to_arrow_table().to_pylist()

@@ -728,7 +728,7 @@ impl PyArray {
     /// ...     {'name': 'Mikhail', 'age': 57},
     /// ... ])
     /// >>> array.scalar_at(2).as_py()
-    /// {'age': 33, 'name': 'Angela'}
+    /// {'name': 'Angela', 'age': 33}
     /// ```
     ///
     /// Retrieve a missing element from an array of structures:
