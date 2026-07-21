@@ -6,7 +6,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
-use super::result_decimal_dtype;
+use super::numeric_op_result_decimal_dtype as result_decimal_dtype;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::IntoArray;
@@ -378,6 +378,12 @@ fn decimal_constant(value: impl Into<DecimalValue>, dtype: DecimalDType, len: us
 #[rstest]
 #[case::add(NumericOperator::Add, [150i64, 225], [1050i64, 1225])]
 #[case::sub(NumericOperator::Sub, [150i64, 225], [750i64, 775])]
+#[case::mul(NumericOperator::Mul, [150i64, 225], [135_000i64, 225_000])]
+#[case::div(
+    NumericOperator::Div,
+    [150i64, 225],
+    [6_000_000i64, 4_444_444]
+)]
 fn test_decimal_array_array(
     #[case] op: NumericOperator,
     #[case] rhs: [i64; 2],
@@ -499,6 +505,39 @@ fn test_decimal_overflow_on_null_lane_ignored() {
 }
 
 #[test]
+fn test_decimal_divide_by_zero_on_null_lane_ignored() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(10, 2);
+    let lhs = DecimalArray::new(
+        buffer![100i64, 1_000],
+        dtype,
+        Validity::from_iter([false, true]),
+    )
+    .into_array();
+    let rhs = DecimalArray::from_iter::<i64, _>([0, 200], dtype).into_array();
+
+    let result = decimal_binary(lhs, rhs, Operator::Div)?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_option_iter::<i64, _>(
+            [None, Some(5_000_000)],
+            result_decimal_dtype(dtype, NumericOperator::Div)?,
+        ),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_divide_by_zero_on_valid_lane_errors() {
+    let dtype = DecimalDType::new(10, 2);
+    let lhs = DecimalArray::from_iter::<i64, _>([100], dtype).into_array();
+    let rhs = DecimalArray::from_iter::<i64, _>([0], dtype).into_array();
+
+    assert!(decimal_binary(lhs, rhs, Operator::Div).is_err());
+}
+
+#[test]
 fn test_decimal_add_reserves_carry_digit() {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(2, 0);
@@ -510,6 +549,47 @@ fn test_decimal_add_reserves_carry_digit() {
         result,
         DecimalArray::from_iter::<i16, _>([198], DecimalDType::new(3, 0)),
         &mut ctx
+    );
+}
+
+#[test]
+fn test_decimal_mul_widens_before_multiplying() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(38, 0);
+    let max = <i128 as NativeDecimalType>::MAX_BY_PRECISION[38];
+    let widened_max = i256::from_i128(max);
+    let result_dtype = result_decimal_dtype(dtype, NumericOperator::Mul)?;
+
+    let result = decimal_binary(
+        DecimalArray::from_iter::<i128, _>([max], dtype).into_array(),
+        DecimalArray::from_iter::<i128, _>([max], dtype).into_array(),
+        Operator::Mul,
+    )?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_iter::<i256, _>([widened_max * widened_max], result_dtype),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_mul_above_guaranteed_precision_checks_logical_bounds() {
+    let dtype = DecimalDType::new(39, 0);
+    let one = i256::from_i128(1);
+    let ten_to_38 = <i256 as NativeDecimalType>::MAX_BY_PRECISION[38] + one;
+    let value = ten_to_38 * i256::from_i128(2);
+    let product = value * value;
+
+    // The product fits the native i256 width but not the capped precision-76 result.
+    assert!(product > <i256 as NativeDecimalType>::MAX_BY_PRECISION[76]);
+    assert!(
+        decimal_binary(
+            DecimalArray::from_iter::<i256, _>([value], dtype).into_array(),
+            DecimalArray::from_iter::<i256, _>([value], dtype).into_array(),
+            Operator::Mul,
+        )
+        .is_err()
     );
 }
 
@@ -638,9 +718,16 @@ fn test_decimal_nullable_constant_preserves_nullable_output() -> VortexResult<()
 }
 
 #[rstest]
-#[case::null_lhs(true)]
-#[case::null_rhs(false)]
-fn test_decimal_null_constant_yields_all_null(#[case] null_lhs: bool) -> VortexResult<()> {
+#[case::add_null_lhs(true, NumericOperator::Add)]
+#[case::add_null_rhs(false, NumericOperator::Add)]
+#[case::mul_null_lhs(true, NumericOperator::Mul)]
+#[case::mul_null_rhs(false, NumericOperator::Mul)]
+#[case::div_null_lhs(true, NumericOperator::Div)]
+#[case::div_null_rhs(false, NumericOperator::Div)]
+fn test_decimal_null_constant_yields_all_null(
+    #[case] null_lhs: bool,
+    #[case] op: NumericOperator,
+) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(10, 2);
     let values = DecimalArray::from_iter::<i64, _>([100, 200], dtype).into_array();
@@ -655,16 +742,11 @@ fn test_decimal_null_constant_yields_all_null(#[case] null_lhs: bool) -> VortexR
         (values, null_constant)
     };
 
-    let result = lhs
-        .binary(rhs, Operator::Add)?
-        .execute::<Columnar>(&mut ctx)?;
+    let result = lhs.binary(rhs, op.into())?.execute::<Columnar>(&mut ctx)?;
     assert!(matches!(&result, Columnar::Constant(_)));
     assert_arrays_eq!(
         result.into_array(),
-        DecimalArray::from_option_iter::<i64, _>(
-            [None, None],
-            result_decimal_dtype(dtype, NumericOperator::Add)?,
-        ),
+        DecimalArray::from_option_iter::<i256, _>([None, None], result_decimal_dtype(dtype, op)?,),
         &mut ctx
     );
     Ok(())
@@ -691,34 +773,45 @@ fn test_decimal_constant_wider_than_array_storage() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-fn test_decimal_empty() -> VortexResult<()> {
+#[rstest]
+#[case::add(NumericOperator::Add)]
+#[case::sub(NumericOperator::Sub)]
+#[case::mul(NumericOperator::Mul)]
+#[case::div(NumericOperator::Div)]
+fn test_decimal_empty(#[case] op: NumericOperator) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(10, 2);
     let empty = DecimalArray::from_iter::<i64, _>([], dtype).into_array();
 
-    let result = decimal_binary(empty.clone(), empty, Operator::Add)?;
+    let result = decimal_binary(empty.clone(), empty, op.into())?;
     assert_arrays_eq!(
         result,
-        DecimalArray::from_iter::<i64, _>([], result_decimal_dtype(dtype, NumericOperator::Add)?,),
+        DecimalArray::from_iter::<i256, _>([], result_decimal_dtype(dtype, op)?,),
         &mut ctx
     );
     Ok(())
 }
 
-#[test]
-fn test_decimal_constant_constant_folds() -> VortexResult<()> {
+#[rstest]
+#[case::add(NumericOperator::Add, 200)]
+#[case::sub(NumericOperator::Sub, 100)]
+#[case::mul(NumericOperator::Mul, 7_500)]
+#[case::div(NumericOperator::Div, 3_000_000)]
+fn test_decimal_constant_constant_folds(
+    #[case] op: NumericOperator,
+    #[case] expected: i128,
+) -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(10, 2);
     let lhs = decimal_constant(150i64, dtype, 3);
     let rhs = decimal_constant(50i64, dtype, 3);
 
-    let result = decimal_binary(lhs, rhs, Operator::Add)?;
+    let result = decimal_binary(lhs, rhs, op.into())?;
     assert_arrays_eq!(
         result,
-        DecimalArray::from_iter::<i64, _>(
-            [200, 200, 200],
-            result_decimal_dtype(dtype, NumericOperator::Add)?,
+        DecimalArray::from_iter::<i256, _>(
+            [i256::from_i128(expected); 3],
+            result_decimal_dtype(dtype, op)?,
         ),
         &mut ctx
     );
@@ -726,11 +819,22 @@ fn test_decimal_constant_constant_folds() -> VortexResult<()> {
 }
 
 #[rstest]
-#[case::mul(Operator::Mul)]
-#[case::div(Operator::Div)]
-fn test_decimal_mul_div_unsupported(#[case] op: Operator) {
-    let dtype = DecimalDType::new(10, 2);
-    let values = DecimalArray::from_iter::<i64, _>([100], dtype).into_array();
+#[case::add(NumericOperator::Add, DecimalDType::new(11, 2))]
+#[case::sub(NumericOperator::Sub, DecimalDType::new(11, 2))]
+#[case::mul(NumericOperator::Mul, DecimalDType::new(21, 4))]
+#[case::div(NumericOperator::Div, DecimalDType::new(16, 6))]
+fn test_decimal_result_dtype(
+    #[case] op: NumericOperator,
+    #[case] expected: DecimalDType,
+) -> VortexResult<()> {
+    assert_eq!(
+        result_decimal_dtype(DecimalDType::new(10, 2), op)?,
+        expected
+    );
+    Ok(())
+}
 
-    assert!(decimal_binary(values.clone(), values, op).is_err());
+#[test]
+fn test_decimal_mul_result_scale_overflow_errors() {
+    assert!(result_decimal_dtype(DecimalDType::new(40, 40), NumericOperator::Mul).is_err());
 }

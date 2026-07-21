@@ -108,7 +108,7 @@ pub(crate) fn checked_decimal_numeric(
     result: DecimalDType,
     op: NumericOperator,
 ) -> Option<DecimalValue> {
-    let work = work_decimal_dtype(input, result, op);
+    let work = decimal_numeric_work_dtype(input, result, op);
     match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(&work), |W| {
         let value = checked_at_width::<W>(lhs.cast::<W>()?, rhs.cast::<W>()?, result.scale(), op)?;
         DecimalValue::from(value).normalize(result)
@@ -120,7 +120,7 @@ pub(crate) fn checked_decimal_numeric(
 /// The result precision covers Add, Sub and Mul, whose intermediates are the result itself. Div
 /// scales the dividend (or the divisor, for a negative result scale) by `10^result_scale` before
 /// dividing, so it needs room for `p + |result_scale|` digits.
-fn work_decimal_dtype(
+pub(crate) fn decimal_numeric_work_dtype(
     input: DecimalDType,
     result: DecimalDType,
     op: NumericOperator,

@@ -13,8 +13,6 @@ mod primitive;
 mod tests;
 
 use decimal::execute_numeric_decimal;
-use decimal::result_decimal_dtype;
-pub(crate) use decimal::result_decimal_dtype as numeric_op_result_decimal_dtype;
 pub(crate) use primitive::PrimitiveOperand;
 use primitive::execute_numeric_primitive;
 use vortex_error::VortexResult;
@@ -26,6 +24,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::dtype::DType;
 use crate::scalar::NumericOperator;
+pub(crate) use crate::scalar::decimal_numeric_result_dtype as numeric_op_result_decimal_dtype;
 
 /// Execute a numeric operation between two arrays.
 pub(crate) fn execute_numeric(
@@ -74,9 +73,10 @@ fn build_empty_result(
     let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
     let result_dtype = match lhs.dtype() {
         DType::Primitive(..) => lhs.dtype().with_nullability(nullability),
-        DType::Decimal(decimal_dtype, _) => {
-            DType::Decimal(result_decimal_dtype(*decimal_dtype, op)?, nullability)
-        }
+        DType::Decimal(decimal_dtype, _) => DType::Decimal(
+            numeric_op_result_decimal_dtype(*decimal_dtype, op)?,
+            nullability,
+        ),
         _ => unreachable!("dtype is either Primitive or Decimal"),
     };
 

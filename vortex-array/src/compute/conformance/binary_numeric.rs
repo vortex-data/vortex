@@ -26,6 +26,8 @@ use std::fmt::Debug;
 use itertools::Itertools;
 use num_traits::Bounded;
 use num_traits::CheckedAdd;
+use num_traits::CheckedDiv;
+use num_traits::CheckedMul;
 use num_traits::CheckedSub;
 use num_traits::Float;
 use num_traits::Num;
@@ -303,8 +305,16 @@ fn test_decimal_binary_numeric_with_scalar(
 
     let scalar = Scalar::decimal(value, decimal_dtype, array.dtype().nullability());
 
-    // Decimal Mul/Div are not yet implemented.
-    for operator in [NumericOperator::Add, NumericOperator::Sub] {
+    let mut operators = vec![
+        NumericOperator::Add,
+        NumericOperator::Sub,
+        NumericOperator::Mul,
+    ];
+    if !value.is_zero() {
+        operators.push(NumericOperator::Div);
+    }
+
+    for operator in operators {
         for lhs_is_array in [true, false] {
             test_decimal_binary_numeric_direction(
                 array,
@@ -329,7 +339,7 @@ fn test_decimal_binary_numeric_direction(
     ctx: &mut ExecutionCtx,
 ) {
     let result_decimal_dtype = numeric_op_result_decimal_dtype(decimal_dtype, operator)
-        .vortex_expect("decimal Add/Sub must have a result dtype");
+        .vortex_expect("decimal arithmetic must have a result dtype");
     let result_dtype = DType::Decimal(result_decimal_dtype, array.dtype().nullability());
     let expected_results = expected_decimal_results(
         original_values,
@@ -382,10 +392,22 @@ fn expected_decimal_results(
             let (Some(lhs), Some(rhs)) = (lhs.decimal_value(), rhs.decimal_value()) else {
                 return Some(Scalar::null(result_dtype.clone()));
             };
+            let lhs = lhs.as_i256();
+            let rhs = rhs.as_i256();
             let value = match operator {
-                NumericOperator::Add => lhs.as_i256().checked_add(&rhs.as_i256()),
-                NumericOperator::Sub => lhs.as_i256().checked_sub(&rhs.as_i256()),
-                NumericOperator::Mul | NumericOperator::Div => unreachable!(),
+                NumericOperator::Add => lhs.checked_add(&rhs),
+                NumericOperator::Sub => lhs.checked_sub(&rhs),
+                NumericOperator::Mul => lhs.checked_mul(&rhs),
+                NumericOperator::Div => {
+                    let scale_power = result_decimal_dtype.scale();
+                    let factor =
+                        i256::from_i128(10).checked_pow(scale_power.unsigned_abs() as u32)?;
+                    if scale_power >= 0 {
+                        lhs.checked_mul(&factor)?.checked_div(&rhs)
+                    } else {
+                        lhs.checked_div(&rhs.checked_mul(&factor)?)
+                    }
+                }
             }?;
             let value = DecimalValue::try_from_i256(value, result_decimal_dtype).ok()?;
             Some(Scalar::decimal(

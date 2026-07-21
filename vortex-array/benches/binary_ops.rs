@@ -9,6 +9,16 @@
 
 use std::sync::LazyLock;
 
+use arrow_arith::numeric::div as arrow_div;
+use arrow_arith::numeric::mul as arrow_mul;
+use arrow_array::ArrowPrimitiveType;
+use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
+use arrow_array::types::Decimal32Type;
+use arrow_array::types::Decimal64Type;
+use arrow_array::types::Decimal128Type;
+use arrow_array::types::Decimal256Type;
+use arrow_array::types::DecimalType as ArrowDecimalType;
+use arrow_buffer::ArrowNativeType;
 use divan::Bencher;
 use divan::counter::ItemsCount;
 use mimalloc::MiMalloc;
@@ -22,7 +32,9 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::BigCast;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::NativeDecimalType;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_session::VortexSession;
 
@@ -190,6 +202,124 @@ fn add_decimal_i128_nullable(bencher: Bencher) {
     bench_decimal(bencher, lhs, rhs, Operator::Add);
 }
 
+macro_rules! decimal_compare_benches {
+    (
+        $vortex_mul:ident,
+        $arrow_mul:ident,
+        $vortex_div:ident,
+        $arrow_div:ident,
+        $vortex_type:ty,
+        $arrow_type:ty,
+        $precision:expr,
+        $scale:expr
+    ) => {
+        #[divan::bench]
+        fn $vortex_mul(bencher: Bencher) {
+            let dtype = DecimalDType::new($precision, $scale);
+            let lhs = comparison_vortex_decimal::<$vortex_type>(dtype, 1).into_array();
+            let rhs = comparison_vortex_decimal::<$vortex_type>(dtype, 17).into_array();
+            bench_decimal(bencher, lhs, rhs, Operator::Mul);
+        }
+
+        #[divan::bench]
+        fn $arrow_mul(bencher: Bencher) {
+            let lhs = comparison_arrow_decimal::<$arrow_type>($precision, $scale, 1);
+            let rhs = comparison_arrow_decimal::<$arrow_type>($precision, $scale, 17);
+            bench_arrow_decimal(bencher, lhs, rhs, ArrowDecimalOp::Mul);
+        }
+
+        #[divan::bench]
+        fn $vortex_div(bencher: Bencher) {
+            let dtype = DecimalDType::new($precision, $scale);
+            let lhs = comparison_vortex_decimal::<$vortex_type>(dtype, 1).into_array();
+            let rhs = comparison_vortex_decimal::<$vortex_type>(dtype, 17).into_array();
+            bench_decimal(bencher, lhs, rhs, Operator::Div);
+        }
+
+        #[divan::bench]
+        fn $arrow_div(bencher: Bencher) {
+            let lhs = comparison_arrow_decimal::<$arrow_type>($precision, $scale, 1);
+            let rhs = comparison_arrow_decimal::<$arrow_type>($precision, $scale, 17);
+            bench_arrow_decimal(bencher, lhs, rhs, ArrowDecimalOp::Div);
+        }
+    };
+}
+
+decimal_compare_benches!(
+    vortex_mul_decimal_i32_nonnull,
+    arrow_mul_decimal_i32_nonnull,
+    vortex_div_decimal_i32_nonnull,
+    arrow_div_decimal_i32_nonnull,
+    i32,
+    Decimal32Type,
+    4,
+    1
+);
+decimal_compare_benches!(
+    vortex_mul_decimal_i64_nonnull,
+    arrow_mul_decimal_i64_nonnull,
+    vortex_div_decimal_i64_nonnull,
+    arrow_div_decimal_i64_nonnull,
+    i64,
+    Decimal64Type,
+    8,
+    2
+);
+decimal_compare_benches!(
+    vortex_mul_decimal_i128_nonnull,
+    arrow_mul_decimal_i128_nonnull,
+    vortex_div_decimal_i128_nonnull,
+    arrow_div_decimal_i128_nonnull,
+    i128,
+    Decimal128Type,
+    18,
+    2
+);
+decimal_compare_benches!(
+    vortex_mul_decimal_i256_nonnull,
+    arrow_mul_decimal_i256_nonnull,
+    vortex_div_decimal_i256_nonnull,
+    arrow_div_decimal_i256_nonnull,
+    vortex_array::dtype::i256,
+    Decimal256Type,
+    38,
+    2
+);
+
+#[divan::bench]
+fn vortex_mul_decimal_i256_nullable(bencher: Bencher) {
+    let dtype = DecimalDType::new(38, 2);
+    let lhs =
+        comparison_vortex_decimal_nullable::<vortex_array::dtype::i256>(dtype, 1, 7).into_array();
+    let rhs =
+        comparison_vortex_decimal_nullable::<vortex_array::dtype::i256>(dtype, 17, 5).into_array();
+    bench_decimal(bencher, lhs, rhs, Operator::Mul);
+}
+
+#[divan::bench]
+fn arrow_mul_decimal_i256_nullable(bencher: Bencher) {
+    let lhs = comparison_arrow_decimal_nullable::<Decimal256Type>(38, 2, 1, 7);
+    let rhs = comparison_arrow_decimal_nullable::<Decimal256Type>(38, 2, 17, 5);
+    bench_arrow_decimal(bencher, lhs, rhs, ArrowDecimalOp::Mul);
+}
+
+#[divan::bench]
+fn vortex_div_decimal_i256_nullable(bencher: Bencher) {
+    let dtype = DecimalDType::new(38, 2);
+    let lhs =
+        comparison_vortex_decimal_nullable::<vortex_array::dtype::i256>(dtype, 1, 7).into_array();
+    let rhs =
+        comparison_vortex_decimal_nullable::<vortex_array::dtype::i256>(dtype, 17, 5).into_array();
+    bench_decimal(bencher, lhs, rhs, Operator::Div);
+}
+
+#[divan::bench]
+fn arrow_div_decimal_i256_nullable(bencher: Bencher) {
+    let lhs = comparison_arrow_decimal_nullable::<Decimal256Type>(38, 2, 1, 7);
+    let rhs = comparison_arrow_decimal_nullable::<Decimal256Type>(38, 2, 17, 5);
+    bench_arrow_decimal(bencher, lhs, rhs, ArrowDecimalOp::Div);
+}
+
 #[divan::bench]
 fn eq_i64_constant(bencher: Bencher) {
     let lhs = primitive_nonnull(0).into_array();
@@ -230,6 +360,28 @@ fn bench_decimal(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Opera
     bench_binary::<DecimalArray>(bencher, lhs, rhs, operator);
 }
 
+#[derive(Clone, Copy)]
+enum ArrowDecimalOp {
+    Mul,
+    Div,
+}
+
+fn bench_arrow_decimal<T>(
+    bencher: Bencher,
+    lhs: ArrowPrimitiveArray<T>,
+    rhs: ArrowPrimitiveArray<T>,
+    op: ArrowDecimalOp,
+) where
+    T: ArrowPrimitiveType,
+{
+    bencher
+        .counter(ItemsCount::new(LEN))
+        .bench_local(|| match op {
+            ArrowDecimalOp::Mul => arrow_mul(&lhs, &rhs).unwrap(),
+            ArrowDecimalOp::Div => arrow_div(&lhs, &rhs).unwrap(),
+        });
+}
+
 fn bench_bool(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
     bench_binary::<BoolArray>(bencher, lhs, rhs, operator);
 }
@@ -264,6 +416,60 @@ fn decimal_i128_nullable(base: i128, null_every: usize) -> DecimalArray {
         (0..LEN as i128).map(|i| (!(i as usize).is_multiple_of(null_every)).then_some(base + i)),
         DecimalDType::new(38, 2),
     )
+}
+
+fn comparison_vortex_decimal<T>(dtype: DecimalDType, offset: usize) -> DecimalArray
+where
+    T: NativeDecimalType,
+{
+    DecimalArray::from_iter::<T, _>(
+        (0..LEN).map(|idx| <T as BigCast>::from(((idx + offset) % 89 + 1) as i64).unwrap()),
+        dtype,
+    )
+}
+
+fn comparison_vortex_decimal_nullable<T>(
+    dtype: DecimalDType,
+    offset: usize,
+    null_every: usize,
+) -> DecimalArray
+where
+    T: NativeDecimalType,
+{
+    DecimalArray::from_option_iter::<T, _>(
+        (0..LEN).map(|idx| {
+            (!idx.is_multiple_of(null_every))
+                .then(|| <T as BigCast>::from(((idx + offset) % 89 + 1) as i64).unwrap())
+        }),
+        dtype,
+    )
+}
+
+fn comparison_arrow_decimal<T>(precision: u8, scale: i8, offset: usize) -> ArrowPrimitiveArray<T>
+where
+    T: ArrowPrimitiveType + ArrowDecimalType,
+{
+    ArrowPrimitiveArray::<T>::from_iter_values(
+        (0..LEN).map(|idx| T::Native::usize_as((idx + offset) % 89 + 1)),
+    )
+    .with_precision_and_scale(precision, scale)
+    .unwrap()
+}
+
+fn comparison_arrow_decimal_nullable<T>(
+    precision: u8,
+    scale: i8,
+    offset: usize,
+    null_every: usize,
+) -> ArrowPrimitiveArray<T>
+where
+    T: ArrowPrimitiveType + ArrowDecimalType,
+{
+    ArrowPrimitiveArray::<T>::from_iter((0..LEN).map(|idx| {
+        (!idx.is_multiple_of(null_every)).then(|| T::Native::usize_as((idx + offset) % 89 + 1))
+    }))
+    .with_precision_and_scale(precision, scale)
+    .unwrap()
 }
 
 fn primitive_small_nonnull(offset: i64) -> PrimitiveArray {
