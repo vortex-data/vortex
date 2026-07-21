@@ -130,6 +130,9 @@ impl CascadingCompressor {
                 )?
                 .into_array())
             }
+            Canonical::Union(_) => {
+                todo!("TODO(connor)[Union]: implement compression for Union arrays")
+            }
             Canonical::List(list_view_array) => {
                 if list_view_array.is_zero_copy_to_list() || list_view_array.elements().is_empty() {
                     let list_array = list_from_list_view(list_view_array, exec_ctx)?;

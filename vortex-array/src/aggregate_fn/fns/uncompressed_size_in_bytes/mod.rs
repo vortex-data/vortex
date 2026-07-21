@@ -199,6 +199,9 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::List(array) => list_view_uncompressed_size_in_bytes(array, ctx),
         Canonical::FixedSizeList(array) => fixed_size_list_uncompressed_size_in_bytes(array, ctx),
         Canonical::Struct(array) => struct_uncompressed_size_in_bytes(array, ctx),
+        Canonical::Union(_) => {
+            todo!("TODO(connor)[Union]: implement UncompressedSizeInBytes for Union arrays")
+        }
         Canonical::Extension(array) => extension_uncompressed_size_in_bytes(array, ctx),
         Canonical::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")

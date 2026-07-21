@@ -40,7 +40,7 @@
 //! # Built-in, Lazy, and Experimental Arrays
 //!
 //! Built-in arrays live in [`arrays`]. Some are canonical (`PrimitiveArray`, `StructArray`,
-//! `VarBinViewArray`); others are utility or lazy arrays such as [`ChunkedArray`],
+//! `UnionArray`, `VarBinViewArray`); others are utility or lazy arrays such as [`ChunkedArray`],
 //! [`ConstantArray`], [`FilterArray`], [`SliceArray`], and [`ScalarFnArray`].
 //! Lazy arrays defer work so compute kernels can operate on encoded data or prune children
 //! before materialization.

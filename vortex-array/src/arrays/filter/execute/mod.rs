@@ -95,6 +95,9 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
             Canonical::FixedSizeList(fixed_size_list::filter_fixed_size_list(&a, mask))
         }
         Canonical::Struct(a) => Canonical::Struct(struct_::filter_struct(&a, mask)),
+        Canonical::Union(_) => {
+            todo!("TODO(connor)[Union]: implement filter for Union arrays")
+        }
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage_array()

@@ -53,6 +53,9 @@ pub(crate) fn take_canonical(
             Canonical::FixedSizeList(take_fixed_size_list(&a, codes, ctx))
         }
         Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
+        Canonical::Union(_) => {
+            todo!("TODO(connor)[Union]: implement dictionary execution for Union arrays")
+        }
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes, ctx)),
         Canonical::Variant(a) => {
             let indices = codes.clone().into_array();
