@@ -367,9 +367,12 @@ mod tests {
     use std::iter::once;
     use std::iter::repeat_n;
 
+    use vortex_buffer::Alignment;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::BitBufferMut;
+    use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -378,6 +381,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
+    use crate::buffer::BufferHandle;
     use crate::patches::Patches;
     use crate::validity::Validity;
 
@@ -469,6 +473,25 @@ mod tests {
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let sliced = arr.slice(4..12).unwrap();
         assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]), &mut ctx);
+    }
+
+    #[test]
+    fn slice_aligned_host_handle_at_unaligned_byte() -> VortexResult<()> {
+        let bits: ByteBuffer = buffer![0b1010_1100_u8, 0b0110_1001, 0];
+        let bits = bits.aligned(Alignment::of::<u64>());
+        let array =
+            BoolArray::new_handle(BufferHandle::new_host(bits), 0, 16, Validity::NonNullable)
+                .into_array();
+
+        let sliced = array.slice(9..15)?;
+
+        let mut ctx = array_session().create_execution_ctx();
+        assert_arrays_eq!(
+            sliced,
+            BoolArray::from_iter([false, false, true, false, true, true]),
+            &mut ctx
+        );
+        Ok(())
     }
 
     #[test]

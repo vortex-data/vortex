@@ -4,38 +4,11 @@
 use std::mem;
 use std::mem::MaybeUninit;
 
-use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
-use vortex_array::validity::Validity;
+use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
-use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
-
-use crate::bit_transpose::transpose_bits;
-use crate::bit_transpose::untranspose_bits;
-
-pub fn transpose_validity(validity: &Validity, ctx: &mut ExecutionCtx) -> VortexResult<Validity> {
-    match validity {
-        Validity::Array(mask) => {
-            let bools = mask
-                .clone()
-                .execute::<Canonical>(ctx)?
-                .into_bool()
-                .into_bit_buffer();
-
-            Ok(Validity::Array(
-                BoolArray::new(transpose_bitbuffer(bools), Validity::NonNullable).into_array(),
-            ))
-        }
-        v @ Validity::AllValid | v @ Validity::AllInvalid | v @ Validity::NonNullable => {
-            Ok(v.clone())
-        }
-    }
-}
 
 pub fn transpose_bitbuffer(bits: BitBuffer) -> BitBuffer {
     let (offset, len, bytes) = bits.into_inner();
@@ -45,36 +18,19 @@ pub fn transpose_bitbuffer(bits: BitBuffer) -> BitBuffer {
             Ok(mut bytes_mut) => {
                 // We can ignore the spare trailer capacity that can be an artifact of allocator as we requested 128 multiple chunks
                 let (chunks, _) = bytes_mut.as_chunks_mut::<128>();
-                let mut tmp = [0u8; 128];
+                let mut tmp = [0u64; 16];
                 for chunk in chunks {
-                    transpose_bits(chunk, &mut tmp);
-                    chunk.copy_from_slice(&tmp);
+                    let chunk_u64 =
+                        unsafe { mem::transmute::<&mut [u8; 128], &mut [u64; 16]>(chunk) };
+                    fastlanes::transpose_bits(chunk_u64, &mut tmp);
+                    chunk_u64.copy_from_slice(&tmp);
                 }
                 BitBuffer::new_with_offset(bytes_mut.freeze().into_byte_buffer(), len, offset)
             }
-            Err(bytes) => bits_op_with_copy(bytes, len, offset, transpose_bits),
+            Err(bytes) => bits_op_with_copy(bytes, len, offset, fastlanes::transpose_bits),
         }
     } else {
-        bits_op_with_copy(bytes, len, offset, transpose_bits)
-    }
-}
-
-pub fn untranspose_validity(validity: &Validity, ctx: &mut ExecutionCtx) -> VortexResult<Validity> {
-    match validity {
-        Validity::Array(mask) => {
-            let bools = mask
-                .clone()
-                .execute::<Canonical>(ctx)?
-                .into_bool()
-                .into_bit_buffer();
-
-            Ok(Validity::Array(
-                BoolArray::new(untranspose_bitbuffer(bools), Validity::NonNullable).into_array(),
-            ))
-        }
-        v @ Validity::AllValid | v @ Validity::AllInvalid | v @ Validity::NonNullable => {
-            Ok(v.clone())
-        }
+        bits_op_with_copy(bytes, len, offset, fastlanes::transpose_bits)
     }
 }
 
@@ -83,51 +39,65 @@ pub fn untranspose_bitbuffer(bits: BitBuffer) -> BitBuffer {
         bits.inner().len().is_multiple_of(128),
         "Transpose BitBuffer byte length must be a multiple of 128"
     );
+    assert!(
+        bits.inner().is_aligned(Alignment::of::<u64>()),
+        "Transposed buffer must be 8 byte aligned"
+    );
     let (offset, len, bytes) = bits.into_inner();
     match bytes.try_into_mut() {
         Ok(mut bytes_mut) => {
-            let (chunks, _) = bytes_mut.as_chunks_mut::<128>();
-            let mut tmp = [0u8; 128];
+            let (prefix, middle, trailer) = unsafe { bytes_mut.align_to_mut::<u64>() };
+            assert!(
+                prefix.is_empty() && trailer.is_empty(),
+                "Transposed buffer must be 8 byte aligned"
+            );
+            let (chunks, _) = middle.as_chunks_mut::<16>();
+            let mut tmp = [0u64; 16];
             for chunk in chunks {
-                untranspose_bits(chunk, &mut tmp);
+                fastlanes::untranspose_bits::<u64>(chunk, &mut tmp);
                 chunk.copy_from_slice(&tmp);
             }
             BitBuffer::new_with_offset(bytes_mut.freeze().into_byte_buffer(), len, offset)
         }
-        Err(bytes) => bits_op_with_copy(bytes, len, offset, untranspose_bits),
+        Err(bytes) => bits_op_with_copy(bytes, len, offset, fastlanes::untranspose_bits::<u64>),
     }
 }
 
-fn bits_op_with_copy<F: Fn(&[u8; 128], &mut [u8; 128])>(
+fn bits_op_with_copy<F: Fn(&[u64; 16], &mut [u64; 16])>(
     bytes: ByteBuffer,
     len: usize,
     offset: usize,
     op: F,
 ) -> BitBuffer {
-    let output_len = bytes.len().next_multiple_of(128);
-    let mut output = ByteBufferMut::with_capacity(output_len);
+    let output_len = bytes.len().div_ceil(8).next_multiple_of(16);
+    let mut output = BufferMut::<u64>::with_capacity(output_len);
     let (input_chunks, input_trailer) = bytes.as_chunks::<128>();
     // Bound to the requested `output_len`: `spare_capacity_mut` may expose extra over-aligned
     // capacity, which would otherwise split into spurious trailing chunks and make `last_mut`
     // below target a chunk past the data we actually initialize.
-    let (output_chunks, _) = output.spare_capacity_mut()[..output_len].as_chunks_mut::<128>();
+    let (output_chunks, _) = unsafe {
+        mem::transmute::<&mut [MaybeUninit<u64>], &mut [u64]>(
+            &mut output.spare_capacity_mut()[..output_len],
+        )
+    }
+    .as_chunks_mut::<16>();
 
     for (input, output) in input_chunks.iter().zip(output_chunks.iter_mut()) {
-        op(input, unsafe {
-            mem::transmute::<&mut [MaybeUninit<u8>; 128], &mut [u8; 128]>(output)
-        });
+        op(
+            unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(input) },
+            output,
+        );
     }
 
     if !input_trailer.is_empty() {
         let mut padded_input = [0u8; 128];
         padded_input[0..input_trailer.len()].clone_from_slice(input_trailer);
-        op(&padded_input, unsafe {
-            mem::transmute::<&mut [MaybeUninit<u8>; 128], &mut [u8; 128]>(
-                output_chunks
-                    .last_mut()
-                    .vortex_expect("Output wasn't a multiple of 128 bytes"),
-            )
-        });
+        op(
+            unsafe { mem::transmute::<&[u8; 128], &[u64; 16]>(&padded_input) },
+            output_chunks
+                .last_mut()
+                .vortex_expect("Output wasn't a multiple of 128 bytes"),
+        );
     }
 
     unsafe { output.set_len(output_len) };
@@ -183,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn transpose_validity_roundtrip_non_aligned() {
+    fn transpose_bitbuffer_roundtrip_non_aligned() {
         let original_len = 1500;
         let bits = make_validity_bits(original_len);
 

@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Bound;
+use std::ops::RangeBounds;
+
+use vortex_error::VortexExpect;
+
 /// In-memory metadata describing a packed bitset: a normalized bit `offset` (always `< 8`) and a
 /// logical bit `len`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -32,6 +37,34 @@ impl BitBufferMeta {
                 len,
             },
         )
+    }
+
+    /// Return the leading byte offset and normalized metadata for a logical slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range is out of bounds or its end precedes its start.
+    pub fn slice(&self, range: impl RangeBounds<usize>) -> (usize, Self) {
+        let start = match range.start_bound() {
+            Bound::Included(&start) => start,
+            Bound::Excluded(&start) => start
+                .checked_add(1)
+                .vortex_expect("excluded slice start must not overflow"),
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(&end) => end
+                .checked_add(1)
+                .vortex_expect("included slice end must not overflow"),
+            Bound::Excluded(&end) => end,
+            Bound::Unbounded => self.len,
+        };
+
+        assert!(start <= end);
+        assert!(start <= self.len);
+        assert!(end <= self.len);
+
+        Self::from_raw_offset(self.offset + start, end - start)
     }
 
     /// The sub-byte bit offset. Always `< 8`.

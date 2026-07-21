@@ -34,15 +34,10 @@ use crate::array::ArrayId;
 use crate::array::ArrayInner;
 use crate::array::ArraySlots;
 use crate::array::DynArrayData;
-use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
-use crate::arrays::Null;
-use crate::arrays::Primitive;
 use crate::arrays::SliceArray;
-use crate::arrays::VarBin;
-use crate::arrays::VarBinView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -443,15 +438,6 @@ impl ArrayRef {
         nbytes
     }
 
-    /// Returns whether this array is an arrow encoding.
-    pub fn is_arrow(&self) -> bool {
-        self.is::<Null>()
-            || self.is::<Bool>()
-            || self.is::<Primitive>()
-            || self.is::<VarBin>()
-            || self.is::<VarBinView>()
-    }
-
     /// Whether the array is of a canonical encoding.
     pub fn is_canonical(&self) -> bool {
         self.is::<AnyCanonical>()
@@ -685,29 +671,46 @@ impl ArrayRef {
 
     // ArrayVisitor delegation methods
 
+    /// Returns an iterator over the children of the array: its non-None slots in order.
+    pub fn children_iter(&self) -> impl Iterator<Item = &ArrayRef> {
+        self.0.slots.iter().filter_map(|s| s.as_ref())
+    }
+
     /// Returns the children of the array.
     pub fn children(&self) -> Vec<ArrayRef> {
-        self.0.data.children(self)
+        self.children_iter().cloned().collect()
     }
 
     /// Returns the number of children of the array.
     pub fn nchildren(&self) -> usize {
-        self.0.data.nchildren(self)
+        self.children_iter().count()
     }
 
     /// Returns the nth child of the array without allocating a Vec.
+    ///
+    /// Returns `None` if the index is out of bounds.
     pub fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        self.0.data.nth_child(self, idx)
+        self.children_iter().nth(idx).cloned()
     }
 
-    /// Returns the names of the children of the array.
+    /// Returns the names of the children of the array: the slot names of the non-None slots
+    /// in order.
     pub fn children_names(&self) -> Vec<String> {
-        self.0.data.children_names(self)
+        self.0
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.is_some())
+            .map(|(slot_idx, _)| self.slot_name(slot_idx))
+            .collect()
     }
 
     /// Returns the array's children with their names.
     pub fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        self.0.data.named_children(self)
+        self.children_names()
+            .into_iter()
+            .zip(self.children_iter().cloned())
+            .collect()
     }
 
     /// Returns the data buffers of the array.

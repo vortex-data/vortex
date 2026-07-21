@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use parking_lot::RwLock;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::segments::SegmentCache;
@@ -14,7 +13,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 /// Segment cache containing the initial read segments.
 pub struct InitialReadSegmentCache {
     /// Segments that were already covered by the footer initial read.
-    pub initial: RwLock<HashMap<SegmentId, ByteBuffer>>,
+    pub initial: HashMap<SegmentId, ByteBuffer>,
     /// Delegate cache used for all misses and stores.
     pub fallback: Arc<dyn SegmentCache>,
 }
@@ -22,7 +21,7 @@ pub struct InitialReadSegmentCache {
 #[async_trait]
 impl SegmentCache for InitialReadSegmentCache {
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
-        if let Some(buffer) = self.initial.read().get(&id) {
+        if let Some(buffer) = self.initial.get(&id) {
             return Ok(Some(buffer.clone()));
         }
         self.fallback.get(id).await

@@ -40,7 +40,8 @@ pub struct FooterDeserializer {
 
     // Internal state that we accumulate
 
-    // The file size, possibly provided externally.
+    // The size of the file containing the serialized footer. For a standalone footer, this is the
+    // size of the footer blob rather than the data file described by the footer.
     file_size: Option<u64>,
     // The postscript, once we've parsed it.
     postscript: Option<Postscript>,
@@ -71,13 +72,17 @@ impl FooterDeserializer {
         self
     }
 
-    /// Provide the total file size.
+    /// Provide the size of the file containing this serialized footer.
+    ///
+    /// For a footer read from the end of a Vortex file, this is the file size. For a standalone
+    /// blob created by [`crate::footer::FooterSerializer`] with its default offset, this is the
+    /// size of that blob, not the size of the data file described by the footer.
     pub fn with_size(mut self, file_size: u64) -> Self {
         self.file_size = Some(file_size);
         self
     }
 
-    /// Provide or clear the total file size.
+    /// Provide or clear the size of the file containing this serialized footer.
     pub fn with_some_size(mut self, file_size: Option<u64>) -> Self {
         self.file_size = file_size;
         self
@@ -120,11 +125,18 @@ impl FooterDeserializer {
         // The other postscript segments are required, so now we figure out our the offset that
         // contains all the required segments.
 
-        // The initial offset is the file size - the size of our initial read.
+        // The initial offset is the file size minus the size of our initial read.
         let Some(file_size) = self.file_size else {
             return Ok(DeserializeStep::NeedFileSize);
         };
-        let initial_offset = file_size - (self.buffer.len() as u64);
+        let initial_offset = file_size
+            .checked_sub(self.buffer.len() as u64)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Footer buffer length {} exceeds declared file size {file_size}",
+                    self.buffer.len()
+                )
+            })?;
 
         let mut read_more_offset = initial_offset;
         if let Some(dtype_segment) = &dtype_segment {
@@ -371,6 +383,25 @@ mod tests {
             .with_size(file_size);
         let err = deserializer.deserialize().unwrap_err();
         assert!(err.to_string().contains("out of bounds"), "{err}");
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_rejects_buffer_larger_than_declared_size() -> VortexResult<()> {
+        let postscript = Postscript {
+            dtype: None,
+            layout: segment(0, 1),
+            statistics: None,
+            footer: segment(1, 1),
+        };
+        let buffer = eof_buffer(&postscript)?;
+        let declared_size = buffer.len() as u64 - 1;
+
+        let mut deserializer = FooterDeserializer::new(buffer, array_session())
+            .with_dtype(DType::Primitive(PType::I32, Nullability::NonNullable))
+            .with_size(declared_size);
+        let err = deserializer.deserialize().unwrap_err();
+        assert!(err.to_string().contains("exceeds declared"), "{err}");
         Ok(())
     }
 }

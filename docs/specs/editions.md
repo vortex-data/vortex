@@ -4,12 +4,14 @@ Vortex defines an evergrowing set of serializable array encodings, once written 
 version of vortex.
 **Editions** are used to keep track of these encodings and talk about groups of encodings.
 
-The edition `core2026.07.0` (coming soon) is the first such edition containing all encodings currently
-enabled by the writer.
+The first edition, `core2025.05.0`, contains the stable encodings that could be written by Vortex
+`0.36.0`. This is the release from which the Vortex file format is considered stable. Later `core`
+editions add stable encodings released after that compatibility boundary.
 Editions are additive so an edition that comes after a previous one contains all the encodings from the previous one
 and more.
-The writer can be configured with a set of different editions (e.g. `core2026.07.0` and `unstable2026.05.0` all stable
-encoding released before July 2026 and all unstable encodings from May 2026).
+The writer can be configured with a set of different editions (for example, `core2026.07.0` and
+`unstable2026.06.0` select stable encodings released through July 2026 and unstable encodings
+released through June 2026).
 
 Editions can be used to constrain your minimum required vortex reader, since latest version over vortex across all
 editions is the earliest version of vortex required to read that file.

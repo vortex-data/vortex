@@ -259,6 +259,9 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
 mod tests {
     use std::mem::size_of;
 
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::BoolArray;
+    use vortex::array::validity::Validity;
     use vortex::error::VortexResult;
 
     use super::padded_device_allocation_len;
@@ -325,6 +328,22 @@ mod tests {
         assert_eq!(&backing_host[..5], &[1, 2, 3, 4, 5]);
         assert!(backing_host[5..].iter().all(|byte| *byte == 0));
 
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_slice_device_bool_preserves_device_buffer() -> VortexResult<()> {
+        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let bits = ctx
+            .stream()
+            .copy_to_device(vec![0b1010_1100_u8, 0b0110_1001, 0b1100_0011])?
+            .await?;
+        let array = BoolArray::new_handle(bits, 3, 18, Validity::NonNullable).into_array();
+
+        let sliced = array.slice(7..16)?;
+
+        assert_eq!(sliced.len(), 9);
+        assert!(sliced.buffer_handles()[0].is_on_device());
         Ok(())
     }
 }

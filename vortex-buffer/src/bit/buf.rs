@@ -7,11 +7,11 @@ use std::fmt::Result as FmtResult;
 use std::ops::BitAnd;
 use std::ops::BitOr;
 use std::ops::BitXor;
-use std::ops::Bound;
 use std::ops::Not;
 use std::ops::RangeBounds;
 
 use crate::Alignment;
+use crate::BitBufferMeta;
 use crate::BitBufferMut;
 use crate::Buffer;
 use crate::BufferMut;
@@ -346,25 +346,7 @@ impl BitBuffer {
     ///
     /// Panics if the slice would extend beyond the end of the buffer.
     pub fn slice(&self, range: impl RangeBounds<usize>) -> Self {
-        let start = match range.start_bound() {
-            Bound::Included(&s) => s,
-            Bound::Excluded(&s) => s + 1,
-            Bound::Unbounded => 0,
-        };
-        let end = match range.end_bound() {
-            Bound::Included(&e) => e + 1,
-            Bound::Excluded(&e) => e,
-            Bound::Unbounded => self.len,
-        };
-
-        assert!(start <= end);
-        assert!(start <= self.len);
-        assert!(end <= self.len);
-        let len = end - start;
-
-        let offset = self.offset + start;
-        let byte_offset = offset / 8;
-        let bit_offset = offset % 8;
+        let (byte_offset, meta) = BitBufferMeta::new(self.offset, self.len).slice(range);
 
         // Trim whole bytes off the front directly rather than going through `new_with_offset`,
         // which would slice (and re-clone) the clone we'd have to pass it.
@@ -376,8 +358,8 @@ impl BitBuffer {
 
         Self {
             buffer,
-            offset: bit_offset,
-            len,
+            offset: meta.offset(),
+            len: meta.len(),
         }
     }
 

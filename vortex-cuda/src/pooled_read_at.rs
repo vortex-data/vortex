@@ -40,6 +40,9 @@ pub const DEFAULT_OBJECT_STORE_CONCURRENCY: usize = 192;
 ///
 /// Reads into a pooled pinned (page-locked) buffer, then submits a non-blocking
 /// H2D DMA transfer and returns a device `BufferHandle`.
+///
+/// This is a data-plane reader. To open a complete local Vortex file, prefer
+/// [`crate::CudaOpenOptionsExt::with_cuda`], which keeps the footer and zone maps on the host.
 #[derive(Clone)]
 pub struct PooledFileReadAt {
     uri: Arc<str>,

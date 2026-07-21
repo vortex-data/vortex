@@ -31,6 +31,7 @@ vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
+vortex-edition = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-file = { workspace = true, optional = true, default-features = true }
