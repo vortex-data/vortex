@@ -142,8 +142,10 @@ pub(crate) fn flatten_row_offsets(
     storage: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<usize>, StructArray)> {
+    let len = storage.len();
+
     // At the outermost level, row `r` starts at element `r`; the extra entry caps the last row.
-    let mut row_offsets: Vec<usize> = (0..=storage.len()).collect();
+    let mut row_offsets: Vec<usize> = (0..=len).collect();
     let mut level = storage;
     while matches!(level.dtype(), DType::List(..)) {
         let list = list_from_list_view(level.execute::<Canonical>(ctx)?.into_listview(), ctx)?;

@@ -27,6 +27,7 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -74,50 +75,42 @@ fn output_box_dtype() -> VortexResult<ExtDType<Rect>> {
 
 /// Compute each row's 2-D bounding box: the smallest rectangle covering all of the row's
 /// coordinates.
-///
-/// The output is columnar: four `f64` corner columns in `geoarrow.box` field order
-/// (`xmin, ymin, xmax, ymax`), plus the output validity.
-///
-/// The output validity narrows the input mask `valid`: a row's box is null when the input row
-/// is null, but also when a valid row owns no coordinates: an empty geometry (e.g.
-/// `MULTIPOLYGON EMPTY`) has no extent, and a box cannot represent "empty". Null boxes hold
-/// placeholder `0.0` corners.
-fn row_boxes(
-    storage: ArrayRef,
-    valid: &Mask,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<ArrayRef>, Validity)> {
-    let len = valid.len();
+fn row_boxes(storage: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<(Vec<ArrayRef>, Validity)> {
+    let len = storage.len();
+    let valid = storage.validity()?.execute_mask(len, ctx)?;
     let (row_offsets, coords) = flatten_row_offsets(storage, ctx)?;
+
+    // A row has a box iff it is valid and owns at least one coordinate (an empty geometry has
+    // no box): the envelope-specific narrowing of the operand's mask, combined word-at-a-time.
+    let non_empty = Mask::from(BitBuffer::collect_bool(len, |r| {
+        row_offsets[r] < row_offsets[r + 1]
+    }));
     let xs = ordinates(&coords, "x", ctx)?;
     let ys = ordinates(&coords, "y", ctx)?;
 
-    // The output's four columns (xmin, ymin, xmax, ymax), built by transposing each row's
-    // corners into them (a box column is stored as one flat column per corner field).
-    let mut corner_columns: [BufferMut<f64>; 4] =
-        std::array::from_fn(|_| BufferMut::with_capacity(len));
-    let mut has_boxes = Vec::with_capacity(len);
+    // The output's four corner columns.
+    let mut xmins = BufferMut::with_capacity(len);
+    let mut ymins = BufferMut::with_capacity(len);
+    let mut xmaxs = BufferMut::with_capacity(len);
+    let mut ymaxs = BufferMut::with_capacity(len);
+
     for r in 0..len {
         let (start, end) = (row_offsets[r], row_offsets[r + 1]);
-        // A valid input row with at least one coordinate has a box; a null input row or an
-        // empty geometry (`start == end`) does not.
-        let has_box = valid.value(r) && start < end;
-        let corners = if has_box {
-            box_corners(&xs[start..end], &ys[start..end])
-        } else {
-            [0.0; 4]
-        };
-        has_boxes.push(has_box);
-        for (column, corner) in corner_columns.iter_mut().zip(corners) {
-            column.push(corner);
-        }
+        let [xmin, ymin, xmax, ymax] = box_corners(&xs[start..end], &ys[start..end]);
+        xmins.push(xmin);
+        ymins.push(ymin);
+        xmaxs.push(xmax);
+        ymaxs.push(ymax);
     }
+
     Ok((
-        corner_columns
-            .into_iter()
-            .map(|column| column.freeze().into_array())
-            .collect(),
-        Validity::from_iter(has_boxes),
+        vec![
+            xmins.freeze().into_array(),
+            ymins.freeze().into_array(),
+            xmaxs.freeze().into_array(),
+            ymaxs.freeze().into_array(),
+        ],
+        Validity::from_mask(&valid & &non_empty, Nullability::Nullable),
     ))
 }
 
@@ -187,12 +180,11 @@ impl ScalarFnVTable for GeoEnvelope {
                 .collect::<VortexResult<Vec<_>>>()?;
             (corners, array.validity()?.into_nullable())
         } else {
-            let valid = array.validity()?.execute_mask(len, ctx)?;
-            row_boxes(storage, &valid, ctx)?
+            row_boxes(storage, ctx)?
         };
 
         // Nullness lives at the box (struct) level: the corner fields stay non-nullable `f64`,
-        // holding `0.0` placeholders under null rows.
+        // holding unspecified values under null rows.
         let storage = StructArray::try_new(
             FieldNames::from(box_field_names(Dimension::Xy)),
             corners,
