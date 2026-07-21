@@ -115,23 +115,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>>;
 
-    /// Returns the name of the child at the given index.
-    ///
-    /// The default returns the slot name of the `idx`-th non-None slot.
-    ///
-    /// # Panics
-    /// Panics if `idx` is not less than the number of non-None slots.
-    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        array
-            .slots()
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| s.is_some())
-            .nth(idx)
-            .map(|(slot_idx, _)| Self::slot_name(array, slot_idx))
-            .vortex_expect("child_name index out of bounds")
-    }
-
     /// Serialize encoding metadata into a byte buffer for IPC or file storage.
     ///
     /// Return `None` if the array cannot be serialized by this encoding. Buffers and children are

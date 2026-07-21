@@ -80,9 +80,6 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
 
     // --- Visitor methods (formerly in ArrayVisitor) ---
 
-    /// Returns the names of the children of the array.
-    fn children_names(&self, this: &ArrayRef) -> Vec<String>;
-
     /// Returns the buffers of the array.
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer>;
 
@@ -251,13 +248,6 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             this.encoding_id(),
         );
         Ok(())
-    }
-
-    fn children_names(&self, this: &ArrayRef) -> Vec<String> {
-        let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        (0..this.nchildren())
-            .map(|i| V::child_name(view, i))
-            .collect()
     }
 
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer> {

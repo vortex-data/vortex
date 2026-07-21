@@ -92,10 +92,6 @@ impl VTable for PythonVTable {
         with_empty_buffers(self, array, buffers)
     }
 
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        vortex_panic!("PythonArray child_name index {idx} out of bounds")
-    }
-
     fn serialize(
         _array: ArrayView<'_, Self>,
         _session: &VortexSession,

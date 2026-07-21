@@ -707,9 +707,16 @@ impl ArrayRef {
         self.children_iter().nth(idx).cloned()
     }
 
-    /// Returns the names of the children of the array.
+    /// Returns the names of the children of the array: the slot names of the non-None slots
+    /// in order.
     pub fn children_names(&self) -> Vec<String> {
-        self.0.data.children_names(self)
+        self.0
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.is_some())
+            .map(|(slot_idx, _)| self.slot_name(slot_idx))
+            .collect()
     }
 
     /// Returns the array's children with their names.
