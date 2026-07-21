@@ -7,7 +7,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 
-use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -35,8 +34,8 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferView;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -139,12 +138,6 @@ impl TransposedBool {
     }
 }
 
-#[derive(Clone, prost::Message)]
-struct TransposedBoolMetadata {
-    #[prost(uint32, tag = "1")]
-    offset: u32,
-}
-
 impl VTable for TransposedBool {
     type TypedArrayData = TransposedBoolData;
     type OperationsVTable = Self;
@@ -234,47 +227,27 @@ impl VTable for TransposedBool {
         ))
     }
 
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        vortex_panic!("TransposedBoolArray slot index {idx} out of bounds")
-    }
-
     fn serialize(
-        array: ArrayView<'_, Self>,
+        _array: ArrayView<'_, Self>,
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(
-            TransposedBoolMetadata {
-                offset: u32::try_from(array.offset()).vortex_expect("offset validated below 1024"),
-            }
-            .encode_to_vec(),
-        ))
+        vortex_bail!("Cannot serialise TransposedBoolArray");
     }
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,
-        metadata: &[u8],
-        buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure!(children.is_empty(), "TransposedBoolArray has no children");
-        vortex_ensure!(
-            buffers.len() == 1,
-            "TransposedBoolArray expects one buffer, got {}",
-            buffers.len()
-        );
-        let metadata = TransposedBoolMetadata::decode(metadata)?;
-        Ok(ArrayParts::new(
-            self.clone(),
-            dtype.clone(),
-            len,
-            TransposedBoolData {
-                bits: buffers[0].clone(),
-                offset: metadata.offset as usize,
-            },
-        ))
+        vortex_bail!("Cannot deserialise TransposedBoolArray");
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        vortex_panic!("TransposedBoolArray slot index {idx} out of bounds")
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
