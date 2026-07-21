@@ -89,18 +89,17 @@ fn row_boxes(storage: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<(Vec<Arr
     let ys = ordinates(&coords, "y", ctx)?;
 
     // The output's four corner columns.
-    let mut xmins = BufferMut::with_capacity(len);
-    let mut ymins = BufferMut::with_capacity(len);
-    let mut xmaxs = BufferMut::with_capacity(len);
-    let mut ymaxs = BufferMut::with_capacity(len);
+    let mut xmins = BufferMut::zeroed(len);
+    let mut ymins = BufferMut::zeroed(len);
+    let mut xmaxs = BufferMut::zeroed(len);
+    let mut ymaxs = BufferMut::zeroed(len);
 
-    for r in 0..len {
-        let (start, end) = (row_offsets[r], row_offsets[r + 1]);
+    for (r, (&start, &end)) in row_offsets.iter().zip(&row_offsets[1..]).enumerate() {
         let [xmin, ymin, xmax, ymax] = box_corners(&xs[start..end], &ys[start..end]);
-        xmins.push(xmin);
-        ymins.push(ymin);
-        xmaxs.push(xmax);
-        ymaxs.push(ymax);
+        xmins[r] = xmin;
+        ymins[r] = ymin;
+        xmaxs[r] = xmax;
+        ymaxs[r] = ymax;
     }
 
     Ok((
