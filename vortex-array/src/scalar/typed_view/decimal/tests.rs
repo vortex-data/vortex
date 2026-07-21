@@ -907,9 +907,10 @@ fn test_decimal_scalar_checked_mul() {
     let result = scalar1
         .checked_binary_numeric(&scalar2, NumericOperator::Mul)
         .unwrap();
+    assert_eq!(result.decimal_value(), Some(DecimalValue::I64(5)));
     assert_eq!(
-        result.decimal_value(),
-        Some(DecimalValue::I256(i256::from_i128(500)))
+        result.decimal_value().map(|value| value.decimal_type()),
+        Some(DecimalType::I64)
     );
 }
 
@@ -934,9 +935,10 @@ fn test_decimal_scalar_checked_div() {
     let result = scalar1
         .checked_binary_numeric(&scalar2, NumericOperator::Div)
         .unwrap();
+    assert_eq!(result.decimal_value(), Some(DecimalValue::I64(10_000)));
     assert_eq!(
-        result.decimal_value(),
-        Some(DecimalValue::I256(i256::from_i128(100)))
+        result.decimal_value().map(|value| value.decimal_type()),
+        Some(DecimalType::I64)
     );
 }
 
@@ -960,6 +962,106 @@ fn test_decimal_scalar_checked_div_by_zero() {
 
     let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Div);
     assert_eq!(result, None);
+}
+
+#[rstest]
+#[case::mul_truncates(15, 15, crate::scalar::NumericOperator::Mul, Some(2))]
+#[case::mul_truncates_toward_zero(-15, 15, crate::scalar::NumericOperator::Mul, Some(-2))]
+#[case::div_truncates(1_000, 300, crate::scalar::NumericOperator::Div, Some(333))]
+#[case::div_truncates_toward_zero(
+    -1_000,
+    300,
+    crate::scalar::NumericOperator::Div,
+    Some(-333)
+)]
+fn test_decimal_scalar_fixed_point(
+    #[case] lhs: i128,
+    #[case] rhs: i128,
+    #[case] op: crate::scalar::NumericOperator,
+    #[case] expected: Option<i64>,
+) {
+    let dtype = DecimalDType::new(10, 2);
+    let lhs = Scalar::decimal(DecimalValue::I128(lhs), dtype, Nullability::NonNullable);
+    let rhs = Scalar::decimal(DecimalValue::I128(rhs), dtype, Nullability::NonNullable);
+
+    let result = lhs
+        .as_decimal()
+        .checked_binary_numeric(&rhs.as_decimal(), op)
+        .and_then(|result| result.decimal_value());
+    assert_eq!(result, expected.map(DecimalValue::I64));
+    assert_eq!(
+        result.map(|value| value.decimal_type()),
+        expected.map(|_| DecimalType::I64)
+    );
+}
+
+#[rstest]
+#[case::mul(5, 3, crate::scalar::NumericOperator::Mul, Some(1_500))]
+#[case::div(600, 3, crate::scalar::NumericOperator::Div, Some(2))]
+#[case::div_truncates(5_000, 3, crate::scalar::NumericOperator::Div, Some(16))]
+fn test_decimal_scalar_fixed_point_negative_scale(
+    #[case] lhs: i128,
+    #[case] rhs: i128,
+    #[case] op: crate::scalar::NumericOperator,
+    #[case] expected: Option<i64>,
+) {
+    let dtype = DecimalDType::new(10, -2);
+    let lhs = Scalar::decimal(DecimalValue::I128(lhs), dtype, Nullability::NonNullable);
+    let rhs = Scalar::decimal(DecimalValue::I128(rhs), dtype, Nullability::NonNullable);
+
+    let result = lhs
+        .as_decimal()
+        .checked_binary_numeric(&rhs.as_decimal(), op)
+        .and_then(|result| result.decimal_value());
+    assert_eq!(result, expected.map(DecimalValue::I64));
+    assert_eq!(
+        result.map(|value| value.decimal_type()),
+        expected.map(|_| DecimalType::I64)
+    );
+}
+
+#[test]
+fn test_decimal_scalar_checked_mul_precision_overflow() {
+    let dtype = DecimalDType::new(3, 1);
+    let lhs = Scalar::decimal(DecimalValue::I16(999), dtype, Nullability::NonNullable);
+    let rhs = Scalar::decimal(DecimalValue::I16(999), dtype, Nullability::NonNullable);
+
+    let result = lhs
+        .as_decimal()
+        .checked_binary_numeric(&rhs.as_decimal(), crate::scalar::NumericOperator::Mul);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn test_decimal_scalar_checked_mul_wider_than_operand_storage() {
+    let dtype = DecimalDType::new(10, 2);
+    let lhs = Scalar::decimal(DecimalValue::I32(300_000), dtype, Nullability::NonNullable);
+
+    let result = lhs
+        .as_decimal()
+        .checked_binary_numeric(&lhs.as_decimal(), crate::scalar::NumericOperator::Mul)
+        .and_then(|result| result.decimal_value());
+    assert_eq!(result, Some(DecimalValue::I64(900_000_000)));
+    assert_eq!(
+        result.map(|value| value.decimal_type()),
+        Some(DecimalType::I64)
+    );
+}
+
+#[test]
+fn test_decimal_scalar_checked_mul_normalizes_i256_working_result() {
+    let dtype = DecimalDType::new(38, 2);
+    let lhs = Scalar::decimal(DecimalValue::I128(300_000), dtype, Nullability::NonNullable);
+
+    let result = lhs
+        .as_decimal()
+        .checked_binary_numeric(&lhs.as_decimal(), crate::scalar::NumericOperator::Mul)
+        .and_then(|result| result.decimal_value());
+    assert_eq!(result, Some(DecimalValue::I128(900_000_000)));
+    assert_eq!(
+        result.map(|value| value.decimal_type()),
+        Some(DecimalType::I128)
+    );
 }
 
 #[test]

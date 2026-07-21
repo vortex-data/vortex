@@ -16,7 +16,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::dtype::BigCast;
 use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
@@ -173,24 +172,12 @@ impl DecimalValue {
     /// `decimal_dtype`, after enforcing the dtype precision.
     pub(crate) fn try_from_i256(value: i256, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         let decimal_value = Self::I256(value);
-        if !decimal_value.fits_in_precision(decimal_dtype) {
-            vortex_bail!(
+        decimal_value.normalize(decimal_dtype).ok_or_else(|| {
+            vortex_err!(
                 "decimal value {} does not fit in precision of {}",
                 decimal_value,
                 decimal_dtype
-            );
-        }
-
-        let target_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
-        match_each_decimal_value_type!(target_type, |T| {
-            let value = <T as BigCast>::from(value).ok_or_else(|| {
-                vortex_err!(
-                    "decimal value {} cannot be represented as {}",
-                    decimal_value,
-                    target_type
-                )
-            })?;
-            Ok(Self::from(value))
+            )
         })
     }
 
@@ -214,19 +201,18 @@ impl DecimalValue {
     /// The stored value (regardless of scale) must fit within the range defined by precision.
     /// For precision P, the maximum absolute stored value is 10^P - 1.
     pub fn fits_in_precision(&self, decimal_type: DecimalDType) -> bool {
-        // Convert to i256 for comparison
-        let value_i256 = self.as_i256();
+        self.normalize(decimal_type).is_some()
+    }
 
-        // Calculate the maximum stored value that can be represented with this precision
-        // For precision P, the max stored value is 10^P - 1
-        // This is independent of scale - scale only affects how we interpret the value
-        let ten = i256::from_i128(10);
-        let max_value = ten
-            .checked_pow(decimal_type.precision() as _)
-            .vortex_expect("precision must exist in i256");
-        let min_value = -max_value;
-
-        value_i256 > min_value && value_i256 < max_value
+    /// Checks the dtype precision and returns the value in the dtype's native storage width.
+    pub(crate) fn normalize(&self, decimal_type: DecimalDType) -> Option<Self> {
+        let value_type = DecimalType::smallest_decimal_value_type(&decimal_type);
+        match_each_decimal_value_type!(value_type, |T| {
+            let value = self.cast::<T>()?;
+            let precision = usize::from(decimal_type.precision());
+            (T::MIN_BY_PRECISION[precision] <= value && value <= T::MAX_BY_PRECISION[precision])
+                .then_some(Self::from(value))
+        })
     }
 
     /// Checked addition. Returns `None` on overflow.
@@ -239,12 +225,12 @@ impl DecimalValue {
         checked_widening_binary_op!(self, other, CheckedSub::checked_sub)
     }
 
-    /// Checked multiplication. Returns `None` on overflow.
+    /// Checked multiplication of the raw stored integers. Returns `None` on overflow.
     pub fn checked_mul(&self, other: &Self) -> Option<Self> {
         checked_widening_binary_op!(self, other, CheckedMul::checked_mul)
     }
 
-    /// Checked division. Returns `None` on overflow or division by zero.
+    /// Checked division of the raw stored integers. Returns `None` on overflow or division by zero.
     pub fn checked_div(&self, other: &Self) -> Option<Self> {
         checked_widening_binary_op!(self, other, CheckedDiv::checked_div)
     }
