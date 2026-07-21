@@ -64,8 +64,8 @@ impl TakeExecute for List {
 
         match_each_unsigned_integer_ptype!(offsets.ptype(), |O| {
             match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-                match_smallest_offset_type!(total_approx, |OutputOffsetType| {
-                    take_with_piecewise_elements::<I, O, OutputOffsetType>(
+                match_smallest_offset_type!(total_approx, |OutOffset| {
+                    take_with_piecewise_elements::<I, O, OutOffset>(
                         array,
                         offsets.as_view(),
                         indices.as_view(),
@@ -79,11 +79,7 @@ impl TakeExecute for List {
     }
 }
 
-fn take_with_piecewise_elements<
-    I: IntegerPType,
-    O: IntegerPType,
-    OutputOffsetType: IntegerPType,
->(
+fn take_with_piecewise_elements<I: IntegerPType, O: IntegerPType, OutOffset: IntegerPType>(
     array: ArrayView<'_, List>,
     offsets_array: ArrayView<'_, Primitive>,
     indices_array: ArrayView<'_, Primitive>,
@@ -97,16 +93,16 @@ fn take_with_piecewise_elements<
         .len()
         .checked_add(1)
         .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
-    let mut new_offsets = BufferMut::<OutputOffsetType>::with_capacity(offsets_capacity);
+    let mut new_offsets = BufferMut::<OutOffset>::with_capacity(offsets_capacity);
     let mut element_starts = BufferMut::<u64>::with_capacity(indices.len());
     let mut element_lengths = BufferMut::<u64>::with_capacity(indices.len());
 
     let mut current_offset = 0usize;
-    new_offsets.push(OutputOffsetType::zero());
+    new_offsets.push(OutOffset::zero());
 
     for (&data_idx, is_valid) in indices.iter().zip_eq(validity_mask.iter()) {
         if !is_valid {
-            new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset));
+            new_offsets.push(new_offset_value::<OutOffset>(current_offset));
             element_starts.push(0);
             element_lengths.push(0);
             continue;
@@ -123,7 +119,7 @@ fn take_with_piecewise_elements<
         current_offset = current_offset
             .checked_add(length)
             .ok_or_else(|| vortex_err!("List take output elements length overflow"))?;
-        new_offsets.push(new_offset_value::<OutputOffsetType>(current_offset));
+        new_offsets.push(new_offset_value::<OutOffset>(current_offset));
         element_starts.push(start as u64);
         element_lengths.push(length as u64);
     }
@@ -343,9 +339,9 @@ where
     };
     let validity = array.validity()?.take(indices_ref)?;
 
-    match_smallest_offset_type!(total_elements, |OutputOffset| {
+    match_smallest_offset_type!(total_elements, |OutOffset| {
         let gathered = if all_valid {
-            gather_piecewise_list_constant_length::<S, Offset, OutputOffset>(
+            gather_piecewise_list_constant_length::<S, Offset, OutOffset>(
                 array.elements(),
                 offsets,
                 starts,
@@ -354,7 +350,7 @@ where
                 total_elements,
             )?
         } else {
-            gather_piecewise_list_constant_length_validity::<S, Offset, OutputOffset>(
+            gather_piecewise_list_constant_length_validity::<S, Offset, OutOffset>(
                 array.elements(),
                 offsets,
                 starts,
@@ -407,9 +403,9 @@ where
         piecewise_list_elements_len_validity(offsets, starts, lengths, data_validity)?
     };
 
-    match_smallest_offset_type!(total_elements, |OutputOffset| {
+    match_smallest_offset_type!(total_elements, |OutOffset| {
         let gathered = if all_valid {
-            gather_piecewise_list::<S, L, Offset, OutputOffset>(
+            gather_piecewise_list::<S, L, Offset, OutOffset>(
                 array.elements(),
                 offsets,
                 starts,
@@ -418,7 +414,7 @@ where
                 total_elements,
             )?
         } else {
-            gather_piecewise_list_validity::<S, L, Offset, OutputOffset>(
+            gather_piecewise_list_validity::<S, L, Offset, OutOffset>(
                 array.elements(),
                 offsets,
                 starts,
@@ -445,8 +441,8 @@ struct GatheredList {
     offsets: ArrayRef,
 }
 
-struct ValidPieceGather<OutputOffset> {
-    new_offsets: BufferMut<OutputOffset>,
+struct ValidPieceGather<OutOffset> {
+    new_offsets: BufferMut<OutOffset>,
     element_starts: BufferMut<u64>,
     element_lengths: BufferMut<u64>,
     output_elements: usize,
@@ -574,7 +570,7 @@ where
     Ok(total)
 }
 
-fn gather_piecewise_list_constant_length<S, Offset, OutputOffset>(
+fn gather_piecewise_list_constant_length<S, Offset, OutOffset>(
     elements: &ArrayRef,
     offsets: &[Offset],
     starts: &[S],
@@ -585,17 +581,17 @@ fn gather_piecewise_list_constant_length<S, Offset, OutputOffset>(
 where
     S: UnsignedPType,
     Offset: UnsignedPType,
-    OutputOffset: IntegerPType,
+    OutOffset: IntegerPType,
 {
     let offsets_capacity = output_len
         .checked_add(1)
         .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
-    let mut new_offsets = BufferMut::<OutputOffset>::with_capacity(offsets_capacity);
+    let mut new_offsets = BufferMut::<OutOffset>::with_capacity(offsets_capacity);
     let mut element_starts = BufferMut::<u64>::with_capacity(starts.len());
     let mut element_lengths = BufferMut::<u64>::with_capacity(starts.len());
     let mut output_elements = 0usize;
 
-    new_offsets.push(OutputOffset::zero());
+    new_offsets.push(OutOffset::zero());
     for start in starts {
         let start: usize = start.as_();
         if length == 0 {
@@ -609,7 +605,7 @@ where
             let offset: usize = offset.as_();
             let relative = offset - element_start;
             let output_offset = output_elements + relative;
-            new_offsets.push(new_offset_value::<OutputOffset>(output_offset));
+            new_offsets.push(new_offset_value::<OutOffset>(output_offset));
         }
 
         let element_length = element_end - element_start;
@@ -636,7 +632,7 @@ where
     Ok(GatheredList { elements, offsets })
 }
 
-fn gather_piecewise_list_constant_length_validity<S, Offset, OutputOffset>(
+fn gather_piecewise_list_constant_length_validity<S, Offset, OutOffset>(
     elements: &ArrayRef,
     offsets: &[Offset],
     starts: &[S],
@@ -648,19 +644,19 @@ fn gather_piecewise_list_constant_length_validity<S, Offset, OutputOffset>(
 where
     S: UnsignedPType,
     Offset: UnsignedPType,
-    OutputOffset: IntegerPType,
+    OutOffset: IntegerPType,
 {
     let offsets_capacity = output_len
         .checked_add(1)
         .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
     let mut gather = ValidPieceGather {
-        new_offsets: BufferMut::<OutputOffset>::with_capacity(offsets_capacity),
+        new_offsets: BufferMut::<OutOffset>::with_capacity(offsets_capacity),
         element_starts: BufferMut::<u64>::with_capacity(output_len),
         element_lengths: BufferMut::<u64>::with_capacity(output_len),
         output_elements: 0,
     };
 
-    gather.new_offsets.push(OutputOffset::zero());
+    gather.new_offsets.push(OutOffset::zero());
     for start in starts {
         let start: usize = start.as_();
         if length == 0 {
@@ -689,7 +685,7 @@ where
     Ok(GatheredList { elements, offsets })
 }
 
-fn gather_piecewise_list<S, L, Offset, OutputOffset>(
+fn gather_piecewise_list<S, L, Offset, OutOffset>(
     elements: &ArrayRef,
     offsets: &[Offset],
     starts: &[S],
@@ -701,17 +697,17 @@ where
     S: UnsignedPType,
     L: UnsignedPType,
     Offset: UnsignedPType,
-    OutputOffset: IntegerPType,
+    OutOffset: IntegerPType,
 {
     let offsets_capacity = output_len
         .checked_add(1)
         .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
-    let mut new_offsets = BufferMut::<OutputOffset>::with_capacity(offsets_capacity);
+    let mut new_offsets = BufferMut::<OutOffset>::with_capacity(offsets_capacity);
     let mut element_starts = BufferMut::<u64>::with_capacity(starts.len());
     let mut element_lengths = BufferMut::<u64>::with_capacity(lengths.len());
     let mut output_elements = 0usize;
 
-    new_offsets.push(OutputOffset::zero());
+    new_offsets.push(OutOffset::zero());
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start: usize = start.as_();
         let length: usize = length.as_();
@@ -726,7 +722,7 @@ where
             let offset: usize = offset.as_();
             let relative = offset - element_start;
             let output_offset = output_elements + relative;
-            new_offsets.push(new_offset_value::<OutputOffset>(output_offset));
+            new_offsets.push(new_offset_value::<OutOffset>(output_offset));
         }
 
         let element_length = element_end - element_start;
@@ -753,7 +749,7 @@ where
     Ok(GatheredList { elements, offsets })
 }
 
-fn gather_piecewise_list_validity<S, L, Offset, OutputOffset>(
+fn gather_piecewise_list_validity<S, L, Offset, OutOffset>(
     elements: &ArrayRef,
     offsets: &[Offset],
     starts: &[S],
@@ -766,19 +762,19 @@ where
     S: UnsignedPType,
     L: UnsignedPType,
     Offset: UnsignedPType,
-    OutputOffset: IntegerPType,
+    OutOffset: IntegerPType,
 {
     let offsets_capacity = output_len
         .checked_add(1)
         .ok_or_else(|| vortex_err!("List take offsets length overflow"))?;
     let mut gather = ValidPieceGather {
-        new_offsets: BufferMut::<OutputOffset>::with_capacity(offsets_capacity),
+        new_offsets: BufferMut::<OutOffset>::with_capacity(offsets_capacity),
         element_starts: BufferMut::<u64>::with_capacity(output_len),
         element_lengths: BufferMut::<u64>::with_capacity(output_len),
         output_elements: 0,
     };
 
-    gather.new_offsets.push(OutputOffset::zero());
+    gather.new_offsets.push(OutOffset::zero());
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start: usize = start.as_();
         let length: usize = length.as_();
@@ -808,22 +804,22 @@ where
     Ok(GatheredList { elements, offsets })
 }
 
-fn gather_valid_piece<Offset, OutputOffset>(
+fn gather_valid_piece<Offset, OutOffset>(
     offsets: &[Offset],
     data_validity: &Mask,
     start: usize,
     length: usize,
-    gather: &mut ValidPieceGather<OutputOffset>,
+    gather: &mut ValidPieceGather<OutOffset>,
 ) where
     Offset: UnsignedPType,
-    OutputOffset: IntegerPType,
+    OutOffset: IntegerPType,
 {
     let offset_range = &offsets[start..][..=length];
     for (data_idx, window) in (start..).zip(offset_range.windows(2)) {
         if !data_validity.value(data_idx) {
             gather
                 .new_offsets
-                .push(new_offset_value::<OutputOffset>(gather.output_elements));
+                .push(new_offset_value::<OutOffset>(gather.output_elements));
             continue;
         }
 
@@ -837,7 +833,7 @@ fn gather_valid_piece<Offset, OutputOffset>(
         }
         gather
             .new_offsets
-            .push(new_offset_value::<OutputOffset>(gather.output_elements));
+            .push(new_offset_value::<OutOffset>(gather.output_elements));
     }
 }
 
