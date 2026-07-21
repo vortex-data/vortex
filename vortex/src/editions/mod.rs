@@ -3,10 +3,10 @@
 
 //! The Vortex edition declarations.
 //!
-//! [`vortex_edition`] provides the types, the [`EditionSession`] session variable, and the
-//! test harness; the actual declarations live here, one module per edition
+//! [`vortex_edition`] provides the types, the [`crate::editions::EditionSession`] session
+//! variable, and the test harness; the actual declarations live here, one module per edition
 //! (`editions::<family>::<date>`), and are seeded into the default session by
-//! [`register_default_editions`].
+//! [`crate::editions::register_default_editions`].
 //!
 //! Each edition module declares the edition together with the encodings that join the
 //! family at it; members of earlier editions are inherited and never restated. Correctness
