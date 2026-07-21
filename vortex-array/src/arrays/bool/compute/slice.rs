@@ -11,15 +11,18 @@ use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::slice::SliceReduce;
+use crate::buffer::BufferHandle;
 
 impl SliceReduce for Bool {
     fn slice(array: ArrayView<'_, Bool>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let (byte_start, meta) = array.meta.slice(range.clone());
         let byte_end = byte_start + meta.byte_len();
 
-        // Slice the BufferHandle itself so device-resident Boolean buffers stay on the device.
-        // Converting through BitBuffer would require host access and panic for CUDA-flat reads.
-        let bits = array.bits.slice_unaligned(byte_start..byte_end);
+        let bits = if let Some(host) = array.bits.as_host_opt() {
+            BufferHandle::new_host(host.slice_unaligned(byte_start..byte_end))
+        } else {
+            array.bits.slice(byte_start..byte_end)
+        };
         let validity = array.validity()?.slice(range)?;
 
         let array = BoolArray::try_new_from_handle(bits, meta.offset(), meta.len(), validity)?;
