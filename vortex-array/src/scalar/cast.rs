@@ -59,7 +59,7 @@ impl Scalar {
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target_dtype),
             DType::Struct(..) => self.as_struct().cast(target_dtype),
             DType::Union(..) => vortex_bail!(
-                "union scalar cast from {} to {target_dtype} is not supported",
+                "union scalar cast from {} to {target_dtype} is not supported (yet)",
                 self.dtype()
             ),
             DType::Variant(_) => vortex_bail!("Variant scalars can't be cast to {target_dtype}"),
