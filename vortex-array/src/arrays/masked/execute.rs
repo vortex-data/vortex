@@ -110,6 +110,7 @@ fn mask_validity_varbinview(
 fn mask_validity_listview(array: ListViewArray, validity: Validity) -> VortexResult<ListViewArray> {
     let new_validity = Validity::and(array.validity()?, validity)?;
     // SAFETY: We're only changing validity, not the data structure
+    let is_zctl = array.is_zero_copy_to_list();
     Ok(unsafe {
         ListViewArray::new_unchecked(
             array.elements().clone(),
@@ -117,6 +118,7 @@ fn mask_validity_listview(array: ListViewArray, validity: Validity) -> VortexRes
             array.sizes().clone(),
             new_validity,
         )
+        .with_zero_copy_to_list(is_zctl)
     })
 }
 
