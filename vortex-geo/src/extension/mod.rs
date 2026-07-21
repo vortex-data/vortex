@@ -40,11 +40,11 @@ pub use point::*;
 pub use polygon::*;
 pub use rect::*;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::list::ListArrayExt;
@@ -110,12 +110,8 @@ pub(crate) fn flatten_coordinates(
         .execute::<ExtensionArray>(ctx)?
         .storage_array()
         .clone();
-    while matches!(node.dtype(), DType::List(..)) {
-        node = node
-            .execute::<Canonical>(ctx)?
-            .into_listview()
-            .elements()
-            .clone();
+    while node.dtype().is_list() {
+        node = node.execute::<ListViewArray>(ctx)?.elements().clone();
     }
     node.execute::<StructArray>(ctx)
 }
@@ -147,8 +143,8 @@ pub(crate) fn flatten_row_offsets(
     // At the outermost level, row `r` starts at element `r`; the extra entry caps the last row.
     let mut row_offsets: Vec<usize> = (0..=len).collect();
     let mut level = storage;
-    while matches!(level.dtype(), DType::List(..)) {
-        let list = list_from_list_view(level.execute::<Canonical>(ctx)?.into_listview(), ctx)?;
+    while level.dtype().is_list() {
+        let list = list_from_list_view(level.execute::<ListViewArray>(ctx)?, ctx)?;
         let offsets = list
             .offsets()
             .clone()
