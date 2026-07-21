@@ -20,7 +20,6 @@ use rand_distr::Distribution;
 use rand_distr::Normal;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_buffer::SpareBufferWriter;
 
 fn main() {
     divan::main();
@@ -191,12 +190,24 @@ fn take_advancing_ptr_safe(
     output_len: usize,
 ) -> Buffer<u16> {
     let mut result = BufferMut::<u16>::with_capacity(output_len);
-    let mut writer = SpareBufferWriter::new(&mut result, output_len).unwrap();
+    let mut cursor = 0usize;
+    let mut dst = result.spare_capacity_mut().as_mut_ptr().cast::<u16>();
     for (&start, &length) in starts.iter().zip(lengths) {
+        let end = cursor.checked_add(length).unwrap();
+        assert!(end <= output_len);
         let source = &values[start..start + length];
-        writer.copy_slice(source).unwrap();
+        // SAFETY: `end <= output_len` proves destination capacity, and safe slicing proves source
+        // bounds.
+        unsafe {
+            copy_to_uninit(dst, source);
+            dst = dst.add(length);
+        }
+        cursor = end;
     }
-    writer.finish().unwrap();
+    assert_eq!(cursor, output_len);
+
+    // SAFETY: the loop writes exactly `output_len` values into spare capacity.
+    unsafe { result.set_len(output_len) };
     result.freeze()
 }
 
@@ -250,15 +261,18 @@ fn take_preverify_advancing_ptr_unchecked(
     preverify(values.len(), starts, lengths, output_len);
 
     let mut result = BufferMut::<u16>::with_capacity(output_len);
-    let mut writer = SpareBufferWriter::new(&mut result, output_len).unwrap();
+    let mut dst = result.spare_capacity_mut().as_mut_ptr().cast::<u16>();
     for (&start, &length) in starts.iter().zip(lengths) {
         // SAFETY: `preverify` checked every source range and the summed output length.
         unsafe {
             let source = values.get_unchecked(start..start + length);
-            writer.copy_slice_unchecked(source);
+            copy_to_uninit(dst, source);
+            dst = dst.add(length);
         }
     }
-    writer.finish().unwrap();
+
+    // SAFETY: `preverify` proves the loop writes exactly `output_len` values into spare capacity.
+    unsafe { result.set_len(output_len) };
     result.freeze()
 }
 

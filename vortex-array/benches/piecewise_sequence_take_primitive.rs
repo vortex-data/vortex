@@ -32,9 +32,9 @@ fn main() {
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(array_session);
 
-const SOURCE_LEN: usize = 8 * 1024 * 1024;
-const OUTPUT_LEN: usize = 1024 * 1024;
-const RUN_LENGTHS: &[usize] = &[1, 4, 16, 64, 256, 1024];
+const SOURCE_LEN: usize = 512 * 1024;
+const OUTPUT_LEN: usize = 8 * 1024;
+const RUN_LENGTHS: &[usize] = &[1, 4, 16, 64, 256];
 
 #[divan::bench(args = RUN_LENGTHS)]
 fn optimized_constant_lengths(bencher: Bencher, run_length: usize) {
