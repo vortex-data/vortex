@@ -273,8 +273,8 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn nchildren(&self, this: &ArrayRef) -> usize {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::nchildren(view)
+        let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        view.slots().iter().filter(|s| s.is_some()).count()
     }
 
     fn nth_child(&self, this: &ArrayRef, idx: usize) -> Option<ArrayRef> {
@@ -287,9 +287,12 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     }
 
     fn children_names(&self, this: &ArrayRef) -> Vec<String> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        (0..V::nchildren(view))
-            .map(|i| V::child_name(view, i))
+        let view: ArrayView<'_, V> = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        view.slots()
+            .iter()
+            .filter(|s| s.is_some())
+            .enumerate()
+            .map(|(i, _)| V::child_name(view, i))
             .collect()
     }
 

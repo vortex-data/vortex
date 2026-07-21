@@ -115,19 +115,12 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>>;
 
-    /// Returns the number of children in the array.
-    ///
-    /// The default counts non-None slots.
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        array.slots().iter().filter(|s| s.is_some()).count()
-    }
-
     /// Returns the name of the child at the given index.
     ///
     /// The default returns the slot name of the `idx`-th non-None slot.
     ///
     /// # Panics
-    /// Panics if `idx >= nchildren(array)`.
+    /// Panics if `idx` is not less than the number of non-None slots.
     fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         array
             .slots()
