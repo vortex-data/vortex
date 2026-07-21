@@ -59,6 +59,7 @@ mod tests {
     use vortex_array::expr::Expression;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTableExt;
     use vortex_array::stats::rewrite::StatsRewriteCtx;
@@ -108,6 +109,21 @@ mod tests {
         let scope = DType::Primitive(PType::F64, Nullability::NonNullable);
         let query = point_column(vec![0.0], vec![0.0])?.execute_scalar(0, &mut ctx)?;
         let predicate = GeoIntersects.new_expr(EmptyOptions, [root(), lit(query)]);
+
+        let ctx = StatsRewriteCtx::new(&session, &scope);
+        assert!(GeoIntersectsPrune.falsify(&predicate, &ctx)?.is_none());
+        Ok(())
+    }
+
+    /// A null geometry literal (`ST_Intersects(geom, NULL)`) declines cleanly instead of erroring
+    /// in the stats rewrite: the all-null predicate can never prune.
+    #[test]
+    fn null_literal_is_not_pruned() -> VortexResult<()> {
+        let session = geo_session();
+
+        let scope = point_column(vec![0.0], vec![0.0])?.dtype().clone();
+        let null_query = Scalar::null(scope.as_nullable());
+        let predicate = GeoIntersects.new_expr(EmptyOptions, [root(), lit(null_query)]);
 
         let ctx = StatsRewriteCtx::new(&session, &scope);
         assert!(GeoIntersectsPrune.falsify(&predicate, &ctx)?.is_none());

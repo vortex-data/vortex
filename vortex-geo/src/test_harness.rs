@@ -10,6 +10,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
@@ -107,6 +108,27 @@ fn geo_column<V: ExtVTable<Metadata = GeoMetadata> + Default>(
 /// A `Point` column over the given x/y coordinates, stored as `Struct<x, y>`.
 pub(crate) fn point_column(xs: Vec<f64>, ys: Vec<f64>) -> VortexResult<ArrayRef> {
     let storage = xy_struct(xs, ys)?;
+    let storage_dtype = storage.dtype().clone();
+    geo_column::<Point>(storage, storage_dtype)
+}
+
+/// A nullable `Point` column: `None` rows are null. Null rows carry placeholder coordinates in
+/// storage that the geo kernels must never decode (they filter nulls before decoding).
+pub(crate) fn nullable_point_column(points: Vec<Option<(f64, f64)>>) -> VortexResult<ArrayRef> {
+    let len = points.len();
+    let valid = points.iter().map(Option::is_some);
+    let xs = points.iter().map(|p| p.map_or(0.0, |(x, _)| x));
+    let ys = points.iter().map(|p| p.map_or(0.0, |(_, y)| y));
+    let storage = StructArray::try_new(
+        FieldNames::from(["x", "y"]),
+        vec![
+            PrimitiveArray::from_iter(xs).into_array(),
+            PrimitiveArray::from_iter(ys).into_array(),
+        ],
+        len,
+        Validity::from_iter(valid),
+    )?
+    .into_array();
     let storage_dtype = storage.dtype().clone();
     geo_column::<Point>(storage, storage_dtype)
 }

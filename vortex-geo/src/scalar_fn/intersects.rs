@@ -6,14 +6,11 @@
 use geo::Intersects;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::Constant;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::scalar::Scalar;
+use vortex_array::expr::Expression;
+use vortex_array::expr::union_child_validities;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -22,13 +19,11 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::extension::geometries;
-use crate::extension::single_geometry;
 use crate::extension::validate_geometry_operands;
+use crate::scalar_fn::execute::execute_null_propagating;
 
 /// OGC `ST_Intersects` (not disjoint; boundary contact counts) between two native geometry
 /// operands, each a column or a constant literal.
@@ -76,7 +71,8 @@ impl ScalarFnVTable for GeoIntersects {
 
     fn return_dtype(&self, _: &Self::Options, dtypes: &[DType]) -> VortexResult<DType> {
         validate_geometry_operands(dtypes)?;
-        Ok(DType::Bool(Nullability::NonNullable))
+        let nullability = Nullability::from(dtypes.iter().any(DType::is_nullable));
+        Ok(DType::Bool(nullability))
     }
 
     fn execute(
@@ -87,46 +83,20 @@ impl ScalarFnVTable for GeoIntersects {
     ) -> VortexResult<ArrayRef> {
         let a = args.get(0)?;
         let b = args.get(1)?;
-        match (a.as_opt::<Constant>(), b.as_opt::<Constant>()) {
-            (Some(qa), Some(qb)) => {
-                let ga = single_geometry(qa.scalar(), ctx)?;
-                let gb = single_geometry(qb.scalar(), ctx)?;
-                Ok(ConstantArray::new(
-                    Scalar::bool(ga.intersects(&gb), Nullability::NonNullable),
-                    a.len(),
-                )
-                .into_array())
-            }
-            (Some(query), None) => intersects_constant(&b, query.scalar(), ctx),
-            (None, Some(query)) => intersects_constant(&a, query.scalar(), ctx),
-            (None, None) => {
-                vortex_ensure_eq!(
-                    a.len(),
-                    b.len(),
-                    "geo intersects: operand length mismatch {} vs {}",
-                    a.len(),
-                    b.len()
-                );
-                let ag = geometries(&a, ctx)?;
-                let bg = geometries(&b, ctx)?;
-                let hits = ag.iter().zip(&bg).map(|(x, y)| x.intersects(y));
-                Ok(BoolArray::from_iter(hits).into_array())
-            }
-        }
+        execute_null_propagating(&a, &b, |x, y| x.intersects(y), ctx)
     }
-}
 
-/// Whether each row of `operand` intersects the constant `query` geometry. Intersection is
-/// symmetric, so this serves a constant on either side.
-fn intersects_constant(
-    operand: &ArrayRef,
-    query: &Scalar,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let query = single_geometry(query, ctx)?;
-    let geoms = geometries(operand, ctx)?;
-    let hits = geoms.iter().map(|g| g.intersects(&query));
-    Ok(BoolArray::from_iter(hits).into_array())
+    fn validity(
+        &self,
+        _: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        union_child_validities(expression)
+    }
+
+    fn is_null_sensitive(&self, _: &Self::Options) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -148,13 +118,17 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFnVTable;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use wkb::writer::WriteOptions;
 
     use super::GeoIntersects;
+    use crate::test_harness::nullable_point_column;
     use crate::test_harness::point_column;
 
     /// A rectangle polygon with corners `(x0, y0)` and `(x1, y1)`, no holes.
@@ -313,12 +287,116 @@ mod tests {
         assert_intersects(points, geometry_constant(&empty, 2)?, [false, false])
     }
 
-    /// Geometry arrays are never nullable, so a nullable operand dtype is rejected.
+    /// Output nullability mirrors the operands: nullable if any operand is nullable, otherwise
+    /// non-nullable.
     #[test]
-    fn nullable_operand_is_rejected() -> VortexResult<()> {
+    fn output_nullability_mirrors_operands() -> VortexResult<()> {
         let dtype = point_column(vec![0.0], vec![0.0])?.dtype().clone();
-        let result = GeoIntersects.return_dtype(&EmptyOptions, &[dtype.as_nullable(), dtype]);
-        assert!(result.is_err());
+        let non_nullable =
+            GeoIntersects.return_dtype(&EmptyOptions, &[dtype.clone(), dtype.clone()])?;
+        assert!(!non_nullable.is_nullable());
+        let nullable = GeoIntersects.return_dtype(&EmptyOptions, &[dtype.as_nullable(), dtype])?;
+        assert!(nullable.is_nullable());
+        Ok(())
+    }
+
+    /// A null row in a geometry operand yields a null verdict; valid rows keep their verdict
+    /// (interior intersects, exterior does not).
+    #[test]
+    fn intersects_propagates_null_rows() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let points = nullable_point_column(vec![Some((2.0, 2.0)), None, Some((20.0, 20.0))])?;
+        let query = geometry_constant(&donut(), 3)?;
+        let intersects = GeoIntersects::try_new_array(points, query)?.into_array();
+
+        let expected = BoolArray::new(
+            BitBuffer::from_iter([true, false, false]),
+            Validity::from_iter([true, false, true]),
+        )
+        .into_array();
+        assert_arrays_eq!(intersects, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// A constant-null operand produces an all-null output.
+    #[test]
+    fn intersects_constant_null_is_all_null() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
+        let null_const = ConstantArray::new(Scalar::null(point_dtype), 2).into_array();
+        let points = point_column(vec![2.0, 20.0], vec![2.0, 20.0])?;
+        let intersects = GeoIntersects::try_new_array(null_const, points)?.into_array();
+
+        let expected =
+            BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
+        assert_arrays_eq!(intersects, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Both operands nullable columns: the verdict is null wherever either row is null, and
+    /// computed on the rows valid in both (points intersect exactly when equal).
+    #[test]
+    fn intersects_propagates_column_pair_nulls() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let a = nullable_point_column(vec![
+            Some((0.0, 0.0)),
+            None,
+            Some((2.0, 2.0)),
+            Some((3.0, 3.0)),
+        ])?;
+        let b = nullable_point_column(vec![
+            Some((0.0, 0.0)),
+            Some((5.0, 5.0)),
+            None,
+            Some((9.0, 9.0)),
+        ])?;
+        let intersects = GeoIntersects::try_new_array(a, b)?.into_array();
+
+        let expected = BoolArray::new(
+            BitBuffer::from_iter([true, false, false, false]),
+            Validity::from_iter([true, false, false, true]),
+        )
+        .into_array();
+        assert_arrays_eq!(intersects, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// An entirely-null geometry column yields an all-null output.
+    #[test]
+    fn intersects_all_null_column_is_all_null() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let points = nullable_point_column(vec![None, None])?;
+        let query = geometry_constant(&donut(), 2)?;
+        let intersects = GeoIntersects::try_new_array(points, query)?.into_array();
+
+        let expected =
+            BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
+        assert_arrays_eq!(intersects, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Two nullable columns whose nulls never line up: the combined mask is empty, so the output
+    /// is all null.
+    #[test]
+    fn intersects_column_pair_all_null() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let a = nullable_point_column(vec![Some((0.0, 0.0)), None])?;
+        let b = nullable_point_column(vec![None, Some((1.0, 1.0))])?;
+        let intersects = GeoIntersects::try_new_array(a, b)?.into_array();
+
+        let expected =
+            BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
+        assert_arrays_eq!(intersects, expected, &mut ctx);
         Ok(())
     }
 

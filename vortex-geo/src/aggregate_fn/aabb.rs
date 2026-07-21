@@ -202,8 +202,20 @@ impl AggregateFnVTable for GeometryAabb {
             Columnar::Canonical(canonical) => canonical.clone().into_array(),
             Columnar::Constant(constant) => constant.clone().into_array(),
         };
-        // Min/max the raw x/y buffers directly - cheap, and avoids `to_geometry`'s panic on empty
-        // points (which decoding each geometry would hit).
+        // Drop null rows before reading coordinates: a null geometry's storage holds placeholder
+        // coordinates (e.g. `(0, 0)`) that would otherwise widen the zone box and drag it toward
+        // the origin. `filter` collapses an all-true mask back to the input, so a null-free batch
+        // passes through unchanged.
+        //
+        // TODO(perf): on nullable data this `filter` compacts the whole column even for a single
+        // null before we min/max it. A validity-aware min/max straight over the raw x/y buffers
+        // would skip that copy. Left as-is for now: this is a write-time zone stat, and the common
+        // non-nullable case already costs nothing (the all-true mask makes `filter` a no-op).
+        let valid = array.validity()?.execute_mask(array.len(), ctx)?;
+        let array = array.filter(valid)?;
+        // Null rows are gone, so every coordinate below belongs to a present geometry — the
+        // `unmasked_field_by_name` reads are therefore safe. Min/max the raw x/y buffers directly:
+        // cheap, and avoids `to_geometry`'s panic on empty points (which decoding would hit).
         let coords = flatten_coordinates(&array, ctx)?;
         let xs = coords
             .unmasked_field_by_name("x")?
@@ -254,6 +266,7 @@ mod tests {
     use crate::test_harness::multilinestring_column;
     use crate::test_harness::multipoint_column;
     use crate::test_harness::multipolygon_column;
+    use crate::test_harness::nullable_point_column;
     use crate::test_harness::point_column;
     use crate::test_harness::polygon_column;
 
@@ -301,6 +314,23 @@ mod tests {
         acc.accumulate(&point_column(vec![-1.0], vec![5.0])?, &mut ctx)?;
 
         assert_eq!(aabb(&acc.finish()?)?, (-1.0, 2.0, 3.0, 5.0));
+        Ok(())
+    }
+
+    /// Null rows contribute no extent: their placeholder coordinates must not widen the box toward
+    /// the origin (matching min/max, which skip nulls).
+    #[test]
+    fn null_rows_do_not_widen_aabb() -> VortexResult<()> {
+        let session = vortex_array::array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        // The valid points sit far from the origin; the null row's storage placeholder is (0, 0).
+        let column = nullable_point_column(vec![Some((5.0, 6.0)), None, Some((7.0, 8.0))])?;
+        let mut acc = Accumulator::try_new(GeometryAabb, EmptyOptions, column.dtype().clone())?;
+        acc.accumulate(&column, &mut ctx)?;
+
+        // The box covers only the two valid points, never (0, 0).
+        assert_eq!(aabb(&acc.finish()?)?, (5.0, 6.0, 7.0, 8.0));
         Ok(())
     }
 
