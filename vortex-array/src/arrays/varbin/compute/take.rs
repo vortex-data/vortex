@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ptr;
+
 use itertools::Itertools as _;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
@@ -21,7 +23,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::SpareBufferWriter;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
@@ -443,7 +444,7 @@ where
     new_offsets.push(NewOffset::zero());
     let mut output_bytes = 0usize;
 
-    for &start in starts {
+    for start in starts {
         let start = start.as_();
         if length == 0 {
             continue;
@@ -475,7 +476,8 @@ where
     }
 
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
-    let mut writer = SpareBufferWriter::new(&mut new_data, output_bytes)?;
+    let spare = &mut new_data.spare_capacity_mut()[..output_bytes];
+    let mut cursor = 0usize;
     for &start in starts {
         let start = start.as_();
         if length == 0 {
@@ -485,9 +487,22 @@ where
         let offset_range = &offsets[start..][..=length];
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
-        writer.copy_slice(&data[byte_start..][..byte_end - byte_start])?;
+        let src = &data[byte_start..][..byte_end - byte_start];
+        // SAFETY: `MaybeUninit<u8>` has the same layout as `u8`, source and destination have
+        // equal lengths, and `spare` exclusively borrows the output buffer so they cannot
+        // overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()].as_mut_ptr().cast::<u8>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
     }
-    writer.finish()?;
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity, and the first
+    // pass over the same offsets computed `output_bytes` as the sum of the copied slice lengths.
+    unsafe { new_data.set_len(cursor) };
 
     let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
         .reinterpret_cast(out_offset_ptype)
@@ -554,7 +569,8 @@ where
     );
 
     let mut new_data = ByteBufferMut::with_capacity(output_bytes);
-    let mut writer = SpareBufferWriter::new(&mut new_data, output_bytes)?;
+    let spare = &mut new_data.spare_capacity_mut()[..output_bytes];
+    let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
@@ -565,9 +581,22 @@ where
         let offset_range = &offsets[start..][..=length];
         let byte_start = offset_range[0].as_();
         let byte_end = offset_range[length].as_();
-        writer.copy_slice(&data[byte_start..][..byte_end - byte_start])?;
+        let src = &data[byte_start..byte_end];
+        // SAFETY: `MaybeUninit<u8>` has the same layout as `u8`, source and destination have
+        // equal lengths, and `spare` exclusively borrows the output buffer so they cannot
+        // overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()].as_mut_ptr().cast::<u8>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
     }
-    writer.finish()?;
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity, and the first
+    // pass over the same offsets computed `output_bytes` as the sum of the copied slice lengths.
+    unsafe { new_data.set_len(cursor) };
 
     let offsets = PrimitiveArray::new(new_offsets.freeze(), Validity::NonNullable)
         .reinterpret_cast(out_offset_ptype)

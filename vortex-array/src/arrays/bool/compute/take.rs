@@ -159,7 +159,7 @@ where
     );
 
     let mut values = BitBufferMut::with_capacity(output_len);
-    for &start in starts {
+    for start in starts {
         let start = start.as_();
         values.append_buffer(&source.slice(start..).slice(..length));
     }

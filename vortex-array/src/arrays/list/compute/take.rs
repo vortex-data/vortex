@@ -463,7 +463,7 @@ where
     }
 
     let mut total = 0usize;
-    for &start in starts {
+    for start in starts {
         let start: usize = start.as_();
         let offset_range = &offsets[start..][..=length];
         let element_start: usize = offset_range[0].as_();
@@ -490,7 +490,7 @@ where
     }
 
     let mut total = 0usize;
-    for &start in starts {
+    for start in starts {
         let start: usize = start.as_();
         let additional = valid_piece_elements_len(offsets, data_validity, start, length)?;
         total = total
@@ -593,7 +593,7 @@ where
     let mut output_elements = 0usize;
 
     new_offsets.push(OutputOffset::zero());
-    for &start in starts {
+    for start in starts {
         let start: usize = start.as_();
         if length == 0 {
             continue;
@@ -658,7 +658,7 @@ where
     };
 
     gather.new_offsets.push(OutputOffset::zero());
-    for &start in starts {
+    for start in starts {
         let start: usize = start.as_();
         if length == 0 {
             continue;

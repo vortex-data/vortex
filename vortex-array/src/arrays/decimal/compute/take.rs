@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ptr;
+
 use itertools::Itertools as _;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -17,7 +19,6 @@ use crate::arrays::DecimalArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::SpareBufferWriter;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::dtype::IntegerPType;
@@ -200,12 +201,25 @@ where
     );
 
     let mut result = BufferMut::<T>::with_capacity(output_len);
-    let mut writer = SpareBufferWriter::new(&mut result, output_len)?;
+    let spare = &mut result.spare_capacity_mut()[..output_len];
+    let mut cursor = 0usize;
     for &start in starts {
         let start = start.as_();
-        writer.copy_slice(&values[start..][..length])?;
+        let src = &values[start..][..length];
+        // SAFETY: `MaybeUninit<T>` has the same layout as `T`, source and destination have equal
+        // lengths, and `spare` exclusively borrows the output buffer so they cannot overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()].as_mut_ptr().cast::<T>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
     }
-    writer.finish()?;
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity, and
+    // `computed_len == output_len` proves the loop filled exactly `output_len` slots.
+    unsafe { result.set_len(cursor) };
     Ok(result.freeze())
 }
 
@@ -221,13 +235,25 @@ where
     T: NativeDecimalType,
 {
     let mut result = BufferMut::<T>::with_capacity(output_len);
-    let mut writer = SpareBufferWriter::new(&mut result, output_len)?;
+    let spare = &mut result.spare_capacity_mut()[..output_len];
+    let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        writer.copy_slice(&values[start..][..length])?;
+        let src = &values[start..][..length];
+        // SAFETY: `MaybeUninit<T>` has the same layout as `T`, source and destination have equal
+        // lengths, and `spare` exclusively borrows the output buffer so they cannot overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()].as_mut_ptr().cast::<T>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
     }
-    writer.finish()?;
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
+    unsafe { result.set_len(cursor) };
     Ok(result.freeze())
 }
 

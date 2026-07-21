@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::ptr;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -23,7 +24,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::piecewise_sequence::SpareBufferWriter;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::varbinview::BinaryView;
@@ -175,12 +175,28 @@ where
     );
 
     let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
-    let mut writer = SpareBufferWriter::new(&mut views, output_len)?;
+    let spare = &mut views.spare_capacity_mut()[..output_len];
+    let mut cursor = 0usize;
     for &start in starts {
         let start = start.as_();
-        writer.copy_slice(&source[start..][..length])?;
+        let src = &source[start..][..length];
+        // SAFETY: `MaybeUninit<BinaryView>` has the same layout as `BinaryView`, source and
+        // destination have equal lengths, and `spare` exclusively borrows the output buffer so
+        // they cannot overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()]
+                    .as_mut_ptr()
+                    .cast::<BinaryView>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
     }
-    writer.finish()?;
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity, and
+    // `computed_len == output_len` proves the loop filled exactly `output_len` slots.
+    unsafe { views.set_len(cursor) };
     Ok(views.freeze())
 }
 
@@ -195,13 +211,33 @@ where
     L: UnsignedPType,
 {
     let mut views = BufferMut::<BinaryView>::with_capacity(output_len);
-    let mut writer = SpareBufferWriter::new(&mut views, output_len)?;
+    let spare = &mut views.spare_capacity_mut()[..output_len];
+    let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        writer.copy_slice(&source[start..][..length])?;
+        let src = &source[start..][..length];
+        // SAFETY: `MaybeUninit<BinaryView>` has the same layout as `BinaryView`, source and
+        // destination have equal lengths, and `spare` exclusively borrows the output buffer so
+        // they cannot overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()]
+                    .as_mut_ptr()
+                    .cast::<BinaryView>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
     }
-    writer.finish()?;
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
+    unsafe { views.set_len(cursor) };
+    vortex_ensure!(
+        views.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        views.len()
+    );
     Ok(views.freeze())
 }
 

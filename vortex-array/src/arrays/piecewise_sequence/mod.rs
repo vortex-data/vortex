@@ -28,14 +28,12 @@ use crate::executor::ExecutionCtx;
 use crate::scalar::PValue;
 
 pub mod array;
-mod spare_buffer_writer;
 mod vtable;
 
 #[cfg(test)]
 mod tests;
 
 pub use array::PiecewiseSequenceArrayExt;
-pub(crate) use spare_buffer_writer::SpareBufferWriter;
 pub use vtable::*;
 
 pub(crate) fn check_index_arrays(
