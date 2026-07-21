@@ -198,7 +198,9 @@ impl Scalar {
     /// Creates a union scalar from a type ID and child scalar.
     ///
     /// The selected child's dtype is verified and then discarded. Its raw value is stored so an
-    /// inner null child remains distinct from a null at the outer union level.
+    /// inner null child remains distinct from a null at the outer union level. Passing a null child
+    /// creates a non-null union with a selected type ID; use [`Scalar::null`] with a nullable
+    /// [`DType::Union`] to create an outer null union with no selected type ID.
     ///
     /// # Errors
     ///

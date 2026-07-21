@@ -116,7 +116,7 @@ impl From<&ScalarValue> for pb::ScalarValue {
             ScalarValue::Union(v) => pb::ScalarValue {
                 kind: Some(Kind::UnionValue(Box::new(PbUnionValue {
                     type_id: u32::from(v.type_id()),
-                    value: Some(Box::new(ScalarValue::to_proto(v.value()))),
+                    value: Some(Box::new(ScalarValue::to_proto(v.child_value()))),
                 }))),
             },
             ScalarValue::Variant(v) => pb::ScalarValue {

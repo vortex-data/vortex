@@ -11,7 +11,6 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::ByteBuffer;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -95,41 +94,96 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "has no default value")]
-    fn default_value_for_non_nullable_union_panics() {
+    fn default_value_for_non_nullable_union_selects_first_variant() -> VortexResult<()> {
         let non_nullable = DType::Union(
-            union_variants(Nullability::NonNullable, Nullability::NonNullable)
-                .vortex_expect("union variants must be valid"),
+            union_variants(Nullability::Nullable, Nullability::NonNullable)?,
             Nullability::NonNullable,
         );
 
-        Scalar::default_value(&non_nullable);
+        let scalar = Scalar::default_value(&non_nullable);
+        let union = scalar.as_union();
+
+        assert!(!scalar.is_null());
+        assert!(!union.is_null());
+        assert_eq!(union.type_id(), Some(5));
+        assert!(union.child().is_some_and(|child| child.is_null()));
+        assert_eq!(scalar.is_zero(), None);
+
+        Ok(())
     }
 
     #[test]
-    #[should_panic(expected = "has no non-null zero value")]
-    fn union_has_no_zero_value() {
+    fn union_zero_value_selects_first_variant() -> VortexResult<()> {
         let dtype = DType::Union(
-            union_variants(Nullability::NonNullable, Nullability::NonNullable)
-                .vortex_expect("union variants must be valid"),
-            Nullability::NonNullable,
+            union_variants(Nullability::Nullable, Nullability::NonNullable)?,
+            Nullability::Nullable,
         );
 
-        Scalar::zero_value(&dtype);
+        let scalar = Scalar::zero_value(&dtype);
+        let union = scalar.as_union();
+
+        assert!(!scalar.is_null());
+        assert!(!union.is_null());
+        assert_eq!(union.type_id(), Some(5));
+        assert_eq!(
+            union.child(),
+            Some(Scalar::primitive(0_i32, Nullability::Nullable))
+        );
+        assert_eq!(scalar.is_zero(), Some(true));
+
+        Ok(())
     }
 
     #[test]
-    fn union_is_zero_does_not_inspect_selected_child() -> VortexResult<()> {
-        let variants = union_variants(Nullability::NonNullable, Nullability::NonNullable)?;
+    fn union_has_no_zero_value_when_first_variant_is_null() -> VortexResult<()> {
+        let variants = UnionVariants::try_new(
+            ["null", "int"].into(),
+            vec![
+                DType::Null,
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            ],
+            vec![5, 9],
+        )?;
+        let dtype = DType::Union(variants.clone(), Nullability::NonNullable);
         let scalar = Scalar::union(
+            variants,
+            5,
+            Scalar::null(DType::Null),
+            Nullability::NonNullable,
+        )?;
+
+        assert_eq!(ScalarValue::try_zero_value(&dtype), None);
+        assert_eq!(scalar.is_zero(), None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn union_is_zero_requires_first_variant_and_zero_child() -> VortexResult<()> {
+        let variants = union_variants(Nullability::NonNullable, Nullability::NonNullable)?;
+        let first_zero = Scalar::union(
             variants.clone(),
             5,
             Scalar::from(0_i32),
             Nullability::NonNullable,
         )?;
+        let first_nonzero = Scalar::union(
+            variants.clone(),
+            5,
+            Scalar::from(1_i32),
+            Nullability::NonNullable,
+        )?;
+        let second_zero = Scalar::union(
+            variants.clone(),
+            9,
+            Scalar::from(""),
+            Nullability::NonNullable,
+        )?;
         let null = Scalar::null(DType::Union(variants, Nullability::Nullable));
 
-        assert_eq!(scalar.is_zero(), Some(false));
+        assert_eq!(first_zero.is_zero(), Some(true));
+        assert_eq!(first_nonzero.is_zero(), Some(false));
+        assert_eq!(second_zero.is_zero(), Some(false));
         assert_eq!(null.is_zero(), None);
 
         Ok(())

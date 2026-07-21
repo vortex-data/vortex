@@ -420,7 +420,7 @@ mod tests {
         assert_eq!(
             unchanged_child
                 .as_union()
-                .value()
+                .child()
                 .map(|scalar| scalar.dtype().clone()),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable))
         );
@@ -428,7 +428,7 @@ mod tests {
         assert_eq!(
             changed_child
                 .as_union()
-                .value()
+                .child()
                 .map(|scalar| scalar.dtype().clone()),
             Some(DType::Utf8(Nullability::Nullable))
         );
@@ -482,7 +482,7 @@ mod tests {
         let cast = scalar.cast(&target_dtype)?;
         let selected_child = cast
             .as_union()
-            .value()
+            .child()
             .vortex_expect("present union must have a selected child");
 
         assert_eq!(cast.dtype(), &target_dtype);
@@ -531,7 +531,7 @@ mod tests {
         assert_eq!(cast.dtype(), &target_dtype);
         assert_eq!(union.dtype(), &target_union_dtype);
         assert_eq!(
-            union.as_union().value(),
+            union.as_union().child(),
             Some(Scalar::primitive(42_i32, Nullability::Nullable))
         );
 
@@ -605,7 +605,7 @@ mod tests {
         assert_eq!(
             nullable
                 .as_union()
-                .value()
+                .child()
                 .map(|scalar| scalar.dtype().clone()),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable))
         );

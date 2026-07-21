@@ -9,6 +9,7 @@ use std::fmt::Formatter;
 use itertools::Itertools;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
@@ -51,7 +52,7 @@ impl ScalarValue {
     }
 
     /// Returns the non-null zero value for `dtype`, or [`None`] if no such value exists.
-    fn try_zero_value(dtype: &DType) -> Option<Self> {
+    pub(super) fn try_zero_value(dtype: &DType) -> Option<Self> {
         Some(match dtype {
             DType::Null => return None,
             DType::Bool(_) => Self::Bool(false),
@@ -73,7 +74,17 @@ impl ScalarValue {
                     .collect::<Option<Vec<_>>>()?;
                 Self::Tuple(field_values)
             }
-            DType::Union(..) => return None,
+            DType::Union(variants, _) => {
+                let child_dtype = variants
+                    .variant_by_index(0)
+                    .vortex_expect("union must have at least one variant");
+                let child_value = Self::try_zero_value(&child_dtype)?;
+
+                Self::Union(UnionValue::new(
+                    variants.child_index_to_tag(0),
+                    Some(child_value),
+                ))
+            }
             DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "zero" extension value (since we have no idea
@@ -114,7 +125,14 @@ impl ScalarValue {
                     .collect::<Option<Vec<_>>>()?;
                 Self::Tuple(field_values)
             }
-            DType::Union(..) => return None,
+            DType::Union(variants, _) => {
+                let child_dtype = variants
+                    .variant_by_index(0)
+                    .vortex_expect("union must have at least one variant");
+                let child_value = Self::try_default_value(&child_dtype)?;
+
+                Self::Union(UnionValue::new(variants.child_index_to_tag(0), child_value))
+            }
             DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "default" extension value (since we have no idea
@@ -174,7 +192,7 @@ impl Display for ScalarValue {
             }
             ScalarValue::Union(value) => {
                 write!(f, "union@{}(", value.type_id())?;
-                match value.value() {
+                match value.child_value() {
                     Some(value) => write!(f, "{value}"),
                     None => write!(f, "null"),
                 }?;

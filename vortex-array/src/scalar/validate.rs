@@ -136,7 +136,7 @@ impl Scalar {
                     .variant_by_index(child_index)
                     .vortex_expect("resolved union child index must be valid");
 
-                Self::validate(&child_dtype, union_value.value()).map_err(|error| {
+                Self::validate(&child_dtype, union_value.child_value()).map_err(|error| {
                     vortex_error::vortex_err!(
                         "union value for type ID {type_id} is invalid for dtype {child_dtype}: \
                          {error}"

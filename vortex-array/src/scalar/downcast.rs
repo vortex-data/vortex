@@ -168,7 +168,13 @@ impl Scalar {
             .vortex_expect("Failed to convert scalar to union")
     }
 
-    /// Returns a view of the scalar as a union scalar if it has a union type.
+    /// Returns a view of the scalar as a union scalar if it has a union dtype.
+    ///
+    /// [`None`] means the scalar's dtype is not [`DType::Union`](crate::dtype::DType); it does not
+    /// describe the scalar's nullness.
+    ///
+    /// An outer null union still returns `Some(UnionScalar)` and can be inspected with
+    /// [`UnionScalar::is_null`](crate::scalar::UnionScalar::is_null).
     pub fn as_union_opt(&self) -> Option<UnionScalar<'_>> {
         if !self.dtype().is_union() {
             return None;

@@ -19,8 +19,9 @@ use crate::dtype::FieldNames;
 /// Type information for a union array.
 ///
 /// A `UnionVariants` describes the possible alternative types for each row of a union, along with a
-/// per-variant `u8` type tag. We use the term **variants** (rather than "fields") because a union
-/// is a sum type: each row chooses exactly one alternative.
+/// per-variant `u8` type tag. A union must contain at least one variant. We use the term
+/// **variants** (rather than "fields") because a union is a sum type: each row chooses exactly one
+/// alternative.
 ///
 /// By default, tag `i` selects the child at offset `i` (`type_ids = [0, 1, ..., N-1]`). Vortex uses
 /// unsigned tags and supports up to 256 variants.
@@ -164,22 +165,7 @@ impl UnionVariants {
     }
 }
 
-impl Default for UnionVariants {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
-
 impl UnionVariants {
-    /// The variants of the empty union.
-    pub fn empty() -> Self {
-        Self(Arc::new(UnionVariantsInner::from_fields(
-            FieldNames::default(),
-            Arc::from([]),
-            Arc::from([]),
-        )))
-    }
-
     /// Validate that `names`, `dtypes`, and `type_ids` are mutually consistent.
     fn validate_shape(names: &FieldNames, n_dtypes: usize, type_ids: &[u8]) -> VortexResult<()> {
         vortex_ensure_eq!(
@@ -195,6 +181,10 @@ impl UnionVariants {
             "length mismatch between names ({}) and type_ids ({})",
             names.len(),
             type_ids.len()
+        );
+        vortex_ensure!(
+            !names.is_empty(),
+            "union must have at least one variant (for now)"
         );
 
         vortex_ensure!(
@@ -221,8 +211,9 @@ impl UnionVariants {
     ///
     /// # Errors
     ///
-    /// Returns an error if names, dtypes, or type IDs do not all have the same length, or if there
-    /// are any duplicate names or type IDs, or if there are more than 256 variants.
+    /// Returns an error if the union has no variants, if names, dtypes, or type IDs do not all have
+    /// the same length, if there are any duplicate names or type IDs, or if there are more than 256
+    /// variants.
     pub fn try_new(names: FieldNames, dtypes: Vec<DType>, type_ids: Vec<u8>) -> VortexResult<Self> {
         Self::validate_shape(&names, dtypes.len(), &type_ids)?;
 
@@ -238,8 +229,8 @@ impl UnionVariants {
     ///
     /// # Errors
     ///
-    /// `names` and `dtypes` must have the same length, and `names.len()` cannot be more than
-    /// `u8::MAX as usize + 1` (256).
+    /// The union must have at least one variant, `names` and `dtypes` must have the same length, and
+    /// `names.len()` cannot be more than `u8::MAX as usize + 1` (256).
     pub fn new(names: FieldNames, dtypes: Vec<DType>) -> VortexResult<Self> {
         const MAX_VARIANTS: usize = u8::MAX as usize + 1;
         vortex_ensure!(
@@ -265,8 +256,9 @@ impl UnionVariants {
     ///
     /// # Errors
     ///
-    /// Returns an error if names, dtypes, or type IDs do not all have the same length, or if there
-    /// are any duplicate names or type IDs, or if there are more than 256 variants.
+    /// Returns an error if the union has no variants, if names, dtypes, or type IDs do not all have
+    /// the same length, if there are any duplicate names or type IDs, or if there are more than 256
+    /// variants.
     pub(crate) fn try_from_fields(
         names: FieldNames,
         dtypes: Vec<FieldDType>,
@@ -330,7 +322,7 @@ impl UnionVariants {
         )
     }
 
-    /// Get the [`DType`] of a variant by offset.
+    /// Get the [`DType`] of a variant by offset, or [`None`] if `index` is out of bounds.
     pub fn variant_by_index(&self, index: usize) -> Option<DType> {
         Some(
             self.0
@@ -600,11 +592,19 @@ mod tests {
     }
 
     #[test]
-    fn test_empty() {
-        let v = UnionVariants::empty();
-        assert!(v.is_empty());
-        assert_eq!(v.len(), 0);
-        assert_eq!(v.type_ids(), &[] as &[u8]);
-        assert!(v.is_consecutive());
+    fn test_empty_rejected() {
+        let error = UnionVariants::new(FieldNames::default(), vec![]).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("union must have at least one variant")
+        );
+
+        let error = UnionVariants::try_new(FieldNames::default(), vec![], vec![]).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("union must have at least one variant")
+        );
     }
 }

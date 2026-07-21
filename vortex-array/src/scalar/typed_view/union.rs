@@ -49,9 +49,13 @@ impl UnionValue {
         self.type_id
     }
 
-    /// Returns the selected variant's raw value, or [`None`] if the selected child is null.
+    /// Returns the selected variant's raw value.
+    ///
+    /// [`None`] represents an inner null: the enclosing union is present and still has this
+    /// [`UnionValue`]'s type ID, but its selected child is null. Outer null unions have no
+    /// [`UnionValue`] and therefore cannot be observed through this method.
     #[inline]
-    pub fn value(&self) -> Option<&ScalarValue> {
+    pub fn child_value(&self) -> Option<&ScalarValue> {
         self.value.as_deref()
     }
 }
@@ -60,17 +64,19 @@ impl UnionValue {
 ///
 /// A present union scalar carries a type ID and the raw value of the selected variant. An outer
 /// null union scalar has neither because outer nullness is represented by the enclosing [`Scalar`].
+/// A present union may select a nullable child whose value is an inner null; in that case the union
+/// still has a type ID and [`Self::is_null`] returns `false`.
 #[derive(Debug, Clone, Copy)]
 pub struct UnionScalar<'a> {
     /// The data type of this scalar.
     dtype: &'a DType,
-    /// The selected union value, or [`None`] if the union scalar is null.
+    /// The selected union value, or [`None`] if the union scalar is outer null.
     value: Option<&'a UnionValue>,
 }
 
 impl Display for UnionScalar<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let Some(value) = self.value() else {
+        let Some(value) = self.child() else {
             return write!(f, "null");
         };
         let name = self
@@ -91,6 +97,9 @@ impl Eq for UnionScalar<'_> {}
 
 impl<'a> UnionScalar<'a> {
     /// Attempts to create a union scalar view from a [`DType`] and optional [`ScalarValue`].
+    ///
+    /// A `None` value represents an outer null union. An inner null is represented by a present
+    /// [`ScalarValue::Union`] whose selected child value is `None`.
     ///
     /// # Errors
     ///
@@ -132,6 +141,8 @@ impl<'a> UnionScalar<'a> {
     }
 
     /// Returns the variants of this union scalar.
+    ///
+    /// The variants are part of the dtype and are available even when the union is outer null.
     #[inline]
     pub fn variants(&self) -> &'a UnionVariants {
         self.dtype
@@ -145,37 +156,49 @@ impl<'a> UnionScalar<'a> {
         self.dtype.nullability()
     }
 
-    /// Returns true if this union scalar is null.
+    /// Returns true if this union scalar is outer null.
+    ///
+    /// This does not inspect the selected child. A non-null union containing an inner null child
+    /// returns `false`.
     #[inline]
     pub fn is_null(&self) -> bool {
         self.value.is_none()
     }
 
-    /// Returns the selected type ID, or `None` if this scalar is null.
+    /// Returns the selected type ID, or `None` if this scalar is outer null.
+    ///
+    /// A non-null union containing an inner null child still returns its selected type ID.
     #[inline]
     pub fn type_id(&self) -> Option<u8> {
         Some(self.value?.type_id())
     }
 
-    /// Returns the selected variant's child index, or `None` if this scalar is null.
+    /// Returns the selected variant's child index, or [`None`] if this union is outer null.
+    ///
+    /// A union containing an inner null child is still present and returns `Some(index)`.
     pub fn child_index(&self) -> Option<usize> {
         self.variants().tag_to_child_index(self.type_id()?)
     }
 
-    /// Returns the selected variant's name, or `None` if this scalar is null.
+    /// Returns the selected variant's name, or [`None`] if this union is outer null.
+    ///
+    /// A union containing an inner null child is still present and returns `Some(name)`.
     pub fn variant_name(&self) -> Option<&'a FieldName> {
         self.variants().names().get(self.child_index()?)
     }
 
-    /// Returns the selected variant's dtype, or `None` if this scalar is null.
+    /// Returns the selected variant's dtype, or [`None`] if this union is outer null.
+    ///
+    /// A union containing an inner null child is still present and returns `Some(dtype)`.
     pub fn variant_dtype(&self) -> Option<DType> {
         self.variants().variant_by_index(self.child_index()?)
     }
 
     /// Returns the selected child scalar, or [`None`] if the outer union scalar is null.
     ///
-    /// A selected null child is returned as a present, null [`Scalar`].
-    pub fn value(&self) -> Option<Scalar> {
+    /// The outer [`Option`] describes the union's outer nullness. A selected inner null child is
+    /// returned as `Some(child)`, where `child.is_null()` is `true`.
+    pub fn child(&self) -> Option<Scalar> {
         let union_value = self.value?;
         let child_dtype = self
             .variant_dtype()
@@ -183,7 +206,7 @@ impl<'a> UnionScalar<'a> {
 
         // SAFETY: Construction of this `UnionScalar` guarantees that its type ID resolves to this
         // child dtype and that the raw child value recursively validates against it.
-        Some(unsafe { Scalar::new_unchecked(child_dtype, union_value.value().cloned()) })
+        Some(unsafe { Scalar::new_unchecked(child_dtype, union_value.child_value().cloned()) })
     }
 }
 
@@ -223,13 +246,13 @@ mod tests {
         assert_eq!(union.child_index(), Some(0));
         assert_eq!(union.variant_name().map(AsRef::as_ref), Some("int"));
         assert_eq!(union.nullability(), Nullability::Nullable);
-        assert_eq!(union.value(), Some(child));
+        assert_eq!(union.child(), Some(child));
         assert_eq!(
             scalar
                 .value()
                 .vortex_expect("union must have an outer value")
                 .as_union()
-                .value(),
+                .child_value(),
             Some(&ScalarValue::Primitive(42_i32.into()))
         );
 
@@ -248,13 +271,13 @@ mod tests {
         let union = scalar.as_union();
         assert!(!union.is_null());
         assert_eq!(union.type_id(), Some(5));
-        assert!(union.value().is_some_and(|scalar| scalar.is_null()));
+        assert!(union.child().is_some_and(|scalar| scalar.is_null()));
         assert!(
             scalar
                 .value()
                 .vortex_expect("union must have an outer value")
                 .as_union()
-                .value()
+                .child_value()
                 .is_none()
         );
 
@@ -262,7 +285,7 @@ mod tests {
         let outer_union = outer_null.as_union();
         assert!(outer_union.is_null());
         assert_eq!(outer_union.type_id(), None);
-        assert_eq!(outer_union.value(), None);
+        assert_eq!(outer_union.child(), None);
 
         Ok(())
     }
