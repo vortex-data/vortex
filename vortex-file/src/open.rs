@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use futures::executor::block_on;
-use parking_lot::RwLock;
 use vortex_array::dtype::DType;
 use vortex_array::memory::MemorySessionExt;
 use vortex_array::session::ArraySessionExt;
@@ -41,6 +40,11 @@ use crate::segments::RequestMetrics;
 
 const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
+struct FooterRead {
+    footer: Footer,
+    initial_segments: HashMap<SegmentId, ByteBuffer>,
+}
+
 /// Open options for a Vortex file reader.
 ///
 /// Options are session-bound because opening a file may need array, layout, dtype, runtime, and
@@ -48,6 +52,7 @@ const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 ///
 /// The opener first resolves a [`Footer`], then creates a segment source for later scans. Known
 /// file metadata can be supplied up front to avoid IO during footer discovery.
+#[derive(Clone)]
 pub struct VortexOpenOptions {
     /// The session to use for opening the file.
     session: VortexSession,
@@ -61,8 +66,6 @@ pub struct VortexOpenOptions {
     dtype: Option<DType>,
     /// An optional, externally provided, file layout.
     footer: Option<Footer>,
-    /// The segments read during the initial read.
-    initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
     /// A metrics registry for the file.
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Default labels applied to all the file's metrics
@@ -101,7 +104,6 @@ pub trait OpenOptionsSessionExt:
             file_size: None,
             dtype: None,
             footer: None,
-            initial_read_segments: Default::default(),
             metrics_registry: None,
             labels: Vec::default(),
             cache_layout_reader: false,
@@ -247,7 +249,7 @@ impl VortexOpenOptions {
 
         let footer = match opts.footer.take() {
             Some(footer) => footer,
-            None => block_on(opts.read_footer(&buffer))?,
+            None => block_on(opts.read_footer(&buffer))?.footer,
         };
         footer.validate_file_size(buffer.len() as u64)?;
 
@@ -277,18 +279,24 @@ impl VortexOpenOptions {
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultMetricsRegistry::default()));
 
-        let footer = if let Some(footer) = self.footer {
+        let FooterRead {
+            footer,
+            initial_segments,
+        } = if let Some(footer) = self.footer {
             if let Some(file_size) = self.file_size {
                 footer.validate_file_size(file_size)?;
             }
-            footer
+            FooterRead {
+                footer,
+                initial_segments: HashMap::default(),
+            }
         } else {
             self.read_footer(&reader).await?
         };
 
         let segment_cache = Arc::new(InstrumentedSegmentCache::new(
             InitialReadSegmentCache {
-                initial: self.initial_read_segments,
+                initial: initial_segments,
                 fallback: segment_cache,
             },
             metrics_registry.as_ref(),
@@ -319,7 +327,7 @@ impl VortexOpenOptions {
         })
     }
 
-    async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<Footer> {
+    async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<FooterRead> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => read.size().await?,
@@ -367,23 +375,26 @@ impl VortexOpenOptions {
         // If the initial read happened to cover any segments, then we can populate the
         // segment cache
         let initial_offset = file_size - (deserializer.buffer().len() as u64);
-        self.populate_initial_segments(initial_offset, deserializer.buffer(), &footer)?;
+        let initial_segments =
+            Self::collect_initial_segments(initial_offset, deserializer.buffer(), &footer)?;
 
-        Ok(footer)
+        Ok(FooterRead {
+            footer,
+            initial_segments,
+        })
     }
 
-    /// Populate segments in the cache that were covered by the initial read.
-    fn populate_initial_segments(
-        &self,
+    /// Collect segments that were covered by the initial read.
+    fn collect_initial_segments(
         initial_offset: u64,
         initial_read: &ByteBuffer,
         footer: &Footer,
-    ) -> VortexResult<()> {
+    ) -> VortexResult<HashMap<SegmentId, ByteBuffer>> {
         let first_idx = footer
             .segment_map()
             .partition_point(|segment| segment.offset < initial_offset);
 
-        let mut initial_read_segments = self.initial_read_segments.write();
+        let mut initial_read_segments = HashMap::default();
 
         for idx in first_idx..footer.segment_map().len() {
             let segment = &footer.segment_map()[idx];
@@ -410,7 +421,7 @@ impl VortexOpenOptions {
             initial_read_segments.insert(segment_id, buffer);
         }
 
-        Ok(())
+        Ok(initial_read_segments)
     }
 }
 
@@ -613,14 +624,14 @@ mod tests {
         );
     }
 
-    /// `populate_initial_segments` must bounds-check the segment map against the initial read rather
+    /// `collect_initial_segments` must bounds-check the segment map against the initial read rather
     /// than slicing unchecked, so a segment larger than the read returns an error (see issue #8819).
     #[tokio::test]
-    async fn populate_initial_segments_rejects_out_of_bounds_segment() -> VortexResult<()> {
+    async fn collect_initial_segments_rejects_out_of_bounds_segment() -> VortexResult<()> {
         let session = test_session();
 
         // A valid root layout is obtained by writing and parsing a small file.
-        // `populate_initial_segments` only consults the segment map, so the layout is irrelevant.
+        // `collect_initial_segments` only consults the segment map, so the layout is irrelevant.
         let mut buf = ByteBufferMut::empty();
         let array = Buffer::from((0i32..16).collect::<Vec<i32>>()).into_array();
         session
@@ -630,7 +641,8 @@ mod tests {
         let footer = session
             .open_options()
             .read_footer(&ByteBuffer::from(buf))
-            .await?;
+            .await?
+            .footer;
 
         // Build a footer whose sole segment is far larger than the initial read below.
         let bad_segments: Arc<[SegmentSpec]> = Arc::from([SegmentSpec {
@@ -646,12 +658,9 @@ mod tests {
         );
 
         let initial_read = ByteBuffer::zeroed(16);
-        let Err(err) =
-            session
-                .open_options()
-                .populate_initial_segments(0, &initial_read, &bad_footer)
+        let Err(err) = VortexOpenOptions::collect_initial_segments(0, &initial_read, &bad_footer)
         else {
-            vortex_bail!("populating an out-of-bounds segment must return an error");
+            vortex_bail!("collecting an out-of-bounds segment must return an error");
         };
         assert!(
             err.to_string().contains("out of bounds"),
