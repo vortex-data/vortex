@@ -74,23 +74,6 @@ pub struct VortexOpenOptions {
     cache_layout_reader: bool,
 }
 
-impl Clone for VortexOpenOptions {
-    fn clone(&self) -> Self {
-        Self {
-            session: self.session.clone(),
-            segment_cache: self.segment_cache.clone(),
-            initial_read_size: self.initial_read_size,
-            file_size: self.file_size,
-            dtype: self.dtype.clone(),
-            footer: self.footer.clone(),
-            initial_read_segments: RwLock::new(self.initial_read_segments.read().clone()),
-            metrics_registry: self.metrics_registry.clone(),
-            labels: self.labels.clone(),
-            cache_layout_reader: self.cache_layout_reader,
-        }
-    }
-}
-
 /// Extension trait for constructing [`VortexOpenOptions`] from a session.
 pub trait OpenOptionsSessionExt:
     ArraySessionExt + LayoutSessionExt + RuntimeSessionExt + MemorySessionExt
