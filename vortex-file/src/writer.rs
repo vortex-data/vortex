@@ -164,8 +164,8 @@ impl VortexWriteOptions {
         // parallel and with an empty context they can register their encodings to the context
         // in different order, changing the written bytes from run to run.
         let ctx = ArrayContext::new(ALLOWED_ENCODINGS.iter().cloned().sorted().collect())
-            // Configure a registry just to ensure only known encodings are interned.
-            .with_registry(self.session.arrays().registry().clone());
+            // Only permit encodings known to the session.
+            .with_valid_ids(self.session.arrays().registry().ids());
         let dtype = stream.dtype().clone();
 
         let (mut ptr, eof) = SequenceId::root().split();
