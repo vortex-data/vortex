@@ -41,10 +41,8 @@ pub(super) fn validate_union_components(
         type_ids.len()
     );
 
-    for (index, (variant_dtype, child)) in variants
-        .variants()
-        .zip(variant_arrays.iter().copied())
-        .enumerate()
+    for (index, (variant_dtype, child)) in
+        variants.variants().zip(variant_arrays.iter()).enumerate()
     {
         vortex_ensure_eq!(
             child.len(),
