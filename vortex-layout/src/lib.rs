@@ -42,4 +42,4 @@ mod strategy;
 mod test;
 pub mod vtable;
 
-pub type LayoutContext = Context<LayoutEncodingRef>;
+pub type LayoutContext = Context;

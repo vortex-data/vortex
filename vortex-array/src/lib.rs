@@ -190,4 +190,4 @@ pub fn legacy_session() -> &'static VortexSession {
     &LEGACY_SESSION
 }
 
-pub type ArrayContext = Context<ArrayPluginRef>;
+pub type ArrayContext = Context;
