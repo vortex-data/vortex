@@ -265,6 +265,8 @@ impl ReadFlatBuffer for PostscriptSegment {
         Ok(PostscriptSegment {
             offset: fb.offset(),
             length: fb.length(),
+            // The alignment exponent comes from the file and may be corrupt, so validate it rather
+            // than panicking on a too-large shift (see issue #8819).
             alignment: Alignment::try_from_exponent(fb.alignment_exponent())?,
         })
     }

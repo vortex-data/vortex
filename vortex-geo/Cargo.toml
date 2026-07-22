@@ -30,10 +30,20 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 wkb = { workspace = true }
 
+[features]
+# Exposes the `test_harness` module to benches; not part of the public API.
+_test-harness = []
+
 [dev-dependencies]
+divan = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-geo = { path = ".", features = ["_test-harness"] }
 vortex-layout = { workspace = true }
+
+[[bench]]
+name = "envelope"
+harness = false
 
 [lints]
 workspace = true

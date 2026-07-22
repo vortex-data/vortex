@@ -445,7 +445,10 @@ impl DType {
         }
     }
 
-    /// Get the [`UnionVariants`] if `self` is a [`DType::Union`], otherwise `None`.
+    /// Get the [`UnionVariants`] if `self` is a [`DType::Union`], otherwise [`None`].
+    ///
+    /// This [`Option`] only represents whether the dtype is a union; Union nullability does not
+    /// affect the result.
     pub fn as_union_variants_opt(&self) -> Option<&UnionVariants> {
         if let Union(uv, _) = self {
             Some(uv)
@@ -454,7 +457,7 @@ impl DType {
         }
     }
 
-    /// Owned version of [Self::as_union_variants_opt].
+    /// Owned version of [`Self::as_union_variants_opt`].
     pub fn into_union_variants_opt(self) -> Option<UnionVariants> {
         if let Union(uv, _) = self {
             Some(uv)

@@ -4,6 +4,7 @@
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
 
+use std::ptr;
 use std::sync::LazyLock;
 
 use itertools::Itertools as _;
@@ -245,12 +246,24 @@ where
     L: UnsignedPType,
 {
     let mut values = BufferMut::<T>::with_capacity(output_len);
+    let spare = &mut values.spare_capacity_mut()[..output_len];
+    let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        values.extend_from_slice(&source[start..][..length]);
+        let src = &source[start..][..length];
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()].as_mut_ptr().cast::<T>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
     }
-
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
+    unsafe { values.set_len(cursor) };
     vortex_ensure!(
         values.len() == output_len,
         "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
@@ -312,11 +325,28 @@ where
     );
 
     let mut values = BufferMut::<T>::with_capacity(output_len);
+    let spare = &mut values.spare_capacity_mut()[..output_len];
+    let mut cursor = 0usize;
     for &start in starts {
         let start = start.as_();
-        values.extend_from_slice(&source[start..][..length]);
+        let src = &source[start..][..length];
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()].as_mut_ptr().cast::<T>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
     }
-
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
+    unsafe { values.set_len(cursor) };
+    vortex_ensure!(
+        values.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        values.len()
+    );
     Ok(values.freeze())
 }
 

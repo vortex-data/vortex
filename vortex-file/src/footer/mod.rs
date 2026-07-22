@@ -221,6 +221,11 @@ impl Footer {
         self.root_layout.row_count()
     }
 
+    /// Validate that every segment declared in the footer lies within a file of `file_size` bytes.
+    pub(crate) fn validate_file_size(&self, file_size: u64) -> VortexResult<()> {
+        validate_segments_within_file(&self.segments, file_size)
+    }
+
     /// Returns a serializer for this footer.
     pub fn into_serializer(self) -> FooterSerializer {
         FooterSerializer::new(self)
@@ -229,5 +234,62 @@ impl Footer {
     /// Create a deserializer for a Vortex file footer.
     pub fn deserializer(eof_buffer: ByteBuffer, session: VortexSession) -> FooterDeserializer {
         FooterDeserializer::new(eof_buffer, session)
+    }
+}
+
+/// Validate that every segment declared in the footer lies within a file of `file_size` bytes.
+///
+/// A corrupt or malicious file can declare a segment whose offset or length extends past the end
+/// of the file. Rejecting such files up front ensures that later slicing of the backing buffer
+/// returns a [`VortexError`](vortex_error::VortexError) rather than panicking (see issue #8819).
+fn validate_segments_within_file(segments: &[SegmentSpec], file_size: u64) -> VortexResult<()> {
+    for segment in segments {
+        let within_file = segment
+            .offset
+            .checked_add(segment.length as u64)
+            .is_some_and(|end| end <= file_size);
+        if !within_file {
+            vortex_bail!(
+                "Segment at offset {} with length {} extends past the end of the \
+                 {file_size}-byte file",
+                segment.offset,
+                segment.length,
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::Alignment;
+
+    use super::*;
+
+    fn segment(offset: u64, length: u32) -> SegmentSpec {
+        SegmentSpec {
+            offset,
+            length,
+            alignment: Alignment::none(),
+        }
+    }
+
+    #[test]
+    fn accepts_segments_within_file() -> VortexResult<()> {
+        validate_segments_within_file(&[segment(0, 100), segment(100, 50)], 150)?;
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_segment_extending_past_end_of_file() {
+        let err =
+            validate_segments_within_file(&[segment(0, 100), segment(100, 51)], 150).unwrap_err();
+        assert!(err.to_string().contains("past the end"), "{err}");
+    }
+
+    #[test]
+    fn rejects_segment_offset_length_overflow() {
+        let err = validate_segments_within_file(&[segment(u64::MAX, 1)], u64::MAX).unwrap_err();
+        assert!(err.to_string().contains("past the end"), "{err}");
     }
 }

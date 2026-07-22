@@ -571,10 +571,10 @@ fn non_nan_check(
     proof: impl FnOnce(&Expression) -> NanCheck,
 ) -> VortexResult<NanCheck> {
     if let Some(scalar) = expr.as_opt::<Literal>() {
-        let Some(value) = scalar.as_primitive_opt() else {
+        if !scalar.dtype().is_float() {
             return Ok(NanCheck::NotNeeded);
-        };
-        return Ok(if value.is_nan() {
+        }
+        return Ok(if scalar.as_primitive().is_nan() {
             NanCheck::Check(lit(false))
         } else {
             NanCheck::NotNeeded
@@ -597,7 +597,7 @@ fn non_nan_check(
 }
 
 fn has_nans(dtype: &DType) -> bool {
-    matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
+    dtype.is_float()
 }
 
 fn stat_expr(expr: &Expression, stat: Stat, ctx: &StatsRewriteCtx<'_>) -> Option<Expression> {

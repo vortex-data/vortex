@@ -14,7 +14,6 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
 use vortex::array::ArrayContext;
-use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::DeserializeMetadata;
@@ -26,8 +25,6 @@ use vortex::array::expr::Expression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
 use vortex::array::expr::stats::StatsProvider;
-use vortex::array::normalize::NormalizeOptions;
-use vortex::array::normalize::Operation;
 use vortex::array::serde::SerializeOptions;
 use vortex::array::serde::SerializedArray;
 use vortex::array::stats::StatsSetRef;
@@ -68,7 +65,6 @@ use vortex::session::VortexSession;
 use vortex::session::registry::CachedId;
 use vortex::session::registry::ReadContext;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex::utils::aliases::hash_set::HashSet;
 
 /// A buffer inlined into layout metadata for host-side access.
 #[derive(Clone, prost::Message)]
@@ -403,8 +399,6 @@ pub struct CudaFlatLayoutStrategy {
     pub include_padding: bool,
     /// Maximum length of variable length statistics.
     pub max_variable_length_statistics_size: usize,
-    /// Optional set of allowed array encodings for normalization.
-    pub allowed_encodings: Option<HashSet<ArrayId>>,
 }
 
 impl Default for CudaFlatLayoutStrategy {
@@ -412,7 +406,6 @@ impl Default for CudaFlatLayoutStrategy {
         Self {
             include_padding: true,
             max_variable_length_statistics_size: 64,
-            allowed_encodings: None,
         }
     }
 }
@@ -425,11 +418,6 @@ impl CudaFlatLayoutStrategy {
 
     pub fn with_max_variable_length_statistics_size(mut self, size: usize) -> Self {
         self.max_variable_length_statistics_size = size;
-        self
-    }
-
-    pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
-        self.allowed_encodings = Some(allow_encodings);
         self
     }
 }
@@ -507,15 +495,6 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
             }
             _ => {}
         }
-
-        let chunk = if let Some(allowed) = &options.allowed_encodings {
-            chunk.normalize(&mut NormalizeOptions {
-                allowed,
-                operation: Operation::Error,
-            })?
-        } else {
-            chunk
-        };
 
         // Scan for constant array buffers before serialization (while data is still on host).
         let host_buffers = extract_constant_buffers(&chunk);

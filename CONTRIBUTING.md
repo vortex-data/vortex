@@ -59,6 +59,7 @@ At the time of writing, the following individuals serve as Committers (non-votin
 9. Onur Satici
 10. Xinyu Zeng
 11. Alfonso Subiotto
+12. Lorenz Hübschle
 
 ### Maintainers
 
@@ -70,6 +71,8 @@ At the time of writing, the following individuals serve as Committers & Maintain
 4. Robert Kruszewski
 5. Wes McKinney
 6. Will Manning (chair)
+7. Frederic Branczyk
+8. Benjamin Wagner
 
 ## Coding style
 

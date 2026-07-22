@@ -4,13 +4,10 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::ArrayContext;
-use vortex_array::ArrayId;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
-use vortex_array::normalize::NormalizeOptions;
-use vortex_array::normalize::Operation;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
@@ -24,7 +21,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
@@ -43,9 +39,6 @@ pub struct FlatLayoutStrategy {
     pub include_padding: bool,
     /// Maximum length of variable length statistics
     pub max_variable_length_statistics_size: usize,
-    /// Optional set of allowed array encodings for normalization.
-    /// If None, then all are allowed.
-    pub allowed_encodings: Option<HashSet<ArrayId>>,
 }
 
 impl Default for FlatLayoutStrategy {
@@ -53,7 +46,6 @@ impl Default for FlatLayoutStrategy {
         Self {
             include_padding: true,
             max_variable_length_statistics_size: 64,
-            allowed_encodings: None,
         }
     }
 }
@@ -68,12 +60,6 @@ impl FlatLayoutStrategy {
     /// Set the maximum length of variable length statistics.
     pub fn with_max_variable_length_statistics_size(mut self, size: usize) -> Self {
         self.max_variable_length_statistics_size = size;
-        self
-    }
-
-    /// Set the allowed array encodings for normalization.
-    pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
-        self.allowed_encodings = Some(allow_encodings);
         self
     }
 }
@@ -158,15 +144,6 @@ impl LayoutStrategy for FlatLayoutStrategy {
             _ => {}
         }
 
-        let chunk = if let Some(allowed) = &self.allowed_encodings {
-            chunk.normalize(&mut NormalizeOptions {
-                allowed,
-                operation: Operation::Error,
-            })?
-        } else {
-            chunk
-        };
-
         let buffers = chunk.serialize(
             &ctx,
             session,
@@ -239,6 +216,7 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::LayoutStrategy;
+    use crate::LayoutStrategyEncodingValidator;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -449,16 +427,16 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Disallow all encodings so filter arrays fail normalization immediately.
                 let allowed = HashSet::default();
-                let layout = FlatLayoutStrategy::default()
-                    .with_allow_encodings(allowed)
-                    .write_stream(
-                        ctx,
-                        Arc::<TestSegments>::clone(&segments),
-                        filter.into_array().to_array_stream().sequenced(ptr),
-                        eof,
-                        &session,
-                    )
-                    .await;
+                let layout =
+                    LayoutStrategyEncodingValidator::new(FlatLayoutStrategy::default(), allowed)
+                        .write_stream(
+                            ctx,
+                            Arc::<TestSegments>::clone(&segments),
+                            filter.into_array().to_array_stream().sequenced(ptr),
+                            eof,
+                            &session,
+                        )
+                        .await;
 
                 (layout, segments)
             };
@@ -491,16 +469,16 @@ mod tests {
                 // Only allow the dict encoding; canonical primitive children remain permitted.
                 let mut allowed = HashSet::default();
                 allowed.insert(Dict.id());
-                let layout = FlatLayoutStrategy::default()
-                    .with_allow_encodings(allowed)
-                    .write_stream(
-                        ctx,
-                        Arc::<TestSegments>::clone(&segments),
-                        dict.into_array().to_array_stream().sequenced(ptr),
-                        eof,
-                        &session,
-                    )
-                    .await;
+                let layout =
+                    LayoutStrategyEncodingValidator::new(FlatLayoutStrategy::default(), allowed)
+                        .write_stream(
+                            ctx,
+                            Arc::<TestSegments>::clone(&segments),
+                            dict.into_array().to_array_stream().sequenced(ptr),
+                            eof,
+                            &session,
+                        )
+                        .await;
 
                 (layout, segments)
             };

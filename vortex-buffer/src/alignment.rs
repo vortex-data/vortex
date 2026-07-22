@@ -6,6 +6,8 @@ use std::ops::Deref;
 
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 /// The alignment of a buffer.
@@ -111,20 +113,6 @@ impl Alignment {
             .vortex_expect("alignment is a power of 2 within usize, so its exponent fits in u8")
     }
 
-    /// Try to create an alignment from its log2 exponent.
-    ///
-    /// Returns an error when the exponent cannot be represented by a `usize` alignment.
-    #[inline]
-    pub fn try_from_exponent(exponent: u8) -> Result<Self, VortexError> {
-        let alignment = 1usize.checked_shl(u32::from(exponent)).ok_or_else(|| {
-            vortex_err!(
-                "Alignment exponent {exponent} must be less than {}",
-                usize::BITS
-            )
-        })?;
-        Ok(Self::new(alignment))
-    }
-
     /// Create from the log2 exponent of the alignment.
     ///
     /// ## Panics
@@ -138,6 +126,22 @@ impl Alignment {
             "Alignment exponent must fit in usize"
         );
         Self::new(1 << exponent)
+    }
+
+    /// Create from the log2 exponent of the alignment, returning an error rather than panicking if
+    /// `1 << exponent` would overflow `usize`.
+    ///
+    /// Prefer this over [`from_exponent`](Self::from_exponent) when the exponent originates from
+    /// untrusted input such as a serialized file, where a too-large value must not panic.
+    #[inline]
+    pub fn try_from_exponent(exponent: u8) -> VortexResult<Self> {
+        if u32::from(exponent) >= usize::BITS {
+            vortex_bail!(
+                "Alignment exponent {exponent} is too large for a {}-bit usize",
+                usize::BITS
+            );
+        }
+        Ok(Self::new(1 << exponent))
     }
 }
 
@@ -234,13 +238,6 @@ mod test {
     }
 
     #[test]
-    fn invalid_alignment_exponent() {
-        let error = Alignment::try_from_exponent(u8::try_from(usize::BITS).unwrap())
-            .expect_err("an exponent as wide as usize must be rejected");
-        assert!(error.to_string().contains("must be less than"));
-    }
-
-    #[test]
     fn is_aligned_to() {
         assert!(Alignment::new(1).is_aligned_to(Alignment::new(1)));
         assert!(Alignment::new(2).is_aligned_to(Alignment::new(1)));
@@ -260,6 +257,18 @@ mod test {
         }
         assert!(Alignment::try_from(0u32).is_err());
         assert!(Alignment::try_from(3u32).is_err());
+    }
+
+    #[test]
+    fn try_from_exponent() {
+        match Alignment::try_from_exponent(10) {
+            Ok(alignment) => assert_eq!(alignment, Alignment::new(1024)),
+            Err(err) => panic!("valid exponent should succeed: {err}"),
+        }
+        // Exponents whose `1 << exponent` would overflow a usize must error rather than panic.
+        // 64 is `>= usize::BITS` on both 32- and 64-bit targets.
+        assert!(Alignment::try_from_exponent(64).is_err());
+        assert!(Alignment::try_from_exponent(u8::MAX).is_err());
     }
 
     #[test]

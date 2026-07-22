@@ -43,6 +43,7 @@ use vortex_fastlanes::FoR;
 use vortex_fastlanes::RLE;
 use vortex_fsst::FSST;
 use vortex_layout::LayoutStrategy;
+use vortex_layout::LayoutStrategyEncodingValidator;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
@@ -217,8 +218,8 @@ impl WriteStrategyBuilder {
 
     /// Override the allowed array encodings for normalization.
     ///
-    /// The flat leaf writer uses this set when deciding whether an existing encoded array can be
-    /// written as-is or must be normalized before serialization.
+    /// The configured flat leaf strategy is wrapped in a [`LayoutStrategyEncodingValidator`]
+    /// that recursively checks every chunk before passing it to the leaf writer.
     pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
         self.allow_encodings = Some(allow_encodings);
         self
@@ -262,10 +263,13 @@ impl WriteStrategyBuilder {
     pub fn build(self) -> Arc<dyn LayoutStrategy> {
         let flat: Arc<dyn LayoutStrategy> = if let Some(flat) = self.flat_strategy {
             flat
-        } else if let Some(allow_encodings) = self.allow_encodings {
-            Arc::new(FlatLayoutStrategy::default().with_allow_encodings(allow_encodings))
         } else {
             Arc::new(FlatLayoutStrategy::default())
+        };
+        let flat: Arc<dyn LayoutStrategy> = if let Some(allow_encodings) = self.allow_encodings {
+            Arc::new(LayoutStrategyEncodingValidator::new(flat, allow_encodings))
+        } else {
+            flat
         };
 
         // 7. for each chunk create a flat layout

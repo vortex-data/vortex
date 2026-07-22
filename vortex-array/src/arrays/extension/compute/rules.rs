@@ -11,6 +11,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
+use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
@@ -50,6 +51,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<Extension> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(Extension)),
     ParentRuleSet::lift(&MaskReduceAdaptor(Extension)),
     ParentRuleSet::lift(&SliceReduceAdaptor(Extension)),
+    ParentRuleSet::lift(&TakeReduceAdaptor(Extension)),
 ]);
 
 /// Push filter operations into the storage array of an extension array.

@@ -32,7 +32,7 @@ def vxf(tmpdir_factory) -> vx.VortexFile:  # pyright: ignore[reportUnknownParame
 
 def test_dtype(vxf: VortexFile):
     assert vxf.dtype.to_arrow_schema() == pa.schema(
-        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
+        [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
 
 

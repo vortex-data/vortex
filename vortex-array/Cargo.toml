@@ -228,6 +228,14 @@ name = "take_primitive"
 harness = false
 
 [[bench]]
+name = "piecewise_sequence_take_primitive"
+harness = false
+
+[[bench]]
+name = "take_slices_to_buffer_matrix"
+harness = false
+
+[[bench]]
 name = "take_struct"
 harness = false
 

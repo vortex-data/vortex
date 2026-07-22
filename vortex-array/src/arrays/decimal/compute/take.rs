@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ptr;
+
 use itertools::Itertools as _;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -199,11 +201,28 @@ where
     );
 
     let mut result = BufferMut::<T>::with_capacity(output_len);
+    let spare = &mut result.spare_capacity_mut()[..output_len];
+    let mut cursor = 0usize;
     for &start in starts {
         let start = start.as_();
-        result.extend_from_slice(&values[start..][..length]);
+        let src = &values[start..][..length];
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()].as_mut_ptr().cast::<T>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
     }
-
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
+    unsafe { result.set_len(cursor) };
+    vortex_ensure!(
+        result.len() == output_len,
+        "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",
+        result.len()
+    );
     Ok(result.freeze())
 }
 
@@ -219,12 +238,24 @@ where
     T: NativeDecimalType,
 {
     let mut result = BufferMut::<T>::with_capacity(output_len);
+    let spare = &mut result.spare_capacity_mut()[..output_len];
+    let mut cursor = 0usize;
     for (&start, &length) in starts.iter().zip_eq(lengths) {
         let start = start.as_();
         let length = length.as_();
-        result.extend_from_slice(&values[start..][..length]);
+        let src = &values[start..][..length];
+        // SAFETY: `src` and the checked `spare` range have equal lengths and cannot overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                spare[cursor..][..src.len()].as_mut_ptr().cast::<T>(),
+                src.len(),
+            );
+        }
+        cursor += src.len();
     }
-
+    // SAFETY: the loop initialized the prefix `0..cursor` of the spare capacity.
+    unsafe { result.set_len(cursor) };
     vortex_ensure!(
         result.len() == output_len,
         "PiecewiseSequenceArray expanded length {} does not match declared length {output_len}",

@@ -49,7 +49,7 @@ A list of {class}`dict` produces a struct array. Missing values may appear at an
 ...   None,
 ... ])
 >>> arr.dtype
-struct({"age": int(64, nullable=True), "name": utf8(nullable=True)}, nullable=True)
+struct({"name": utf8(nullable=True), "age": int(64, nullable=True)}, nullable=True)
 ```
 
 {func}`~vortex.array` also accepts {class}`pyarrow.Array`, {class}`pyarrow.Table`,

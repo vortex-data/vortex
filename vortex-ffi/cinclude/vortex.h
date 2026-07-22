@@ -682,6 +682,27 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Set the number of background worker threads driving the shared FFI runtime.
+ *
+ * Calling this with a non-zero count opts the process into a Vortex-owned thread pool. These
+ * background threads drive the same executor as host threads currently inside FFI calls. If this
+ * function is never called, Vortex creates no runtime worker threads and execution remains
+ * entirely host-thread-driven.
+ *
+ * This setting is process-global and affects all FFI sessions. Passing zero restores the
+ * host-thread-only configuration by signalling all background workers to stop. Increasing the
+ * count starts workers immediately; decreasing it signals excess workers to stop.
+ */
+void vx_runtime_set_worker_threads(size_t worker_threads);
+
+/**
+ * Return the configured number of Vortex-owned background worker threads.
+ *
+ * Zero means the runtime is entirely driven by host threads entering FFI calls.
+ */
+size_t vx_runtime_worker_count(void);
+
+/**
  * Increase reference count on vx_array
  */
 const vx_array *vx_array_clone(const vx_array *ptr);

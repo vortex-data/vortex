@@ -121,20 +121,20 @@ class VortexFile:
         >>> vxf.scan().read_all().to_arrow_array()
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
-        -- child 0 type: int64
-          [
-            25,
-            31,
-            null,
-            57,
-            null
-          ]
-        -- child 1 type: string_view
+        -- child 0 type: string_view
           [
             "Joseph",
             null,
             "Angela",
             "Mikhail",
+            null
+          ]
+        -- child 1 type: int64
+          [
+            25,
+            31,
+            null,
+            57,
             null
           ]
 
@@ -158,13 +158,13 @@ class VortexFile:
         >>> vxf.scan(expr=ve.column("age") > 35).read_all().to_arrow_array()
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
-        -- child 0 type: int64
-          [
-            57
-          ]
-        -- child 1 type: string_view
+        -- child 0 type: string_view
           [
             "Mikhail"
+          ]
+        -- child 1 type: int64
+          [
+            57
           ]
         """
         return self._file.scan(projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size)

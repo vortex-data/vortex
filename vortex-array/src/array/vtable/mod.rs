@@ -115,45 +115,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         buffers: &[BufferHandle],
     ) -> VortexResult<ArrayParts<Self>>;
 
-    /// Returns the number of children in the array.
-    ///
-    /// The default counts non-None slots.
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        array.slots().iter().filter(|s| s.is_some()).count()
-    }
-
-    /// Returns the child at the given index.
-    ///
-    /// The default returns the `idx`-th non-None slot.
-    ///
-    /// # Panics
-    /// Panics if `idx >= nchildren(array)`.
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        array
-            .slots()
-            .iter()
-            .filter_map(|s| s.clone())
-            .nth(idx)
-            .vortex_expect("child index out of bounds")
-    }
-
-    /// Returns the name of the child at the given index.
-    ///
-    /// The default returns the slot name of the `idx`-th non-None slot.
-    ///
-    /// # Panics
-    /// Panics if `idx >= nchildren(array)`.
-    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        array
-            .slots()
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| s.is_some())
-            .nth(idx)
-            .map(|(slot_idx, _)| Self::slot_name(array, slot_idx))
-            .vortex_expect("child_name index out of bounds")
-    }
-
     /// Serialize encoding metadata into a byte buffer for IPC or file storage.
     ///
     /// Return `None` if the array cannot be serialized by this encoding. Buffers and children are

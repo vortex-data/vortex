@@ -9613,6 +9613,7 @@ dependencies = [
  "vortex-bytebool",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
+ "vortex-edition",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-file",
@@ -10095,6 +10096,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-edition"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-error"
 version = "0.1.0"
 dependencies = [
@@ -10256,6 +10265,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 58.3.0",
  "arrow-schema 58.3.0",
+ "codspeed-divan-compat",
  "geo",
  "geo-traits",
  "geo-types",
@@ -10267,6 +10277,7 @@ dependencies = [
  "vortex-arrow",
  "vortex-buffer",
  "vortex-error",
+ "vortex-geo",
  "vortex-layout",
  "vortex-mask",
  "vortex-session",
@@ -10569,6 +10580,7 @@ dependencies = [
  "arbitrary",
  "codspeed-divan-compat",
  "itertools 0.14.0",
+ "mimalloc",
  "num-traits",
  "prost 0.14.4",
  "rand 0.10.2",

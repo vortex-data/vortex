@@ -14,6 +14,7 @@
 use std::sync::LazyLock;
 
 use divan::Bencher;
+use mimalloc::MiMalloc;
 use rand::prelude::*;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -27,6 +28,12 @@ use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_session::VortexSession;
+
+// The copy casts allocate their output buffer inside the timed region, so route allocation
+// through vendored mimalloc to keep glibc malloc (which varies across runner images) out of
+// the measured trace.
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     divan::main();

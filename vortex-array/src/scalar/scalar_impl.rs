@@ -100,21 +100,33 @@ impl Scalar {
     ///
     /// See [`Scalar::zero_value`] for more details about "zero" values.
     ///
-    /// For non-nullable and nested types that may need null values in their children (as of right
-    /// now, that is _only_ `FixedSizeList` and `Struct`), this function will provide null default
-    /// children.
+    /// For non-nullable nested types, this function recursively creates valid default children.
+    /// For a union specifically:
+    ///
+    /// - A nullable union defaults to an **outer null**. It has no selected variant or type ID.
+    /// - A non-nullable union selects its first variant. That selected child may itself default to
+    ///   an **inner null** when its dtype is nullable; the enclosing union remains non-null and
+    ///   retains the first variant's type ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `dtype` has no default value.
     pub fn default_value(dtype: &DType) -> Self {
-        let value = ScalarValue::default_value(dtype);
+        Self::try_default_value(dtype)
+            .unwrap_or_else(|| vortex_panic!("{dtype} has no default value"))
+    }
 
-        // SAFETY: We assume that `default_value` creates a valid `ScalarValue` for the `DType`.
-        unsafe { Self::new_unchecked(dtype.clone(), value) }
+    /// Returns a valid default scalar, or [`None`] if `dtype` has no default.
+    pub(crate) fn try_default_value(dtype: &DType) -> Option<Self> {
+        let value = ScalarValue::try_default_value(dtype)?;
+        Self::try_new(dtype.clone(), value).ok()
     }
 
     /// Returns a non-null zero / identity value for the given [`DType`].
     ///
     /// # Zero Values
     ///
-    /// Here is the list of zero values for each [`DType`] (when the [`DType`] is non-nullable):
+    /// Here is the list of non-null zero values for each [`DType`], regardless of its nullability:
     ///
     /// - `Null`: Does not have a "zero" value
     /// - `Bool`: `false`
@@ -127,11 +139,19 @@ impl Scalar {
     ///   element [`DType`]
     /// - `Struct`: A struct where each field has a zero value, which is determined by the field
     ///   [`DType`]
+    /// - `Union`: A non-null union selecting the first variant with a non-null child zero value
     /// - `Extension`: The zero value of the storage [`DType`]
+    /// # Panics
+    ///
+    /// Panics if the dtype has no non-null zero value, such as `Null`, or if a nested dtype needed
+    /// to construct the zero value has no non-null zero value.
+    ///
+    /// Unlike [`Scalar::default_value`], this never uses either an outer or inner null for a union:
+    /// even a nullable union's zero value is non-null and contains a non-null selected child.
     pub fn zero_value(dtype: &DType) -> Self {
         let value = ScalarValue::zero_value(dtype);
 
-        // SAFETY: We assume that `zero_value` creates a valid `ScalarValue` for the `DType`.
+        // SAFETY: `zero_value` creates a valid `ScalarValue` for the `DType`.
         unsafe { Self::new_unchecked(dtype.clone(), Some(value)) }
     }
 
@@ -175,8 +195,12 @@ impl Scalar {
 
     /// Returns `true` if the [`Scalar`] has a non-null zero value.
     ///
-    /// Returns `None` if the scalar is null, otherwise returns `Some(true)` if the value is zero
-    /// and `Some(false)` otherwise.
+    /// Returns `None` if the scalar is null or its zero-ness is undefined. Otherwise, returns
+    /// `Some(true)` if the value is zero and `Some(false)` if it is not.
+    ///
+    /// A union that selects a variant other than the first returns `Some(false)`. A union selecting
+    /// its first variant delegates to that child's [`Scalar::is_zero`], so an inner null child
+    /// returns `None` and a non-null zero child returns `Some(true)`.
     pub fn is_zero(&self) -> Option<bool> {
         let value = self.value()?;
 
@@ -189,7 +213,7 @@ impl Scalar {
             DType::Binary(_) => value.as_binary().is_empty(),
             DType::List(..) => value.as_list().is_empty(),
             // A fixed-size list is zero only if it has the expected number of elements and every
-            // element is itself a non-null zero value.
+            // element is itself a non-null zero value.1
             DType::FixedSizeList(_, list_size, _) => {
                 let list = self.as_list();
                 list.len() == *list_size as usize
@@ -201,7 +225,16 @@ impl Scalar {
                 .as_struct()
                 .fields_iter()
                 .is_some_and(|mut fields| fields.all(|f| f.is_zero() == Some(true))),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            // Only the first variant of unions can be zero. Its child determines whether the
+            // zero-ness is true, false, or undefined.
+            DType::Union(..) => {
+                let union = self.as_union();
+                if union.child_index() != Some(0) {
+                    false
+                } else {
+                    union.child().and_then(|child| child.is_zero())?
+                }
+            }
             DType::Variant(_) => self.as_variant().is_zero()?,
             DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
         };
@@ -270,7 +303,10 @@ impl Scalar {
                 .fields_iter()
                 .map(|fields| fields.into_iter().map(|f| f.approx_nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(..) => self
+                .as_union()
+                .child()
+                .map_or(0, |value| 1 + value.approx_nbytes()),
             DType::Variant(_) => self.as_variant().value().map_or(0, Scalar::approx_nbytes),
             DType::Extension(_) => self.as_extension().to_storage_scalar().approx_nbytes(),
         }
@@ -376,6 +412,19 @@ fn partial_cmp_non_null_scalar_values(
         // need the dtype to know whether children share one element dtype or use per-field dtypes.
         (ScalarValue::Tuple(lhs), ScalarValue::Tuple(rhs)) => {
             partial_cmp_tuple_values(dtype, lhs, rhs)
+        }
+        (ScalarValue::Union(lhs), ScalarValue::Union(rhs)) => {
+            if lhs.type_id() != rhs.type_id() {
+                return None;
+            }
+
+            let DType::Union(variants, _) = dtype else {
+                return None;
+            };
+            let child_index = variants.tag_to_child_index(lhs.type_id())?;
+            let child_dtype = variants.variant_by_index(child_index)?;
+
+            partial_cmp_scalar_values(&child_dtype, lhs.child_value(), rhs.child_value())
         }
         // Variant values can have a different dtype in each row, so it doesn't make sense to
         // compare them.

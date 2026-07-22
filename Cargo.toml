@@ -8,6 +8,7 @@ members = [
     "vortex-mask",
     "vortex-utils",
     "vortex-session",
+    "vortex-edition",
     "vortex-flatbuffers",
     "vortex-metrics",
     "vortex-io",
@@ -59,8 +60,7 @@ members = [
     "encodings/zstd",
     "encodings/bytebool",
     "encodings/parquet-variant",
-    # Experimental encodings
-    "encodings/experimental/onpair",
+    "encodings/onpair",
     # Benchmarks
     "benchmarks/lance-bench",
     "benchmarks/compress-bench",
@@ -295,6 +295,7 @@ vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-feature
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
+vortex-edition = { version = "0.1.0", path = "./vortex-edition", default-features = false }
 vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = false }
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
@@ -307,7 +308,7 @@ vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = fa
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
-vortex-onpair = { version = "0.1.0", path = "./encodings/experimental/onpair", default-features = false }
+vortex-onpair = { version = "0.1.0", path = "./encodings/onpair", default-features = false }
 vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }

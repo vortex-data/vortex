@@ -10,6 +10,7 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
+use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -139,4 +140,24 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
             .mask_eq(&validity, array.len(), &mut ctx)
             .unwrap(),
     );
+}
+
+#[test]
+fn masked_listview_execute_preserves_zctl_true() -> VortexResult<()> {
+    // Masking only intersects validity, so the zero-copy-to-list survives
+    // execution.
+    let elements = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+    let offsets = PrimitiveArray::from_iter([0i32, 2]).into_array();
+    let sizes = PrimitiveArray::from_iter([2i32, 1]).into_array();
+    let list_view = unsafe {
+        ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
+            .with_zero_copy_to_list(true)
+    };
+
+    let masked = MaskedArray::try_new(list_view.into_array(), Validity::from_iter([true, false]))?;
+    let canonical = masked
+        .into_array()
+        .execute::<Canonical>(&mut array_session().create_execution_ctx())?;
+    assert!(canonical.into_listview().is_zero_copy_to_list());
+    Ok(())
 }

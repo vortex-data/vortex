@@ -45,14 +45,47 @@ use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::runtime::current::CurrentThreadWorkerPool;
 
 #[cfg(all(feature = "mimalloc", not(miri)))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-/// A shared runtime for all FFI operations.
-// TODO(ngates): also create a CurrentThreadPool to manage background worker threads.
+/// A shared, caller-driven runtime for all FFI operations.
+///
+/// By default the runtime owns no threads: host threads drive its executor while they are inside
+/// an FFI call. Concurrent calls from multiple host threads can therefore execute runtime tasks in
+/// parallel without any Vortex-owned worker threads.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+
+/// Optional Vortex-owned background workers that drive the shared FFI runtime.
+///
+/// Creating the pool does not create threads. It starts empty so callers retain the default
+/// host-thread-owned execution model until they opt in with [`vx_runtime_set_worker_threads`].
+static POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| RUNTIME.new_pool());
+
+/// Set the number of background worker threads driving the shared FFI runtime.
+///
+/// Calling this with a non-zero count opts the process into a Vortex-owned thread pool. These
+/// background threads drive the same executor as host threads currently inside FFI calls. If this
+/// function is never called, Vortex creates no runtime worker threads and execution remains
+/// entirely host-thread-driven.
+///
+/// This setting is process-global and affects all FFI sessions. Passing zero restores the
+/// host-thread-only configuration by signalling all background workers to stop. Increasing the
+/// count starts workers immediately; decreasing it signals excess workers to stop.
+#[unsafe(no_mangle)]
+pub extern "C" fn vx_runtime_set_worker_threads(worker_threads: usize) {
+    POOL.set_workers(worker_threads);
+}
+
+/// Return the configured number of Vortex-owned background worker threads.
+///
+/// Zero means the runtime is entirely driven by host threads entering FFI calls.
+#[unsafe(no_mangle)]
+pub extern "C" fn vx_runtime_worker_count() -> usize {
+    POOL.worker_count()
+}
 
 /// Return the shared FFI runtime for layered FFI crates that drive Vortex streams produced through
 /// `vortex-ffi`.
@@ -106,6 +139,18 @@ mod tests {
     use crate::sink::vx_array_sink_open_file;
     use crate::sink::vx_array_sink_push;
     use crate::string::vx_view;
+    use crate::vx_runtime_set_worker_threads;
+    use crate::vx_runtime_worker_count;
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn runtime_worker_pool_configuration() {
+        assert_eq!(vx_runtime_worker_count(), 0);
+        vx_runtime_set_worker_threads(2);
+        assert_eq!(vx_runtime_worker_count(), 2);
+        vx_runtime_set_worker_threads(0);
+        assert_eq!(vx_runtime_worker_count(), 0);
+    }
 
     /// Panic if error is NULL. Free the error if it's not
     pub(crate) fn assert_error(error: *mut vx_error) {

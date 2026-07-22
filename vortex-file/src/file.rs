@@ -152,6 +152,18 @@ impl VortexFile {
         Arc::clone(&self.segment_source)
     }
 
+    /// Replace the segment source used by this file.
+    ///
+    /// Any cached layout reader is cleared so that subsequent scans construct readers over the
+    /// replacement source.
+    pub fn with_segment_source(mut self, segment_source: Arc<dyn SegmentSource>) -> Self {
+        self.segment_source = segment_source;
+        if self.layout_reader_cache.is_some() {
+            self.layout_reader_cache = Some(OnceLock::new());
+        }
+        self
+    }
+
     /// Returns a reference to the Vortex session used to open this file.
     pub fn session(&self) -> &VortexSession {
         &self.session

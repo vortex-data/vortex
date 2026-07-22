@@ -23,14 +23,15 @@ use crate::prune::GeoDistancePrune;
 use crate::prune::GeoIntersectsPrune;
 use crate::scalar_fn::contains::GeoContains;
 use crate::scalar_fn::distance::GeoDistance;
+use crate::scalar_fn::envelope::GeoEnvelope;
 use crate::scalar_fn::intersects::GeoIntersects;
 
 pub mod aggregate_fn;
 pub mod extension;
 pub mod prune;
 pub mod scalar_fn;
-#[cfg(test)]
-mod test_harness;
+#[cfg(any(test, feature = "_test-harness"))]
+pub mod test_harness;
 #[cfg(test)]
 mod tests;
 
@@ -63,6 +64,7 @@ pub fn initialize(session: &VortexSession) {
     session.arrow().register_importer(Arc::new(Rect));
 
     // Register the geometry scalar functions.
+    session.scalar_fns().register(GeoEnvelope);
     session.scalar_fns().register(GeoContains);
     session.scalar_fns().register(GeoDistance);
     session.scalar_fns().register(GeoIntersects);

@@ -72,5 +72,5 @@ def test_scanner_property_projected(vxfile: vx.VortexFile):
 
 def test_scanner_property_dataset_schema(vxfile: vx.VortexFile):
     assert vxfile.to_dataset().scanner().dataset_schema == pa.schema(
-        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
+        [("index", pa.int64()), ("string", pa.string_view()), ("bool", pa.bool_()), ("float", pa.float64())]
     )
