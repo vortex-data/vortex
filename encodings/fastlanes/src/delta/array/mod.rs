@@ -18,7 +18,7 @@ use crate::Delta;
 pub mod delta_compress;
 pub mod delta_decompress;
 
-#[array_slots(crate::Delta)]
+#[array_slots(Delta)]
 pub struct DeltaSlots {
     /// The base values for each block of deltas.
     #[slot(0)]
