@@ -278,6 +278,7 @@ mod tests {
     use vortex_flatbuffers::WriteFlatBufferExt;
 
     use super::*;
+    use crate::MAX_POSTSCRIPT_SIZE;
 
     fn segment(offset: u64) -> PostscriptSegment {
         PostscriptSegment {
@@ -344,6 +345,7 @@ mod tests {
         .unwrap();
 
         let postscript = Postscript::read_flatbuffer_bytes(&bytes).unwrap();
+        assert!(bytes.len() <= MAX_POSTSCRIPT_SIZE as usize);
         assert_eq!(postscript.metadata.len(), MAX_METADATA_SEGMENTS);
         assert_eq!(postscript.metadata[0].key, expected_boundary_key);
         assert_eq!(postscript.metadata[0].key.len(), MAX_METADATA_KEY_BYTES);
