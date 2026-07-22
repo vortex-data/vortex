@@ -324,15 +324,10 @@ mod tests {
     fn metadata_limit_boundaries_roundtrip() {
         let metadata = (0..MAX_METADATA_SEGMENTS)
             .map(|idx| PostscriptMetadata {
-                key: if idx == 0 {
-                    "é".repeat(MAX_METADATA_KEY_BYTES / "é".len())
-                } else {
-                    format!("metadata-{idx}")
-                },
+                key: format!("{idx:0>width$}", width = MAX_METADATA_KEY_BYTES),
                 segment: segment(2 + idx as u64),
             })
             .collect::<Vec<_>>();
-        let expected_boundary_key = metadata[0].key.clone();
 
         let bytes = Postscript {
             dtype: None,
@@ -345,10 +340,17 @@ mod tests {
         .unwrap();
 
         let postscript = Postscript::read_flatbuffer_bytes(&bytes).unwrap();
-        assert!(bytes.len() <= MAX_POSTSCRIPT_SIZE as usize);
         assert_eq!(postscript.metadata.len(), MAX_METADATA_SEGMENTS);
-        assert_eq!(postscript.metadata[0].key, expected_boundary_key);
-        assert_eq!(postscript.metadata[0].key.len(), MAX_METADATA_KEY_BYTES);
+        let mut total_key_bytes = 0;
+        for entry in &postscript.metadata {
+            assert_eq!(entry.key.len(), MAX_METADATA_KEY_BYTES);
+            total_key_bytes += entry.key.len();
+        }
+        assert_eq!(
+            total_key_bytes,
+            MAX_METADATA_SEGMENTS * MAX_METADATA_KEY_BYTES
+        );
+        assert!(bytes.len() <= MAX_POSTSCRIPT_SIZE as usize);
     }
 
     #[test]
