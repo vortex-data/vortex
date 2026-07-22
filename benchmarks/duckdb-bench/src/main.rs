@@ -26,6 +26,12 @@ use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::v3;
 
+const S3_HTTP_INIT_SQL: [&str; 3] = [
+    "SET http_retries = 8",
+    "SET http_retry_wait_ms = 250",
+    "SET http_retry_backoff = 2",
+];
+
 /// Common arguments shared across benchmarks
 #[derive(Parser)]
 struct Args {
@@ -159,6 +165,11 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     let benchmark_name = benchmark.dataset().to_string();
+    let mut duckdb_init_sql = Vec::new();
+    if benchmark.data_url().scheme() == "s3" {
+        duckdb_init_sql.extend(S3_HTTP_INIT_SQL.map(String::from));
+    }
+    duckdb_init_sql.extend(benchmark.engine_init_sql(Engine::DuckDB));
 
     let mode = if args.explain {
         BenchmarkMode::Explain
@@ -178,7 +189,7 @@ fn main() -> anyhow::Result<()> {
                 args.delete_duckdb_database,
                 args.threads,
             )?;
-            ctx.set_init_sql(benchmark.engine_init_sql(Engine::DuckDB))?;
+            ctx.set_init_sql(duckdb_init_sql.clone())?;
             ctx.register_tables(&*benchmark, format)?;
 
             // Duckdb doesn't support octet_length for strings but we need this
