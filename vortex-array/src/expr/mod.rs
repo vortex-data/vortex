@@ -118,8 +118,7 @@ impl Eq for ExactExpr {}
 
 impl Hash for ExactExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Equality requires `Arc::ptr_eq` on children, so hashing the pointer alone is
-        // consistent with `eq` and avoids a deep hash of the expression tree.
+        self.0.scalar_fn().hash(state);
         Arc::as_ptr(self.0.children()).hash(state);
     }
 }
