@@ -106,7 +106,7 @@ fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
 }
 
 /// An expression wrapper that performs pointer equality on child expressions.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ExactExpr(pub Expression);
 impl PartialEq for ExactExpr {
     fn eq(&self, other: &Self) -> bool {
@@ -118,7 +118,9 @@ impl Eq for ExactExpr {}
 
 impl Hash for ExactExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
+        // Equality requires `Arc::ptr_eq` on children, so hashing the pointer alone is
+        // consistent with `eq` and avoids a deep hash of the expression tree.
+        Arc::as_ptr(self.0.children()).hash(state);
     }
 }
 
@@ -148,6 +150,9 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::RandomState;
+    use std::hash::BuildHasher;
+
     use super::*;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
@@ -187,6 +192,22 @@ mod tests {
         let expr = and(lhs, rhs);
         let conjunction = split_conjunction(&expr);
         assert_eq!(conjunction.len(), 2, "Conjunction is {conjunction:?}");
+    }
+
+    #[test]
+    fn exact_expr_hash_consistent_with_eq() {
+        let state = RandomState::new();
+        let expr = eq(get_item("col1", root()), lit(1));
+
+        // Clones share the children Arc, so they are equal and must hash equally.
+        let a = ExactExpr(expr.clone());
+        let b = ExactExpr(expr);
+        assert_eq!(a, b);
+        assert_eq!(state.hash_one(&a), state.hash_one(&b));
+
+        // Structurally identical expressions built separately are distinct keys.
+        let rebuilt = ExactExpr(eq(get_item("col1", root()), lit(1)));
+        assert_ne!(a, rebuilt);
     }
 
     #[test]
