@@ -18,6 +18,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::FSST;
 use crate::FSSTArrayExt;
@@ -40,20 +41,11 @@ pub(super) fn canonicalize_fsst(
     })
 }
 
-pub(crate) fn fsst_decode_views(
+pub(crate) fn fsst_decode_bytes(
     fsst_array: ArrayView<'_, FSST>,
-    start_buf_index: u32,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
-    // FSSTArray has two child arrays:
-    //  1. A VarBinArray, which holds the string heap of the compressed codes.
-    //  2. An uncompressed_lengths primitive array, storing the length of each original
-    //     string element.
-    // To speed up canonicalization, we can decompress the entire string-heap in a single
-    // call. We then turn our uncompressed_lengths into an offsets buffer
-    // necessary for a VarBinViewArray and construct the canonical array.
+) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
     let bytes = fsst_array.codes().sliced_bytes();
-
     let uncompressed_lens_array = fsst_array
         .uncompressed_lengths()
         .clone()
@@ -68,14 +60,24 @@ pub(crate) fn fsst_decode_views(
             .sum()
     });
 
-    // Bulk-decompress the entire array.
     let decompressor = fsst_array.decompressor();
     let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
     let len =
         decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
+    vortex_ensure!(
+        len == total_size,
+        "FSST decoded {len} bytes, expected {total_size}"
+    );
     unsafe { uncompressed_bytes.set_len(len) };
+    Ok((uncompressed_bytes, uncompressed_lens_array))
+}
 
-    // Directly create the binary views.
+pub(crate) fn fsst_decode_views(
+    fsst_array: ArrayView<'_, FSST>,
+    start_buf_index: u32,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
+    let (uncompressed_bytes, uncompressed_lens_array) = fsst_decode_bytes(fsst_array, ctx)?;
     match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
         Ok(build_views(
             start_buf_index,
@@ -97,15 +99,21 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::varbin::VarBinArrayExt;
     use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::VarBinBufferBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::fsst_decode_bytes;
+    use crate::FSST;
+    use crate::FSSTArrayExt;
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
@@ -199,6 +207,20 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(data, res2)
         };
+
+        {
+            let mut builder =
+                VarBinBufferBuilder::with_capacity(chunked_arr.dtype().clone(), false, data.len());
+            chunked_arr
+                .into_array()
+                .append_to_builder(&mut builder, &mut ctx)?;
+            let arr = builder.finish_into_varbin();
+            let mask = arr.validity()?.execute_mask(arr.len(), &mut ctx)?;
+            let actual = (0..arr.len())
+                .map(|i| mask.value(i).then(|| arr.bytes_at(i).to_vec()))
+                .collect::<Vec<_>>();
+            assert_eq!(data, actual);
+        }
         Ok(())
     }
 
@@ -223,6 +245,24 @@ mod tests {
         fsst_array.append_to_builder(&mut builder, &mut ctx)?;
 
         let _result = builder.finish_into_varbinview();
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_incorrect_uncompressed_lengths() -> VortexResult<()> {
+        let input = VarBinViewArray::from_iter_str(["hello"]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let encoded = fsst_compress(&input, &fsst_train_compressor(&input, &mut ctx)?, &mut ctx)?;
+        let invalid = FSST::try_new(
+            encoded.dtype().clone(),
+            encoded.symbols().clone(),
+            encoded.symbol_lengths().clone(),
+            encoded.codes(),
+            PrimitiveArray::from_iter([4i32]).into_array(),
+            &mut ctx,
+        )?;
+
+        assert!(fsst_decode_bytes(invalid.as_view(), &mut ctx).is_err());
         Ok(())
     }
 }

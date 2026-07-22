@@ -1,24 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
+use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 #[cfg(debug_assertions)]
 use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
+use crate::arrays::VarBinView;
+use crate::arrays::varbin::VarBinArrayExt;
+use crate::arrays::varbinview::VarBinViewArrayExt;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 #[cfg(debug_assertions)]
 use crate::legacy_session;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
-
 pub struct VarBinBuilder<O: IntegerPType> {
     offsets: BufferMut<O>,
     data: BufferMut<u8>,
@@ -94,6 +110,54 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         self.validity.append_n(true, num);
     }
 
+    fn append_values_with_lengths(
+        &mut self,
+        values: &[u8],
+        lengths: impl Iterator<Item = usize>,
+        validity: &Mask,
+    ) {
+        let mut end = self.data.len();
+        let mut len = 0;
+        for value_len in lengths {
+            end += value_len;
+            self.offsets.push(O::from(end).unwrap_or_else(|| {
+                vortex_panic!(
+                    "Failed to convert byte offset {end} to {}",
+                    std::any::type_name::<O>()
+                )
+            }));
+            len += 1;
+        }
+        debug_assert_eq!(len, validity.len());
+        debug_assert_eq!(end - self.data.len(), values.len());
+        self.data.extend_from_slice(values);
+        match validity {
+            Mask::AllTrue(len) => self.validity.append_n(true, *len),
+            Mask::AllFalse(len) => self.validity.append_n(false, *len),
+            Mask::Values(values) => self.validity.append_buffer(values.bit_buffer()),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.validity.len()
+    }
+
+    fn reserve_exact(&mut self, additional: usize) {
+        self.offsets.reserve(additional);
+        self.validity.reserve(additional);
+    }
+
+    fn set_validity(&mut self, validity: Mask) {
+        self.validity = match validity {
+            Mask::AllTrue(len) => BitBufferMut::new_set(len),
+            Mask::AllFalse(len) => BitBufferMut::new_unset(len),
+            values @ Mask::Values(_) => values
+                .into_bit_buffer()
+                .try_into_mut()
+                .unwrap_or_else(|buffer| BitBufferMut::copy_from(&buffer)),
+        };
+    }
+
     #[allow(clippy::disallowed_methods)]
     pub fn finish(self, dtype: DType) -> VarBinArray {
         let offsets = PrimitiveArray::new(self.offsets.freeze(), Validity::NonNullable);
@@ -124,6 +188,229 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         unsafe {
             VarBinArray::new_unchecked(offsets.into_array(), self.data.freeze(), dtype, validity)
         }
+    }
+}
+
+/// Builder for offset-based UTF-8 and binary arrays with either 32-bit or 64-bit offsets.
+///
+/// Unlike [`crate::builders::VarBinViewBuilder`], this builder produces a [`VarBinArray`].
+/// Encodings can downcast an [`ArrayBuilder`] to this type and decode directly into Arrow's
+/// offset-based physical representation without first materializing a view array.
+pub struct VarBinBufferBuilder {
+    dtype: DType,
+    storage: TypedBuilder,
+}
+
+enum TypedBuilder {
+    I32(VarBinBuilder<i32>),
+    I64(VarBinBuilder<i64>),
+}
+
+impl VarBinBufferBuilder {
+    /// Creates a builder with 32-bit offsets, or 64-bit offsets when `large_offsets` is true.
+    pub fn with_capacity(dtype: DType, large_offsets: bool, capacity: usize) -> Self {
+        assert!(matches!(dtype, DType::Utf8(_) | DType::Binary(_)));
+        let storage = if large_offsets {
+            TypedBuilder::I64(VarBinBuilder::with_capacity(capacity))
+        } else {
+            TypedBuilder::I32(VarBinBuilder::with_capacity(capacity))
+        };
+        Self { dtype, storage }
+    }
+
+    /// Returns whether this builder uses 64-bit offsets.
+    pub fn has_large_offsets(&self) -> bool {
+        matches!(self.storage, TypedBuilder::I64(_))
+    }
+
+    /// Appends decompressed values represented by one contiguous byte buffer and per-row lengths.
+    pub fn append_values(
+        &mut self,
+        values: &[u8],
+        lengths: impl Iterator<Item = usize>,
+        validity: &Mask,
+    ) {
+        match &mut self.storage {
+            TypedBuilder::I32(builder) => {
+                builder.append_values_with_lengths(values, lengths, validity)
+            }
+            TypedBuilder::I64(builder) => {
+                builder.append_values_with_lengths(values, lengths, validity)
+            }
+        }
+    }
+
+    /// Appends the same non-null value `n` times.
+    pub fn append_n_values(&mut self, value: impl AsRef<[u8]>, n: usize) {
+        let value = value.as_ref();
+        for _ in 0..n {
+            self.append_value(value);
+        }
+    }
+
+    /// Appends the same UTF-8 or binary scalar `n` times.
+    pub fn append_scalar_repeated(&mut self, scalar: &Scalar, n: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            scalar.dtype() == self.dtype(),
+            "VarBinBufferBuilder expected scalar with dtype {}, got {}",
+            self.dtype(),
+            scalar.dtype()
+        );
+        match self.dtype() {
+            DType::Utf8(_) => match scalar.as_utf8().value() {
+                Some(value) => self.append_n_values(value, n),
+                None => self.push_nulls(n),
+            },
+            DType::Binary(_) => match scalar.as_binary().value() {
+                Some(value) => self.append_n_values(value, n),
+                None => self.push_nulls(n),
+            },
+            dtype => vortex_bail!("VarBinBufferBuilder cannot append scalar of dtype {dtype}"),
+        }
+        Ok(())
+    }
+
+    /// Appends an existing offset-based Vortex array without constructing views.
+    pub fn append_varbin(
+        &mut self,
+        array: crate::ArrayView<'_, VarBin>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        let bytes: ByteBuffer = array.sliced_bytes();
+        let validity = array
+            .varbin_validity()
+            .execute_mask(array.as_ref().len(), ctx)?;
+        crate::match_each_integer_ptype!(offsets.ptype(), |P| {
+            let offsets = offsets.as_slice::<P>();
+            self.append_values(
+                bytes.as_slice(),
+                offsets.windows(2).map(|window| {
+                    let start: usize = window[0].as_();
+                    let end: usize = window[1].as_();
+                    end - start
+                }),
+                &validity,
+            );
+        });
+        Ok(())
+    }
+
+    /// Appends a Vortex view array into the offset-based output.
+    pub fn append_varbinview(
+        &mut self,
+        array: crate::ArrayView<'_, VarBinView>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let validity = array
+            .varbinview_validity()
+            .execute_mask(array.as_ref().len(), ctx)?;
+        match &validity {
+            Mask::AllTrue(_) => {
+                for index in 0..array.as_ref().len() {
+                    self.append_value(array.bytes_at(index));
+                }
+            }
+            Mask::AllFalse(len) => self.push_nulls(*len),
+            Mask::Values(values) => {
+                for (index, is_valid) in values.bit_buffer().iter().enumerate() {
+                    if is_valid {
+                        self.append_value(array.bytes_at(index));
+                    } else {
+                        self.push_null();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Finishes the current values as a [`VarBinArray`] and resets the builder.
+    pub fn finish_into_varbin(&mut self) -> VarBinArray {
+        match &mut self.storage {
+            TypedBuilder::I32(builder) => std::mem::take(builder).finish(self.dtype.clone()),
+            TypedBuilder::I64(builder) => std::mem::take(builder).finish(self.dtype.clone()),
+        }
+    }
+
+    fn append_value(&mut self, value: impl AsRef<[u8]>) {
+        match &mut self.storage {
+            TypedBuilder::I32(builder) => builder.append_value(value),
+            TypedBuilder::I64(builder) => builder.append_value(value),
+        }
+    }
+
+    fn push_null(&mut self) {
+        match &mut self.storage {
+            TypedBuilder::I32(builder) => builder.append_null(),
+            TypedBuilder::I64(builder) => builder.append_null(),
+        }
+    }
+
+    fn push_nulls(&mut self, n: usize) {
+        match &mut self.storage {
+            TypedBuilder::I32(builder) => builder.append_n_nulls(n),
+            TypedBuilder::I64(builder) => builder.append_n_nulls(n),
+        }
+    }
+}
+
+impl ArrayBuilder for VarBinBufferBuilder {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn len(&self) -> usize {
+        match &self.storage {
+            TypedBuilder::I32(builder) => builder.len(),
+            TypedBuilder::I64(builder) => builder.len(),
+        }
+    }
+
+    fn append_zeros(&mut self, n: usize) {
+        for _ in 0..n {
+            self.append_value([]);
+        }
+    }
+
+    unsafe fn append_nulls_unchecked(&mut self, n: usize) {
+        self.push_nulls(n);
+    }
+
+    fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
+        self.append_scalar_repeated(scalar, 1)
+    }
+
+    fn reserve_exact(&mut self, additional: usize) {
+        match &mut self.storage {
+            TypedBuilder::I32(builder) => builder.reserve_exact(additional),
+            TypedBuilder::I64(builder) => builder.reserve_exact(additional),
+        }
+    }
+
+    unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
+        match &mut self.storage {
+            TypedBuilder::I32(builder) => builder.set_validity(validity),
+            TypedBuilder::I64(builder) => builder.set_validity(validity),
+        }
+    }
+
+    fn finish(&mut self) -> ArrayRef {
+        self.finish_into_varbin().into_array()
+    }
+
+    fn finish_into_canonical(&mut self, ctx: &mut ExecutionCtx) -> Canonical {
+        self.finish()
+            .execute::<Canonical>(ctx)
+            .vortex_expect("varbin buffer builder should canonicalize")
     }
 }
 

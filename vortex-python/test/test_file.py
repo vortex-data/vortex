@@ -62,6 +62,16 @@ def test_to_arrow_columns(vxf: VortexFile):
     assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
 
 
+def test_to_arrow_offset_string_schema(vxf: VortexFile):
+    schema = pa.schema([("string", pa.string())])
+    table = vxf.to_arrow(projection=["string"], schema=schema).read_all()
+    assert table.schema == schema
+    assert table.column("string").combine_chunks() == pa.array(
+        (str(i) for i in range(1_000_000)),
+        type=pa.string(),
+    )
+
+
 def test_empty_file(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     # test for writing empty files with null columns
     # create an empty table with schema `empty: null`

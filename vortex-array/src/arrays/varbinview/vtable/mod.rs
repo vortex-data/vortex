@@ -30,6 +30,7 @@ use crate::arrays::varbinview::array::SLOT_NAMES;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
+use crate::builders::VarBinBufferBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
@@ -245,10 +246,13 @@ impl VTable for VarBinView {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            vortex_bail!("append_to_builder for VarBinView requires a VarBinViewBuilder");
-        };
-        builder.append_varbinview_array(&array.into_owned(), ctx)
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
+            return builder.append_varbinview_array(&array.into_owned(), ctx);
+        }
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinBufferBuilder>() {
+            return builder.append_varbinview(array, ctx);
+        }
+        vortex_bail!("append_to_builder for VarBinView requires a variable-binary builder")
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

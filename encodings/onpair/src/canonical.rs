@@ -44,11 +44,10 @@ pub(super) fn canonicalize_onpair(
     })
 }
 
-pub(crate) fn onpair_decode_views(
+pub(crate) fn onpair_decode_bytes(
     array: ArrayView<'_, OnPair>,
-    start_buf_index: u32,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
+) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
     let lengths = array
         .uncompressed_lengths()
         .clone()
@@ -62,15 +61,6 @@ pub(crate) fn onpair_decode_views(
             .sum()
     });
 
-    // `codes_offsets` holds the per-row code boundaries and may itself be a
-    // sliced or filtered view of the original. Its first and last entries
-    // bound the contiguous run of `codes` belonging to the rows present in
-    // this array: `slice` keeps the full `codes` child and only narrows
-    // `codes_offsets` (so `code_start > 0` and/or `code_end < codes.len()`),
-    // while `filter` rebuilds both children so the window is the whole stream.
-    // OnPair has no `TakeExecute`, so a reordering take is served from the
-    // canonical `VarBinView` and never reaches this path. We only need those
-    // two boundaries, so point-look them up rather than decoding every offset.
     let codes_offsets = array.codes_offsets();
     let code_start = code_boundary_at(codes_offsets, 0, ctx)?;
     let code_end = code_boundary_at(codes_offsets, array.len(), ctx)?;
@@ -85,13 +75,8 @@ pub(crate) fn onpair_decode_views(
         array.codes().len()
     );
 
-    // Slice the `codes` child to that window *before* unpacking it, so a sliced
-    // array materialises only its own codes rather than the whole column's. The
-    // contiguous decoder walks `codes` in order and never reads the per-row
-    // boundaries, so an empty boundary slice is sound.
     let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
     let dict = dict_view(array, ctx)?;
-
     let mut out_bytes = ByteBufferMut::with_capacity(total_size);
     let written =
         match onpair::try_decode_into(codes.as_slice(), dict, out_bytes.spare_capacity_mut()) {
@@ -105,9 +90,16 @@ pub(crate) fn onpair_decode_views(
             "OnPair codes decoded to {written} bytes but uncompressed_lengths records {total_size}"
         );
     }
-    // SAFETY: `try_decode_into` initialised exactly `written` bytes.
     unsafe { out_bytes.set_len(written) };
+    Ok((out_bytes, lengths))
+}
 
+pub(crate) fn onpair_decode_views(
+    array: ArrayView<'_, OnPair>,
+    start_buf_index: u32,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
+    let (out_bytes, lengths) = onpair_decode_bytes(array, ctx)?;
     match_each_integer_ptype!(lengths.ptype(), |P| {
         Ok(build_views(
             start_buf_index,

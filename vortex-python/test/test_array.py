@@ -25,6 +25,24 @@ def test_varbin_array_round_trip():
     assert arr.to_arrow_array() == a
 
 
+@pytest.mark.parametrize(
+    ("source_type", "target_type", "values"),
+    [
+        (pa.string_view(), pa.string(), ["one", None, "three"]),
+        (pa.binary_view(), pa.binary(), [b"one", None, b"three"]),
+    ],
+)
+def test_varbin_offset_arrow_type(
+    source_type: pa.DataType,
+    target_type: pa.DataType,
+    values: list[str | bytes | None],
+):
+    source = pa.array(values, type=source_type)
+    result = vortex.array(source).to_arrow_array(arrow_type=target_type)
+    assert result.type == target_type
+    assert result == pa.array(values, type=target_type)
+
+
 def test_varbin_array_take():
     a = vortex.array(pa.array(["a", "b", "c", "d"], type=pa.string_view()))
     assert a.take(vortex.array(pa.array([0, 2]))).to_arrow_array() == pa.array(

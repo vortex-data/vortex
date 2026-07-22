@@ -15,6 +15,8 @@ use std::ptr::NonNull;
 
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::DataType;
+use arrow_schema::Field;
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyIndexError;
 use pyo3::exceptions::PyNotImplementedError;
@@ -62,6 +64,7 @@ use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::PyPythonArray;
 use crate::arrays::py::PythonArray;
 use crate::arrays::py::PythonVTable;
+use crate::arrow::FromPyArrow;
 use crate::arrow::ToPyArrow;
 use crate::dtype::PyDType;
 use crate::error::PyVortexError;
@@ -429,6 +432,12 @@ impl PyArray {
     /// .. seealso::
     ///     :meth:`.to_arrow_table`
     ///
+    /// Parameters
+    /// ----------
+    /// arrow_type : :class:`pyarrow.DataType`, optional
+    ///     The Arrow physical type to return. When omitted, Vortex chooses its preferred type,
+    ///     including ``string_view`` and ``binary_view`` for UTF-8 and binary arrays.
+    ///
     /// Returns
     /// -------
     /// :class:`pyarrow.Array`
@@ -448,24 +457,50 @@ impl PyArray {
     ///   3
     /// ]
     /// ```
-    fn to_arrow_array<'py>(self_: &'py Bound<'py, Self>) -> PyVortexResult<Bound<'py, PyAny>> {
+    /// Export an offset-based Arrow string array instead of the default string-view array:
+    ///
+    /// ```python
+    /// >>> import pyarrow
+    /// >>> import vortex as vx
+    /// >>> vx.array(["hello", "world"]).to_arrow_array(arrow_type=pyarrow.string())
+    /// <pyarrow.lib.StringArray object at ...>
+    /// [
+    ///   "hello",
+    ///   "world"
+    /// ]
+    /// ```
+    #[pyo3(signature = (*, arrow_type = None))]
+    fn to_arrow_array<'py>(
+        self_: &'py Bound<'py, Self>,
+        arrow_type: Option<&Bound<'py, PyAny>>,
+    ) -> PyVortexResult<Bound<'py, PyAny>> {
         // NOTE(ngates): for struct arrays, we could also return a RecordBatchStreamReader.
         let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
         let py = self_.py();
+        let target_field = arrow_type
+            .map(|arrow_type| DataType::from_pyarrow(&arrow_type.as_borrowed()))
+            .transpose()?
+            .map(|data_type| Field::new("", data_type, array.dtype().is_nullable()));
 
         if let Some(chunked_array) = array.as_opt::<Chunked>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
-            let arrow_field = session()
-                .arrow()
-                .to_arrow_field("", chunked_array.dtype())?;
+            let inferred_field;
+            let arrow_field = if let Some(target_field) = target_field.as_ref() {
+                target_field
+            } else {
+                inferred_field = session()
+                    .arrow()
+                    .to_arrow_field("", chunked_array.dtype())?;
+                &inferred_field
+            };
 
             let chunks = chunked_array
                 .iter_chunks()
                 .map(|chunk| -> PyVortexResult<_> {
                     Ok(session().arrow().execute_arrow(
                         chunk.clone(),
-                        Some(&arrow_field),
+                        Some(arrow_field),
                         &mut session().create_execution_ctx(),
                     )?)
                 })
@@ -491,7 +526,11 @@ impl PyArray {
         } else {
             Ok(session()
                 .arrow()
-                .execute_arrow(array, None, &mut session().create_execution_ctx())?
+                .execute_arrow(
+                    array,
+                    target_field.as_ref(),
+                    &mut session().create_execution_ctx(),
+                )?
                 .into_data()
                 .to_pyarrow(py)?
                 .into_bound(py))

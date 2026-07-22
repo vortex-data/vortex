@@ -8,6 +8,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use num_traits::AsPrimitive;
 use onpair::CompactDictionaryView;
 use prost::Message as _;
 use vortex_array::Array;
@@ -25,10 +26,12 @@ use vortex_array::IntoArray;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::VarBinBufferBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -46,6 +49,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::canonical::canonicalize_onpair;
+use crate::canonical::onpair_decode_bytes;
 use crate::canonical::onpair_decode_views;
 use crate::decode::collect_widened;
 use crate::rules::RULES;
@@ -544,6 +548,25 @@ impl VTable for OnPair {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinBufferBuilder>() {
+            let (bytes, lengths) = onpair_decode_bytes(array, ctx)?;
+            let validity = array
+                .array()
+                .validity()?
+                .execute_mask(array.array().len(), ctx)?;
+            match_each_integer_ptype!(lengths.ptype(), |P| {
+                builder.append_values(
+                    bytes.as_slice(),
+                    lengths
+                        .as_slice::<P>()
+                        .iter()
+                        .map(|length| AsPrimitive::<usize>::as_(*length)),
+                    &validity,
+                );
+            });
+            return Ok(());
+        }
+
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
             return array
                 .array()

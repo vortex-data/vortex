@@ -15,6 +15,7 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
@@ -22,12 +23,17 @@ use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::VarBinBufferBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::legacy_session;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
@@ -45,6 +51,7 @@ use crate::compress::runend_decode_primitive;
 use crate::compress::runend_decode_varbinview;
 use crate::compress::runend_encode;
 use crate::decompress_bool::runend_decode_bools;
+use crate::iter::trimmed_ends_iter;
 use crate::ops::find_physical_index;
 use crate::ops::find_slice_end_index;
 use crate::rules::RULES;
@@ -181,6 +188,54 @@ impl VTable for RunEnd {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         run_end_canonicalize(&array, ctx).map(ExecutionResult::done)
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_))
+            && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinBufferBuilder>()
+        {
+            let ends = array
+                .ends()
+                .clone()
+                .execute_as::<PrimitiveArray>("ends", ctx)?;
+            let mut values_builder = VarBinBufferBuilder::with_capacity(
+                array.dtype().clone(),
+                builder.has_large_offsets(),
+                array.values().len(),
+            );
+            array.values().append_to_builder(&mut values_builder, ctx)?;
+            let values = values_builder.finish_into_varbin();
+            let validity = values
+                .as_ref()
+                .validity()?
+                .execute_mask(values.len(), ctx)?;
+
+            match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
+                let run_ends = trimmed_ends_iter(ends.as_slice::<E>(), array.offset(), array.len());
+                let mut previous_end = 0;
+                for (index, end) in run_ends.enumerate() {
+                    let run_length = end - previous_end;
+                    if validity.value(index) {
+                        builder.append_n_values(values.bytes_at(index), run_length);
+                    } else {
+                        builder.append_nulls(run_length);
+                    }
+                    previous_end = end;
+                }
+            });
+            return Ok(());
+        }
+
+        array
+            .array()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_array()
+            .append_to_builder(builder, ctx)
     }
 }
 
@@ -518,6 +573,7 @@ mod tests {
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builders::VarBinBufferBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -556,14 +612,28 @@ mod tests {
     #[test]
     fn test_runend_utf8() {
         let mut ctx = SESSION.create_execution_ctx();
-        let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
+        let values =
+            VarBinViewArray::from_iter_nullable_str([Some("a"), None, Some("c")]).into_array();
         let arr = RunEnd::new(buffer![2u32, 5, 10].into_array(), values, &mut ctx);
         assert_eq!(arr.len(), 10);
-        assert_eq!(arr.dtype(), &DType::Utf8(Nullability::NonNullable));
+        assert_eq!(arr.dtype(), &DType::Utf8(Nullability::Nullable));
 
-        let expected =
-            VarBinViewArray::from_iter_str(["a", "a", "b", "b", "b", "c", "c", "c", "c", "c"])
-                .into_array();
+        let expected = VarBinViewArray::from_iter_nullable_str([
+            Some("a"),
+            Some("a"),
+            None,
+            None,
+            None,
+            Some("c"),
+            Some("c"),
+            Some("c"),
+            Some("c"),
+            Some("c"),
+        ])
+        .into_array();
+        let mut builder = VarBinBufferBuilder::with_capacity(arr.dtype().clone(), false, arr.len());
+        arr.append_to_builder(&mut builder, &mut ctx).unwrap();
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
         assert_arrays_eq!(arr.into_array(), expected, &mut ctx);
     }
 

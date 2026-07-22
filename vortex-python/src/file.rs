@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use arrow_array::RecordBatchReader;
+use arrow_schema::Schema;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -31,6 +32,7 @@ use vortex_arrow::ToArrowType;
 
 use crate::RUNTIME;
 use crate::arrays::PyArrayRef;
+use crate::arrow::FromPyArrow;
 use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
@@ -153,15 +155,20 @@ impl PyVortexFile {
         })
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, limit = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, batch_size = None, schema = None))]
     fn to_arrow(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
         limit: Option<u64>,
         batch_size: Option<usize>,
+        schema: Option<&Bound<PyAny>>,
     ) -> PyVortexResult<Py<PyAny>> {
         let vxf = slf.get().vxf.clone();
+        let schema = schema
+            .map(|schema| Schema::from_pyarrow(&schema.as_borrowed()))
+            .transpose()?
+            .map(Arc::new);
 
         let reader = slf.py().detach(|| {
             let mut builder = vxf
@@ -177,7 +184,10 @@ impl PyVortexFile {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
             }
 
-            let schema = Arc::new(builder.dtype()?.to_arrow_schema()?);
+            let schema = match schema {
+                Some(schema) => schema,
+                None => Arc::new(builder.dtype()?.to_arrow_schema()?),
+            };
             builder.into_record_batch_reader(schema, &*RUNTIME)
         })?;
 

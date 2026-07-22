@@ -26,6 +26,8 @@ use crate::arrays::varbin::array::NUM_SLOTS;
 use crate::arrays::varbin::array::OFFSETS_SLOT;
 use crate::arrays::varbin::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::VarBinBufferBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -201,6 +203,19 @@ impl VTable for VarBin {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn append_to_builder(
+        array: ArrayView<'_, Self>,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinBufferBuilder>() {
+            return builder.append_varbin(array, ctx);
+        }
+        varbin_to_canonical(array, ctx)?
+            .into_array()
+            .append_to_builder(builder, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
