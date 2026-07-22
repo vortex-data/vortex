@@ -320,6 +320,38 @@ fn test_decimal_max_precision_overflow_on_valid_lane_errors() {
 }
 
 #[test]
+fn test_decimal_value_outside_working_width_errors() {
+    let dtype = DecimalDType::new(2, 0);
+    let value = i256::from_i128(1_000_000);
+    let lhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
+    let rhs = DecimalArray::new(buffer![value], dtype, Validity::NonNullable).into_array();
+
+    assert!(decimal_binary(lhs, rhs, Operator::Add).is_err());
+}
+
+#[test]
+fn test_decimal_value_outside_working_width_on_null_lane_ignored() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(2, 0);
+    let result_dtype = result_decimal_dtype(dtype, NumericOperator::Add)?;
+    let lhs = DecimalArray::new(
+        buffer![i256::from_i128(1_000_000), i256::from_i128(1)],
+        dtype,
+        Validity::from_iter([false, true]),
+    )
+    .into_array();
+    let rhs = decimal_constant(i256::from_i128(1), dtype, 2);
+
+    let result = decimal_binary(lhs, rhs, Operator::Add)?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_option_iter::<i16, _>([None, Some(2)], result_dtype),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
 fn test_decimal_overflow_on_null_lane_ignored() {
     let mut ctx = array_session().create_execution_ctx();
     let dtype = DecimalDType::new(76, 0);

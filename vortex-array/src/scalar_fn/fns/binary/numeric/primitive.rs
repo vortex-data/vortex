@@ -9,11 +9,10 @@ use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use super::CheckedValues;
-use super::any_valid_error;
-use super::check_numeric_errors;
-use super::checked_all_lanes;
-use super::checked_valid_lanes;
+use super::checked::CheckedValues;
+use super::checked::any_valid_error;
+use super::checked::checked_all_lanes;
+use super::checked::checked_valid_lanes;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -174,7 +173,10 @@ where
             CheckedValues::zeroed(len)
         }
     };
-    check_numeric_errors(checked.failed, Op::ERROR)?;
+
+    if checked.failed {
+        return Err(vortex_err!(InvalidArgument: "{}", Op::ERROR));
+    }
 
     primitive_result_array::<T>(checked.values, validity, &result_dtype)
 }

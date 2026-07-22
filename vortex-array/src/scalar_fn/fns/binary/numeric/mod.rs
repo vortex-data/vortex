@@ -6,20 +6,19 @@
 //!
 //! [`Binary`]: super::Binary
 
+mod checked;
 mod decimal;
 mod primitive;
 #[cfg(test)]
 mod tests;
 
+use decimal::execute_numeric_decimal;
 use decimal::result_decimal_dtype;
 pub(crate) use decimal::result_decimal_dtype as numeric_op_result_decimal_dtype;
 pub(crate) use primitive::PrimitiveOperand;
-use vortex_buffer::BitBuffer;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
+use primitive::execute_numeric_primitive;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -35,195 +34,51 @@ pub(crate) fn execute_numeric(
     op: NumericOperator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
-        vortex_bail!(
-            "numeric operator requires matching types, got {} and {}",
-            lhs.dtype(),
-            rhs.dtype()
-        );
-    }
+    vortex_ensure!(
+        lhs.dtype().eq_ignore_nullability(rhs.dtype()),
+        "numeric operator requires matching types, got {} and {}",
+        lhs.dtype(),
+        rhs.dtype()
+    );
 
-    if lhs.len() != rhs.len() {
-        vortex_bail!(
-            "numeric operator requires equal lengths, got {} and {}",
-            lhs.len(),
-            rhs.len()
-        );
-    }
+    let dtype = lhs.dtype();
+    vortex_ensure!(
+        matches!(dtype, DType::Primitive(..) | DType::Decimal(..)),
+        "numeric operator is not supported for dtype {}",
+        dtype
+    );
+
+    vortex_ensure!(
+        lhs.len() == rhs.len(),
+        "numeric operator requires equal lengths, got {} and {}",
+        lhs.len(),
+        rhs.len()
+    );
 
     if lhs.is_empty() {
-        let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
-        let result_dtype = match lhs.dtype() {
-            DType::Primitive(..) => lhs.dtype().with_nullability(nullability),
-            DType::Decimal(decimal_dtype, _) => {
-                debug_assert!(matches!(op, NumericOperator::Add | NumericOperator::Sub));
-                DType::Decimal(result_decimal_dtype(*decimal_dtype, op)?, nullability)
-            }
-            dtype => vortex_bail!("numeric operator is not supported for dtype {}", dtype),
-        };
-        return Ok(Canonical::empty(&result_dtype).into_array());
+        return build_empty_result(lhs, rhs, op);
     }
 
-    match lhs.dtype() {
-        DType::Primitive(..) => primitive::execute_numeric_primitive(lhs, rhs, op, ctx),
-        DType::Decimal(..) => decimal::execute_numeric_decimal(lhs, rhs, op, ctx),
-        dtype => vortex_bail!("numeric operator is not supported for dtype {}", dtype),
+    match dtype {
+        DType::Primitive(..) => execute_numeric_primitive(lhs, rhs, op, ctx),
+        DType::Decimal(..) => execute_numeric_decimal(lhs, rhs, op, ctx),
+        _ => unreachable!("dtype is either Primitive or Decimal"),
     }
 }
 
-/// The values produced by a checked lane loop, plus whether any lane failed.
-struct CheckedValues<T> {
-    values: Buffer<T>,
-    failed: bool,
-}
-
-impl<T> CheckedValues<T> {
-    fn zeroed(len: usize) -> Self {
-        Self {
-            values: Buffer::<T>::zeroed(len),
-            failed: false,
+fn build_empty_result(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    op: NumericOperator,
+) -> VortexResult<ArrayRef> {
+    let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
+    let result_dtype = match lhs.dtype() {
+        DType::Primitive(..) => lhs.dtype().with_nullability(nullability),
+        DType::Decimal(decimal_dtype, _) => {
+            DType::Decimal(result_decimal_dtype(*decimal_dtype, op)?, nullability)
         }
-    }
+        _ => unreachable!("dtype is either Primitive or Decimal"),
+    };
 
-    fn failed(len: usize) -> Self {
-        Self {
-            values: Buffer::<T>::zeroed(len),
-            failed: true,
-        }
-    }
-}
-
-// Checked one-pass ops delay early exit until the end of a small block. This
-// keeps the loop generic while avoiding a branch-driven exit decision on every
-// lane; it is deliberately independent of mask density or input length.
-const CHECKED_BLOCK_LANES: usize = 16;
-
-fn checked_all_lanes<T, F>(len: usize, mut checked_at: F) -> CheckedValues<T>
-where
-    T: Default,
-    F: FnMut(usize) -> Option<T>,
-{
-    let mut values = BufferMut::<T>::with_capacity(len);
-    let mut base = 0;
-
-    while base + CHECKED_BLOCK_LANES <= len {
-        let mut block_failed = false;
-        for idx in base..base + CHECKED_BLOCK_LANES {
-            match checked_at(idx) {
-                Some(value) => {
-                    // SAFETY: the buffer is allocated with capacity `len`, and
-                    // this loop pushes at most one value for each `idx`.
-                    unsafe { values.push_unchecked(value) };
-                }
-                None => {
-                    block_failed = true;
-                    // SAFETY: the buffer is allocated with capacity `len`, and
-                    // this loop pushes at most one value for each `idx`.
-                    unsafe { values.push_unchecked(T::default()) };
-                }
-            }
-        }
-
-        if block_failed {
-            return CheckedValues::failed(len);
-        }
-        base += CHECKED_BLOCK_LANES;
-    }
-
-    for idx in base..len {
-        let Some(value) = checked_at(idx) else {
-            return CheckedValues::failed(len);
-        };
-        // SAFETY: the buffer is allocated with capacity `len`, and this loop
-        // pushes at most one value for each `idx`.
-        unsafe { values.push_unchecked(value) };
-    }
-
-    CheckedValues {
-        values: values.freeze(),
-        failed: false,
-    }
-}
-
-fn checked_valid_lanes<T, F>(
-    len: usize,
-    valid_bits: &BitBuffer,
-    mut checked_at: F,
-) -> CheckedValues<T>
-where
-    T: Default,
-    F: FnMut(usize) -> Option<T>,
-{
-    let mut values = BufferMut::<T>::zeroed(len);
-    let mut failed = false;
-    {
-        let values = values.as_mut_slice();
-        for_each_valid_idx(len, valid_bits, |idx| {
-            let Some(value) = checked_at(idx) else {
-                failed = true;
-                return false;
-            };
-            values[idx] = value;
-            true
-        });
-    }
-
-    CheckedValues {
-        values: values.freeze(),
-        failed,
-    }
-}
-
-fn any_valid_error<F>(len: usize, valid_bits: &BitBuffer, is_error: F) -> bool
-where
-    F: Fn(usize) -> bool,
-{
-    !for_each_valid_idx(len, valid_bits, |idx| !is_error(idx))
-}
-
-fn for_each_valid_idx<F>(len: usize, valid_bits: &BitBuffer, mut f: F) -> bool
-where
-    F: FnMut(usize) -> bool,
-{
-    debug_assert_eq!(len, valid_bits.len());
-
-    for (word_idx, valid_word) in valid_bits.chunks().iter_padded().enumerate() {
-        if valid_word == 0 {
-            continue;
-        }
-
-        let offset = word_idx * 64;
-        let lanes = len.saturating_sub(offset).min(64);
-        if lanes == 64 && valid_word == u64::MAX {
-            for bit_idx in 0..64 {
-                if !f(offset + bit_idx) {
-                    return false;
-                }
-            }
-            continue;
-        }
-
-        let mut valid_word = if lanes == 64 {
-            valid_word
-        } else {
-            valid_word & ((1u64 << lanes) - 1)
-        };
-        while valid_word != 0 {
-            let bit_idx = valid_word.trailing_zeros() as usize;
-            if !f(offset + bit_idx) {
-                return false;
-            }
-            valid_word &= valid_word - 1;
-        }
-    }
-
-    true
-}
-
-fn check_numeric_errors(failed: bool, error: &'static str) -> VortexResult<()> {
-    if failed {
-        return Err(vortex_err!(InvalidArgument: "{}", error));
-    }
-
-    Ok(())
+    Ok(Canonical::empty(&result_dtype).into_array())
 }

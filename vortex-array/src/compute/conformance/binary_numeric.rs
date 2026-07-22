@@ -304,90 +304,140 @@ fn test_decimal_binary_numeric_with_scalar(
     let scalar = Scalar::decimal(value, decimal_dtype, array.dtype().nullability());
 
     // Decimal Mul/Div are not yet implemented.
-    let operators = vec![NumericOperator::Add, NumericOperator::Sub];
-
-    for operator in operators {
-        let result_decimal_dtype = numeric_op_result_decimal_dtype(decimal_dtype, operator)
-            .vortex_expect("decimal Add/Sub must have a result dtype");
-        let result_dtype = DType::Decimal(result_decimal_dtype, array.dtype().nullability());
-        let rhs_const = ConstantArray::new(scalar.clone(), array.len()).into_array();
-
+    for operator in [NumericOperator::Add, NumericOperator::Sub] {
         for lhs_is_array in [true, false] {
-            let (lhs, rhs) = if lhs_is_array {
-                (array.clone(), rhs_const.clone())
-            } else {
-                (rhs_const.clone(), array.clone())
-            };
-
-            let expected_results: Vec<Option<Scalar>> = original_values
-                .iter()
-                .map(|x| {
-                    let (lhs, rhs) = if lhs_is_array {
-                        (x.as_decimal(), scalar.as_decimal())
-                    } else {
-                        (scalar.as_decimal(), x.as_decimal())
-                    };
-                    let (Some(lhs), Some(rhs)) = (lhs.decimal_value(), rhs.decimal_value()) else {
-                        return Some(Scalar::null(result_dtype.clone()));
-                    };
-                    let lhs = lhs.as_i256();
-                    let rhs = rhs.as_i256();
-                    let value = match operator {
-                        NumericOperator::Add => lhs.checked_add(&rhs),
-                        NumericOperator::Sub => lhs.checked_sub(&rhs),
-                        NumericOperator::Mul | NumericOperator::Div => unreachable!(),
-                    }?;
-                    let value = DecimalValue::try_from_i256(value, result_decimal_dtype).ok()?;
-                    Some(Scalar::decimal(
-                        value,
-                        result_decimal_dtype,
-                        result_dtype.nullability(),
-                    ))
-                })
-                .collect();
-
-            let result = lhs
-                .binary(rhs, operator.into())
-                .vortex_expect("apply shouldn't fail")
-                .execute::<RecursiveCanonical>(ctx)
-                .map(|c| c.0.into_array());
-
-            let expects_overflow = expected_results.iter().any(Option::is_none);
-            if expects_overflow {
-                assert!(
-                    result.is_err(),
-                    "Decimal binary numeric operation should overflow for encoding {}: \
-                     {operator:?} {scalar} (lhs_is_array: {lhs_is_array})",
-                    array.encoding_id(),
-                );
-                continue;
-            }
-
-            let result = result.unwrap_or_else(|err| {
-                vortex_panic!(
-                    "Decimal binary numeric operation unexpectedly failed for encoding {}: \
-                     {operator:?} {scalar} (lhs_is_array: {lhs_is_array}): {err}",
-                    array.encoding_id(),
-                )
-            });
-
-            let actual_values = to_vec_of_scalar(&result, ctx);
-            for (idx, (actual, expected)) in actual_values.iter().zip(&expected_results).enumerate()
-            {
-                let expected_value = expected
-                    .as_ref()
-                    .vortex_expect("non-overflowing decimal lane must have an expected value");
-                assert_eq!(
-                    actual,
-                    expected_value,
-                    "Decimal binary numeric operation failed for encoding {} at index {}: \
-                     ({array:?})[{idx}] {operator:?} {scalar} (lhs_is_array: {lhs_is_array}) \
-                     expected {expected_value:?}, got {actual:?}",
-                    array.encoding_id(),
-                    idx,
-                );
-            }
+            test_decimal_binary_numeric_direction(
+                array,
+                &original_values,
+                &scalar,
+                decimal_dtype,
+                operator,
+                lhs_is_array,
+                ctx,
+            );
         }
+    }
+}
+
+fn test_decimal_binary_numeric_direction(
+    array: &ArrayRef,
+    original_values: &[Scalar],
+    scalar: &Scalar,
+    decimal_dtype: DecimalDType,
+    operator: NumericOperator,
+    lhs_is_array: bool,
+    ctx: &mut ExecutionCtx,
+) {
+    let result_decimal_dtype = numeric_op_result_decimal_dtype(decimal_dtype, operator)
+        .vortex_expect("decimal Add/Sub must have a result dtype");
+    let result_dtype = DType::Decimal(result_decimal_dtype, array.dtype().nullability());
+    let expected_results = expected_decimal_results(
+        original_values,
+        scalar,
+        operator,
+        result_decimal_dtype,
+        &result_dtype,
+        lhs_is_array,
+    );
+
+    let constant = ConstantArray::new(scalar.clone(), array.len()).into_array();
+    let (lhs, rhs) = if lhs_is_array {
+        (array.clone(), constant)
+    } else {
+        (constant, array.clone())
+    };
+    let result = lhs
+        .binary(rhs, operator.into())
+        .vortex_expect("binary decimal op shouldn't fail")
+        .execute::<RecursiveCanonical>(ctx)
+        .map(|c| c.0.into_array());
+
+    assert_decimal_results(
+        result,
+        &expected_results,
+        array,
+        scalar,
+        operator,
+        lhs_is_array,
+        ctx,
+    );
+}
+
+fn expected_decimal_results(
+    original_values: &[Scalar],
+    scalar: &Scalar,
+    operator: NumericOperator,
+    result_decimal_dtype: DecimalDType,
+    result_dtype: &DType,
+    lhs_is_array: bool,
+) -> Vec<Option<Scalar>> {
+    original_values
+        .iter()
+        .map(|value| {
+            let (lhs, rhs) = if lhs_is_array {
+                (value.as_decimal(), scalar.as_decimal())
+            } else {
+                (scalar.as_decimal(), value.as_decimal())
+            };
+            let (Some(lhs), Some(rhs)) = (lhs.decimal_value(), rhs.decimal_value()) else {
+                return Some(Scalar::null(result_dtype.clone()));
+            };
+            let value = match operator {
+                NumericOperator::Add => lhs.as_i256().checked_add(&rhs.as_i256()),
+                NumericOperator::Sub => lhs.as_i256().checked_sub(&rhs.as_i256()),
+                NumericOperator::Mul | NumericOperator::Div => unreachable!(),
+            }?;
+            let value = DecimalValue::try_from_i256(value, result_decimal_dtype).ok()?;
+            Some(Scalar::decimal(
+                value,
+                result_decimal_dtype,
+                result_dtype.nullability(),
+            ))
+        })
+        .collect()
+}
+
+fn assert_decimal_results(
+    result: vortex_error::VortexResult<ArrayRef>,
+    expected_results: &[Option<Scalar>],
+    array: &ArrayRef,
+    scalar: &Scalar,
+    operator: NumericOperator,
+    lhs_is_array: bool,
+    ctx: &mut ExecutionCtx,
+) {
+    if expected_results.iter().any(Option::is_none) {
+        assert!(
+            result.is_err(),
+            "Decimal binary numeric operation should overflow for encoding {}: \
+             {operator:?} {scalar} (lhs_is_array: {lhs_is_array})",
+            array.encoding_id(),
+        );
+        return;
+    }
+
+    let result = result.unwrap_or_else(|err| {
+        vortex_panic!(
+            "Decimal binary numeric operation unexpectedly failed for encoding {}: \
+             {operator:?} {scalar} (lhs_is_array: {lhs_is_array}): {err}",
+            array.encoding_id(),
+        )
+    });
+
+    let actual_values = to_vec_of_scalar(&result, ctx);
+    for (idx, (actual, expected)) in actual_values.iter().zip(expected_results).enumerate() {
+        let expected_value = expected
+            .as_ref()
+            .vortex_expect("non-overflowing decimal lane must have an expected value");
+        assert_eq!(
+            actual,
+            expected_value,
+            "Decimal binary numeric operation failed for encoding {} at index {}: \
+             ({array:?})[{idx}] {operator:?} {scalar} (lhs_is_array: {lhs_is_array}) \
+             expected {expected_value:?}, got {actual:?}",
+            array.encoding_id(),
+            idx,
+        );
     }
 }
 
