@@ -54,6 +54,13 @@ The postscript contains the locations of:
 2. a `layout` segment containing the root `Layout`
 3. a `statistics` segment containing file-level per-field statistics (e.g., minima and maxima of each field/column, for whole-file pruning)
 4. a `footer` segment containing a dictionary-encoded _segment map_, and other shared configuration such as compression and encryption schemes
+5. up to 16 user-defined `metadata` segments, each identified by a unique, non-empty UTF-8 key of at most 64 bytes
+
+The postscript carries a locator (offset, length, and alignment) for each metadata segment that is
+present; a file written without user metadata (and any file predating this feature) carries none.
+Readers do not load the opaque metadata values by default. Opt-in metadata reads resolve each
+locator separately, allowing values outside the initial file-tail read to be fetched without reading
+the intervening file contents.
 
 :::{literalinclude} ../../vortex-flatbuffers/flatbuffers/vortex-file/footer.fbs
 :start-after: [postscript]

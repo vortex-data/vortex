@@ -117,9 +117,14 @@ impl Alignment {
     ///
     /// ## Panics
     ///
-    /// Panics if `1 << exponent` overflows `usize`.
+    /// Panics if `1 << exponent` overflows `usize`. Use [`Self::try_from_exponent`] when parsing
+    /// untrusted input.
     #[inline]
     pub const fn from_exponent(exponent: u8) -> Self {
+        assert!(
+            (exponent as u32) < usize::BITS,
+            "Alignment exponent must fit in usize"
+        );
         Self::new(1 << exponent)
     }
 

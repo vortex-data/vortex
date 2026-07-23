@@ -3,11 +3,30 @@
 
 use itertools::Itertools;
 use itertools::MinMaxResult;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 
 use crate::arrays::DecimalArray;
+use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::DecimalType;
+use crate::dtype::NativeDecimalType;
 use crate::dtype::i256;
+use crate::match_each_decimal_value_type;
+
+/// Return the array's unscaled values widened to `W`, which must be at least as wide as the
+/// array's storage type.
+pub(crate) fn widened_buffer<W: NativeDecimalType>(array: &DecimalArray) -> Buffer<W> {
+    if array.values_type() == W::DECIMAL_TYPE {
+        return array.buffer::<W>();
+    }
+    match_each_decimal_value_type!(array.values_type(), |T| {
+        array
+            .buffer::<T>()
+            .iter()
+            .map(|v| W::from(*v).vortex_expect("widening decimal cast must succeed"))
+            .collect()
+    })
+}
 
 macro_rules! try_downcast {
     ($array:expr, from: $src:ty, to: $($dst:ty),*) => {{

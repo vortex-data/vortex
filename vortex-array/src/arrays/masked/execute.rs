@@ -50,6 +50,9 @@ pub fn mask_validity_canonical(
             Canonical::FixedSizeList(mask_validity_fixed_size_list(a, validity)?)
         }
         Canonical::Struct(a) => Canonical::Struct(mask_validity_struct(a, validity)?),
+        Canonical::Union(_) => {
+            todo!("TODO(connor)[Union]: implement masking for Union arrays")
+        }
         Canonical::Extension(a) => Canonical::Extension(mask_validity_extension(a, validity, ctx)?),
         Canonical::Variant(a) => Canonical::Variant(mask_validity_variant(a, validity, ctx)?),
     })

@@ -21,6 +21,7 @@ use parking_lot::RwLock;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::dash_map::DashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 /// Global string interner for [`Id`] values.
 static INTERNER: LazyLock<ThreadedRodeo<Spur, DefaultHashBuilder>> =
@@ -227,32 +228,32 @@ impl ReadContext {
 /// 1. This object holds an Arc of RwLock internally because we need concurrent access from the
 ///    layout writer code path. We should update SegmentSink to take an Array rather than
 ///    ByteBuffer such that serializing arrays is done sequentially.
-/// 2. The name is terrible. `Interner<T>` is better, but I want to minimize breakage for now.
+/// 2. The name is terrible. `Interner` is better, but I want to minimize breakage for now.
 #[derive(Clone, Debug)]
-pub struct Context<T> {
+pub struct Context {
     // TODO(ngates): it's a long story, but if we make SegmentSink and SegmentSource take an
     //  enum of Segment { Array, DType, Buffer } then we don't actually need a mutable context
     //  in the LayoutWriter, therefore we don't need a RwLock here and everyone is happier.
     ids: Arc<RwLock<Vec<Id>>>,
-    // Optional registry used to filter the permissible interned items.
-    registry: Option<Registry<T>>,
+    // Optional set used to filter the permissible interned IDs.
+    valid_ids: Option<Arc<HashSet<Id>>>,
 }
 
-impl<T> Default for Context<T> {
+impl Default for Context {
     fn default() -> Self {
         Self {
             ids: Arc::new(RwLock::new(Vec::new())),
-            registry: None,
+            valid_ids: None,
         }
     }
 }
 
-impl<T: Clone> Context<T> {
+impl Context {
     /// Create a context with the given initial IDs.
     pub fn new(ids: Vec<Id>) -> Self {
         Self {
             ids: Arc::new(RwLock::new(ids)),
-            registry: None,
+            valid_ids: None,
         }
     }
 
@@ -261,18 +262,18 @@ impl<T: Clone> Context<T> {
         Self::default()
     }
 
-    /// Configure a registry to restrict the permissible set of interned items.
-    pub fn with_registry(mut self, registry: Registry<T>) -> Self {
-        self.registry = Some(registry);
+    /// Restrict the permissible set of interned IDs.
+    pub fn with_valid_ids(mut self, ids: impl IntoIterator<Item = Id>) -> Self {
+        self.valid_ids = Some(Arc::new(ids.into_iter().collect()));
         self
     }
 
     /// Intern an ID, returning its index.
     pub fn intern(&self, id: &Id) -> Option<u16> {
-        if let Some(registry) = &self.registry
-            && registry.find(id).is_none()
+        if let Some(valid_ids) = &self.valid_ids
+            && !valid_ids.contains(id)
         {
-            // ID not in registry, cannot intern.
+            // ID is not valid, cannot intern.
             return None;
         }
 
@@ -293,5 +294,26 @@ impl<T: Clone> Context<T> {
     /// Get the list of interned IDs.
     pub fn to_ids(&self) -> Vec<Id> {
         self.ids.read().clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CachedId;
+    use super::Context;
+
+    static VALID: CachedId = CachedId::new("vortex.test.valid");
+    static INVALID: CachedId = CachedId::new("vortex.test.invalid");
+
+    #[test]
+    fn context_filters_interned_ids() {
+        let valid = *VALID;
+        let invalid = *INVALID;
+        let context = Context::empty().with_valid_ids([valid]);
+
+        assert_eq!(context.intern(&valid), Some(0));
+        assert_eq!(context.intern(&valid), Some(0));
+        assert_eq!(context.intern(&invalid), None);
+        assert_eq!(context.to_ids(), [valid]);
     }
 }

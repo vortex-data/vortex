@@ -588,7 +588,7 @@ mod tests {
         let session = array_session();
         session.arrays().register(Patched);
 
-        let ctx = ArrayContext::empty().with_registry(session.arrays().registry().clone());
+        let ctx = ArrayContext::empty().with_valid_ids(session.arrays().registry().ids());
         let serialized = array
             .serialize(&ctx, &session, &SerializeOptions::default())
             .unwrap();

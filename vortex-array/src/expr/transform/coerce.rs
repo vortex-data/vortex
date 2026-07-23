@@ -70,6 +70,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
@@ -150,6 +151,30 @@ mod tests {
         let lhs_dt = coerced.child(0).return_dtype(&scope)?;
         let rhs_dt = coerced.child(1).return_dtype(&scope)?;
         assert_eq!(lhs_dt, rhs_dt);
+        Ok(())
+    }
+
+    #[test]
+    fn decimal_arithmetic_coerces_precision_and_scale() -> VortexResult<()> {
+        let common_dtype = DType::Decimal(DecimalDType::new(4, 2), NonNullable);
+        let result_dtype = DType::Decimal(DecimalDType::new(5, 2), NonNullable);
+        let scope = DType::Struct(
+            StructFields::new(
+                ["a", "b"].into(),
+                vec![
+                    DType::Decimal(DecimalDType::new(3, 1), NonNullable),
+                    common_dtype,
+                ],
+            ),
+            NonNullable,
+        );
+        let expr = Binary.new_expr(Operator::Add, [col("a"), col("b")]);
+
+        let coerced = coerce_expression(expr, &scope)?;
+
+        assert!(coerced.child(0).is::<Cast>());
+        assert!(!coerced.child(1).is::<Cast>());
+        assert_eq!(coerced.return_dtype(&scope)?, result_dtype);
         Ok(())
     }
 

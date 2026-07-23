@@ -39,12 +39,27 @@ use vortex_layout::layout_from_flatbuffer_with_options;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
+/// Maximum number of user-defined metadata segments. Keeps postscript bookkeeping small so the
+/// footer and required segments still fit the initial tail read.
+pub(crate) const MAX_METADATA_SEGMENTS: usize = 16;
+
+/// Maximum length, in UTF-8 bytes, of a user-defined metadata key (keys live in the postscript).
+///
+/// 64 bytes covers reverse-DNS query-engine keys, not just short Iceberg-style keys: e.g.
+/// `org.apache.spark.sql.parquet.row.metadata` (41 bytes), which Spark writes into every Parquet
+/// file. With [`MAX_METADATA_SEGMENTS`] keys this bounds the postscript key budget at 1 KiB.
+pub(crate) const MAX_METADATA_KEY_BYTES: usize = 64;
+
+/// User-defined metadata segment locators stored as `(key, locator)` pairs.
+pub(crate) type MetadataSegments = Arc<[(String, SegmentSpec)]>;
+
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
+    metadata: Arc<[(String, SegmentSpec)]>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
@@ -62,6 +77,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
+            metadata: Arc::from([]),
             array_read_ctx,
             approx_byte_size: None,
         }
@@ -78,9 +94,14 @@ impl Footer {
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
+        metadata: Arc<[(String, SegmentSpec)]>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
-        let approx_byte_size = footer_bytes.len() + layout_bytes.len();
+        let metadata_bytes: usize = metadata
+            .iter()
+            .map(|(key, _segment)| key.len() + size_of::<SegmentSpec>())
+            .sum();
+        let approx_byte_size = footer_bytes.len() + layout_bytes.len() + metadata_bytes;
         let fb_footer = root::<fb::Footer>(footer_bytes)?;
 
         // Create a LayoutContext from the registry.
@@ -128,6 +149,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
+            metadata,
             array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
         })
@@ -146,6 +168,33 @@ impl Footer {
     /// Returns the statistics of the file.
     pub fn statistics(&self) -> Option<&FileStatistics> {
         self.statistics.as_ref()
+    }
+
+    /// Returns the user-defined metadata segment locators stored in the postscript.
+    pub fn metadata_segments(&self) -> impl Iterator<Item = (&str, &SegmentSpec)> {
+        self.metadata
+            .iter()
+            .map(|(key, segment)| (key.as_str(), segment))
+    }
+
+    /// Returns the user-defined metadata segment locator for the given key.
+    pub fn metadata_segment(&self, key: &str) -> Option<&SegmentSpec> {
+        self.metadata
+            .iter()
+            .find_map(|(candidate, segment)| (candidate == key).then_some(segment))
+    }
+
+    pub(crate) fn with_metadata_segments(mut self, metadata: Arc<[(String, SegmentSpec)]>) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    pub(crate) fn segment_specs_with_metadata(&self) -> Arc<[SegmentSpec]> {
+        self.segments
+            .iter()
+            .copied()
+            .chain(self.metadata.iter().map(|(_, segment)| *segment))
+            .collect()
     }
 
     /// Computes the compressed size in bytes of every field in the file, keyed by field path.

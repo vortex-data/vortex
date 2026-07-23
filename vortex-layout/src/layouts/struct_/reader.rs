@@ -157,17 +157,26 @@ impl StructReader {
     /// Utility for partitioning an expression over the fields of a struct.
     fn partition_expr(&self, expr: Expression) -> VortexResult<Partitioned> {
         let key = ExactExpr(expr.clone());
-        let binding = self
-            .partitioned_expr_cache
-            .entry(key)
-            .or_insert_with(|| Arc::new(OnceLock::new()));
-        let entry = binding.value();
-        if let Some(value) = entry.get() {
+
+        // Look up the cell under a shared shard lock; only a miss takes the write lock, and
+        // only for as long as it takes to insert an empty cell.
+        let cell = match self.partitioned_expr_cache.get(&key) {
+            Some(entry) => Arc::clone(entry.value()),
+            None => Arc::clone(
+                self.partitioned_expr_cache
+                    .entry(key)
+                    .or_insert_with(|| Arc::new(OnceLock::new()))
+                    .value(),
+            ),
+        };
+        // All map guards are dropped here, so partitioning runs outside any shard lock.
+        // Concurrent misses may compute redundantly; `get_or_init` keeps a single winner.
+
+        if let Some(value) = cell.get() {
             return Ok(value.clone());
         }
         let result = self.compute_partitioned_expr(expr)?;
-        let result = entry.get_or_init(|| result);
-        Ok(result.clone())
+        Ok(cell.get_or_init(|| result).clone())
     }
 
     fn compute_partitioned_expr(&self, expr: Expression) -> VortexResult<Partitioned> {

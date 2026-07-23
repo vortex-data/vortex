@@ -319,7 +319,7 @@ impl DType {
                 }
                 Some(sum)
             }
-            Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            Union(..) => None,
             Variant(_) => None,
             Extension(ext) => ext.storage_dtype().element_size(),
         }

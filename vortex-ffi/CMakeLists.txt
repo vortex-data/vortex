@@ -105,6 +105,12 @@ if (BUILD_TESTS OR BUILD_EXAMPLES)
       GIT_TAG        apache-arrow-nanoarrow-0.8.0
     )
     FetchContent_MakeAvailable(Nanoarrow)
+
+    # arrow-nanoarrow creates a self-referential symlink
+    # python/subprojects/arrow-nanoarrow -> ../..
+    if (IS_SYMLINK "${nanoarrow_SOURCE_DIR}/python/subprojects/arrow-nanoarrow")
+        file(REMOVE "${nanoarrow_SOURCE_DIR}/python/subprojects/arrow-nanoarrow")
+    endif()
 endif()
 
 if (BUILD_TESTS)

@@ -16,6 +16,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::dtype::DecimalDType;
     use vortex_buffer::buffer;
@@ -73,5 +74,23 @@ mod tests {
     fn test_decimal_byte_parts_consistency(#[case] array: DecimalBytePartsArray) {
         let ctx = &mut array_session().create_execution_ctx();
         test_array_consistency(&array.into_array(), ctx);
+    }
+
+    #[rstest]
+    #[case::decimal_i32(DecimalByteParts::try_new(
+        buffer![100i32, 200, 300, 400, 500].into_array(),
+        DecimalDType::new(10, 2)
+    ).unwrap())]
+    #[case::decimal_nullable_i64(DecimalByteParts::try_new(
+        PrimitiveArray::from_option_iter([Some(1000i64), None, Some(3000), Some(4000), None]).into_array(),
+        DecimalDType::new(19, 4)
+    ).unwrap())]
+    #[case::decimal_negative(DecimalByteParts::try_new(
+        buffer![-100i32, -200, 300, -400, 500].into_array(),
+        DecimalDType::new(10, 2)
+    ).unwrap())]
+    fn test_decimal_byte_parts_binary_numeric(#[case] array: DecimalBytePartsArray) {
+        let ctx = &mut array_session().create_execution_ctx();
+        test_binary_numeric_array(&array.into_array(), ctx);
     }
 }

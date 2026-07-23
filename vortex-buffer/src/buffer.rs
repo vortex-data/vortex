@@ -713,6 +713,11 @@ pub struct BufferIterator<T: Copy> {
     end: *const T,
 }
 
+// SAFETY: `BufferIterator` is a `Buffer<T>` plus two cursors into it, so it can safely be
+// `Send`/`Sync` exactly when `Buffer<T>` is. Same bounds as `std::vec::IntoIter`.
+unsafe impl<T: Copy + Send> Send for BufferIterator<T> {}
+unsafe impl<T: Copy + Sync> Sync for BufferIterator<T> {}
+
 impl<T: Copy> Iterator for BufferIterator<T> {
     type Item = T;
 
@@ -775,6 +780,17 @@ mod test {
         let aligned = buf.aligned(Alignment::new(32));
         assert_eq!(aligned.alignment(), Alignment::new(32));
         assert_eq!(aligned.as_slice(), &[0, 1, 2]);
+    }
+
+    #[test]
+    fn buffer_iterator_send_sync() {
+        fn assert_send_sync<T: Send + Sync>(_: &T) {}
+
+        let mut iter = buffer![0i32, 1, 2, 3].into_iter();
+        assert_send_sync(&iter);
+        iter.next();
+        let remaining: Vec<i32> = std::thread::spawn(move || iter.collect()).join().unwrap();
+        assert_eq!(remaining, vec![1, 2, 3]);
     }
 
     #[test]

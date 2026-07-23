@@ -35,6 +35,8 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
+use crate::arrays::Union;
+use crate::arrays::UnionArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::Variant;
@@ -47,6 +49,7 @@ use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrays::primitive::PrimitiveDataParts;
 use crate::arrays::struct_::StructDataParts;
+use crate::arrays::union::UnionDataParts;
 use crate::arrays::varbinview::VarBinViewDataParts;
 use crate::arrays::variant::VariantArrayExt;
 use crate::dtype::DType;
@@ -69,7 +72,7 @@ use crate::validity::Validity;
 ///
 /// Each `Canonical` variant has a corresponding [`DType`] variant, with the notable exception of
 /// [`Canonical::VarBinView`], which is the canonical encoding for both [`DType::Utf8`] and
-/// [`DType::Binary`]. [`DType::Union`] does not yet have a public canonical array.
+/// [`DType::Binary`].
 ///
 /// # Laziness
 ///
@@ -80,8 +83,9 @@ use crate::validity::Validity;
 ///
 /// # Arrow interoperability
 ///
-/// All of the Vortex canonical encodings have an equivalent Arrow encoding that can be built
-/// zero-copy, and the corresponding Arrow array types can also be built directly.
+/// Vortex canonical encodings have equivalent Arrow encodings that can be built zero-copy, except
+/// [`UnionArray`], whose independent top-level validity cannot be represented directly by an Arrow
+/// union. The corresponding Arrow array types can also be built directly.
 ///
 /// The full list of canonical types and their equivalent Arrow array types are:
 ///
@@ -128,6 +132,7 @@ pub enum Canonical {
     List(ListViewArray),
     FixedSizeList(FixedSizeListArray),
     Struct(StructArray),
+    Union(UnionArray),
     /// Canonical storage for extension dtypes, wrapping the canonical form of the storage dtype.
     Extension(ExtensionArray),
     /// Canonical storage for dynamic variant values, optionally with typed shredded paths.
@@ -146,6 +151,7 @@ macro_rules! match_each_canonical {
             Canonical::List($ident) => $eval,
             Canonical::FixedSizeList($ident) => $eval,
             Canonical::Struct($ident) => $eval,
+            Canonical::Union($ident) => $eval,
             Canonical::Variant($ident) => $eval,
             Canonical::Extension($ident) => $eval,
         }
@@ -228,7 +234,9 @@ impl Canonical {
                     Validity::from(n),
                 )
             }),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Union(variants, nullability) => {
+                Canonical::Union(UnionArray::empty(variants.clone(), *nullability))
+            }
             DType::Variant(_) => {
                 vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
             }
@@ -398,6 +406,24 @@ impl Canonical {
             a
         } else {
             vortex_panic!("Cannot unwrap StructArray from {:?}", &self)
+        }
+    }
+
+    /// Return this canonical array as a sparse [`UnionArray`].
+    pub fn as_union(&self) -> &UnionArray {
+        if let Canonical::Union(a) = self {
+            a
+        } else {
+            vortex_panic!("Cannot get UnionArray from {:?}", &self)
+        }
+    }
+
+    /// Unwrap this canonical array as a sparse [`UnionArray`].
+    pub fn into_union(self) -> UnionArray {
+        if let Canonical::Union(a) = self {
+            a
+        } else {
+            vortex_panic!("Cannot unwrap UnionArray from {:?}", &self)
         }
     }
 
@@ -652,6 +678,18 @@ impl Executable for CanonicalValidity {
                     StructArray::new_unchecked(fields, struct_fields, len, validity.execute(ctx)?)
                 })))
             }
+            Canonical::Union(union) => {
+                let UnionDataParts {
+                    variants,
+                    type_ids,
+                    children,
+                } = union.into_data_parts();
+                let type_ids = type_ids.execute::<CanonicalValidity>(ctx)?.0.into_array();
+
+                Ok(CanonicalValidity(Canonical::Union(unsafe {
+                    UnionArray::new_unchecked(type_ids, variants, children)
+                })))
+            }
             Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension(
                 ExtensionArray::new(
                     ext.ext_dtype().clone(),
@@ -829,6 +867,27 @@ impl Executable for RecursiveCanonical {
                     )
                 })))
             }
+            Canonical::Union(union) => {
+                let UnionDataParts {
+                    variants,
+                    type_ids,
+                    children,
+                } = union.into_data_parts();
+                let type_ids = type_ids.execute::<RecursiveCanonical>(ctx)?.0.into_array();
+                let children = children
+                    .iter()
+                    .cloned()
+                    .map(|child| {
+                        child
+                            .execute::<RecursiveCanonical>(ctx)
+                            .map(|canonical| canonical.0.into_array())
+                    })
+                    .collect::<VortexResult<Arc<[_]>>>()?;
+
+                Ok(RecursiveCanonical(Canonical::Union(unsafe {
+                    UnionArray::new_unchecked(type_ids, variants, children)
+                })))
+            }
             Canonical::Extension(ext) => Ok(RecursiveCanonical(Canonical::Extension(
                 ExtensionArray::new(
                     ext.ext_dtype().clone(),
@@ -1003,6 +1062,18 @@ impl Executable for StructArray {
     }
 }
 
+/// Execute the array to canonical form and unwrap as a [`UnionArray`].
+///
+/// This will panic if the array's dtype is not union.
+impl Executable for UnionArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_downcast::<Union>() {
+            Ok(union_array) => Ok(union_array),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_union()),
+        }
+    }
+}
+
 /// Execute the array to canonical form and unwrap as a [`VariantArray`].
 ///
 /// This will panic if the array's dtype is not variant.
@@ -1032,6 +1103,7 @@ pub enum CanonicalView<'a> {
     List(ArrayView<'a, ListView>),
     FixedSizeList(ArrayView<'a, FixedSizeList>),
     Struct(ArrayView<'a, Struct>),
+    Union(ArrayView<'a, Union>),
     Extension(ArrayView<'a, Extension>),
     Variant(ArrayView<'a, Variant>),
 }
@@ -1047,6 +1119,7 @@ impl From<CanonicalView<'_>> for Canonical {
             CanonicalView::List(a) => Canonical::List(a.into_owned()),
             CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.into_owned()),
             CanonicalView::Struct(a) => Canonical::Struct(a.into_owned()),
+            CanonicalView::Union(a) => Canonical::Union(a.into_owned()),
             CanonicalView::Extension(a) => Canonical::Extension(a.into_owned()),
             CanonicalView::Variant(a) => Canonical::Variant(a.into_owned()),
         }
@@ -1065,6 +1138,7 @@ impl CanonicalView<'_> {
             CanonicalView::List(a) => a.array().clone(),
             CanonicalView::FixedSizeList(a) => a.array().clone(),
             CanonicalView::Struct(a) => a.array().clone(),
+            CanonicalView::Union(a) => a.array().clone(),
             CanonicalView::Extension(a) => a.array().clone(),
             CanonicalView::Variant(a) => a.array().clone(),
         }
@@ -1083,6 +1157,7 @@ impl Matcher for AnyCanonical {
             || array.is::<Primitive>()
             || array.is::<Decimal>()
             || array.is::<Struct>()
+            || array.is::<Union>()
             || array.is::<ListView>()
             || array.is::<FixedSizeList>()
             || array.is::<VarBinView>()
@@ -1102,6 +1177,8 @@ impl Matcher for AnyCanonical {
             Some(CanonicalView::Decimal(a))
         } else if let Some(a) = array.as_opt::<Struct>() {
             Some(CanonicalView::Struct(a))
+        } else if let Some(a) = array.as_opt::<Union>() {
+            Some(CanonicalView::Union(a))
         } else if let Some(a) = array.as_opt::<ListView>() {
             Some(CanonicalView::List(a))
         } else if let Some(a) = array.as_opt::<FixedSizeList>() {

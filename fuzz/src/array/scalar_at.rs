@@ -104,6 +104,9 @@ pub fn scalar_at_canonical_array(
             let storage_scalar = scalar_at_canonical_array(storage_canonical, index, ctx)?;
             Scalar::extension_ref(array.ext_dtype().clone(), storage_scalar)
         }
+        Canonical::Union(_) => {
+            todo!("TODO(connor)[Union]: support Union arrays in the scalar_at fuzzer")
+        }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }

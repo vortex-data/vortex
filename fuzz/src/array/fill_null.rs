@@ -49,6 +49,9 @@ pub fn fill_null_canonical_array(
         | Canonical::List(_)
         | Canonical::FixedSizeList(_)
         | Canonical::Extension(_) => canonical.into_array().fill_null(fill_value.clone())?,
+        Canonical::Union(_) => {
+            todo!("TODO(connor)[Union]: support Union arrays in the fill_null fuzzer")
+        }
         Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }

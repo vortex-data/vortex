@@ -65,6 +65,7 @@ use vortex_geo::extension::MultiPolygon;
 use vortex_geo::extension::Point;
 use vortex_geo::extension::Polygon;
 use vortex_geo::extension::WellKnownBinary;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
@@ -325,10 +326,14 @@ impl TryFrom<&StructFields> for LogicalType {
             .map(|field_dtype| LogicalType::try_from(&field_dtype))
             .collect::<Result<_, _>>()?;
 
+        let mut name_set = HashSet::new();
         let child_names: Vec<CString> = struct_type
             .names()
             .iter()
             .map(|field_name| {
+                if name_set.replace(field_name.as_ref()).is_some() {
+                    vortex_bail!("Duplicate field '{field_name}'");
+                }
                 CString::new(field_name.as_ref())
                     .map_err(|e| vortex_err!("Invalid field name '{field_name}': {e}"))
             })
