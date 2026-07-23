@@ -199,8 +199,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_free(
 }
 
 /// Write the scan's DType as an Arrow schema to the FFI struct at `schema_addr`.
-/// Extension dtypes are dispatched through the session's registered Arrow export plugins,
-/// so their `ARROW:extension:name`/`ARROW:extension:metadata` survive the FFI crossing.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeScan_arrowSchema(
     mut env: EnvUnowned,
