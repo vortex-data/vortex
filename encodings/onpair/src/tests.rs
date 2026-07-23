@@ -62,7 +62,7 @@ fn sample_input() -> VarBinArray {
 }
 
 #[test]
-fn direct_offset_builder() -> vortex_error::VortexResult<()> {
+fn test_direct_offset_builder() -> vortex_error::VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let input = sample_input();
     let encoded = compress_onpair(input.as_ref(), &mut ctx)?;

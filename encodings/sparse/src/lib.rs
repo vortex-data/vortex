@@ -908,7 +908,7 @@ mod test {
     }
 
     #[test]
-    fn append_utf8_to_varbin_buffer_builder() {
+    fn test_append_utf8_to_varbin_buffer_builder() {
         let mut ctx = SESSION.create_execution_ctx();
         let values = VarBinViewArray::from_iter_nullable_str([Some("patched"), None, Some("last")])
             .into_array();
@@ -930,7 +930,7 @@ mod test {
     }
 
     #[test]
-    fn append_utf8_with_duplicate_patch_indices() {
+    fn test_append_utf8_with_duplicate_patch_indices() {
         let mut ctx = SESSION.create_execution_ctx();
         let values = VarBinViewArray::from_iter_str(["first", "second"]).into_array();
         let array = Sparse::try_new(

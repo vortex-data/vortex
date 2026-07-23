@@ -250,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_incorrect_uncompressed_lengths() -> VortexResult<()> {
+    fn test_rejects_incorrect_uncompressed_lengths() -> VortexResult<()> {
         let input = VarBinViewArray::from_iter_str(["hello"]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let encoded = fsst_compress(&input, &fsst_train_compressor(&input, &mut ctx)?, &mut ctx)?;
