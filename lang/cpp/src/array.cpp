@@ -179,9 +179,9 @@ Array Array::primitive_raw(vx_ptype ptype, const void *data, size_t len, const V
     return Access::adopt<Array>(out);
 }
 
-Array Array::from_arrow(ArrowArray *array, ArrowSchema *schema, bool nullable) {
+Array Array::from_arrow(const Session &session, ArrowArray *array, ArrowSchema *schema, bool nullable) {
     vx_error *error = nullptr;
-    const vx_array *out = vx_array_from_arrow(array, schema, nullable, &error);
+    const vx_array *out = vx_array_from_arrow(Access::c_ptr(session), array, schema, nullable, &error);
     throw_on_error(error);
     return Access::adopt<Array>(out);
 }

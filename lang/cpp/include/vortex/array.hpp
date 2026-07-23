@@ -136,7 +136,7 @@ public:
      * Import an Arrow array. Consumes both "array" and "schema", do not use
      * or release them afterwards. For a record batch pass nullable = false.
      */
-    static Array from_arrow(ArrowArray *array, ArrowSchema *schema, bool nullable);
+    static Array from_arrow(const Session &session, ArrowArray *array, ArrowSchema *schema, bool nullable);
 
     size_t size() const;
     bool nullable() const;

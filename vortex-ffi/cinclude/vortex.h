@@ -707,12 +707,15 @@ const vx_array *vx_array_new_primitive(vx_ptype ptype,
  *
  * // export an Arrow record batch into (array, schema), then:
  * vx_error* error = NULL;
- * const vx_array* vx = vx_array_from_arrow(&array, &schema, false, &error);
+ * const vx_array* vx = vx_array_from_arrow(session, &array, &schema, false, &error);
  * // ... push it to a sink or write it ...
  * vx_array_free(vx);
  */
-const vx_array *
-vx_array_from_arrow(FFI_ArrowArray *array, FFI_ArrowSchema *schema, bool nullable, vx_error **error_out);
+const vx_array *vx_array_from_arrow(const vx_session *session,
+                                    FFI_ArrowArray *array,
+                                    FFI_ArrowSchema *schema,
+                                    bool nullable,
+                                    vx_error **error_out);
 
 /**
  * Return UTF-8 string at "index" in a canonical Utf8 array.

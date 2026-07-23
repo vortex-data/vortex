@@ -42,7 +42,7 @@ Array strings_from_arrow(std::span<const std::string_view> values, bool with_nul
     ArrowSchema raw_schema = {};
     ArrowArrayMove(arr.get(), &raw_arr);
     ArrowSchemaMove(schema.get(), &raw_schema);
-    return Array::from_arrow(&raw_arr, &raw_schema, true);
+    return Array::from_arrow(Session(), &raw_arr, &raw_schema, true);
 }
 
 Array bytes_from_arrow(std::span<const std::string_view> values) {
@@ -62,7 +62,7 @@ Array bytes_from_arrow(std::span<const std::string_view> values) {
     ArrowSchema raw_schema = {};
     ArrowArrayMove(arr.get(), &raw_arr);
     ArrowSchemaMove(schema.get(), &raw_schema);
-    return Array::from_arrow(&raw_arr, &raw_schema, true);
+    return Array::from_arrow(Session(), &raw_arr, &raw_schema, true);
 }
 
 TEST_CASE("String view over utf8 array", "[strings]") {

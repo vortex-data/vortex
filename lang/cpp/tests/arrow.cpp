@@ -73,7 +73,7 @@ TEST_CASE("Import Arrow array as Vortex array", "[arrow]") {
     ArrowArrayMove(arr.get(), &raw_arr);
     ArrowSchemaMove(schema.get(), &raw_schema);
 
-    Array vx = Array::from_arrow(&raw_arr, &raw_schema, false);
+    Array vx = Array::from_arrow(session, &raw_arr, &raw_schema, false);
     REQUIRE(vx.size() == 3);
     REQUIRE(vx.has_dtype(DataTypeVariant::Struct));
 
