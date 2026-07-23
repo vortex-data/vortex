@@ -37,17 +37,17 @@ DataType &DataType::operator=(const DataType &other) {
     return *this;
 }
 
-DataType DataType::from_arrow(ArrowSchema *schema) {
+DataType DataType::from_arrow(const Session &session, ArrowSchema *schema) {
     vx_error *error = nullptr;
-    const vx_dtype *dtype = vx_dtype_from_arrow_schema(schema, &error);
+    const vx_dtype *dtype = vx_dtype_from_arrow_schema(Access::c_ptr(session), schema, &error);
     throw_on_error(error);
     return DataType(dtype);
 }
 
-ArrowSchema DataType::to_arrow() const {
+ArrowSchema DataType::to_arrow(const Session &session) const {
     ArrowSchema schema {};
     vx_error *error = nullptr;
-    vx_dtype_to_arrow_schema(handle_.get(), &schema, &error);
+    vx_dtype_to_arrow_schema(Access::c_ptr(session), handle_.get(), &schema, &error);
     throw_on_error(error);
     return schema;
 }
