@@ -519,6 +519,12 @@ fn compile_cpp(duckdb_include_dir: &Path) {
         .std("c++20")
         .flags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"])
         .cpp(true)
+        // Duckdb 1.5.5 uses C++11. spatial_overrides.o uses
+        // duckdb::ScalarFunctionCatalogEntry::Name which is constexpr but not
+        // inline. Our code uses C++20 where constexpr implies inline. GCC
+        // emits this symbol with STB_GNU_UNIQUE and this conflicts on link stage
+        // in duckdb-vortex where libvortex_duckdb.a is linked statically
+        .flag_if_supported("-fno-gnu-unique")
         // We don't want compiler warnings inside duckdb headers, pass as flags
         .flag("-isystem")
         .flag(duckdb_include_dir)
