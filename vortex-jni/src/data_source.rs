@@ -210,9 +210,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_free(
 }
 
 /// Export the data source's schema into the Arrow C Data Interface schema struct at
-/// `schema_addr`. Extension dtypes (e.g. the `vortex.geo.*` family) are dispatched through
-/// the session's registered Arrow export plugins, so their `ARROW:extension:name`/
-/// `ARROW:extension:metadata` survive the FFI crossing.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_arrowSchema(
     mut env: EnvUnowned,
