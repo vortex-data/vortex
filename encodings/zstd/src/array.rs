@@ -1155,10 +1155,7 @@ impl ZstdData {
         match mask.indices() {
             AllOr::All => {
                 for value in values {
-                    // SAFETY: Zstd stores complete source values, preserving UTF-8 validity.
-                    unsafe {
-                        builder.append_n_values_unchecked(value, 1);
-                    }
+                    builder.append_n_values(value, 1);
                 }
             }
             AllOr::None => builder.append_nulls(slice.n_rows),
@@ -1166,15 +1163,12 @@ impl ZstdData {
                 let mut row = 0;
                 for &valid_index in valid_indices {
                     builder.append_nulls(valid_index - row);
-                    // SAFETY: Zstd stores complete source values, preserving UTF-8 validity.
-                    unsafe {
-                        builder.append_n_values_unchecked(
-                            values
-                                .next()
-                                .vortex_expect("Zstd value count must match validity"),
-                            1,
-                        );
-                    }
+                    builder.append_n_values(
+                        values
+                            .next()
+                            .vortex_expect("Zstd value count must match validity"),
+                        1,
+                    );
                     row = valid_index + 1;
                 }
                 builder.append_nulls(slice.n_rows - row);

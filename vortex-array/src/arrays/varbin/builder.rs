@@ -113,24 +113,9 @@ impl<O: IntegerPType> VarBinBuilder<O> {
     fn append_values_with_lengths(
         &mut self,
         values: &[u8],
-        lengths: impl Iterator<Item = usize> + Clone,
+        lengths: impl Iterator<Item = usize>,
         validity: &Mask,
     ) {
-        let total_len = lengths
-            .clone()
-            .try_fold(0usize, |total, len| total.checked_add(len))
-            .unwrap_or_else(|| vortex_panic!("VarBin byte length overflow"));
-        let final_end = self
-            .data
-            .len()
-            .checked_add(total_len)
-            .unwrap_or_else(|| vortex_panic!("VarBin byte offset overflow"));
-        O::from(final_end).unwrap_or_else(|| {
-            vortex_panic!(
-                "Failed to convert byte offset {final_end} to {}",
-                std::any::type_name::<O>()
-            )
-        });
         let mut end = self.data.len();
         let mut len = 0;
         for value_len in lengths {
@@ -234,16 +219,10 @@ impl VarBinBufferBuilder {
     }
 
     /// Appends decompressed values represented by one contiguous byte buffer and per-row lengths.
-    ///
-    /// # Safety
-    ///
-    /// `lengths` must contain exactly `validity.len()` items whose sum is `values.len()`.
-    /// Non-nullable builders require an all-valid mask. For UTF-8 builders, every valid value
-    /// identified by `lengths` must be valid UTF-8.
-    pub unsafe fn append_values_unchecked(
+    pub fn append_values(
         &mut self,
         values: &[u8],
-        lengths: impl Iterator<Item = usize> + Clone,
+        lengths: impl Iterator<Item = usize>,
         validity: &Mask,
     ) {
         match &mut self.storage {
@@ -257,11 +236,7 @@ impl VarBinBufferBuilder {
     }
 
     /// Appends the same non-null value `n` times.
-    ///
-    /// # Safety
-    ///
-    /// For a UTF-8 builder, `value` must be valid UTF-8.
-    pub unsafe fn append_n_values_unchecked(&mut self, value: impl AsRef<[u8]>, n: usize) {
+    pub fn append_n_values(&mut self, value: impl AsRef<[u8]>, n: usize) {
         let value = value.as_ref();
         for _ in 0..n {
             self.append_value(value);
@@ -278,13 +253,11 @@ impl VarBinBufferBuilder {
         );
         match self.dtype() {
             DType::Utf8(_) => match scalar.as_utf8().value() {
-                // SAFETY: Utf8Scalar values are valid UTF-8.
-                Some(value) => unsafe { self.append_n_values_unchecked(value, n) },
+                Some(value) => self.append_n_values(value, n),
                 None => self.push_nulls(n),
             },
             DType::Binary(_) => match scalar.as_binary().value() {
-                // SAFETY: Binary builders accept arbitrary bytes.
-                Some(value) => unsafe { self.append_n_values_unchecked(value, n) },
+                Some(value) => self.append_n_values(value, n),
                 None => self.push_nulls(n),
             },
             dtype => vortex_bail!("VarBinBufferBuilder cannot append scalar of dtype {dtype}"),
@@ -298,12 +271,6 @@ impl VarBinBufferBuilder {
         array: crate::ArrayView<'_, VarBin>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            array.dtype() == self.dtype(),
-            "VarBinBufferBuilder expected array with dtype {}, got {}",
-            self.dtype(),
-            array.dtype()
-        );
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let bytes: ByteBuffer = array.sliced_bytes();
         let validity = array
@@ -311,18 +278,15 @@ impl VarBinBufferBuilder {
             .execute_mask(array.as_ref().len(), ctx)?;
         crate::match_each_integer_ptype!(offsets.ptype(), |P| {
             let offsets = offsets.as_slice::<P>();
-            // SAFETY: VarBinArray guarantees matching offsets, bytes, validity, and UTF-8.
-            unsafe {
-                self.append_values_unchecked(
-                    bytes.as_slice(),
-                    offsets.windows(2).map(|window| {
-                        let start: usize = window[0].as_();
-                        let end: usize = window[1].as_();
-                        end - start
-                    }),
-                    &validity,
-                );
-            }
+            self.append_values(
+                bytes.as_slice(),
+                offsets.windows(2).map(|window| {
+                    let start: usize = window[0].as_();
+                    let end: usize = window[1].as_();
+                    end - start
+                }),
+                &validity,
+            );
         });
         Ok(())
     }
@@ -333,12 +297,6 @@ impl VarBinBufferBuilder {
         array: crate::ArrayView<'_, VarBinView>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            array.dtype() == self.dtype(),
-            "VarBinBufferBuilder expected array with dtype {}, got {}",
-            self.dtype(),
-            array.dtype()
-        );
         let validity = array
             .varbinview_validity()
             .execute_mask(array.as_ref().len(), ctx)?;
@@ -515,22 +473,6 @@ mod tests {
 
         assert_arrays_eq!(builder.finish_into_varbin(), source, &mut ctx);
         Ok(())
-    }
-
-    #[test]
-    fn test_safe_append_rejects_dtype_mismatch() {
-        let mut builder = VarBinBufferBuilder::with_capacity(DType::Utf8(Nullable), false, 1);
-        let mut ctx = array_session().create_execution_ctx();
-        let varbin = VarBinArray::from_iter([Some(b"hello".as_slice())], DType::Binary(Nullable));
-        assert!(builder.append_varbin(varbin.as_view(), &mut ctx).is_err());
-
-        let varbinview =
-            VarBinViewArray::from_iter([Some(b"hello".as_slice())], DType::Binary(Nullable));
-        assert!(
-            builder
-                .append_varbinview(varbinview.as_view(), &mut ctx)
-                .is_err()
-        );
     }
 
     #[rstest]
