@@ -298,6 +298,25 @@ on:
                 {"engine": "duckdb", "format": "duckdb"}
               ],
               "iterations": "10"
+            },
+            {
+              "id": "vortex-queries",
+              "subcommand": "vortex",
+              "name": "Vortex queries",
+              "data_formats": ["parquet", "vortex"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"}
+              ],
+              "iterations": "100"
             }
           ]
       base_benchmark_matrix:
