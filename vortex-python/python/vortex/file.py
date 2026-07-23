@@ -216,8 +216,8 @@ class VortexFile:
         batch_size : :class:`int` | None
             The number of rows to read per chunk.
         schema : :class:`pyarrow.Schema` | None
-            The Arrow physical schema to return. Use ``pyarrow.string()`` and
-            ``pyarrow.binary()`` fields to request offset-based arrays instead of view arrays.
+            The Arrow schema to return. Use ``pyarrow.string()`` for ``StringArray`` fields.
+            Use ``pyarrow.binary()`` for ``BinaryArray`` fields.
 
         """
         return self._file.to_arrow(

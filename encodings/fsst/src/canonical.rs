@@ -68,6 +68,7 @@ pub(crate) fn fsst_decode_bytes(
         len == total_size,
         "FSST decoded {len} bytes, expected {total_size}"
     );
+    // SAFETY: `decompress_into` initialized the first `len` bytes.
     unsafe { uncompressed_bytes.set_len(len) };
     Ok((uncompressed_bytes, uncompressed_lens_array))
 }

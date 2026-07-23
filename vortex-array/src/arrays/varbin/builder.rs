@@ -191,11 +191,11 @@ impl<O: IntegerPType> VarBinBuilder<O> {
     }
 }
 
-/// Builder for offset-based UTF-8 and binary arrays with either 32-bit or 64-bit offsets.
+/// Builder for UTF-8 and binary [`VarBinArray`] values.
 ///
-/// Unlike [`crate::builders::VarBinViewBuilder`], this builder produces a [`VarBinArray`].
-/// Encodings can downcast an [`ArrayBuilder`] to this type and decode directly into Arrow's
-/// offset-based physical representation without first materializing a view array.
+/// Unlike [`crate::builders::VarBinViewBuilder`], this builder stores 32-bit or 64-bit offsets.
+/// Encodings can decode into this builder without first creating a
+/// [`VarBinViewArray`](crate::arrays::VarBinViewArray).
 pub struct VarBinBufferBuilder {
     dtype: DType,
     storage: TypedBuilder,
@@ -270,7 +270,7 @@ impl VarBinBufferBuilder {
         Ok(())
     }
 
-    /// Appends an existing offset-based Vortex array without constructing views.
+    /// Appends an existing [`VarBinArray`] without constructing views.
     pub fn append_varbin(
         &mut self,
         array: crate::ArrayView<'_, VarBin>,
@@ -296,7 +296,7 @@ impl VarBinBufferBuilder {
         Ok(())
     }
 
-    /// Appends a Vortex view array into the offset-based output.
+    /// Appends a [`VarBinViewArray`](crate::arrays::VarBinViewArray).
     pub fn append_varbinview(
         &mut self,
         array: crate::ArrayView<'_, VarBinView>,

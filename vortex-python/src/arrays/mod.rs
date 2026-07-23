@@ -435,8 +435,8 @@ impl PyArray {
     /// Parameters
     /// ----------
     /// arrow_type : :class:`pyarrow.DataType`, optional
-    ///     The Arrow physical type to return. When omitted, Vortex chooses its preferred type,
-    ///     including ``string_view`` and ``binary_view`` for UTF-8 and binary arrays.
+    ///     The Arrow type to return. By default, UTF-8 data returns a ``StringViewArray`` and
+    ///     binary data returns a ``BinaryViewArray``.
     ///
     /// Returns
     /// -------
@@ -457,7 +457,7 @@ impl PyArray {
     ///   3
     /// ]
     /// ```
-    /// Export an offset-based Arrow string array instead of the default string-view array:
+    /// Export a ``StringArray`` instead of a ``StringViewArray``:
     ///
     /// ```python
     /// >>> import pyarrow
