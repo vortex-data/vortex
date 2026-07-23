@@ -43,6 +43,7 @@ vortex-cub = { path = "cub" }
 vortex-cuda-macros = { workspace = true }
 vortex-error = { workspace = true, features = ["object_store"] }
 vortex-nvcomp = { path = "nvcomp" }
+vortex-onpair = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { workspace = true }
@@ -106,6 +107,10 @@ harness = false
 
 [[bench]]
 name = "fsst_cuda"
+harness = false
+
+[[bench]]
+name = "onpair_cuda"
 harness = false
 
 [[bench]]

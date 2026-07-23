@@ -61,6 +61,8 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::extension::datetime::AnyTemporal;
+use vortex_onpair::OnPair;
+use vortex_onpair::OnPairArray;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -81,8 +83,9 @@ use crate::cub::exclusive_sum_i32;
 use crate::device_buffer::CUDF_VALIDITY_BUFFER_PADDING;
 use crate::executor::CudaArrayExt;
 use crate::executor::execute_validity_cuda;
-use crate::kernel::FSSTVarBin;
+use crate::kernel::DecodedVarBin;
 use crate::kernel::decode_fsst_varbin;
+use crate::kernel::decode_onpair_varbin;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
 /// first decoding the array on the GPU and then converting the canonical type to the nearest
@@ -232,6 +235,16 @@ fn export_array(
                 return export_fsst_varbin(fsst, ctx).await;
             }
             Ok(fsst) => fsst.into_array(),
+            Err(array) => array,
+        };
+        // OnPair takes the same offset-based export shortcut as FSST.
+        let array = match array.try_downcast::<OnPair>() {
+            Ok(onpair)
+                if ctx.cuda_session().varbin_export_layout() == VarBinExportLayout::VarBin =>
+            {
+                return export_onpair_varbin(onpair, ctx).await;
+            }
+            Ok(onpair) => onpair.into_array(),
             Err(array) => array,
         };
 
@@ -585,7 +598,7 @@ async fn export_fsst_varbin(
     fsst: FSSTArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
-    let FSSTVarBin {
+    let DecodedVarBin {
         dtype,
         len,
         offsets,
@@ -595,6 +608,25 @@ async fn export_fsst_varbin(
     vortex_ensure!(
         matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
         "FSST produced invalid variable-length dtype {dtype}"
+    );
+    let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
+    export_varbin_buffers(len, validity_buffer, null_count, offsets, values, ctx)
+}
+
+async fn export_onpair_varbin(
+    onpair: OnPairArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let DecodedVarBin {
+        dtype,
+        len,
+        offsets,
+        values,
+        validity,
+    } = decode_onpair_varbin(onpair, ctx).await?;
+    vortex_ensure!(
+        matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
+        "OnPair produced invalid variable-length dtype {dtype}"
     );
     let (validity_buffer, null_count) = export_arrow_validity_buffer(validity, len, 0, ctx).await?;
     export_varbin_buffers(len, validity_buffer, null_count, offsets, values, ctx)

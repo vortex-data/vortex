@@ -239,7 +239,7 @@ fn build_dictionary(
 /// dictionary is memoized in [`OnPairData`]. Once cached, subsequent calls —
 /// including on arrays derived by slice / filter / cast, which share the cell —
 /// pay neither cost again.
-pub(crate) fn dict_view<'a>(
+pub fn dict_view<'a>(
     array: ArrayView<'a, OnPair>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<CompactDictionaryView<'a>> {

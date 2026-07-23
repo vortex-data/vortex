@@ -48,8 +48,10 @@ use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 use crate::executor::execute_validity_cuda;
 
-/// Device-resident offset-based result of FSST decompression.
-pub(crate) struct FSSTVarBin {
+/// Device-resident offset-based (Arrow `Utf8`/`Binary`) decompression result:
+/// i32 offsets plus a contiguous values heap. Produced by the FSST and OnPair
+/// varbin decoders for the offset-based Arrow export path.
+pub(crate) struct DecodedVarBin {
     pub(crate) dtype: DType,
     pub(crate) len: usize,
     pub(crate) offsets: BufferHandle,
@@ -163,7 +165,7 @@ impl CudaExecute for FSSTExecutor {
 pub(crate) async fn decode_fsst_varbin(
     fsst: FSSTArray,
     ctx: &mut CudaExecutionCtx,
-) -> VortexResult<FSSTVarBin> {
+) -> VortexResult<DecodedVarBin> {
     let dtype = fsst.dtype().clone();
     let validity = fsst.codes().validity()?;
     let len = fsst.len();
@@ -188,7 +190,7 @@ pub(crate) async fn decode_fsst_varbin(
     if total_size == 0 {
         let allocation = CudaDeviceBuffer::new(ctx.device_alloc::<u8>(1)?);
         let values = BufferHandle::new_device(allocation.slice(0..0));
-        return Ok(FSSTVarBin {
+        return Ok(DecodedVarBin {
             dtype,
             len,
             offsets: output_offsets,
@@ -208,7 +210,7 @@ async fn decode_fsst_varbin_typed<U>(
     output_offsets: BufferHandle,
     total_size: usize,
     ctx: &mut CudaExecutionCtx,
-) -> VortexResult<FSSTVarBin>
+) -> VortexResult<DecodedVarBin>
 where
     U: NativePType + DeviceRepr + Send + Sync + 'static,
 {
@@ -268,7 +270,7 @@ where
             .arg(&len_u64);
     })?;
 
-    Ok(FSSTVarBin {
+    Ok(DecodedVarBin {
         dtype,
         len,
         offsets: output_offsets,
