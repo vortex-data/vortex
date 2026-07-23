@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// This module hosts the canonical Arrow → Vortex conversion machinery, implemented as the
-// deprecated `FromArrowArray` trait. Internal callers go through `from_arrow_dyn` /
-// `from_arrow_batch`; external callers use the `ArrowSession` methods.
+//! Canonical (non-plugin) conversions of Arrow arrays into Vortex arrays.
+//!
+//! Each `from_arrow_*` function converts one Arrow array shape; [`from_arrow_dyn`] dispatches on
+//! the Arrow [`DataType`]. These functions have no awareness of Arrow extension types — the
+//! plugin-aware entry points are the [`ArrowSession`](crate::ArrowSession) methods, which fall
+//! back to these conversions for non-extension data. The deprecated [`FromArrowArray`] impls are
+//! thin shims over these functions and will eventually be removed.
 #![allow(deprecated)]
 
 use std::sync::Arc;
@@ -109,17 +113,6 @@ use crate::dtype::from_arrow_time_unit;
 ///
 /// This mirrors [`IntoArray`] for Arrow buffer types; a separate trait is required because both
 /// [`IntoArray`] and the Arrow buffer types are foreign to this crate.
-/// Canonical (non-plugin) conversion of an Arrow array into a Vortex array. Internal
-/// entry point for callers that don't dispatch Arrow extension plugins.
-pub(crate) fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<ArrayRef> {
-    ArrayRef::from_arrow(array, nullable)
-}
-
-/// Canonical (non-plugin) conversion of an Arrow [`RecordBatch`] into a Vortex struct array.
-pub(crate) fn from_arrow_batch(batch: &RecordBatch, nullable: bool) -> VortexResult<ArrayRef> {
-    ArrayRef::from_arrow(batch, nullable)
-}
-
 pub trait IntoVortexArray {
     /// Convert this Arrow buffer into a non-nullable Vortex array without copying.
     fn into_array(self) -> ArrayRef;
@@ -169,13 +162,27 @@ where
     }
 }
 
+/// Zero-copy conversion of an Arrow numeric primitive array into a Vortex array.
+///
+/// Use [`from_arrow_temporal`] for Arrow temporal arrays, which carry a logical dtype beyond
+/// their physical primitive storage.
+pub fn from_arrow_primitive<T: ArrowPrimitiveType>(
+    value: &ArrowPrimitiveArray<T>,
+    nullable: bool,
+) -> VortexResult<ArrayRef>
+where
+    T::Native: NativePType,
+{
+    let buffer = Buffer::from_arrow_scalar_buffer(value.values().clone());
+    let validity = nulls(value.nulls(), nullable)?;
+    Ok(PrimitiveArray::new(buffer, validity).into_array())
+}
+
 macro_rules! impl_from_arrow_primitive {
     ($T:path) => {
         impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
             fn from_arrow(value: &ArrowPrimitiveArray<$T>, nullable: bool) -> VortexResult<Self> {
-                let buffer = Buffer::from_arrow_scalar_buffer(value.values().clone());
-                let validity = nulls(value.nulls(), nullable)?;
-                Ok(PrimitiveArray::new(buffer, validity).into_array())
+                from_arrow_primitive(value, nullable)
             }
         }
     };
@@ -193,16 +200,35 @@ impl_from_arrow_primitive!(Float16Type);
 impl_from_arrow_primitive!(Float32Type);
 impl_from_arrow_primitive!(Float64Type);
 
+/// Zero-copy conversion of an Arrow `Decimal32` array into a Vortex decimal array.
+pub fn from_arrow_decimal32(
+    array: &ArrowPrimitiveArray<Decimal32Type>,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let decimal_type = DecimalDType::new(array.precision(), array.scale());
+    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    let validity = nulls(array.nulls(), nullable)?;
+    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+}
+
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
     fn from_arrow(
         array: &ArrowPrimitiveArray<Decimal32Type>,
         nullable: bool,
     ) -> VortexResult<Self> {
-        let decimal_type = DecimalDType::new(array.precision(), array.scale());
-        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-        let validity = nulls(array.nulls(), nullable)?;
-        Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+        from_arrow_decimal32(array, nullable)
     }
+}
+
+/// Zero-copy conversion of an Arrow `Decimal64` array into a Vortex decimal array.
+pub fn from_arrow_decimal64(
+    array: &ArrowPrimitiveArray<Decimal64Type>,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let decimal_type = DecimalDType::new(array.precision(), array.scale());
+    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    let validity = nulls(array.nulls(), nullable)?;
+    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
@@ -210,11 +236,19 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
         array: &ArrowPrimitiveArray<Decimal64Type>,
         nullable: bool,
     ) -> VortexResult<Self> {
-        let decimal_type = DecimalDType::new(array.precision(), array.scale());
-        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-        let validity = nulls(array.nulls(), nullable)?;
-        Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+        from_arrow_decimal64(array, nullable)
     }
+}
+
+/// Zero-copy conversion of an Arrow `Decimal128` array into a Vortex decimal array.
+pub fn from_arrow_decimal128(
+    array: &ArrowPrimitiveArray<Decimal128Type>,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let decimal_type = DecimalDType::new(array.precision(), array.scale());
+    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    let validity = nulls(array.nulls(), nullable)?;
+    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
@@ -222,11 +256,23 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
         array: &ArrowPrimitiveArray<Decimal128Type>,
         nullable: bool,
     ) -> VortexResult<Self> {
-        let decimal_type = DecimalDType::new(array.precision(), array.scale());
-        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-        let validity = nulls(array.nulls(), nullable)?;
-        Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+        from_arrow_decimal128(array, nullable)
     }
+}
+
+/// Zero-copy conversion of an Arrow `Decimal256` array into a Vortex decimal array.
+pub fn from_arrow_decimal256(
+    array: &ArrowPrimitiveArray<Decimal256Type>,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let decimal_type = DecimalDType::new(array.precision(), array.scale());
+    let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
+    // SAFETY: Our i256 implementation has the same bit-pattern representation of the
+    //  arrow_buffer::i256 type. It is safe to treat values held inside the buffer as values
+    //  of either type.
+    let buffer = unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
+    let validity = nulls(array.nulls(), nullable)?;
+    Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
@@ -234,15 +280,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
         array: &ArrowPrimitiveArray<Decimal256Type>,
         nullable: bool,
     ) -> VortexResult<Self> {
-        let decimal_type = DecimalDType::new(array.precision(), array.scale());
-        let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-        // SAFETY: Our i256 implementation has the same bit-pattern representation of the
-        //  arrow_buffer::i256 type. It is safe to treat values held inside the buffer as values
-        //  of either type.
-        let buffer =
-            unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
-        let validity = nulls(array.nulls(), nullable)?;
-        Ok(DecimalArray::new(buffer, decimal_type, validity).into_array())
+        from_arrow_decimal256(array, nullable)
     }
 }
 
@@ -253,7 +291,7 @@ macro_rules! impl_from_arrow_temporal {
                 value: &ArrowPrimitiveArray<$T>,
                 nullable: bool,
             ) -> vortex_error::VortexResult<Self> {
-                temporal_array(value, nullable)
+                from_arrow_temporal(value, nullable)
             }
         }
     };
@@ -275,7 +313,9 @@ impl_from_arrow_temporal!(Time64NanosecondType);
 impl_from_arrow_temporal!(Date32Type);
 impl_from_arrow_temporal!(Date64Type);
 
-fn temporal_array<T: ArrowPrimitiveType>(
+/// Conversion of an Arrow temporal array (timestamp/date/time) into a Vortex temporal
+/// extension array.
+pub fn from_arrow_temporal<T: ArrowPrimitiveType>(
     value: &ArrowPrimitiveArray<T>,
     nullable: bool,
 ) -> VortexResult<ArrayRef>
@@ -306,68 +346,92 @@ where
     })
 }
 
+/// Zero-copy conversion of an Arrow (large) string/binary array into a Vortex `VarBin` array.
+pub fn from_arrow_bytes<T: ByteArrayType>(
+    value: &GenericByteArray<T>,
+    nullable: bool,
+) -> VortexResult<ArrayRef>
+where
+    <T as ByteArrayType>::Offset: IntegerPType,
+{
+    let dtype = match T::DATA_TYPE {
+        DataType::Binary | DataType::LargeBinary => DType::Binary(nullable.into()),
+        DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
+        dt => vortex_panic!("Invalid data type for ByteArray: {dt}"),
+    };
+    // SAFETY: Arrow arrays are already validated (valid UTF-8, valid offsets, correct validity).
+    Ok(unsafe {
+        VarBinArray::new_unchecked(
+            value.offsets().clone().into_array(),
+            ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
+            dtype,
+            nulls(value.nulls(), nullable)?,
+        )
+    }
+    .into_array())
+}
+
 impl<T: ByteArrayType> FromArrowArray<&GenericByteArray<T>> for ArrayRef
 where
     <T as ByteArrayType>::Offset: IntegerPType,
 {
     fn from_arrow(value: &GenericByteArray<T>, nullable: bool) -> VortexResult<Self> {
-        let dtype = match T::DATA_TYPE {
-            DataType::Binary | DataType::LargeBinary => DType::Binary(nullable.into()),
-            DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
-            dt => vortex_panic!("Invalid data type for ByteArray: {dt}"),
-        };
-        // SAFETY: Arrow arrays are already validated (valid UTF-8, valid offsets, correct validity).
-        Ok(unsafe {
-            VarBinArray::new_unchecked(
-                value.offsets().clone().into_array(),
-                ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
-                dtype,
-                nulls(value.nulls(), nullable)?,
-            )
-        }
-        .into_array())
+        from_arrow_bytes(value, nullable)
     }
+}
+
+/// Zero-copy conversion of an Arrow string/binary view array into a Vortex `VarBinView` array.
+pub fn from_arrow_byte_view<T: ByteViewType>(
+    value: &GenericByteViewArray<T>,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let dtype = match T::DATA_TYPE {
+        DataType::BinaryView => DType::Binary(nullable.into()),
+        DataType::Utf8View => DType::Utf8(nullable.into()),
+        dt => vortex_panic!("Invalid data type for ByteViewArray: {dt}"),
+    };
+
+    let views_buffer = Buffer::from_byte_buffer(
+        Buffer::from_arrow_scalar_buffer(value.views().clone()).into_byte_buffer(),
+    );
+
+    // SAFETY: arrow-rs ByteViewArray already checks the same invariants, we inherit those
+    //  guarantees by zero-copy constructing from one.
+    Ok(unsafe {
+        VarBinViewArray::new_unchecked(
+            views_buffer,
+            Arc::from(
+                value
+                    .data_buffers()
+                    .iter()
+                    .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
+                    .collect::<Vec<_>>(),
+            ),
+            dtype,
+            nulls(value.nulls(), nullable)?,
+        )
+        .into_array()
+    })
 }
 
 impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
     fn from_arrow(value: &GenericByteViewArray<T>, nullable: bool) -> VortexResult<Self> {
-        let dtype = match T::DATA_TYPE {
-            DataType::BinaryView => DType::Binary(nullable.into()),
-            DataType::Utf8View => DType::Utf8(nullable.into()),
-            dt => vortex_panic!("Invalid data type for ByteViewArray: {dt}"),
-        };
-
-        let views_buffer = Buffer::from_byte_buffer(
-            Buffer::from_arrow_scalar_buffer(value.views().clone()).into_byte_buffer(),
-        );
-
-        // SAFETY: arrow-rs ByteViewArray already checks the same invariants, we inherit those
-        //  guarantees by zero-copy constructing from one.
-        Ok(unsafe {
-            VarBinViewArray::new_unchecked(
-                views_buffer,
-                Arc::from(
-                    value
-                        .data_buffers()
-                        .iter()
-                        .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
-                        .collect::<Vec<_>>(),
-                ),
-                dtype,
-                nulls(value.nulls(), nullable)?,
-            )
-            .into_array()
-        })
+        from_arrow_byte_view(value, nullable)
     }
+}
+
+/// Zero-copy conversion of an Arrow boolean array into a Vortex `Bool` array.
+pub fn from_arrow_boolean(value: &ArrowBooleanArray, nullable: bool) -> VortexResult<ArrayRef> {
+    Ok(BoolArray::new(
+        value.values().clone().into(),
+        nulls(value.nulls(), nullable)?,
+    )
+    .into_array())
 }
 
 impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
     fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> VortexResult<Self> {
-        Ok(BoolArray::new(
-            value.values().clone().into(),
-            nulls(value.nulls(), nullable)?,
-        )
-        .into_array())
+        from_arrow_boolean(value, nullable)
     }
 }
 
@@ -419,84 +483,113 @@ pub(crate) fn remove_nulls(data: arrow_data::ArrayData) -> VortexResult<arrow_da
         .map_err(|e| vortex_err!("Failed to reconstruct Arrow array without nulls: {e}"))
 }
 
+/// Conversion of an Arrow struct array into a Vortex `Struct` array, converting each column.
+pub fn from_arrow_struct(value: &ArrowStructArray, nullable: bool) -> VortexResult<ArrayRef> {
+    Ok(StructArray::try_new(
+        value.column_names().iter().copied().collect(),
+        value
+            .columns()
+            .iter()
+            .zip(value.fields())
+            .map(|(c, field)| {
+                // Arrow pushes down nulls, even into non-nullable fields. So we strip them
+                // out here because Vortex is a little more strict.
+                if c.null_count() > 0 && !field.is_nullable() {
+                    let stripped = make_array(remove_nulls(c.into_data())?);
+                    from_arrow_dyn(stripped.as_ref(), false)
+                } else {
+                    from_arrow_dyn(c.as_ref(), field.is_nullable())
+                }
+            })
+            .collect::<VortexResult<Vec<_>>>()?,
+        value.len(),
+        nulls(value.nulls(), nullable)?,
+    )?
+    .into_array())
+}
+
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {
     fn from_arrow(value: &ArrowStructArray, nullable: bool) -> VortexResult<Self> {
-        Ok(StructArray::try_new(
-            value.column_names().iter().copied().collect(),
-            value
-                .columns()
-                .iter()
-                .zip(value.fields())
-                .map(|(c, field)| {
-                    // Arrow pushes down nulls, even into non-nullable fields. So we strip them
-                    // out here because Vortex is a little more strict.
-                    if c.null_count() > 0 && !field.is_nullable() {
-                        let stripped = make_array(remove_nulls(c.into_data())?);
-                        Self::from_arrow(stripped.as_ref(), false)
-                    } else {
-                        Self::from_arrow(c.as_ref(), field.is_nullable())
-                    }
-                })
-                .collect::<VortexResult<Vec<_>>>()?,
-            value.len(),
-            nulls(value.nulls(), nullable)?,
-        )?
-        .into_array())
+        from_arrow_struct(value, nullable)
     }
+}
+
+/// Conversion of an Arrow (large) list array into a Vortex `List` array.
+pub fn from_arrow_list<O: IntegerPType + OffsetSizeTrait>(
+    value: &GenericListArray<O>,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    // Extract the validity of the underlying element array.
+    let elements_are_nullable = match value.data_type() {
+        DataType::List(field) => field.is_nullable(),
+        DataType::LargeList(field) => field.is_nullable(),
+        dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
+    };
+
+    let elements = from_arrow_dyn(value.values().as_ref(), elements_are_nullable)?;
+
+    // `offsets` are always non-nullable.
+    let offsets = value.offsets().clone().into_array();
+    let nulls = nulls(value.nulls(), nullable)?;
+
+    Ok(ListArray::try_new(elements, offsets, nulls)?.into_array())
 }
 
 impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for ArrayRef {
     fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> VortexResult<Self> {
-        // Extract the validity of the underlying element array.
-        let elements_are_nullable = match value.data_type() {
-            DataType::List(field) => field.is_nullable(),
-            DataType::LargeList(field) => field.is_nullable(),
-            dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
-        };
-
-        let elements = Self::from_arrow(value.values().as_ref(), elements_are_nullable)?;
-
-        // `offsets` are always non-nullable.
-        let offsets = value.offsets().clone().into_array();
-        let nulls = nulls(value.nulls(), nullable)?;
-
-        Ok(ListArray::try_new(elements, offsets, nulls)?.into_array())
+        from_arrow_list(value, nullable)
     }
+}
+
+/// Conversion of an Arrow (large) list-view array into a Vortex `ListView` array.
+pub fn from_arrow_list_view<O: OffsetSizeTrait + NativePType>(
+    array: &GenericListViewArray<O>,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    // Extract the validity of the underlying element array.
+    let elements_are_nullable = match array.data_type() {
+        DataType::ListView(field) => field.is_nullable(),
+        DataType::LargeListView(field) => field.is_nullable(),
+        dt => vortex_panic!("Invalid data type for ListViewArray: {dt}"),
+    };
+
+    let elements = from_arrow_dyn(array.values().as_ref(), elements_are_nullable)?;
+
+    // `offsets` and `sizes` are always non-nullable.
+    let offsets = array.offsets().clone().into_array();
+    let sizes = array.sizes().clone().into_array();
+    let nulls = nulls(array.nulls(), nullable)?;
+
+    Ok(ListViewArray::try_new(elements, offsets, sizes, nulls)?.into_array())
 }
 
 impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListViewArray<O>> for ArrayRef {
     fn from_arrow(array: &GenericListViewArray<O>, nullable: bool) -> VortexResult<Self> {
-        // Extract the validity of the underlying element array.
-        let elements_are_nullable = match array.data_type() {
-            DataType::ListView(field) => field.is_nullable(),
-            DataType::LargeListView(field) => field.is_nullable(),
-            dt => vortex_panic!("Invalid data type for ListViewArray: {dt}"),
-        };
-
-        let elements = Self::from_arrow(array.values().as_ref(), elements_are_nullable)?;
-
-        // `offsets` and `sizes` are always non-nullable.
-        let offsets = array.offsets().clone().into_array();
-        let sizes = array.sizes().clone().into_array();
-        let nulls = nulls(array.nulls(), nullable)?;
-
-        Ok(ListViewArray::try_new(elements, offsets, sizes, nulls)?.into_array())
+        from_arrow_list_view(array, nullable)
     }
+}
+
+/// Conversion of an Arrow fixed-size list array into a Vortex `FixedSizeList` array.
+pub fn from_arrow_fixed_size_list(
+    array: &ArrowFixedSizeListArray,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let DataType::FixedSizeList(field, list_size) = array.data_type() else {
+        vortex_panic!("Invalid data type for ListArray: {}", array.data_type());
+    };
+
+    Ok(FixedSizeListArray::try_new(
+        from_arrow_dyn(array.values().as_ref(), field.is_nullable())?,
+        *list_size as u32,
+        nulls(array.nulls(), nullable)?,
+        array.len(),
+    )?
+    .into_array())
 }
 
 impl FromArrowArray<&ArrowFixedSizeListArray> for ArrayRef {
     fn from_arrow(array: &ArrowFixedSizeListArray, nullable: bool) -> VortexResult<Self> {
-        let DataType::FixedSizeList(field, list_size) = array.data_type() else {
-            vortex_panic!("Invalid data type for ListArray: {}", array.data_type());
-        };
-
-        Ok(FixedSizeListArray::try_new(
-            Self::from_arrow(array.values().as_ref(), field.is_nullable())?,
-            *list_size as u32,
-            nulls(array.nulls(), nullable)?,
-            array.len(),
-        )?
-        .into_array())
+        from_arrow_fixed_size_list(array, nullable)
     }
 }
 
@@ -570,24 +663,36 @@ impl FromArrowArray<&ArrowMapArray> for ArrayRef {
         )
     }
 }
+/// Conversion of an Arrow null array into a Vortex `Null` array.
+pub fn from_arrow_null(value: &ArrowNullArray, nullable: bool) -> VortexResult<ArrayRef> {
+    vortex_ensure!(
+        nullable,
+        "Cannot convert an Arrow NullArray into a non-nullable Vortex array"
+    );
+    Ok(NullArray::new(value.len()).into_array())
+}
 
 impl FromArrowArray<&ArrowNullArray> for ArrayRef {
     fn from_arrow(value: &ArrowNullArray, nullable: bool) -> VortexResult<Self> {
-        vortex_ensure!(
-            nullable,
-            "Cannot convert an Arrow NullArray into a non-nullable Vortex array"
-        );
-        Ok(NullArray::new(value.len()).into_array())
+        from_arrow_null(value, nullable)
     }
+}
+
+/// Conversion of an Arrow dictionary array into a Vortex `Dict` array.
+pub fn from_arrow_dictionary<K: ArrowDictionaryKeyType>(
+    array: &DictionaryArray<K>,
+    nullable: bool,
+) -> VortexResult<DictArray> {
+    let keys = AnyDictionaryArray::keys(array);
+    let keys = from_arrow_dyn(keys, keys.is_nullable())?;
+    let values = from_arrow_dyn(array.values().as_ref(), nullable)?;
+    // SAFETY: we assume that Arrow has checked the invariants on construction.
+    Ok(unsafe { DictArray::new_unchecked(keys, values) })
 }
 
 impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArray {
     fn from_arrow(array: &DictionaryArray<K>, nullable: bool) -> VortexResult<Self> {
-        let keys = AnyDictionaryArray::keys(array);
-        let keys = ArrayRef::from_arrow(keys, keys.is_nullable())?;
-        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
-        // SAFETY: we assume that Arrow has checked the invariants on construction.
-        Ok(unsafe { DictArray::new_unchecked(keys, values) })
+        from_arrow_dictionary(array, nullable)
     }
 }
 
@@ -613,138 +718,150 @@ pub(crate) fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> VortexResult<
     }
 }
 
+/// Canonical conversion of any supported Arrow array into a Vortex array, dispatching on the
+/// Arrow [`DataType`].
+pub fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<ArrayRef> {
+    match array.data_type() {
+        DataType::Boolean => from_arrow_boolean(array.as_boolean(), nullable),
+        DataType::UInt8 => from_arrow_primitive(array.as_primitive::<UInt8Type>(), nullable),
+        DataType::UInt16 => from_arrow_primitive(array.as_primitive::<UInt16Type>(), nullable),
+        DataType::UInt32 => from_arrow_primitive(array.as_primitive::<UInt32Type>(), nullable),
+        DataType::UInt64 => from_arrow_primitive(array.as_primitive::<UInt64Type>(), nullable),
+        DataType::Int8 => from_arrow_primitive(array.as_primitive::<Int8Type>(), nullable),
+        DataType::Int16 => from_arrow_primitive(array.as_primitive::<Int16Type>(), nullable),
+        DataType::Int32 => from_arrow_primitive(array.as_primitive::<Int32Type>(), nullable),
+        DataType::Int64 => from_arrow_primitive(array.as_primitive::<Int64Type>(), nullable),
+        DataType::Float16 => from_arrow_primitive(array.as_primitive::<Float16Type>(), nullable),
+        DataType::Float32 => from_arrow_primitive(array.as_primitive::<Float32Type>(), nullable),
+        DataType::Float64 => from_arrow_primitive(array.as_primitive::<Float64Type>(), nullable),
+        DataType::Utf8 => from_arrow_bytes(array.as_string::<i32>(), nullable),
+        DataType::LargeUtf8 => from_arrow_bytes(array.as_string::<i64>(), nullable),
+        DataType::Binary => from_arrow_bytes(array.as_binary::<i32>(), nullable),
+        DataType::LargeBinary => from_arrow_bytes(array.as_binary::<i64>(), nullable),
+        DataType::BinaryView => from_arrow_byte_view(array.as_binary_view(), nullable),
+        DataType::Utf8View => from_arrow_byte_view(array.as_string_view(), nullable),
+        DataType::Struct(_) => from_arrow_struct(array.as_struct(), nullable),
+        DataType::List(_) => from_arrow_list(array.as_list::<i32>(), nullable),
+        DataType::LargeList(_) => from_arrow_list(array.as_list::<i64>(), nullable),
+        DataType::ListView(_) => from_arrow_list_view(array.as_list_view::<i32>(), nullable),
+        DataType::LargeListView(_) => from_arrow_list_view(array.as_list_view::<i64>(), nullable),
+        DataType::FixedSizeList(..) => {
+            from_arrow_fixed_size_list(array.as_fixed_size_list(), nullable)
+        }
+        DataType::Null => from_arrow_null(as_null_array(array), nullable),
+        DataType::Timestamp(u, _) => match u {
+            ArrowTimeUnit::Second => {
+                from_arrow_temporal(array.as_primitive::<TimestampSecondType>(), nullable)
+            }
+            ArrowTimeUnit::Millisecond => {
+                from_arrow_temporal(array.as_primitive::<TimestampMillisecondType>(), nullable)
+            }
+            ArrowTimeUnit::Microsecond => {
+                from_arrow_temporal(array.as_primitive::<TimestampMicrosecondType>(), nullable)
+            }
+            ArrowTimeUnit::Nanosecond => {
+                from_arrow_temporal(array.as_primitive::<TimestampNanosecondType>(), nullable)
+            }
+        },
+        DataType::Date32 => from_arrow_temporal(array.as_primitive::<Date32Type>(), nullable),
+        DataType::Date64 => from_arrow_temporal(array.as_primitive::<Date64Type>(), nullable),
+        DataType::Time32(u) => match u {
+            ArrowTimeUnit::Second => {
+                from_arrow_temporal(array.as_primitive::<Time32SecondType>(), nullable)
+            }
+            ArrowTimeUnit::Millisecond => {
+                from_arrow_temporal(array.as_primitive::<Time32MillisecondType>(), nullable)
+            }
+            ArrowTimeUnit::Microsecond | ArrowTimeUnit::Nanosecond => unreachable!(),
+        },
+        DataType::Time64(u) => match u {
+            ArrowTimeUnit::Microsecond => {
+                from_arrow_temporal(array.as_primitive::<Time64MicrosecondType>(), nullable)
+            }
+            ArrowTimeUnit::Nanosecond => {
+                from_arrow_temporal(array.as_primitive::<Time64NanosecondType>(), nullable)
+            }
+            ArrowTimeUnit::Second | ArrowTimeUnit::Millisecond => unreachable!(),
+        },
+        DataType::Decimal32(..) => {
+            from_arrow_decimal32(array.as_primitive::<Decimal32Type>(), nullable)
+        }
+        DataType::Decimal64(..) => {
+            from_arrow_decimal64(array.as_primitive::<Decimal64Type>(), nullable)
+        }
+        DataType::Decimal128(..) => {
+            from_arrow_decimal128(array.as_primitive::<Decimal128Type>(), nullable)
+        }
+        DataType::Decimal256(..) => {
+            from_arrow_decimal256(array.as_primitive::<Decimal256Type>(), nullable)
+        }
+        DataType::Dictionary(key_type, _) => match key_type.as_ref() {
+            DataType::Int8 => Ok(from_arrow_dictionary(
+                array.as_dictionary::<Int8Type>(),
+                nullable,
+            )?
+            .into_array()),
+            DataType::Int16 => Ok(from_arrow_dictionary(
+                array.as_dictionary::<Int16Type>(),
+                nullable,
+            )?
+            .into_array()),
+            DataType::Int32 => Ok(from_arrow_dictionary(
+                array.as_dictionary::<Int32Type>(),
+                nullable,
+            )?
+            .into_array()),
+            DataType::Int64 => Ok(from_arrow_dictionary(
+                array.as_dictionary::<Int64Type>(),
+                nullable,
+            )?
+            .into_array()),
+            DataType::UInt8 => Ok(from_arrow_dictionary(
+                array.as_dictionary::<UInt8Type>(),
+                nullable,
+            )?
+            .into_array()),
+            DataType::UInt16 => Ok(from_arrow_dictionary(
+                array.as_dictionary::<UInt16Type>(),
+                nullable,
+            )?
+            .into_array()),
+            DataType::UInt32 => Ok(from_arrow_dictionary(
+                array.as_dictionary::<UInt32Type>(),
+                nullable,
+            )?
+            .into_array()),
+            DataType::UInt64 => Ok(from_arrow_dictionary(
+                array.as_dictionary::<UInt64Type>(),
+                nullable,
+            )?
+            .into_array()),
+            key_dt => vortex_bail!("Unsupported dictionary key type: {key_dt}"),
+        },
+        dt => vortex_bail!("Array encoding not implemented for Arrow data type {dt}"),
+    }
+}
+
 impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
     fn from_arrow(array: &dyn ArrowArray, nullable: bool) -> VortexResult<Self> {
-        match array.data_type() {
-            DataType::Boolean => Self::from_arrow(array.as_boolean(), nullable),
-            DataType::UInt8 => Self::from_arrow(array.as_primitive::<UInt8Type>(), nullable),
-            DataType::UInt16 => Self::from_arrow(array.as_primitive::<UInt16Type>(), nullable),
-            DataType::UInt32 => Self::from_arrow(array.as_primitive::<UInt32Type>(), nullable),
-            DataType::UInt64 => Self::from_arrow(array.as_primitive::<UInt64Type>(), nullable),
-            DataType::Int8 => Self::from_arrow(array.as_primitive::<Int8Type>(), nullable),
-            DataType::Int16 => Self::from_arrow(array.as_primitive::<Int16Type>(), nullable),
-            DataType::Int32 => Self::from_arrow(array.as_primitive::<Int32Type>(), nullable),
-            DataType::Int64 => Self::from_arrow(array.as_primitive::<Int64Type>(), nullable),
-            DataType::Float16 => Self::from_arrow(array.as_primitive::<Float16Type>(), nullable),
-            DataType::Float32 => Self::from_arrow(array.as_primitive::<Float32Type>(), nullable),
-            DataType::Float64 => Self::from_arrow(array.as_primitive::<Float64Type>(), nullable),
-            DataType::Utf8 => Self::from_arrow(array.as_string::<i32>(), nullable),
-            DataType::LargeUtf8 => Self::from_arrow(array.as_string::<i64>(), nullable),
-            DataType::Binary => Self::from_arrow(array.as_binary::<i32>(), nullable),
-            DataType::LargeBinary => Self::from_arrow(array.as_binary::<i64>(), nullable),
-            DataType::BinaryView => Self::from_arrow(array.as_binary_view(), nullable),
-            DataType::Utf8View => Self::from_arrow(array.as_string_view(), nullable),
-            DataType::Struct(_) => Self::from_arrow(array.as_struct(), nullable),
-            DataType::List(_) => Self::from_arrow(array.as_list::<i32>(), nullable),
-            DataType::LargeList(_) => Self::from_arrow(array.as_list::<i64>(), nullable),
-            DataType::ListView(_) => Self::from_arrow(array.as_list_view::<i32>(), nullable),
-            DataType::LargeListView(_) => Self::from_arrow(array.as_list_view::<i64>(), nullable),
-            DataType::FixedSizeList(..) => Self::from_arrow(array.as_fixed_size_list(), nullable),
-            DataType::Map(..) => Self::from_arrow(array.as_map(), nullable),
-            DataType::Null => Self::from_arrow(as_null_array(array), nullable),
-            DataType::Timestamp(u, _) => match u {
-                ArrowTimeUnit::Second => {
-                    Self::from_arrow(array.as_primitive::<TimestampSecondType>(), nullable)
-                }
-                ArrowTimeUnit::Millisecond => {
-                    Self::from_arrow(array.as_primitive::<TimestampMillisecondType>(), nullable)
-                }
-                ArrowTimeUnit::Microsecond => {
-                    Self::from_arrow(array.as_primitive::<TimestampMicrosecondType>(), nullable)
-                }
-                ArrowTimeUnit::Nanosecond => {
-                    Self::from_arrow(array.as_primitive::<TimestampNanosecondType>(), nullable)
-                }
-            },
-            DataType::Date32 => Self::from_arrow(array.as_primitive::<Date32Type>(), nullable),
-            DataType::Date64 => Self::from_arrow(array.as_primitive::<Date64Type>(), nullable),
-            DataType::Time32(u) => match u {
-                ArrowTimeUnit::Second => {
-                    Self::from_arrow(array.as_primitive::<Time32SecondType>(), nullable)
-                }
-                ArrowTimeUnit::Millisecond => {
-                    Self::from_arrow(array.as_primitive::<Time32MillisecondType>(), nullable)
-                }
-                ArrowTimeUnit::Microsecond | ArrowTimeUnit::Nanosecond => unreachable!(),
-            },
-            DataType::Time64(u) => match u {
-                ArrowTimeUnit::Microsecond => {
-                    Self::from_arrow(array.as_primitive::<Time64MicrosecondType>(), nullable)
-                }
-                ArrowTimeUnit::Nanosecond => {
-                    Self::from_arrow(array.as_primitive::<Time64NanosecondType>(), nullable)
-                }
-                ArrowTimeUnit::Second | ArrowTimeUnit::Millisecond => unreachable!(),
-            },
-            DataType::Decimal32(..) => {
-                Self::from_arrow(array.as_primitive::<Decimal32Type>(), nullable)
-            }
-            DataType::Decimal64(..) => {
-                Self::from_arrow(array.as_primitive::<Decimal64Type>(), nullable)
-            }
-            DataType::Decimal128(..) => {
-                Self::from_arrow(array.as_primitive::<Decimal128Type>(), nullable)
-            }
-            DataType::Decimal256(..) => {
-                Self::from_arrow(array.as_primitive::<Decimal256Type>(), nullable)
-            }
-            DataType::Dictionary(key_type, _) => match key_type.as_ref() {
-                DataType::Int8 => Ok(DictArray::from_arrow(
-                    array.as_dictionary::<Int8Type>(),
-                    nullable,
-                )?
-                .into_array()),
-                DataType::Int16 => Ok(DictArray::from_arrow(
-                    array.as_dictionary::<Int16Type>(),
-                    nullable,
-                )?
-                .into_array()),
-                DataType::Int32 => Ok(DictArray::from_arrow(
-                    array.as_dictionary::<Int32Type>(),
-                    nullable,
-                )?
-                .into_array()),
-                DataType::Int64 => Ok(DictArray::from_arrow(
-                    array.as_dictionary::<Int64Type>(),
-                    nullable,
-                )?
-                .into_array()),
-                DataType::UInt8 => Ok(DictArray::from_arrow(
-                    array.as_dictionary::<UInt8Type>(),
-                    nullable,
-                )?
-                .into_array()),
-                DataType::UInt16 => Ok(DictArray::from_arrow(
-                    array.as_dictionary::<UInt16Type>(),
-                    nullable,
-                )?
-                .into_array()),
-                DataType::UInt32 => Ok(DictArray::from_arrow(
-                    array.as_dictionary::<UInt32Type>(),
-                    nullable,
-                )?
-                .into_array()),
-                DataType::UInt64 => Ok(DictArray::from_arrow(
-                    array.as_dictionary::<UInt64Type>(),
-                    nullable,
-                )?
-                .into_array()),
-                key_dt => vortex_bail!("Unsupported dictionary key type: {key_dt}"),
-            },
-            dt => vortex_bail!("Array encoding not implemented for Arrow data type {dt}"),
-        }
+        from_arrow_dyn(array, nullable)
     }
+}
+
+/// Canonical conversion of an Arrow [`RecordBatch`] into a Vortex struct array.
+pub fn from_arrow_batch(batch: &RecordBatch, nullable: bool) -> VortexResult<ArrayRef> {
+    from_arrow_struct(&arrow_array::StructArray::from(batch.clone()), nullable)
 }
 
 impl FromArrowArray<RecordBatch> for ArrayRef {
     fn from_arrow(array: RecordBatch, nullable: bool) -> VortexResult<Self> {
-        ArrayRef::from_arrow(&arrow_array::StructArray::from(array), nullable)
+        from_arrow_batch(&array, nullable)
     }
 }
 
 impl FromArrowArray<&RecordBatch> for ArrayRef {
     fn from_arrow(array: &RecordBatch, nullable: bool) -> VortexResult<Self> {
-        Self::from_arrow(array.clone(), nullable)
+        from_arrow_batch(array, nullable)
     }
 }
 

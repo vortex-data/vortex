@@ -24,7 +24,7 @@ use vortex_array::legacy_session;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-mod convert;
+pub mod convert;
 mod datum;
 pub mod dtype;
 mod executor;

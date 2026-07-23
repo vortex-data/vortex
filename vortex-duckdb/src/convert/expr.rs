@@ -18,6 +18,7 @@ use vortex::aggregate_fn::fns::max::Max;
 use vortex::aggregate_fn::fns::mean::Mean;
 use vortex::aggregate_fn::fns::min::Min;
 use vortex::aggregate_fn::fns::sum::Sum;
+use vortex::arrow::ArrowSessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -64,6 +65,7 @@ use vortex_spatial::scalar_fn::contains::SpatialContains;
 use vortex_spatial::scalar_fn::distance::SpatialDistance;
 use vortex_spatial::scalar_fn::intersects::SpatialIntersects;
 
+use crate::SESSION;
 use crate::convert::dtype::FromLogicalType;
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
@@ -158,7 +160,7 @@ fn spatial_operand(
             let Some(buf) = storage.as_binary_opt().and_then(|b| b.value()) else {
                 return Ok(None);
             };
-            Ok(native_geometry_scalar_from_wkb(buf.as_slice())?.map(lit))
+            Ok(native_geometry_scalar_from_wkb(buf.as_slice(), &SESSION.arrow())?.map(lit))
         }
         Some(BoundColumnRef(col_ref))
             if is_native_spatial_column(ctx.fields, col_ref.name.as_ref()) =>

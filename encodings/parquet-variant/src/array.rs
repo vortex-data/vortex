@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
@@ -67,10 +66,6 @@ pub struct ParquetVariantSlots {
     pub typed_value: Option<ArrayRef>,
 }
 
-/// Variant storage children (metadata/value/typed_value) carry no Arrow extension metadata,
-/// so [`ParquetVariant::from_arrow_variant`] converts them through a default [`ArrowSession`].
-pub(crate) static ARROW_SESSION: LazyLock<ArrowSession> = LazyLock::new(ArrowSession::default);
-
 impl ParquetVariant {
     /// Creates a Parquet Variant array from canonical extension storage slots.
     ///
@@ -96,20 +91,26 @@ impl ParquetVariant {
         )
     }
 
-    /// Converts an Arrow `parquet_variant_compute::VariantArray` into Parquet Variant storage.
-    pub fn from_arrow_variant(arrow_variant: &ArrowVariantArray) -> VortexResult<ArrayRef> {
-        Self::from_arrow_variant_impl(arrow_variant, false)
+    /// Converts an Arrow `parquet_variant_compute::VariantArray` into Parquet Variant storage,
+    /// converting the storage children through `session`.
+    pub fn from_arrow_variant(
+        arrow_variant: &ArrowVariantArray,
+        session: &ArrowSession,
+    ) -> VortexResult<ArrayRef> {
+        Self::from_arrow_variant_impl(arrow_variant, false, session)
     }
 
     pub(crate) fn from_arrow_variant_nullable(
         arrow_variant: &ArrowVariantArray,
+        session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
-        Self::from_arrow_variant_impl(arrow_variant, true)
+        Self::from_arrow_variant_impl(arrow_variant, true, session)
     }
 
     fn from_arrow_variant_impl(
         arrow_variant: &ArrowVariantArray,
         force_nullable: bool,
+        session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
         let storage = arrow_variant.inner();
         let mut value_nullable = false;
@@ -135,17 +136,17 @@ impl ParquetVariant {
             } else {
                 Validity::NonNullable
             });
-        let metadata = ARROW_SESSION
+        let metadata = session
             .from_arrow_array_nullable(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
 
         let value = arrow_variant
             .value_field()
-            .map(|v| ARROW_SESSION.from_arrow_array_nullable(v as &dyn ArrowArray, value_nullable))
+            .map(|v| session.from_arrow_array_nullable(v as &dyn ArrowArray, value_nullable))
             .transpose()?;
 
         let typed_value = arrow_variant
             .typed_value_field()
-            .map(|tv| ARROW_SESSION.from_arrow_array_nullable(tv.as_ref(), typed_value_nullable))
+            .map(|tv| session.from_arrow_array_nullable(tv.as_ref(), typed_value_nullable))
             .transpose()?;
         ParquetVariant::try_new(validity, metadata, value, typed_value).map(IntoArray::into_array)
     }
@@ -513,6 +514,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
+    use vortex_arrow::ArrowSessionExt;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
@@ -531,7 +533,7 @@ mod tests {
 
     fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
         let inner = vortex_arr
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
@@ -582,7 +584,7 @@ mod tests {
         builder.append_variant(PqVariant::from(true));
         let arrow_variant = builder.build();
 
-        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
 
         assert_eq!(vortex_arr.len(), 3);
         assert_eq!(
@@ -614,7 +616,7 @@ mod tests {
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
 
-        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
         assert_eq!(vortex_arr.len(), 3);
         assert_eq!(
             vortex_arr.dtype(),
@@ -705,7 +707,7 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
         let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
@@ -742,7 +744,7 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
         let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
@@ -814,7 +816,7 @@ mod tests {
             .with_path("a", &DataType::Int32)?
             .build();
         let shredded = shred_variant(&json_to_variant(&json)?, &shredding)?;
-        let original = ParquetVariant::from_arrow_variant(&shredded)?;
+        let original = ParquetVariant::from_arrow_variant(&shredded, &SESSION.arrow())?;
         assert!(
             original
                 .as_opt::<ParquetVariant>()

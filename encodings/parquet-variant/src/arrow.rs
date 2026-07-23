@@ -109,9 +109,9 @@ pub(crate) fn export_unshredded_storage_to_target<T: ParquetVariantArrayExt>(
     let arrow_variant = parquet_array.to_arrow(ctx)?;
     let unshredded = unshred_variant(&arrow_variant)?;
     let unshredded_array = if parquet_array.as_ref().dtype().is_nullable() {
-        ParquetVariant::from_arrow_variant_nullable(&unshredded)?
+        ParquetVariant::from_arrow_variant_nullable(&unshredded, &ctx.session().arrow())?
     } else {
-        ParquetVariant::from_arrow_variant(&unshredded)?
+        ParquetVariant::from_arrow_variant(&unshredded, &ctx.session().arrow())?
     };
     let unshredded_parquet = unshredded_array.as_::<ParquetVariant>();
     export_storage_to_target(&unshredded_parquet, target_fields, ctx)
@@ -263,7 +263,7 @@ impl ArrowImportVTable for ParquetVariant {
         array: ArrowArrayRef,
         field: &Field,
         dtype: &DType,
-        _session: &ArrowSession,
+        session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         if !dtype.is_variant()
             || field
@@ -277,9 +277,9 @@ impl ArrowImportVTable for ParquetVariant {
 
         let arrow_variant = ArrowVariantArray::try_new(array.as_struct())?;
         let imported = if dtype.is_nullable() {
-            ParquetVariant::from_arrow_variant_nullable(&arrow_variant)?
+            ParquetVariant::from_arrow_variant_nullable(&arrow_variant, session)?
         } else {
-            ParquetVariant::from_arrow_variant(&arrow_variant)?
+            ParquetVariant::from_arrow_variant(&arrow_variant, session)?
         };
         Ok(ArrowImport::Imported(imported.into_array()))
     }

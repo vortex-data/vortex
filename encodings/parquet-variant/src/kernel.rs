@@ -117,7 +117,10 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
         let arrow_output = arrow_variant_get(&arrow_input, get_options)?;
         let output = if parent.options.dtype().is_none_or(DType::is_variant) {
             let arrow_variant_output = ArrowVariantArray::try_new(arrow_output.as_ref())?;
-            ParquetVariant::from_arrow_variant_nullable(&arrow_variant_output)?
+            ParquetVariant::from_arrow_variant_nullable(
+                &arrow_variant_output,
+                &ctx.session().arrow(),
+            )?
         } else {
             // Import through the same `as_type` field the cast targeted, so an extension target
             // dtype comes back as that extension rather than as its bare storage type.
@@ -166,9 +169,9 @@ fn json_strings_to_variant(
     };
 
     if nullable {
-        ParquetVariant::from_arrow_variant_nullable(&arrow_variant)
+        ParquetVariant::from_arrow_variant_nullable(&arrow_variant, &session.arrow())
     } else {
-        ParquetVariant::from_arrow_variant(&arrow_variant)
+        ParquetVariant::from_arrow_variant(&arrow_variant, &session.arrow())
     }
 }
 
@@ -413,7 +416,7 @@ mod tests {
         builder.append_variant(PqVariant::from("hello"));
         builder.append_variant(PqVariant::from(true));
         builder.append_variant(PqVariant::from(99i64));
-        ParquetVariant::from_arrow_variant(&builder.build())
+        ParquetVariant::from_arrow_variant(&builder.build(), &SESSION.arrow())
     }
 
     fn make_nullable_array() -> VortexResult<ArrayRef> {
@@ -430,13 +433,13 @@ mod tests {
             Some(NullBuffer::from(vec![true, false, true, false])),
         )?;
         let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
-        ParquetVariant::from_arrow_variant(&arrow_variant)
+        ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())
     }
 
     fn make_unshredded_json_array(values: Vec<Option<&str>>) -> VortexResult<ArrayRef> {
         let json: ArrowArrayRef = Arc::new(StringArray::from(values));
         let arrow_variant = json_to_variant(&json)?;
-        ParquetVariant::from_arrow_variant(&arrow_variant)
+        ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())
     }
 
     fn parse_path(path: &str) -> VortexResult<VariantPath> {
@@ -864,7 +867,7 @@ mod tests {
 
     fn make_partially_shredded_object_array() -> VortexResult<ArrayRef> {
         let arrow_variant = make_partially_shredded_arrow_variant()?;
-        let parquet_array = ParquetVariant::from_arrow_variant(&arrow_variant)?;
+        let parquet_array = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
         let mut ctx = SESSION.create_execution_ctx();
         let Canonical::Variant(canonical) = parquet_array.execute::<Canonical>(&mut ctx)? else {
             return Err(vortex_err!("expected canonical variant array"));
@@ -981,7 +984,7 @@ mod tests {
             None,
         )?;
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        ParquetVariant::from_arrow_variant(&arrow_variant)
+        ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())
     }
 
     fn assert_typed_value_i32(
