@@ -4,10 +4,11 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
-use vortex_session::registry::Registry;
+use vortex_session::registry::Id;
 
 use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
@@ -32,31 +33,28 @@ use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::stat::StatFn;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 
-/// Registry of scalar function vtables.
-pub type ScalarFnRegistry = Registry<ScalarFnPluginRef>;
-
 /// Session state for scalar function vtables and rewrite rules.
 #[derive(Clone, Debug)]
 pub struct ScalarFnSession {
-    registry: ScalarFnRegistry,
+    registry: ArcSwapMap<Id, ScalarFnPluginRef>,
 }
 
 impl ScalarFnSession {
-    pub fn registry(&self) -> &ScalarFnRegistry {
+    pub fn registry(&self) -> &ArcSwapMap<Id, ScalarFnPluginRef> {
         &self.registry
     }
 
     /// Register a scalar function vtable in the session, replacing any existing vtable with the same ID.
     pub fn register<V: ScalarFnVTable>(&self, vtable: V) {
         self.registry
-            .register(vtable.id(), Arc::new(vtable) as ScalarFnPluginRef);
+            .insert(vtable.id(), Arc::new(vtable) as ScalarFnPluginRef);
     }
 }
 
 impl Default for ScalarFnSession {
     fn default() -> Self {
         let this = Self {
-            registry: ScalarFnRegistry::default(),
+            registry: ArcSwapMap::default(),
         };
 
         // Register built-in expressions.

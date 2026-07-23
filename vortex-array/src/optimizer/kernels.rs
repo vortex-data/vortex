@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_error::VortexResult;
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
@@ -42,7 +43,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arc_swap_map::ArcSwapMap;
 use crate::array::VTable;
 use crate::arrays::Struct;
 use crate::arrays::struct_::compute::rules::struct_cast_reduce_parent;

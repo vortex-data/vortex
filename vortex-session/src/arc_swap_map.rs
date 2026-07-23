@@ -6,11 +6,15 @@
 use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::hash::BuildHasher;
 use std::hash::Hash;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use arc_swap::Guard;
+use vortex_utils::aliases::hash_map::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 /// A concurrent [`HashMap`] backed by an [`ArcSwap`], offering lock-free reads
 /// and copy-on-write writes.
@@ -20,19 +24,21 @@ use vortex_utils::aliases::hash_map::HashMap;
 /// reader always observes a consistent snapshot and writers never block readers.
 ///
 /// This is the shared building block behind the session-scoped registries (the
-/// optimizer-kernel and aggregate-function registries). Because every write
-/// clones the entire map, it is intended for maps that are written rarely
-/// (typically only while a session is being configured) and read often.
+/// plugin registries as well as the optimizer-kernel and aggregate-function
+/// registries) and the [`VortexSession`](crate::VortexSession) type-map itself.
+/// Because every write clones the entire map, it is intended for maps that are
+/// written rarely (typically only while a session is being configured) and read
+/// often.
 ///
 /// The map is held behind an [`Arc`] so that [`Clone`] shares the same
 /// underlying cell: a registry mutated through one clone is observed by all
 /// others. Session variables rely on this so that encodings registered after a
 /// session is built remain visible to clones of that session.
-pub struct ArcSwapMap<K, V> {
-    inner: Arc<ArcSwap<HashMap<K, V>>>,
+pub struct ArcSwapMap<K, V, S = DefaultHashBuilder> {
+    inner: Arc<ArcSwap<HashMap<K, V, S>>>,
 }
 
-impl<K, V> Default for ArcSwapMap<K, V> {
+impl<K, V, S: Default> Default for ArcSwapMap<K, V, S> {
     fn default() -> Self {
         Self {
             inner: Arc::new(ArcSwap::from_pointee(HashMap::default())),
@@ -40,7 +46,7 @@ impl<K, V> Default for ArcSwapMap<K, V> {
     }
 }
 
-impl<K, V> Clone for ArcSwapMap<K, V> {
+impl<K, V, S> Clone for ArcSwapMap<K, V, S> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
@@ -48,15 +54,15 @@ impl<K, V> Clone for ArcSwapMap<K, V> {
     }
 }
 
-impl<K: Debug, V: Debug> Debug for ArcSwapMap<K, V> {
+impl<K: Debug, V: Debug, S> Debug for ArcSwapMap<K, V, S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.read(|map| f.debug_tuple("ArcSwapMap").field(map).finish())
     }
 }
 
-impl<K, V> ArcSwapMap<K, V> {
+impl<K, V, S> ArcSwapMap<K, V, S> {
     /// Return the currently published map snapshot.
-    pub fn snapshot(&self) -> Arc<HashMap<K, V>> {
+    pub fn snapshot(&self) -> Arc<HashMap<K, V, S>> {
         self.inner.load_full()
     }
 
@@ -64,18 +70,29 @@ impl<K, V> ArcSwapMap<K, V> {
     ///
     /// Every lookup inside `f` observes the same snapshot, which matters when a
     /// single logical read consults more than one key.
-    pub fn read<R>(&self, f: impl FnOnce(&HashMap<K, V>) -> R) -> R {
+    pub fn read<R>(&self, f: impl FnOnce(&HashMap<K, V, S>) -> R) -> R {
         f(&self.inner.load())
+    }
+
+    /// Return a lock-free guard to the current snapshot without cloning the
+    /// [`Arc`].
+    ///
+    /// Cheaper than [`snapshot`](Self::snapshot) for short-lived reads, but the
+    /// guard pins an internal arc-swap slot, so it should stay on the stack
+    /// rather than be stored in a long-lived data structure.
+    pub(crate) fn load(&self) -> Guard<Arc<HashMap<K, V, S>>> {
+        self.inner.load()
     }
 
     /// Replace the map with the result of applying `f` to a private copy.
     ///
     /// Writes are copy-on-write via [`ArcSwap::rcu`], so `f` may run more than
     /// once under contention and must not move out of its captures.
-    fn modify(&self, f: impl Fn(&mut HashMap<K, V>))
+    fn modify(&self, f: impl Fn(&mut HashMap<K, V, S>))
     where
         K: Clone,
         V: Clone,
+        S: Clone,
     {
         self.inner.rcu(|existing| {
             let mut map = existing.as_ref().clone();
@@ -85,28 +102,64 @@ impl<K, V> ArcSwapMap<K, V> {
     }
 }
 
-impl<K: Eq + Hash, V: Clone> ArcSwapMap<K, V> {
+impl<K: Eq + Hash, V, S: BuildHasher> ArcSwapMap<K, V, S> {
     /// Return a clone of the value stored under `key`, if present.
     pub fn get<Q>(&self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
         Q: Eq + Hash + ?Sized,
+        V: Clone,
     {
         self.inner.load().get(key).cloned()
+    }
+
+    /// Returns whether a value is stored under `key`.
+    pub fn contains_key<Q>(&self, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        self.inner.load().contains_key(key)
+    }
+
+    /// Return a clone of the keys in the current snapshot.
+    pub fn keys(&self) -> HashSet<K>
+    where
+        K: Clone,
+    {
+        self.read(|map| map.keys().cloned().collect())
     }
 
     /// Insert `value` under `key`, replacing any existing value.
     pub fn insert(&self, key: K, value: V)
     where
         K: Clone,
+        V: Clone,
+        S: Clone,
     {
         self.modify(|map| {
             map.insert(key.clone(), value.clone());
         });
     }
+
+    /// Insert `value` under `key` only if no value is stored there yet.
+    ///
+    /// If a concurrent writer publishes a value under `key` first, that value
+    /// is kept and `value` is dropped. `value` is constructed by the caller
+    /// before this call, so no user code runs while the map is being updated.
+    pub fn insert_if_absent(&self, key: K, value: V)
+    where
+        K: Clone,
+        V: Clone,
+        S: Clone,
+    {
+        self.modify(|map| {
+            map.entry(key.clone()).or_insert_with(|| value.clone());
+        });
+    }
 }
 
-impl<K: Eq + Hash + Clone, T: Clone> ArcSwapMap<K, Arc<[T]>> {
+impl<K: Eq + Hash + Clone, T: Clone, S: BuildHasher + Clone> ArcSwapMap<K, Arc<[T]>, S> {
     /// Append `values` to the list stored under `key`, creating it if absent.
     ///
     /// Each key maps to an immutable `Arc<[T]>`; appending rebuilds that slice
@@ -136,9 +189,19 @@ mod tests {
     fn get_and_insert() {
         let map = ArcSwapMap::<u32, i32>::default();
         assert_eq!(map.get(&1), None);
+        assert!(!map.contains_key(&1));
         map.insert(1, 10);
         map.insert(1, 20);
         assert_eq!(map.get(&1), Some(20));
+        assert!(map.contains_key(&1));
+    }
+
+    #[test]
+    fn insert_if_absent_keeps_first_value() {
+        let map = ArcSwapMap::<u32, i32>::default();
+        map.insert_if_absent(1, 10);
+        map.insert_if_absent(1, 20);
+        assert_eq!(map.get(&1), Some(10));
     }
 
     #[test]

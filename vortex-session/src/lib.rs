@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod arc_swap_map;
 pub mod registry;
 mod session;
 
@@ -8,6 +9,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::hash::Hasher;
 
+pub use arc_swap_map::ArcSwapMap;
 pub use session::SessionGuard;
 pub use session::SessionMut;
 pub use session::VortexSession;

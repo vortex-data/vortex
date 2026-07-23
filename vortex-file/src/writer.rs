@@ -201,7 +201,7 @@ impl VortexWriteOptions {
         // in different order, changing the written bytes from run to run.
         let ctx = ArrayContext::new(ALLOWED_ENCODINGS.iter().cloned().sorted().collect())
             // Only permit encodings known to the session.
-            .with_valid_ids(self.session.arrays().registry().ids());
+            .with_allowed_ids(self.session.arrays().registry().keys());
         let dtype = stream.dtype().clone();
 
         let (mut ptr, eof) = SequenceId::root().split();

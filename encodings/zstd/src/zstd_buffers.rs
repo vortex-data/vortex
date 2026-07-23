@@ -109,9 +109,10 @@ impl ZstdBuffers {
         buffer_handles: &[BufferHandle],
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let registry = session.arrays().registry().clone();
-        let inner_vtable = registry
-            .find(&array.data().inner_encoding_id)
+        let inner_vtable = session
+            .arrays()
+            .registry()
+            .get(&array.data().inner_encoding_id)
             .ok_or_else(|| {
                 vortex_err!("Unknown inner encoding: {}", array.data().inner_encoding_id)
             })?;

@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
@@ -35,7 +36,6 @@ use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
-use crate::arc_swap_map::ArcSwapMap;
 use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::arrays::Chunked;

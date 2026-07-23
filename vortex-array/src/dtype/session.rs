@@ -6,10 +6,11 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
-use vortex_session::registry::Registry;
+use vortex_session::registry::Id;
 
 use crate::dtype::extension::ExtDTypePluginRef;
 use crate::dtype::extension::ExtVTable;
@@ -18,19 +19,16 @@ use crate::extension::datetime::Time;
 use crate::extension::datetime::Timestamp;
 use crate::extension::uuid::Uuid;
 
-/// Registry for extension dtypes.
-pub type ExtDTypeRegistry = Registry<ExtDTypePluginRef>;
-
 /// Session for managing extension dtypes.
 #[derive(Clone, Debug)]
 pub struct DTypeSession {
-    registry: ExtDTypeRegistry,
+    registry: ArcSwapMap<Id, ExtDTypePluginRef>,
 }
 
 impl Default for DTypeSession {
     fn default() -> Self {
         let this = Self {
-            registry: Registry::default(),
+            registry: ArcSwapMap::default(),
         };
 
         // Register built-in temporal extension dtypes
@@ -57,11 +55,11 @@ impl DTypeSession {
     /// Register an extension DType with the Vortex session.
     pub fn register<V: ExtVTable>(&self, vtable: V) {
         self.registry
-            .register(vtable.id(), Arc::new(vtable) as ExtDTypePluginRef);
+            .insert(vtable.id(), Arc::new(vtable) as ExtDTypePluginRef);
     }
 
     /// Return the registry of extension dtypes.
-    pub fn registry(&self) -> &ExtDTypeRegistry {
+    pub fn registry(&self) -> &ArcSwapMap<Id, ExtDTypePluginRef> {
         &self.registry
     }
 }
