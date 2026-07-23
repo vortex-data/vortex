@@ -10353,6 +10353,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-arrow",
+ "vortex-geo",
  "vortex-parquet-variant",
 ]
 

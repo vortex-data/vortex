@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
+use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_schema::ArrowError;
 use arrow_schema::Field;
@@ -43,12 +44,10 @@ use vortex::scan::PartitionStream;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::ToArrowType;
 
 use crate::POOL;
 use crate::RUNTIME;
 use crate::data_source::NativeDataSource;
-use crate::dtype::export_dtype_to_arrow;
 use crate::errors::try_or_throw;
 use crate::session::session_ref;
 
@@ -200,10 +199,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_free(
 }
 
 /// Write the scan's DType as an Arrow schema to the FFI struct at `schema_addr`.
+/// Extension dtypes are dispatched through the session's registered Arrow export plugins,
+/// so their `ARROW:extension:name`/`ARROW:extension:metadata` survive the FFI crossing.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeScan_arrowSchema(
     mut env: EnvUnowned,
     _class: JClass,
+    session_ptr: jlong,
     pointer: jlong,
     schema_addr: jlong,
 ) {
@@ -211,11 +213,16 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_arrowSchema(
         if schema_addr == 0 {
             throw_runtime!("null arrow schema address");
         }
+        let session = unsafe { session_ref(session_ptr) };
         let scan = unsafe { &*(pointer as *const NativeScan) };
         let NativeScan::Pending(scan) = scan else {
             throw_runtime!("schema unavailable: scan already started");
         };
-        export_dtype_to_arrow(scan.dtype(), schema_addr)?;
+        let arrow_schema = session.arrow().to_arrow_schema(scan.dtype())?;
+        let ffi_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
+        unsafe {
+            ptr::write(schema_addr as *mut FFI_ArrowSchema, ffi_schema);
+        }
         Ok(())
     });
 }
@@ -343,10 +350,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
         let array_stream = partition.execute()?;
         let dtype = array_stream.dtype().clone();
 
-        let schema = Arc::new(dtype.to_arrow_schema()?);
-        let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
-
         let session = unsafe { session_ref(session_ptr) };
+        let schema = Arc::new(session.arrow().to_arrow_schema(&dtype)?);
+        let target = Arc::new(Field::new_struct("", schema.fields().clone(), false));
 
         let iter = RUNTIME
             .block_on_stream_thread_safe(|handle| {

@@ -43,8 +43,13 @@ public final class NativeScan {
     /** Free a scan pointer. */
     public static native void free(long pointer);
 
-    /** Export the scan's schema into the Arrow C Data Interface struct at {@code schemaAddress}. */
-    public static native void arrowSchema(long pointer, long schemaAddress);
+    /**
+     * Export the scan's schema into the Arrow C Data Interface struct at {@code schemaAddress}. Extension dtypes are
+     * dispatched through the session's registered Arrow export plugins.
+     *
+     * @param sessionPointer pointer from {@link NativeSession#newSession()}
+     */
+    public static native void arrowSchema(long sessionPointer, long pointer, long schemaAddress);
 
     /** Fill {@code out} with {@code [count, cardinality]}. */
     public static native void partitionCount(long pointer, long[] out);
