@@ -9746,9 +9746,12 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-fsst",
  "vortex-mask",
  "vortex-runend",
  "vortex-session",
+ "vortex-sparse",
+ "vortex-zstd",
 ]
 
 [[package]]

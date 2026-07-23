@@ -26,17 +26,11 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::bool::BoolArrayExt;
-use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::builders::ArrayBuilder;
-use vortex_array::builders::VarBinBufferBuilder;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
-use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
@@ -356,91 +350,6 @@ impl VTable for Sparse {
         // TODO(joe): remove ctx from execute_sparse since all slots should be canonical.
         execute_sparse(parts, ctx).map(ExecutionResult::done)
     }
-
-    fn append_to_builder(
-        array: ArrayView<'_, Self>,
-        builder: &mut dyn ArrayBuilder,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        if matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_))
-            && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinBufferBuilder>()
-        {
-            return append_sparse_varbin(array, builder, ctx);
-        }
-
-        array
-            .array()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_array()
-            .append_to_builder(builder, ctx)
-    }
-}
-
-fn append_sparse_varbin(
-    array: ArrayView<'_, Sparse>,
-    builder: &mut VarBinBufferBuilder,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    let patches = array.resolved_patches()?;
-    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-    let mut values_builder = VarBinBufferBuilder::with_capacity(
-        array.dtype().clone(),
-        builder.has_large_offsets(),
-        patches.values().len(),
-    );
-    patches
-        .values()
-        .append_to_builder(&mut values_builder, ctx)?;
-    let values = values_builder.finish_into_varbin();
-    let validity = values
-        .as_ref()
-        .validity()?
-        .execute_mask(values.len(), ctx)?;
-
-    match_each_integer_ptype!(indices.ptype(), |I| {
-        append_varbin_patches(
-            indices.as_slice::<I>(),
-            &values,
-            &validity,
-            array.fill_scalar(),
-            array.len(),
-            builder,
-        )
-    })
-}
-
-fn append_varbin_patches<I: IntegerPType>(
-    indices: &[I],
-    values: &VarBinArray,
-    validity: &Mask,
-    fill: &Scalar,
-    len: usize,
-    builder: &mut VarBinBufferBuilder,
-) -> VortexResult<()> {
-    let mut row = 0;
-    let mut patch_index = 0;
-    while patch_index < indices.len() {
-        let index: usize = indices[patch_index].as_();
-        let mut last_patch = patch_index;
-        while last_patch + 1 < indices.len() {
-            let next_index: usize = indices[last_patch + 1].as_();
-            if next_index != index {
-                break;
-            }
-            last_patch += 1;
-        }
-
-        builder.append_scalar_repeated(fill, index - row)?;
-        if validity.value(last_patch) {
-            builder.append_n_values(values.bytes_at(last_patch), 1);
-        } else {
-            builder.append_nulls(1);
-        }
-        row = index + 1;
-        patch_index = last_patch + 1;
-    }
-    builder.append_scalar_repeated(fill, len - row)
 }
 
 const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
