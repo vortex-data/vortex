@@ -418,7 +418,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
         let strategy = write_strategy_for_schema(&write_schema);
-        let write_options = session.write_options().with_strategy(strategy.clone());
+        let write_options = session.write_options().with_strategy(Arc::clone(&strategy));
 
         let (bytes_written, handle) = match resolved {
             ResolvedStore::Path(path) => {
@@ -498,7 +498,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
         let strategy = write_strategy_for_schema(&write_schema);
-        let write_options = session.write_options().with_strategy(strategy.clone());
+        let write_options = session.write_options().with_strategy(Arc::clone(&strategy));
 
         let mut write = CountingVortexWrite::new(JavaWrite::new(vm, writable));
         let bytes_written = write.counter();
