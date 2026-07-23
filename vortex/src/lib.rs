@@ -374,16 +374,20 @@ mod test {
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
         use vortex::array::arrays::ChunkedArray;
+        use vortex::arrow::ArrowSessionExt;
         use vortex::arrow::FromArrowArray;
-        use vortex::arrow::FromArrowType;
-        use vortex::dtype::DType;
+        use vortex::session::VortexSession;
+
+        let session = VortexSession::default();
 
         let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(
             "../docs/_static/example.parquet",
         )?)?
         .build()?;
 
-        let dtype = DType::from_arrow(reader.schema());
+        let dtype = session
+            .arrow()
+            .from_arrow_schema(reader.schema().as_ref())?;
         let chunks: Vec<_> = reader
             .map(|record_batch| {
                 let batch = record_batch?;

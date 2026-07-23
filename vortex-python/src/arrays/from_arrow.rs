@@ -13,11 +13,10 @@ use pyo3::prelude::*;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
-use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::TryFromArrowType;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
@@ -26,6 +25,7 @@ use crate::classes::chunked_array_class;
 use crate::classes::table_class;
 use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
+use crate::session::session;
 
 /// Convert an Arrow object to a Vortex array.
 pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArrayRef> {
@@ -51,14 +51,18 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
         let arrow_dtype = obj
             .getattr(intern!(py, "type"))
             .and_then(|v| DataType::from_pyarrow(&v.as_borrowed()))?;
-        let dtype = DType::try_from_arrow(&Field::new("_", arrow_dtype, false))
+        let dtype = session()
+            .arrow()
+            .from_arrow_field(&Field::new("_", arrow_dtype, false))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(PyArrayRef::from(
             ChunkedArray::try_new(encoded_chunks, dtype)?.into_array(),
         ))
     } else if obj.is_instance(table)? {
         let array_stream = ArrowArrayStreamReader::from_pyarrow(&obj.as_borrowed())?;
-        let dtype = DType::try_from_arrow(array_stream.schema())
+        let dtype = session()
+            .arrow()
+            .from_arrow_schema(array_stream.schema().as_ref())
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let chunks = array_stream
             .into_iter()

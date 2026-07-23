@@ -18,7 +18,7 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
-use vortex_arrow::ToArrowType;
+use vortex_arrow::ArrowSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::compress::Compressor;
@@ -76,7 +76,7 @@ impl Compressor for VortexCompressor {
                 .bind(&source_dtype)?;
             scan = scan.with_projection(projection);
         }
-        let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+        let schema = Arc::new(SESSION.arrow().to_arrow_schema(&scan.dtype()?)?);
 
         let stream = scan.into_record_batch_stream(schema)?;
         pin_mut!(stream);

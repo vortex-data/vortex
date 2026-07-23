@@ -37,7 +37,6 @@ use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::FromArrowType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -242,7 +241,11 @@ impl ArrowImportVTable for Polygon {
     /// name, so any producer (DataFusion, DuckDB, geoarrow-rs, …) resolves here. Accepts the full
     /// `PolygonType` extension, or — for a metadata-less geometry literal — the name alone, inferring
     /// the dimension from the coordinate field names.
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         let (dimension, metadata) =
             if let Ok(polygon_meta) = field.try_extension_type::<PolygonType>() {
                 vortex_ensure!(
@@ -261,7 +264,9 @@ impl ArrowImportVTable for Polygon {
                 if field.extension_type_name() != Some(PolygonType::NAME) {
                     return Ok(None);
                 }
-                let DType::List(ring, _) = DType::from_arrow(field) else {
+                let Ok(DType::List(ring, _)) =
+                    session.from_arrow_datatype(field.data_type(), field.is_nullable().into())
+                else {
                     return Ok(None);
                 };
                 let DType::List(coords, _) = ring.as_ref() else {

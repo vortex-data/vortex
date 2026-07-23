@@ -215,7 +215,7 @@ pub(crate) fn execute_arrow_naive(
 
 /// Determine the preferred (cheapest) Arrow type for an array.
 ///
-/// For most arrays, this returns the canonical Arrow type from `dtype.to_arrow_dtype()`.
+/// For most arrays, this returns the canonical Arrow type for the array's dtype.
 /// However, some encodings have cheaper Arrow representations:
 /// - `VarBinArray`: Uses `Utf8`/`Binary` (offset-based) instead of `Utf8View`/`BinaryView`
 /// - `ListArray`: Uses `List` instead of `ListView`

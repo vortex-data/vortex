@@ -4,6 +4,7 @@
 use std::ffi::c_int;
 use std::ptr;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::Schema;
@@ -12,8 +13,7 @@ use vortex::dtype::DecimalDType;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_panic;
-use vortex_arrow::FromArrowType;
-use vortex_arrow::ToArrowType;
+use vortex_arrow::ArrowSession;
 
 use crate::box_wrapper;
 use crate::error::try_or;
@@ -21,6 +21,10 @@ use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::ptype::vx_ptype;
 use crate::struct_fields::vx_struct_fields;
+
+/// The dtype ⇄ Arrow schema C API functions receive no session pointer, so conversion uses a
+/// default [`ArrowSession`] (builtin plugins only).
+static ARROW_SESSION: LazyLock<ArrowSession> = LazyLock::new(ArrowSession::default);
 
 // DType has Arc fields inside for some enum items
 box_wrapper!(
@@ -268,7 +272,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_arrow_schema(
 ) -> c_int {
     try_or(err, 1, || {
         let dtype = vx_dtype::as_ref(dtype);
-        let arrow_schema = dtype.to_arrow_schema()?;
+        let arrow_schema = ARROW_SESSION.to_arrow_schema(dtype)?;
         let arrow_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
         unsafe { ptr::write(schema, arrow_schema) };
         Ok(0)
@@ -293,7 +297,9 @@ pub unsafe extern "C-unwind" fn vx_dtype_from_arrow_schema(
         let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
         let arrow_schema = Schema::try_from(&ffi_schema)?;
         drop(ffi_schema);
-        Ok(vx_dtype::new(DType::from_arrow(&arrow_schema)))
+        Ok(vx_dtype::new(
+            ARROW_SESSION.from_arrow_schema(&arrow_schema)?,
+        ))
     })
 }
 

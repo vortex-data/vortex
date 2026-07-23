@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow_array::Array;
 use arrow_array::StructArray;
@@ -26,10 +27,14 @@ use vortex::extension::datetime::TemporalMetadata;
 use vortex::extension::datetime::TimeUnit;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
-use vortex_arrow::FromArrowType;
+use vortex_arrow::ArrowSession;
 
 use crate::convert::FromDataFusion;
 use crate::convert::TryToDataFusion;
+
+/// [`FromDataFusion`] conversions have no session in scope, so Arrow → Vortex dtype
+/// resolution here uses a default [`ArrowSession`] (builtin plugins only).
+static ARROW_SESSION: LazyLock<ArrowSession> = LazyLock::new(ArrowSession::default);
 
 impl TryToDataFusion<ScalarValue> for Scalar {
     fn try_to_df(&self) -> VortexResult<ScalarValue> {
@@ -237,7 +242,9 @@ impl FromDataFusion<ScalarValue> for Scalar {
             ScalarValue::Date32(v)
             | ScalarValue::Time32Second(v)
             | ScalarValue::Time32Millisecond(v) => {
-                let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable));
+                let dtype = ARROW_SESSION
+                    .from_arrow_datatype(&value.data_type(), Nullability::Nullable)
+                    .vortex_expect("arrow data type to dtype");
                 Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
                     .vortex_expect("unable to create a time `Scalar`")
             }
@@ -248,7 +255,9 @@ impl FromDataFusion<ScalarValue> for Scalar {
             | ScalarValue::TimestampMillisecond(v, _)
             | ScalarValue::TimestampMicrosecond(v, _)
             | ScalarValue::TimestampNanosecond(v, _) => {
-                let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable));
+                let dtype = ARROW_SESSION
+                    .from_arrow_datatype(&value.data_type(), Nullability::Nullable)
+                    .vortex_expect("arrow data type to dtype");
                 Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
                     .vortex_expect("unable to create a time `Scalar`")
             }
@@ -354,7 +363,9 @@ fn struct_to_df(scalar: &Scalar) -> VortexResult<ScalarValue> {
 
 /// Converts a DataFusion `ScalarValue::Struct` (a one-row struct array) to a Vortex struct scalar.
 fn struct_from_df(array: &StructArray) -> Scalar {
-    let dtype = DType::from_arrow((array.data_type(), Nullability::Nullable));
+    let dtype = ARROW_SESSION
+        .from_arrow_datatype(array.data_type(), Nullability::Nullable)
+        .vortex_expect("arrow data type to dtype");
     if array.is_null(0) {
         Scalar::null(dtype)
     } else {

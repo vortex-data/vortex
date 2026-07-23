@@ -21,14 +21,12 @@ use vortex_array::arrays::struct_::StructDataParts;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
-use vortex_array::dtype::StructFields;
 use vortex_array::matcher::Matcher;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrowArrayExecutor;
-use crate::dtype::FromArrowType;
 use crate::executor::validity::to_arrow_null_buffer;
 use crate::session::ArrowSessionExt;
 
@@ -106,7 +104,7 @@ pub(super) fn to_arrow_struct(
 
     // Otherwise, we fall back to executing to a StructArray.
     let array = if let Some(fields) = target_fields {
-        let vx_fields = StructFields::from_arrow(fields);
+        let vx_fields = ctx.session().arrow().from_arrow_fields(fields)?;
         // We apply a cast to ensure we push down casting where possible into the struct fields.
         array.cast(DType::Struct(
             vx_fields,

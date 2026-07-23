@@ -3,10 +3,15 @@
 
 //! Apache Arrow interoperability for Vortex.
 //!
-//! This crate owns every conversion between Vortex and Arrow: importing Arrow arrays, record
-//! batches, schemas, and fields into Vortex ([`FromArrowArray`], [`FromArrowType`],
-//! [`TryFromArrowType`]), and executing Vortex arrays into Arrow ([`ArrowSession::execute_arrow`]
-//! and the [`ArrowArrayExecutor`] convenience trait).
+//! This crate owns every conversion between Vortex and Arrow. The authoritative entry point is
+//! the [`ArrowSession`]: importing Arrow schemas, fields, and data types into Vortex
+//! ([`ArrowSession::from_arrow_schema`], [`ArrowSession::from_arrow_field`],
+//! [`ArrowSession::from_arrow_datatype`]), importing Arrow arrays and record batches
+//! ([`ArrowSession::from_arrow_array`], [`ArrowSession::from_arrow_record_batch`], and the
+//! low-level [`FromArrowArray`]), exporting Vortex dtypes to Arrow
+//! ([`ArrowSession::to_arrow_schema`], [`ArrowSession::to_arrow_field`],
+//! [`ArrowSession::to_arrow_datatype`]), and executing Vortex arrays into Arrow
+//! ([`ArrowSession::execute_arrow`] and the [`ArrowArrayExecutor`] convenience trait).
 //!
 //! The [`ArrowSession`] session variable is created lazily on first use of
 //! [`ArrowSessionExt::arrow`], so no explicit registration is required for plain conversions.
@@ -33,8 +38,11 @@ mod uuid;
 pub use convert::IntoVortexArray;
 pub(crate) use convert::nulls;
 pub use datum::*;
+#[allow(deprecated)]
 pub use dtype::FromArrowType;
+#[allow(deprecated)]
 pub use dtype::ToArrowType;
+#[allow(deprecated)]
 pub use dtype::TryFromArrowType;
 pub use executor::*;
 pub use iter::*;

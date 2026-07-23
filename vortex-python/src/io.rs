@@ -18,7 +18,6 @@ use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::compressor::BtrBlocksCompressorBuilder;
-use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
@@ -26,8 +25,8 @@ use vortex::file::WriteStrategyBuilder;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
+use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::TryFromArrowType;
 
 use crate::PyVortex;
 use crate::RUNTIME;
@@ -464,7 +463,9 @@ fn try_arrow_stream_to_iterator(
     if ob.is_instance(pa_table)? || ob.is_instance(pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
         let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
-        let dtype = DType::try_from_arrow(arrow_stream.schema())
+        let dtype = session()
+            .arrow()
+            .from_arrow_schema(arrow_stream.schema().as_ref())
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         // Convert Arrow RecordBatch stream to Vortex ArrayIterator

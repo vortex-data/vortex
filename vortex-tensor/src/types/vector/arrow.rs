@@ -30,7 +30,6 @@ use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::FromArrowType;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -119,7 +118,11 @@ impl ArrowImportVTable for Vector {
         *ARROW_VECTOR
     }
 
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+    fn from_arrow_field(
+        &self,
+        field: &Field,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<DType>> {
         if field.extension_type_name() != Some(ARROW_VECTOR_EXTENSION_NAME) {
             return Ok(None);
         }
@@ -131,7 +134,7 @@ impl ArrowImportVTable for Vector {
         }
 
         let storage_dtype = DType::FixedSizeList(
-            Arc::new(DType::from_arrow(elem.as_ref())),
+            Arc::new(session.from_arrow_field(elem.as_ref())?),
             *list_size as u32,
             field.is_nullable().into(),
         );

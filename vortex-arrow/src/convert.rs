@@ -98,7 +98,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::FromArrowArray;
-use crate::dtype::FromArrowType;
+use crate::dtype::from_arrow_time_unit;
 
 /// Zero-copy conversion of Arrow buffers into non-nullable Vortex arrays.
 ///
@@ -274,13 +274,13 @@ where
 
     Ok(match value.data_type() {
         DataType::Timestamp(time_unit, tz) => {
-            TemporalArray::new_timestamp(arr, TimeUnit::from_arrow(time_unit), tz.clone()).into()
+            TemporalArray::new_timestamp(arr, from_arrow_time_unit(*time_unit), tz.clone()).into()
         }
         DataType::Time32(time_unit) => {
-            TemporalArray::new_time(arr, TimeUnit::from_arrow(time_unit)).into()
+            TemporalArray::new_time(arr, from_arrow_time_unit(*time_unit)).into()
         }
         DataType::Time64(time_unit) => {
-            TemporalArray::new_time(arr, TimeUnit::from_arrow(time_unit)).into()
+            TemporalArray::new_time(arr, from_arrow_time_unit(*time_unit)).into()
         }
         DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::Days).into(),
         DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Milliseconds).into(),

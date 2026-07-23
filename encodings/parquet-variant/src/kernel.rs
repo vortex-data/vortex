@@ -44,9 +44,9 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
 use vortex_array::scalar_fn::fns::variant_get::VariantPath;
 use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
+use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
 use vortex_arrow::FromArrowArray;
-use vortex_arrow::ToArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -112,7 +112,10 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
         let arrow_input: ArrowArrayRef = Arc::new(arrow_variant.into_inner());
         let get_options =
             GetOptions::new_with_path(to_parquet_variant_path(parent.options.path())?)
-                .with_as_type(to_arrow_as_type(parent.options.dtype())?);
+                .with_as_type(to_arrow_as_type(
+                    parent.options.dtype(),
+                    &ctx.session().arrow(),
+                )?);
 
         let arrow_output = arrow_variant_get(&arrow_input, get_options)?;
         let output = if parent.options.dtype().is_none_or(DType::is_variant) {
@@ -208,15 +211,14 @@ pub(crate) fn to_parquet_variant_path(path: &VariantPath) -> VortexResult<PqVari
         .map(PqVariantPath::new)
 }
 
-#[expect(
-    deprecated,
-    reason = "TODO(aduffy): figure out what to do with Parquet Variant"
-)]
-fn to_arrow_as_type(dtype: Option<&DType>) -> VortexResult<Option<FieldRef>> {
+fn to_arrow_as_type(
+    dtype: Option<&DType>,
+    session: &ArrowSession,
+) -> VortexResult<Option<FieldRef>> {
     match dtype {
         Some(dtype) if !dtype.is_variant() => Ok(Some(Arc::new(Field::new(
             "variant_get",
-            dtype.to_arrow_dtype()?,
+            session.to_arrow_datatype(dtype)?,
             true,
         )))),
         Some(_) | None => Ok(None),
