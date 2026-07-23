@@ -14,6 +14,7 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::UnionArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
@@ -23,6 +24,7 @@ use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::masked::MaskedArraySlotsExt;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::arrays::union::UnionArrayExt;
 use vortex_array::arrays::variant::VariantArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
@@ -130,8 +132,17 @@ impl CascadingCompressor {
                 )?
                 .into_array())
             }
-            Canonical::Union(_) => {
-                todo!("TODO(connor)[Union]: implement compression for Union arrays")
+            Canonical::Union(union_array) => {
+                let type_ids = self.compress(union_array.type_ids(), exec_ctx)?;
+                let children = union_array
+                    .iter_children()
+                    .map(|child| self.compress(child, exec_ctx))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(
+                    UnionArray::try_new(type_ids, union_array.variants().clone(), children)?
+                        .into_array(),
+                )
             }
             Canonical::List(list_view_array) => {
                 if list_view_array.is_zero_copy_to_list() || list_view_array.elements().is_empty() {

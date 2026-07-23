@@ -9,6 +9,7 @@ mod list_view;
 mod null;
 mod primitive;
 mod struct_;
+mod union;
 mod varbinview;
 
 use std::mem::size_of;
@@ -21,6 +22,7 @@ use list_view::list_view_uncompressed_size_in_bytes;
 use null::null_uncompressed_size_in_bytes;
 use primitive::primitive_uncompressed_size_in_bytes;
 use struct_::struct_uncompressed_size_in_bytes;
+use union::union_uncompressed_size_in_bytes;
 use varbinview::varbinview_uncompressed_size_in_bytes;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -199,9 +201,7 @@ pub(crate) fn canonical_uncompressed_size_in_bytes(
         Canonical::List(array) => list_view_uncompressed_size_in_bytes(array, ctx),
         Canonical::FixedSizeList(array) => fixed_size_list_uncompressed_size_in_bytes(array, ctx),
         Canonical::Struct(array) => struct_uncompressed_size_in_bytes(array, ctx),
-        Canonical::Union(_) => {
-            todo!("TODO(connor)[Union]: implement UncompressedSizeInBytes for Union arrays")
-        }
+        Canonical::Union(array) => union_uncompressed_size_in_bytes(array, ctx),
         Canonical::Extension(array) => extension_uncompressed_size_in_bytes(array, ctx),
         Canonical::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
@@ -236,7 +236,12 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
             let canonical = array.array().clone().execute::<Canonical>(ctx)?;
             return canonical_uncompressed_size_in_bytes(&canonical, ctx);
         }
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Union(..) => {
+            todo!(
+                "TODO(connor)[Union]: support constant Union size accounting after constant Union \
+                 canonicalization defines inactive sparse-child placeholders"
+            )
+        }
         DType::Variant(_) => {
             vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
         }
@@ -342,6 +347,7 @@ mod tests {
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::UnionArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::VariantArray;
     use crate::builders::builder_with_capacity;
@@ -350,6 +356,7 @@ mod tests {
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::UnionVariants;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
@@ -536,6 +543,26 @@ mod tests {
             aggregate(&array)?,
             materialized_uncompressed_size_in_bytes(&array)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn union_sums_type_ids_and_sparse_children() -> VortexResult<()> {
+        let type_ids = PrimitiveArray::from_iter([5_u8, 9, 5]).into_array();
+        let numbers = PrimitiveArray::from_iter([10_i32, 0, 30]).into_array();
+        let flags = BoolArray::from_iter([false, true, false]).into_array();
+        let expected = aggregate(&type_ids)? + aggregate(&numbers)? + aggregate(&flags)?;
+        let variants = UnionVariants::try_new(
+            ["number", "flag"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Bool(Nullability::NonNullable),
+            ],
+            vec![5, 9],
+        )?;
+        let array = UnionArray::try_new(type_ids, variants, vec![numbers, flags])?.into_array();
+
+        assert_eq!(aggregate(&array)?, expected);
         Ok(())
     }
 
