@@ -271,6 +271,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::ConstantArray;
     use crate::arrays::Dict;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
@@ -279,10 +280,14 @@ mod tests {
     use crate::arrays::dict::DictArraySlotsExt;
     use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::assert_arrays_eq;
+    use crate::dtype::Nullability;
     use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
+    use crate::scalar::Scalar;
     use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::not::Not;
+    use crate::scalar_fn::fns::operators::Operator;
 
     #[test]
     #[allow(clippy::disallowed_methods)]
@@ -352,6 +357,40 @@ mod tests {
 
         assert!(result.has_all_values_referenced());
 
+        Ok(())
+    }
+
+    #[test]
+    fn kleene_and_dict_values_pushdown_counterexample() -> VortexResult<()> {
+        let codes = PrimitiveArray::from_option_iter([Some(0u8), Some(1), None]).into_array();
+        let values = BoolArray::from_iter([true, false]).into_array();
+        let dict = DictArray::try_new(codes, values)?.into_array();
+        let const_false =
+            ConstantArray::new(Scalar::bool(false, Nullability::NonNullable), 3).into_array();
+        let expr = Binary.try_new_array(3, Operator::And, vec![dict, const_false])?;
+
+        let mut ctx = array_session().create_execution_ctx();
+        // Kleene AND: null AND false == false, so all three rows must be valid `false`.
+        let expected = expr.clone().execute::<BoolArray>(&mut ctx)?.into_array();
+        let optimized = expr.optimize()?;
+        assert_arrays_eq!(optimized, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn kleene_or_dict_values_pushdown_counterexample() -> VortexResult<()> {
+        let codes = PrimitiveArray::from_option_iter([Some(0u8), Some(1), None]).into_array();
+        let values = BoolArray::from_iter([true, false]).into_array();
+        let dict = DictArray::try_new(codes, values)?.into_array();
+        let const_true =
+            ConstantArray::new(Scalar::bool(true, Nullability::NonNullable), 3).into_array();
+        let expr = Binary.try_new_array(3, Operator::Or, vec![dict, const_true])?;
+
+        let mut ctx = array_session().create_execution_ctx();
+        // Kleene OR: null OR true == true, so all three rows must be valid `true`.
+        let expected = expr.clone().execute::<BoolArray>(&mut ctx)?.into_array();
+        let optimized = expr.optimize()?;
+        assert_arrays_eq!(optimized, expected, &mut ctx);
         Ok(())
     }
 }
