@@ -218,11 +218,6 @@ impl VarBinBufferBuilder {
         Self { dtype, storage }
     }
 
-    /// Returns whether this builder uses 64-bit offsets.
-    pub fn has_large_offsets(&self) -> bool {
-        matches!(self.storage, TypedBuilder::I64(_))
-    }
-
     /// Appends decompressed values represented by one contiguous byte buffer and per-row lengths.
     pub fn append_values(
         &mut self,
@@ -416,12 +411,20 @@ impl ArrayBuilder for VarBinBufferBuilder {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::VarBinArrayExt;
+    use crate::arrays::varbin::builder::VarBinBufferBuilder;
     use crate::arrays::varbin::builder::VarBinBuilder;
+    use crate::assert_arrays_eq;
+    use crate::builders::ArrayBuilder;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::expr::stats::Precision;
@@ -451,6 +454,75 @@ mod tests {
                 .unwrap()
                 .is_null()
         );
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn test_append_varbin_to_buffer_builder(#[case] large_offsets: bool) -> VortexResult<()> {
+        let source =
+            VarBinArray::from_iter([Some("hello"), None, Some("world")], DType::Utf8(Nullable));
+        let mut builder =
+            VarBinBufferBuilder::with_capacity(source.dtype().clone(), large_offsets, source.len());
+        let mut ctx = array_session().create_execution_ctx();
+
+        source
+            .clone()
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+
+        assert_arrays_eq!(builder.finish_into_varbin(), source, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn test_array_builder_methods(#[case] large_offsets: bool) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        for validity in [
+            Mask::new_true(3),
+            Mask::new_false(3),
+            Mask::from_iter([true, false, true]),
+        ] {
+            let mut builder =
+                VarBinBufferBuilder::with_capacity(DType::Utf8(Nullable), large_offsets, 0);
+            assert!(builder.as_any().is::<VarBinBufferBuilder>());
+            builder.reserve_exact(3);
+            builder.append_zero();
+            builder.append_scalar(&Scalar::utf8("hello", Nullable))?;
+            builder.append_null();
+            assert_eq!(builder.len(), 3);
+            builder.set_validity(validity.clone());
+
+            let result = builder.finish_into_canonical(&mut ctx).into_array();
+            assert_eq!(result.validity()?.execute_mask(3, &mut ctx)?, validity);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_append_varbinview_validity_to_buffer_builder() -> VortexResult<()> {
+        let all_null = VarBinViewArray::from_iter([None::<&str>, None], DType::Utf8(Nullable));
+        let mixed =
+            VarBinViewArray::from_iter([Some("hello"), None, Some("world")], DType::Utf8(Nullable));
+        let expected = VarBinViewArray::from_iter(
+            [None, None, Some("hello"), None, Some("world")],
+            DType::Utf8(Nullable),
+        );
+        let mut builder =
+            VarBinBufferBuilder::with_capacity(expected.dtype().clone(), false, expected.len());
+        let mut ctx = array_session().create_execution_ctx();
+
+        all_null
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+        mixed
+            .into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
     }
 
     #[test]
