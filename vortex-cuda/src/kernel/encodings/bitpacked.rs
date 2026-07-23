@@ -208,8 +208,10 @@ where
             .arg(&patches_arg);
     })?;
 
-    // NOTE: we must synchronize here, as the device patches are only alive for this call.
-    ctx.synchronize_stream()?;
+    // Patch-free decodes need no host synchronization.
+    if device_patches.is_some() {
+        ctx.synchronize_stream()?;
+    }
 
     let output_handle =
         BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
