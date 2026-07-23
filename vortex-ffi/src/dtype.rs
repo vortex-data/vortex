@@ -4,7 +4,6 @@
 use std::ffi::c_int;
 use std::ptr;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::Schema;
@@ -13,18 +12,15 @@ use vortex::dtype::DecimalDType;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_panic;
-use vortex_arrow::ArrowSession;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::box_wrapper;
 use crate::error::try_or;
 use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::ptype::vx_ptype;
+use crate::session::vx_session;
 use crate::struct_fields::vx_struct_fields;
-
-/// The dtype ⇄ Arrow schema C API functions receive no session pointer, so conversion uses a
-/// default [`ArrowSession`] (builtin plugins only).
-static ARROW_SESSION: LazyLock<ArrowSession> = LazyLock::new(ArrowSession::default);
 
 // DType has Arc fields inside for some enum items
 box_wrapper!(
@@ -261,25 +257,29 @@ pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_size(dtype: *const vx_d
     }
 }
 
-/// Convert a dtype to ArrowSchema.
+/// Convert a dtype to ArrowSchema, resolving extension types through `session`'s Arrow
+/// conversion registry.
 /// You can use the dtype after conversion
 /// On success, returns 0. On error, sets err and returns 1.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_to_arrow_schema(
+    session: *const vx_session,
     dtype: *const vx_dtype,
     schema: *mut FFI_ArrowSchema,
     err: *mut *mut vx_error,
 ) -> c_int {
     try_or(err, 1, || {
+        let session = vx_session::as_ref(session);
         let dtype = vx_dtype::as_ref(dtype);
-        let arrow_schema = ARROW_SESSION.to_arrow_schema(dtype)?;
+        let arrow_schema = session.arrow().to_arrow_schema(dtype)?;
         let arrow_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
         unsafe { ptr::write(schema, arrow_schema) };
         Ok(0)
     })
 }
 
-/// Create a Vortex dtype from an Arrow C Data Interface schema.
+/// Create a Vortex dtype from an Arrow C Data Interface schema, resolving extension types
+/// through `session`'s Arrow conversion registry.
 ///
 /// `schema` must point to a valid `ArrowSchema` describing a struct (record-batch) schema. It is
 /// *consumed*: its `release` callback is invoked by this function and the caller must not use or
@@ -289,16 +289,18 @@ pub unsafe extern "C-unwind" fn vx_dtype_to_arrow_schema(
 /// On error, returns NULL and sets `err`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_from_arrow_schema(
+    session: *const vx_session,
     schema: *mut FFI_ArrowSchema,
     err: *mut *mut vx_error,
 ) -> *const vx_dtype {
     try_or_default(err, || {
         vortex_ensure!(!schema.is_null(), "null arrow schema");
+        let session = vx_session::as_ref(session);
         let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
         let arrow_schema = Schema::try_from(&ffi_schema)?;
         drop(ffi_schema);
         Ok(vx_dtype::new(
-            ARROW_SESSION.from_arrow_schema(&arrow_schema)?,
+            session.arrow().from_arrow_schema(&arrow_schema)?,
         ))
     })
 }
@@ -334,6 +336,8 @@ mod tests {
     use crate::struct_fields::vx_struct_fields_field_name;
     use crate::struct_fields::vx_struct_fields_free;
     use crate::struct_fields::vx_struct_fields_nfields;
+    use crate::vx_session_free;
+    use crate::vx_session_new_with;
 
     #[test]
     fn test_simple() {
@@ -704,8 +708,10 @@ mod tests {
         ]);
         let mut ffi_schema = FFI_ArrowSchema::try_from(&arrow_schema).unwrap();
 
+        let session = vx_session_new_with(|s| s);
         let mut error = ptr::null_mut();
-        let dtype = unsafe { vx_dtype_from_arrow_schema(&raw mut ffi_schema, &raw mut error) };
+        let dtype =
+            unsafe { vx_dtype_from_arrow_schema(session, &raw mut ffi_schema, &raw mut error) };
         assert!(error.is_null());
         assert!(!dtype.is_null());
 
@@ -725,6 +731,7 @@ mod tests {
             vx_struct_fields_free(fields);
             vx_dtype_free(f1);
             vx_dtype_free(dtype);
+            vx_session_free(session);
         }
     }
 }
