@@ -691,6 +691,8 @@ mod tests {
         }
     }
 
+    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_dtype_from_arrow_schema() {
         use arrow_schema::DataType;
