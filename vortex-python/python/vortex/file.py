@@ -220,9 +220,7 @@ class VortexFile:
             Use ``pyarrow.binary()`` for ``BinaryArray`` fields.
 
         """
-        return self._file.to_arrow(
-            projection, expr=expr, limit=limit, batch_size=batch_size, schema=schema
-        )
+        return self._file.to_arrow(projection, expr=expr, limit=limit, batch_size=batch_size, schema=schema)
 
     def to_dataset(self) -> VortexDataset:
         """Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API."""

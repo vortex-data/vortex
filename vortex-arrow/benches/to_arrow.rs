@@ -40,7 +40,6 @@ use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
-use vortex_sparse::Sparse;
 use vortex_zstd::Zstd;
 
 fn main() {
@@ -51,7 +50,6 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = array_session();
     vortex_fsst::initialize(&session);
-    vortex_sparse::initialize(&session);
     session.arrays().register(Zstd);
     session
 });
@@ -121,7 +119,6 @@ fn ArrowExportVTable_to_arrow_field(bencher: Bencher) {
 enum OffsetStringEncoding {
     View,
     Fsst,
-    Sparse,
     Zstd,
     Dict,
     DictFsst,
@@ -135,7 +132,6 @@ enum OffsetStringEncoding {
 const OFFSET_STRING_ENCODINGS: &[OffsetStringEncoding] = &[
     OffsetStringEncoding::View,
     OffsetStringEncoding::Fsst,
-    OffsetStringEncoding::Sparse,
     OffsetStringEncoding::Zstd,
     OffsetStringEncoding::Dict,
     OffsetStringEncoding::DictFsst,
@@ -209,22 +205,6 @@ fn offset_string_array(encoding: OffsetStringEncoding) -> ArrayRef {
             fsst_compress(&source, &compressor, &mut ctx)
                 .unwrap()
                 .into_array()
-        }
-        OffsetStringEncoding::Sparse => {
-            let values = (0..OFFSET_STRING_ROWS)
-                .map(|index| {
-                    (index % 20 == 0)
-                        .then(|| format!("https://example.com/sparse/{index:06}/shared-suffix"))
-                })
-                .collect::<Vec<_>>();
-            let source = VarBinViewArray::from_iter(
-                values.iter().map(|value| value.as_deref()),
-                DType::Utf8(Nullability::Nullable),
-            )
-            .into_array();
-            let encoded = Sparse::encode(&source, None, &mut ctx).unwrap();
-            assert!(encoded.is::<Sparse>());
-            encoded
         }
         OffsetStringEncoding::Zstd => {
             let source = structured_strings(OFFSET_STRING_ROWS);

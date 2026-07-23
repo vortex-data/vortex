@@ -9750,7 +9750,6 @@ dependencies = [
  "vortex-mask",
  "vortex-runend",
  "vortex-session",
- "vortex-sparse",
  "vortex-zstd",
 ]
 

@@ -555,14 +555,18 @@ impl VTable for OnPair {
                 .validity()?
                 .execute_mask(array.array().len(), ctx)?;
             match_each_integer_ptype!(lengths.ptype(), |P| {
-                builder.append_values(
-                    bytes.as_slice(),
-                    lengths
-                        .as_slice::<P>()
-                        .iter()
-                        .map(|length| AsPrimitive::<usize>::as_(*length)),
-                    &validity,
-                );
+                // SAFETY: OnPair decoding preserves the source values and verifies that the
+                // decoded byte length matches the per-row lengths.
+                unsafe {
+                    builder.append_values_unchecked(
+                        bytes.as_slice(),
+                        lengths
+                            .as_slice::<P>()
+                            .iter()
+                            .map(|length| AsPrimitive::<usize>::as_(*length)),
+                        &validity,
+                    );
+                }
             });
             return Ok(());
         }
