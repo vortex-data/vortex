@@ -2543,7 +2543,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("FSST decoded size exceeds Arrow i32 offset range")
+                .contains("length sum exceeds Arrow i32 offset range")
         );
         Ok(())
     }
