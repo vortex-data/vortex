@@ -65,7 +65,8 @@ struct OnPairTokens {
 // past the end of the stream load as empty.
 __device__ inline OnPairTokens onpair_load_tokens(const uint16_t *__restrict codes,
                                                   const uint8_t *__restrict dict_s8,
-                                                  const uint8_t *__restrict lens, uint64_t base_i,
+                                                  const uint8_t *__restrict lens,
+                                                  uint64_t base_i,
                                                   uint64_t total_tokens) {
     OnPairTokens t;
 #pragma unroll
@@ -88,8 +89,7 @@ __device__ inline OnPairTokens onpair_load_tokens(const uint16_t *__restrict cod
 // Phase 2 — position every token within the batch: `excl[k]` is the exclusive
 // prefix (the token's staging offset) via 4 chained warp scans of the lengths.
 // Returns the batch's total decoded byte count.
-__device__ inline uint32_t onpair_scan_offsets(const uint32_t (&len)[4], int lane,
-                                               uint32_t (&excl)[4]) {
+__device__ inline uint32_t onpair_scan_offsets(const uint32_t (&len)[4], int lane, uint32_t (&excl)[4]) {
     constexpr unsigned mask = 0xffffffffu;
     uint32_t acc_base = 0u;
 #pragma unroll
@@ -105,7 +105,8 @@ __device__ inline uint32_t onpair_scan_offsets(const uint32_t (&len)[4], int lan
 // its scanned offset. The common case writes only the 8 `dict_s8` bytes
 // already in registers; tokens longer than 8 bytes take the rare path through
 // the full padded dictionary.
-__device__ inline void onpair_stage_tokens(const OnPairTokens &t, const uint32_t (&excl)[4],
+__device__ inline void onpair_stage_tokens(const OnPairTokens &t,
+                                           const uint32_t (&excl)[4],
                                            const uint8_t *__restrict dict_padded,
                                            uint8_t *__restrict s_buf) {
 #pragma unroll
@@ -125,8 +126,7 @@ __device__ inline void onpair_stage_tokens(const OnPairTokens &t, const uint32_t
         }
         if (len > 8u) {
             // Rare path: high bytes from the full padded dict.
-            const uint2 hi =
-                *reinterpret_cast<const uint2 *>(dict_padded + (size_t)t.code[k] * 16u + 8u);
+            const uint2 hi = *reinterpret_cast<const uint2 *>(dict_padded + (size_t)t.code[k] * 16u + 8u);
             const uint8_t *hib = reinterpret_cast<const uint8_t *>(&hi);
 #pragma unroll
             for (int j = 0; j < 8; ++j) {
@@ -143,8 +143,11 @@ __device__ inline void onpair_stage_tokens(const OnPairTokens &t, const uint32_t
 // stores, and a byte tail. The caller offset `s_buf` so shared and global
 // 16-byte alignment phases match.
 __device__ inline void onpair_drain(const uint8_t *__restrict s_buf,
-                                    uint8_t *__restrict output_bytes, uint64_t out_start,
-                                    uint32_t head_pre, uint32_t warp_total, int lane) {
+                                    uint8_t *__restrict output_bytes,
+                                    uint64_t out_start,
+                                    uint32_t head_pre,
+                                    uint32_t warp_total,
+                                    int lane) {
     const uint32_t head = head_pre < warp_total ? head_pre : warp_total;
     if ((uint32_t)lane < head) {
         output_bytes[out_start + (uint64_t)lane] = s_buf[lane];
@@ -162,20 +165,21 @@ __device__ inline void onpair_drain(const uint8_t *__restrict s_buf,
 
     const uint32_t tail_start = head + (body_chunks << 4);
     if ((uint32_t)lane < warp_total - tail_start) {
-        output_bytes[out_start + (uint64_t)tail_start + (uint64_t)lane] =
-            s_buf[tail_start + lane];
+        output_bytes[out_start + (uint64_t)tail_start + (uint64_t)lane] = s_buf[tail_start + lane];
     }
 }
 
-extern "C" __global__ ONPAIR_LAUNCH_BOUNDS void onpair_shmem_4tpt_split8read(
-    const uint16_t *__restrict codes, const uint64_t *__restrict chunk_offsets,
-    const uint8_t *__restrict dict_s8, const uint8_t *__restrict dict_padded,
-    const uint8_t *__restrict lens, uint8_t *__restrict output_bytes,
-    uint64_t total_tokens) {
+extern "C" __global__ ONPAIR_LAUNCH_BOUNDS void
+onpair_shmem_4tpt_split8read(const uint16_t *__restrict codes,
+                             const uint64_t *__restrict chunk_offsets,
+                             const uint8_t *__restrict dict_s8,
+                             const uint8_t *__restrict dict_padded,
+                             const uint8_t *__restrict lens,
+                             uint8_t *__restrict output_bytes,
+                             uint64_t total_tokens) {
     const int lane = threadIdx.x & 31;
     const uint32_t warp_id = threadIdx.x >> 5;
-    const uint64_t chunk =
-        (uint64_t)blockIdx.x * (uint64_t)(blockDim.x >> 5) + (uint64_t)warp_id;
+    const uint64_t chunk = (uint64_t)blockIdx.x * (uint64_t)(blockDim.x >> 5) + (uint64_t)warp_id;
     if (chunk * 128u >= total_tokens) {
         return;
     }

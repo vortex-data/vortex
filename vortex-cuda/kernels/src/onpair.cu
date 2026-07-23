@@ -28,7 +28,8 @@ constexpr uint32_t ONPAIR_TOKENS_PER_BATCH = 128;
 // launching the decode kernel, whose dictionary gathers are unchecked.
 extern "C" __global__ void onpair_batch_sizes(const uint16_t *__restrict codes,
                                               const uint8_t *__restrict lens,
-                                              uint32_t dict_size, uint64_t total_tokens,
+                                              uint32_t dict_size,
+                                              uint64_t total_tokens,
                                               uint64_t *__restrict batch_sizes,
                                               uint32_t *__restrict status) {
     const int lane = threadIdx.x & 31;
@@ -71,7 +72,8 @@ constexpr uint32_t MAX_INLINED_SIZE = 12;
 // heap is exposed as backing buffer zero.
 __device__ inline void onpair_write_view(const uint64_t *__restrict row_offsets,
                                          const uint8_t *__restrict output_bytes,
-                                         uint4 *__restrict views, uint64_t rid) {
+                                         uint4 *__restrict views,
+                                         uint64_t rid) {
     const uint64_t start = row_offsets[rid];
     const uint32_t len = (uint32_t)(row_offsets[rid + 1] - start);
     if (len <= MAX_INLINED_SIZE) {
@@ -86,15 +88,16 @@ __device__ inline void onpair_write_view(const uint64_t *__restrict row_offsets,
         return;
     }
 
-    const uint32_t prefix =
-        (uint32_t)output_bytes[start] | ((uint32_t)output_bytes[start + 1] << 8u) |
-        ((uint32_t)output_bytes[start + 2] << 16u) | ((uint32_t)output_bytes[start + 3] << 24u);
+    const uint32_t prefix = (uint32_t)output_bytes[start] | ((uint32_t)output_bytes[start + 1] << 8u) |
+                            ((uint32_t)output_bytes[start + 2] << 16u) |
+                            ((uint32_t)output_bytes[start + 3] << 24u);
     views[rid] = make_uint4(len, prefix, 0, (uint32_t)start);
 }
 
 extern "C" __global__ void onpair_build_views(const uint64_t *__restrict row_offsets,
                                               const uint8_t *__restrict output_bytes,
-                                              uint4 *__restrict views, uint64_t num_rows) {
+                                              uint4 *__restrict views,
+                                              uint64_t num_rows) {
     const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;
     const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;
     const uint64_t block_end =
