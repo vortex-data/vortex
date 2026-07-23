@@ -636,12 +636,12 @@ fn main() {
         DuckDBVersion::Commit(c) => format!("{DUCKDB_SOURCE_COMMIT_URL}/{c}.zip"),
     };
 
-    let source_archive_path = source_dir.with_extension("zip");
+    let source_archive_path = out_dir.join(format!("duckdb-source-{version}.zip"));
     download_url(&source_archive_url, &source_archive_path);
 
     let inner_dir = source_dir.join(version.archive_inner_dir_name());
     let extract_marker = source_dir.join(".vx-extract-complete");
-    if !extract_marker.exists() {
+    if !extract_marker.exists() || !inner_dir.exists() {
         if let Err(err) = fs::remove_dir_all(&source_dir)
             && err.kind() != io::ErrorKind::NotFound
         {
