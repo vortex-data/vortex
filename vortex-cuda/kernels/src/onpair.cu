@@ -60,22 +60,6 @@ extern "C" __global__ void onpair_batch_sizes(const uint16_t *__restrict codes,
     }
 }
 
-// Narrow the u64 row offsets to the i32 Arrow `Utf8`/`Binary` offsets buffer.
-// The host only launches this after checking the total decoded size fits i32,
-// and offsets are nondecreasing, so every value fits.
-extern "C" __global__ void onpair_offsets_to_i32(const uint64_t *__restrict row_offsets,
-                                                 int32_t *__restrict arrow_offsets,
-                                                 uint64_t num_offsets) {
-    const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;
-    const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;
-    const uint64_t block_end = (block_start + elements_per_block < num_offsets)
-                                   ? (block_start + elements_per_block)
-                                   : num_offsets;
-    for (uint64_t i = block_start + threadIdx.x; i < block_end; i += blockDim.x) {
-        arrow_offsets[i] = (int32_t)row_offsets[i];
-    }
-}
-
 // Arrow/Vortex variable-length view records are 16 bytes. Values up to 12 bytes
 // are stored inline after the u32 length. Longer values store their first four
 // bytes, backing-buffer index, and byte offset.
