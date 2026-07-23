@@ -99,6 +99,36 @@ cudaError_t scan_exclusive_sum_i64(void *d_temp,
                                    int64_t num_items,
                                    cudaStream_t stream);
 
+// Fused widen + exclusive-sum over per-row lengths: scans `num_offsets`
+// (= num_rows + 1) values where value `i` is `lengths[i]` widened to u64 and
+// the final slot contributes zero, so `d_out[num_offsets - 1]` is the total.
+// A negative length (signed types only) raises `*status` to 2 and contributes
+// zero bytes.
+#define SCAN_LENGTHS_TYPE_TABLE(X)                                                                           \
+    X(u8, uint8_t)                                                                                           \
+    X(i8, int8_t)                                                                                            \
+    X(u16, uint16_t)                                                                                         \
+    X(i16, int16_t)                                                                                          \
+    X(u32, uint32_t)                                                                                         \
+    X(i32, int32_t)                                                                                          \
+    X(u64, uint64_t)                                                                                         \
+    X(i64, int64_t)
+
+#define DECLARE_SCAN_EXCLUSIVE_SUM_LENGTHS(suffix, c_type)                                                   \
+    cudaError_t scan_exclusive_sum_lengths_##suffix##_temp_size(size_t *temp_bytes,                          \
+                                                                int64_t num_offsets);                        \
+    cudaError_t scan_exclusive_sum_lengths_##suffix(void *d_temp,                                            \
+                                                    size_t temp_bytes,                                       \
+                                                    const c_type *lengths,                                   \
+                                                    uint64_t *d_out,                                         \
+                                                    uint32_t *status,                                        \
+                                                    int64_t num_offsets,                                     \
+                                                    cudaStream_t stream);
+
+SCAN_LENGTHS_TYPE_TABLE(DECLARE_SCAN_EXCLUSIVE_SUM_LENGTHS)
+
+#undef DECLARE_SCAN_EXCLUSIVE_SUM_LENGTHS
+
 #ifdef __cplusplus
 }
 #endif

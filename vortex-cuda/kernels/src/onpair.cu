@@ -60,47 +60,6 @@ extern "C" __global__ void onpair_batch_sizes(const uint16_t *__restrict codes,
     }
 }
 
-// Widen the per-row decoded lengths to the u64 scan input `row_sizes`. A CUB
-// exclusive scan over the result (with one extra zeroed slot) yields the u64
-// per-row output offsets and, in the last slot, the total decoded byte count.
-// A negative length raises `status` to 2 and contributes zero bytes; the host
-// must check the flag before trusting the offsets.
-template <typename T>
-__device__ inline void onpair_row_sizes_impl(const T *__restrict lengths,
-                                             uint64_t *__restrict row_sizes,
-                                             uint32_t *__restrict status, uint64_t num_rows) {
-    const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;
-    const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;
-    const uint64_t block_end =
-        (block_start + elements_per_block < num_rows) ? (block_start + elements_per_block) : num_rows;
-    for (uint64_t i = block_start + threadIdx.x; i < block_end; i += blockDim.x) {
-        T len = lengths[i];
-        if constexpr (static_cast<T>(-1) < static_cast<T>(0)) {
-            if (len < static_cast<T>(0)) {
-                atomicMax(status, 2u);
-                len = static_cast<T>(0);
-            }
-        }
-        row_sizes[i] = (uint64_t)len;
-    }
-}
-
-#define GENERATE_ONPAIR_ROW_SIZES_KERNEL(suffix, Type)                                             \
-    extern "C" __global__ void onpair_row_sizes_##suffix(                                          \
-        const Type *__restrict lengths, uint64_t *__restrict row_sizes,                            \
-        uint32_t *__restrict status, uint64_t num_rows) {                                          \
-        onpair_row_sizes_impl<Type>(lengths, row_sizes, status, num_rows);                         \
-    }
-
-GENERATE_ONPAIR_ROW_SIZES_KERNEL(u8, uint8_t)
-GENERATE_ONPAIR_ROW_SIZES_KERNEL(u16, uint16_t)
-GENERATE_ONPAIR_ROW_SIZES_KERNEL(u32, uint32_t)
-GENERATE_ONPAIR_ROW_SIZES_KERNEL(u64, uint64_t)
-GENERATE_ONPAIR_ROW_SIZES_KERNEL(i8, int8_t)
-GENERATE_ONPAIR_ROW_SIZES_KERNEL(i16, int16_t)
-GENERATE_ONPAIR_ROW_SIZES_KERNEL(i32, int32_t)
-GENERATE_ONPAIR_ROW_SIZES_KERNEL(i64, int64_t)
-
 // Narrow the u64 row offsets to the i32 Arrow `Utf8`/`Binary` offsets buffer.
 // The host only launches this after checking the total decoded size fits i32,
 // and offsets are nondecreasing, so every value fits.

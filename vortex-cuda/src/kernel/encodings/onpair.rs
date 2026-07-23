@@ -5,9 +5,10 @@
 //!
 //! Decoding runs entirely on the GPU over the flat token stream:
 //!
-//! 1. `onpair_row_sizes` widens the per-row decoded lengths and a CUB
-//!    exclusive scan turns them into per-row output offsets (the last element
-//!    is the total decoded byte count).
+//! 1. A fused CUB exclusive scan (widening transform iterator over the
+//!    native-width lengths) turns the per-row decoded lengths into per-row
+//!    output offsets in one dispatch (the last element is the total decoded
+//!    byte count).
 //! 2. `onpair_batch_sizes` reduces the decoded byte size of every 128-token
 //!    batch from the codes and the per-token length LUT, and a second CUB
 //!    exclusive scan regenerates the per-batch output offsets
@@ -60,6 +61,7 @@ use vortex_onpair::dict_view;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
+use crate::cub::exclusive_sum_lengths_u64;
 use crate::cub::exclusive_sum_u64;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
@@ -78,7 +80,8 @@ const WARPS_PER_BLOCK: usize = (BLOCK_THREADS / 32) as usize;
 /// `status` value raised by `onpair_batch_sizes` for a code outside the
 /// dictionary.
 const STATUS_CODE_OUT_OF_RANGE: u32 = 1;
-/// `status` value raised by `onpair_row_sizes` for a negative decoded length.
+/// `status` value raised by the fused lengths scan for a negative decoded
+/// length.
 const STATUS_NEGATIVE_LENGTH: u32 = 2;
 
 /// Launch config for the warp-per-batch kernels: one warp per 128-token batch.
@@ -277,26 +280,12 @@ async fn decode_onpair_bytes(
         .memset_zeros(&mut status)
         .map_err(|e| vortex_err!("Failed to zero OnPair status flag: {e}"))?;
 
-    // Row offsets on GPU: widen the lengths to u64 sizes (with one extra
-    // zeroed slot), then exclusive-scan; the last element is the total
-    // decoded byte count.
-    let mut row_sizes = ctx.device_alloc::<u64>(num_rows + 1)?;
-    ctx.stream()
-        .memset_zeros(&mut row_sizes)
-        .map_err(|e| vortex_err!("Failed to zero OnPair row sizes: {e}"))?;
-    let num_rows_u64 = u64::try_from(num_rows)?;
-    // The kernel is selected by the lengths ptype suffix and receives only the
-    // base pointer, so a byte-typed view of the native-width buffer suffices.
-    let lengths_view = lengths_dev.cuda_view::<u8>()?;
-    let row_sizes_fn =
-        ctx.load_function_with_suffixes("onpair", &["row_sizes", &lengths_ptype.to_string()])?;
-    ctx.launch_kernel(&row_sizes_fn, num_rows, |args| {
-        args.arg(&lengths_view)
-            .arg(&row_sizes)
-            .arg(&status)
-            .arg(&num_rows_u64);
-    })?;
-    let row_offsets = exclusive_sum_u64(&row_sizes, num_rows + 1, ctx)?;
+    // Row offsets in one fused GPU dispatch: a CUB exclusive scan over a
+    // widening transform iterator of the native-width lengths. The last of
+    // the `num_rows + 1` outputs is the total decoded byte count; a negative
+    // length raises `status` and contributes zero bytes.
+    let row_offsets =
+        exclusive_sum_lengths_u64(&lengths_dev, lengths_ptype, num_rows, &mut status, ctx)?;
 
     // `codes_offsets` may be a sliced view of the original; its first and last
     // boundaries bound the contiguous run of `codes` belonging to this array's
