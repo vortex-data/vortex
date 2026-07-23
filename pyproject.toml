@@ -48,6 +48,11 @@ docs = { workspace = true }
 line-length = 120
 extend-exclude = [".venv", "vortex-duckdb/duckdb/**"]
 
+[tool.ruff.format]
+# ruff 0.16 started formatting Python code blocks inside Markdown by default; our docs use
+# deliberate alignment in code examples, so keep Markdown out of the formatter.
+exclude = ["*.md"]
+
 [tool.ruff.lint]
 select = ["F", "E", "W", "UP", "I"]
 # Do not auto-fix unused variables. This is really annoying when IntelliJ runs autofix while editing.
