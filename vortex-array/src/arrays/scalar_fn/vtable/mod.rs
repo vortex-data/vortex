@@ -337,4 +337,8 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
         let validity_array = options.0.validity()?.to_array(options.0.len());
         Ok(Some(ArrayExpr.new_expr(FakeEq(validity_array), [])))
     }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        true
+    }
 }

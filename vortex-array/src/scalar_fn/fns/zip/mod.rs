@@ -155,8 +155,9 @@ impl ScalarFnVTable for Zip {
         Ok(None)
     }
 
-    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
-        true
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        // A null in an unselected branch does not force a null output.
+        false
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {

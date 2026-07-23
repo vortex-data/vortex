@@ -232,7 +232,7 @@ impl ScalarFnVTable for Select {
         Ok(None)
     }
 
-    fn is_null_sensitive(&self, _instance: &FieldSelection) -> bool {
+    fn is_strict(&self, _options: &FieldSelection) -> bool {
         true
     }
 

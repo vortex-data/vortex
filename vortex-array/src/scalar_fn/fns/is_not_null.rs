@@ -88,8 +88,9 @@ impl ScalarFnVTable for IsNotNull {
         }
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
-        true
+    fn is_strict(&self, _instance: &Self::Options) -> bool {
+        // Null input produces the non-null boolean value `false`.
+        false
     }
 
     fn is_fallible(&self, _instance: &Self::Options) -> bool {
@@ -244,8 +245,8 @@ mod tests {
     }
 
     #[test]
-    fn test_is_not_null_sensitive() {
-        assert!(is_not_null(col("a")).signature().is_null_sensitive());
+    fn test_is_not_null_is_not_strict() {
+        assert!(!is_not_null(col("a")).signature().is_strict());
     }
 
     #[test]

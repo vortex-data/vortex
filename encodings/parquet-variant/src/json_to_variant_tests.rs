@@ -145,7 +145,7 @@ fn converts_json_extension_input() -> VortexResult<()> {
 #[test]
 fn dict_encoded_input_converts_each_row() -> VortexResult<()> {
     // A dictionary-encoded JSON column exercises the dict-pushdown / canonicalization path:
-    // `json_to_variant` is not null-sensitive, so it pushes into the dict values (canonical
+    // `json_to_variant` is strict, so it pushes into the dict values (canonical
     // JSON extension values) where the kernel fires; either way every row must convert correctly.
     let values = json_input(VarBinViewArray::from_iter_str(["1", "2"]).into_array())?;
     let codes = PrimitiveArray::from_iter([0u8, 1, 0, 1, 0]).into_array();

@@ -183,12 +183,11 @@ impl ScalarFnVTable for JsonToVariant {
             .execute::<ArrayRef>(ctx)
     }
 
-    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
+    fn is_strict(&self, _options: &Self::Options) -> bool {
         // `json_to_variant` maps null rows to null rows and the JSON literal `null` to a
-        // variant-null value independently of which other rows are null, so it commutes with
-        // validity masking. Marking it not null-sensitive also lets it push through dictionaries
-        // into their JSON extension values, where the kernel fires directly.
-        false
+        // variant-null value. Its output dtype propagates the input nullability, so it is strict
+        // and can push through dictionaries into their JSON extension values.
+        true
     }
 }
 

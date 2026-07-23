@@ -242,8 +242,8 @@ impl ScalarFnVTable for RowSize {
         .into_array())
     }
 
-    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
-        true
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        false
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {

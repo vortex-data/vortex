@@ -61,6 +61,10 @@ impl ScalarFnVTable for RowIdx {
             "RowIdxExpr should not be executed directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
         );
     }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        true
+    }
 }
 
 pub fn row_idx() -> Expression {

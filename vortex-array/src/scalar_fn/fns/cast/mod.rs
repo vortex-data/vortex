@@ -171,9 +171,9 @@ impl ScalarFnVTable for Cast {
         }))
     }
 
-    // This might apply a nullability
-    fn is_null_sensitive(&self, _instance: &DType) -> bool {
-        true
+    fn is_strict(&self, _instance: &DType) -> bool {
+        // Cast options can pin a non-nullable output dtype instead of propagating nullability.
+        false
     }
 }
 
