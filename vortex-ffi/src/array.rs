@@ -10,6 +10,7 @@ use arrow_array::array::make_array;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi::from_ffi;
+use arrow_schema::Field;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -33,9 +34,9 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
-use vortex_arrow::FromArrowArray;
 
 use crate::box_wrapper;
+use crate::dtype::ARROW_SESSION;
 use crate::dtype::vx_dtype;
 use crate::dtype::vx_dtype_variant;
 use crate::error::try_or;
@@ -414,9 +415,10 @@ pub unsafe extern "C-unwind" fn vx_array_from_arrow(
         let ffi_array = unsafe { ptr::replace(array, FFI_ArrowArray::empty()) };
         let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
         let array_data = unsafe { from_ffi(ffi_array, &ffi_schema) }?;
+        let field = Field::try_from(&ffi_schema)?.with_nullable(nullable);
         drop(ffi_schema);
         let arrow_array = make_array(array_data);
-        let vortex_array = ArrayRef::from_arrow(arrow_array.as_ref(), nullable)?;
+        let vortex_array = ARROW_SESSION.from_arrow_array(arrow_array, &field)?;
         Ok(vx_array::new(vortex_array))
     })
 }

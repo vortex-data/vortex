@@ -224,7 +224,6 @@ mod tests {
     use arrow_buffer::NullBuffer;
     use arrow_schema::DataType;
     use arrow_schema::Field;
-    use vortex_array as array;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
@@ -241,7 +240,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::ArrowArrayExecutor;
-    use crate::FromArrowArray;
+    use crate::convert::from_arrow_dyn;
     use crate::dtype::to_data_type_naive;
 
     #[test]
@@ -419,7 +418,7 @@ mod tests {
         )?;
         let orig_dtype = array.dtype().clone();
         let arrow_array = array.into_array().execute_arrow(None, &mut ctx)?;
-        let from_arrow = array::ArrayRef::from_arrow(arrow_array.as_ref(), false)?;
+        let from_arrow = from_arrow_dyn(arrow_array.as_ref(), false)?;
         assert_eq!(&orig_dtype, from_arrow.dtype());
         Ok(())
     }

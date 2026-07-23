@@ -24,13 +24,11 @@ use arrow_buffer::NullBufferBuilder;
 use arrow_buffer::OffsetBuffer;
 use arrow_schema::DataType;
 use arrow_schema::Field;
-use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::FromArrowArray;
 use vortex_buffer::buffer;
 use vortex_session::VortexSession;
 
@@ -128,7 +126,10 @@ fn roundtrip_struct() {
         nulls.finish(),
     );
 
-    let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true).unwrap();
+    let vortex_struct = SESSION
+        .arrow()
+        .from_arrow_array_nullable(&arrow_struct, true)
+        .unwrap();
     let vortex_struct = SESSION
         .arrow()
         .execute_arrow(vortex_struct, None, &mut ctx)
@@ -154,7 +155,10 @@ fn roundtrip_list() {
     let list_data_type = arrow_list.data_type();
     let list_field = Field::new(String::new(), list_data_type.clone(), true);
 
-    let vortex_list = ArrayRef::from_arrow(&arrow_list, true).unwrap();
+    let vortex_list = SESSION
+        .arrow()
+        .from_arrow_array_nullable(&arrow_list, true)
+        .unwrap();
 
     let rt_arrow_list = SESSION
         .arrow()

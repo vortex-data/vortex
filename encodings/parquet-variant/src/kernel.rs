@@ -327,7 +327,6 @@ mod tests {
     use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
     use vortex_array::validity::Validity;
     use vortex_arrow::ArrowSessionExt;
-    use vortex_arrow::FromArrowArray;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
     use vortex_error::vortex_ensure;
@@ -837,15 +836,24 @@ mod tests {
             .map(|field| field.is_nullable())
             .unwrap_or(false);
 
-        let metadata =
-            ArrayRef::from_arrow(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
+        let metadata = SESSION
+            .arrow()
+            .from_arrow_array_nullable(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
         let value = arrow_variant
             .value_field()
-            .map(|value| ArrayRef::from_arrow(value as &dyn ArrowArray, value_nullable))
+            .map(|value| {
+                SESSION
+                    .arrow()
+                    .from_arrow_array_nullable(value as &dyn ArrowArray, value_nullable)
+            })
             .transpose()?;
         let typed_value = arrow_variant
             .typed_value_field()
-            .map(|typed_value| ArrayRef::from_arrow(typed_value.as_ref(), typed_value_nullable))
+            .map(|typed_value| {
+                SESSION
+                    .arrow()
+                    .from_arrow_array_nullable(typed_value.as_ref(), typed_value_nullable)
+            })
             .transpose()?;
 
         Ok(

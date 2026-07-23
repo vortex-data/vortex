@@ -44,7 +44,6 @@ use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::FromArrowArray;
 use vortex_buffer::Buffer;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -237,7 +236,10 @@ impl TryFrom<ExtensionArray> for LineStringData {
 impl LineStringData {
     /// Serialize line strings to WKB (a view array) — the form DuckDB `GEOMETRY` takes.
     pub fn to_wkb(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        geoarrow_to_wkb(&linestring_array(self.0.storage_array(), ctx)?)
+        geoarrow_to_wkb(
+            &linestring_array(self.0.storage_array(), ctx)?,
+            &ctx.session().arrow(),
+        )
     }
 }
 
@@ -365,6 +367,7 @@ impl ArrowImportVTable for LineString {
         array: ArrowArrayRef,
         field: &Field,
         dtype: &DType,
+        session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         let Some(ext_dtype) = dtype.as_extension_opt() else {
             return Ok(ArrowImport::Unsupported(array));
@@ -376,7 +379,7 @@ impl ArrowImportVTable for LineString {
             return Ok(ArrowImport::Unsupported(array));
         }
 
-        let storage = ArrayRef::from_arrow(array.as_ref(), field.is_nullable())?;
+        let storage = session.from_arrow_array_nullable(array.as_ref(), field.is_nullable())?;
         Ok(ArrowImport::Imported(
             ExtensionArray::try_new(ext_dtype.clone(), storage)?.into_array(),
         ))

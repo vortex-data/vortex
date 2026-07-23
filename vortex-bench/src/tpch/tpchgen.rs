@@ -36,7 +36,6 @@ use vortex::array::stream::ArrayStreamAdapter;
 use vortex::error::VortexExpect;
 use vortex::file::WriteOptionsSessionExt;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::FromArrowArray;
 
 use crate::CompactionStrategy;
 use crate::Format;
@@ -362,7 +361,10 @@ impl VortexWriter {
 #[async_trait::async_trait]
 impl FileWriter for VortexWriter {
     async fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
-        let array = ArrayRef::from_arrow(batch, false)?;
+        let schema = batch.schema();
+        let array = SESSION
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &schema)?;
         self.sender
             .as_ref()
             .vortex_expect("sender closed early")

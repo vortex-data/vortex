@@ -128,7 +128,7 @@ mod tests {
     use arrow_schema::Schema;
     use vortex_array::ArrayRef;
     use vortex_array::VortexSessionExecute;
-    use vortex_arrow::FromArrowArray;
+    use vortex_arrow::ArrowSessionExt;
     use vortex_error::VortexResult;
 
     use super::*;
@@ -155,7 +155,9 @@ mod tests {
         );
 
         // Convert to Vortex
-        ArrayRef::from_arrow(&struct_array, true)
+        SCAN_SESSION
+            .arrow()
+            .from_arrow_array_nullable(&struct_array, true)
     }
 
     fn create_arrow_schema() -> Arc<Schema> {

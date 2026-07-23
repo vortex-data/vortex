@@ -10,13 +10,11 @@ use arrow_schema::Field;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
-use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::FromArrowArray;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
@@ -37,7 +35,9 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
     if obj.is_instance(pa_array)? {
         let arrow_array = ArrowArrayData::from_pyarrow(&obj.as_borrowed()).map(make_array)?;
         let is_nullable = arrow_array.is_nullable();
-        let enc_array = ArrayRef::from_arrow(arrow_array.as_ref(), is_nullable)?;
+        let enc_array = session()
+            .arrow()
+            .from_arrow_array_nullable(arrow_array.as_ref(), is_nullable)?;
         Ok(PyArrayRef::from(enc_array))
     } else if obj.is_instance(chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr(intern!(py, "chunks"))?.extract()?;
@@ -45,7 +45,10 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
             .iter()
             .map(|a| {
                 let arrow_array = ArrowArrayData::from_pyarrow(&a.as_borrowed()).map(make_array)?;
-                ArrayRef::from_arrow(arrow_array.as_ref(), false).map_err(PyVortexError::from)
+                session()
+                    .arrow()
+                    .from_arrow_array_nullable(arrow_array.as_ref(), false)
+                    .map_err(PyVortexError::from)
             })
             .collect::<PyVortexResult<Vec<_>>>()?;
         let arrow_dtype = obj
@@ -67,8 +70,10 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
         let chunks = array_stream
             .into_iter()
             .map(|b| {
-                b.map_err(VortexError::from)
-                    .and_then(|b| ArrayRef::from_arrow(b, false))
+                b.map_err(VortexError::from).and_then(|b| {
+                    let schema = b.schema();
+                    session().arrow().from_arrow_record_batch(b, &schema)
+                })
             })
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(PyArrayRef::from(

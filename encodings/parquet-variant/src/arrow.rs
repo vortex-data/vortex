@@ -263,6 +263,7 @@ impl ArrowImportVTable for ParquetVariant {
         array: ArrowArrayRef,
         field: &Field,
         dtype: &DType,
+        _session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         if !dtype.is_variant()
             || field

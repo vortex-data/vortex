@@ -129,6 +129,7 @@ impl ArrowImportVTable for Uuid {
         array: ArrowArrayRef,
         _field: &Field,
         dtype: &DType,
+        _session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         let DType::Extension(dtype) = dtype else {
             return Ok(ArrowImport::Unsupported(array));

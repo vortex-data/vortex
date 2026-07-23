@@ -29,7 +29,6 @@ use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::FromArrowArray;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
@@ -148,6 +147,7 @@ impl ArrowImportVTable for Vector {
         array: ArrowArrayRef,
         _field: &Field,
         dtype: &DType,
+        session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         let DType::Extension(dtype) = dtype else {
             return Ok(ArrowImport::Unsupported(array));
@@ -162,7 +162,8 @@ impl ArrowImportVTable for Vector {
             return Ok(ArrowImport::Unsupported(array));
         }
 
-        let storage = ArrayRef::from_arrow(array.as_ref() as &dyn Array, dtype.is_nullable())?;
+        let storage =
+            session.from_arrow_array_nullable(array.as_ref() as &dyn Array, dtype.is_nullable())?;
         Ok(ArrowImport::Imported(
             ExtensionArray::try_new(dtype.clone(), storage)?.into_array(),
         ))
@@ -374,8 +375,13 @@ mod tests {
         let field = Field::new("embedding", DataType::Int32, false);
 
         let int_array: ArrowArrayRef = Arc::new(Int32Array::from(vec![1, 2, 3]));
-        let result =
-            <Vector as ArrowImportVTable>::from_arrow_array(&Vector, int_array, &field, &dtype)?;
+        let result = <Vector as ArrowImportVTable>::from_arrow_array(
+            &Vector,
+            int_array,
+            &field,
+            &dtype,
+            &ArrowSession::default(),
+        )?;
         assert!(matches!(result, ArrowImport::Unsupported(_)));
         Ok(())
     }
@@ -399,6 +405,7 @@ mod tests {
             fsl_arrow,
             &field,
             &DType::Extension(uuid_ext),
+            &ArrowSession::default(),
         )?;
         assert!(matches!(result, ArrowImport::Unsupported(_)));
         Ok(())

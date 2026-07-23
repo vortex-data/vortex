@@ -12,7 +12,6 @@ use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::error::VortexExpect;
@@ -20,8 +19,8 @@ use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
+use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::FromArrowArray;
 
 /// Compression strategy to use when converting Parquet files to Vortex format.
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
@@ -73,12 +72,16 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
     let dtype = session
         .arrow()
         .from_arrow_schema(parquet.schema().as_ref())?;
+    let arrow_session = ArrowSession::clone(&session.arrow());
     let mut vortex_stream = parquet
         .build()?
-        .map(|record_batch| {
+        .map(move |record_batch| {
             record_batch
                 .map_err(|e| vortex_err!(External: e))
-                .and_then(|rb| ArrayRef::from_arrow(rb, false))
+                .and_then(|rb| {
+                    let schema = rb.schema();
+                    arrow_session.from_arrow_record_batch(rb, &schema)
+                })
         })
         .boxed();
 

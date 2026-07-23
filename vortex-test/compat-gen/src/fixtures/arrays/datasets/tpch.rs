@@ -8,7 +8,7 @@ use tpchgen_arrow::RecordBatchIterator;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_arrow::FromArrowArray;
+use vortex_arrow::ArrowSession;
 use vortex_error::VortexResult;
 
 use crate::fixtures::DatasetFixture;
@@ -17,10 +17,14 @@ const SCALE_FACTOR: f64 = 0.01;
 
 fn collect_batches_as_vortex(iter: impl RecordBatchIterator) -> VortexResult<ArrayRef> {
     let batches: Vec<RecordBatch> = iter.collect();
+    let arrow = ArrowSession::default();
     Ok(ChunkedArray::from_iter(
         batches
             .into_iter()
-            .map(|batch| ArrayRef::from_arrow(batch, false))
+            .map(|batch| {
+                let schema = batch.schema();
+                arrow.from_arrow_record_batch(batch, &schema)
+            })
             .collect::<VortexResult<Vec<_>>>()?,
     )
     .into_array())

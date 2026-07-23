@@ -22,7 +22,6 @@ use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::FromArrowArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::registry::CachedId;
@@ -127,6 +126,7 @@ impl ArrowImportVTable for Json {
         array: ArrowArrayRef,
         field: &Field,
         dtype: &DType,
+        session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         let DType::Extension(ext_dtype) = dtype else {
             return Ok(ArrowImport::Unsupported(array));
@@ -135,7 +135,7 @@ impl ArrowImportVTable for Json {
             return Ok(ArrowImport::Unsupported(array));
         }
 
-        let storage = ArrayRef::from_arrow(array.as_ref(), field.is_nullable())?;
+        let storage = session.from_arrow_array_nullable(array.as_ref(), field.is_nullable())?;
         Ok(ArrowImport::Imported(
             ExtensionArray::new(ext_dtype.clone(), storage).into_array(),
         ))

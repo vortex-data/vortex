@@ -30,7 +30,6 @@ use vortex_arrow::ArrowImport;
 use vortex_arrow::ArrowImportVTable;
 use vortex_arrow::ArrowSession;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::FromArrowArray;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -276,6 +275,7 @@ impl ArrowImportVTable for WellKnownBinary {
         array: ArrowArrayRef,
         field: &Field,
         dtype: &DType,
+        session: &ArrowSession,
     ) -> VortexResult<ArrowImport> {
         let Some(ext_dtype) = dtype.as_extension_opt() else {
             return Ok(ArrowImport::Unsupported(array));
@@ -290,7 +290,7 @@ impl ArrowImportVTable for WellKnownBinary {
             return Ok(ArrowImport::Unsupported(array));
         }
 
-        let storage = ArrayRef::from_arrow(array.as_ref(), field.is_nullable())?;
+        let storage = session.from_arrow_array_nullable(array.as_ref(), field.is_nullable())?;
         Ok(ArrowImport::Imported(
             ExtensionArray::new(ext_dtype.clone(), storage).into_array(),
         ))

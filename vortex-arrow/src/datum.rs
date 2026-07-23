@@ -18,6 +18,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrowSessionExt;
+#[allow(deprecated)]
 use crate::FromArrowArray;
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
@@ -109,6 +110,7 @@ impl ArrowDatum for Datum {
     note = "Relies on the hidden global `legacy_session()`; use `from_arrow_columnar` with an explicit `ExecutionCtx` instead"
 )]
 #[allow(clippy::disallowed_methods)]
+#[allow(deprecated)]
 pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayRef>
 where
     ArrayRef: FromArrowArray<A>,
@@ -145,6 +147,7 @@ where
 /// # Error
 ///
 /// The provided array must have length `len` or `1`.
+#[allow(deprecated)]
 pub fn from_arrow_columnar<A>(
     array: A,
     len: usize,

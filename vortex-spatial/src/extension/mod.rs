@@ -13,6 +13,7 @@ mod wkb;
 
 use std::fmt::Display;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use ::wkb::reader::GeometryType;
 use arrow_array::BinaryArray;
@@ -57,7 +58,7 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::Scalar;
-use vortex_arrow::FromArrowArray;
+use vortex_arrow::ArrowSession;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -190,6 +191,10 @@ pub(crate) fn single_geometry(
         .ok_or_else(|| vortex_err!("spatial: constant operand decoded to no geometry"))
 }
 
+/// Plan-time geometry literal decoding has no session in scope, so its storage arrays
+/// (which carry no Arrow extension metadata) convert through a default [`ArrowSession`].
+static ARROW_SESSION: LazyLock<ArrowSession> = LazyLock::new(ArrowSession::default);
+
 /// Decode a WKB geometry literal (DuckDB's wire form for `GEOMETRY` constants) to its native
 /// `Point`/`Polygon`/`MultiPolygon` scalar. `None` for unsupported types. Plan-time, one value only.
 pub fn native_geometry_scalar_from_wkb(bytes: &[u8]) -> VortexResult<Option<Scalar>> {
@@ -205,7 +210,7 @@ pub fn native_geometry_scalar_from_wkb(bytes: &[u8]) -> VortexResult<Option<Scal
     let to_storage = |target: &GeoArrowType| -> VortexResult<ArrayRef> {
         let native =
             cast(&wkb, target).map_err(|e| vortex_err!("failed to cast WKB literal: {e}"))?;
-        ArrayRef::from_arrow(native.to_array_ref().as_ref(), false)
+        ARROW_SESSION.from_arrow_array_nullable(native.to_array_ref().as_ref(), false)
     };
 
     let scalar = match Wkb::try_from_bytes(bytes)?.geometry_type() {
@@ -301,12 +306,15 @@ pub(crate) fn geoarrow_metadata(spatial_metadata: &SpatialMetadata) -> Arc<Metad
 
 /// Serialize a native geometry array to WKB (a `WkbView` array) via geoarrow's cast.
 /// Shared by the `to_wkb` methods on the geometry extension types.
-pub(crate) fn geoarrow_to_wkb(geoarrow_array: &dyn GeoArrowArray) -> VortexResult<ArrayRef> {
+pub(crate) fn geoarrow_to_wkb(
+    geoarrow_array: &dyn GeoArrowArray,
+    session: &ArrowSession,
+) -> VortexResult<ArrayRef> {
     let wkb_type =
         GeoArrowType::WkbView(WkbType::new(geoarrow_metadata(&SpatialMetadata::default())));
     let wkb = cast(geoarrow_array, &wkb_type)
         .map_err(|e| vortex_err!("failed to cast geometry to WKB: {e}"))?;
-    ArrayRef::from_arrow(wkb.to_array_ref().as_ref(), false)
+    session.from_arrow_array_nullable(wkb.to_array_ref().as_ref(), false)
 }
 
 /// Recover [`SpatialMetadata`] from GeoArrow metadata.

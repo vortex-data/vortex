@@ -140,12 +140,11 @@ mod common_tests {
     use object_store::memory::InMemory;
     use url::Url;
     use vortex::VortexSessionDefault;
-    use vortex::array::ArrayRef;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::session::VortexSession;
-    use vortex_arrow::FromArrowArray;
+    use vortex_arrow::ArrowSessionExt;
 
     use crate::VortexFormatFactory;
     use crate::VortexTableOptions;
@@ -204,7 +203,10 @@ mod common_tests {
         where
             P: Into<object_store::path::Path>,
         {
-            let array = ArrayRef::from_arrow(batch, false)?;
+            let schema = batch.schema();
+            let array = VX_SESSION
+                .arrow()
+                .from_arrow_record_batch(batch.clone(), &schema)?;
             let mut write = ObjectStoreWrite::new(Arc::clone(&self.store), &path.into()).await?;
             VX_SESSION
                 .write_options()

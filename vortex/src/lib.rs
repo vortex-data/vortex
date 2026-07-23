@@ -342,7 +342,6 @@ impl VortexSessionDefault for VortexSession {
 mod test {
     use std::path::PathBuf;
 
-    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
@@ -375,7 +374,6 @@ mod test {
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
         use vortex::array::arrays::ChunkedArray;
         use vortex::arrow::ArrowSessionExt;
-        use vortex::arrow::FromArrowArray;
         use vortex::session::VortexSession;
 
         let session = VortexSession::default();
@@ -391,7 +389,8 @@ mod test {
         let chunks: Vec<_> = reader
             .map(|record_batch| {
                 let batch = record_batch?;
-                ArrayRef::from_arrow(batch, false)
+                let schema = batch.schema();
+                session.arrow().from_arrow_record_batch(batch, &schema)
             })
             .collect::<VortexResult<_>>()?;
         let vortex_array = ChunkedArray::try_new(chunks, dtype)?.into_array();

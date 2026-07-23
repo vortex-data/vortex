@@ -9,7 +9,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::FromArrowArray;
+use crate::convert::from_arrow_batch;
 use crate::dtype::from_arrow_schema_naive;
 
 /// An adapter for converting an `ArrowArrayStreamReader` into a Vortex `ArrayStream`.
@@ -42,7 +42,7 @@ impl Iterator for ArrowArrayStreamAdapter {
                 &from_arrow_schema_naive(b.schema().as_ref())
                     .vortex_expect("arrow schema to dtype")
             );
-            ArrayRef::from_arrow(b, false)
+            from_arrow_batch(&b, false)
         }))
     }
 }

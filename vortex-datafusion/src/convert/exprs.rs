@@ -1236,7 +1236,6 @@ mod tests {
         use vortex::array::Canonical;
         use vortex::array::VortexSessionExecute as _;
         use vortex::session::VortexSession;
-        use vortex_arrow::FromArrowArray;
 
         // Create test data
         let values = Arc::new(Int32Array::from(vec![1, 5, 10, 15, 20]));
@@ -1283,10 +1282,13 @@ mod tests {
         let vortex_expr = expr_convertor.try_convert_case_expr(&case_expr).unwrap();
 
         // Convert batch to Vortex array
-        let vortex_array: ArrayRef = ArrayRef::from_arrow(&batch, false).unwrap();
+        let session = VortexSession::default();
+        let vortex_array: ArrayRef = session
+            .arrow()
+            .from_arrow_record_batch(batch.clone(), &batch.schema())
+            .unwrap();
 
         // Apply Vortex expression
-        let session = VortexSession::default();
         let mut ctx = session.create_execution_ctx();
         let vortex_result = vortex_array
             .apply(&vortex_expr)

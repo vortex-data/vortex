@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
@@ -40,7 +41,7 @@ use vortex_array::vtable::validity_to_child;
     reason = "TODO(aduffy): figure out what to do with Parquet Variant"
 )]
 use vortex_arrow::ArrowArrayExecutor;
-use vortex_arrow::FromArrowArray;
+use vortex_arrow::ArrowSession;
 use vortex_arrow::to_arrow_null_buffer;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
@@ -65,6 +66,10 @@ pub struct ParquetVariantSlots {
     #[slot(3)]
     pub typed_value: Option<ArrayRef>,
 }
+
+/// Variant storage children (metadata/value/typed_value) carry no Arrow extension metadata,
+/// so [`ParquetVariant::from_arrow_variant`] converts them through a default [`ArrowSession`].
+pub(crate) static ARROW_SESSION: LazyLock<ArrowSession> = LazyLock::new(ArrowSession::default);
 
 impl ParquetVariant {
     /// Creates a Parquet Variant array from canonical extension storage slots.
@@ -130,17 +135,17 @@ impl ParquetVariant {
             } else {
                 Validity::NonNullable
             });
-        let metadata =
-            ArrayRef::from_arrow(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
+        let metadata = ARROW_SESSION
+            .from_arrow_array_nullable(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
 
         let value = arrow_variant
             .value_field()
-            .map(|v| ArrayRef::from_arrow(v as &dyn ArrowArray, value_nullable))
+            .map(|v| ARROW_SESSION.from_arrow_array_nullable(v as &dyn ArrowArray, value_nullable))
             .transpose()?;
 
         let typed_value = arrow_variant
             .typed_value_field()
-            .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
+            .map(|tv| ARROW_SESSION.from_arrow_array_nullable(tv.as_ref(), typed_value_nullable))
             .transpose()?;
         ParquetVariant::try_new(validity, metadata, value, typed_value).map(IntoArray::into_array)
     }

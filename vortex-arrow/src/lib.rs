@@ -7,8 +7,8 @@
 //! the [`ArrowSession`]: importing Arrow schemas, fields, and data types into Vortex
 //! ([`ArrowSession::from_arrow_schema`], [`ArrowSession::from_arrow_field`],
 //! [`ArrowSession::from_arrow_datatype`]), importing Arrow arrays and record batches
-//! ([`ArrowSession::from_arrow_array`], [`ArrowSession::from_arrow_record_batch`], and the
-//! low-level [`FromArrowArray`]), exporting Vortex dtypes to Arrow
+//! ([`ArrowSession::from_arrow_array`], [`ArrowSession::from_arrow_array_nullable`],
+//! [`ArrowSession::from_arrow_record_batch`]), exporting Vortex dtypes to Arrow
 //! ([`ArrowSession::to_arrow_schema`], [`ArrowSession::to_arrow_field`],
 //! [`ArrowSession::to_arrow_datatype`]), and executing Vortex arrays into Arrow
 //! ([`ArrowSession::execute_arrow`] and the [`ArrowArrayExecutor`] convenience trait).
@@ -62,6 +62,9 @@ pub fn initialize(session: &VortexSession) {
 ///
 /// Implementations reuse the underlying Arrow buffers without copying wherever the Arrow and
 /// Vortex memory layouts allow it.
+#[deprecated(
+    note = "Use `ArrowSession` (`from_arrow_array`, `from_arrow_array_nullable`, `from_arrow_record_batch`) instead"
+)]
 pub trait FromArrowArray<A> {
     /// Convert `array` into a Vortex array whose [`DType`](vortex_array::dtype::DType) has the requested
     /// `nullable` [`Nullability`](vortex_array::dtype::Nullability).
@@ -80,6 +83,9 @@ pub trait FromArrowArray<A> {
     /// Returns an error if `nullable` is `false` but `array` physically contains one or more nulls
     /// (including an Arrow `NullArray`, which is entirely null), or if the Arrow data type is not
     /// supported.
+    #[deprecated(
+        note = "Use `ArrowSession` (`from_arrow_array`, `from_arrow_array_nullable`, `from_arrow_record_batch`) instead"
+    )]
     fn from_arrow(array: A, nullable: bool) -> VortexResult<Self>
     where
         Self: Sized;

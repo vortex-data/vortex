@@ -26,7 +26,6 @@ use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex_arrow::ArrowSessionExt;
-use vortex_arrow::FromArrowArray;
 
 use crate::PyVortex;
 use crate::RUNTIME;
@@ -473,7 +472,8 @@ fn try_arrow_stream_to_iterator(
             .into_iter()
             .map(|batch_result| -> VortexResult<ArrayRef> {
                 let batch = batch_result.map_err(VortexError::from)?;
-                ArrayRef::from_arrow(batch, false)
+                let schema = batch.schema();
+                session().arrow().from_arrow_record_batch(batch, &schema)
             });
 
         Ok(Box::new(ArrayIteratorAdapter::new(dtype, vortex_iter)))

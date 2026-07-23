@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// This module hosts the canonical Arrow → Vortex conversion machinery, implemented as the
+// deprecated `FromArrowArray` trait. Internal callers go through `from_arrow_dyn` /
+// `from_arrow_batch`; external callers use the `ArrowSession` methods.
+#![allow(deprecated)]
+
 use std::sync::Arc;
 
 use arrow_array::AnyDictionaryArray;
@@ -104,6 +109,17 @@ use crate::dtype::from_arrow_time_unit;
 ///
 /// This mirrors [`IntoArray`] for Arrow buffer types; a separate trait is required because both
 /// [`IntoArray`] and the Arrow buffer types are foreign to this crate.
+/// Canonical (non-plugin) conversion of an Arrow array into a Vortex array. Internal
+/// entry point for callers that don't dispatch Arrow extension plugins.
+pub(crate) fn from_arrow_dyn(array: &dyn ArrowArray, nullable: bool) -> VortexResult<ArrayRef> {
+    ArrayRef::from_arrow(array, nullable)
+}
+
+/// Canonical (non-plugin) conversion of an Arrow [`RecordBatch`] into a Vortex struct array.
+pub(crate) fn from_arrow_batch(batch: &RecordBatch, nullable: bool) -> VortexResult<ArrayRef> {
+    ArrayRef::from_arrow(batch, nullable)
+}
+
 pub trait IntoVortexArray {
     /// Convert this Arrow buffer into a non-nullable Vortex array without copying.
     fn into_array(self) -> ArrayRef;
