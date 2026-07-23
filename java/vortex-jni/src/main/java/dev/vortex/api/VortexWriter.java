@@ -126,6 +126,23 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
+     * Return the number of uncompressed bytes accepted by the writer but not yet written to the sink.
+     *
+     * <p>Together with {@link #bytesWritten()}, this lets callers estimate the in-progress file size: bytes that
+     * reached the sink are already compressed, while buffered bytes are still uncompressed and will shrink by
+     * roughly the file's observed compression ratio once flushed. After {@link #finish()}, this is zero.
+     */
+    public synchronized long bufferedBytes() {
+        if (summary != null) {
+            return 0;
+        }
+        Preconditions.checkState(!closed.get(), "writer closed without a write summary");
+        long bufferedBytes = NativeWriter.bufferedBytes(pointer);
+        Preconditions.checkState(bufferedBytes >= 0, "native writer returned an invalid buffered byte count");
+        return bufferedBytes;
+    }
+
+    /**
      * Flush pending batches, finalize the file, and return its statistics and physical sizes.
      *
      * <p>This method is idempotent. Later calls return the same immutable summary.
