@@ -24,15 +24,16 @@ pub fn batch_offsets_temp_size(num_batches: i64) -> Result<usize, CubError> {
 /// sweep: each warp reduces one 128-token batch's decoded size and the
 /// exclusive scan over the sizes runs in-kernel via decoupled look-back.
 /// Writes `num_batches + 1` offsets; the last is the total decoded byte count.
-/// A code outside the dictionary raises `*status` to 1 and contributes zero
+/// `code_width` selects the code stream's element size in bytes (1 or 2). A
+/// code outside the dictionary raises `*status` to 1 and contributes zero
 /// bytes.
 ///
 /// # Safety
 ///
 /// All device pointers must be valid and properly sized:
 /// - `d_temp` must have at least `temp_bytes` bytes allocated.
-/// - `codes` must have at least `total_tokens` `u16` values, with
-///   `total_tokens <= num_batches * 128`.
+/// - `codes` must have at least `total_tokens` elements of `code_width` bytes
+///   each, with `total_tokens <= num_batches * 128`.
 /// - `lens` must have at least `dict_size` bytes.
 /// - `chunk_offsets` must have at least `num_batches + 1` `u64` values.
 /// - `status` must point to a valid device `u32`.
@@ -40,7 +41,8 @@ pub fn batch_offsets_temp_size(num_batches: i64) -> Result<usize, CubError> {
 pub unsafe fn batch_offsets(
     d_temp: *mut c_void,
     temp_bytes: usize,
-    codes: *const u16,
+    codes: *const c_void,
+    code_width: u32,
     lens: *const u8,
     dict_size: u32,
     total_tokens: u64,
@@ -55,6 +57,7 @@ pub unsafe fn batch_offsets(
             d_temp,
             temp_bytes,
             codes,
+            code_width,
             lens,
             dict_size,
             total_tokens,

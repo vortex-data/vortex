@@ -32,12 +32,7 @@ pub(crate) fn collect_widened<T: NativePType>(
         .into_buffer::<T>())
 }
 
-/// Read one `codes_offsets` boundary by point lookup. This decodes at most a
-/// single chunk of the child — never the whole per-row offsets array — so the
-/// callers that only need a row window (`scalar_at`, the canonical decode's
-/// start/end bounds, the CUDA decoder's code window) don't pay to materialise
-/// every boundary.
-pub fn code_boundary_at(
+pub(crate) fn code_boundary_at(
     codes_offsets: &ArrayRef,
     index: usize,
     ctx: &mut ExecutionCtx,

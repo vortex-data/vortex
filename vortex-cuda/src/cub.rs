@@ -21,11 +21,14 @@ use crate::CudaExecutionCtx;
 /// Regenerate the OnPair decode kernel's per-batch output offsets in one
 /// fused sweep (see `cub/kernels/onpair.cu`): the per-batch decoded-size
 /// reduction and the exclusive scan over the sizes run in a single kernel via
-/// decoupled look-back. Returns `num_batches + 1` offsets; the last is the
-/// total decoded byte count. A code outside the dictionary raises `status`
-/// to 1; the caller must check the flag before trusting the offsets.
+/// decoupled look-back. `code_width` selects the code stream's element size in
+/// bytes (1 or 2). Returns `num_batches + 1` offsets; the last is the total
+/// decoded byte count. A code outside the dictionary raises `status` to 1;
+/// the caller must check the flag before trusting the offsets.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn onpair_batch_offsets(
     codes: &BufferHandle,
+    code_width: u32,
     lens: &BufferHandle,
     dict_size: u32,
     num_tokens: usize,
@@ -52,7 +55,8 @@ pub(crate) fn onpair_batch_offsets(
         onpair::batch_offsets(
             temp_ptr as *mut c_void,
             temp_bytes,
-            codes_ptr as *const u16,
+            codes_ptr as *const c_void,
+            code_width,
             lens_ptr as *const u8,
             dict_size,
             total_tokens,
@@ -109,15 +113,25 @@ mod tests {
     use crate::session::CudaSession;
 
     /// Upload synthetic codes and lengths, regenerate the chunk offsets, and
-    /// read them back together with the status flag.
-    async fn batch_offsets_roundtrip(
-        codes: Vec<u16>,
+    /// read them back together with the status flag. The code width follows
+    /// the element type.
+    async fn batch_offsets_roundtrip<C>(
+        codes: Vec<C>,
         lens: Vec<u8>,
-    ) -> VortexResult<(Vec<u64>, u32)> {
+    ) -> VortexResult<(Vec<u64>, u32)>
+    where
+        C: cudarc::driver::DeviceRepr
+            + cudarc::driver::ValidAsZeroBits
+            + std::fmt::Debug
+            + Send
+            + Sync
+            + 'static,
+    {
         let mut ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
         let num_tokens = codes.len();
         let num_batches = num_tokens.div_ceil(128);
         let dict_size = u32::try_from(lens.len())?;
+        let code_width = u32::try_from(size_of::<C>())?;
 
         let codes_dev = ctx.copy_to_device(codes)?.await?;
         let lens_dev = ctx.copy_to_device(lens)?.await?;
@@ -128,6 +142,7 @@ mod tests {
 
         let offsets = onpair_batch_offsets(
             &codes_dev,
+            code_width,
             &lens_dev,
             dict_size,
             num_tokens,
@@ -187,6 +202,22 @@ mod tests {
             .map(|i| u16::try_from(i * 31 % 300).vortex_expect("bounded by dictionary size"))
             .collect();
         let expected = host_reference(&codes, &lens);
+
+        let (offsets, status) = batch_offsets_roundtrip(codes, lens).await?;
+        assert_eq!(status, 0);
+        assert_eq!(offsets, expected);
+        Ok(())
+    }
+
+    /// u8 codes dispatch the narrow sweep instantiation.
+    #[crate::test]
+    async fn test_onpair_batch_offsets_u8_codes() -> VortexResult<()> {
+        let lens: Vec<u8> = (1..=16).collect();
+        let codes: Vec<u8> = (0..300u32)
+            .map(|i| u8::try_from(i * 7 % 16).vortex_expect("bounded by dictionary size"))
+            .collect();
+        let widened: Vec<u16> = codes.iter().map(|&c| u16::from(c)).collect();
+        let expected = host_reference(&widened, &lens);
 
         let (offsets, status) = batch_offsets_roundtrip(codes, lens).await?;
         assert_eq!(status, 0);

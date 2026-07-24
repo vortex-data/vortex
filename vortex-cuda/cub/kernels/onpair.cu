@@ -41,12 +41,14 @@ __global__ void onpair_batch_offsets_init(OnPairTileState tile_state, int num_ti
     tile_state.InitializeStatus(num_tiles);
 }
 
-// The fused sweep. A code outside the dictionary raises `status` to 1 and
-// contributes zero bytes: the host must check the flag before trusting the
-// offsets and before launching the decode kernel, whose dictionary gathers
-// are unchecked.
+// The fused sweep, instantiated for the two code widths OnPair stores (u16
+// natively, u8 when the compressor narrowed the codes). A code outside the
+// dictionary raises `status` to 1 and contributes zero bytes: the host must
+// check the flag before trusting the offsets and before launching the decode
+// kernel, whose dictionary gathers are unchecked.
+template <typename CodeT>
 __global__
-__launch_bounds__(ONPAIR_BLOCK_THREADS) void onpair_batch_offsets_sweep(const uint16_t *__restrict codes,
+__launch_bounds__(ONPAIR_BLOCK_THREADS) void onpair_batch_offsets_sweep(const CodeT *__restrict codes,
                                                                         const uint8_t *__restrict lens,
                                                                         uint32_t dict_size,
                                                                         uint64_t total_tokens,
@@ -151,12 +153,15 @@ extern "C" cudaError_t onpair_batch_offsets_temp_size(size_t *temp_bytes, int64_
 // Regenerate the OnPair decode kernel's per-batch output offsets on `stream`
 // in one fused sweep, writing `chunk_offsets[0..num_batches]` where
 // `chunk_offsets[b]` is the decoded byte count preceding batch `b` and
-// `chunk_offsets[num_batches]` is the total. A code outside the dictionary
-// raises `*status` to 1 and contributes zero bytes; the caller must check the
-// flag before trusting the offsets.
+// `chunk_offsets[num_batches]` is the total. `code_width` selects the code
+// stream's element size in bytes (1 or 2), so narrowed codes never need a
+// widening pass. A code outside the dictionary raises `*status` to 1 and
+// contributes zero bytes; the caller must check the flag before trusting the
+// offsets.
 extern "C" cudaError_t onpair_batch_offsets(void *d_temp,
                                             size_t temp_bytes,
-                                            const uint16_t *codes,
+                                            const void *codes,
+                                            uint32_t code_width,
                                             const uint8_t *lens,
                                             uint32_t dict_size,
                                             uint64_t total_tokens,
@@ -183,13 +188,31 @@ extern "C" cudaError_t onpair_batch_offsets(void *d_temp,
         return err;
     }
 
-    onpair_batch_offsets_sweep<<<num_tiles, ONPAIR_BLOCK_THREADS, 0, stream>>>(codes,
-                                                                               lens,
-                                                                               dict_size,
-                                                                               total_tokens,
-                                                                               chunk_offsets,
-                                                                               status,
-                                                                               tile_state,
-                                                                               num_batches);
+    switch (code_width) {
+    case 1:
+        onpair_batch_offsets_sweep<uint8_t>
+            <<<num_tiles, ONPAIR_BLOCK_THREADS, 0, stream>>>(static_cast<const uint8_t *>(codes),
+                                                             lens,
+                                                             dict_size,
+                                                             total_tokens,
+                                                             chunk_offsets,
+                                                             status,
+                                                             tile_state,
+                                                             num_batches);
+        break;
+    case 2:
+        onpair_batch_offsets_sweep<uint16_t>
+            <<<num_tiles, ONPAIR_BLOCK_THREADS, 0, stream>>>(static_cast<const uint16_t *>(codes),
+                                                             lens,
+                                                             dict_size,
+                                                             total_tokens,
+                                                             chunk_offsets,
+                                                             status,
+                                                             tile_state,
+                                                             num_batches);
+        break;
+    default:
+        return cudaErrorInvalidValue;
+    }
     return cudaGetLastError();
 }

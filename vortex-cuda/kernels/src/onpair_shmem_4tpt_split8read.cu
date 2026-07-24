@@ -66,8 +66,10 @@ struct OnPairTokens {
 };
 
 // Phase 1 — load this lane's 4 (code, dict_s8 bytes, length) triples. Tokens
-// past the end of the stream load as empty.
-__device__ inline OnPairTokens onpair_load_tokens(const uint16_t *__restrict codes,
+// past the end of the stream load as empty. `CodeT` is the code stream's
+// element type (u16 natively, u8 when the compressor narrowed the codes).
+template <typename CodeT>
+__device__ inline OnPairTokens onpair_load_tokens(const CodeT *__restrict codes,
                                                   const uint8_t *__restrict dict_s8,
                                                   const uint8_t *__restrict lens,
                                                   uint64_t base_i,
@@ -173,14 +175,14 @@ __device__ inline void onpair_drain(const uint8_t *__restrict s_buf,
     }
 }
 
-extern "C" __global__ ONPAIR_LAUNCH_BOUNDS void
-onpair_shmem_4tpt_split8read(const uint16_t *__restrict codes,
-                             const uint64_t *__restrict chunk_offsets,
-                             const uint8_t *__restrict dict_s8,
-                             const uint8_t *__restrict dict_padded,
-                             const uint8_t *__restrict lens,
-                             uint8_t *__restrict output_bytes,
-                             uint64_t total_tokens) {
+template <typename CodeT>
+__device__ inline void onpair_decode_body(const CodeT *__restrict codes,
+                                          const uint64_t *__restrict chunk_offsets,
+                                          const uint8_t *__restrict dict_s8,
+                                          const uint8_t *__restrict dict_padded,
+                                          const uint8_t *__restrict lens,
+                                          uint8_t *__restrict output_bytes,
+                                          uint64_t total_tokens) {
     const uint32_t lane = threadIdx.x & 31;
     const uint32_t warp_id = threadIdx.x >> 5;
     const uint64_t chunk = (uint64_t)blockIdx.x * (uint64_t)(blockDim.x >> 5) + (uint64_t)warp_id;
@@ -207,4 +209,32 @@ onpair_shmem_4tpt_split8read(const uint16_t *__restrict codes,
     __syncwarp();
 
     onpair_drain(s_buf, output_bytes, out_start, head_pre, warp_total, lane);
+}
+
+extern "C" __global__ ONPAIR_LAUNCH_BOUNDS void
+onpair_shmem_4tpt_split8read_u8(const uint8_t *__restrict codes,
+                                const uint64_t *__restrict chunk_offsets,
+                                const uint8_t *__restrict dict_s8,
+                                const uint8_t *__restrict dict_padded,
+                                const uint8_t *__restrict lens,
+                                uint8_t *__restrict output_bytes,
+                                uint64_t total_tokens) {
+    onpair_decode_body<uint8_t>(codes, chunk_offsets, dict_s8, dict_padded, lens, output_bytes, total_tokens);
+}
+
+extern "C" __global__ ONPAIR_LAUNCH_BOUNDS void
+onpair_shmem_4tpt_split8read_u16(const uint16_t *__restrict codes,
+                                 const uint64_t *__restrict chunk_offsets,
+                                 const uint8_t *__restrict dict_s8,
+                                 const uint8_t *__restrict dict_padded,
+                                 const uint8_t *__restrict lens,
+                                 uint8_t *__restrict output_bytes,
+                                 uint64_t total_tokens) {
+    onpair_decode_body<uint16_t>(codes,
+                                 chunk_offsets,
+                                 dict_s8,
+                                 dict_padded,
+                                 lens,
+                                 output_bytes,
+                                 total_tokens);
 }

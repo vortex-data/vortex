@@ -102,13 +102,15 @@ cudaError_t scan_exclusive_sum_i64(void *d_temp,
 // Fused OnPair per-batch offsets regeneration: a single sweep kernel reduces
 // each 128-token batch's decoded size and exclusive-scans the sizes in-kernel
 // via decoupled look-back, writing `num_batches + 1` offsets whose last
-// element is the total decoded byte count. A code outside the dictionary
+// element is the total decoded byte count. `code_width` selects the code
+// stream's element size in bytes (1 or 2). A code outside the dictionary
 // raises `*status` to 1 and contributes zero bytes.
 cudaError_t onpair_batch_offsets_temp_size(size_t *temp_bytes, int64_t num_batches);
 
 cudaError_t onpair_batch_offsets(void *d_temp,
                                  size_t temp_bytes,
-                                 const uint16_t *codes,
+                                 const void *codes,
+                                 uint32_t code_width,
                                  const uint8_t *lens,
                                  uint32_t dict_size,
                                  uint64_t total_tokens,
