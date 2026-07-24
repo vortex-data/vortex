@@ -22,6 +22,7 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
+pub use decode::code_boundary_at;
 pub use onpair::CompactDictionaryView;
 pub use onpair::Config;
 pub use onpair::DEFAULT_CONFIG;

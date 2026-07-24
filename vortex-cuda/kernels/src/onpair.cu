@@ -13,7 +13,7 @@
 // Arrow/Vortex variable-length view records are 16 bytes. Values up to 12 bytes
 // are stored inline after the u32 length. Longer values store their first four
 // bytes, backing-buffer index, and byte offset.
-constexpr uint32_t MAX_INLINED_SIZE = 12;
+constexpr uint8_t MAX_INLINED_SIZE = 12;
 
 // Build one BinaryView over the flat decoded byte stream. Row `rid`'s bytes are
 // `output_bytes[row_offsets[rid]..row_offsets[rid + 1])`. The Rust caller only

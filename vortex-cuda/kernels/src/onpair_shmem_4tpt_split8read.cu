@@ -34,6 +34,10 @@
 #ifndef WARPS_PER_BLOCK_MAX
 #define WARPS_PER_BLOCK_MAX 16u
 #endif
+// The launch bounds are an exception, not a pattern: this kernel was tuned on
+// GH200 where NCU showed it register-capped at 64 (50% occupancy); bounding to
+// 2 blocks/SM was benchmarked as the best trade against spills. Re-evaluate on
+// new architectures rather than copying this to other kernels.
 #ifndef ONPAIR_LAUNCH_BOUNDS
 #define ONPAIR_LAUNCH_BOUNDS __launch_bounds__(512, 2)
 #endif

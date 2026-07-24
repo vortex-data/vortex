@@ -62,16 +62,16 @@ __launch_bounds__(ONPAIR_BLOCK_THREADS) void onpair_batch_offsets_sweep(const ui
     // Warp-parallel reduction of this batch's decoded size. Code reads are
     // lane-consecutive (coalesced); the length LUT is small and
     // cache-resident. Batches past the end (last tile) contribute zero.
-    uint32_t s = 0;
+    uint32_t batch_bytes = 0;
     if (batch < num_batches) {
         const uint64_t base = (uint64_t)batch * (uint64_t)ONPAIR_TOKENS_PER_BATCH;
 #pragma unroll
-        for (uint8_t k = 0; k < 4; ++k) {
-            const uint64_t i = base + (uint64_t)lane + (uint64_t)(k * 32);
+        for (uint8_t token = 0; token < 4; ++token) {
+            const uint64_t i = base + (uint64_t)lane + (uint64_t)(token * 32);
             if (i < total_tokens) {
                 const uint32_t code = (uint32_t)codes[i];
                 if (code < dict_size) {
-                    s += (uint32_t)lens[code];
+                    batch_bytes += (uint32_t)lens[code];
                 } else {
                     atomicMax(status, 1u);
                 }
@@ -80,30 +80,30 @@ __launch_bounds__(ONPAIR_BLOCK_THREADS) void onpair_batch_offsets_sweep(const ui
     }
 #pragma unroll
     for (uint8_t offset = 16; offset > 0; offset >>= 1) {
-        s += __shfl_down_sync(0xffffffffu, s, offset);
+        batch_bytes += __shfl_down_sync(0xffffffffu, batch_bytes, offset);
     }
 
     __shared__ uint64_t warp_sums[ONPAIR_WARPS_PER_BLOCK];
     __shared__ uint64_t warp_excl[ONPAIR_WARPS_PER_BLOCK];
     __shared__ typename OnPairPrefixOp::TempStorage prefix_storage;
     if (lane == 0) {
-        warp_sums[warp] = (uint64_t)s;
+        warp_sums[warp] = (uint64_t)batch_bytes;
     }
     __syncthreads();
 
     // The first warp scans the tile's batch sums and resolves the running
     // prefix of all preceding tiles via decoupled look-back.
     if (warp == 0) {
-        const uint64_t v = (lane < ONPAIR_WARPS_PER_BLOCK) ? warp_sums[lane] : 0;
-        uint64_t incl = v;
+        const uint64_t lane_sum = (lane < ONPAIR_WARPS_PER_BLOCK) ? warp_sums[lane] : 0;
+        uint64_t inclusive = lane_sum;
 #pragma unroll
         for (uint8_t offset = 1; offset < 32; offset <<= 1) {
-            const uint64_t y = __shfl_up_sync(0xffffffffu, incl, offset);
+            const uint64_t shifted = __shfl_up_sync(0xffffffffu, inclusive, offset);
             if (lane >= offset) {
-                incl += y;
+                inclusive += shifted;
             }
         }
-        const uint64_t aggregate = __shfl_sync(0xffffffffu, incl, 31);
+        const uint64_t aggregate = __shfl_sync(0xffffffffu, inclusive, 31);
 
         uint64_t prefix = 0;
         if (tile_idx == 0) {
@@ -112,11 +112,15 @@ __launch_bounds__(ONPAIR_BLOCK_THREADS) void onpair_batch_offsets_sweep(const ui
             }
         } else {
             // Collective over the first warp, as BlockScan would invoke it.
+            // The callback's return value is only defined in lane 0 (its
+            // look-back window reduction is a WarpReduce); broadcast it, the
+            // same way BlockScan shares the prefix before applying it.
             OnPairPrefixOp prefix_op(tile_state, prefix_storage, SumU64(), tile_idx);
-            prefix = prefix_op(aggregate);
+            const uint64_t lane0_prefix = prefix_op(aggregate);
+            prefix = __shfl_sync(0xffffffffu, lane0_prefix, 0);
         }
         if (lane < ONPAIR_WARPS_PER_BLOCK) {
-            warp_excl[lane] = prefix + incl - v;
+            warp_excl[lane] = prefix + inclusive - lane_sum;
         }
     }
     __syncthreads();
