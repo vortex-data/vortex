@@ -137,54 +137,10 @@ impl Selection {
         match self {
             Selection::All => RowMask::new(range.start, Mask::new_true(range_len)),
             Selection::IncludeByIndex(include) => {
-                let indices = include.as_slice();
-                let mask = indices_range(range, indices)
-                    .map(|idx_range| {
-                        Mask::from_indices(
-                            range_len,
-                            indices[idx_range]
-                                .iter()
-                                .map(|idx| {
-                                    idx.checked_sub(range.start).unwrap_or_else(|| {
-                                        vortex_panic!(
-                                            "index underflow, range: {:?}, idx: {:?}",
-                                            range,
-                                            idx
-                                        )
-                                    })
-                                })
-                                .filter_map(|idx| {
-                                    // Only include indices that fit in usize
-                                    usize::try_from(idx).ok()
-                                }),
-                        )
-                    })
-                    .unwrap_or_else(|| Mask::new_false(range_len));
-
-                RowMask::new(range.start, mask)
+                RowMask::new(range.start, index_mask(range, range_len, include))
             }
             Selection::ExcludeByIndex(exclude) => {
-                let indices = exclude.as_slice();
-                let mask = indices_range(range, indices)
-                    .map(|idx_range| {
-                        Mask::from_indices(
-                            range_len,
-                            indices[idx_range]
-                                .iter()
-                                .map(|idx| {
-                                    idx.checked_sub(range.start).unwrap_or_else(|| {
-                                        vortex_panic!(
-                                            "index underflow, range: {:?}, idx: {:?}",
-                                            range,
-                                            idx
-                                        )
-                                    })
-                                })
-                                .filter_map(|idx| usize::try_from(idx).ok()),
-                        )
-                    })
-                    .unwrap_or_else(|| Mask::new_false(range_len));
-                RowMask::new(range.start, mask.not())
+                RowMask::new(range.start, index_mask(range, range_len, exclude).not())
             }
             Selection::IncludeRoaring(roaring) => {
                 use std::ops::BitAnd;
@@ -199,20 +155,8 @@ impl Selection {
 
                 // Otherwise, intersect with the selected range and shift to relativize.
                 let roaring = roaring.bitand(range_treemap);
-                let mask = Mask::from_indices(
-                    range_len,
-                    roaring
-                        .iter()
-                        .map(|idx| {
-                            idx.checked_sub(range.start).unwrap_or_else(|| {
-                                vortex_panic!("index underflow, range: {:?}, idx: {:?}", range, idx)
-                            })
-                        })
-                        .filter_map(|idx| {
-                            // Only include indices that fit in usize
-                            usize::try_from(idx).ok()
-                        }),
-                );
+                let mask =
+                    Mask::from_indices(range_len, roaring.iter().map(|idx| relativize(range, idx)));
 
                 RowMask::new(range.start, mask)
             }
@@ -231,14 +175,7 @@ impl Selection {
                 let roaring = roaring.bitand(range_treemap);
                 let mask = Mask::from_excluded_indices(
                     range_len,
-                    roaring
-                        .iter()
-                        .map(|idx| {
-                            idx.checked_sub(range.start).unwrap_or_else(|| {
-                                vortex_panic!("index underflow, range: {:?}, idx: {:?}", range, idx)
-                            })
-                        })
-                        .filter_map(|idx| usize::try_from(idx).ok()),
+                    roaring.iter().map(|idx| relativize(range, idx)),
                 );
 
                 RowMask::new(range.start, mask)
@@ -258,6 +195,37 @@ fn validate_strictly_sorted<T: Ord>(values: &[T]) -> VortexResult<()> {
         }
     }
     Ok(())
+}
+
+/// Build the mask of positions within `range` that are named by the given sorted row indices.
+fn index_mask(range: &Range<u64>, range_len: usize, row_indices: &[u64]) -> Mask {
+    indices_range(range, row_indices)
+        .map(|idx_range| {
+            Mask::from_indices(
+                range_len,
+                row_indices[idx_range]
+                    .iter()
+                    .map(|&idx| relativize(range, idx)),
+            )
+        })
+        .unwrap_or_else(|| Mask::new_false(range_len))
+}
+
+/// Shift an absolute row index to be relative to the start of `range`.
+///
+/// Panics if the index is not a `usize`-sized offset into `range`. Callers have already narrowed
+/// the indices to `range`, whose own length had to fit in a `usize` to size the mask, so a failure
+/// here means that invariant was broken rather than that the index was merely out of bounds.
+fn relativize(range: &Range<u64>, idx: u64) -> usize {
+    idx.checked_sub(range.start)
+        .and_then(|relative| usize::try_from(relative).ok())
+        .unwrap_or_else(|| {
+            vortex_panic!(
+                "index {:?} is not a usize offset into range {:?}",
+                idx,
+                range
+            )
+        })
 }
 
 /// Find the positional range within row_indices that covers all rows in the given range.

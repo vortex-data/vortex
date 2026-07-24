@@ -231,8 +231,7 @@ public final class TestMinimal {
         Session session = Session.create();
         DataSource ds = DataSource.open(session, writePath);
 
-        RuntimeException exception =
-                assertThrows(RuntimeException.class, () -> ds.scan(ScanOptions.includeRows(2, 1)));
+        RuntimeException exception = assertThrows(RuntimeException.class, () -> ds.scan(ScanOptions.includeRows(2, 1)));
         assertTrue(
                 exception.getMessage().contains("must be strictly increasing"),
                 "unexpected message: " + exception.getMessage());
