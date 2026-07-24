@@ -15,7 +15,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.arrow.c.ArrowArray;
@@ -68,7 +67,8 @@ public final class GeoTypesTest {
         BufferAllocator allocator = ArrowAllocation.rootAllocator();
         Schema schema = new Schema(List.of(wkbField("geom")));
         Session session = Session.create();
-        try (VortexWriter writer = VortexWriter.create(session, writePath, schema, new HashMap<>(), allocator);
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, schema, allocator)
+                        .build();
                 VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
             VarBinaryVector geomVec = (VarBinaryVector) root.getVector("geom");
             geomVec.allocateNew(WKB_POINTS.size());

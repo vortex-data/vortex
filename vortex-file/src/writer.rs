@@ -160,6 +160,15 @@ impl VortexWriteOptions {
         }
         self
     }
+
+    /// Check the configured metadata segments against the `MAX_METADATA_*` limits.
+    ///
+    /// [`Self::write`] performs the same check, but only once the sink is already being written
+    /// to. Callers that accept metadata from elsewhere (FFI bindings, for example) can use this to
+    /// reject an invalid set before any bytes are produced.
+    pub fn validate_metadata(&self) -> VortexResult<()> {
+        validate_metadata_segments(&self.metadata)
+    }
 }
 
 impl VortexWriteOptions {
