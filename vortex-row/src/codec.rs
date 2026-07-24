@@ -38,6 +38,7 @@ use vortex_array::arrays::decimal::converted_buffer;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::half::f16;
@@ -184,7 +185,7 @@ pub(crate) fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
             ptype.byte_width(),
         )))),
         DType::Decimal(dt, _) => {
-            let vt = DecimalType::smallest_decimal_value_type(dt);
+            let vt = decimal_key_type(dt);
             if matches!(vt, DecimalType::I256) {
                 vortex_bail!("row encoding for Decimal256 is not yet implemented");
             }
@@ -386,15 +387,17 @@ fn add_size_primitive(arr: &PrimitiveArray, sizes: &mut [u32]) {
 }
 
 fn add_size_decimal(arr: &DecimalArray, sizes: &mut [u32]) {
-    let width = byte_width_u32(decimal_key_type(arr).byte_width());
+    let width = byte_width_u32(decimal_key_type(&arr.decimal_dtype()).byte_width());
     add_size_const(sizes, encoded_size_for_fixed(width));
 }
 
-/// The value width every chunk of a decimal column encodes at: derived from the declared
-/// decimal type, not the chunk's physical values type, so keys from differently compressed
-/// chunks stay memcmp-comparable (and match [`row_width_for_dtype`]).
-fn decimal_key_type(arr: &DecimalArray) -> DecimalType {
-    DecimalType::smallest_decimal_value_type(&arr.decimal_dtype())
+/// The decimal type every chunk of a decimal column encodes its keys at.
+///
+/// Derived from the declared decimal dtype rather than the chunk's physical `values_type`,
+/// so keys from differently compressed chunks stay memcmp-comparable. Both the size plan
+/// ([`row_width_for_dtype`]) and the encoder derive their width from here.
+fn decimal_key_type(dt: &DecimalDType) -> DecimalType {
+    DecimalType::smallest_decimal_value_type(dt)
 }
 
 fn add_size_varbinview(
@@ -642,7 +645,7 @@ fn encode_decimal(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
-    match decimal_key_type(arr) {
+    match decimal_key_type(&arr.decimal_dtype()) {
         DecimalType::I8 => {
             encode_decimal_typed::<i8>(arr, &mask, field, row_offsets, col_offset, out)
         }
@@ -679,7 +682,7 @@ where
     let null = field.null_sentinel();
     let value_bytes = size_of::<T>();
     let total = encoded_size_for_fixed(byte_width_u32(value_bytes));
-    let slice = converted_buffer::<T>(arr)?;
+    let slice = converted_buffer::<T>(arr, mask)?;
     for i in 0..slice.len() {
         let pos = (row_offsets[i] + col_offset[i]) as usize;
         if mask.value(i) {

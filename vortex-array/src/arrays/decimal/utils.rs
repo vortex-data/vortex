@@ -4,10 +4,10 @@
 use itertools::Itertools;
 use itertools::MinMaxResult;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalArrayExt;
@@ -31,24 +31,40 @@ pub(crate) fn widened_buffer<W: NativeDecimalType>(array: &DecimalArray) -> Buff
     })
 }
 
-/// Return the array's unscaled values converted to exactly `W`, whatever the array's storage
-/// type: widening is lossless, and narrowing returns an error for any value that does not fit
-/// `W`. Zero-copy when the array is already stored at `W`.
-pub fn converted_buffer<W: NativeDecimalType>(array: &DecimalArray) -> VortexResult<Buffer<W>> {
-    if array.values_type() == W::DECIMAL_TYPE {
-        return Ok(array.buffer::<W>());
+/// Return the array's unscaled values converted to exactly `W`, whatever the array's
+/// storage type. Zero-copy when the array is already stored at `W`.
+///
+/// Widening is lossless. Narrowing fails for any *valid* value that does not fit `W`.
+/// Null slots may hold arbitrary bytes and never fail; their contents in the returned
+/// buffer are likewise arbitrary and must not be read.
+pub fn converted_buffer<W: NativeDecimalType>(
+    array: &DecimalArray,
+    validity: &Mask,
+) -> VortexResult<Buffer<W>> {
+    // Widening can never fail, so it needs no validation pass.
+    if array.values_type() <= W::DECIMAL_TYPE {
+        return Ok(widened_buffer(array));
     }
     match_each_decimal_value_type!(array.values_type(), |T| {
         let src = array.buffer::<T>();
-        // Collecting `Result`s defeats the size hint (the iterator may stop at the first
-        // error), so pre-size explicitly to keep the conversion a single allocation.
-        let mut out = BufferMut::<W>::with_capacity(src.len());
-        for v in src.iter() {
-            out.push(W::from(*v).ok_or_else(|| {
-                vortex_err!("decimal value {v} does not fit {}", W::DECIMAL_TYPE)
-            })?);
+        // Pass 1: only *valid* values must fit `W`; null-slot garbage is exempt. Checking
+        // overflow before the mask keeps mask lookups off the happy path.
+        if let Some((i, v)) = src
+            .iter()
+            .enumerate()
+            .find(|&(i, v)| W::from(*v).is_none() && validity.value(i))
+        {
+            vortex_bail!(
+                "decimal value {v} at index {i} does not fit {}",
+                W::DECIMAL_TYPE
+            );
         }
-        Ok(out.freeze())
+        // Pass 2 is infallible (every valid value fits; null-slot garbage becomes zero), so
+        // a plain `collect` keeps the exact size hint and a single allocation.
+        Ok(src
+            .iter()
+            .map(|v| W::from(*v).unwrap_or_default())
+            .collect())
     })
 }
 
