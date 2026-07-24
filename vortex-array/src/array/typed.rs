@@ -42,13 +42,13 @@ use crate::validity::Validity;
 /// `ArrayRef` stores `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
 /// Metadata is accessed via `self.0.*` (a normal struct field read through the Arc),
 /// while encoding-specific methods go through `self.0.data` (vtable dispatch).
-pub(crate) struct ArrayInner<D: ?Sized> {
-    pub(crate) len: usize,
-    pub(crate) encoding_id: ArrayId,
-    pub(crate) dtype: DType,
-    pub(crate) slots: ArraySlots,
-    pub(crate) stats: ArrayStats,
-    pub(crate) data: D, // must be last for unsized coercion
+pub struct ArrayInner<D: ?Sized> {
+    pub len: usize,
+    pub encoding_id: ArrayId,
+    pub dtype: DType,
+    pub slots: ArraySlots,
+    pub stats: ArrayStats,
+    pub data: D, // must be last for unsized coercion
 }
 
 /// Construction parameters for typed arrays.
