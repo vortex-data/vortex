@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use crate::Delta;
 use crate::bit_transpose::untranspose_validity;
 use crate::delta::array::DeltaArrayExt;
+use crate::delta::array::DeltaArraySlotsExt;
 
 impl ValidityVTable<Delta> for Delta {
     #[allow(clippy::disallowed_methods)]

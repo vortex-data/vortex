@@ -21,9 +21,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -32,10 +30,10 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::DeltaData;
-use crate::delta::array::BASES_SLOT;
-use crate::delta::array::DELTAS_SLOT;
 use crate::delta::array::DeltaArrayExt;
-use crate::delta::array::SLOT_NAMES;
+use crate::delta::array::DeltaArraySlotsExt;
+use crate::delta::array::DeltaSlots;
+use crate::delta::array::DeltaSlotsView;
 use crate::delta::array::delta_decompress::delta_decompress;
 use crate::delta::array::lane_count;
 use crate::delta_compress;
@@ -87,13 +85,14 @@ impl VTable for Delta {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let bases = slots[BASES_SLOT]
-            .as_ref()
-            .vortex_expect("DeltaArray bases slot");
-        let deltas = slots[DELTAS_SLOT]
-            .as_ref()
-            .vortex_expect("DeltaArray deltas slot");
-        validate_parts(bases, deltas, data.offset, dtype, len)
+        let delta_slots = DeltaSlotsView::from_slots(slots);
+        validate_parts(
+            delta_slots.bases,
+            delta_slots.deltas,
+            data.offset,
+            dtype,
+            len,
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -125,7 +124,7 @@ impl VTable for Delta {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        DeltaSlots::NAMES[idx].to_string()
     }
 
     fn serialize(
@@ -175,7 +174,7 @@ impl VTable for Delta {
         let deltas = children.get(1, dtype, deltas_len)?;
 
         let data = DeltaData::try_new(metadata.offset as usize)?;
-        let slots = smallvec![Some(bases), Some(deltas)];
+        let slots = DeltaSlots { bases, deltas }.into_slots();
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -198,7 +197,7 @@ impl Delta {
     ) -> VortexResult<DeltaArray> {
         let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         let data = DeltaData::try_new(offset)?;
-        let slots = smallvec![Some(bases), Some(deltas)];
+        let slots = DeltaSlots { bases, deltas }.into_slots();
         Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data).with_slots(slots))
     }
 

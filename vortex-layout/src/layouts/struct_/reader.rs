@@ -82,7 +82,7 @@ impl StructReader {
                 .collect()
         });
 
-        let nullable = layout.dtype.is_nullable();
+        let nullable = layout.dtype().is_nullable();
         let extra = nullable as usize;
 
         let mut dtypes: Vec<DType> = Vec::with_capacity(struct_dt.nfields() + extra);
@@ -95,7 +95,7 @@ impl StructReader {
         names.extend(struct_dt.names().iter().map(|x| Arc::clone(x.inner())));
 
         let lazy_children = LazyReaderChildren::new(
-            Arc::clone(&layout.children),
+            Arc::clone(layout.children()),
             dtypes,
             names,
             Arc::clone(&segment_source),
@@ -443,6 +443,7 @@ mod tests {
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
+    use crate::test::new_session;
 
     #[fixture]
     fn empty_struct() -> (Arc<dyn SegmentSource>, LayoutRef) {
@@ -456,7 +457,7 @@ mod tests {
         );
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -493,7 +494,7 @@ mod tests {
         );
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -533,7 +534,7 @@ mod tests {
         );
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -578,7 +579,7 @@ mod tests {
         );
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -857,7 +858,7 @@ mod tests {
         );
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
                     ctx,

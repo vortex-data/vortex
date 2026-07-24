@@ -20,6 +20,7 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::builder_with_capacity;
 use crate::dtype::DType;

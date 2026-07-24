@@ -18,7 +18,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinView;
-use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::arrays::varbinview::BinaryView;
 use vortex_array::buffer::BufferHandle;
@@ -328,7 +328,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrays::varbin::VarBinArrayExt;
+    use vortex_array::arrays::varbin::VarBinArraySlotsExt;
     use vortex_array::dtype::PType;
     use vortex_error::VortexResult;
 

@@ -23,8 +23,8 @@ use crate::arrays::Filter;
 use crate::arrays::NullArray;
 use crate::arrays::VariantArray;
 use crate::arrays::extension::ExtensionArrayExt;
-use crate::arrays::filter::FilterArrayExt;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::filter::FilterArraySlotsExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 

@@ -25,6 +25,7 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinView;
 use crate::arrays::varbin::VarBinArrayExt;
+use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -420,7 +421,7 @@ mod tests {
     use crate::array_session;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
-    use crate::arrays::varbin::VarBinArrayExt;
+    use crate::arrays::varbin::VarBinArraySlotsExt;
     use crate::arrays::varbin::builder::VarBinBufferBuilder;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::assert_arrays_eq;

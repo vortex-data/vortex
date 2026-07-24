@@ -17,6 +17,7 @@ use vortex_error::vortex_panic;
 use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
 use crate::rle::RLEArrayExt;
+use crate::rle::RLEArraySlotsExt;
 
 /// Decompresses an RLE array back into a primitive array.
 pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {

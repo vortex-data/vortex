@@ -8,8 +8,10 @@
 //! and bare file paths are both accepted. Filesystems are cached per base URL so repeated
 //! globs against the same bucket share a single client.
 
+use std::ptr;
 use std::sync::Arc;
 
+use arrow_array::ffi::FFI_ArrowSchema;
 use jni::EnvUnowned;
 use jni::objects::JClass;
 use jni::objects::JLongArray;
@@ -29,9 +31,9 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::DataSourceRef;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex_arrow::ArrowSessionExt;
 
 use crate::RUNTIME;
-use crate::dtype::export_dtype_to_arrow;
 use crate::errors::try_or_throw;
 use crate::file::extract_properties;
 use crate::io::JavaFileSystem;
@@ -208,11 +210,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_free(
 }
 
 /// Export the data source's schema into the Arrow C Data Interface schema struct at
-/// `schema_addr`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_arrowSchema(
     mut env: EnvUnowned,
     _class: JClass,
+    session_ptr: jlong,
     pointer: jlong,
     schema_addr: jlong,
 ) {
@@ -220,8 +222,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_arrowSchema(
         if schema_addr == 0 {
             throw_runtime!("null arrow schema address");
         }
+        let session = unsafe { session_ref(session_ptr) };
         let ds = unsafe { NativeDataSource::from_ptr(pointer) };
-        export_dtype_to_arrow(ds.inner.dtype(), schema_addr)?;
+        let arrow_schema = session.arrow().to_arrow_schema(ds.inner.dtype())?;
+        let ffi_schema = FFI_ArrowSchema::try_from(&arrow_schema)?;
+        unsafe {
+            ptr::write(schema_addr as *mut FFI_ArrowSchema, ffi_schema);
+        }
         Ok(())
     });
 }

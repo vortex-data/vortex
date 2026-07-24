@@ -152,7 +152,7 @@ fn layout_to_json(layout: LayoutRef) -> VortexResult<LayoutTreeNode> {
         .collect::<VortexResult<Vec<_>>>()?;
 
     Ok(LayoutTreeNode {
-        encoding: layout.encoding().to_string(),
+        encoding: layout.encoding_id().to_string(),
         dtype: layout.dtype().to_string(),
         row_count: layout.row_count(),
         metadata_bytes: layout.metadata().len(),

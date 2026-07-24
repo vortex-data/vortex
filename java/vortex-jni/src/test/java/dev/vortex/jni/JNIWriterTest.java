@@ -31,6 +31,7 @@ import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ViewVarBinaryVector;
 import org.apache.arrow.vector.ViewVarCharVector;
 import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.ipc.ArrowReader;
@@ -261,8 +262,9 @@ public final class JNIWriterTest {
                 assertTrue(reader.loadNextBatch());
                 VectorSchemaRoot resultRoot = reader.getVectorSchemaRoot();
                 StructVector variant = (StructVector) resultRoot.getVector("variant");
-                VarBinaryVector metadata = variant.getChild("metadata", VarBinaryVector.class);
-                VarBinaryVector value = variant.getChild("value", VarBinaryVector.class);
+                // Binary columns cross the boundary as their native view types.
+                ViewVarBinaryVector metadata = variant.getChild("metadata", ViewVarBinaryVector.class);
+                ViewVarBinaryVector value = variant.getChild("value", ViewVarBinaryVector.class);
 
                 assertArrayEquals(VARIANT_METADATA, metadata.get(0));
                 assertArrayEquals(VARIANT_INT8_42, value.get(0));

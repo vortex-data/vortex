@@ -16,7 +16,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::ZigZagArray;
-use vortex::encodings::zigzag::ZigZagArrayExt;
+use vortex::encodings::zigzag::ZigZagArraySlotsExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;

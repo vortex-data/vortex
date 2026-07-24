@@ -19,6 +19,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::assert_arrays_eq;
 use crate::compute::conformance::filter::test_filter_conformance;
 use crate::validity::Validity;

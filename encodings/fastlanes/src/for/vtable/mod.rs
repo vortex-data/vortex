@@ -25,7 +25,6 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -35,7 +34,8 @@ use vortex_session::registry::CachedId;
 
 use crate::FoRData;
 use crate::r#for::array::FoRArrayExt;
-use crate::r#for::array::SLOT_NAMES;
+use crate::r#for::array::FoRSlots;
+use crate::r#for::array::FoRSlotsView;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::rules::PARENT_RULES;
 
@@ -82,7 +82,7 @@ impl VTable for FoR {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let encoded = slots[0].as_ref().vortex_expect("FoRArray encoded slot");
+        let encoded = FoRSlotsView::from_slots(slots).encoded;
         validate_parts(encoded.dtype(), encoded.len(), &data.reference, dtype, len)
     }
 
@@ -107,7 +107,7 @@ impl VTable for FoR {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        FoRSlots::NAMES[idx].to_string()
     }
 
     fn serialize(

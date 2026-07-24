@@ -29,6 +29,8 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -37,7 +39,6 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::half;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -139,7 +140,10 @@ impl VTable for Pco {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let validity = child_to_validity(slots[0].as_ref(), dtype.nullability());
+        let validity = child_to_validity(
+            PcoSlotsView::from_slots(slots).validity,
+            dtype.nullability(),
+        );
         data.validate(dtype, len, &validity)
     }
 
@@ -229,20 +233,20 @@ impl VTable for Pco {
             .sum::<usize>();
         vortex_ensure!(pages.len() == expected_n_pages);
 
-        let slots = smallvec![validity_to_child(&validity, len)];
+        let slots = PcoSlots {
+            validity: validity_to_child(&validity, len),
+        }
+        .into_slots();
         let data = PcoData::new(chunk_metas, pages, dtype.as_ptype(), metadata, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        PcoSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let unsliced_validity = child_to_validity(
-            array.as_ref().slots()[0].as_ref(),
-            array.dtype().nullability(),
-        );
+        let unsliced_validity = array.unsliced_validity();
         Ok(ExecutionResult::done(
             array
                 .data()
@@ -315,7 +319,10 @@ impl Pco {
     ) -> VortexResult<PcoArray> {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;
-        let slots = smallvec![validity_to_child(&validity, data.unsliced_n_rows())];
+        let slots = PcoSlots {
+            validity: validity_to_child(&validity, data.unsliced_n_rows()),
+        }
+        .into_slots();
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data).with_slots(slots))
         })
@@ -335,9 +342,23 @@ impl Pco {
     }
 }
 
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
+#[array_slots(Pco)]
+pub struct PcoSlots {
+    /// The validity bitmap indicating which elements are non-null.
+    pub validity: Option<ArrayRef>,
+}
+
+/// Additional typed accessors for Pco arrays.
+pub trait PcoArrayExt: PcoArraySlotsExt {
+    /// Reconstruct the unsliced [`Validity`] from the validity slot.
+    fn unsliced_validity(&self) -> Validity {
+        child_to_validity(
+            self.as_ref().slots()[PcoSlots::VALIDITY].as_ref(),
+            self.as_ref().dtype().nullability(),
+        )
+    }
+}
+impl<T: TypedArrayRef<Pco>> PcoArrayExt for T {}
 
 #[derive(Clone, Debug)]
 /// Encoding-specific data for a [`PcoArray`].
@@ -678,9 +699,9 @@ impl PcoData {
 
 impl ValidityVTable<Pco> for Pco {
     fn validity(array: ArrayView<'_, Pco>) -> VortexResult<Validity> {
-        let unsliced_validity =
-            child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
-        unsliced_validity.slice(array.slice_start()..array.slice_stop())
+        array
+            .unsliced_validity()
+            .slice(array.slice_start()..array.slice_stop())
     }
 }
 
@@ -690,8 +711,7 @@ impl OperationsVTable<Pco> for Pco {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let unsliced_validity =
-            child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
+        let unsliced_validity = array.unsliced_validity();
         array
             ._slice(index, index + 1)
             .decompress(&unsliced_validity, ctx)?

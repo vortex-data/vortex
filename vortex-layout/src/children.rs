@@ -73,6 +73,11 @@ impl OwnedLayoutChildren {
     }
 }
 
+/// Create an in-memory child adapter from owned layout references.
+pub fn layout_children(children: Vec<LayoutRef>) -> Arc<dyn LayoutChildren> {
+    OwnedLayoutChildren::layout_children(children)
+}
+
 /// In-memory implementation of [`LayoutChildren`].
 impl LayoutChildren for OwnedLayoutChildren {
     fn to_arc(&self) -> Arc<dyn LayoutChildren> {

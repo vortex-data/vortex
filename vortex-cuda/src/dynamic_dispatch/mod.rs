@@ -560,6 +560,7 @@ mod tests {
     use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::fastlanes::FoRArrayExt;
+    use vortex::encodings::fastlanes::FoRArraySlotsExt;
     use vortex::encodings::runend::RunEnd;
     use vortex::encodings::sequence::Sequence;
     use vortex::encodings::zigzag::ZigZag;

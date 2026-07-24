@@ -13,6 +13,7 @@ use vortex::dtype::IntegerPType;
 use vortex::encodings::fastlanes::FL_CHUNK_SIZE;
 use vortex::encodings::fastlanes::RLEArray;
 use vortex::encodings::fastlanes::RLEArrayExt;
+use vortex::encodings::fastlanes::RLEArraySlotsExt;
 use vortex::error::VortexResult;
 
 use crate::duckdb::ReusableDict;

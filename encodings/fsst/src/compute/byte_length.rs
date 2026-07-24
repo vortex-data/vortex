@@ -15,7 +15,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::FSST;
-use crate::array::FSSTArrayExt;
+use crate::array::FSSTArraySlotsExt;
 
 impl ByteLengthKernel for FSST {
     fn byte_length(

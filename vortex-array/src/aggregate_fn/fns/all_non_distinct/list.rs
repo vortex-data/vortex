@@ -10,7 +10,9 @@ use crate::IntoArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::list::ListArrayExt;
+use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::list_from_list_view;
 
 pub(super) fn check_list_identical(

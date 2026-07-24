@@ -21,7 +21,7 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -251,7 +251,7 @@ mod tests {
     use crate::arrays::ListView;
     use crate::arrays::ListViewArray;
     use crate::arrays::chunked::ChunkedArrayExt;
-    use crate::arrays::listview::ListViewArrayExt;
+    use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;

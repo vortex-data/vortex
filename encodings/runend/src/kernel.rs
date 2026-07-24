@@ -24,6 +24,7 @@ use vortex_session::VortexSession;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
+use crate::array::RunEndArraySlotsExt;
 use crate::compute::take_from::RunEndTakeFrom;
 
 pub(super) fn initialize(session: &VortexSession) {

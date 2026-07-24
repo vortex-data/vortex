@@ -3,10 +3,12 @@
 
 //! Temporal compression scheme using datetime-part decomposition.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
@@ -51,6 +53,10 @@ impl Scheme for TemporalScheme {
             AnyTemporal::try_match(ext_dtype),
             Some(TemporalMetadata::Timestamp(..))
         )
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![DateTimeParts.id()]
     }
 
     /// Children: days=0, seconds=1, subseconds=2.

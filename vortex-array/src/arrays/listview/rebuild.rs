@@ -15,6 +15,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::IntegerPType;
@@ -459,6 +460,7 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::listview::ListViewArrayExt;
+    use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
@@ -766,6 +768,7 @@ mod tests {
     /// the result offset/size dtypes preserve signedness (widened to >=32-bit for offsets).
     #[test]
     fn test_rebuild_preserves_signed_offset_and_size_types() -> VortexResult<()> {
+        use crate::arrays::listview::ListViewArraySlotsExt;
         use crate::dtype::PType;
 
         // Overlapping lists force an actual rebuild rather than the zero-copy fast path.

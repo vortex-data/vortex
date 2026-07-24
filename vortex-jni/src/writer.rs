@@ -15,6 +15,7 @@ use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use async_fs::File;
 use futures::SinkExt;
@@ -47,6 +48,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::stats::Stat;
 use vortex::expr::stats::StatsProvider;
+use vortex::file::ALLOWED_ENCODINGS;
 use vortex::file::CountingVortexWrite;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
@@ -58,13 +60,13 @@ use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::LayoutStrategy;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_arrow::ArrowSessionExt;
 use vortex_parquet_variant::ParquetVariant;
 
 use crate::RUNTIME;
-use crate::dtype::import_arrow_schema;
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
 use crate::file::extract_properties;
@@ -99,21 +101,18 @@ fn resolve_store(
     }
 }
 
-fn write_options_for_schema(
-    session: &VortexSession,
-    write_schema: &DType,
-) -> vortex::file::VortexWriteOptions {
+fn write_strategy_for_schema(write_schema: &DType) -> Arc<dyn LayoutStrategy> {
     let variant_paths = variant_field_paths(write_schema);
     if variant_paths.is_empty() {
-        return session.write_options();
+        return WriteStrategyBuilder::default().build();
     }
 
-    let mut allowed = vortex::file::ALLOWED_ENCODINGS.clone();
+    let mut allowed = ALLOWED_ENCODINGS.clone();
     allowed.insert(ParquetVariant.id());
 
-    let strategy = WriteStrategyBuilder::default().with_allow_encodings(allowed);
-
-    session.write_options().with_strategy(strategy.build())
+    WriteStrategyBuilder::default()
+        .with_allow_encodings(allowed)
+        .build()
 }
 
 fn variant_field_paths(dtype: &DType) -> Vec<FieldPath> {
@@ -145,6 +144,7 @@ pub struct NativeWriter {
     arrow_schema: SchemaRef,
     write_schema: DType,
     bytes_written: Arc<AtomicU64>,
+    strategy: Arc<dyn LayoutStrategy>,
     sender: mpsc::Sender<VortexResult<ArrayRef>>,
 }
 
@@ -154,6 +154,7 @@ impl NativeWriter {
         arrow_schema: SchemaRef,
         write_schema: DType,
         bytes_written: Arc<AtomicU64>,
+        strategy: Arc<dyn LayoutStrategy>,
         handle: Task<VortexResult<WriteSummary>>,
         sender: mpsc::Sender<VortexResult<ArrayRef>>,
     ) -> Self {
@@ -163,6 +164,7 @@ impl NativeWriter {
             arrow_schema,
             write_schema,
             bytes_written,
+            strategy,
             sender,
         }
     }
@@ -202,6 +204,10 @@ impl NativeWriter {
 
     fn bytes_written(&self) -> u64 {
         self.bytes_written.load(Ordering::Relaxed)
+    }
+
+    fn buffered_bytes(&self) -> u64 {
+        self.strategy.buffered_bytes()
     }
 
     fn close(mut self) -> VortexResult<WriteSummary> {
@@ -405,7 +411,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let arrow_schema = Arc::new(import_arrow_schema(arrow_schema_addr)?);
+        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
+        let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let file_path: String = uri.try_to_string(env)?;
@@ -413,7 +420,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         let resolved = resolve_store(&file_path, &properties)?;
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
-        let write_options = write_options_for_schema(session, &write_schema);
+        let strategy = write_strategy_for_schema(&write_schema);
+        let write_options = session.write_options().with_strategy(Arc::clone(&strategy));
 
         let (bytes_written, handle) = match resolved {
             ResolvedStore::Path(path) => {
@@ -451,6 +459,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
             arrow_schema,
             write_schema,
             bytes_written,
+            strategy,
             handle,
             tx,
         ))
@@ -484,14 +493,16 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let arrow_schema = Arc::new(import_arrow_schema(arrow_schema_addr)?);
+        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
+        let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let vm = env.get_java_vm()?;
         let writable = Arc::new(env.new_global_ref(&writable)?);
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
-        let write_options = write_options_for_schema(session, &write_schema);
+        let strategy = write_strategy_for_schema(&write_schema);
+        let write_options = session.write_options().with_strategy(Arc::clone(&strategy));
 
         let mut write = CountingVortexWrite::new(JavaWrite::new(vm, writable));
         let bytes_written = write.counter();
@@ -506,6 +517,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
             arrow_schema,
             write_schema,
             bytes_written,
+            strategy,
             handle,
             tx,
         ))
@@ -555,6 +567,22 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_bytesWritten(
     try_or_throw(&mut env, |_env| {
         let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
         Ok(checked_jlong(writer.bytes_written(), "bytes written")?)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeWriter_bufferedBytes(
+    mut env: EnvUnowned,
+    _class: JClass,
+    writer_ptr: jlong,
+) -> jlong {
+    if writer_ptr <= 0 {
+        return -1;
+    }
+
+    try_or_throw(&mut env, |_env| {
+        let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
+        Ok(checked_jlong(writer.buffered_bytes(), "buffered bytes")?)
     })
 }
 

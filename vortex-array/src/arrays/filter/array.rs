@@ -4,8 +4,6 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use smallvec::smallvec;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
@@ -13,13 +11,14 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
+use crate::array_slots;
 use crate::arrays::Filter;
 
-/// The source array being filtered.
-pub(super) const CHILD_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
+#[array_slots(Filter)]
+pub struct FilterSlots {
+    /// The source array being filtered.
+    pub child: ArrayRef,
+}
 
 // TODO(connor): Write docs on why we have this, and what we had in the old world so that the future
 // does not repeat the mistakes of the past.
@@ -41,15 +40,6 @@ impl Display for FilterData {
 pub struct FilterDataParts {
     pub mask: Mask,
 }
-
-pub trait FilterArrayExt: TypedArrayRef<Filter> {
-    fn child(&self) -> &ArrayRef {
-        self.as_ref().slots()[CHILD_SLOT]
-            .as_ref()
-            .vortex_expect("validated filter child slot")
-    }
-}
-impl<T: TypedArrayRef<Filter>> FilterArrayExt for T {}
 
 impl FilterData {
     pub fn new(mask: Mask) -> Self {
@@ -96,7 +86,8 @@ impl Array<Filter> {
         let data = FilterData::new(mask);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Filter, dtype, len, data).with_slots(smallvec![Some(array)]),
+                ArrayParts::new(Filter, dtype, len, data)
+                    .with_slots(FilterSlots { child: array }.into_slots()),
             )
         }
     }
@@ -108,7 +99,8 @@ impl Array<Filter> {
         let data = FilterData::try_new(array.len(), mask)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Filter, dtype, len, data).with_slots(smallvec![Some(array)]),
+                ArrayParts::new(Filter, dtype, len, data)
+                    .with_slots(FilterSlots { child: array }.into_slots()),
             )
         })
     }

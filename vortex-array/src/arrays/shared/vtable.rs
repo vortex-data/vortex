@@ -26,7 +26,7 @@ use crate::array::ValidityVTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::shared::SharedArrayExt;
 use crate::arrays::shared::SharedData;
-use crate::arrays::shared::array::SLOT_NAMES;
+use crate::arrays::shared::SharedSlots;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
@@ -66,7 +66,7 @@ impl VTable for Shared {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let source = slots[0]
+        let source = slots[SharedSlots::SOURCE]
             .as_ref()
             .vortex_expect("SharedArray source slot must be present");
         vortex_error::vortex_ensure!(source.dtype() == dtype, "SharedArray dtype mismatch");
@@ -95,7 +95,7 @@ impl VTable for Shared {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        SharedSlots::NAMES[idx].to_string()
     }
 
     fn serialize(

@@ -67,14 +67,16 @@ impl DictReader {
         session: VortexSession,
         ctx: crate::LayoutReaderContext,
     ) -> VortexResult<Self> {
-        let values_len = usize::try_from(layout.values.row_count())?;
-        let values = layout.values.new_reader(
+        let values_layout = layout.child(0)?;
+        let codes_layout = layout.child(1)?;
+        let values_len = usize::try_from(values_layout.row_count())?;
+        let values = values_layout.new_reader(
             format!("{name}.values").into(),
             Arc::clone(&segment_source),
             &session,
             &ctx,
         )?;
-        let codes = layout.codes.new_reader(
+        let codes = codes_layout.new_reader(
             format!("{name}.codes").into(),
             segment_source,
             &session,

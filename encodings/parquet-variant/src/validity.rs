@@ -11,6 +11,6 @@ use crate::vtable::ParquetVariant;
 
 impl ValidityVTable<ParquetVariant> for ParquetVariant {
     fn validity(array: ArrayView<'_, ParquetVariant>) -> VortexResult<Validity> {
-        Ok(ParquetVariantArrayExt::validity(&array))
+        Ok(ParquetVariantArrayExt::parquet_variant_validity(&array))
     }
 }

@@ -25,7 +25,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::filter::FilterArrayExt;
+use crate::arrays::filter::FilterArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;

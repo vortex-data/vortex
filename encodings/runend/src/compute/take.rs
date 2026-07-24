@@ -24,6 +24,7 @@ use vortex_mask::Mask;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
+use crate::array::RunEndArraySlotsExt;
 use crate::iter::trimmed_ends_iter;
 
 const SORTED_LINEAR_RUNS_PER_INDEX_THRESHOLD: usize = 16;

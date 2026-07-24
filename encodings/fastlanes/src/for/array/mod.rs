@@ -6,19 +6,20 @@ use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 pub mod for_compress;
 pub mod for_decompress;
 
-/// The encoded array with the frame-of-reference (minimum value) subtracted.
-pub(super) const ENCODED_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
+#[array_slots(crate::FoR)]
+pub struct FoRSlots {
+    /// The encoded array with the frame-of-reference (minimum value) subtracted.
+    pub encoded: ArrayRef,
+}
 
 /// Frame of Reference (FoR) encoded array.
 ///
@@ -29,13 +30,7 @@ pub struct FoRData {
     pub(super) reference: Scalar,
 }
 
-pub trait FoRArrayExt: TypedArrayRef<crate::FoR> {
-    fn encoded(&self) -> &ArrayRef {
-        self.as_ref().slots()[ENCODED_SLOT]
-            .as_ref()
-            .vortex_expect("FoRArray encoded slot")
-    }
-
+pub trait FoRArrayExt: FoRArraySlotsExt {
     fn reference_scalar(&self) -> &Scalar {
         &self.reference
     }

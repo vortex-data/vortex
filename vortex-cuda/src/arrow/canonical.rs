@@ -38,7 +38,7 @@ use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::array::arrays::fixed_size_list::FixedSizeListDataParts;
 use vortex::array::arrays::list::ListDataParts;
-use vortex::array::arrays::listview::ListViewArrayExt;
+use vortex::array::arrays::listview::ListViewArraySlotsExt;
 use vortex::array::arrays::listview::list_from_list_view;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::struct_::StructDataParts;
@@ -2543,7 +2543,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("FSST decoded size exceeds Arrow i32 offset range")
+                .contains("length sum exceeds Arrow i32 offset range")
         );
         Ok(())
     }

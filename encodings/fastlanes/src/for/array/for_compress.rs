@@ -68,6 +68,7 @@ mod test {
     use super::*;
     use crate::BitPackedData;
     use crate::r#for::array::FoRArrayExt;
+    use crate::r#for::array::FoRArraySlotsExt;
     use crate::r#for::array::for_decompress::decompress;
     use crate::r#for::array::for_decompress::fused_decompress;
 

@@ -120,7 +120,7 @@ public final class DataSource {
     /** Arrow schema of the data source (and of scans produced from it). */
     public Schema arrowSchema(BufferAllocator allocator) {
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
-            NativeDataSource.arrowSchema(pointer, schema.memoryAddress());
+            NativeDataSource.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
         }
     }

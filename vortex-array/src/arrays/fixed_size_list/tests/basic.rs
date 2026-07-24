@@ -10,6 +10,7 @@ use crate::VortexSessionExecute;
 use crate::array_session;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;

@@ -7,29 +7,30 @@ use std::fmt::Formatter;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::TypedArrayRef;
-use vortex_error::VortexExpect as _;
+use vortex_array::array_slots;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 pub mod rle_compress;
 pub mod rle_decompress;
 
-/// Run values in the dictionary.
-pub(super) const VALUES_SLOT: usize = 0;
-/// Chunk-local indices from all chunks. The start of each chunk is looked up in `values_idx_offsets`.
-pub(super) const INDICES_SLOT: usize = 1;
-/// Index start positions of each value chunk.
-///
-/// # Example
-/// ```text
-/// // Chunk 0: [10, 20] (starts at index 0)
-/// // Chunk 1: [30, 40] (starts at index 2)
-/// let values = [10, 20, 30, 40];           // Global values array
-/// let values_idx_offsets = [0, 2];         // Chunk 0 starts at index 0, Chunk 1 starts at index 2
-/// ```
-pub(super) const VALUES_IDX_OFFSETS_SLOT: usize = 2;
-pub(super) const NUM_SLOTS: usize = 3;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["values", "indices", "values_idx_offsets"];
+#[array_slots(crate::RLE)]
+pub struct RLESlots {
+    /// Run values in the dictionary.
+    pub values: ArrayRef,
+    /// Chunk-local indices from all chunks. The start of each chunk is looked up in `values_idx_offsets`.
+    pub indices: ArrayRef,
+    /// Index start positions of each value chunk.
+    ///
+    /// # Example
+    /// ```text
+    /// // Chunk 0: [10, 20] (starts at index 0)
+    /// // Chunk 1: [30, 40] (starts at index 2)
+    /// let values = [10, 20, 30, 40];           // Global values array
+    /// let values_idx_offsets = [0, 2];         // Chunk 0 starts at index 0, Chunk 1 starts at index 2
+    /// ```
+    pub values_idx_offsets: ArrayRef,
+}
 
 #[derive(Clone, Debug)]
 pub struct RLEData {
@@ -79,28 +80,7 @@ impl RLEData {
     }
 }
 
-pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
-    #[inline]
-    fn values(&self) -> &ArrayRef {
-        self.as_ref().slots()[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("RLEArray values slot must be populated")
-    }
-
-    #[inline]
-    fn indices(&self) -> &ArrayRef {
-        self.as_ref().slots()[INDICES_SLOT]
-            .as_ref()
-            .vortex_expect("RLEArray indices slot must be populated")
-    }
-
-    #[inline]
-    fn values_idx_offsets(&self) -> &ArrayRef {
-        self.as_ref().slots()[VALUES_IDX_OFFSETS_SLOT]
-            .as_ref()
-            .vortex_expect("RLEArray values_idx_offsets slot must be populated")
-    }
-
+pub trait RLEArrayExt: RLEArraySlotsExt {
     /// Values index offset relative to the first chunk.
     ///
     /// Offsets in `values_idx_offsets` are absolute and need to be shifted
@@ -160,6 +140,7 @@ mod tests {
     use crate::RLE;
     use crate::RLEData;
     use crate::rle::array::RLEArrayExt;
+    use crate::rle::array::RLEArraySlotsExt;
     use crate::test::SESSION;
 
     #[test]

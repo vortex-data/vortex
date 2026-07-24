@@ -11,7 +11,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
-use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
+use crate::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 
 impl SliceReduce for DecimalByteParts {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

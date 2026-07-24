@@ -716,8 +716,9 @@ mod tests {
     use vortex_array::arrays::Struct;
     use vortex_array::arrays::VarBinView;
     use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
-    use vortex_array::arrays::list::ListArrayExt;
-    use vortex_array::arrays::listview::ListViewArrayExt;
+    use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+    use vortex_array::arrays::list::ListArraySlotsExt;
+    use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;

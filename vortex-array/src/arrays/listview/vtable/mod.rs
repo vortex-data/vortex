@@ -26,13 +26,9 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewData;
-use crate::arrays::listview::array::ELEMENTS_SLOT;
-use crate::arrays::listview::array::NUM_SLOTS;
-use crate::arrays::listview::array::OFFSETS_SLOT;
-use crate::arrays::listview::array::SIZES_SLOT;
-use crate::arrays::listview::array::SLOT_NAMES;
+use crate::arrays::listview::ListViewSlots;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -128,17 +124,18 @@ impl VTable for ListView {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ListViewArray expected {NUM_SLOTS} slots, found {}",
+            slots.len() == ListViewSlots::COUNT,
+            "ListViewArray expected {} slots, found {}",
+            ListViewSlots::COUNT,
             slots.len()
         );
-        let elements = slots[ELEMENTS_SLOT]
+        let elements = slots[ListViewSlots::ELEMENTS]
             .as_ref()
             .vortex_expect("ListViewArray elements slot");
-        let offsets = slots[OFFSETS_SLOT]
+        let offsets = slots[ListViewSlots::OFFSETS]
             .as_ref()
             .vortex_expect("ListViewArray offsets slot");
-        let sizes = slots[SIZES_SLOT]
+        let sizes = slots[ListViewSlots::SIZES]
             .as_ref()
             .vortex_expect("ListViewArray sizes slot");
         vortex_ensure!(
@@ -219,7 +216,7 @@ impl VTable for ListView {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        ListViewSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

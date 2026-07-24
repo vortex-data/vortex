@@ -4,6 +4,7 @@
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -63,6 +64,10 @@ impl Scheme for DirectRatioScheme {
         matches_integer_primitive(canonical)
     }
 
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -95,6 +100,10 @@ impl Scheme for ImmediateAlwaysUseScheme {
         matches_integer_primitive(canonical)
     }
 
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -125,6 +134,10 @@ impl Scheme for CallbackAlwaysUseScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -161,6 +174,10 @@ impl Scheme for CallbackSkipScheme {
         matches_integer_primitive(canonical)
     }
 
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -193,6 +210,10 @@ impl Scheme for CallbackRatioScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -229,6 +250,10 @@ impl Scheme for HugeRatioScheme {
         matches_integer_primitive(canonical)
     }
 
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -259,6 +284,10 @@ impl Scheme for ZeroBytesSamplingScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(
@@ -470,6 +499,10 @@ impl Scheme for ThresholdObservingScheme {
         matches_integer_primitive(canonical)
     }
 
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
+    }
+
     fn expected_compression_ratio(
         &self,
         _data: &ArrayAndStats,
@@ -505,6 +538,10 @@ impl Scheme for CallbackMatchingRatioScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         matches_integer_primitive(canonical)
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        Vec::new()
     }
 
     fn expected_compression_ratio(

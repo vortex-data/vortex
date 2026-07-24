@@ -20,7 +20,7 @@ use crate::arrays::DecimalArray;
 use crate::arrays::Filter;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::decimal::DecimalArrayExt;
-use crate::arrays::filter::FilterArrayExt;
+use crate::arrays::filter::FilterArraySlotsExt;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;

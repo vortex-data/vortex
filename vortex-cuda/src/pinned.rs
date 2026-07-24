@@ -309,6 +309,19 @@ impl PooledPinnedBuffer {
             .unwrap_or_else(|e| vortex_panic!("failed to access pinned host buffer: {e}"))
     }
 
+    /// Shortens the logical length without reallocating the pinned buffer.
+    ///
+    /// This is an O(1) metadata update; the allocation capacity is unchanged.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn truncate(&mut self, len: usize) {
+        let inner = self
+            .inner
+            .as_mut()
+            .unwrap_or_else(|| vortex_panic!("buffer already consumed"));
+        assert!(len <= inner.len());
+        inner.set_logical_len(len);
+    }
+
     /// Submits a non-blocking H2D DMA transfer and returns a device buffer.
     ///
     /// The pinned buffer is placed in the pool's inflight queue, gated on a `CudaEvent` marking

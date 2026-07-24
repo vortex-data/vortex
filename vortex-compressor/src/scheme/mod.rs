@@ -23,6 +23,7 @@ pub use estimate::EstimateVerdict;
 pub use exclusion::AncestorExclusion;
 pub use exclusion::ChildSelection;
 pub use exclusion::DescendantExclusion;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -122,6 +123,13 @@ pub trait Scheme: Debug + Send + Sync {
 
     /// Whether this scheme can compress the given canonical array.
     fn matches(&self, canonical: &Canonical) -> bool;
+
+    /// The array encodings this scheme itself may introduce into its compressed output.
+    ///
+    /// Cascaded children are compressed by other schemes, which declare their own encodings,
+    /// so only encodings constructed directly by [`compress`](Scheme::compress) belong here.
+    /// Canonical arrays the scheme merely rearranges do not need to be declared.
+    fn produced_encodings(&self) -> Vec<ArrayId>;
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
     /// eligible schemes' options before generating stats so that a single stats pass satisfies

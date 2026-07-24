@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`EditionSession`] session variable: the per-session registry of editions and
-//! edition inclusions.
+//! Session variables for registered and enabled editions.
 
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -39,6 +38,28 @@ struct Inner {
     editions: BTreeMap<String, Edition>,
     /// Keyed by interned encoding id; ordered by the id's string form.
     inclusions: BTreeMap<Id, EditionInclusion>,
+}
+
+/// The editions enabled for writing in a session.
+///
+/// At most one edition is enabled per family. Enabling a newer or older edition from the
+/// same family replaces the previous selection. This is separate from [`EditionSession`]:
+/// registration describes what a session knows how to reason about, while enabling is the
+/// explicit writer policy.
+#[derive(Clone, Debug, Default)]
+pub struct EnabledEditions {
+    inner: Arc<RwLock<BTreeMap<&'static str, EditionId>>>,
+}
+
+impl EnabledEditions {
+    /// Return the enabled editions, sorted by family.
+    pub fn editions(&self) -> Vec<EditionId> {
+        self.inner.read().values().copied().collect()
+    }
+
+    fn enable(&self, edition: EditionId) {
+        self.inner.write().insert(edition.family, edition);
+    }
 }
 
 impl EditionSession {
@@ -190,11 +211,69 @@ impl SessionVar for EditionSession {
     }
 }
 
+impl SessionVar for EnabledEditions {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
 /// Session data for Vortex editions.
 pub trait EditionSessionExt: SessionExt {
     /// Returns the edition registry.
     fn editions(&self) -> SessionGuard<'_, EditionSession> {
         self.get::<EditionSession>()
+    }
+
+    /// Returns the editions enabled for writing.
+    ///
+    /// Accessing this method installs the enabled-editions session variable if it is absent, with
+    /// an initially empty selection.
+    fn enabled_editions(&self) -> SessionGuard<'_, EnabledEditions> {
+        self.get::<EnabledEditions>()
+    }
+
+    /// Register an edition declaration with this session.
+    fn register_edition(&self, declaration: &EditionDeclaration) -> Result<(), EditionError> {
+        self.editions().declare(declaration)
+    }
+
+    /// Enable a registered edition for writing.
+    ///
+    /// Enabling an edition replaces the enabled edition from the same family. An edition
+    /// must be registered first so a typo or unavailable third-party declaration cannot
+    /// silently produce an empty writable set.
+    fn enable_edition(&self, edition: EditionId) -> Result<(), EditionError> {
+        if self.editions().find(&edition).is_none() {
+            return Err(EditionError::new(format!(
+                "cannot enable unregistered edition {edition}"
+            )));
+        }
+        self.enabled_editions().enable(edition);
+        Ok(())
+    }
+
+    /// Resolve the encodings in all enabled editions.
+    ///
+    /// When the enabled-editions variable is absent or no editions are enabled, this returns an
+    /// empty vector and therefore permits no edition encodings.
+    fn enabled_encoding_ids(&self) -> Vec<Id> {
+        let Some(enabled) = self.get_opt::<EnabledEditions>() else {
+            return vec![];
+        };
+        let editions = self.editions();
+        let mut ids: Vec<Id> = enabled
+            .editions()
+            .iter()
+            .flat_map(|edition| editions.encodings_in(edition))
+            .map(|inclusion| inclusion.encoding_id)
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
     }
 }
 

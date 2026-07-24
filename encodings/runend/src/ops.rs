@@ -15,6 +15,7 @@ use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
+use crate::array::RunEndArraySlotsExt;
 
 impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(

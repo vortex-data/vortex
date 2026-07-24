@@ -9,7 +9,7 @@ use crate::array::ArrayView;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
 use crate::arrays::dict::TakeReduce;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 
 impl TakeReduce for Variant {
     fn take(array: ArrayView<'_, Variant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

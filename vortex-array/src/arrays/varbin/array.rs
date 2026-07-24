@@ -5,7 +5,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use num_traits::AsPrimitive;
-use smallvec::smallvec;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -21,6 +20,7 @@ use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::array_slots;
 use crate::arrays::VarBin;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
@@ -31,12 +31,13 @@ use crate::legacy_session;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
-/// The offsets array defining the start/end of each variable-length binary element.
-pub(super) const OFFSETS_SLOT: usize = 0;
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 1;
-pub(super) const NUM_SLOTS: usize = 2;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets", "validity"];
+#[array_slots(VarBin)]
+pub struct VarBinSlots {
+    /// The offsets array defining the start/end of each variable-length binary element.
+    pub offsets: ArrayRef,
+    /// The validity bitmap indicating which elements are non-null.
+    pub validity: Option<ArrayRef>,
+}
 
 #[derive(Clone, Debug)]
 pub struct VarBinData {
@@ -83,7 +84,11 @@ impl VarBinData {
     }
 
     pub(crate) fn make_slots(offsets: ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
-        smallvec![Some(offsets), validity_to_child(validity, len)]
+        VarBinSlots {
+            offsets,
+            validity: validity_to_child(validity, len),
+        }
+        .into_slots()
     }
 
     /// Constructs a new `VarBinArray`.
@@ -302,17 +307,7 @@ impl VarBinData {
     }
 }
 
-pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
-    fn offsets(&self) -> &ArrayRef {
-        self.as_ref().slots()[OFFSETS_SLOT]
-            .as_ref()
-            .vortex_expect("VarBinArray offsets slot")
-    }
-
-    fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
-    }
-
+pub trait VarBinArrayExt: VarBinArraySlotsExt {
     fn dtype_parts(&self) -> (bool, Nullability) {
         match self.as_ref().dtype() {
             DType::Utf8(nullability) => (true, *nullability),
@@ -331,7 +326,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
 
     fn varbin_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.as_ref().slots()[VarBinSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -457,7 +452,7 @@ impl Array<VarBin> {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
         let data = VarBinData::build(
-            slots[OFFSETS_SLOT]
+            slots[VarBinSlots::OFFSETS]
                 .as_ref()
                 .vortex_expect("VarBinArray offsets slot")
                 .clone(),
