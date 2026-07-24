@@ -75,23 +75,32 @@ impl VTable for Struct {
         Ok(())
     }
 
-    fn child_dtype(layout: &Layout<Self>, index: usize) -> VortexResult<DType> {
-        StructLayout::child_dtype(layout.dtype(), index)
+    fn nslots(layout: &Layout<Self>) -> usize {
+        // Slot 0 is always reserved for validity (present only when nullable); the remaining
+        // slots are the struct fields, so field `i` always occupies slot `i + 1`.
+        layout.struct_fields().nfields() + 1
     }
 
-    fn child_type(layout: &Layout<Self>, idx: usize) -> LayoutChildType {
-        let schema_index = if layout.dtype().is_nullable() {
-            idx.saturating_sub(1)
-        } else {
-            idx
-        };
-        if idx == 0 && layout.dtype().is_nullable() {
+    fn slot_to_child(layout: &Layout<Self>, slot: usize) -> Option<usize> {
+        let nullable = layout.dtype().is_nullable();
+        match slot {
+            0 => nullable.then_some(0),
+            _ => Some(slot - 1 + usize::from(nullable)),
+        }
+    }
+
+    fn child_dtype(layout: &Layout<Self>, slot: usize) -> VortexResult<DType> {
+        StructLayout::slot_dtype(layout.dtype(), slot)
+    }
+
+    fn child_type(layout: &Layout<Self>, slot: usize) -> LayoutChildType {
+        if slot == 0 {
             LayoutChildType::Auxiliary("validity".into())
         } else {
             LayoutChildType::Field(
                 layout
                     .struct_fields()
-                    .field_name(schema_index)
+                    .field_name(slot - 1)
                     .vortex_expect("Field index out of bounds")
                     .clone(),
             )
@@ -177,19 +186,93 @@ impl Layout<Struct> {
         Ok(())
     }
 
-    fn child_dtype(dtype: &DType, index: usize) -> VortexResult<DType> {
-        let schema_index = if dtype.is_nullable() {
-            index.saturating_sub(1)
-        } else {
-            index
-        };
-        if index == 0 && dtype.is_nullable() {
+    /// Returns the dtype of the child in logical `slot`: slot 0 is the non-nullable validity
+    /// bitmap, and slot `i + 1` is struct field `i`.
+    fn slot_dtype(dtype: &DType, slot: usize) -> VortexResult<DType> {
+        if slot == 0 {
             Ok(DType::Bool(Nullability::NonNullable))
         } else {
             dtype
                 .as_struct_fields_opt()
-                .and_then(|fields| fields.field_by_index(schema_index))
-                .ok_or_else(|| vortex_err!("Missing field {schema_index}"))
+                .and_then(|fields| fields.field_by_index(slot - 1))
+                .ok_or_else(|| vortex_err!("Missing field {}", slot - 1))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::PType;
+    use vortex_session::registry::ReadContext;
+
+    use super::*;
+    use crate::layouts::flat::FlatLayout;
+    use crate::segments::SegmentId;
+
+    fn flat_child(dtype: DType, segment: u32) -> LayoutRef {
+        FlatLayout::new(3, dtype, SegmentId::from(segment), ReadContext::new([])).into_layout()
+    }
+
+    fn two_field_struct(nullability: Nullability) -> DType {
+        let i32 = DType::Primitive(PType::I32, Nullability::NonNullable);
+        DType::Struct(
+            StructFields::from_iter([("a", i32.clone()), ("b", i32)]),
+            nullability,
+        )
+    }
+
+    /// Field `i` must occupy logical slot `i + 1` regardless of whether the struct is nullable,
+    /// with slot 0 reserved for validity (absent when non-nullable).
+    #[test]
+    fn field_slots_are_stable_across_nullability() -> VortexResult<()> {
+        let i32 = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let bool_ = DType::Bool(Nullability::NonNullable);
+
+        let non_null = StructLayout::new(
+            3,
+            two_field_struct(Nullability::NonNullable),
+            vec![flat_child(i32.clone(), 0), flat_child(i32.clone(), 1)],
+        );
+        // Validity + two fields, but validity is absent so only two serialized children.
+        assert_eq!(non_null.nslots(), 3);
+        assert_eq!(non_null.nchildren(), 2);
+        assert_eq!(non_null.slot_to_child(0), None);
+        assert_eq!(non_null.slot_to_child(1), Some(0));
+        assert_eq!(non_null.slot_to_child(2), Some(1));
+        // The validity slot is absent, so materializing it and its type both yield `None`.
+        assert!(non_null.slot(0)?.is_none());
+        assert_eq!(non_null.slot_type(0), None);
+
+        let nullable = StructLayout::new(
+            3,
+            two_field_struct(Nullability::Nullable),
+            vec![
+                flat_child(bool_, 0),
+                flat_child(i32.clone(), 1),
+                flat_child(i32, 2),
+            ],
+        );
+        assert_eq!(nullable.nslots(), 3);
+        assert_eq!(nullable.nchildren(), 3);
+        assert_eq!(nullable.slot_to_child(0), Some(0));
+        assert_eq!(nullable.slot_to_child(1), Some(1));
+        assert_eq!(nullable.slot_to_child(2), Some(2));
+        // The validity slot is present only for the nullable struct.
+        assert!(nullable.slot(0)?.is_some());
+        assert_eq!(
+            nullable.slot_type(0),
+            Some(LayoutChildType::Auxiliary("validity".into()))
+        );
+
+        // Field "a" is slot 1 in both layouts, even though its serialized index differs.
+        for layout in [&non_null, &nullable] {
+            assert_eq!(
+                layout.slot_type(1),
+                Some(LayoutChildType::Field(FieldName::from("a")))
+            );
+        }
+
+        Ok(())
     }
 }

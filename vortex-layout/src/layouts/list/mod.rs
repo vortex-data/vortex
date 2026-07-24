@@ -104,6 +104,19 @@ impl VTable for List {
         })
     }
 
+    fn nslots(_layout: &Layout<Self>) -> usize {
+        // Elements, offsets, and an always-slotted (optionally present) validity child.
+        VALIDITY_CHILD_INDEX + 1
+    }
+
+    fn slot_to_child(layout: &Layout<Self>, slot: usize) -> Option<usize> {
+        match slot {
+            ELEMENTS_CHILD_INDEX | OFFSETS_CHILD_INDEX => Some(slot),
+            VALIDITY_CHILD_INDEX => layout.dtype().is_nullable().then_some(VALIDITY_CHILD_INDEX),
+            _ => None,
+        }
+    }
+
     fn child_dtype(layout: &Layout<Self>, idx: usize) -> VortexResult<DType> {
         match idx {
             ELEMENTS_CHILD_INDEX => layout
@@ -176,20 +189,19 @@ impl Layout<List> {
 
     /// Returns the elements child.
     pub fn elements(&self) -> VortexResult<LayoutRef> {
-        self.child(ELEMENTS_CHILD_INDEX)
+        self.slot(ELEMENTS_CHILD_INDEX)?
+            .ok_or_else(|| vortex_err!("ListLayout elements slot is absent"))
     }
 
     /// Returns the offsets child.
     pub fn offsets(&self) -> VortexResult<LayoutRef> {
-        self.child(OFFSETS_CHILD_INDEX)
+        self.slot(OFFSETS_CHILD_INDEX)?
+            .ok_or_else(|| vortex_err!("ListLayout offsets slot is absent"))
     }
 
     /// Returns the optional validity child.
     pub fn validity(&self) -> VortexResult<Option<LayoutRef>> {
-        self.dtype()
-            .is_nullable()
-            .then(|| self.child(VALIDITY_CHILD_INDEX))
-            .transpose()
+        self.slot(VALIDITY_CHILD_INDEX)
     }
 
     /// Returns the integer ptype used by offsets.

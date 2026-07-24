@@ -130,24 +130,42 @@ impl<V: VTable> Layout<V> {
         &self.inner.children
     }
 
-    /// Returns the number of children.
+    /// Returns the number of serialized (present) children.
     pub fn nchildren(&self) -> usize {
         self.inner.children.nchildren()
     }
 
-    /// Materialize child `idx` with its expected dtype.
-    pub fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
-        self.inner.children.child(idx, &V::child_dtype(self, idx)?)
+    /// Returns the number of logical child slots, including any that are absent.
+    pub fn nslots(&self) -> usize {
+        V::nslots(self)
+    }
+
+    /// Maps a logical `slot` to the index of its serialized child, or `None` if absent.
+    pub fn slot_to_child(&self, slot: usize) -> Option<usize> {
+        V::slot_to_child(self, slot)
+    }
+
+    /// Materialize the child in logical `slot`, or `None` if the slot is absent.
+    pub fn slot(&self, slot: usize) -> VortexResult<Option<LayoutRef>> {
+        match V::slot_to_child(self, slot) {
+            Some(idx) => self
+                .inner
+                .children
+                .child(idx, &V::child_dtype(self, slot)?)
+                .map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Returns the relationship of the child in logical `slot` to this layout, or `None` if the
+    /// slot is absent.
+    pub fn slot_type(&self, slot: usize) -> Option<LayoutChildType> {
+        V::slot_to_child(self, slot).map(|_| V::child_type(self, slot))
     }
 
     /// Returns a child's serialized row count without materializing it.
     pub fn child_row_count(&self, idx: usize) -> u64 {
         self.inner.children.child_row_count(idx)
-    }
-
-    /// Returns a child's relationship to this layout.
-    pub fn child_type(&self, idx: usize) -> LayoutChildType {
-        V::child_type(self, idx)
     }
 
     /// Erase this typed layout into a shared layout reference.
@@ -223,14 +241,17 @@ pub trait DynLayout: 'static + Send + Sync + Debug {
     /// Returns the logical dtype.
     fn dyn_dtype(&self) -> &DType;
 
-    /// Returns the number of children.
+    /// Returns the number of serialized (present) children.
     fn dyn_nchildren(&self) -> usize;
 
-    /// Returns child `idx`.
-    fn dyn_child(&self, idx: usize) -> VortexResult<LayoutRef>;
+    /// Returns the number of logical child slots, including any that are absent.
+    fn dyn_nslots(&self) -> usize;
 
-    /// Returns the relationship of child `idx`.
-    fn dyn_child_type(&self, idx: usize) -> LayoutChildType;
+    /// Materializes the child in logical `slot`, or `None` if the slot is absent.
+    fn dyn_slot(&self, slot: usize) -> VortexResult<Option<LayoutRef>>;
+
+    /// Returns the relationship of the child in logical `slot`, or `None` if the slot is absent.
+    fn dyn_slot_type(&self, slot: usize) -> Option<LayoutChildType>;
 
     /// Serializes layout-specific metadata.
     fn dyn_metadata(&self) -> Vec<u8>;
@@ -273,12 +294,16 @@ impl<V: VTable> DynLayout for Layout<V> {
         Layout::nchildren(self)
     }
 
-    fn dyn_child(&self, idx: usize) -> VortexResult<LayoutRef> {
-        Layout::child(self, idx)
+    fn dyn_nslots(&self) -> usize {
+        Layout::nslots(self)
     }
 
-    fn dyn_child_type(&self, idx: usize) -> LayoutChildType {
-        Layout::child_type(self, idx)
+    fn dyn_slot(&self, slot: usize) -> VortexResult<Option<LayoutRef>> {
+        Layout::slot(self, slot)
+    }
+
+    fn dyn_slot_type(&self, slot: usize) -> Option<LayoutChildType> {
+        Layout::slot_type(self, slot)
     }
 
     fn dyn_metadata(&self) -> Vec<u8> {
@@ -354,19 +379,24 @@ impl dyn DynLayout + '_ {
         self.dyn_row_count()
     }
 
-    /// Returns the number of children.
+    /// Returns the number of serialized (present) children.
     pub fn nchildren(&self) -> usize {
         self.dyn_nchildren()
     }
 
-    /// Returns child `idx`.
-    pub fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
-        self.dyn_child(idx)
+    /// Returns the number of logical child slots, including any that are absent.
+    pub fn nslots(&self) -> usize {
+        self.dyn_nslots()
     }
 
-    /// Returns the relationship of child `idx`.
-    pub fn child_type(&self, idx: usize) -> LayoutChildType {
-        self.dyn_child_type(idx)
+    /// Materializes the child in logical `slot`, or `None` if the slot is absent.
+    pub fn slot(&self, slot: usize) -> VortexResult<Option<LayoutRef>> {
+        self.dyn_slot(slot)
+    }
+
+    /// Returns the relationship of the child in logical `slot`, or `None` if the slot is absent.
+    pub fn slot_type(&self, slot: usize) -> Option<LayoutChildType> {
+        self.dyn_slot_type(slot)
     }
 
     /// Returns serialized layout-specific metadata.
@@ -390,16 +420,16 @@ impl dyn DynLayout + '_ {
         self.dyn_new_reader(name, segment_source, session, ctx)
     }
 
-    /// Returns all children.
+    /// Returns all serialized (present) children, in slot order.
     pub fn children(&self) -> VortexResult<Vec<LayoutRef>> {
-        (0..self.nchildren())
-            .map(|idx| self.child(idx))
+        (0..self.nslots())
+            .filter_map(|slot| self.slot(slot).transpose())
             .try_collect()
     }
 
-    /// Returns all child types.
+    /// Returns the types of all serialized (present) children, in slot order.
     pub fn child_types(&self) -> impl Iterator<Item = LayoutChildType> + '_ {
-        (0..self.nchildren()).map(|idx| self.child_type(idx))
+        (0..self.nslots()).filter_map(|slot| self.slot_type(slot))
     }
 
     /// Returns all child names.

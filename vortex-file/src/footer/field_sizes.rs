@@ -56,8 +56,8 @@ impl CompressedFieldSizes {
                 }
             }
 
-            for idx in 0..layout.nchildren() {
-                let child_path = match layout.child_type(idx) {
+            for (child, child_type) in layout.children()?.into_iter().zip(layout.child_types()) {
+                let child_path = match child_type {
                     LayoutChildType::Field(name) => {
                         let child_path = path.clone().push(name);
                         sizes.entry(child_path.clone()).or_insert(0);
@@ -65,7 +65,7 @@ impl CompressedFieldSizes {
                     }
                     _ => path.clone(),
                 };
-                stack.push((layout.child(idx)?, child_path));
+                stack.push((child, child_path));
             }
         }
 

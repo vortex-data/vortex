@@ -67,8 +67,12 @@ impl DictReader {
         session: VortexSession,
         ctx: crate::LayoutReaderContext,
     ) -> VortexResult<Self> {
-        let values_layout = layout.child(0)?;
-        let codes_layout = layout.child(1)?;
+        let values_layout = layout
+            .slot(0)?
+            .vortex_expect("DictLayout always has a values child");
+        let codes_layout = layout
+            .slot(1)?
+            .vortex_expect("DictLayout always has a codes child");
         let values_len = usize::try_from(values_layout.row_count())?;
         let values = values_layout.new_reader(
             format!("{name}.values").into(),

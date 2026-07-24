@@ -422,7 +422,7 @@ mod tests {
         assert!(nchildren > 1, "expected multiple chunks, got {nchildren}");
 
         for i in 0..nchildren - 1 {
-            let child = layout.child(i)?;
+            let child = layout.slot(i)?.vortex_expect("chunk slot present");
             assert_eq!(
                 child.row_count(),
                 132,
@@ -432,7 +432,9 @@ mod tests {
         }
 
         // Last child gets the remainder.
-        let last = layout.child(nchildren - 1)?;
+        let last = layout
+            .slot(nchildren - 1)?
+            .vortex_expect("chunk slot present");
         assert_eq!(last.row_count(), 1000 - 132 * (nchildren as u64 - 1));
 
         Ok(())
@@ -477,8 +479,20 @@ mod tests {
 
         assert_eq!(layout.row_count(), num_elements as u64);
         assert_eq!(layout.nchildren(), 2);
-        assert_eq!(layout.child(0)?.row_count(), 8192);
-        assert_eq!(layout.child(1)?.row_count(), 1808);
+        assert_eq!(
+            layout
+                .slot(0)?
+                .vortex_expect("chunk slot present")
+                .row_count(),
+            8192
+        );
+        assert_eq!(
+            layout
+                .slot(1)?
+                .vortex_expect("chunk slot present")
+                .row_count(),
+            1808
+        );
 
         Ok(())
     }

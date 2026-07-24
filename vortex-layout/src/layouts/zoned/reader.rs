@@ -449,8 +449,14 @@ mod test {
         #[case] expected: [bool; 9],
     ) -> VortexResult<()> {
         let zoned_layout = layout.as_::<Zoned>();
-        let children =
-            OwnedLayoutChildren::layout_children(vec![layout.child(0)?, layout.child(1)?]);
+        let children = OwnedLayoutChildren::layout_children(vec![
+            layout
+                .slot(0)?
+                .vortex_expect("ZonedLayout always has a data child"),
+            layout
+                .slot(1)?
+                .vortex_expect("ZonedLayout always has a stats child"),
+        ]);
         let session = array_session();
         let read_ctx = ReadContext::new([]);
         let build_ctx = LayoutBuildContext {

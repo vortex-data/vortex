@@ -137,20 +137,20 @@ impl StructReader {
 
     /// Return the child reader for the field, by index.
     fn field_reader_by_index(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
-        let child_index = if self.dtype().is_nullable() {
-            idx + 1
-        } else {
-            idx
-        };
-
+        // Field `idx` always occupies slot `idx + 1`; the layout maps that to a dense child index,
+        // accounting for the validity slot when the struct is nullable.
+        let child_index = self
+            .layout
+            .slot_to_child(idx + 1)
+            .vortex_expect("struct field slot is always present");
         self.lazy_children.get(child_index)
     }
 
     /// Return the reader for the struct validity, if present
     fn validity(&self) -> VortexResult<Option<&LayoutReaderRef>> {
-        self.dtype()
-            .is_nullable()
-            .then(|| self.lazy_children.get(0))
+        self.layout
+            .slot_to_child(0)
+            .map(|child_index| self.lazy_children.get(child_index))
             .transpose()
     }
 

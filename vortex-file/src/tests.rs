@@ -2241,9 +2241,9 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
         if layout.encoding_id().as_ref() == "vortex.dict" {
             // child 0 = values, child 1 = codes
             let values_offsets =
-                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(0).unwrap().unwrap().as_ref(), segment_specs);
             let codes_offsets =
-                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(1).unwrap().unwrap().as_ref(), segment_specs);
 
             assert_offsets_ordered(
                 &codes_offsets,
@@ -2363,9 +2363,9 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             let data_offsets =
-                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(0).unwrap().unwrap().as_ref(), segment_specs);
             let zones_offsets =
-                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(1).unwrap().unwrap().as_ref(), segment_specs);
 
             assert_offsets_ordered(
                 &data_offsets,
@@ -2395,11 +2395,11 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             all_data.extend(collect_segment_offsets(
-                layout.child(0).unwrap().as_ref(),
+                layout.slot(0).unwrap().unwrap().as_ref(),
                 segment_specs,
             ));
             all_zones.extend(collect_segment_offsets(
-                layout.child(1).unwrap().as_ref(),
+                layout.slot(1).unwrap().unwrap().as_ref(),
                 segment_specs,
             ));
             return;

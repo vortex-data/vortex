@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(*layout.segment_ids()[0], 7);
         assert_eq!(layout.nchildren(), 1);
 
-        let child = layout.child(0).unwrap();
+        let child = layout.slot(0).unwrap().unwrap();
         assert_eq!(
             child.encoding_id().as_ref(),
             "vortex.test.foreign_child_layout"
