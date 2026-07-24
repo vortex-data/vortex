@@ -19,48 +19,64 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::Layout;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::RowSplits;
 use crate::SplitRange;
-use crate::layouts::zoned::ZonedLayout;
+use crate::VTable;
+use crate::layouts::zoned::ZonedData;
 use crate::layouts::zoned::pruning::PruningState;
 use crate::segments::SegmentSource;
 
 pub struct ZonedReader {
-    layout: ZonedLayout,
+    dtype: DType,
+    row_count: u64,
+    zone_len: usize,
     name: Arc<str>,
     lazy_children: Arc<LazyReaderChildren>,
     pruning: PruningState,
 }
 
 impl ZonedReader {
-    pub(super) fn try_new(
-        layout: ZonedLayout,
+    pub(super) fn try_new<V>(
+        layout: Layout<V>,
+        zone_count: usize,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
         ctx: crate::LayoutReaderContext,
-    ) -> VortexResult<Self> {
-        let aggregate_fns = layout.aggregate_fns(&session)?;
-        let dtypes = vec![
-            layout.dtype.clone(),
-            layout.stats_table_dtype_for(&aggregate_fns),
-        ];
+    ) -> VortexResult<Self>
+    where
+        V: VTable<LayoutData = ZonedData>,
+    {
+        let aggregate_fns = layout.aggregate_fns();
+        let dtypes = vec![layout.dtype().clone(), layout.stats_table_dtype.clone()];
         let names = vec![Arc::clone(&name), format!("{}.zones", name).into()];
         let lazy_children = Arc::new(LazyReaderChildren::new(
-            Arc::clone(&layout.children),
+            Arc::clone(layout.children()),
             dtypes,
             names,
             Arc::clone(&segment_source),
             session.clone(),
             ctx,
         ));
+        let dtype = layout.dtype().clone();
+        let row_count = layout.row_count();
+        let zone_len = layout.zone_len;
 
         Ok(Self {
-            pruning: PruningState::new(&layout, aggregate_fns, Arc::clone(&lazy_children), session),
-            layout,
+            pruning: PruningState::new(
+                layout,
+                zone_count,
+                aggregate_fns,
+                Arc::clone(&lazy_children),
+                session,
+            ),
+            dtype,
+            row_count,
+            zone_len,
             name,
             lazy_children,
         })
@@ -74,9 +90,9 @@ impl ZonedReader {
     pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<u64> {
         // Callers rely on `zone_len > 0`. `new_reader` never constructs a `ZonedReader` for a
         // zero-length zone map (it reads the data child directly), so this holds by construction.
-        debug_assert!(self.layout.zone_len > 0, "zone_len must be > 0");
+        debug_assert!(self.zone_len > 0, "zone_len must be > 0");
 
-        let zone_len_u64 = self.layout.zone_len as u64;
+        let zone_len_u64 = self.zone_len as u64;
         let zone_start = row_range.start / zone_len_u64;
         let zone_end = row_range.end.div_ceil(zone_len_u64);
         zone_start..zone_end
@@ -85,8 +101,8 @@ impl ZonedReader {
     /// Get the row index for the first row in a zone with the given `zone_index`.
     pub(crate) fn first_row_offset(&self, zone_idx: u64) -> u64 {
         zone_idx
-            .saturating_mul(self.layout.zone_len as u64)
-            .min(self.layout.row_count())
+            .saturating_mul(self.zone_len as u64)
+            .min(self.row_count)
     }
 }
 
@@ -100,11 +116,11 @@ impl LayoutReader for ZonedReader {
     }
 
     fn dtype(&self) -> &DType {
-        self.layout.dtype()
+        &self.dtype
     }
 
     fn row_count(&self) -> u64 {
-        self.layout.row_count()
+        self.row_count
     }
 
     fn register_splits(
@@ -243,7 +259,6 @@ mod test {
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
-    use crate::IntoLayout;
     use crate::LayoutBuildContext;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
@@ -423,8 +438,15 @@ mod test {
     }
 
     #[rstest]
-    fn test_legacy_zero_zone_len_skips_zoned_pruning(
+    #[case::zero_zone_len(0, [true; 9])]
+    #[case::zoned_reader(
+        3,
+        [false, false, false, false, false, false, true, true, true]
+    )]
+    fn test_legacy_zoned_reader(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+        #[case] zone_len: u32,
+        #[case] expected: [bool; 9],
     ) -> VortexResult<()> {
         let zoned_layout = layout.as_::<Zoned>();
         let children =
@@ -440,7 +462,7 @@ mod test {
             layout.dtype(),
             layout.row_count(),
             &LegacyStatsMetadata {
-                zone_len: 0,
+                zone_len,
                 zone_map_schema: zoned_layout.zone_map_schema.clone(),
             },
             vec![],
@@ -463,9 +485,8 @@ mod test {
                 )?
                 .await?;
 
-            assert!(result.all_true());
+            assert_eq!(result, Mask::from_iter(expected));
 
-            // The bypass returns the data child's reader, so projection reads the underlying data.
             let projected = reader
                 .projection_evaluation(
                     &(0..row_count),

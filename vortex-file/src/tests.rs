@@ -71,7 +71,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_flatbuffers::footer as fb;
 use vortex_io::session::RuntimeSession;
-use vortex_layout::Layout;
+use vortex_layout::DynLayout;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
@@ -2036,14 +2036,14 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
 }
 
 /// Collect all segment byte offsets reachable from a layout node.
-fn collect_segment_offsets(layout: &dyn Layout, segment_specs: &[SegmentSpec]) -> Vec<u64> {
+fn collect_segment_offsets(layout: &dyn DynLayout, segment_specs: &[SegmentSpec]) -> Vec<u64> {
     let mut result = Vec::new();
     collect_segment_offsets_inner(layout, segment_specs, &mut result);
     result
 }
 
 fn collect_segment_offsets_inner(
-    layout: &dyn Layout,
+    layout: &dyn DynLayout,
     segment_specs: &[SegmentSpec],
     result: &mut Vec<u64>,
 ) {
@@ -2067,7 +2067,7 @@ fn assert_offsets_ordered(before: &[u64], after: &[u64], context: &str) {
 }
 
 /// Whether any node in the layout tree is a dict layout.
-fn layout_has_dict(layout: &dyn Layout) -> bool {
+fn layout_has_dict(layout: &dyn DynLayout) -> bool {
     layout.encoding_id().as_ref() == "vortex.dict"
         || layout
             .children()
@@ -2237,7 +2237,7 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
 
     // Walk the layout tree and find all dict layouts.
     // Verify codes segments come before values segments in byte order within each run.
-    fn check_dict_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
+    fn check_dict_ordering(layout: &dyn DynLayout, segment_specs: &[SegmentSpec]) {
         if layout.encoding_id().as_ref() == "vortex.dict" {
             // child 0 = values, child 1 = codes
             let values_offsets =
@@ -2359,7 +2359,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
     let root = footer.layout();
 
     // Find all zoned layouts and verify data segments come before zone map segments.
-    fn check_zoned_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
+    fn check_zoned_ordering(layout: &dyn DynLayout, segment_specs: &[SegmentSpec]) {
         if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             let data_offsets =
@@ -2387,7 +2387,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
     let mut all_zones_offsets = Vec::new();
 
     fn collect_all_zoned(
-        layout: &dyn Layout,
+        layout: &dyn DynLayout,
         segment_specs: &[SegmentSpec],
         all_data: &mut Vec<u64>,
         all_zones: &mut Vec<u64>,

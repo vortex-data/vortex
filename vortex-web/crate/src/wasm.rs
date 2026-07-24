@@ -591,7 +591,7 @@ fn build_layout_tree(
 
     Ok(LayoutTreeNodeJson {
         id,
-        encoding: layout.encoding().id().to_string(),
+        encoding: layout.encoding_id().to_string(),
         dtype: layout.dtype().to_string(),
         row_count,
         row_offset: parent_row_offset,

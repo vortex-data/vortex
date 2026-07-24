@@ -9959,6 +9959,7 @@ dependencies = [
  "parking_lot",
  "prost 0.14.4",
  "rstest",
+ "rustix",
  "tokio",
  "tracing",
  "vortex",

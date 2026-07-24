@@ -297,7 +297,7 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
+    use crate::test::new_session;
 
     const ONE_MEG: u64 = 1 << 20;
 
@@ -398,7 +398,7 @@ mod tests {
 
         let stream = fsl.into_array().to_array_stream().sequenced(ptr);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -463,7 +463,7 @@ mod tests {
 
         let stream = elements.into_array().to_array_stream().sequenced(ptr);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
                     ctx,

@@ -8,14 +8,15 @@ use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
+use crate::LayoutEncoding;
 use crate::LayoutEncodingRef;
-use crate::layouts::chunked::ChunkedLayoutEncoding;
-use crate::layouts::dict::DictLayoutEncoding;
-use crate::layouts::flat::FlatLayoutEncoding;
-use crate::layouts::list::ListLayoutEncoding;
-use crate::layouts::struct_::StructLayoutEncoding;
-use crate::layouts::zoned::LegacyStatsLayoutEncoding;
-use crate::layouts::zoned::ZonedLayoutEncoding;
+use crate::layouts::chunked::Chunked;
+use crate::layouts::dict::Dict;
+use crate::layouts::flat::Flat;
+use crate::layouts::list::List;
+use crate::layouts::struct_::Struct;
+use crate::layouts::zoned::LegacyStats;
+use crate::layouts::zoned::Zoned;
 
 pub type LayoutRegistry = Registry<LayoutEncodingRef>;
 
@@ -49,16 +50,13 @@ impl Default for LayoutSession {
         let layouts = LayoutRegistry::default();
 
         // Register the built-in layout encodings.
-        layouts.register(ChunkedLayoutEncoding.id(), ChunkedLayoutEncoding.as_ref());
-        layouts.register(FlatLayoutEncoding.id(), FlatLayoutEncoding.as_ref());
-        layouts.register(StructLayoutEncoding.id(), StructLayoutEncoding.as_ref());
-        layouts.register(ZonedLayoutEncoding.id(), ZonedLayoutEncoding.as_ref());
-        layouts.register(
-            LegacyStatsLayoutEncoding.id(),
-            LegacyStatsLayoutEncoding.as_ref(),
-        );
-        layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
-        layouts.register(ListLayoutEncoding.id(), ListLayoutEncoding.as_ref());
+        layouts.register(Chunked.id(), &Chunked as &dyn LayoutEncoding);
+        layouts.register(Flat.id(), &Flat as &dyn LayoutEncoding);
+        layouts.register(Struct.id(), &Struct as &dyn LayoutEncoding);
+        layouts.register(Zoned.id(), &Zoned as &dyn LayoutEncoding);
+        layouts.register(LegacyStats.id(), &LegacyStats as &dyn LayoutEncoding);
+        layouts.register(Dict.id(), &Dict as &dyn LayoutEncoding);
+        layouts.register(List.id(), &List as &dyn LayoutEncoding);
 
         Self { registry: layouts }
     }

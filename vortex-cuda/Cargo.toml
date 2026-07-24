@@ -44,6 +44,9 @@ vortex-cuda-macros = { workspace = true }
 vortex-error = { workspace = true, features = ["object_store"] }
 vortex-nvcomp = { path = "nvcomp" }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { workspace = true }
+
 [dev-dependencies]
 criterion = { workspace = true }
 futures = { workspace = true, features = ["executor"] }

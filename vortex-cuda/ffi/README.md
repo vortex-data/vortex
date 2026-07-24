@@ -23,3 +23,7 @@ Push host-resident arrays and close the sink using the standard `vx_array_sink_*
 Use `vx_cuda_scan_path_arrow_device_stream` to read such a local file through pinned host buffers
 and receive an Arrow C Device stream. Reuse the same CUDA session across scans so the pinned buffer
 pool and CUDA state are reused as well.
+
+On Linux, use `vx_cuda_scan_path_arrow_device_stream_with_options` with
+`vx_cuda_scan_options.flags = VX_CUDA_SCAN_FLAG_DIRECT_IO` to bypass the operating system page
+cache for pooled data-plane reads. Footer and zone-map reads remain buffered on the host.

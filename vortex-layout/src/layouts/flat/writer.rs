@@ -22,7 +22,6 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
-use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::children::OwnedLayoutChildren;
@@ -222,6 +221,7 @@ mod tests {
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::test::SESSION;
+    use crate::test::new_session;
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn truncates_variable_size_stats() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -329,7 +329,7 @@ mod tests {
     fn struct_array_round_trip() {
         block_on(|handle| async {
             let mut ctx_exec = array_session().create_execution_ctx();
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);
             validity_builder.append(false);
@@ -415,7 +415,7 @@ mod tests {
     #[test]
     fn flat_invalid_array_fails() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let prim: PrimitiveArray = (0..10).collect();
             let filter = prim.filter(Mask::from_indices(10, vec![2, 3]))?;
 
@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn flat_valid_array_writes() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let codes: PrimitiveArray = (0u32..10).collect();
             let values: PrimitiveArray = (0..10).collect();
             let dict = DictArray::new(codes.into_array(), values.into_array());

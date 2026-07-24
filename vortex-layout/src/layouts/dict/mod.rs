@@ -7,7 +7,6 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::DictReader;
-use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -16,85 +15,105 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::LayoutBuildContext;
+use crate::Layout;
 use crate::LayoutChildType;
-use crate::LayoutEncodingRef;
+use crate::LayoutDeserializeArgs;
 use crate::LayoutId;
+use crate::LayoutParts;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
-use crate::children::LayoutChildren;
-use crate::segments::SegmentId;
+use crate::children::OwnedLayoutChildren;
 use crate::segments::SegmentSource;
-use crate::vtable;
 
-vtable!(Dict);
+/// Dictionary layout vtable.
+#[derive(Clone, Debug)]
+pub struct Dict;
+
+/// Backwards-compatible name for the dictionary layout plugin.
+pub use Dict as DictLayoutEncoding;
+
+/// Dictionary-layout-specific data.
+#[derive(Clone, Debug)]
+pub struct DictData {
+    codes_dtype: DType,
+    all_values_referenced: bool,
+}
+
+/// A dictionary values child paired with a codes child.
+pub type DictLayout = Layout<Dict>;
 
 impl VTable for Dict {
-    type Layout = DictLayout;
-    type Encoding = DictLayoutEncoding;
+    type LayoutData = DictData;
     type Metadata = ProstMetadata<DictLayoutMetadata>;
 
-    fn id(_encoding: &Self::Encoding) -> LayoutId {
+    fn id(&self) -> LayoutId {
         static ID: CachedId = CachedId::new("vortex.dict");
         *ID
     }
 
-    fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(DictLayoutEncoding.as_ref())
-    }
-
-    fn row_count(layout: &Self::Layout) -> u64 {
-        layout.codes.row_count()
-    }
-
-    fn dtype(layout: &Self::Layout) -> &DType {
-        layout.values.dtype()
-    }
-
-    fn metadata(layout: &Self::Layout) -> Self::Metadata {
-        let mut metadata =
-            DictLayoutMetadata::new(PType::try_from(layout.codes.dtype()).vortex_expect("ptype"));
-        metadata.is_nullable_codes = Some(layout.codes.dtype().is_nullable());
+    fn metadata(layout: &Layout<Self>) -> Self::Metadata {
+        let mut metadata = DictLayoutMetadata::new(
+            PType::try_from(&layout.codes_dtype).vortex_expect("codes ptype"),
+        );
+        metadata.is_nullable_codes = Some(layout.codes_dtype.is_nullable());
         metadata.all_values_referenced = Some(layout.all_values_referenced);
         ProstMetadata(metadata)
     }
 
-    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![]
+    fn deserialize(
+        &self,
+        args: &LayoutDeserializeArgs<'_>,
+        metadata: &DictLayoutMetadata,
+    ) -> VortexResult<Self::LayoutData> {
+        vortex_ensure!(
+            args.children.nchildren() == 2,
+            "DictLayout expects exactly 2 children"
+        );
+        let codes_nullable = metadata
+            .is_nullable_codes
+            .map(Nullability::from)
+            .unwrap_or_else(|| args.dtype.nullability());
+        let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
+        args.children.child(0, args.dtype)?;
+        let codes = args.children.child(1, &codes_dtype)?;
+        vortex_ensure!(
+            codes.row_count() == args.row_count,
+            "Dictionary codes row count does not match parent"
+        );
+        Ok(DictData {
+            codes_dtype,
+            all_values_referenced: metadata.all_values_referenced.unwrap_or(false),
+        })
     }
 
-    fn nchildren(_layout: &Self::Layout) -> usize {
-        2
-    }
-
-    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
+    fn child_dtype(layout: &Layout<Self>, idx: usize) -> VortexResult<DType> {
         match idx {
-            0 => Ok(Arc::clone(&layout.values)),
-            1 => Ok(Arc::clone(&layout.codes)),
-            _ => vortex_bail!("Unreachable child index: {}", idx),
+            0 => Ok(layout.dtype().clone()),
+            1 => Ok(layout.codes_dtype.clone()),
+            _ => vortex_bail!("Dict child index out of bounds: {idx}"),
         }
     }
 
-    fn child_type(_layout: &Self::Layout, idx: usize) -> LayoutChildType {
+    fn child_type(_layout: &Layout<Self>, idx: usize) -> LayoutChildType {
         match idx {
             0 => LayoutChildType::Auxiliary("values".into()),
             1 => LayoutChildType::Transparent("codes".into()),
-            _ => vortex_panic!("Unreachable child index: {}", idx),
+            _ => vortex_panic!("Dict child index out of bounds: {idx}"),
         }
     }
 
     fn new_reader(
-        layout: &Self::Layout,
+        layout: &Layout<Self>,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
-        ctx: &crate::LayoutReaderContext,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(DictReader::try_new(
             layout.clone(),
@@ -104,89 +123,36 @@ impl VTable for Dict {
             ctx.clone(),
         )?))
     }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        dtype: &DType,
-        _row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        _segment_ids: Vec<SegmentId>,
-        children: &dyn LayoutChildren,
-        _build_ctx: &LayoutBuildContext<'_>,
-    ) -> VortexResult<Self::Layout> {
-        let values = children.child(0, dtype)?;
-        let codes_nullable = metadata
-            .is_nullable_codes
-            .map(Nullability::from)
-            // The old behaviour (without `is_nullable_codes` metadata) used the nullability
-            // of the values (and whole array).
-            // see [`SerdeVTable<Dict>::build`].
-            .unwrap_or_else(|| dtype.nullability());
-        let codes = children.child(1, &DType::Primitive(metadata.codes_ptype(), codes_nullable))?;
-        Ok(unsafe {
-            DictLayout::new(values, codes)
-                .set_all_values_referenced(metadata.all_values_referenced.unwrap_or(false))
-        })
-    }
-
-    fn with_children(layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 2,
-            "DictLayout expects exactly 2 children (values, codes), got {}",
-            children.len()
-        );
-        let mut children_iter = children.into_iter();
-        layout.values = children_iter
-            .next()
-            .ok_or_else(|| vortex_err!("Missing values child"))?;
-        layout.codes = children_iter
-            .next()
-            .ok_or_else(|| vortex_err!("Missing codes child"))?;
-        Ok(())
-    }
 }
 
-#[derive(Debug)]
-pub struct DictLayoutEncoding;
-
-/// Stores a shared dictionary of values alongside compact integer codes that index into it.
-///
-/// Useful for columns with many repeated values, where storing each value once and
-/// referencing it by index saves significant space.
-#[derive(Clone, Debug)]
-pub struct DictLayout {
-    values: LayoutRef,
-    codes: LayoutRef,
-    /// Indicates whether all dictionary values are definitely referenced by at least one code.
-    /// `true` = all values are referenced (computed during encoding).
-    /// `false` = unknown/might have unreferenced values.
-    all_values_referenced: bool,
-}
-
-impl DictLayout {
+impl Layout<Dict> {
     pub(crate) fn new(values: LayoutRef, codes: LayoutRef) -> Self {
-        Self {
-            values,
-            codes,
-            all_values_referenced: false,
-        }
+        Self::new_with_all_values_referenced(values, codes, false)
     }
 
-    /// Set whether all dictionary values are definitely referenced.
-    ///
-    /// # Safety
-    /// The caller must ensure that when setting `all_values_referenced = true`, ALL dictionary
-    /// values are actually referenced by at least one valid code. Setting this incorrectly can
-    /// lead to incorrect query results in operations like min/max.
-    ///
-    /// This is typically only set to `true` during dictionary encoding when we know for certain
-    /// that all values are referenced.
-    /// See `DictArray::set_all_values_referenced`.
-    pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
-        self.all_values_referenced = all_values_referenced;
-        self
+    fn new_with_all_values_referenced(
+        values: LayoutRef,
+        codes: LayoutRef,
+        all_values_referenced: bool,
+    ) -> Self {
+        let dtype = values.dtype().clone();
+        let row_count = codes.row_count();
+        let codes_dtype = codes.dtype().clone();
+        LayoutParts::new(
+            Dict,
+            dtype,
+            row_count,
+            Vec::new(),
+            OwnedLayoutChildren::layout_children(vec![values, codes]),
+            DictData {
+                codes_dtype,
+                all_values_referenced,
+            },
+        )
+        .into_typed()
     }
 
+    /// Returns whether every dictionary value is known to be referenced.
     pub fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
     }
@@ -195,15 +161,9 @@ impl DictLayout {
 #[derive(prost::Message)]
 pub struct DictLayoutMetadata {
     #[prost(enumeration = "PType", tag = "1")]
-    // i32 is required for proto, use the generated getter to read this field.
     codes_ptype: i32,
-    // nullable codes are optional since they were added after stabilisation
     #[prost(optional, bool, tag = "2")]
     is_nullable_codes: Option<bool>,
-    // all_values_referenced is optional for backward compatibility
-    // true = all dictionary values are definitely referenced by at least one code
-    // false/None = unknown whether all values are referenced (conservative default)
-    // see `DictArray::all_values_referenced`
     #[prost(optional, bool, tag = "3")]
     pub(crate) all_values_referenced: Option<bool>,
 }
