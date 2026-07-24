@@ -47,20 +47,23 @@ pub fn converted_buffer<W: NativeDecimalType>(
     }
     match_each_decimal_value_type!(array.values_type(), |T| {
         let src = array.buffer::<T>();
-        // Pass 1: only *valid* values must fit `W`; null-slot garbage is exempt. Checking
-        // overflow before the mask keeps mask lookups off the happy path.
-        if let Some((i, v)) = src
-            .iter()
-            .enumerate()
-            .find(|&(i, v)| W::from(*v).is_none() && validity.value(i))
+        // Keeping the overflow scan branchless and vectorizable.
+        // Only on overflow do we rescan with the mask: null-slot garbage is exempt, valid
+        // out-of-range values are an error.
+        let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
+        if any_overflow
+            && let Some((i, v)) = src
+                .iter()
+                .enumerate()
+                .find(|&(i, v)| W::from(*v).is_none() && validity.value(i))
         {
             vortex_bail!(
                 "decimal value {v} at index {i} does not fit {}",
                 W::DECIMAL_TYPE
             );
         }
-        // Pass 2 is infallible (every valid value fits; null-slot garbage becomes zero), so
-        // a plain `collect` keeps the exact size hint and a single allocation.
+        // The convert pass is infallible (every valid value fits; null-slot garbage becomes
+        // zero), so a plain `collect` keeps the exact size hint and a single allocation.
         Ok(src
             .iter()
             .map(|v| W::from(*v).unwrap_or_default())
