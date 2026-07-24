@@ -30,6 +30,7 @@ use async_trait::async_trait;
 pub(crate) use canonical::CanonicalDeviceArrayExport;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
+use cudarc::driver::DevicePtr;
 use cudarc::runtime::sys::cudaEvent_t;
 pub(crate) use offsets::I32Offsets;
 pub(crate) use offsets::i32_offsets_from_lengths;
@@ -169,9 +170,18 @@ impl PrivateData {
                         // null pointer
                         Ok(ptr::null())
                     }
-                    Some(handle) => usize::try_from(handle.cuda_device_ptr()?)
-                        .map(|ptr| ptr as *const c_void)
-                        .map_err(|_| vortex_err!("CUDA device pointer does not fit in usize")),
+                    Some(handle) => {
+                        // The buffer may have been populated on a different stream (for example,
+                        // pooled file reads use a dedicated H2D stream). Access it through cudarc's
+                        // stream-aware API so this export stream waits for pending writes before
+                        // its Arrow sync event is recorded.
+                        let view = handle.cuda_view::<u8>()?;
+                        let (device_ptr, record_read) = view.device_ptr(ctx.stream());
+                        drop(record_read);
+                        usize::try_from(device_ptr)
+                            .map(|ptr| ptr as *const c_void)
+                            .map_err(|_| vortex_err!("CUDA device pointer does not fit in usize"))
+                    }
                 }
             })
             .collect::<VortexResult<Vec<_>>>()?
