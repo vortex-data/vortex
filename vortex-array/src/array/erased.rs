@@ -79,19 +79,19 @@ pub struct ArrayRef(Arc<ArrayInner<dyn DynArrayData>>);
 
 impl ArrayRef {
     /// Create from an `Arc<ArrayInner<dyn DynArrayData>>`.
-    pub(crate) fn from_inner<D: DynArrayData>(inner: Arc<ArrayInner<D>>) -> Self {
+    pub fn from_inner<D: DynArrayData>(inner: Arc<ArrayInner<D>>) -> Self {
         Self(inner)
     }
 
     /// Returns a reference to the `dyn DynArrayData` inside the inner.
     #[inline(always)]
-    pub(crate) fn dyn_array(&self) -> &dyn DynArrayData {
+    pub fn dyn_array(&self) -> &dyn DynArrayData {
         &self.0.data
     }
 
     /// Returns a mutable reference to the inner if this is the sole owner.
     #[inline(always)]
-    pub(crate) fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
+    pub fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
         Arc::get_mut(&mut self.0)
     }
 
