@@ -645,7 +645,6 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::array::builtins::ArrayBuiltins;
     use vortex::buffer::Buffer;
     use vortex::dtype::Nullability;
     use vortex::error::VortexExpect;
@@ -851,12 +850,17 @@ mod tests {
     }
 
     /// Codes narrowed to u8 dispatch the u8 kernel instantiations end to end.
+    /// A trained dictionary always holds the 256 single-byte tokens sorted
+    /// among its merges, so real merge codes never fit u8; the u8-addressable
+    /// case is the minimal alphabet-only dictionary, where token id `b` is
+    /// exactly the byte `b` and every row is coded byte per byte.
     #[crate::test]
     async fn test_cuda_onpair_decompression_u8_codes() -> VortexResult<()> {
         let mut ctx = vortex_array::array_session().create_execution_ctx();
         let mut cuda_ctx = CudaSession::create_execution_ctx(&crate::cuda_session())
             .vortex_expect("failed to create execution context");
-        let values: Vec<Option<&'static [u8]>> = [
+
+        let strings: Vec<&[u8]> = [
             &b"tokenized token stream"[..],
             b"tokenized",
             b"token stream",
@@ -864,40 +868,48 @@ mod tests {
         ]
         .into_iter()
         .cycle()
-        .take(64)
-        .map(Some)
+        .take(800)
         .collect();
-        let original =
-            compress_onpair(values, DType::Utf8(Nullability::NonNullable), &mut cuda_ctx)?;
-        let onpair = original
-            .clone()
-            .try_downcast::<OnPair>()
-            .map_err(|array| vortex_err!("expected OnPair array, got {}", array.encoding_id()))?;
-        // A tiny corpus trains a tiny dictionary, so every code fits u8.
-        vortex_ensure!(
-            onpair.dict_offsets().len() <= 256,
-            "test corpus unexpectedly trained {} tokens",
-            onpair.dict_offsets().len() - 1
-        );
-        let narrowed = OnPair::try_new(
-            onpair.dtype().clone(),
-            onpair.dict_bytes_handle().clone(),
-            onpair.dict_offsets().clone(),
-            onpair
-                .codes()
-                .clone()
-                .cast(DType::Primitive(PType::U8, Nullability::NonNullable))?,
-            onpair.codes_offsets().clone(),
-            onpair.uncompressed_lengths().clone(),
-            onpair.array_validity(),
+
+        // The alphabet-only compact dictionary: the 256 single-byte tokens
+        // (sorted by construction) plus the trailing read padding.
+        let mut dict_bytes: Vec<u8> = (0..=u8::MAX).collect();
+        dict_bytes.resize(255 + MAX_TOKEN_SIZE, 0);
+        let dict_offsets: Vec<u32> = (0..=256).collect();
+
+        let codes: Vec<u8> = strings.concat();
+        let mut codes_offsets = vec![0u32];
+        let mut lengths = Vec::with_capacity(strings.len());
+        let mut acc = 0u32;
+        for s in &strings {
+            let len = u32::try_from(s.len())?;
+            lengths.push(len);
+            acc += len;
+            codes_offsets.push(acc);
+        }
+
+        let onpair = OnPair::try_new(
+            DType::Utf8(Nullability::NonNullable),
+            BufferHandle::new_host(Buffer::from(dict_bytes).into_byte_buffer()),
+            Buffer::from(dict_offsets).into_array(),
+            Buffer::from(codes).into_array(),
+            Buffer::from(codes_offsets).into_array(),
+            Buffer::from(lengths).into_array(),
+            Validity::NonNullable,
         )?;
 
+        let expected = VarBinArray::from_iter(
+            strings.iter().map(|s| Some(*s)),
+            DType::Utf8(Nullability::NonNullable),
+        )
+        .into_array();
+
         let gpu_result = OnPairExecutor
-            .execute(narrowed.into_array(), &mut cuda_ctx)
+            .execute(onpair.into_array(), &mut cuda_ctx)
             .await?;
         assert_device_resident(&gpu_result);
         let host_result = gpu_result.into_host().await?.into_array();
-        assert_arrays_eq!(original, host_result, &mut ctx);
+        assert_arrays_eq!(expected, host_result, &mut ctx);
         Ok(())
     }
 
