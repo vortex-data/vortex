@@ -184,7 +184,9 @@ fn enabled_editions_are_independent_across_families() -> Result<(), crate::Editi
     session.enable_edition(FIRST)?;
     session.enable_edition(OTHER)?;
 
-    assert_eq!(session.enabled_editions().editions(), [OTHER, FIRST]);
+    let mut enabled = session.enabled_editions().editions();
+    enabled.sort_unstable();
+    assert_eq!(enabled, [OTHER, FIRST]);
     assert_eq!(session.enabled_encoding_ids().len(), 3);
     Ok(())
 }
