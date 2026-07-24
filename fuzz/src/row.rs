@@ -128,10 +128,7 @@ pub fn run_row_encode(input: FuzzRowEncode) -> VortexResult<bool> {
         .map(|f| f.clone().execute::<PrimitiveArray>(&mut ctx))
         .collect::<VortexResult<Vec<_>>>()?;
     for (i, row) in rows.iter().enumerate() {
-        let total: u64 = parts
-            .iter()
-            .map(|p| p.as_slice::<u32>()[i] as u64)
-            .sum();
+        let total: u64 = parts.iter().map(|p| p.as_slice::<u32>()[i] as u64).sum();
         assert_eq!(
             total,
             row.len() as u64,
@@ -377,10 +374,16 @@ fn row_keys(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vec<RowKey
             })
         }
         Canonical::VarBinView(a) => {
-            let keys = (0..len)
-                .map(|i| RowKey::Bytes(a.bytes_at(i).to_vec()))
-                .collect();
-            with_mask(keys, &a.into_array(), ctx)
+            let mask = a.as_ref().validity()?.execute_mask(len, ctx)?;
+            Ok((0..len)
+                .map(|i| {
+                    if mask.value(i) {
+                        RowKey::Bytes(a.bytes_at(i).to_vec())
+                    } else {
+                        RowKey::Null
+                    }
+                })
+                .collect())
         }
         Canonical::Struct(a) => {
             let children = a
