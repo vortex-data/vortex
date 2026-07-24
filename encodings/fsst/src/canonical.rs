@@ -21,6 +21,7 @@ use vortex_error::VortexResult;
 
 use crate::FSST;
 use crate::FSSTArrayExt;
+use crate::FSSTArraySlotsExt;
 
 pub(super) fn canonicalize_fsst(
     array: ArrayView<'_, FSST>,

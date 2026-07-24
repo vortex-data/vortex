@@ -22,6 +22,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
+use vortex_fastlanes::FoRArraySlotsExt;
 
 use super::BitPackingScheme;
 use crate::ArrayAndStats;

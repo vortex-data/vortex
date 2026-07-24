@@ -19,7 +19,7 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::Filter;
-use vortex::array::arrays::filter::FilterArrayExt;
+use vortex::array::arrays::filter::FilterArraySlotsExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::match_each_native_simd_ptype;

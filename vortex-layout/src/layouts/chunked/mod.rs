@@ -6,74 +6,80 @@ pub mod writer;
 
 use std::sync::Arc;
 
-use vortex_array::DeserializeMetadata;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::LayoutBuildContext;
+use crate::Layout;
 use crate::LayoutChildType;
-use crate::LayoutEncodingRef;
+use crate::LayoutChildren;
+use crate::LayoutDeserializeArgs;
 use crate::LayoutId;
+use crate::LayoutParts;
 use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
-use crate::children::LayoutChildren;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
-use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::vtable;
 
-vtable!(Chunked);
+/// Chunked layout vtable.
+#[derive(Clone, Debug)]
+pub struct Chunked;
+
+/// Backwards-compatible name for the chunked layout plugin.
+pub use Chunked as ChunkedLayoutEncoding;
+
+/// Chunked-layout-specific data.
+#[derive(Clone, Debug)]
+pub struct ChunkedData {
+    chunk_offsets: Vec<u64>,
+}
+
+/// A layout partitioned into independently readable row chunks.
+pub type ChunkedLayout = Layout<Chunked>;
 
 impl VTable for Chunked {
-    type Layout = ChunkedLayout;
-    type Encoding = ChunkedLayoutEncoding;
+    type LayoutData = ChunkedData;
     type Metadata = EmptyMetadata;
 
-    fn id(_encoding: &Self::Encoding) -> LayoutId {
+    fn id(&self) -> LayoutId {
         static ID: CachedId = CachedId::new("vortex.chunked");
         *ID
     }
 
-    fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(ChunkedLayoutEncoding.as_ref())
-    }
-
-    fn row_count(layout: &Self::Layout) -> u64 {
-        layout.row_count
-    }
-
-    fn dtype(layout: &Self::Layout) -> &DType {
-        &layout.dtype
-    }
-
-    fn metadata(_layout: &Self::Layout) -> Self::Metadata {
+    fn metadata(_layout: &Layout<Self>) -> Self::Metadata {
         EmptyMetadata
     }
 
-    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![]
+    fn deserialize(
+        &self,
+        args: &LayoutDeserializeArgs<'_>,
+        _metadata: &EmptyMetadata,
+    ) -> VortexResult<Self::LayoutData> {
+        let chunk_offsets = chunk_offsets(args.children)?;
+        if chunk_offsets.last().copied() != Some(args.row_count) {
+            vortex_bail!("Chunked child row counts do not add up to parent row count");
+        }
+        Ok(ChunkedData { chunk_offsets })
     }
 
-    fn nchildren(layout: &Self::Layout) -> usize {
-        layout.children.nchildren()
+    fn child_dtype(layout: &Layout<Self>, _idx: usize) -> VortexResult<DType> {
+        Ok(layout.dtype().clone())
     }
 
-    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
-        layout.children.child(idx, Self::dtype(layout))
-    }
-
-    fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType {
+    fn child_type(layout: &Layout<Self>, idx: usize) -> LayoutChildType {
         LayoutChildType::Chunk((idx, layout.chunk_offsets[idx]))
     }
 
     fn new_reader(
-        layout: &Self::Layout,
+        layout: &Layout<Self>,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
@@ -87,74 +93,49 @@ impl VTable for Chunked {
             ctx.clone(),
         )))
     }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        dtype: &DType,
-        row_count: u64,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        _segment_ids: Vec<SegmentId>,
-        children: &dyn LayoutChildren,
-        _build_ctx: &LayoutBuildContext<'_>,
-    ) -> VortexResult<Self::Layout> {
-        Ok(ChunkedLayout::new(
-            row_count,
-            dtype.clone(),
-            children.to_arc(),
-        ))
-    }
-
-    fn with_children(layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
-        let new_children = OwnedLayoutChildren::layout_children(children);
-
-        // Recalculate chunk offsets based on new children
-        let mut chunk_offsets = vec![0; new_children.nchildren() + 1];
-        for i in 0..new_children.nchildren() {
-            chunk_offsets[i + 1] = chunk_offsets[i] + new_children.child_row_count(i);
-        }
-
-        layout.children = new_children;
-        layout.chunk_offsets = chunk_offsets;
-        Ok(())
-    }
 }
 
-#[derive(Debug)]
-pub struct ChunkedLayoutEncoding;
-
-/// Partitions a column into row-based chunks so that each chunk can be read independently.
-///
-/// Used to break large columns into smaller pieces for parallel I/O and to limit memory
-/// usage when scanning.
-#[derive(Clone, Debug)]
-pub struct ChunkedLayout {
-    row_count: u64,
-    dtype: DType,
-    children: Arc<dyn LayoutChildren>,
-    chunk_offsets: Vec<u64>,
-}
-
-impl ChunkedLayout {
+impl Layout<Chunked> {
+    /// Construct a chunked layout.
     pub fn new(row_count: u64, dtype: DType, children: Arc<dyn LayoutChildren>) -> Self {
-        let mut chunk_offsets = vec![0; children.nchildren() + 1];
-        for i in 0..children.nchildren() {
-            chunk_offsets[i + 1] = chunk_offsets[i] + children.child_row_count(i);
-        }
-
+        let offsets = chunk_offsets(children.as_ref()).vortex_expect("chunk row counts overflow");
         assert_eq!(
-            chunk_offsets[children.nchildren()],
-            row_count,
+            offsets.last().copied(),
+            Some(row_count),
             "Row count mismatch"
         );
-        Self {
-            row_count,
+        LayoutParts::new(
+            Chunked,
             dtype,
+            row_count,
+            Vec::new(),
             children,
-            chunk_offsets,
-        }
+            ChunkedData {
+                chunk_offsets: offsets,
+            },
+        )
+        .into_typed()
     }
 
-    pub fn children(&self) -> &Arc<dyn LayoutChildren> {
-        &self.children
+    /// Rebuild this layout with owned children.
+    pub fn with_children(&self, children: Vec<LayoutRef>) -> Self {
+        Self::new(
+            self.row_count(),
+            self.dtype().clone(),
+            OwnedLayoutChildren::layout_children(children),
+        )
     }
+}
+
+fn chunk_offsets(children: &dyn LayoutChildren) -> VortexResult<Vec<u64>> {
+    let mut offsets = Vec::with_capacity(children.nchildren() + 1);
+    offsets.push(0u64);
+    for idx in 0..children.nchildren() {
+        offsets.push(
+            offsets[idx]
+                .checked_add(children.child_row_count(idx))
+                .ok_or_else(|| vortex_err!("Chunked child row counts overflow"))?,
+        );
+    }
+    Ok(offsets)
 }

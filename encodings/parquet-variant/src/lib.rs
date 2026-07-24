@@ -37,6 +37,9 @@ mod vtable;
 use std::sync::Arc;
 
 pub use array::ParquetVariantArrayExt;
+pub use array::ParquetVariantArraySlotsExt;
+pub use array::ParquetVariantSlots;
+pub use array::ParquetVariantSlotsView;
 use vortex_array::session::ArraySessionExt;
 use vortex_arrow::ArrowSessionExt;
 pub use vortex_json::JsonToVariant;

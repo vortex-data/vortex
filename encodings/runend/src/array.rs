@@ -21,6 +21,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::VortexSessionExecute;
+use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
@@ -29,7 +30,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::legacy_session;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -93,12 +93,9 @@ impl VTable for RunEnd {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let ends = slots[ENDS_SLOT]
-            .as_ref()
-            .vortex_expect("RunEndArray ends slot");
-        let values = slots[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("RunEndArray values slot");
+        let run_end_slots = RunEndSlotsView::from_slots(slots);
+        let ends = run_end_slots.ends;
+        let values = run_end_slots.values;
         // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
         let mut ctx = legacy_session().create_execution_ctx();
         RunEndData::validate_parts(ends, values, data.offset, len, &mut ctx)?;
@@ -162,13 +159,13 @@ impl VTable for RunEnd {
 
         let values = children.get(1, dtype, runs)?;
         let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
-        let slots = smallvec![Some(ends), Some(values)];
+        let slots = RunEndSlots { ends, values }.into_slots();
         let data = RunEndData::new(offset);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        RunEndSlots::NAMES[idx].to_string()
     }
 
     fn reduce_parent(
@@ -184,12 +181,13 @@ impl VTable for RunEnd {
     }
 }
 
-/// The run-end positions marking where each run terminates.
-pub(super) const ENDS_SLOT: usize = 0;
-/// The values for each run.
-pub(super) const VALUES_SLOT: usize = 1;
-pub(super) const NUM_SLOTS: usize = 2;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["ends", "values"];
+#[array_slots(RunEnd)]
+pub struct RunEndSlots {
+    /// The run-end positions marking where each run terminates.
+    pub ends: ArrayRef,
+    /// The values for each run.
+    pub values: ArrayRef,
+}
 
 #[derive(Clone, Debug)]
 pub struct RunEndData {
@@ -208,21 +206,9 @@ pub struct RunEndDataParts {
     pub offset: usize,
 }
 
-pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
+pub trait RunEndArrayExt: RunEndArraySlotsExt {
     fn offset(&self) -> usize {
         self.offset
-    }
-
-    fn ends(&self) -> &ArrayRef {
-        self.as_ref().slots()[ENDS_SLOT]
-            .as_ref()
-            .vortex_expect("RunEndArray ends slot")
-    }
-
-    fn values(&self) -> &ArrayRef {
-        self.as_ref().slots()[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("RunEndArray values slot")
     }
 
     fn dtype(&self) -> &DType {
@@ -255,7 +241,7 @@ impl RunEnd {
         length: usize,
     ) -> RunEndArray {
         let dtype = values.dtype().clone();
-        let slots = smallvec![Some(ends), Some(values)];
+        let slots = RunEndSlots { ends, values }.into_slots();
         let data = unsafe { RunEndData::new_unchecked(offset) };
         unsafe {
             Array::from_parts_unchecked(
@@ -273,7 +259,7 @@ impl RunEnd {
         let len = RunEndData::logical_len_from_ends(&ends, ctx)?;
         RunEndData::validate_parts(&ends, &values, 0, len, ctx)?;
         let dtype = values.dtype().clone();
-        let slots = smallvec![Some(ends), Some(values)];
+        let slots = RunEndSlots { ends, values }.into_slots();
         let data = RunEndData::new(0);
         Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
     }
@@ -288,7 +274,7 @@ impl RunEnd {
     ) -> VortexResult<RunEndArray> {
         RunEndData::validate_parts(&ends, &values, offset, length, ctx)?;
         let dtype = values.dtype().clone();
-        let slots = smallvec![Some(ends), Some(values)];
+        let slots = RunEndSlots { ends, values }.into_slots();
         let data = RunEndData::new(offset);
         Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots))
     }
@@ -305,7 +291,7 @@ impl RunEnd {
             let ends = ends.into_array();
             let len = array.len();
             let dtype = values.dtype().clone();
-            let slots = smallvec![Some(ends), Some(values)];
+            let slots = RunEndSlots { ends, values }.into_slots();
             let data = unsafe { RunEndData::new_unchecked(0) };
             Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
         } else {

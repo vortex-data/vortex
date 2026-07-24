@@ -5,7 +5,6 @@ mod vtable;
 
 pub(crate) mod compute;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -20,15 +19,10 @@ use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::EmptyArrayData;
-use crate::array::TypedArrayRef;
+use crate::array_slots;
 use crate::dtype::DType;
 
-pub(super) const CORE_STORAGE_SLOT: usize = 0;
-pub(super) const SHREDDED_SLOT: usize = 1;
-pub(super) const NUM_SLOTS: usize = 2;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["core_storage", "shredded"];
-
-/// Accessors for canonical variant storage.
+/// Slots for canonical variant storage.
 ///
 /// A canonical variant array keeps the full variant value for every row in `core_storage` and may
 /// carry a row-aligned, storage-agnostic `shredded` typed tree for selected paths.
@@ -37,28 +31,21 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["core_storage", "shredded"];
 /// chunked, constant, or otherwise encoded. Callers must use normal array operations instead of
 /// assuming a particular slot layout. The shredded child may have any dtype; its dtype is recorded
 /// during serialization and validated by normal child deserialization.
-pub trait VariantArrayExt: TypedArrayRef<Variant> {
-    /// Returns the logical variant storage that preserves the full value for every row.
-    fn core_storage(&self) -> &ArrayRef {
-        self.as_ref().slots()[CORE_STORAGE_SLOT]
-            .as_ref()
-            .vortex_expect("validated variant core_storage slot")
-    }
-
-    /// Returns the optional row-aligned typed shredded tree for selected variant paths.
-    /// This functions returns `Some` only if the array was canonicalized and the shredded data
+#[array_slots(Variant)]
+pub struct VariantSlots {
+    /// The logical variant storage that preserves the full value for every row.
+    pub core_storage: ArrayRef,
+    /// The optional row-aligned typed shredded tree for selected variant paths.
+    /// This slot is `Some` only if the array was canonicalized and the shredded data
     /// was pulled out of the underlying variant storage.
-    fn shredded(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[SHREDDED_SLOT].as_ref()
-    }
+    pub shredded: Option<ArrayRef>,
 }
-impl<T: TypedArrayRef<Variant>> VariantArrayExt for T {}
 
 impl Array<Variant> {
     /// Creates a new `VariantArray` with logical variant core storage and optional shredded storage.
     ///
     /// `core_storage` must have `DType::Variant`, but it may use any Variant-typed physical
-    /// encoding. See [`VariantArrayExt`] for the higher-level storage contract.
+    /// encoding. See [`VariantSlots`] for the higher-level storage contract.
     ///
     /// `shredded`, when present, must be row-aligned with `core_storage` and stores typed values for
     /// selected variant paths.
@@ -71,8 +58,13 @@ impl Array<Variant> {
         let len = core_storage.len();
         let stats = core_storage.statistics().to_owned();
         Ok(Array::try_from_parts(
-            ArrayParts::new(Variant, dtype, len, EmptyArrayData)
-                .with_slots(vec![Some(core_storage), shredded].into()),
+            ArrayParts::new(Variant, dtype, len, EmptyArrayData).with_slots(
+                VariantSlots {
+                    core_storage,
+                    shredded,
+                }
+                .into_slots(),
+            ),
         )?
         .with_stats_set(stats))
     }
@@ -96,7 +88,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VariantArray;
-    use crate::arrays::variant::VariantArrayExt;
+    use crate::arrays::variant::VariantArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;

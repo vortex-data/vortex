@@ -13,6 +13,7 @@ use vortex_mask::Mask;
 
 use crate::FSST;
 use crate::FSSTArrayExt;
+use crate::FSSTArraySlotsExt;
 
 impl FilterKernel for FSST {
     fn filter(

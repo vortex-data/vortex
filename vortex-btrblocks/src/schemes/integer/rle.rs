@@ -23,6 +23,7 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::RLE;
 use vortex_fastlanes::RLEArrayExt;
+use vortex_fastlanes::RLEArraySlotsExt;
 
 use super::RUN_LENGTH_THRESHOLD;
 use crate::ArrayAndStats;

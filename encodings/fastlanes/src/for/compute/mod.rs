@@ -17,6 +17,7 @@ use vortex_mask::Mask;
 
 use crate::FoR;
 use crate::r#for::array::FoRArrayExt;
+use crate::r#for::array::FoRArraySlotsExt;
 
 impl TakeExecute for FoR {
     fn take(

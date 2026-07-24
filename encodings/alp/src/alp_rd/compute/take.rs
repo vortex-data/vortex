@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::ALPRD;
 use crate::ALPRDArrayExt;
+use crate::ALPRDArraySlotsExt;
 
 impl TakeExecute for ALPRD {
     fn take(

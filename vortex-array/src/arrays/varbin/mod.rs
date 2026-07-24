@@ -3,8 +3,11 @@
 
 mod array;
 pub use array::VarBinArrayExt;
+pub use array::VarBinArraySlotsExt;
 pub use array::VarBinData;
 pub use array::VarBinDataParts;
+pub use array::VarBinSlots;
+pub use array::VarBinSlotsView;
 pub use vtable::VarBinArray;
 
 pub(crate) mod compute;

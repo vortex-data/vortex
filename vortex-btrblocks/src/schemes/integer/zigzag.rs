@@ -22,7 +22,7 @@ use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
 use vortex_zigzag::ZigZag;
-use vortex_zigzag::ZigZagArrayExt;
+use vortex_zigzag::ZigZagArraySlotsExt;
 use vortex_zigzag::zigzag_encode;
 
 use super::RunEndScheme;

@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
+use crate::array::RunEndArraySlotsExt;
 use crate::decompress_bool::runend_decode_bools;
 
 impl CompareKernel for RunEnd {

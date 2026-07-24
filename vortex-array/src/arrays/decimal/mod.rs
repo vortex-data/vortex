@@ -3,8 +3,10 @@
 
 mod array;
 pub use array::DecimalArrayExt;
+pub use array::DecimalArraySlotsExt;
 pub use array::DecimalData;
 pub use array::DecimalDataParts;
+pub use array::DecimalSlots;
 pub use vtable::DecimalArray;
 
 pub(crate) mod compute;

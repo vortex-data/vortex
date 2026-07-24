@@ -16,7 +16,7 @@ use vortex::array::ArrayView;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Slice;
-use vortex::array::arrays::slice::SliceArrayExt;
+use vortex::array::arrays::slice::SliceArraySlotsExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_integer_ptype;

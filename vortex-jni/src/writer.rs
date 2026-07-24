@@ -15,6 +15,7 @@ use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use async_fs::File;
 use futures::SinkExt;
@@ -66,7 +67,6 @@ use vortex_arrow::ArrowSessionExt;
 use vortex_parquet_variant::ParquetVariant;
 
 use crate::RUNTIME;
-use crate::dtype::import_arrow_schema;
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
 use crate::file::extract_properties;
@@ -411,7 +411,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let arrow_schema = Arc::new(import_arrow_schema(arrow_schema_addr)?);
+        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
+        let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let file_path: String = uri.try_to_string(env)?;
@@ -492,7 +493,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         }
         let session = unsafe { session_ref(session_ptr) };
 
-        let arrow_schema = Arc::new(import_arrow_schema(arrow_schema_addr)?);
+        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
+        let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
         let vm = env.get_java_vm()?;

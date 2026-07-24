@@ -36,6 +36,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::decimal::DecimalArrayExt;
 use vortex_array::arrays::decimal::converted_buffer;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;

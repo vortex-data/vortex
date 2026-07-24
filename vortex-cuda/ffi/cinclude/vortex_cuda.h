@@ -95,6 +95,22 @@ vx_array_sink *vx_cuda_array_sink_open_file_block_rows(const vx_session *session
                                                        vx_error **error_out);
 
 /**
+ * Options for scanning a CUDA-compatible Vortex file.
+ *
+ * Zero-initialize this struct to use buffered file I/O and layout-derived batch splitting.
+ */
+/** Bypass the operating system page cache for pooled data-plane reads.
+ * Footer and zone-map reads remain buffered. Supported only on Linux. */
+#define VX_CUDA_SCAN_FLAG_DIRECT_IO (UINT32_C(1) << 0)
+
+typedef struct vx_cuda_scan_options {
+    /** Bitwise combination of `VX_CUDA_SCAN_FLAG_*` values. */
+    uint32_t flags;
+    /** Number of rows in each output ArrowDeviceArray. Zero uses layout-derived splitting. */
+    size_t batch_rows;
+} vx_cuda_scan_options;
+
+/**
  * Scan a local CUDA-compatible Vortex file as an Arrow C Device stream.
  *
  * Files written by `vx_cuda_array_sink_open_file` are compatible with this path. Reusing the same
@@ -124,6 +140,19 @@ int vx_cuda_scan_path_arrow_device_stream_batch_rows(const vx_session *session,
                                                      size_t batch_rows,
                                                      struct ArrowDeviceArrayStream *out_stream,
                                                      vx_error **error_out);
+
+/**
+ * Scan a local CUDA-compatible Vortex file with explicit options.
+ *
+ * This has the same ownership and file compatibility requirements as
+ * `vx_cuda_scan_path_arrow_device_stream`. Pass NULL or a zero-initialized options struct to use
+ * buffered file I/O and layout-derived batch splitting.
+ */
+int vx_cuda_scan_path_arrow_device_stream_with_options(const vx_session *session,
+                                                       vx_view path,
+                                                       const vx_cuda_scan_options *options,
+                                                       struct ArrowDeviceArrayStream *out_stream,
+                                                       vx_error **error_out);
 
 /**
  * Export a borrowed Vortex array for cuDF's Arrow Device import path.

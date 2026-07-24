@@ -22,6 +22,7 @@ use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::array_slots;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -143,7 +144,7 @@ impl VTable for Zstd {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let validity = child_to_validity(slots[0].as_ref(), dtype.nullability());
+        let validity = child_to_validity(slots[ZstdSlots::VALIDITY].as_ref(), dtype.nullability());
         data.validate(dtype, len, &validity)
     }
 
@@ -253,12 +254,12 @@ impl VTable for Zstd {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        ZstdSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let unsliced_validity = child_to_validity(
-            array.as_ref().slots()[0].as_ref(),
+            array.as_ref().slots()[ZstdSlots::VALIDITY].as_ref(),
             array.dtype().nullability(),
         );
         array
@@ -340,7 +341,7 @@ impl Zstd {
     /// Decompress a [`ZstdArray`] into its canonical Vortex representation.
     pub fn decompress(array: &ZstdArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let unsliced_validity = child_to_validity(
-            array.as_ref().slots()[0].as_ref(),
+            array.as_ref().slots()[ZstdSlots::VALIDITY].as_ref(),
             array.dtype().nullability(),
         );
         array
@@ -349,9 +350,11 @@ impl Zstd {
     }
 }
 
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
+#[array_slots(Zstd)]
+pub struct ZstdSlots {
+    /// The validity bitmap indicating which elements are non-null.
+    pub validity: Option<ArrayRef>,
+}
 
 #[derive(Clone, Debug)]
 /// Encoding-specific data for a [`ZstdArray`].
@@ -1107,8 +1110,10 @@ impl ZstdData {
 
 impl ValidityVTable<Zstd> for Zstd {
     fn validity(array: ArrayView<'_, Zstd>) -> VortexResult<Validity> {
-        let unsliced_validity =
-            child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
+        let unsliced_validity = child_to_validity(
+            array.slots()[ZstdSlots::VALIDITY].as_ref(),
+            array.dtype().nullability(),
+        );
         unsliced_validity.slice(array.slice_start()..array.slice_stop())
     }
 }
@@ -1119,8 +1124,10 @@ impl OperationsVTable<Zstd> for Zstd {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let unsliced_validity =
-            child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
+        let unsliced_validity = child_to_validity(
+            array.slots()[ZstdSlots::VALIDITY].as_ref(),
+            array.dtype().nullability(),
+        );
         let sliced = array.data().with_slice(index, index + 1);
         sliced
             .decompress(array.dtype(), &unsliced_validity, ctx)?

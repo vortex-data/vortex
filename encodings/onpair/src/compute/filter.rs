@@ -20,7 +20,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::arrays::list::ListArrayExt;
+use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;

@@ -9,6 +9,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 

@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::delta::Delta;
 use crate::delta::array::DeltaArrayExt;
+use crate::delta::array::DeltaArraySlotsExt;
 
 impl CastReduce for Delta {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

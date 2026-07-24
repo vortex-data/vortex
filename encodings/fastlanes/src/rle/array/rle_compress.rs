@@ -171,6 +171,7 @@ mod tests {
 
     use super::*;
     use crate::rle::array::RLEArrayExt;
+    use crate::rle::array::RLEArraySlotsExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();

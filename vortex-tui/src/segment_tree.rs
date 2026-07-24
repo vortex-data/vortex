@@ -8,7 +8,7 @@ use std::sync::Arc;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::file::SegmentSpec;
-use vortex::layout::Layout;
+use vortex::layout::DynLayout;
 use vortex::layout::LayoutChildType;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -34,7 +34,7 @@ pub struct SegmentTree {
 
 /// Collect segment tree from a layout and segment map.
 pub fn collect_segment_tree(
-    root_layout: &dyn Layout,
+    root_layout: &dyn DynLayout,
     segments: &Arc<[SegmentSpec]>,
 ) -> SegmentTree {
     let mut tree = SegmentTree {
@@ -54,7 +54,7 @@ pub fn collect_segment_tree(
 }
 
 fn segments_by_name_impl(
-    root: &dyn Layout,
+    root: &dyn DynLayout,
     group_name: Option<FieldName>,
     name: Option<FieldName>,
     row_offset: Option<u64>,

@@ -13,6 +13,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
 use vortex::array::arrays::listview::DEFAULT_TRIM_ELEMENTS_THRESHOLD;
 use vortex::array::arrays::listview::ListViewArrayExt;
+use vortex::array::arrays::listview::ListViewArraySlotsExt;
 use vortex::array::arrays::listview::ListViewDataParts;
 use vortex::array::arrays::listview::ListViewRebuildMode;
 use vortex::array::match_each_integer_ptype;

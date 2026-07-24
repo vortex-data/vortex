@@ -3,8 +3,11 @@
 
 mod array;
 pub use array::ListViewArrayExt;
+pub use array::ListViewArraySlotsExt;
 pub use array::ListViewData;
 pub use array::ListViewDataParts;
+pub use array::ListViewSlots;
+pub use array::ListViewSlotsView;
 pub use vtable::ListViewArray;
 
 pub(crate) mod compute;

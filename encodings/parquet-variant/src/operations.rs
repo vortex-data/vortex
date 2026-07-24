@@ -27,7 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::ParquetVariantArrayExt;
+use crate::ParquetVariantArraySlotsExt;
 use crate::vtable::ParquetVariant;
 
 impl OperationsVTable<ParquetVariant> for ParquetVariant {
@@ -46,7 +46,7 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
         }
 
         let metadata = array
-            .metadata_array()
+            .metadata()
             .execute_scalar(index, ctx)?
             .as_binary()
             .value()
@@ -54,8 +54,8 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
             .vortex_expect("non-null metadata row must have binary value");
         let inner = scalar_from_variant_storage(
             metadata.as_ref(),
-            array.value_array(),
-            array.typed_value_array(),
+            array.value(),
+            array.typed_value(),
             index,
             ctx,
         )?;

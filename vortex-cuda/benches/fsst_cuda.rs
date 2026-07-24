@@ -25,6 +25,7 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::FSSTArrayExt;
+use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
