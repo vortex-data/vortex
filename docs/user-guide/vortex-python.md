@@ -7,17 +7,17 @@ the Rust API are not yet exposed. See the {doc}`/api/python/index` for the full 
 
 ## Installation
 
-````{tab} pip
+With pip:
+
 ```bash
 pip install vortex-data
 ```
-````
 
-````{tab} uv
+With uv:
+
 ```bash
 uv add vortex-data
 ```
-````
 
 ## Creating Arrays
 

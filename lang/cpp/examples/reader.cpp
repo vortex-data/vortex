@@ -13,6 +13,7 @@ using namespace ops; // overloaded >= for Expressions
 namespace fs = std::filesystem;
 
 int main() {
+    // docs:begin:example
     const Session session;
     const DataSource ds = DataSource::open(session, {"people*.vortex", "me.vortex"});
     Scan scan = ds.scan({.filter = col("height") >= lit<uint16_t>(50)});
@@ -28,6 +29,7 @@ int main() {
         }
     }
     std::cout << "\n";
+    // docs:end:example
 
     return 0;
 }

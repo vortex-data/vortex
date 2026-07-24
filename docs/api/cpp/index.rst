@@ -26,12 +26,10 @@ from source, and for that you will need:
     git clone --depth 1 https://github.com/vortex-data/vortex
     cd vortex
     cargo build --release -p vortex-ffi
-    cd vortex-cxx
-    mkdir build
 
-    cmake -Bbuild -DCMAKE_BUILD_TYPE=Release
+    cmake -S lang/cpp -Bbuild -DCMAKE_BUILD_TYPE=Release
     # To build the examples, pass -DBUILD_EXAMPLES=1
-    # cmake -Bbuild -DBUILD_EXAMPLES=1
+    # cmake -S lang/cpp -Bbuild -DBUILD_EXAMPLES=1
 
     cmake --build build -j
 
@@ -45,37 +43,25 @@ This produces a shared and a static library which you can use directly or via
     target_link_libraries(target PRIVATE vortex_cxx_shared)
 
 Have a look at the `examples
-<https://github.com/vortex-data/vortex/tree/develop/vortex-cxx/examples>`_
+<https://github.com/vortex-data/vortex/tree/develop/lang/cpp/examples>`_
 directory as well.
 
 Reading files
 -------------
 
 Full source code for this example is `reader.cpp
-<https://github.com/vortex-data/vortex/tree/develop/vortex-cxx/examples/reader.cpp>`_.
-For brevity we omit ``main()``, system includes and ``using`` directives.
+<https://github.com/vortex-data/vortex/tree/develop/lang/cpp/examples/reader.cpp>`_
+. For brevity we omit ``main()``, system includes and ``using`` directives.
 
 Assuming you have Vortex files ``people0``, ``people1``, and ``me`` in a local folder,
 each containing U8 column "age" and U16 column "height", this is how you
 print all ages for specific heights:
 
-.. code-block:: cpp
-
-    Session session;
-    DataSource ds = DataSource::open(session, {"people*.vortex", "me.vortex"});
-    Scan scan = ds.scan({.filter = col("height") >= lit<uint16_t>(50)});
-
-    for (Partition &partition : scan.partitions()) {
-        for (Array &array : partition.batches()) {
-            Array age = array.field("age");
-            PrimitiveView<uint8_t> age_view = age.values<uint8_t>(session);
-            std::span<const uint8_t> age_values = age_view.values();
-            for (uint8_t value : age_values) {
-                std::cout << int(value) << " ";
-            }
-        }
-    }
-    std::cout << "\n";
+.. literalinclude:: ../../../lang/cpp/examples/reader.cpp
+   :language: cpp
+   :start-after: docs:begin:example
+   :end-before: docs:end:example
+   :dedent: 4
 
 DataSource and Scan
 ^^^^^^^^^^^^^^^^^^^
@@ -160,42 +146,13 @@ Writing files
 
 Now let's write the first files to be read by our previous example.
 Source code for this example is `writer.cpp
-<https://github.com/vortex-data/vortex/tree/develop/vortex-cxx/examples/writer.cpp>`_.
+<https://github.com/vortex-data/vortex/tree/develop/lang/cpp/examples/writer.cpp>`_.
 
-.. code-block:: cpp
-
-    Session session;
-    DataType dtype = dtype::struct_({
-        {"age", dtype::uint8()},
-        {"height", dtype::uint16(Nullable)},
-    });
-
-    constexpr size_t SAMPLE_ROWS = 100;
-    std::vector<uint8_t> age_buffer(SAMPLE_ROWS);
-    std::vector<uint16_t> height_buffer(SAMPLE_ROWS);
-    for (size_t i = 0; i < SAMPLE_ROWS; ++i) {
-        age_buffer[i] = static_cast<uint8_t>(i);
-        height_buffer[i] = static_cast<uint16_t>((i + 1) % 200);
-    }
-
-    Array age = Array::primitive<uint8_t>(age_buffer);
-    Array array = make_struct({
-        {"age", age},
-        {"height", Array::primitive<uint16_t>(height_buffer, AllValid)},
-    });
-
-    Expression age_gt_10 = expr::gt(expr::col("age"), expr::lit<uint8_t>(10));
-    Array validity_array = array.apply(age_gt_10);
-
-    Validity validity = Validity::from_array(validity_array);
-    Array array2 = make_struct({
-        {"age", age},
-        {"height", Array::primitive<uint16_t>(height_buffer, validity)},
-    });
-
-    Writer writer = Writer::open(session, argv[1], dtype);
-    writer.push({array, array2});
-    writer.finish();
+.. literalinclude:: ../../../lang/cpp/examples/writer.cpp
+   :language: cpp
+   :start-after: docs:begin:example
+   :end-before: docs:end:example
+   :dedent: 4
 
 DataType
 ^^^^^^^^

@@ -1,7 +1,3 @@
----
-sd_hide_title: true
----
-
 # Vortex
 
 :::{image} _static/vortex_wordmark.svg
@@ -22,52 +18,45 @@ around the latest research from the database community.
 
 ## Where to start
 
-::::{grid} 1 2 2 3
-:gutter: 3
+::::{container} cards
 
-:::{grid-item-card} Read & write Vortex files
-:link: getting-started/index
-:link-type: doc
+:::{container} card
+[**Read & write Vortex files**](getting-started/index.md)
 
 Get started with Vortex in **Python**, **Rust**, or **Java**. Convert from Parquet, compress
 your data, and query it.
 :::
 
-:::{grid-item-card} Use with a query engine
-:link: user-guide/index
-:link-type: doc
+:::{container} card
+[**Use with a query engine**](user-guide/index.md)
 
 Integrate Vortex with **DataFusion**, **DuckDB**, **Spark**, **Trino**, or **Ray** for
 accelerated queries over compressed data.
 :::
 
-:::{grid-item-card} Understand the architecture
-:link: concepts/index
-:link-type: doc
+:::{container} card
+[**Understand the architecture**](concepts/index.md)
 
 Learn how **DTypes**, **Arrays**, **Encodings**, **Layouts**, and the **Scan API** fit together
 as building blocks.
 :::
 
-:::{grid-item-card} Extend Vortex
-:link: developer-guide/index
-:link-type: doc
+:::{container} card
+[**Extend Vortex**](developer-guide/index.md)
 
 Write your own **encodings**, **layouts**, **compute functions**, or **extension types** from
 Rust or Python.
 :::
 
-:::{grid-item-card} Create an engine integration
-:link: developer-guide/index
-:link-type: doc
+:::{container} card
+[**Create an engine integration**](developer-guide/index.md)
 
 Build a **query engine connector** or **data source** using the **Scan API**, **C FFI**, or
 **C++ wrapper**.
 :::
 
-:::{grid-item-card} Internals
-:link: developer-guide/index
-:link-type: doc
+:::{container} card
+[**Internals**](developer-guide/index.md)
 
 Explore the **crate architecture**, **async runtime**, **session system**, and integration
 internals. Build and benchmark locally.

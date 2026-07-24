@@ -1,0 +1,7 @@
+[theme]
+inherit = "basic"
+stylesheets = [
+    "vortex.css",
+]
+
+[options]
