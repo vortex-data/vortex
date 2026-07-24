@@ -5,12 +5,13 @@
 //!
 //! [`vortex_edition`] provides the types, session variables, and test harness. The actual
 //! first-party declarations live here, one module per edition. The default session first
-//! registers them with [`register_default_editions`] and then selects its write policy with
-//! [`enable_default_editions`].
+//! registers them with [`crate::editions::register_default_editions`] and then selects its write
+//! policy with [`crate::editions::enable_default_editions`].
 //!
 //! The default file writer resolves the session's enabled editions at write time. The
-//! facade enables the newest frozen `core` edition, [`CORE_2026_07_0`], and additionally
-//! enables the latest unstable edition when the `unstable_encodings` feature is selected.
+//! facade enables the newest frozen `core` edition, [`crate::editions::CORE_2026_07_0`], and
+//! additionally enables the latest unstable edition when the `unstable_encodings` feature is
+//! selected.
 
 pub mod core;
 #[cfg(test)]
