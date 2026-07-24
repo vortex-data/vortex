@@ -20,6 +20,8 @@ pub use array::UnionArrayExt;
 pub use array::UnionDataParts;
 pub use vtable::UnionArray;
 
+pub(crate) mod compute;
+
 mod vtable;
 pub use vtable::Union;
 

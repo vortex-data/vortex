@@ -216,41 +216,48 @@ where
 {
     let values = array.buffer::<F>();
     let values = values.as_slice();
-    let cast_plan = DecimalCastPlan::<T>::new(from_decimal_dtype, to_decimal_dtype);
-
-    let buffer = match valid_values {
-        Mask::AllTrue(_) => {
-            let mut buffer = BufferMut::<T>::with_capacity(values.len());
-            values
-                .try_map_into(&mut buffer.spare_capacity_mut()[..values.len()], |value| {
-                    cast_plan.cast(value)
-                })
-                .map_err(|idx| {
-                    decimal_cast_error::<F, T>(values[idx], from_decimal_dtype, to_decimal_dtype)
-                })?;
-            // SAFETY: try_map_into initializes every lane before returning Ok.
-            unsafe { buffer.set_len(values.len()) };
-            buffer.freeze()
+    let cast_result = match DecimalCastPlan::<T>::new(from_decimal_dtype, to_decimal_dtype) {
+        DecimalCastPlan::SameScale { min, max } => {
+            cast_decimal_buffer(values, valid_values, |value| {
+                let value = <T as BigCast>::from(value)?;
+                (value >= min && value <= max).then_some(value)
+            })
         }
-        Mask::AllFalse(_) => BufferMut::<T>::zeroed(values.len()).freeze(),
-        Mask::Values(mask) => {
-            let mut buffer = BufferMut::<T>::with_capacity(values.len());
-            values
-                .try_map_masked_into(
-                    mask.bit_buffer(),
-                    &mut buffer.spare_capacity_mut()[..values.len()],
-                    |value| cast_plan.cast(value),
-                )
-                .map_err(|idx| {
-                    decimal_cast_error::<F, T>(values[idx], from_decimal_dtype, to_decimal_dtype)
-                })?;
-            // SAFETY: try_map_masked_into initializes every lane before returning Ok.
-            unsafe { buffer.set_len(values.len()) };
-            buffer.freeze()
-        }
+        cast_plan => cast_decimal_buffer(values, valid_values, |value| cast_plan.cast(value)),
     };
+    let buffer = cast_result.map_err(|idx| {
+        decimal_cast_error::<F, T>(values[idx], from_decimal_dtype, to_decimal_dtype)
+    })?;
 
     Ok(DecimalArray::new(buffer, to_decimal_dtype, validity).into_array())
+}
+
+fn cast_decimal_buffer<F, T>(
+    values: &[F],
+    valid_values: &Mask,
+    mut cast: impl FnMut(F) -> Option<T>,
+) -> Result<Buffer<T>, usize>
+where
+    F: NativeDecimalType,
+    T: NativeDecimalType,
+{
+    let mut buffer = BufferMut::<T>::with_capacity(values.len());
+    match valid_values {
+        Mask::AllTrue(_) => {
+            values.try_map_into(&mut buffer.spare_capacity_mut()[..values.len()], &mut cast)?;
+        }
+        Mask::AllFalse(_) => return Ok(BufferMut::<T>::zeroed(values.len()).freeze()),
+        Mask::Values(mask) => {
+            values.try_map_masked_into(
+                mask.bit_buffer(),
+                &mut buffer.spare_capacity_mut()[..values.len()],
+                &mut cast,
+            )?;
+        }
+    }
+    // SAFETY: the selected map kernel initialized every lane before returning Ok.
+    unsafe { buffer.set_len(values.len()) };
+    Ok(buffer.freeze())
 }
 
 #[cold]

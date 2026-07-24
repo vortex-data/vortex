@@ -72,8 +72,8 @@ impl ZonedReader {
 
     /// Get the range of zone IDs containing a row range.
     pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<u64> {
-        // Caller must ensure zone_len > 0. Legacy files may deserialize with zone_len == 0, but
-        // pruning_evaluation disables zoned pruning for those layouts before calling this helper.
+        // Callers rely on `zone_len > 0`. `new_reader` never constructs a `ZonedReader` for a
+        // zero-length zone map (it reads the data child directly), so this holds by construction.
         debug_assert!(self.layout.zone_len > 0, "zone_len must be > 0");
 
         let zone_len_u64 = self.layout.zone_len as u64;
@@ -127,11 +127,6 @@ impl LayoutReader for ZonedReader {
         let data_eval = self
             .data_child()?
             .pruning_evaluation(row_range, expr, mask.clone())?;
-
-        if self.layout.zone_len == 0 {
-            trace!("Stats pruning evaluation: skipping zoned pruning for legacy zero-length zones");
-            return Ok(data_eval);
-        }
 
         let Some(pruning_mask_future) = self.pruning.pruning_mask_future(expr.clone()) else {
             trace!("Stats pruning evaluation: not prune-able {expr}");
@@ -469,6 +464,21 @@ mod test {
                 .await?;
 
             assert!(result.all_true());
+
+            // The bypass returns the data child's reader, so projection reads the underlying data.
+            let projected = reader
+                .projection_evaluation(
+                    &(0..row_count),
+                    &root(),
+                    MaskFuture::new_true(row_count.try_into().unwrap()),
+                )?
+                .await?;
+            let mut ctx = array_session().create_execution_ctx();
+            assert_arrays_eq!(
+                projected,
+                buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array(),
+                &mut ctx
+            );
             Ok(())
         })
     }

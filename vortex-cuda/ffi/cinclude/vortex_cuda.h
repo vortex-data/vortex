@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "vortex.h"
@@ -76,6 +77,24 @@ vx_array_sink *vx_cuda_array_sink_open_file(const vx_session *session,
                                             vx_error **error_out);
 
 /**
+ * Open a CUDA-readable Vortex file sink with a fixed row block size.
+ *
+ * `block_rows` controls the row granularity of CUDA-flat data blocks. Passing zero uses the default
+ * writer strategy: 8,192-row blocks may be coalesced into data blocks targeting 1 MiB. Passing any
+ * nonzero value disables this byte-size coalescing, so passing 8,192 is not equivalent to passing
+ * zero.
+ *
+ * Write and scan sizing are independent. To align on-disk row blocks with scan batches, pass the
+ * same nonzero value to this function and `vx_cuda_scan_path_arrow_device_stream_batch_rows`; the
+ * API does not enforce a match.
+ */
+vx_array_sink *vx_cuda_array_sink_open_file_block_rows(const vx_session *session,
+                                                       vx_view path,
+                                                       const vx_dtype *dtype,
+                                                       size_t block_rows,
+                                                       vx_error **error_out);
+
+/**
  * Scan a local CUDA-compatible Vortex file as an Arrow C Device stream.
  *
  * Files written by `vx_cuda_array_sink_open_file` are compatible with this path. Reusing the same
@@ -89,6 +108,22 @@ int vx_cuda_scan_path_arrow_device_stream(const vx_session *session,
                                           vx_view path,
                                           struct ArrowDeviceArrayStream *out_stream,
                                           vx_error **error_out);
+
+/**
+ * Scan a local CUDA-compatible Vortex file with fixed-size row batches.
+ *
+ * `batch_rows` controls the number of rows in each output `ArrowDeviceArray`. Pass zero to use the
+ * layout-derived splitting of `vx_cuda_scan_path_arrow_device_stream`.
+ *
+ * Scan and write sizing are independent. To align scan batches with on-disk row blocks, pass the
+ * same nonzero value to this function and `vx_cuda_array_sink_open_file_block_rows`; the API does
+ * not enforce a match.
+ */
+int vx_cuda_scan_path_arrow_device_stream_batch_rows(const vx_session *session,
+                                                     vx_view path,
+                                                     size_t batch_rows,
+                                                     struct ArrowDeviceArrayStream *out_stream,
+                                                     vx_error **error_out);
 
 /**
  * Export a borrowed Vortex array for cuDF's Arrow Device import path.

@@ -65,6 +65,35 @@ use crate::vtable;
 vtable!(Zoned);
 vtable!(LegacyStats);
 
+/// Builds a reader for a zoned layout, bypassing [`ZonedReader`] when the zone map is empty
+/// (`zone_len == 0`) and reading the data child directly, since there is nothing to prune with.
+/// This covers both legacy zero-length zones and layouts whose aggregates the session cannot
+/// reconstruct.
+fn zoned_reader(
+    layout: &ZonedLayout,
+    name: Arc<str>,
+    segment_source: Arc<dyn SegmentSource>,
+    session: &VortexSession,
+    ctx: &crate::LayoutReaderContext,
+) -> VortexResult<LayoutReaderRef> {
+    if layout.zone_len == 0 {
+        return layout.children.child(0, &layout.dtype)?.new_reader(
+            name,
+            segment_source,
+            session,
+            ctx,
+        );
+    }
+
+    Ok(Arc::new(ZonedReader::try_new(
+        layout.clone(),
+        name,
+        segment_source,
+        session.clone(),
+        ctx.clone(),
+    )?))
+}
+
 impl VTable for Zoned {
     type Layout = ZonedLayout;
     type Encoding = ZonedLayoutEncoding;
@@ -134,13 +163,7 @@ impl VTable for Zoned {
         session: &VortexSession,
         ctx: &crate::LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
-        Ok(Arc::new(ZonedReader::try_new(
-            layout.clone(),
-            name,
-            segment_source,
-            session.clone(),
-            ctx.clone(),
-        )?))
+        zoned_reader(layout, name, segment_source, session, ctx)
     }
 
     fn build(
@@ -251,13 +274,7 @@ impl VTable for LegacyStats {
         session: &VortexSession,
         ctx: &crate::LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
-        Ok(Arc::new(ZonedReader::try_new(
-            layout.0.clone(),
-            name,
-            segment_source,
-            session.clone(),
-            ctx.clone(),
-        )?))
+        zoned_reader(&layout.0, name, segment_source, session, ctx)
     }
 
     fn build(

@@ -17,6 +17,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::Union;
 use crate::arrays::UnionArray;
 use crate::arrays::union::UnionArrayExt;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -180,6 +181,54 @@ fn outer_nulls_are_independent_from_inner_nulls() -> VortexResult<()> {
             Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
             Nullability::Nullable,
         )?
+    );
+
+    Ok(())
+}
+
+#[test]
+fn masking_adds_outer_nulls_only() -> VortexResult<()> {
+    let masked = union_array()?
+        .into_array()
+        .mask(BoolArray::from_iter([true, false, true]).into_array())?;
+    let mut ctx = array_session().create_execution_ctx();
+    let masked = masked.execute::<UnionArray>(&mut ctx)?;
+
+    assert_eq!(
+        masked.dtype(),
+        &DType::Union(variants()?, Nullability::Nullable)
+    );
+    assert_eq!(
+        masked.validity()?.execute_mask(masked.len(), &mut ctx)?,
+        Mask::from_iter([true, false, true])
+    );
+    assert_eq!(
+        masked.execute_scalar(1, &mut ctx)?,
+        Scalar::null(DType::Union(variants()?, Nullability::Nullable))
+    );
+    assert_eq!(
+        masked.execute_scalar(2, &mut ctx)?,
+        Scalar::union(variants()?, 5, 30i32.into(), Nullability::Nullable,)?
+    );
+
+    Ok(())
+}
+
+#[test]
+fn slice_and_filter_preserve_sparse_alignment() -> VortexResult<()> {
+    let array = union_array()?.into_array();
+    let mut ctx = array_session().create_execution_ctx();
+
+    let sliced = array.slice(1..3)?;
+    let filtered = array.filter(Mask::from_iter([true, false, true]))?;
+
+    assert_eq!(
+        sliced.execute_scalar(0, &mut ctx)?,
+        Scalar::union(variants()?, 9, true.into(), Nullability::NonNullable,)?
+    );
+    assert_eq!(
+        filtered.execute_scalar(1, &mut ctx)?,
+        Scalar::union(variants()?, 5, 30i32.into(), Nullability::NonNullable,)?
     );
 
     Ok(())

@@ -24,6 +24,7 @@ use crate::arrays::union::UnionArrayExt;
 use crate::arrays::union::array::CHILDREN_OFFSET;
 use crate::arrays::union::array::TYPE_IDS_SLOT;
 use crate::arrays::union::array::make_union_parts;
+use crate::arrays::union::compute::rules::PARENT_RULES;
 use crate::arrays::union::union_type_ids_dtype;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -151,8 +152,8 @@ impl VTable for Union {
         }
     }
 
-    fn execute(_array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        todo!("TODO(connor)[Union]: implement execute for Union arrays")
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn append_to_builder(
@@ -161,5 +162,13 @@ impl VTable for Union {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         todo!("TODO(connor)[Union]: implement append_to_builder for Union arrays")
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }

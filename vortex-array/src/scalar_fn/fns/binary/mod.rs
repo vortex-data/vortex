@@ -262,8 +262,11 @@ impl ScalarFnVTable for Binary {
         })
     }
 
-    fn is_null_sensitive(&self, _operator: &Operator) -> bool {
-        false
+    fn is_null_sensitive(&self, operator: &Operator) -> bool {
+        // Kleene AND/OR is not strict (`false AND null = false`, `true OR null = true`), so
+        // these operators cannot be pushed through dictionary null codes. This is consistent
+        // with `validity` returning `None` for AND/OR above.
+        matches!(operator, Operator::And | Operator::Or)
     }
 
     fn is_fallible(&self, operator: &Operator) -> bool {
