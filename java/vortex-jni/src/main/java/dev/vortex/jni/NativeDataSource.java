@@ -41,8 +41,8 @@ public final class NativeDataSource {
     public static native void free(long pointer);
 
     /**
-     * Export the data source's schema into the Arrow C Data Interface struct at {@code schemaAddress}. Extension
-     * dtypes are dispatched through the session's registered Arrow export plugins.
+     * Export the data source's schema into the Arrow C Data Interface struct at {@code schemaAddress}. Extension dtypes
+     * are dispatched through the session's registered Arrow export plugins.
      *
      * @param sessionPointer pointer from {@link NativeSession#newSession()}
      */

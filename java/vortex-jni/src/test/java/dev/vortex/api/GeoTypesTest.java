@@ -34,9 +34,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Round-trips a Vortex geo extension column ({@code vortex.geo.wkb}) through the JNI boundary.
- * Geo columns cross the boundary as Arrow fields tagged with the GeoArrow extension name
- * ({@code geoarrow.wkb}) and JSON metadata carrying the CRS.
+ * Round-trips a Vortex geo extension column ({@code vortex.geo.wkb}) through the JNI boundary. Geo columns cross the
+ * boundary as Arrow fields tagged with the GeoArrow extension name ({@code geoarrow.wkb}) and JSON metadata carrying
+ * the CRS.
  */
 public final class GeoTypesTest {
     private static final String EXTENSION_NAME_KEY = "ARROW:extension:name";
@@ -148,8 +148,7 @@ public final class GeoTypesTest {
     }
 
     private static Field wkbField(String name) {
-        Map<String, String> metadata =
-                Map.of(EXTENSION_NAME_KEY, GEOARROW_WKB, EXTENSION_METADATA_KEY, CRS_METADATA);
+        Map<String, String> metadata = Map.of(EXTENSION_NAME_KEY, GEOARROW_WKB, EXTENSION_METADATA_KEY, CRS_METADATA);
         return new Field(name, new FieldType(true, ArrowType.Binary.INSTANCE, null, metadata), null);
     }
 
