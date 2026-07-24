@@ -6,6 +6,7 @@ package dev.vortex.api;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.vortex.arrow.ArrowAllocation;
 import dev.vortex.jni.NativeLoader;
@@ -226,10 +227,15 @@ public final class TestMinimal {
     }
 
     @Test
-    public void testSelectionIndicesMustBeSortedAndUnique() {
-        IllegalArgumentException exception =
-                assertThrows(IllegalArgumentException.class, () -> ScanOptions.includeRows(2, 1));
-        assertEquals("selection indices must be sorted ascending and unique", exception.getMessage());
+    public void testSelectionIndicesMustBeSortedAndUnique() throws Exception {
+        Session session = Session.create();
+        DataSource ds = DataSource.open(session, writePath);
+
+        RuntimeException exception =
+                assertThrows(RuntimeException.class, () -> ds.scan(ScanOptions.includeRows(2, 1)));
+        assertTrue(
+                exception.getMessage().contains("must be strictly increasing"),
+                "unexpected message: " + exception.getMessage());
     }
 
     @Test
