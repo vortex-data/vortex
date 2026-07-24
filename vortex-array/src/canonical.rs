@@ -228,7 +228,7 @@ impl Canonical {
                     struct_dtype
                         .fields()
                         .map(|f| Canonical::empty(&f).into_array())
-                        .collect::<Arc<[_]>>(),
+                        .collect::<Vec<_>>(),
                     struct_dtype.clone(),
                     0,
                     Validity::from(n),
@@ -854,9 +854,9 @@ impl Executable for RecursiveCanonical {
                     validity,
                 } = st.into_data_parts();
                 let executed_fields = fields
-                    .iter()
-                    .map(|f| Ok(f.clone().execute::<RecursiveCanonical>(ctx)?.0.into_array()))
-                    .collect::<VortexResult<Arc<[_]>>>()?;
+                    .into_iter()
+                    .map(|f| Ok(f.execute::<RecursiveCanonical>(ctx)?.0.into_array()))
+                    .collect::<VortexResult<Vec<_>>>()?;
 
                 Ok(RecursiveCanonical(Canonical::Struct(unsafe {
                     StructArray::new_unchecked(
