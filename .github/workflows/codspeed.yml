@@ -128,8 +128,8 @@ jobs:
       - name: Package CUB shared library
         run: |
           find target/release/build -path '*/out/libvortex_cub.so' \
-            -exec cp {} target/codspeed/libvortex_cub.so \;
-          test -f target/codspeed/libvortex_cub.so
+            -exec cp {} target/codspeed/walltime/vortex-cuda/libvortex_cub.so \;
+          test -f target/codspeed/walltime/vortex-cuda/libvortex_cub.so
       - name: Upload benchmark executables
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
         with:
