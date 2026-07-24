@@ -16,6 +16,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::Date;
 use vortex_array::extension::datetime::TimeUnit;

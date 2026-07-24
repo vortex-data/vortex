@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fs::File;
 use std::io;
-use std::path::Path;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -30,98 +28,13 @@ use vortex::io::std_file::read_exact_at;
 use crate::pinned::PinnedByteBufferPool;
 use crate::stream::VortexCudaStream;
 
-/// Default number of concurrent requests to allow for local file I/O.
-pub const DEFAULT_FILE_CONCURRENCY: usize = 32;
+mod file;
+
+pub use file::PooledFileReadAt;
+pub use file::PooledFileReadAtOptions;
+
 /// Default number of concurrent requests to allow for object store I/O.
 pub const DEFAULT_OBJECT_STORE_CONCURRENCY: usize = 192;
-
-/// File reader that uses CUDA pinned host memory for I/O buffers and transfers
-/// directly to the GPU.
-///
-/// Reads into a pooled pinned (page-locked) buffer, then submits a non-blocking
-/// H2D DMA transfer and returns a device `BufferHandle`.
-///
-/// This is a data-plane reader. To open a complete local Vortex file, prefer
-/// [`crate::CudaOpenOptionsExt::with_cuda`], which keeps the footer and zone maps on the host.
-#[derive(Clone)]
-pub struct PooledFileReadAt {
-    uri: Arc<str>,
-    file: Arc<File>,
-    handle: Handle,
-    pool: Arc<PinnedByteBufferPool>,
-    stream: VortexCudaStream,
-}
-
-impl PooledFileReadAt {
-    /// Open a file for pooled reading with direct device transfer.
-    pub fn open(
-        path: impl AsRef<Path>,
-        handle: Handle,
-        pool: Arc<PinnedByteBufferPool>,
-        stream: VortexCudaStream,
-    ) -> VortexResult<Self> {
-        let path = path.as_ref();
-        let uri = Arc::from(path.to_string_lossy().to_string());
-        let file = Arc::new(File::open(path)?);
-        Ok(Self {
-            uri,
-            file,
-            handle,
-            pool,
-            stream,
-        })
-    }
-}
-
-impl VortexReadAt for PooledFileReadAt {
-    fn uri(&self) -> Option<&Arc<str>> {
-        Some(&self.uri)
-    }
-
-    fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        Some(CoalesceConfig::file())
-    }
-
-    fn concurrency(&self) -> usize {
-        DEFAULT_FILE_CONCURRENCY
-    }
-
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let file = Arc::clone(&self.file);
-        async move {
-            let metadata = file.metadata()?;
-            Ok(metadata.len())
-        }
-        .boxed()
-    }
-
-    fn read_at(
-        &self,
-        offset: u64,
-        length: usize,
-        _alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let file = Arc::clone(&self.file);
-        let handle = self.handle.clone();
-        let stream = self.stream.clone();
-        let pool = Arc::clone(&self.pool);
-
-        async move {
-            let mut target = pool.get(length)?;
-            let target = handle
-                .spawn_blocking(move || {
-                    read_exact_at(&file, target.as_mut_slice(), offset)?;
-                    Ok::<_, io::Error>(target)
-                })
-                .await
-                .map_err(VortexError::from)?;
-
-            let cuda_buf = target.transfer_to_device(&stream)?;
-            Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
-        }
-        .boxed()
-    }
-}
 
 /// Object store reader that uses CUDA pinned host memory for I/O buffers and
 /// transfers directly to the GPU.

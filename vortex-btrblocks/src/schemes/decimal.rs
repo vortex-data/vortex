@@ -3,10 +3,12 @@
 
 //! Decimal compression scheme using byte-part decomposition.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
@@ -36,6 +38,10 @@ impl Scheme for DecimalScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         matches!(canonical, Canonical::Decimal(_))
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![DecimalByteParts.id()]
     }
 
     /// Children: primitive=0.

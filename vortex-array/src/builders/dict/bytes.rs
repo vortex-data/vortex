@@ -31,7 +31,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::varbin::VarBinArrayExt;
+use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::arrays::varbinview::build_views::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::PType;

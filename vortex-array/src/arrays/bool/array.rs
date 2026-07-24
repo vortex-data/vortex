@@ -23,16 +23,18 @@ use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::array_slots;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::validity::Validity;
 
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
+#[array_slots(Bool)]
+pub struct BoolSlots {
+    /// The validity bitmap indicating which elements are non-null.
+    pub validity: Option<ArrayRef>,
+}
 
 /// Inner data for a boolean array that stores true/false values in a compact bit-packed format.
 ///
@@ -94,7 +96,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.as_ref().slots()[BoolSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -110,7 +112,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
     }
 
     fn maybe_execute_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Option<Mask>> {
-        let all_valid = match &self.validity() {
+        let all_valid = match &BoolArrayExt::validity(self) {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
             Validity::Array(a) => a.statistics().compute_min::<bool>(ctx).unwrap_or(false),
@@ -125,8 +127,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
     }
 
     fn to_mask_fill_null_false(&self, ctx: &mut ExecutionCtx) -> Mask {
-        let validity_mask = self
-            .validity()
+        let validity_mask = BoolArrayExt::validity(self)
             .execute_mask(self.as_ref().len(), ctx)
             .vortex_expect("Failed to compute validity mask");
         let buffer = match validity_mask {

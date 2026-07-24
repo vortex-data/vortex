@@ -4,8 +4,8 @@
 //! Definitions of Vortex *editions*: named, frozen sets of encodings that a writer may put in
 //! a file, carrying a forever read-compatibility guarantee.
 //!
-//! Editions live on the session, like encodings do: [`EditionSession`] is the session
-//! variable holding the edition registry, populated at initialization time. Declarations
+//! Editions live on the session, like encodings do: [`EditionSession`] holds the registered
+//! editions and [`EnabledEditions`] selects which of them a writer may emit. Declarations
 //! are plain constants — an [`EditionId`] plus an [`Edition`] record, and one
 //! [`EditionInclusion`] per encoding stating that it is a member of an edition *and every
 //! later edition of the same family*. Any crate can register declarations into a session,
@@ -18,9 +18,8 @@
 //! [`test_harness::validate_edition`] validates one edition's constraints — call it once in
 //! the `#[cfg(test)]` module of each edition definition.
 //!
-//! This crate defines only the types and the session variable; the first-party edition
-//! declarations live in the public `vortex` crate (`vortex::editions`), which seeds them
-//! into the default session. See the published spec at
+//! The first-party edition declarations live in the public `vortex` crate, which registers
+//! and enables them on the default session. See the published spec at
 //! <https://docs.vortex.dev/specs/editions.html>.
 
 mod session;
@@ -36,6 +35,7 @@ use std::fmt::Formatter;
 
 pub use session::EditionSession;
 pub use session::EditionSessionExt;
+pub use session::EnabledEditions;
 use vortex_session::registry::Id;
 
 /// The identifier of an edition, e.g. `core2026.07.0`.
@@ -43,7 +43,7 @@ use vortex_session::registry::Id;
 /// The `family` names an independently versioned, additive group of encodings (`core` is the
 /// set the default writer emits). The date components record when the edition was frozen and
 /// order editions chronologically *within* a family; there is no ordering across families.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EditionId {
     /// The edition family, e.g. `core`.
     pub family: &'static str,

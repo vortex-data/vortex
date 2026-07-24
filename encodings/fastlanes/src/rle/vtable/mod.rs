@@ -22,9 +22,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -32,11 +30,10 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::RLEData;
-use crate::rle::array::INDICES_SLOT;
 use crate::rle::array::RLEArrayExt;
-use crate::rle::array::SLOT_NAMES;
-use crate::rle::array::VALUES_IDX_OFFSETS_SLOT;
-use crate::rle::array::VALUES_SLOT;
+use crate::rle::array::RLEArraySlotsExt;
+use crate::rle::array::RLESlots;
+use crate::rle::array::RLESlotsView;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::vtable::rules::RULES;
 
@@ -93,16 +90,11 @@ impl VTable for RLE {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
+        let rle_slots = RLESlotsView::from_slots(slots);
         validate_parts(
-            slots[VALUES_SLOT]
-                .as_ref()
-                .vortex_expect("RLEArray values slot must be populated"),
-            slots[INDICES_SLOT]
-                .as_ref()
-                .vortex_expect("RLEArray indices slot must be populated"),
-            slots[VALUES_IDX_OFFSETS_SLOT]
-                .as_ref()
-                .vortex_expect("RLEArray values_idx_offsets slot must be populated"),
+            rle_slots.values,
+            rle_slots.indices,
+            rle_slots.values_idx_offsets,
             data.offset,
             dtype,
             len,
@@ -138,7 +130,7 @@ impl VTable for RLE {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        RLESlots::NAMES[idx].to_string()
     }
 
     fn serialize(
@@ -195,7 +187,12 @@ impl VTable for RLE {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let slots = RLESlots {
+            values,
+            indices,
+            values_idx_offsets,
+        }
+        .into_slots();
         let data = RLEData::try_new(metadata.offset as usize)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -219,7 +216,12 @@ impl RLE {
         length: usize,
     ) -> VortexResult<RLEArray> {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let slots = RLESlots {
+            values,
+            indices,
+            values_idx_offsets,
+        }
+        .into_slots();
         let data = RLEData::try_new(offset)?;
         Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
     }
@@ -236,7 +238,12 @@ impl RLE {
         length: usize,
     ) -> RLEArray {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let slots = RLESlots {
+            values,
+            indices,
+            values_idx_offsets,
+        }
+        .into_slots();
         let data = unsafe { RLEData::new_unchecked(offset) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))

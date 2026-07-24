@@ -398,6 +398,7 @@ mod tests {
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex::array::arrays::listview::ListViewArrayExt;
+    use vortex::array::arrays::listview::ListViewArraySlotsExt;
     use vortex::array::arrays::struct_::StructArrayExt;
     use vortex::array::assert_arrays_eq;
     use vortex::error::VortexExpect;

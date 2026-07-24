@@ -8,9 +8,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use async_lock::Mutex as AsyncMutex;
-use smallvec::smallvec;
 use vortex_error::SharedVortexResult;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -19,12 +17,14 @@ use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
+use crate::array_slots;
 use crate::arrays::Shared;
 
-/// The source array that is shared and lazily computed.
-pub(super) const SOURCE_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["source"];
+#[array_slots(Shared)]
+pub struct SharedSlots {
+    /// The source array that is shared and lazily computed.
+    pub source: ArrayRef,
+}
 
 /// A lazily-executing array wrapper with a one-way transition from source to cached form.
 ///
@@ -43,13 +43,7 @@ impl Display for SharedData {
 }
 
 #[expect(async_fn_in_trait)]
-pub trait SharedArrayExt: TypedArrayRef<Shared> {
-    fn source(&self) -> &ArrayRef {
-        self.as_ref().slots()[SOURCE_SLOT]
-            .as_ref()
-            .vortex_expect("validated shared source slot")
-    }
-
+pub trait SharedArrayExt: TypedArrayRef<Shared> + SharedArraySlotsExt {
     fn current_array_ref(&self) -> &ArrayRef {
         match self.cached.get() {
             Some(Ok(arr)) => arr,
@@ -116,7 +110,7 @@ impl Array<Shared> {
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Shared, dtype, len, SharedData::new())
-                    .with_slots(smallvec![Some(source)]),
+                    .with_slots(SharedSlots { source }.into_slots()),
             )
         }
     }

@@ -3,10 +3,12 @@
 
 //! Sparse encoding for null-dominated string arrays.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::scheme::ChildSelection;
@@ -38,6 +40,10 @@ impl Scheme for NullDominatedSparseScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         canonical.dtype().is_utf8()
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![Sparse.id()]
     }
 
     /// Children: indices=0.

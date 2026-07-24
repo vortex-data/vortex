@@ -3,10 +3,12 @@
 
 //! Frame of Reference integer encoding.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_compressor::builtins::BinaryDictScheme;
 use vortex_compressor::builtins::FloatDictScheme;
@@ -20,6 +22,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
+use vortex_fastlanes::FoRArraySlotsExt;
 
 use super::BitPackingScheme;
 use crate::ArrayAndStats;
@@ -39,6 +42,10 @@ impl Scheme for FoRScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         canonical.dtype().is_int()
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![FoR.id()]
     }
 
     /// Dict codes always start at 0, so FoR (which subtracts the min) is a no-op.

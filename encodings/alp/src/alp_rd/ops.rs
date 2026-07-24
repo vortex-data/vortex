@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::ALPRD;
 use crate::ALPRDArrayExt;
+use crate::ALPRDArraySlotsExt;
 
 impl OperationsVTable<ALPRD> for ALPRD {
     fn scalar_at(

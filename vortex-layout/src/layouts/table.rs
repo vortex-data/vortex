@@ -349,8 +349,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_io::runtime::single::block_on;
-    use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutRef;
     use crate::LayoutStrategy;
@@ -658,9 +656,9 @@ mod tests {
         .with_field_writer(FieldPath::root(), flat);
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "panic while transposing table stream")]
-    fn table_fanout_panic_propagates() {
+    async fn table_fanout_panic_propagates() {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (_, eof) = SequenceId::root().split();
@@ -680,18 +678,15 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
         );
 
-        block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
-            strategy
-                .write_stream(
-                    ctx,
-                    segments,
-                    SequentialStreamAdapter::new(dtype, stream).sendable(),
-                    eof,
-                    &session,
-                )
-                .await
-                .unwrap();
-        });
+        strategy
+            .write_stream(
+                ctx,
+                segments,
+                SequentialStreamAdapter::new(dtype, stream).sendable(),
+                eof,
+                &SESSION,
+            )
+            .await
+            .unwrap();
     }
 }

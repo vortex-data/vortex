@@ -6,7 +6,6 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use smallvec::smallvec;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -26,6 +25,7 @@ use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::array_slots;
 use crate::arrays::ListView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -42,23 +42,24 @@ use crate::match_each_unsigned_integer_ptype;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 
-/// The `elements` data array, where each list scalar is a _slice_ of the `elements` array, and
-/// each inner list element is a _scalar_ of the `elements` array.
-pub(super) const ELEMENTS_SLOT: usize = 0;
-/// The `offsets` array indicating the start position of each list in elements.
-///
-/// Since we also store `sizes`, this `offsets` field is allowed to be stored out-of-order
-/// (which is different from [`ListArray`](crate::arrays::ListArray)).
-pub(super) const OFFSETS_SLOT: usize = 1;
-/// The `sizes` array indicating the length of each list.
-///
-/// This field is intended to be paired with a corresponding offset to determine the list scalar
-/// we want to access.
-pub(super) const SIZES_SLOT: usize = 2;
-/// The validity bitmap indicating which list elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 3;
-pub(super) const NUM_SLOTS: usize = 4;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "sizes", "validity"];
+#[array_slots(ListView)]
+pub struct ListViewSlots {
+    /// The `elements` data array, where each list scalar is a _slice_ of the `elements` array,
+    /// and each inner list element is a _scalar_ of the `elements` array.
+    pub elements: ArrayRef,
+    /// The `offsets` array indicating the start position of each list in elements.
+    ///
+    /// Since we also store `sizes`, this `offsets` field is allowed to be stored out-of-order
+    /// (which is different from [`ListArray`](crate::arrays::ListArray)).
+    pub offsets: ArrayRef,
+    /// The `sizes` array indicating the length of each list.
+    ///
+    /// This field is intended to be paired with a corresponding offset to determine the list
+    /// scalar we want to access.
+    pub sizes: ArrayRef,
+    /// The validity bitmap indicating which list elements are non-null.
+    pub validity: Option<ArrayRef>,
+}
 
 /// The canonical encoding for variable-length list arrays.
 ///
@@ -166,12 +167,13 @@ impl ListViewData {
         validity: &Validity,
         len: usize,
     ) -> ArraySlots {
-        smallvec![
-            Some(elements.clone()),
-            Some(offsets.clone()),
-            Some(sizes.clone()),
-            validity_to_child(validity, len),
-        ]
+        ListViewSlots {
+            elements: elements.clone(),
+            offsets: offsets.clone(),
+            sizes: sizes.clone(),
+            validity: validity_to_child(validity, len),
+        }
+        .into_slots()
     }
 
     /// Creates a new `ListViewArray`.
@@ -347,7 +349,7 @@ fn fill_referenced_mask<O: IntegerPType, S: IntegerPType>(
     }
 }
 
-pub trait ListViewArrayExt: TypedArrayRef<ListView> {
+pub trait ListViewArrayExt: ListViewArraySlotsExt {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.as_ref().dtype() {
             DType::List(_, nullability) => *nullability,
@@ -355,27 +357,9 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         }
     }
 
-    fn elements(&self) -> &ArrayRef {
-        self.as_ref().slots()[ELEMENTS_SLOT]
-            .as_ref()
-            .vortex_expect("ListViewArray elements slot")
-    }
-
-    fn offsets(&self) -> &ArrayRef {
-        self.as_ref().slots()[OFFSETS_SLOT]
-            .as_ref()
-            .vortex_expect("ListViewArray offsets slot")
-    }
-
-    fn sizes(&self) -> &ArrayRef {
-        self.as_ref().slots()[SIZES_SLOT]
-            .as_ref()
-            .vortex_expect("ListViewArray sizes slot")
-    }
-
     fn listview_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.as_ref().slots()[ListViewSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -667,13 +651,13 @@ impl Array<ListView> {
     }
 
     pub fn into_data_parts(self) -> ListViewDataParts {
-        let elements = self.slots()[ELEMENTS_SLOT]
+        let elements = self.slots()[ListViewSlots::ELEMENTS]
             .clone()
             .vortex_expect("ListViewArray elements slot");
-        let offsets = self.slots()[OFFSETS_SLOT]
+        let offsets = self.slots()[ListViewSlots::OFFSETS]
             .clone()
             .vortex_expect("ListViewArray offsets slot");
-        let sizes = self.slots()[SIZES_SLOT]
+        let sizes = self.slots()[ListViewSlots::SIZES]
             .clone()
             .vortex_expect("ListViewArray sizes slot");
         let validity = self.listview_validity();

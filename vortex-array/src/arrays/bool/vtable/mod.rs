@@ -21,7 +21,7 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::child_to_validity;
 use crate::arrays::bool::BoolData;
-use crate::arrays::bool::array::SLOT_NAMES;
+use crate::arrays::bool::array::BoolSlots;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::BoolBuilder;
@@ -146,7 +146,7 @@ impl VTable for Bool {
             data.bits.len() * 8
         );
 
-        let validity = child_to_validity(slots[0].as_ref(), *nullability);
+        let validity = child_to_validity(slots[BoolSlots::VALIDITY].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == len,
@@ -189,7 +189,7 @@ impl VTable for Bool {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        BoolSlots::NAMES[idx].to_string()
     }
 
     fn append_to_builder(

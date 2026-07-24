@@ -19,7 +19,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::Variant;
-use vortex_array::arrays::variant::VariantArrayExt;
+use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::dtype::DType;
 use vortex_arrow::ArrowExport;
 use vortex_arrow::ArrowExportVTable;
@@ -36,6 +36,7 @@ use vortex_session::registry::Id;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
+use crate::ParquetVariantArraySlotsExt;
 use crate::array::parquet_typed_value_from_logical_shredded;
 
 /// Arrow canonical extension name for Parquet Variant storage.
@@ -68,9 +69,9 @@ pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
 
     for field in target_fields {
         let child = match field.name().as_str() {
-            "metadata" => Some(parquet_array.metadata_array().clone()),
-            "value" => parquet_array.value_array().cloned(),
-            "typed_value" => parquet_array.typed_value_array().cloned(),
+            "metadata" => Some(parquet_array.metadata().clone()),
+            "value" => parquet_array.value().cloned(),
+            "typed_value" => parquet_array.typed_value().cloned(),
             _ => unreachable!("storage fields were validated before export"),
         };
         let Some(child) = child else {
@@ -89,7 +90,7 @@ pub(crate) fn export_storage_to_target<T: ParquetVariantArrayExt>(
     }
 
     let nulls = to_arrow_null_buffer(
-        ParquetVariantArrayExt::validity(parquet_array),
+        ParquetVariantArrayExt::parquet_variant_validity(parquet_array),
         parquet_array.as_ref().len(),
         ctx,
     )?;
@@ -145,9 +146,9 @@ pub(crate) fn parquet_variant_for_export(
     let typed_value = parquet_typed_value_from_logical_shredded(shredded.clone(), ctx)?;
 
     ParquetVariant::try_new(
-        ParquetVariantArrayExt::validity(&parquet_core),
-        parquet_core.metadata_array().clone(),
-        parquet_core.value_array().cloned(),
+        ParquetVariantArrayExt::parquet_variant_validity(&parquet_core),
+        parquet_core.metadata().clone(),
+        parquet_core.value().cloned(),
         Some(typed_value),
     )
     .map(IntoArray::into_array)
@@ -195,8 +196,8 @@ impl ArrowExportVTable for ParquetVariant {
             && let Some((request_has_value, request_has_typed_value)) =
                 parquet_variant_storage_request(fields)
         {
-            let has_value = parquet_array.value_array().is_some();
-            let has_typed_value = parquet_array.typed_value_array().is_some();
+            let has_value = parquet_array.value().is_some();
+            let has_typed_value = parquet_array.typed_value().is_some();
 
             if request_has_value && !request_has_typed_value && has_typed_value {
                 return Ok(ArrowExport::Exported(export_unshredded_storage_to_target(

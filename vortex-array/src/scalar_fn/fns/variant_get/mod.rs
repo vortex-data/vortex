@@ -408,7 +408,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VariantArray;
-    use crate::arrays::variant::VariantArrayExt;
+    use crate::arrays::variant::VariantArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::assert_nth_scalar_is_null;
     use crate::dtype::DType;

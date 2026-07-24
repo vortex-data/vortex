@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::CompressorContext;
@@ -15,6 +17,7 @@ use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexResult;
 
 use crate::matcher::AnyTensor;
+use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 
 #[derive(Debug)]
@@ -30,6 +33,10 @@ impl Scheme for L2DenormScheme {
             canonical,
             Canonical::Extension(ext) if ext.ext_dtype().is::<AnyTensor>()
         )
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![L2Denorm.id()]
     }
 
     fn expected_compression_ratio(

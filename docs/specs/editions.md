@@ -37,6 +37,10 @@ Every file you write carries the read-forever guarantee. If a file would contain
 outside the targeted edition, the write fails immediately; edition violations never surface as
 someone else's read error later.
 
+The enabled editions are stored on the writer's Vortex session. Registering an edition makes
+its declaration available to the session; enabling it separately allows the writer to emit its
+encodings. Enabling another edition from the same family replaces the earlier selection.
+
 Two knobs exist when the default is not what you want:
 
 - **Pin an older edition** when files must stay readable by deployments running older Vortex.
@@ -45,9 +49,10 @@ Two knobs exist when the default is not what you want:
   example spatial encodings) possible later. A writer targets at most one edition per family
   and may emit any encoding in their union; each encoding belongs to exactly one family.
 
-You can also opt out of editions entirely to write custom or experimental encodings. Doing so
-is an explicit choice that gives up the standardization guarantee — only readers that know your
-encodings can read those files.
+Lower-level sessions without an enabled-editions store opt out of editions entirely and can write
+custom or experimental encodings. A raw `with_allow_encodings` writer policy is another explicit
+opt-out. Either choice gives up the standardization guarantee — only readers that know those
+encodings can read the files.
 
 ## How editions change
 

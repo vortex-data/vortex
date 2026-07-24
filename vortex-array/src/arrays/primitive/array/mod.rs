@@ -44,14 +44,16 @@ use crate::aggregate_fn::NumericalAggregateOpts;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::array_slots;
 use crate::arrays::bool::BoolArrayExt;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
 
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
+#[array_slots(Primitive)]
+pub struct PrimitiveSlots {
+    /// The validity bitmap indicating which elements are non-null.
+    pub validity: Option<ArrayRef>,
+}
 
 /// A primitive array that stores [native types][crate::dtype::NativePType] in a contiguous buffer
 /// of memory, along with an optional validity child.
@@ -119,12 +121,12 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
+        self.as_ref().slots()[PrimitiveSlots::VALIDITY].as_ref()
     }
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.as_ref().slots()[PrimitiveSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }
@@ -144,7 +146,11 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        PrimitiveArray::from_buffer_handle(self.buffer_handle().clone(), ptype, self.validity())
+        PrimitiveArray::from_buffer_handle(
+            self.buffer_handle().clone(),
+            ptype,
+            PrimitiveArrayExt::validity(self),
+        )
     }
 
     /// Narrow the array to the smallest possible integer type that can represent all values.
@@ -156,7 +162,7 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
         let Some(min_max) = min_max(self.as_ref(), ctx, NumericalAggregateOpts::default())? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
-                self.validity(),
+                PrimitiveArrayExt::validity(self),
             ));
         };
 

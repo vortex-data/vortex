@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 
 use crate::FoR;
 use crate::r#for::array::FoRArrayExt;
+use crate::r#for::array::FoRArraySlotsExt;
 
 pub(super) const PARENT_RULES: ParentRuleSet<FoR> = ParentRuleSet::new(&[
     // TODO: add BetweenReduceAdaptor(FoR)

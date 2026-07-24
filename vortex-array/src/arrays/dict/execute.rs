@@ -30,7 +30,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::TakeReduce;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 
 /// Take from a canonical array using indices (codes), returning a new canonical array.
 ///
@@ -54,7 +54,10 @@ pub(crate) fn take_canonical(
         }
         Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
         Canonical::Union(_) => {
-            todo!("TODO(connor)[Union]: implement dictionary execution for Union arrays")
+            todo!(
+                "TODO(connor)[Union]: implement dictionary execution after Union take supports \
+                 nullable indices and outer null propagation"
+            )
         }
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes, ctx)),
         Canonical::Variant(a) => {

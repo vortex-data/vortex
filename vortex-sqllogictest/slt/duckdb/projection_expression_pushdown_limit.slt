@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT
+    list_value(1, generate_series) AS a FROM generate_series(10)
+) TO '${WORK_DIR}/pe-pushdown-limit.vortex';
+
+statement ok
+CREATE VIEW list_pe AS SELECT a FROM '${WORK_DIR}/pe-pushdown-limit.vortex';
+
+query TT
+EXPLAIN
+SELECT array_length(a) FROM list_pe LIMIT 1;
+----
+<REGEX>:SELECT projections

@@ -8,7 +8,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Variant;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Variant> for Variant {

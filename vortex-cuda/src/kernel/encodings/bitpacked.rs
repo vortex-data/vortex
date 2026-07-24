@@ -16,7 +16,7 @@ use vortex::array::ArrayView;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Slice;
-use vortex::array::arrays::slice::SliceArrayExt;
+use vortex::array::arrays::slice::SliceArraySlotsExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_integer_ptype;
@@ -208,8 +208,10 @@ where
             .arg(&patches_arg);
     })?;
 
-    // NOTE: we must synchronize here, as the device patches are only alive for this call.
-    ctx.synchronize_stream()?;
+    // Patch-free decodes need no host synchronization.
+    if device_patches.is_some() {
+        ctx.synchronize_stream()?;
+    }
 
     let output_handle =
         BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));

@@ -107,7 +107,7 @@ impl LayoutReader for FlatReader {
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
-        split_range.check_bounds(self.layout.row_count)?;
+        split_range.check_bounds(self.layout.row_count())?;
         splits.push(split_range.root_row_range().end);
         Ok(())
     }
@@ -251,12 +251,12 @@ mod test {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
+    use crate::test::new_session;
 
     #[test]
     fn flat_identity() -> VortexResult<()> {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -296,7 +296,7 @@ mod test {
     #[test]
     fn flat_expr() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
 
@@ -336,7 +336,7 @@ mod test {
     #[test]
     fn flat_unaligned_row_mask() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());

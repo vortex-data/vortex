@@ -19,6 +19,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
 use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -72,7 +73,8 @@ impl VTable for ByteBool {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let validity = child_to_validity(slots[VALIDITY_SLOT].as_ref(), dtype.nullability());
+        let validity =
+            child_to_validity(slots[ByteBoolSlots::VALIDITY].as_ref(), dtype.nullability());
         ByteBoolData::validate(data.buffer(), &validity, dtype, len)
     }
 
@@ -153,7 +155,7 @@ impl VTable for ByteBool {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        ByteBoolSlots::NAMES[idx].to_string()
     }
 
     fn reduce_parent(
@@ -174,10 +176,11 @@ impl VTable for ByteBool {
     }
 }
 
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
+#[array_slots(ByteBool)]
+pub struct ByteBoolSlots {
+    /// The validity bitmap indicating which elements are non-null.
+    pub validity: Option<ArrayRef>,
+}
 
 #[derive(Clone, Debug)]
 pub struct ByteBoolData {
@@ -190,10 +193,11 @@ impl Display for ByteBoolData {
     }
 }
 
-pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
-    fn validity(&self) -> Validity {
+pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> + ByteBoolArraySlotsExt {
+    /// Returns the [`Validity`] derived from the validity slot.
+    fn bytebool_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.as_ref().slots()[ByteBoolSlots::VALIDITY].as_ref(),
             self.as_ref().dtype().nullability(),
         )
     }
@@ -302,7 +306,7 @@ impl ByteBoolData {
 
 impl ValidityVTable<ByteBool> for ByteBool {
     fn validity(array: ArrayView<'_, ByteBool>) -> VortexResult<Validity> {
-        Ok(ByteBoolArrayExt::validity(&array))
+        Ok(array.bytebool_validity())
     }
 }
 

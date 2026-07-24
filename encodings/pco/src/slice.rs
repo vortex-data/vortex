@@ -7,15 +7,14 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
-use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 
 use crate::Pco;
+use crate::PcoArrayExt;
 
 impl SliceReduce for Pco {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let unsliced_validity =
-            child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
+        let unsliced_validity = array.unsliced_validity();
         Ok(Some(
             Pco::try_new(
                 array.dtype().clone(),

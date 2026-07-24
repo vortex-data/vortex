@@ -57,6 +57,7 @@ use vortex_session::VortexSession;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
+use crate::ParquetVariantArraySlotsExt;
 use crate::compute::AllNonDistinctParquetVariant;
 
 pub(crate) fn initialize(session: &VortexSession) {
@@ -229,15 +230,9 @@ impl SliceKernel for ParquetVariant {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity()?.slice(range.clone())?;
-        let metadata = array.metadata_array().slice(range.clone())?;
-        let value = array
-            .value_array()
-            .map(|v| v.slice(range.clone()))
-            .transpose()?;
-        let typed_value = array
-            .typed_value_array()
-            .map(|tv| tv.slice(range))
-            .transpose()?;
+        let metadata = array.metadata().slice(range.clone())?;
+        let value = array.value().map(|v| v.slice(range.clone())).transpose()?;
+        let typed_value = array.typed_value().map(|tv| tv.slice(range)).transpose()?;
         Ok(Some(
             ParquetVariant::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
@@ -251,13 +246,10 @@ impl FilterKernel for ParquetVariant {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity()?.filter(mask)?;
-        let metadata = array.metadata_array().filter(mask.clone())?;
-        let value = array
-            .value_array()
-            .map(|v| v.filter(mask.clone()))
-            .transpose()?;
+        let metadata = array.metadata().filter(mask.clone())?;
+        let value = array.value().map(|v| v.filter(mask.clone())).transpose()?;
         let typed_value = array
-            .typed_value_array()
+            .typed_value()
             .map(|tv| tv.filter(mask.clone()))
             .transpose()?;
         Ok(Some(
@@ -273,13 +265,10 @@ impl TakeExecute for ParquetVariant {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity()?.take(indices)?;
-        let metadata = array.metadata_array().take(indices.clone())?;
-        let value = array
-            .value_array()
-            .map(|v| v.take(indices.clone()))
-            .transpose()?;
+        let metadata = array.metadata().take(indices.clone())?;
+        let value = array.value().map(|v| v.take(indices.clone())).transpose()?;
         let typed_value = array
-            .typed_value_array()
+            .typed_value()
             .map(|tv| tv.take(indices.clone()))
             .transpose()?;
         Ok(Some(
@@ -318,7 +307,7 @@ mod tests {
     use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::struct_::StructArrayExt;
-    use vortex_array::arrays::variant::VariantArrayExt;
+    use vortex_array::arrays::variant::VariantArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar_is_null;
     use vortex_array::dtype::DType as VortexDType;
@@ -338,7 +327,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ParquetVariant;
-    use crate::ParquetVariantArrayExt;
+    use crate::ParquetVariantArraySlotsExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = vortex_array::array_session();
@@ -922,7 +911,7 @@ mod tests {
         let executed = array.clone().execute::<ArrayRef>(&mut ctx)?;
         let typed_value = executed
             .as_::<ParquetVariant>()
-            .typed_value_array()
+            .typed_value()
             .ok_or_else(|| vortex_err!("expected typed_value child"))?
             .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
@@ -1004,8 +993,8 @@ mod tests {
             .core_storage()
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
-        assert!(core_storage.typed_value_array().is_none());
-        assert!(core_storage.value_array().is_some());
+        assert!(core_storage.typed_value().is_none());
+        assert!(core_storage.value().is_some());
 
         let shredded = canonical_variant
             .shredded()
@@ -1103,7 +1092,7 @@ mod tests {
         assert!(
             parquet_array
                 .as_::<ParquetVariant>()
-                .typed_value_array()
+                .typed_value()
                 .is_some()
         );
 
@@ -1117,8 +1106,8 @@ mod tests {
             .core_storage()
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
-        assert!(core_storage.typed_value_array().is_none());
-        assert!(core_storage.value_array().is_some());
+        assert!(core_storage.typed_value().is_none());
+        assert!(core_storage.value().is_some());
 
         Ok(())
     }

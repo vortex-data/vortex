@@ -22,6 +22,7 @@ use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::filter::FilterKernel;
 use crate::arrays::list::ListArrayExt;
+use crate::arrays::list::ListArraySlotsExt;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;

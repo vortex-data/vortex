@@ -11,7 +11,7 @@ use crate::array::ArrayView;
 use crate::arrays::Filter;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::filter::FilterArrayExt;
+use crate::arrays::filter::FilterArraySlotsExt;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::struct_::StructDataParts;

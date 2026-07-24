@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::r#for::FoR;
 use crate::r#for::array::FoRArrayExt;
+use crate::r#for::array::FoRArraySlotsExt;
 impl CastReduce for FoR {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FoR only supports integer types

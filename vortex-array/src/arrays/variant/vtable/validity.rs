@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::array::ArrayView;
 use crate::array::ValidityVTable;
 use crate::arrays::Variant;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::validity::Validity;
 
 impl ValidityVTable<Variant> for Variant {

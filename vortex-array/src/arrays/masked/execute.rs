@@ -17,14 +17,17 @@ use crate::arrays::ListViewArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::UnionArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::struct_::StructArrayExt;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::union::UnionArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
@@ -50,9 +53,7 @@ pub fn mask_validity_canonical(
             Canonical::FixedSizeList(mask_validity_fixed_size_list(a, validity)?)
         }
         Canonical::Struct(a) => Canonical::Struct(mask_validity_struct(a, validity)?),
-        Canonical::Union(_) => {
-            todo!("TODO(connor)[Union]: implement masking for Union arrays")
-        }
+        Canonical::Union(a) => Canonical::Union(mask_validity_union(a, validity)?),
         Canonical::Extension(a) => Canonical::Extension(mask_validity_extension(a, validity, ctx)?),
         Canonical::Variant(a) => Canonical::Variant(mask_validity_variant(a, validity, ctx)?),
     })
@@ -69,7 +70,7 @@ fn mask_validity_primitive(
 ) -> VortexResult<PrimitiveArray> {
     let ptype = array.ptype();
     let new_validity = Validity::and(array.validity()?, validity)?;
-    // SAFETY: validity has same length as values
+    // SAFETY: We're only changing validity, not the data structure.
     Ok(unsafe {
         PrimitiveArray::new_unchecked_from_handle(
             array.buffer_handle().clone(),
@@ -81,7 +82,7 @@ fn mask_validity_primitive(
 
 fn mask_validity_decimal(array: DecimalArray, validity: Validity) -> VortexResult<DecimalArray> {
     let new_validity = Validity::and(array.validity()?, validity)?;
-    // SAFETY: We're only changing validity, not the data structure
+    // SAFETY: We're only changing validity, not the data structure.
     Ok(unsafe {
         DecimalArray::new_unchecked_handle(
             array.buffer_handle().clone(),
@@ -99,7 +100,7 @@ fn mask_validity_varbinview(
 ) -> VortexResult<VarBinViewArray> {
     let dtype = array.dtype().as_nullable();
     let new_validity = Validity::and(array.validity()?, validity)?;
-    // SAFETY: We're only changing validity, not the data structure
+    // SAFETY: We're only changing validity, not the data structure.
     Ok(unsafe {
         VarBinViewArray::new_handle_unchecked(
             array.views_handle().clone(),
@@ -112,7 +113,7 @@ fn mask_validity_varbinview(
 
 fn mask_validity_listview(array: ListViewArray, validity: Validity) -> VortexResult<ListViewArray> {
     let new_validity = Validity::and(array.validity()?, validity)?;
-    // SAFETY: We're only changing validity, not the data structure
+    // SAFETY: We're only changing validity, not the data structure.
     let is_zctl = array.is_zero_copy_to_list();
     Ok(unsafe {
         ListViewArray::new_unchecked(
@@ -132,7 +133,7 @@ fn mask_validity_fixed_size_list(
     let len = array.len();
     let list_size = array.list_size();
     let new_validity = Validity::and(array.validity()?, validity)?;
-    // SAFETY: We're only changing validity, not the data structure
+    // SAFETY: We're only changing validity, not the data structure.
     Ok(unsafe {
         FixedSizeListArray::new_unchecked(array.elements().clone(), list_size, new_validity, len)
     })
@@ -143,8 +144,20 @@ fn mask_validity_struct(array: StructArray, validity: Validity) -> VortexResult<
     let new_validity = Validity::and(array.validity()?, validity)?;
     let fields = array.unmasked_fields();
     let struct_fields = array.struct_fields();
-    // SAFETY: We're only changing validity, not the data structure
+    // SAFETY: We're only changing validity, not the data structure.
     Ok(unsafe { StructArray::new_unchecked(fields, struct_fields.clone(), len, new_validity) })
+}
+
+fn mask_validity_union(array: UnionArray, validity: Validity) -> VortexResult<UnionArray> {
+    let type_ids = array
+        .type_ids()
+        .clone()
+        .mask(validity.to_array(array.len()))?;
+    let variants = array.variants().clone();
+    let children = array.children();
+
+    // SAFETY: We're only changing validity, not the data structure.
+    Ok(unsafe { UnionArray::new_unchecked(type_ids, variants, children) })
 }
 
 fn mask_validity_extension(
@@ -152,7 +165,7 @@ fn mask_validity_extension(
     validity: Validity,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ExtensionArray> {
-    // For extension arrays, we need to mask the underlying storage
+    // For extension arrays, we need to mask the underlying storage.
     let storage = array.storage_array().clone().execute::<Canonical>(ctx)?;
     let masked_storage = mask_validity_canonical(storage, validity, ctx)?;
     let masked_storage = masked_storage.into_array();

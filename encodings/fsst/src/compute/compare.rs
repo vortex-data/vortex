@@ -21,6 +21,7 @@ use vortex_error::vortex_bail;
 
 use crate::FSST;
 use crate::FSSTArrayExt;
+use crate::FSSTArraySlotsExt;
 impl CompareKernel for FSST {
     fn compare(
         lhs: ArrayView<'_, Self>,

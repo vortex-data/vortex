@@ -50,6 +50,7 @@ use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArrayExt;
+use vortex::encodings::fastlanes::FoRArraySlotsExt;
 use vortex::encodings::fastlanes::FoRData;
 use vortex::encodings::runend::RunEnd;
 use vortex::error::VortexExpect;

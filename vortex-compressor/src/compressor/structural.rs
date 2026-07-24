@@ -12,7 +12,8 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::list::ListArrayExt;
-use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::list::ListArraySlotsExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_error::VortexResult;
 

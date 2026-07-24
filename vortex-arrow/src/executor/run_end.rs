@@ -23,6 +23,7 @@ use vortex_error::vortex_err;
 use vortex_runend::RunEnd;
 use vortex_runend::RunEndArray;
 use vortex_runend::RunEndArrayExt;
+use vortex_runend::RunEndArraySlotsExt;
 
 use crate::ArrowArrayExecutor;
 

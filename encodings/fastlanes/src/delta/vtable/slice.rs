@@ -11,6 +11,7 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::delta::array::DeltaArrayExt;
+use crate::delta::array::DeltaArraySlotsExt;
 use crate::delta::array::lane_count;
 use crate::delta::vtable::Delta;
 

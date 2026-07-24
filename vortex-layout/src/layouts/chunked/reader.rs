@@ -53,7 +53,7 @@ impl ChunkedReader {
         ctx: LayoutReaderContext,
     ) -> Self {
         let nchildren = layout.nchildren();
-        let dtypes = vec![layout.dtype.clone(); nchildren];
+        let dtypes = vec![layout.dtype().clone(); nchildren];
 
         // format!() has non-marginal overhead for short queries like random
         // access benchmarks
@@ -66,7 +66,7 @@ impl ChunkedReader {
         };
 
         let lazy_children = LazyReaderChildren::new(
-            Arc::clone(&layout.children),
+            Arc::clone(layout.children()),
             dtypes,
             names,
             segment_source,
@@ -365,7 +365,6 @@ mod test {
     use vortex_io::session::RuntimeSessionExt;
     use vortex_session::registry::ReadContext;
 
-    use crate::IntoLayout;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::OwnedLayoutChildren;
@@ -381,6 +380,7 @@ mod test {
     use crate::sequence::SequentialStreamAdapter;
     use crate::sequence::SequentialStreamExt as _;
     use crate::test::SESSION;
+    use crate::test::new_session;
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -392,7 +392,7 @@ mod test {
         let (mut sequence_id, eof) = SequenceId::root().split();
         let segments2 = Arc::<TestSegments>::clone(&segments);
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
                     ctx,

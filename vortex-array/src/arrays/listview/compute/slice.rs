@@ -10,7 +10,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for ListView {

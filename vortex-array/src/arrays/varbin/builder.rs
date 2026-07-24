@@ -133,7 +133,7 @@ mod tests {
 
     use crate::VortexSessionExecute;
     use crate::array_session;
-    use crate::arrays::varbin::VarBinArrayExt;
+    use crate::arrays::varbin::VarBinArraySlotsExt;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;

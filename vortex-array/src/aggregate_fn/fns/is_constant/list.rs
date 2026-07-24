@@ -8,6 +8,7 @@ use super::is_constant;
 use crate::ExecutionCtx;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 
 /// Check if a list view array is constant by comparing each list's elements.
 ///
