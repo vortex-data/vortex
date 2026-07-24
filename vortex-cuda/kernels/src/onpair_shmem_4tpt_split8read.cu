@@ -39,10 +39,10 @@
 #endif
 #define WARP_BUF_BYTES 2080u
 
-__device__ inline uint32_t onpair_warp_inclusive_scan_u32(uint32_t x, int lane) {
+__device__ inline uint32_t onpair_warp_inclusive_scan_u32(uint32_t x, uint32_t lane) {
     constexpr unsigned mask = 0xffffffffu;
 #pragma unroll
-    for (int offset = 1; offset < 32; offset <<= 1) {
+    for (uint8_t offset = 1; offset < 32; offset <<= 1) {
         uint32_t y = __shfl_up_sync(mask, x, offset);
         if (lane >= offset) {
             x += y;
@@ -70,7 +70,7 @@ __device__ inline OnPairTokens onpair_load_tokens(const uint16_t *__restrict cod
                                                   uint64_t total_tokens) {
     OnPairTokens t;
 #pragma unroll
-    for (int k = 0; k < 4; ++k) {
+    for (uint8_t k = 0; k < 4; ++k) {
         const uint64_t i = base_i + (uint64_t)(k * 32);
         if (i < total_tokens) {
             const uint32_t code = (uint32_t)codes[i];
@@ -89,11 +89,11 @@ __device__ inline OnPairTokens onpair_load_tokens(const uint16_t *__restrict cod
 // Phase 2 — position every token within the batch: `excl[k]` is the exclusive
 // prefix (the token's staging offset) via 4 chained warp scans of the lengths.
 // Returns the batch's total decoded byte count.
-__device__ inline uint32_t onpair_scan_offsets(const uint32_t (&len)[4], int lane, uint32_t (&excl)[4]) {
+__device__ inline uint32_t onpair_scan_offsets(const uint32_t (&len)[4], uint32_t lane, uint32_t (&excl)[4]) {
     constexpr unsigned mask = 0xffffffffu;
     uint32_t acc_base = 0u;
 #pragma unroll
-    for (int k = 0; k < 4; ++k) {
+    for (uint8_t k = 0; k < 4; ++k) {
         const uint32_t incl = onpair_warp_inclusive_scan_u32(len[k], lane);
         excl[k] = acc_base + (incl - len[k]);
         acc_base += __shfl_sync(mask, incl, 31);
@@ -110,7 +110,7 @@ __device__ inline void onpair_stage_tokens(const OnPairTokens &t,
                                            const uint8_t *__restrict dict_padded,
                                            uint8_t *__restrict s_buf) {
 #pragma unroll
-    for (int k = 0; k < 4; ++k) {
+    for (uint8_t k = 0; k < 4; ++k) {
         const uint32_t len = t.len[k];
         if (len == 0u) {
             continue;
@@ -119,8 +119,8 @@ __device__ inline void onpair_stage_tokens(const OnPairTokens &t,
         const uint8_t *lob = reinterpret_cast<const uint8_t *>(&t.lo[k]);
         const uint32_t nlo = len < 8u ? len : 8u;
 #pragma unroll
-        for (int j = 0; j < 8; ++j) {
-            if (j < (int)nlo) {
+        for (uint8_t j = 0; j < 8; ++j) {
+            if (j < nlo) {
                 s_buf[base + j] = lob[j];
             }
         }
@@ -129,8 +129,8 @@ __device__ inline void onpair_stage_tokens(const OnPairTokens &t,
             const uint2 hi = *reinterpret_cast<const uint2 *>(dict_padded + (size_t)t.code[k] * 16u + 8u);
             const uint8_t *hib = reinterpret_cast<const uint8_t *>(&hi);
 #pragma unroll
-            for (int j = 0; j < 8; ++j) {
-                if (8 + j < (int)len) {
+            for (uint8_t j = 0; j < 8; ++j) {
+                if (8u + j < len) {
                     s_buf[base + 8 + j] = hib[j];
                 }
             }
@@ -147,9 +147,9 @@ __device__ inline void onpair_drain(const uint8_t *__restrict s_buf,
                                     uint64_t out_start,
                                     uint32_t head_pre,
                                     uint32_t warp_total,
-                                    int lane) {
+                                    uint32_t lane) {
     const uint32_t head = head_pre < warp_total ? head_pre : warp_total;
-    if ((uint32_t)lane < head) {
+    if (lane < head) {
         output_bytes[out_start + (uint64_t)lane] = s_buf[lane];
     }
     if (head >= warp_total) {
@@ -157,14 +157,14 @@ __device__ inline void onpair_drain(const uint8_t *__restrict s_buf,
     }
 
     const uint32_t body_chunks = (warp_total - head) >> 4;
-    for (uint32_t k = (uint32_t)lane; k < body_chunks; k += 32u) {
+    for (uint8_t k = (uint8_t)lane; k < body_chunks; k += 32u) {
         const uint32_t off = head + k * 16u;
         const uint4 v = *reinterpret_cast<const uint4 *>(s_buf + off);
         __stcs(reinterpret_cast<uint4 *>(output_bytes + out_start + off), v);
     }
 
     const uint32_t tail_start = head + (body_chunks << 4);
-    if ((uint32_t)lane < warp_total - tail_start) {
+    if (lane < warp_total - tail_start) {
         output_bytes[out_start + (uint64_t)tail_start + (uint64_t)lane] = s_buf[tail_start + lane];
     }
 }
@@ -177,7 +177,7 @@ onpair_shmem_4tpt_split8read(const uint16_t *__restrict codes,
                              const uint8_t *__restrict lens,
                              uint8_t *__restrict output_bytes,
                              uint64_t total_tokens) {
-    const int lane = threadIdx.x & 31;
+    const uint32_t lane = threadIdx.x & 31;
     const uint32_t warp_id = threadIdx.x >> 5;
     const uint64_t chunk = (uint64_t)blockIdx.x * (uint64_t)(blockDim.x >> 5) + (uint64_t)warp_id;
     if (chunk * 128u >= total_tokens) {

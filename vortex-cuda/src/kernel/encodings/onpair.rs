@@ -5,10 +5,10 @@
 //!
 //! Decoding runs on the GPU over the flat token stream:
 //!
-//! 1. `onpair_batch_sizes` reduces the decoded byte size of every 128-token
-//!    batch from the codes and the per-token length LUT, and a CUB exclusive
-//!    scan regenerates the per-batch output offsets (`chunk_offsets`) the
-//!    decode kernel positions its writes with.
+//! 1. `onpair_batch_offsets` (in the CUB shim) regenerates the per-batch
+//!    output offsets (`chunk_offsets`) the decode kernel positions its writes
+//!    with: one fused sweep reduces every 128-token batch's decoded size and
+//!    exclusive-scans the sizes in-kernel via decoupled look-back.
 //! 2. `onpair_shmem_4tpt_split8read` gathers each token's bytes from the
 //!    split dictionary layout and scatters them to the output byte stream.
 //!
@@ -62,7 +62,7 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::arrow::I32Offsets;
 use crate::arrow::i32_offsets_from_lengths;
-use crate::cub::exclusive_sum_u64;
+use crate::cub::onpair_batch_offsets;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 use crate::kernel::encodings::DecodedVarBin;
@@ -71,7 +71,7 @@ use crate::kernel::encodings::DecodedVarBin;
 const _: () = assert!(MAX_TOKEN_SIZE == 16);
 
 /// Tokens per decode batch: one decode-kernel warp emits 128 tokens (4 per
-/// thread). Must match `ONPAIR_TOKENS_PER_BATCH` in `kernels/src/onpair.cu`.
+/// thread). Must match `ONPAIR_TOKENS_PER_BATCH` in `cub/kernels/onpair.cu`.
 const TOKENS_PER_BATCH: usize = 128;
 /// Threads per block for the warp-per-batch kernels (16 warps).
 const BLOCK_THREADS: u32 = 512;
@@ -162,13 +162,13 @@ struct OnPairDecoded {
 }
 
 /// Stage this array's code window and dictionary on the device and regenerate
-/// the decode kernel's per-batch output offsets from them (steps 1–2 of the
-/// pipeline: `onpair_batch_sizes` + CUB exclusive scan).
+/// the decode kernel's per-batch output offsets from them in one fused sweep
+/// (see [`onpair_batch_offsets`]).
 async fn stage_codes(
     onpair: &OnPairArray,
     code_start: usize,
     code_end: usize,
-    status: &CudaSlice<u32>,
+    status: &mut CudaSlice<u32>,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<StagedCodes> {
     // Widen this array's code window to the decode kernel's u16 ABI.
@@ -179,7 +179,6 @@ async fn stage_codes(
         .execute::<PrimitiveArray>(ctx.execution_ctx())?
         .into_buffer::<u16>();
     let num_tokens = codes.len();
-    let num_tokens_u64 = u64::try_from(num_tokens)?;
 
     // Stage the dictionary in the decode kernel's split layout: fixed 16-byte
     // rows (`dict_padded`, the rare `len > 8` read), the first 8 bytes of every
@@ -209,27 +208,15 @@ async fn stage_codes(
 
     let num_batches = num_tokens.div_ceil(TOKENS_PER_BATCH);
     let launch_config = batch_launch_config(num_batches)?;
-
-    // Per-batch decoded sizes. One extra zeroed slot makes the exclusive
-    // scan's last element the total decoded byte count.
-    let mut batch_sizes = ctx.device_alloc::<u64>(num_batches + 1)?;
-    ctx.stream()
-        .memset_zeros(&mut batch_sizes)
-        .map_err(|e| vortex_err!("Failed to zero OnPair batch sizes: {e}"))?;
-
-    let codes_view = codes_dev.cuda_view::<u16>()?;
-    let lens_view = lens_dev.cuda_view::<u8>()?;
-    let batch_sizes_fn = ctx.load_function_with_suffixes("onpair", &["batch_sizes"])?;
-    ctx.launch_kernel_config(&batch_sizes_fn, launch_config, num_tokens, |args| {
-        args.arg(&codes_view)
-            .arg(&lens_view)
-            .arg(&dict_size_u32)
-            .arg(&num_tokens_u64)
-            .arg(&batch_sizes)
-            .arg(status);
-    })?;
-
-    let chunk_offsets = exclusive_sum_u64(&batch_sizes, num_batches + 1, ctx)?;
+    let chunk_offsets = onpair_batch_offsets(
+        &codes_dev,
+        &lens_dev,
+        dict_size_u32,
+        num_tokens,
+        num_batches,
+        status,
+        ctx,
+    )?;
 
     Ok(StagedCodes {
         codes: codes_dev,
@@ -261,19 +248,16 @@ async fn decode_onpair_bytes(
         .uncompressed_lengths()
         .clone()
         .execute::<PrimitiveArray>(ctx.execution_ctx())?;
-    let total_size: u64 = match_each_integer_ptype!(lengths.ptype(), |P| {
-        let mut acc = 0u64;
-        #[allow(clippy::unnecessary_cast)]
-        for &length in lengths.as_slice::<P>() {
-            let length = u64::try_from(length as i128)
-                .map_err(|_| vortex_err!("OnPair uncompressed length cannot be negative"))?;
-            acc = acc
-                .checked_add(length)
-                .ok_or_else(|| vortex_err!("OnPair decoded size overflow"))?;
-        }
-        VortexResult::Ok(acc)
-    })?;
-    let total_size = usize::try_from(total_size)?;
+    // The conversion is fallible only for the wide/signed ptype instantiations
+    // of the macro; u8/u16 make it infallible, so allow the lint wholesale.
+    #[allow(clippy::unnecessary_fallible_conversions)]
+    let total_size = match_each_integer_ptype!(lengths.ptype(), |P| {
+        lengths
+            .as_slice::<P>()
+            .iter()
+            .map(|&v| usize::try_from(v).vortex_expect("length must fit in usize"))
+            .sum()
+    });
 
     // `codes_offsets` may be a sliced view of the original; its first and last
     // boundaries bound the contiguous run of `codes` belonging to this array's
@@ -311,7 +295,7 @@ async fn decode_onpair_bytes(
         .memset_zeros(&mut status)
         .map_err(|e| vortex_err!("Failed to zero OnPair status flag: {e}"))?;
 
-    let staged = stage_codes(onpair, code_start, code_end, &status, ctx).await?;
+    let staged = stage_codes(onpair, code_start, code_end, &mut status, ctx).await?;
 
     // One synchronizing readback validates the compressed stream before the
     // decode kernel — whose dictionary gathers and output scatters are
