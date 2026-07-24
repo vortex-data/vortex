@@ -246,7 +246,7 @@ mod tests {
             );
             let layout = strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,
@@ -285,7 +285,7 @@ mod tests {
             );
             let layout = strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,
@@ -324,7 +324,7 @@ mod tests {
             );
             let layout = strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,
@@ -373,7 +373,7 @@ mod tests {
             );
             let layout = strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::clone(&segments) as Arc<dyn SegmentSink>,
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,
@@ -422,7 +422,7 @@ mod tests {
             );
             let layout = strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::clone(&segments) as Arc<dyn SegmentSink>,
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,

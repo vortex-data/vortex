@@ -15,6 +15,7 @@ use futures::future::LocalBoxFuture;
 use futures::future::ready;
 use futures::pin_mut;
 use futures::select;
+use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
@@ -40,6 +41,7 @@ use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutStrategy;
+use vortex_layout::LayoutWriterContext;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
@@ -68,6 +70,7 @@ use crate::segments::writer::BufferedSegmentSink;
 pub struct VortexWriteOptions {
     session: VortexSession,
     strategy: Arc<dyn LayoutStrategy>,
+    writer_ctx: LayoutWriterContext,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
@@ -78,8 +81,7 @@ pub struct VortexWriteOptions {
 pub trait WriteOptionsSessionExt: SessionExt {
     /// Create [`VortexWriteOptions`] for writing to a Vortex file.
     fn write_options(&self) -> VortexWriteOptions {
-        let session = self.session();
-        VortexWriteOptions::new(session)
+        VortexWriteOptions::new(self.session())
     }
 }
 impl<S: SessionExt> WriteOptionsSessionExt for S {}
@@ -90,8 +92,10 @@ impl VortexWriteOptions {
         let strategy = WriteStrategyBuilder::default()
             .with_allow_encodings(session.enabled_encoding_ids().into_iter().collect())
             .build();
+        let writer_ctx = new_layout_writer_context(&session);
         VortexWriteOptions {
             strategy,
+            writer_ctx,
             session,
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
@@ -108,6 +112,11 @@ impl VortexWriteOptions {
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
         self
+    }
+
+    /// Returns the state shared by the strategies participating in this write.
+    pub fn layout_writer_context(&self) -> LayoutWriterContext {
+        self.writer_ctx.clone()
     }
 
     /// Exclude the DType from the Vortex file. You must provide the DType to the reader.
@@ -168,7 +177,7 @@ impl VortexWriteOptions {
     /// Drop into the blocking writer API using the given runtime.
     ///
     /// The returned adapter drives async writer internals on `runtime` while accepting ordinary
-    /// [`std::io::Write`] sinks and [`ArrayIterator`] inputs.
+    /// [`Write`] sinks and [`ArrayIterator`] inputs.
     pub fn blocking<B: BlockingRuntime>(self, runtime: &B) -> BlockingWrite<'_, B> {
         BlockingWrite {
             options: self,
@@ -196,15 +205,7 @@ impl VortexWriteOptions {
     ) -> VortexResult<WriteSummary> {
         validate_metadata_segments(&self.metadata)?;
 
-        // NOTE(os): Setup an array context that already has all known encodings pre-populated.
-        // This is preferred for now over having an empty context here, because only the
-        // serialised array order is deterministic. The serialisation of arrays are done
-        // parallel and with an empty context they can register their encodings to the context
-        // in different order, changing the written bytes from run to run.
-        let enabled_encoding_ids = self.session.enabled_encoding_ids();
-        let ctx = ArrayContext::new(enabled_encoding_ids.clone())
-            // Only permit encodings in the session's enabled editions.
-            .with_allowed_ids(enabled_encoding_ids.into_iter().collect());
+        let ctx = self.writer_ctx.clone();
         let dtype = stream.dtype().clone();
 
         let (mut ptr, eof) = SequenceId::root().split();
@@ -277,7 +278,7 @@ impl VortexWriteOptions {
             Arc::clone(&layout),
             segment_specs,
             statistics,
-            ReadContext::new(ctx.to_ids()),
+            ReadContext::new(ctx.array_ctx().to_ids()),
         );
 
         // Emit the footer buffers and EOF.
@@ -318,16 +319,30 @@ impl VortexWriteOptions {
 
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
-        let strategy = Arc::clone(&self.strategy);
+        let writer_ctx = self.writer_ctx.clone();
         let future = self.write(write, arrays).boxed_local().fuse();
 
         Writer {
             arrays: Some(arrays_send),
             future,
             bytes_written,
-            strategy,
+            writer_ctx,
         }
     }
+}
+
+fn new_layout_writer_context(session: &VortexSession) -> LayoutWriterContext {
+    // NOTE(os): Setup an array context that already has all known encodings pre-populated.
+    // This is preferred for now over having an empty context here, because only the
+    // serialised array order is deterministic. The serialisation of arrays are done
+    // parallel and with an empty context they can register their encodings to the context
+    // in different order, changing the written bytes from run to run.
+    let enabled_encoding_ids = session.enabled_encoding_ids();
+    LayoutWriterContext::new(
+        ArrayContext::new(enabled_encoding_ids.iter().cloned().sorted().collect())
+            // Only permit encodings known to the session.
+            .with_allowed_ids(enabled_encoding_ids.into_iter().collect()),
+    )
 }
 
 fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexResult<()> {
@@ -370,8 +385,8 @@ pub struct Writer<'w> {
     future: Fuse<LocalBoxFuture<'w, VortexResult<WriteSummary>>>,
     // The bytes written so far.
     bytes_written: Arc<AtomicU64>,
-    // The layout strategy that is being used for the write.
-    strategy: Arc<dyn LayoutStrategy>,
+    // The context shared by the layout strategies for this write.
+    writer_ctx: LayoutWriterContext,
 }
 
 impl Writer<'_> {
@@ -450,7 +465,7 @@ impl Writer<'_> {
 
     /// Returns the number of bytes currently buffered by the layout writers.
     pub fn buffered_bytes(&self) -> u64 {
-        self.strategy.buffered_bytes()
+        self.writer_ctx.buffered_bytes()
     }
 
     /// Finish writing the Vortex file, flushing any remaining buffers and returning the
@@ -659,11 +674,11 @@ mod tests {
     #[case::oversized_multibyte_key(
         vec!["é".repeat(MAX_METADATA_KEY_BYTES / "é".len() + 1)],
         "keys must be at most"
-    )]
+        )]
     #[case::too_many_segments(
         (0..=MAX_METADATA_SEGMENTS).map(|idx| format!("key-{idx}")).collect(),
         "at most 16 metadata segments"
-    )]
+        )]
     fn validate_metadata_rejects(#[case] keys: Vec<String>, #[case] expected: &str) {
         let Err(error) = write_options_with_keys(&keys).validate_metadata() else {
             panic!("metadata must be rejected for {keys:?}");

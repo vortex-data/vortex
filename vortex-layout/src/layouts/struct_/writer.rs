@@ -20,7 +20,6 @@ use futures::future::try_join;
 use futures::future::try_join_all;
 use futures::pin_mut;
 use itertools::Itertools;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -41,6 +40,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -105,7 +105,7 @@ impl StructStrategy {
 impl LayoutStrategy for StructStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -256,13 +256,5 @@ impl LayoutStrategy for StructStrategy {
         // This must hold though, all columns must have the same row count of the struct layout
         let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
         Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        self.field_writers
-            .values()
-            .map(|s| s.buffered_bytes())
-            .sum::<u64>()
-            + self.validity.buffered_bytes()
     }
 }

@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -19,6 +21,51 @@ use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
+
+/// State shared by every strategy participating in a single layout write.
+///
+/// Clones share the buffered-byte counter while retaining the array serialization context. Passing
+/// this context through the strategy tree keeps writer-scoped state independent of the strategy
+/// instances, which may be shared by multiple leaves or writers.
+#[derive(Clone)]
+pub struct LayoutWriterContext {
+    array_ctx: ArrayContext,
+    buffered_bytes: Arc<AtomicU64>,
+}
+
+impl LayoutWriterContext {
+    /// Creates a context for a layout write.
+    pub fn new(array_ctx: ArrayContext) -> Self {
+        Self {
+            array_ctx,
+            buffered_bytes: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Returns the array serialization context.
+    pub fn array_ctx(&self) -> &ArrayContext {
+        &self.array_ctx
+    }
+
+    /// Returns the number of bytes currently retained by layout strategies.
+    pub fn buffered_bytes(&self) -> u64 {
+        self.buffered_bytes.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn add_buffered_bytes(&self, bytes: u64) {
+        self.buffered_bytes.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub(crate) fn remove_buffered_bytes(&self, bytes: u64) {
+        self.buffered_bytes.fetch_sub(bytes, Ordering::Relaxed);
+    }
+}
+
+impl From<ArrayContext> for LayoutWriterContext {
+    fn from(array_ctx: ArrayContext) -> Self {
+        Self::new(array_ctx)
+    }
+}
 
 // [layout writer]
 /// Writes an ordered array stream into a layout tree and segment sink.
@@ -44,6 +91,8 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     /// with a sequence pointer that indicates its position in the overall array. By passing
     /// around these pointers (essentially vector clocks), the writer can support concurrent
     /// and parallel processing while maintaining a deterministic order of data in the file.
+    /// The `ctx` parameter carries both array serialization state and writer-scoped accounting
+    /// through every child strategy.
     ///
     /// The `eof` parameter is a guaranteed to be greater than all sequence pointers in the stream.
     ///
@@ -63,19 +112,12 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     /// of data, or serializing very large messages to flatbuffers.
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef>;
-
-    /// Returns the number of bytes currently buffered by this strategy and any child strategies.
-    ///
-    /// This method allows tracking of data that has been processed by the strategy but not yet
-    /// written to the underlying sink, providing more accurate estimates of final file size
-    /// during write operations.
-    fn buffered_bytes(&self) -> u64;
 }
 
 /// A layout strategy wrapper that rejects arrays containing encodings outside an allow-list.
@@ -102,7 +144,7 @@ impl LayoutStrategyEncodingValidator {
 impl LayoutStrategy for LayoutStrategyEncodingValidator {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -129,17 +171,13 @@ impl LayoutStrategy for LayoutStrategyEncodingValidator {
             )
             .await
     }
-
-    fn buffered_bytes(&self) -> u64 {
-        self.child.buffered_bytes()
-    }
 }
 
 #[async_trait]
 impl LayoutStrategy for Arc<dyn LayoutStrategy> {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -148,10 +186,6 @@ impl LayoutStrategy for Arc<dyn LayoutStrategy> {
         (**self)
             .write_stream(ctx, segment_sink, stream, eof, session)
             .await
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        (**self).buffered_bytes()
     }
 }
 // [layout writer]

@@ -52,6 +52,7 @@ use vortex_array::expr::select;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
+use vortex_array::field_path;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
@@ -72,7 +73,12 @@ use vortex_error::VortexResult;
 use vortex_flatbuffers::footer as fb;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::DynLayout;
+use vortex_layout::LayoutStrategy;
+use vortex_layout::layouts::buffered::BufferedStrategy;
+use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::struct_::StructStrategy;
+use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
@@ -1377,7 +1383,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
     ])
     .into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?;
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
@@ -1538,6 +1544,107 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
     assert_eq!(summary.row_count(), 10);
 
     assert!(!buf.is_empty(), "Buffer should contain data");
+
+    Ok(())
+}
+
+#[rstest]
+#[case::table_one_leaf(true, 1, false, 32)]
+#[case::table_two_shared_leaves(true, 2, false, 64)]
+#[case::table_field_override(true, 2, true, 64)]
+#[case::struct_default(false, 1, false, 32)]
+#[tokio::test]
+async fn test_writer_buffered_bytes(
+    #[case] use_table_strategy: bool,
+    #[case] leaf_count: usize,
+    #[case] field_override: bool,
+    #[case] expected_buffered_bytes: u64,
+) -> VortexResult<()> {
+    const BUFFER_SIZE: u64 = 16;
+
+    let fields = [
+        ("a", buffer![1u32, 2, 3, 4].into_array()),
+        ("b", buffer![5u32, 6, 7, 8].into_array()),
+    ];
+    let array = StructArray::from_fields(&fields[..leaf_count])?.into_array();
+
+    let new_leaf = || -> Arc<dyn LayoutStrategy> {
+        Arc::new(BufferedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            BUFFER_SIZE,
+        ))
+    };
+    let validity: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+    let strategy: Arc<dyn LayoutStrategy> = if use_table_strategy {
+        let mut table = TableStrategy::new(validity, new_leaf());
+        if field_override {
+            table = table.with_field_writer(field_path!(b), new_leaf());
+        }
+        Arc::new(table)
+    } else {
+        Arc::new(StructStrategy::new(validity, new_leaf()))
+    };
+
+    let mut buf = ByteBufferMut::empty();
+    let options = SESSION.write_options().with_strategy(Arc::clone(&strategy));
+    let writer_ctx = options.layout_writer_context();
+    let mut writer = options.writer(&mut buf, array.dtype().clone());
+
+    assert_eq!(writer.buffered_bytes(), 0);
+
+    // The third push forces two chunks through the capacity-one input channel while keeping the
+    // writer open. Each physical leaf retains two BUFFER_SIZE chunks while peeking for more input.
+    writer.push(array.clone()).await?;
+    writer.push(array.clone()).await?;
+    writer.push(array).await?;
+
+    assert_eq!(writer.buffered_bytes(), expected_buffered_bytes);
+
+    let summary = writer.finish().await?;
+    assert_eq!(summary.row_count(), 12);
+    assert_eq!(writer_ctx.buffered_bytes(), 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
+    const BUFFER_SIZE: u64 = 16;
+
+    let array =
+        StructArray::from_fields(&[("a", buffer![1u32, 2, 3, 4].into_array())])?.into_array();
+    let leaf = Arc::new(BufferedStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        BUFFER_SIZE,
+    ));
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(TableStrategy::new(
+        Arc::new(FlatLayoutStrategy::default()),
+        leaf,
+    ));
+
+    let mut first_buf = ByteBufferMut::empty();
+    let mut first = SESSION
+        .write_options()
+        .with_strategy(Arc::clone(&strategy))
+        .writer(&mut first_buf, array.dtype().clone());
+    let mut second_buf = ByteBufferMut::empty();
+    let mut second = SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .writer(&mut second_buf, array.dtype().clone());
+
+    first.push(array.clone()).await?;
+    first.push(array.clone()).await?;
+    first.push(array.clone()).await?;
+    second.push(array.clone()).await?;
+    second.push(array.clone()).await?;
+    second.push(array).await?;
+
+    assert_eq!(first.buffered_bytes(), 2 * BUFFER_SIZE);
+    assert_eq!(second.buffered_bytes(), 2 * BUFFER_SIZE);
+
+    first.finish().await?;
+    second.finish().await?;
 
     Ok(())
 }
@@ -2029,7 +2136,7 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
         "Expected error from timestamp unit mismatch (ms vs s), but got {} results. \
          This indicates the scanner silently applied the filter incorrectly when \
          DateTimePartsArray children use ConstantArray encoding.",
-        results.unwrap().len()
+        results?.len()
     );
 
     Ok(())
@@ -2223,7 +2330,7 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
     let strings = VarBinArray::from(values).into_array();
     let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?;
 
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
@@ -2345,8 +2452,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         ("strings", strings),
         ("numbers", numbers),
         ("floats", floats),
-    ])
-    .unwrap();
+    ])?;
 
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
