@@ -16,7 +16,8 @@ use crate::layouts::dict::Dict;
 use crate::layouts::flat::Flat;
 use crate::layouts::list::List;
 use crate::layouts::struct_::Struct;
-use crate::layouts::zoned::{LegacyStats, Zoned};
+use crate::layouts::zoned::LegacyStats;
+use crate::layouts::zoned::Zoned;
 
 /// Session state for layout encodings.
 #[derive(Clone, Debug)]
