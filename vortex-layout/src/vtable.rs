@@ -1,17 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::segments::{SegmentId, SegmentSource};
-use crate::{
-    DynLayout, Layout, LayoutBuildContext, LayoutChildType, LayoutChildren, LayoutDeserializeArgs,
-    LayoutId, LayoutParts, LayoutReaderContext, LayoutReaderRef,
-};
 use std::fmt::Debug;
 use std::sync::Arc;
+
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
+
+use crate::DynLayout;
+use crate::Layout;
+use crate::LayoutBuildContext;
+use crate::LayoutChildType;
+use crate::LayoutChildren;
+use crate::LayoutDeserializeArgs;
+use crate::LayoutId;
+use crate::LayoutParts;
+use crate::LayoutReaderContext;
+use crate::LayoutReaderRef;
+use crate::segments::SegmentId;
+use crate::segments::SegmentSource;
 
 /// Shared, erased handle to a layout tree node.
 pub type LayoutRef = Arc<dyn DynLayout>;

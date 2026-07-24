@@ -24,7 +24,8 @@ use crate::display::DisplayLayoutTree;
 use crate::display::display_tree_with_segment_sizes;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::vtable::{LayoutRef, VTable};
+use crate::vtable::LayoutRef;
+use crate::vtable::VTable;
 
 /// A unique identifier for a layout encoding.
 pub type LayoutId = Id;
