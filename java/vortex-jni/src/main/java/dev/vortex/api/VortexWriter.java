@@ -8,8 +8,7 @@ import dev.vortex.VortexCleaner;
 import dev.vortex.io.NativeWritable;
 import dev.vortex.jni.NativeWriter;
 import java.io.IOException;
-import java.util.Collections;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -85,8 +84,8 @@ public final class VortexWriter implements AutoCloseable {
         private final NativeWritable writable;
         private final Schema arrowSchema;
         private final BufferAllocator allocator;
-        private Map<String, String> options = Collections.emptyMap();
-        private Map<String, byte[]> metadata = Collections.emptyMap();
+        private final Map<String, String> options = new HashMap<>();
+        private final Map<String, byte[]> metadata = new HashMap<>();
 
         private Builder(
                 Session session, String uri, NativeWritable writable, Schema arrowSchema, BufferAllocator allocator) {
@@ -103,7 +102,9 @@ public final class VortexWriter implements AutoCloseable {
          */
         public Builder options(Map<String, String> newOptions) {
             checkOptionsApply();
-            this.options = Map.copyOf(Objects.requireNonNull(newOptions, "options"));
+            Objects.requireNonNull(newOptions, "options");
+            options.clear();
+            newOptions.forEach(this::putOption);
             return this;
         }
 
@@ -112,9 +113,7 @@ public final class VortexWriter implements AutoCloseable {
             checkOptionsApply();
             Objects.requireNonNull(key, "key");
             Objects.requireNonNull(value, "value");
-            Map<String, String> merged = new LinkedHashMap<>(options);
-            merged.put(key, value);
-            this.options = merged;
+            options.put(key, value);
             return this;
         }
 
@@ -126,7 +125,9 @@ public final class VortexWriter implements AutoCloseable {
          * error) by {@link #build()}, rather than when the file is finalized.
          */
         public Builder metadata(Map<String, byte[]> newMetadata) {
-            this.metadata = Map.copyOf(Objects.requireNonNull(newMetadata, "metadata"));
+            Objects.requireNonNull(newMetadata, "metadata");
+            metadata.clear();
+            newMetadata.forEach(this::putMetadata);
             return this;
         }
 
@@ -134,9 +135,7 @@ public final class VortexWriter implements AutoCloseable {
         public Builder putMetadata(String key, byte[] value) {
             Objects.requireNonNull(key, "key");
             Objects.requireNonNull(value, "value");
-            Map<String, byte[]> merged = new LinkedHashMap<>(metadata);
-            merged.put(key, value);
-            this.metadata = merged;
+            metadata.put(key, value);
             return this;
         }
 
