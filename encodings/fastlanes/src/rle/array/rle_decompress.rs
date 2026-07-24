@@ -12,6 +12,7 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::FL_CHUNK_SIZE;
@@ -61,6 +62,22 @@ where
     let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
     let values = values.as_slice::<V>();
 
+    // The offsets come from (possibly untrusted) storage. Validate them once here so
+    // that the per-chunk slicing and the unchecked decodes below stay within `values`:
+    // offsets must be non-decreasing and span at most `values.len()` values.
+    vortex_ensure!(
+        values_idx_offsets.is_sorted(),
+        "RLE values_idx_offsets must be non-decreasing"
+    );
+    if let (Some(&first), Some(&last)) = (values_idx_offsets.first(), values_idx_offsets.last()) {
+        vortex_ensure!(
+            last - first <= values.len() as u64,
+            "RLE values_idx_offsets span {} values but only {} are present",
+            last - first,
+            values.len()
+        );
+    }
+
     let indices = array.indices().clone().execute::<PrimitiveArray>(ctx)?;
     assert!(indices.len().is_multiple_of(FL_CHUNK_SIZE));
     let has_invalid = !indices.all_valid(ctx)?;
@@ -88,6 +105,10 @@ where
         };
         let num_chunk_values = u16::try_from(next_value_idx_offset - value_idx_offset)
             .vortex_expect("There can be at most 1024 values in RLE chunk");
+        vortex_ensure!(
+            num_chunk_values > 0,
+            "RLE chunk {chunk_idx} references no values"
+        );
 
         // SAFETY: `MaybeUninit<T>` and `T` have the same layout.
         let buffer_values: &mut [V; FL_CHUNK_SIZE] = unsafe { std::mem::transmute(chunk_out) };
@@ -108,9 +129,26 @@ where
                     NumCast::from(*idx).vortex_expect("RLE indices are always less than u16");
                 *idx_out = idx.min(num_chunk_values - 1);
             }
-            V::decode(chunk_values, &sanitized, buffer_values);
+            // SAFETY: every sanitized index is clamped below `num_chunk_values`, which the
+            // offset validation above bounds by `chunk_values.len()`.
+            unsafe { V::decode_unchecked(chunk_values, &sanitized, buffer_values) };
         } else {
-            V::decode(chunk_values, chunk_indices, buffer_values);
+            // The indices also come from (possibly untrusted) storage, so bound-check the
+            // whole chunk up front. A single max-reduction vectorizes and keeps the check
+            // out of the per-element decode loop.
+            let max_index: usize = chunk_indices
+                .iter()
+                .map(|idx| (*idx).into())
+                .max()
+                .unwrap_or_default();
+            vortex_ensure!(
+                max_index < num_chunk_values as usize,
+                "RLE index {max_index} out of bounds for chunk {chunk_idx} with {num_chunk_values} values"
+            );
+            // SAFETY: just checked that every index in the chunk is below
+            // `num_chunk_values`, which the offset validation above bounds by
+            // `chunk_values.len()`.
+            unsafe { V::decode_unchecked(chunk_values, chunk_indices, buffer_values) };
         }
     }
 
@@ -126,4 +164,119 @@ where
             .slice(offset_within_chunk..(offset_within_chunk + array.len())),
         array.validity()?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_error::VortexResult;
+
+    use crate::FL_CHUNK_SIZE;
+    use crate::RLE;
+    use crate::rle::array::rle_decompress::rle_decompress;
+    use crate::test::SESSION;
+
+    fn indices_with_oob(oob: u16) -> vortex_array::ArrayRef {
+        let mut indices = [0u16, 1]
+            .iter()
+            .cycle()
+            .take(FL_CHUNK_SIZE)
+            .copied()
+            .collect::<Vec<_>>();
+        indices[100] = oob;
+        PrimitiveArray::from_iter(indices).into_array()
+    }
+
+    #[test]
+    fn test_decode_rejects_out_of_bounds_index() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter([10u32, 20]).into_array();
+        let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
+
+        // Index 999 points far beyond the 2 values of the only chunk.
+        let rle = RLE::try_new(
+            values,
+            indices_with_oob(999),
+            values_idx_offsets,
+            0,
+            FL_CHUNK_SIZE,
+        )?;
+        assert!(rle_decompress(&rle, &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_decode_rejects_index_into_next_chunk() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Two chunks with 2 values each: an index of 2 in chunk 0 is within `values`
+        // but out of bounds for the chunk, and must be rejected rather than silently
+        // reading chunk 1's values.
+        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
+        let values_idx_offsets = PrimitiveArray::from_iter([0u64, 2]).into_array();
+        let mut indices = [0u16, 1].repeat(FL_CHUNK_SIZE);
+        indices[100] = 2;
+        let indices = PrimitiveArray::from_iter(indices).into_array();
+
+        let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
+        assert!(rle_decompress(&rle, &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_decode_rejects_non_monotonic_offsets() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
+        let values_idx_offsets = PrimitiveArray::from_iter([2u64, 0]).into_array();
+        let indices = PrimitiveArray::from_iter([0u16, 1].repeat(FL_CHUNK_SIZE)).into_array();
+
+        let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
+        assert!(rle_decompress(&rle, &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_decode_rejects_offsets_beyond_values() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
+        // The offset span (100) exceeds the number of values present (4).
+        let values_idx_offsets = PrimitiveArray::from_iter([0u64, 100]).into_array();
+        let indices = PrimitiveArray::from_iter([0u16, 1].repeat(FL_CHUNK_SIZE)).into_array();
+
+        let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
+        assert!(rle_decompress(&rle, &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_decode_rejects_empty_chunk() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter([10u32, 20]).into_array();
+        // Chunk 0 references no values: offsets [0, 0].
+        let values_idx_offsets = PrimitiveArray::from_iter([0u64, 0]).into_array();
+        let indices = PrimitiveArray::from_iter([0u16, 1].repeat(FL_CHUNK_SIZE)).into_array();
+
+        let rle = RLE::try_new(values, indices, values_idx_offsets, 0, 2 * FL_CHUNK_SIZE)?;
+        assert!(rle_decompress(&rle, &mut ctx).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_decode_in_bounds_indices_roundtrip() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let values = PrimitiveArray::from_iter([10u32, 20]).into_array();
+        let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
+        let indices =
+            PrimitiveArray::from_iter([0u16, 1].iter().cycle().take(FL_CHUNK_SIZE).copied())
+                .into_array();
+
+        let rle = RLE::try_new(values, indices, values_idx_offsets, 0, FL_CHUNK_SIZE)?;
+        let decoded = rle_decompress(&rle, &mut ctx)?;
+        let expected =
+            PrimitiveArray::from_iter([10u32, 20].iter().cycle().take(FL_CHUNK_SIZE).copied());
+        assert_arrays_eq!(decoded, expected, &mut ctx);
+        Ok(())
+    }
 }
