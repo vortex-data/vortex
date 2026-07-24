@@ -47,23 +47,40 @@ pub fn converted_buffer<W: NativeDecimalType>(
     }
     match_each_decimal_value_type!(array.values_type(), |T| {
         let src = array.buffer::<T>();
-        // Keeping the overflow scan branchless and vectorizable.
-        // Only on overflow do we rescan with the mask: null-slot garbage is exempt, valid
-        // out-of-range values are an error.
-        let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
-        if any_overflow
-            && let Some((i, v)) = src
-                .iter()
-                .enumerate()
-                .find(|&(i, v)| W::from(*v).is_none() && validity.value(i))
-        {
-            vortex_bail!(
-                "decimal value {v} at index {i} does not fit {}",
-                W::DECIMAL_TYPE
-            );
+        match validity {
+            Mask::AllTrue(_) => {
+                // Keeping the overflow scan branchless and vectorizable. Only on overflow
+                // do we rescan for diagnostics.
+                let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
+                if any_overflow {
+                    let (i, v) = src
+                        .iter()
+                        .enumerate()
+                        .find(|&(_, v)| W::from(*v).is_none())
+                        .vortex_expect("overflow scan found an overflowing value");
+                    vortex_bail!(
+                        "decimal value {v} at index {i} does not fit {}",
+                        W::DECIMAL_TYPE
+                    );
+                }
+            }
+            Mask::AllFalse(_) => return Ok(Buffer::zeroed(src.len())),
+            Mask::Values(values) => {
+                let any_overflow = src.iter().fold(false, |acc, v| acc | W::from(*v).is_none());
+                if any_overflow {
+                    for (i, v) in src.iter().enumerate() {
+                        if values.value(i) && W::from(*v).is_none() {
+                            vortex_bail!(
+                                "decimal value {v} at index {i} does not fit {}",
+                                W::DECIMAL_TYPE
+                            );
+                        }
+                    }
+                }
+            }
         }
-        // The convert pass is infallible (every valid value fits; null-slot garbage becomes
-        // zero), so a plain `collect` keeps the exact size hint and a single allocation.
+        // The convert pass is infallible: every valid value fits, and out-of-range null-slot
+        // garbage is mapped to the default value. Callers must still ignore null slots.
         Ok(src
             .iter()
             .map(|v| W::from(*v).unwrap_or_default())
