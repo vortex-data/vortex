@@ -75,9 +75,7 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     /// This method allows tracking of data that has been processed by the strategy but not yet
     /// written to the underlying sink, providing more accurate estimates of final file size
     /// during write operations.
-    fn buffered_bytes(&self) -> u64 {
-        0
-    }
+    fn buffered_bytes(&self) -> u64;
 }
 
 /// A layout strategy wrapper that rejects arrays containing encodings outside an allow-list.

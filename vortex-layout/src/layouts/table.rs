@@ -38,7 +38,7 @@ use crate::sequence::SequencePointer;
 /// default. Disabled unless the environment variable `VORTEX_EXPERIMENTAL_LIST_LAYOUT`
 /// is set to `1`.
 ///
-/// [`ListLayoutStrategy`]: crate::layouts::list::writer::ListLayoutStrategy
+/// [`ListLayoutStrategy`]: ListLayoutStrategy
 pub fn use_experimental_list_layout() -> bool {
     static USE_EXPERIMENTAL_LIST_LAYOUT: LazyLock<bool> =
         LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_LIST_LAYOUT").is_ok_and(|v| v == "1"));
@@ -72,7 +72,7 @@ pub struct TableStrategy {
     /// Optional factory applied to each dynamically constructed [`ListLayoutStrategy`].
     /// Its presence also enables list decomposition.
     ///
-    /// [`ListLayoutStrategy`]: crate::layouts::list::writer::ListLayoutStrategy
+    /// [`ListLayoutStrategy`]: ListLayoutStrategy
     list_layout_factory: Option<ListLayoutFactory>,
 }
 
@@ -322,6 +322,10 @@ impl LayoutStrategy for TableStrategy {
         self.leaf
             .write_stream(ctx, segment_sink, stream, eof, session)
             .await
+    }
+
+    fn buffered_bytes(&self) -> u64 {
+        self.struct_strategy().buffered_bytes() + self.leaf.buffered_bytes()
     }
 }
 

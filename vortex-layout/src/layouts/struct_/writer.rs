@@ -257,4 +257,12 @@ impl LayoutStrategy for StructStrategy {
         let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
         Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
     }
+
+    fn buffered_bytes(&self) -> u64 {
+        self.field_writers
+            .values()
+            .map(|s| s.buffered_bytes())
+            .sum::<u64>()
+            + self.validity.buffered_bytes()
+    }
 }

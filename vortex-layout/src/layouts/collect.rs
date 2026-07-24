@@ -77,6 +77,6 @@ impl LayoutStrategy for CollectStrategy {
     }
 
     fn buffered_bytes(&self) -> u64 {
-        todo!()
+        self.child.buffered_bytes()
     }
 }
