@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use num_traits::AsPrimitive;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
@@ -377,7 +375,7 @@ pub fn data_chunk_to_vortex(
             vector.flatten(len);
             flat_vector_to_vortex(vector, len.as_())
         })
-        .collect::<VortexResult<Arc<_>>>()?;
+        .collect::<VortexResult<Vec<_>>>()?;
     StructArray::try_new(
         field_names.clone(),
         columns,
