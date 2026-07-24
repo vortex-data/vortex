@@ -24,6 +24,7 @@ pub use reader::*;
 pub use reader_context::*;
 pub use strategy::*;
 use vortex_session::registry::Context;
+pub use vtable::*;
 pub mod aliases;
 mod children;
 pub mod display;
@@ -39,5 +40,6 @@ pub mod session;
 mod strategy;
 #[cfg(test)]
 mod test;
+mod vtable;
 
 pub type LayoutContext = Context;
