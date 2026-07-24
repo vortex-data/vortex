@@ -11,12 +11,12 @@ use vortex_session::registry::Id;
 
 use crate::LayoutEncoding;
 use crate::LayoutEncodingRef;
-use crate::layouts::chunked::ChunkedLayoutEncoding;
-use crate::layouts::dict::DictLayoutEncoding;
-use crate::layouts::flat::FlatLayoutEncoding;
-use crate::layouts::list::ListLayoutEncoding;
-use crate::layouts::struct_::StructLayoutEncoding;
-use crate::layouts::zoned::{LegacyStatsLayoutEncoding, ZonedLayoutEncoding};
+use crate::layouts::chunked::Chunked;
+use crate::layouts::dict::Dict;
+use crate::layouts::flat::Flat;
+use crate::layouts::list::List;
+use crate::layouts::struct_::Struct;
+use crate::layouts::zoned::{LegacyStats, Zoned};
 
 /// Session state for layout encodings.
 #[derive(Clone, Debug)]
@@ -26,7 +26,8 @@ pub struct LayoutSession {
 
 impl LayoutSession {
     /// Register a layout encoding in the session, replacing any existing encoding with the same ID.
-    pub fn register(&self, layout: LayoutEncodingRef) {
+    pub fn register(&self, layout_ref: impl Into<LayoutEncodingRef>) {
+        let layout = layout_ref.into();
         self.registry.insert(layout.id(), layout);
     }
 
@@ -50,13 +51,13 @@ impl Default for LayoutSession {
         };
 
         // Register the built-in layout encodings.
-        this.register(ChunkedLayoutEncoding.as_ref().into());
-        this.register(FlatLayoutEncoding.as_ref().into());
-        this.register(StructLayoutEncoding.as_ref().into());
-        this.register(ZonedLayoutEncoding.as_ref().into());
-        this.register(LegacyStatsLayoutEncoding.as_ref().into());
-        this.register(DictLayoutEncoding.as_ref().into());
-        this.register(ListLayoutEncoding.as_ref().into());
+        this.register(&Chunked as &dyn LayoutEncoding);
+        this.register(&Flat as &dyn LayoutEncoding);
+        this.register(&Struct as &dyn LayoutEncoding);
+        this.register(&Zoned as &dyn LayoutEncoding);
+        this.register(&LegacyStats as &dyn LayoutEncoding);
+        this.register(&Dict as &dyn LayoutEncoding);
+        this.register(&List as &dyn LayoutEncoding);
         this
     }
 }
