@@ -42,7 +42,7 @@ public final class Scan implements Iterator<Partition> {
      */
     public Schema arrowSchema(BufferAllocator allocator) {
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {
-            NativeScan.arrowSchema(pointer, schema.memoryAddress());
+            NativeScan.arrowSchema(session.nativePointer(), pointer, schema.memoryAddress());
             return Data.importSchema(allocator, schema, null);
         }
     }

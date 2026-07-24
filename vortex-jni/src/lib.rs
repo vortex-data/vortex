@@ -19,7 +19,6 @@ macro_rules! throw_runtime {
 }
 
 mod data_source;
-mod dtype;
 mod errors;
 mod expression;
 mod file;

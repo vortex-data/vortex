@@ -4,7 +4,7 @@ SELECT COUNT(*) FROM statpopgen;
 --
 -- Count the number of samples (e.g. human beings) in this dataset. The GT arrays are all the same
 -- length, even though they're not stored as a fixed-list type.
-SELECT array_length("GT", 1) FROM statpopgen LIMIT 1;
+SELECT array_length("GT") FROM statpopgen LIMIT 1;
 -- 2.
 --
 -- Extract just the genotypes as a dense list of lists. Usually this is sent to a linear algebra

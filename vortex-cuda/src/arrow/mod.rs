@@ -10,6 +10,7 @@
 
 mod canonical;
 mod list_view;
+mod offsets;
 
 use std::ffi::CString;
 use std::ffi::c_char;
@@ -30,6 +31,8 @@ pub(crate) use canonical::CanonicalDeviceArrayExport;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
 use cudarc::runtime::sys::cudaEvent_t;
+pub(crate) use offsets::I32Offsets;
+pub(crate) use offsets::i32_offsets_from_lengths;
 use vortex::array::ArrayRef;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::FixedSizeList;

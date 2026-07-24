@@ -10,8 +10,6 @@
 //! [`DecimalDType`]: crate::dtype::DecimalDType
 
 use vortex_buffer::BitBuffer;
-use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -21,6 +19,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::DecimalArray;
+use crate::arrays::decimal::widened_buffer;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::i256;
@@ -117,21 +116,6 @@ fn compare_decimal_values(
         let lhs = widened_buffer::<W>(lhs);
         let rhs = widened_buffer::<W>(rhs);
         compare_slices::<W>(&lhs, &rhs, op)
-    })
-}
-
-/// Return the array's unscaled values widened to `W`, which must be at least as wide as the
-/// array's storage type.
-pub(super) fn widened_buffer<W: NativeDecimalType>(array: &DecimalArray) -> Buffer<W> {
-    if array.values_type() == W::DECIMAL_TYPE {
-        return array.buffer::<W>();
-    }
-    match_each_decimal_value_type!(array.values_type(), |T| {
-        array
-            .buffer::<T>()
-            .iter()
-            .map(|v| W::from(*v).vortex_expect("widening decimal cast must succeed"))
-            .collect()
     })
 }
 

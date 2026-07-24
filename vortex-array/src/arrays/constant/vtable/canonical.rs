@@ -164,7 +164,13 @@ pub(crate) fn constant_canonicalize(
                 StructArray::new_unchecked(fields, struct_dtype.clone(), array.len(), validity)
             })
         }
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Union(..) => {
+            todo!(
+                "TODO(connor)[Union]: canonicalize constant Union arrays in a focused follow-up \
+                 after defining placeholder values for every inactive sparse child, including \
+                 nested Struct and Union variants"
+            )
+        }
         DType::Variant(_) => Canonical::Variant(VariantArray::try_new(
             array.array().clone().into_array(),
             None,

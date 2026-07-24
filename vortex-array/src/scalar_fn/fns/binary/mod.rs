@@ -121,6 +121,16 @@ impl ScalarFnVTable for Binary {
             if lhs.is_primitive() && lhs.eq_ignore_nullability(rhs) {
                 return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
             }
+
+            if let DType::Decimal(decimal_dtype, _) = lhs
+                && lhs.eq_ignore_nullability(rhs)
+            {
+                let numeric_op = NumericOperator::try_from(*operator)?;
+                return Ok(DType::Decimal(
+                    numeric_op_result_decimal_dtype(*decimal_dtype, numeric_op)?,
+                    lhs.nullability() | rhs.nullability(),
+                ));
+            }
             vortex_bail!(
                 "incompatible types for arithmetic operation: {} {}",
                 lhs,
@@ -252,8 +262,11 @@ impl ScalarFnVTable for Binary {
         })
     }
 
-    fn is_null_sensitive(&self, _operator: &Operator) -> bool {
-        false
+    fn is_null_sensitive(&self, operator: &Operator) -> bool {
+        // Kleene AND/OR is not strict (`false AND null = false`, `true OR null = true`), so
+        // these operators cannot be pushed through dictionary null codes. This is consistent
+        // with `validity` returning `None` for AND/OR above.
+        matches!(operator, Operator::And | Operator::Or)
     }
 
     fn is_fallible(&self, operator: &Operator) -> bool {

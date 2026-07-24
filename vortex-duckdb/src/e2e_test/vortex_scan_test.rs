@@ -7,6 +7,7 @@ use std::ffi::CStr;
 use std::path::Path;
 use std::slice;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use anyhow::Result;
 use geo_types::LineString;
@@ -37,6 +38,7 @@ use vortex::dtype::PType;
 use vortex::encodings::fastlanes::RLEData;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::scalar::PValue;
 use vortex::scalar::Scalar;
 use vortex_array::arrays::ExtensionArray;
@@ -1111,4 +1113,36 @@ fn test_vortex_scan_fixed_size_list_length_projection() {
 
         assert_eq!(lengths, vec![4i64; 6], "{func}(int_lists) mismatch");
     }
+}
+
+/// Vortex allows duplicate struct names but duckdb doesn't. Ensure we can't
+/// read a file if names are not unique
+#[test]
+fn test_duplicate_struct_fields() {
+    let array = StructArray::try_from_iter([
+        ("a", buffer![1i32, 2, 3].into_array()),
+        ("a", buffer![10i64, 20, 30].into_array()),
+    ])
+    .unwrap();
+    let array = StructArray::try_from_iter([("s", array)])
+        .unwrap()
+        .into_array();
+    let path = create_temp_file();
+    RUNTIME.block_on(async {
+        let mut file = async_fs::File::create(&path).await.unwrap();
+        SESSION
+            .write_options()
+            .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+            .write(&mut file, array.to_array_stream())
+            .await
+            .unwrap()
+    });
+    let conn = database_connection();
+    let path = path.path().to_string_lossy();
+
+    assert!(conn.query(&format!("SELECT s FROM '{path}'")).is_err());
+    assert!(
+        conn.query(&format!("SELECT string_agg(s::VARCHAR, '') FROM '{path}'"))
+            .is_err()
+    );
 }

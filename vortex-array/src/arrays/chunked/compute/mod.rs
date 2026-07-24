@@ -21,10 +21,12 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::array_session;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
 
@@ -157,6 +159,13 @@ mod tests {
             buffer![500..1000].into_array().into_array(),
         ],
         DType::Primitive(PType::I32, Nullability::NonNullable),
+    ).unwrap())]
+    #[case::chunked_decimal(ChunkedArray::try_new(
+        vec![
+            DecimalArray::from_iter::<i64, _>([100, 250], DecimalDType::new(10, 2)).into_array(),
+            DecimalArray::from_iter::<i64, _>([300, 400, 500], DecimalDType::new(10, 2)).into_array(),
+        ],
+        DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable),
     ).unwrap())]
     fn test_chunked_binary_numeric(#[case] array: ChunkedArray) {
         test_binary_numeric_array(

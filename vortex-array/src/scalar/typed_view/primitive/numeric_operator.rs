@@ -5,6 +5,9 @@
 
 use std::fmt;
 
+use vortex_error::VortexError;
+use vortex_error::vortex_err;
+
 use crate::scalar_fn::fns::operators::Operator;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +38,20 @@ impl From<NumericOperator> for Operator {
             NumericOperator::Sub => Operator::Sub,
             NumericOperator::Mul => Operator::Mul,
             NumericOperator::Div => Operator::Div,
+        }
+    }
+}
+
+impl TryFrom<Operator> for NumericOperator {
+    type Error = VortexError;
+
+    fn try_from(op: Operator) -> Result<Self, Self::Error> {
+        match op {
+            Operator::Add => Ok(NumericOperator::Add),
+            Operator::Sub => Ok(NumericOperator::Sub),
+            Operator::Mul => Ok(NumericOperator::Mul),
+            Operator::Div => Ok(NumericOperator::Div),
+            _ => Err(vortex_err!(InvalidArgument: "{op} is not a numeric operator")),
         }
     }
 }

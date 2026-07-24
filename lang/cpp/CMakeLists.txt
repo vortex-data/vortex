@@ -125,7 +125,7 @@ if(TARGET vortex_ffi_shared)
     endif()
 endif()
 
-if (BUILD_TESTS)
+if (BUILD_TESTS OR BUILD_EXAMPLES)
     FetchContent_Declare(
       Nanoarrow
       GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow
@@ -133,6 +133,14 @@ if (BUILD_TESTS)
     )
     FetchContent_MakeAvailable(Nanoarrow)
 
+    # arrow-nanoarrow creates a self-referential symlink
+    # python/subprojects/arrow-nanoarrow -> ../.. that makes any recursive
+    if (IS_SYMLINK "${nanoarrow_SOURCE_DIR}/python/subprojects/arrow-nanoarrow")
+        file(REMOVE "${nanoarrow_SOURCE_DIR}/python/subprojects/arrow-nanoarrow")
+    endif()
+endif()
+
+if (BUILD_TESTS)
     FetchContent_Declare(
         Catch
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git
@@ -144,4 +152,8 @@ if (BUILD_TESTS)
 
     include(CTest)
     add_subdirectory(tests)
+endif()
+
+if (BUILD_EXAMPLES)
+    add_subdirectory(examples)
 endif()

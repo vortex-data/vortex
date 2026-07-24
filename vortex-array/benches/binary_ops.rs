@@ -19,8 +19,10 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DecimalDType;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_session::VortexSession;
 
@@ -141,6 +143,22 @@ fn sub_i64_constant(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn add_decimal_i64_nonnull(bencher: Bencher) {
+    let lhs = decimal_i64_nonnull(0).into_array();
+    let rhs = decimal_i64_nonnull(1_000_000).into_array();
+
+    bench_decimal(bencher, lhs, rhs, Operator::Add);
+}
+
+#[divan::bench]
+fn add_decimal_i128_nullable(bencher: Bencher) {
+    let lhs = decimal_i128_nullable(0, 7).into_array();
+    let rhs = decimal_i128_nullable(1_000_000, 5).into_array();
+
+    bench_decimal(bencher, lhs, rhs, Operator::Add);
+}
+
+#[divan::bench]
 fn eq_i64_constant(bencher: Bencher) {
     let lhs = primitive_nonnull(0).into_array();
     let rhs = ConstantArray::new(1024i64, LEN).into_array();
@@ -176,6 +194,10 @@ fn bench_primitive(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Ope
     bench_binary::<PrimitiveArray>(bencher, lhs, rhs, operator);
 }
 
+fn bench_decimal(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
+    bench_binary::<DecimalArray>(bencher, lhs, rhs, operator);
+}
+
 fn bench_bool(bencher: Bencher, lhs: ArrayRef, rhs: ArrayRef, operator: Operator) {
     bench_binary::<BoolArray>(bencher, lhs, rhs, operator);
 }
@@ -199,6 +221,17 @@ fn bench_binary<T: Executable + 'static>(
 
 fn primitive_nonnull(base: i64) -> PrimitiveArray {
     PrimitiveArray::from_iter((0..LEN as i64).map(|i| base + i))
+}
+
+fn decimal_i64_nonnull(base: i64) -> DecimalArray {
+    DecimalArray::from_iter::<i64, _>((0..LEN as i64).map(|i| base + i), DecimalDType::new(18, 2))
+}
+
+fn decimal_i128_nullable(base: i128, null_every: usize) -> DecimalArray {
+    DecimalArray::from_option_iter::<i128, _>(
+        (0..LEN as i128).map(|i| (!(i as usize).is_multiple_of(null_every)).then_some(base + i)),
+        DecimalDType::new(38, 2),
+    )
 }
 
 fn primitive_small_nonnull(offset: i64) -> PrimitiveArray {
