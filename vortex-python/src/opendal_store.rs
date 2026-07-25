@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Python-facing [`PyObjectStore`](pyo3_object_store::PyObjectStore) wrapper for the
-//! OpenDAL-backed Tencent Cloud COS object store.
+//! Python-facing wrapper for the OpenDAL-backed Tencent Cloud COS object store.
 //!
 //! This lets callers build a concrete store object in Python and pass it to
 //! `vortex.io.read_url(store=...)` / `vortex.io.write(..., store=...)` exactly like any
@@ -16,18 +15,20 @@ use std::sync::Arc;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3_object_store::PyObjectStore;
 use url::Url;
 use vortex_utils::aliases::hash_map::HashMap;
 
-/// Build a [`PyObjectStore`] for the given `cos://` / `oss://` URL and properties.
-fn build_store(url: &str, properties: HashMap<String, String>) -> PyResult<PyObjectStore> {
+/// Build an `object_store::ObjectStore` for the given `cos://` / `oss://` URL and properties.
+fn build_store(
+    url: &str,
+    properties: HashMap<String, String>,
+) -> PyResult<Arc<dyn object_store::ObjectStore>> {
     let url = Url::parse(url)
         .map_err(|e| PyValueError::new_err(format!("invalid store URL {url}: {e}")))?;
     let store: Arc<dyn object_store::ObjectStore> =
         vortex_object_store_opendal::make_opendal_store(&url, &properties)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    Ok(PyObjectStore::from_store(store))
+    Ok(store)
 }
 
 /// A Tencent Cloud COS object store, backed by OpenDAL.
@@ -37,19 +38,13 @@ fn build_store(url: &str, properties: HashMap<String, String>) -> PyResult<PyObj
 #[pyclass(name = "CosStore", module = "vortex._lib", from_py_object)]
 #[derive(Clone)]
 pub struct CosStore {
-    store: PyObjectStore,
+    store: Arc<dyn object_store::ObjectStore>,
 }
 
 impl CosStore {
     /// Clone the underlying object store as an `Arc<dyn ObjectStore>`.
     pub fn to_arc(&self) -> Arc<dyn object_store::ObjectStore> {
-        self.store.clone().into_inner()
-    }
-}
-
-impl From<CosStore> for PyObjectStore {
-    fn from(value: CosStore) -> Self {
-        value.store
+        Arc::clone(&self.store)
     }
 }
 
@@ -105,8 +100,7 @@ mod tests {
     use super::*;
 
     /// A `CosStore` built in Rust must yield a non-null `Arc<dyn ObjectStore>` that can be
-    /// handed to `read_url`/`write` (this is the path previously blocked by the missing
-    /// `From<Arc<dyn ObjectStore>> for PyObjectStore` upstream constructor).
+    /// handed to `read_url`/`write`.
     #[test]
     fn cos_store_builds_object_store() {
         let store = CosStore::new(
@@ -118,8 +112,7 @@ mod tests {
             false,
         )
         .expect("cos store should build");
-        // The store must be usable as an `Arc<dyn ObjectStore>` (this is the path previously
-        // blocked by the missing `From<Arc<dyn ObjectStore>> for PyObjectStore` upstream).
+        // The store must be usable as an `Arc<dyn ObjectStore>`.
         let arc: Arc<dyn object_store::ObjectStore> = store.to_arc();
         assert!(Arc::strong_count(&arc) >= 1);
     }

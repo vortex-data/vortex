@@ -433,11 +433,4 @@ incremental = false
 [profile.dev.package.vortex-fastlanes]
 debug = false
 
-# Vendored fork of `pyo3-object_store` that adds `From<Arc<dyn ObjectStore>> for
-# PyObjectStore`, allowing any pre-built `object_store::ObjectStore` (e.g. the OpenDAL-backed
-# COS/OSS store) to be passed to Vortex's `read_url(store=...)` / `write(store=...)` APIs.
-#
-# Once https://github.com/developmentseed/obstore (pyo3-object_store) ships this constructor
-# upstream, this patch can be removed.
-[patch.crates-io]
-pyo3-object_store = { path = "vendor/pyo3-object_store" }
+

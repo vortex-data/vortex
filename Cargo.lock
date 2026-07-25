@@ -6848,6 +6848,8 @@ dependencies = [
 [[package]]
 name = "pyo3-object_store"
 version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13aaa9b876f9b02773cc18fd03dd359bddf3ca21978068024511f166c9c0c6a5"
 dependencies = [
  "async-trait",
  "bytes",
