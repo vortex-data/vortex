@@ -196,8 +196,11 @@ impl ChildBuilder {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
 
     use super::ChildBuilder;
     use super::MIN_CHUNK_LEN;
@@ -209,17 +212,25 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
+    use crate::arrays::Masked;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
+    use crate::scalar::Scalar;
 
     /// A non-canonical array of `len` values, all equal to `value`.
     fn constant(value: i32, len: usize) -> ArrayRef {
         ConstantArray::new(value, len).into_array()
+    }
+
+    /// A non-canonical *nullable* array of `len` non-null values, all equal to `value`.
+    fn nullable_constant(value: i32, len: usize) -> ArrayRef {
+        ConstantArray::new(Scalar::primitive(value, Nullable), len).into_array()
     }
 
     #[test]
@@ -291,6 +302,178 @@ mod tests {
         assert!(child.is::<Constant>());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_empty_arrays_never_become_chunks() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+        let empty = constant(1, MIN_CHUNK_LEN).slice(0..0)?;
+
+        builder.append_array(&empty, &mut ctx)?;
+        builder.append_array(&constant(1, MIN_CHUNK_LEN), &mut ctx)?;
+        builder.append_array(&empty, &mut ctx)?;
+        builder.append_array(&constant(2, MIN_CHUNK_LEN), &mut ctx)?;
+        builder.append_array(&empty, &mut ctx)?;
+
+        assert_eq!(builder.len(), 2 * MIN_CHUNK_LEN);
+        assert_eq!(builder.finish().as_::<Chunked>().nchunks(), 2);
+
+        Ok(())
+    }
+
+    /// An empty child must still finish as an empty array rather than as an empty [`ChunkedArray`].
+    #[test]
+    fn test_empty_child_finishes_without_chunks() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+
+        builder.append_array(&constant(1, MIN_CHUNK_LEN).slice(0..0)?, &mut ctx)?;
+
+        let child = builder.finish();
+        assert!(child.is_empty());
+        assert!(child.is::<Primitive>());
+
+        Ok(())
+    }
+
+    /// The dtype check has to run before the length check, so that a mismatched array is rejected
+    /// whether it would have been chunked or materialized.
+    #[rstest]
+    #[case::would_be_materialized(MIN_CHUNK_LEN - 1)]
+    #[case::would_be_chunked(MIN_CHUNK_LEN)]
+    fn test_appending_a_mismatched_dtype_is_rejected(#[case] len: usize) {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+
+        let wrong_dtype = ConstantArray::new(1i64, len).into_array();
+        assert!(builder.append_array(&wrong_dtype, &mut ctx).is_err());
+    }
+
+    /// Everything the scalar builder can produce has to be flushed ahead of the next chunk.
+    #[test]
+    fn test_zeros_and_nulls_around_chunks_keep_their_order() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DType::Primitive(I32, Nullable);
+        let mut builder = ChildBuilder::with_capacity(&dtype, 0);
+
+        builder.append_array(&nullable_constant(1, MIN_CHUNK_LEN), &mut ctx)?;
+        builder.append_nulls(2);
+        builder.append_array(&nullable_constant(2, MIN_CHUNK_LEN), &mut ctx)?;
+        builder.append_zeros(1);
+
+        let child = builder.finish();
+        assert_eq!(child.len(), 2 * MIN_CHUNK_LEN + 3);
+        assert_eq!(child.as_::<Chunked>().nchunks(), 4);
+
+        let expected = PrimitiveArray::from_option_iter(
+            std::iter::repeat_n(Some(1i32), MIN_CHUNK_LEN)
+                .chain([None, None])
+                .chain(std::iter::repeat_n(Some(2i32), MIN_CHUNK_LEN))
+                .chain([Some(0)]),
+        )
+        .into_array();
+        assert_arrays_eq!(&child, &expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// Overriding the validity once chunks exist has to push the override into each chunk, sliced
+    /// to that chunk's own range.
+    #[test]
+    fn test_set_validity_pushes_the_override_into_every_chunk() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DType::Primitive(I32, Nullable);
+        let mut builder = ChildBuilder::with_capacity(&dtype, 0);
+
+        builder.append_array(&nullable_constant(1, MIN_CHUNK_LEN), &mut ctx)?;
+        builder.append_array(&nullable_constant(2, MIN_CHUNK_LEN), &mut ctx)?;
+
+        // Straddle the chunk boundary, so a mis-sliced override cannot pass.
+        let invalid = [MIN_CHUNK_LEN - 1, MIN_CHUNK_LEN];
+        let validity = Mask::from_iter((0..2 * MIN_CHUNK_LEN).map(|i| !invalid.contains(&i)));
+        unsafe { builder.set_validity_unchecked(validity) };
+
+        let child = builder.finish();
+        let chunked = child.as_::<Chunked>();
+        assert_eq!(chunked.nchunks(), 2);
+        // The override was layered over the chunks rather than decoding them.
+        assert!(chunked.iter_chunks().all(|chunk| chunk.is::<Masked>()));
+
+        let expected =
+            PrimitiveArray::from_option_iter((0..2 * MIN_CHUNK_LEN).map(|i| {
+                (!invalid.contains(&i)).then_some(if i < MIN_CHUNK_LEN { 1i32 } else { 2 })
+            }))
+            .into_array();
+        assert_arrays_eq!(&child, &expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// Values still sitting in the scalar builder are part of the override too.
+    #[test]
+    fn test_set_validity_covers_pending_scalars() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DType::Primitive(I32, Nullable);
+        let mut builder = ChildBuilder::with_capacity(&dtype, 0);
+
+        builder.append_array(&nullable_constant(1, MIN_CHUNK_LEN), &mut ctx)?;
+        builder.append_scalar(&Scalar::primitive(2i32, Nullable))?;
+
+        let mut validity = vec![true; MIN_CHUNK_LEN + 1];
+        validity[MIN_CHUNK_LEN] = false;
+        unsafe { builder.set_validity_unchecked(Mask::from_iter(validity)) };
+
+        let child = builder.finish();
+        let expected = PrimitiveArray::from_option_iter(
+            std::iter::repeat_n(Some(1i32), MIN_CHUNK_LEN).chain([None]),
+        )
+        .into_array();
+        assert_arrays_eq!(&child, &expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// A non-nullable child cannot carry nulls, so the override is dropped and the chunks are left
+    /// exactly as they were appended.
+    #[test]
+    fn test_set_validity_is_a_noop_for_a_non_nullable_child() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+
+        builder.append_array(&constant(1, MIN_CHUNK_LEN), &mut ctx)?;
+        builder.append_array(&constant(2, MIN_CHUNK_LEN), &mut ctx)?;
+        unsafe { builder.set_validity_unchecked(Mask::new_false(2 * MIN_CHUNK_LEN)) };
+
+        let child = builder.finish();
+        let chunked = child.as_::<Chunked>();
+        assert!(chunked.iter_chunks().all(|chunk| chunk.is::<Constant>()));
+
+        let expected = ChunkedArray::try_new(
+            vec![constant(1, MIN_CHUNK_LEN), constant(2, MIN_CHUNK_LEN)],
+            DType::from(I32),
+        )?
+        .into_array();
+        assert_arrays_eq!(&child, &expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// Replacing the validity of a chunk that already contains nulls would mean decoding it, which
+    /// is exactly what the chunk exists to avoid.
+    #[test]
+    #[should_panic(expected = "cannot override the validity of a child chunk that contains nulls")]
+    fn test_set_validity_rejects_a_chunk_that_contains_nulls() {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DType::Primitive(I32, Nullable);
+        let mut builder = ChildBuilder::with_capacity(&dtype, 0);
+
+        let with_nulls = ConstantArray::new(Scalar::null(dtype), MIN_CHUNK_LEN).into_array();
+        builder
+            .append_array(&with_nulls, &mut ctx)
+            .vortex_expect("append");
+
+        unsafe { builder.set_validity_unchecked(Mask::new_true(MIN_CHUNK_LEN)) };
     }
 
     #[test]
