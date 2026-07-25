@@ -149,8 +149,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadata(
         let properties = extract_properties(env, &options)?;
 
         let fs = object_store_fs(&url, &properties, session.handle())?;
-        // Resolve the key the same way a data source opening this URI would.
-        let path = url.path().to_string();
+        // `FileSystem` keys are literal, already-decoded paths, so decode as `listFiles` does.
+        let path = Path::from_url_path(url.path())
+            .map_err(|_| vortex_err!("cannot parse uri as object_store Path"))?
+            .to_string();
         let source = RUNTIME.block_on(async move { fs.open_read(&path).await })?;
 
         let segments = read_metadata_segments(session, source)?;
