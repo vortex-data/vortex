@@ -106,7 +106,7 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::varbin::VarBinArrayExt;
     use vortex_array::builders::ArrayBuilder;
-    use vortex_array::builders::VarBinBufferBuilder;
+    use vortex_array::builders::DynVarBinBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -212,7 +212,7 @@ mod tests {
 
         {
             let mut builder =
-                VarBinBufferBuilder::with_capacity(chunked_arr.dtype().clone(), false, data.len());
+                DynVarBinBuilder::with_capacity(chunked_arr.dtype().clone(), false, data.len());
             chunked_arr
                 .into_array()
                 .append_to_builder(&mut builder, &mut ctx)?;

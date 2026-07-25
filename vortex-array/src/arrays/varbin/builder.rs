@@ -100,38 +100,38 @@ impl<O: IntegerPType> VarBinBuilder<O> {
     }
 
     #[inline]
-    pub fn append_values(&mut self, values: &[u8], end_offsets: impl Iterator<Item = O>, num: usize)
-    where
-        O: 'static,
-        usize: AsPrimitive<O>,
-    {
-        self.offsets
-            .extend(end_offsets.map(|offset| offset + self.data.len().as_()));
-        self.data.extend_from_slice(values);
-        self.validity.append_n(true, num);
-    }
-
-    fn append_values_with_lengths(
+    pub fn append_values<P>(
         &mut self,
         values: &[u8],
-        lengths: impl Iterator<Item = usize>,
+        end_offsets: impl Iterator<Item = P>,
         validity: &Mask,
-    ) {
-        let mut end = self.data.len();
+    ) where
+        P: AsPrimitive<usize>,
+    {
+        let data_start = self.data.len();
+        let mut last_end = data_start;
         let mut len = 0;
-        for value_len in lengths {
-            end += value_len;
-            self.offsets.push(O::from(end).unwrap_or_else(|| {
+        self.offsets.extend(end_offsets.map(|offset| {
+            let relative_end = offset.as_();
+            let end = data_start.checked_add(relative_end).unwrap_or_else(|| {
+                vortex_panic!("Byte offset overflow: {data_start} + {relative_end}")
+            });
+            last_end = end;
+            len += 1;
+            O::from(end).unwrap_or_else(|| {
                 vortex_panic!(
                     "Failed to convert byte offset {end} to {}",
                     std::any::type_name::<O>()
                 )
-            }));
-            len += 1;
-        }
+            })
+        }));
         debug_assert_eq!(len, validity.len());
-        debug_assert_eq!(end - self.data.len(), values.len());
+        debug_assert_eq!(last_end - data_start, values.len());
         self.data.extend_from_slice(values);
+        self.append_validity(validity);
+    }
+
+    fn append_validity(&mut self, validity: &Mask) {
         match validity {
             Mask::AllTrue(len) => self.validity.append_n(true, *len),
             Mask::AllFalse(len) => self.validity.append_n(false, *len),
@@ -197,42 +197,41 @@ impl<O: IntegerPType> VarBinBuilder<O> {
 /// Unlike [`crate::builders::VarBinViewBuilder`], this builder stores 32-bit or 64-bit offsets.
 /// Encodings can decode into this builder without first creating a
 /// [`VarBinViewArray`](crate::arrays::VarBinViewArray).
-pub struct VarBinBufferBuilder {
+pub struct DynVarBinBuilder {
     dtype: DType,
-    storage: TypedBuilder,
+    storage: DynOffsets,
 }
 
-enum TypedBuilder {
+enum DynOffsets {
     I32(VarBinBuilder<i32>),
     I64(VarBinBuilder<i64>),
 }
 
-impl VarBinBufferBuilder {
+impl DynVarBinBuilder {
     /// Creates a builder with 32-bit offsets, or 64-bit offsets when `large_offsets` is true.
     pub fn with_capacity(dtype: DType, large_offsets: bool, capacity: usize) -> Self {
         assert!(matches!(dtype, DType::Utf8(_) | DType::Binary(_)));
         let storage = if large_offsets {
-            TypedBuilder::I64(VarBinBuilder::with_capacity(capacity))
+            DynOffsets::I64(VarBinBuilder::with_capacity(capacity))
         } else {
-            TypedBuilder::I32(VarBinBuilder::with_capacity(capacity))
+            DynOffsets::I32(VarBinBuilder::with_capacity(capacity))
         };
         Self { dtype, storage }
     }
 
-    /// Appends decompressed values represented by one contiguous byte buffer and per-row lengths.
-    pub fn append_values(
+    /// Appends decompressed values represented by one contiguous byte buffer and relative end
+    /// offsets.
+    pub fn append_values<P>(
         &mut self,
         values: &[u8],
-        lengths: impl Iterator<Item = usize>,
+        end_offsets: impl Iterator<Item = P>,
         validity: &Mask,
-    ) {
+    ) where
+        P: AsPrimitive<usize>,
+    {
         match &mut self.storage {
-            TypedBuilder::I32(builder) => {
-                builder.append_values_with_lengths(values, lengths, validity)
-            }
-            TypedBuilder::I64(builder) => {
-                builder.append_values_with_lengths(values, lengths, validity)
-            }
+            DynOffsets::I32(builder) => builder.append_values(values, end_offsets, validity),
+            DynOffsets::I64(builder) => builder.append_values(values, end_offsets, validity),
         }
     }
 
@@ -248,7 +247,7 @@ impl VarBinBufferBuilder {
     pub fn append_scalar_repeated(&mut self, scalar: &Scalar, n: usize) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "VarBinBufferBuilder expected scalar with dtype {}, got {}",
+            "DynVarBinBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
@@ -261,7 +260,7 @@ impl VarBinBufferBuilder {
                 Some(value) => self.append_n_values(value, n),
                 None => self.push_nulls(n),
             },
-            dtype => vortex_bail!("VarBinBufferBuilder cannot append scalar of dtype {dtype}"),
+            dtype => vortex_bail!("DynVarBinBuilder cannot append scalar of dtype {dtype}"),
         }
         Ok(())
     }
@@ -279,13 +278,13 @@ impl VarBinBufferBuilder {
             .execute_mask(array.as_ref().len(), ctx)?;
         crate::match_each_integer_ptype!(offsets.ptype(), |P| {
             let offsets = offsets.as_slice::<P>();
+            let first_offset: usize = offsets[0].as_();
             self.append_values(
                 bytes.as_slice(),
-                offsets.windows(2).map(|window| {
-                    let start: usize = window[0].as_();
-                    let end: usize = window[1].as_();
-                    end - start
-                }),
+                offsets
+                    .iter()
+                    .skip(1)
+                    .map(|offset| AsPrimitive::<usize>::as_(*offset) - first_offset),
                 &validity,
             );
         });
@@ -324,34 +323,34 @@ impl VarBinBufferBuilder {
     /// Finishes the current values as a [`VarBinArray`] and resets the builder.
     pub fn finish_into_varbin(&mut self) -> VarBinArray {
         match &mut self.storage {
-            TypedBuilder::I32(builder) => std::mem::take(builder).finish(self.dtype.clone()),
-            TypedBuilder::I64(builder) => std::mem::take(builder).finish(self.dtype.clone()),
+            DynOffsets::I32(builder) => std::mem::take(builder).finish(self.dtype.clone()),
+            DynOffsets::I64(builder) => std::mem::take(builder).finish(self.dtype.clone()),
         }
     }
 
     fn append_value(&mut self, value: impl AsRef<[u8]>) {
         match &mut self.storage {
-            TypedBuilder::I32(builder) => builder.append_value(value),
-            TypedBuilder::I64(builder) => builder.append_value(value),
+            DynOffsets::I32(builder) => builder.append_value(value),
+            DynOffsets::I64(builder) => builder.append_value(value),
         }
     }
 
     fn push_null(&mut self) {
         match &mut self.storage {
-            TypedBuilder::I32(builder) => builder.append_null(),
-            TypedBuilder::I64(builder) => builder.append_null(),
+            DynOffsets::I32(builder) => builder.append_null(),
+            DynOffsets::I64(builder) => builder.append_null(),
         }
     }
 
     fn push_nulls(&mut self, n: usize) {
         match &mut self.storage {
-            TypedBuilder::I32(builder) => builder.append_n_nulls(n),
-            TypedBuilder::I64(builder) => builder.append_n_nulls(n),
+            DynOffsets::I32(builder) => builder.append_n_nulls(n),
+            DynOffsets::I64(builder) => builder.append_n_nulls(n),
         }
     }
 }
 
-impl ArrayBuilder for VarBinBufferBuilder {
+impl ArrayBuilder for DynVarBinBuilder {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -366,8 +365,8 @@ impl ArrayBuilder for VarBinBufferBuilder {
 
     fn len(&self) -> usize {
         match &self.storage {
-            TypedBuilder::I32(builder) => builder.len(),
-            TypedBuilder::I64(builder) => builder.len(),
+            DynOffsets::I32(builder) => builder.len(),
+            DynOffsets::I64(builder) => builder.len(),
         }
     }
 
@@ -387,15 +386,15 @@ impl ArrayBuilder for VarBinBufferBuilder {
 
     fn reserve_exact(&mut self, additional: usize) {
         match &mut self.storage {
-            TypedBuilder::I32(builder) => builder.reserve_exact(additional),
-            TypedBuilder::I64(builder) => builder.reserve_exact(additional),
+            DynOffsets::I32(builder) => builder.reserve_exact(additional),
+            DynOffsets::I64(builder) => builder.reserve_exact(additional),
         }
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
         match &mut self.storage {
-            TypedBuilder::I32(builder) => builder.set_validity(validity),
-            TypedBuilder::I64(builder) => builder.set_validity(validity),
+            DynOffsets::I32(builder) => builder.set_validity(validity),
+            DynOffsets::I64(builder) => builder.set_validity(validity),
         }
     }
 
@@ -422,7 +421,7 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::VarBinArraySlotsExt;
-    use crate::arrays::varbin::builder::VarBinBufferBuilder;
+    use crate::arrays::varbin::builder::DynVarBinBuilder;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
@@ -460,17 +459,24 @@ mod tests {
     #[rstest]
     #[case(false)]
     #[case(true)]
-    fn test_append_varbin_to_buffer_builder(#[case] large_offsets: bool) -> VortexResult<()> {
-        let source =
-            VarBinArray::from_iter([Some("hello"), None, Some("world")], DType::Utf8(Nullable));
+    fn test_append_varbin_to_builder(#[case] large_offsets: bool) -> VortexResult<()> {
+        let source = VarBinArray::from_iter(
+            [
+                Some("prefix"),
+                Some("hello"),
+                None,
+                Some("world"),
+                Some("suffix"),
+            ],
+            DType::Utf8(Nullable),
+        )
+        .into_array()
+        .slice(1..4)?;
         let mut builder =
-            VarBinBufferBuilder::with_capacity(source.dtype().clone(), large_offsets, source.len());
+            DynVarBinBuilder::with_capacity(source.dtype().clone(), large_offsets, source.len());
         let mut ctx = array_session().create_execution_ctx();
 
-        source
-            .clone()
-            .into_array()
-            .append_to_builder(&mut builder, &mut ctx)?;
+        source.append_to_builder(&mut builder, &mut ctx)?;
 
         assert_arrays_eq!(builder.finish_into_varbin(), source, &mut ctx);
         Ok(())
@@ -487,8 +493,8 @@ mod tests {
             Mask::from_iter([true, false, true]),
         ] {
             let mut builder =
-                VarBinBufferBuilder::with_capacity(DType::Utf8(Nullable), large_offsets, 0);
-            assert!(builder.as_any().is::<VarBinBufferBuilder>());
+                DynVarBinBuilder::with_capacity(DType::Utf8(Nullable), large_offsets, 0);
+            assert!(builder.as_any().is::<DynVarBinBuilder>());
             builder.reserve_exact(3);
             builder.append_zero();
             builder.append_scalar(&Scalar::utf8("hello", Nullable))?;
@@ -503,7 +509,7 @@ mod tests {
     }
 
     #[test]
-    fn test_append_varbinview_validity_to_buffer_builder() -> VortexResult<()> {
+    fn test_append_varbinview_validity_to_dyn_builder() -> VortexResult<()> {
         let all_null = VarBinViewArray::from_iter([None::<&str>, None], DType::Utf8(Nullable));
         let mixed =
             VarBinViewArray::from_iter([Some("hello"), None, Some("world")], DType::Utf8(Nullable));
@@ -512,7 +518,7 @@ mod tests {
             DType::Utf8(Nullable),
         );
         let mut builder =
-            VarBinBufferBuilder::with_capacity(expected.dtype().clone(), false, expected.len());
+            DynVarBinBuilder::with_capacity(expected.dtype().clone(), false, expected.len());
         let mut ctx = array_session().create_execution_ctx();
 
         all_null

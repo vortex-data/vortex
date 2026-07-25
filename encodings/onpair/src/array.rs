@@ -26,7 +26,7 @@ use vortex_array::IntoArray;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::builders::VarBinBufferBuilder;
+use vortex_array::builders::DynVarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -548,7 +548,7 @@ impl VTable for OnPair {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinBufferBuilder>() {
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
             let (bytes, lengths) = onpair_decode_bytes(array, ctx)?;
             let validity = array
                 .array()
@@ -557,10 +557,10 @@ impl VTable for OnPair {
             match_each_integer_ptype!(lengths.ptype(), |P| {
                 builder.append_values(
                     bytes.as_slice(),
-                    lengths
-                        .as_slice::<P>()
-                        .iter()
-                        .map(|length| AsPrimitive::<usize>::as_(*length)),
+                    lengths.as_slice::<P>().iter().scan(0usize, |end, length| {
+                        *end += AsPrimitive::<usize>::as_(*length);
+                        Some(*end)
+                    }),
                     &validity,
                 );
             });

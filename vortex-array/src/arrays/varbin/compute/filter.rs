@@ -154,7 +154,7 @@ fn update_non_nullable_slice<O>(
         .iter()
         .map(|o| *o - offsets[start])
         .dropping(1);
-    builder.append_values(new_data, new_offsets, end - start)
+    builder.append_values(new_data, new_offsets, &Mask::new_true(end - start))
 }
 
 fn filter_select_var_bin_by_index(

@@ -296,7 +296,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
-    use crate::builders::VarBinBufferBuilder;
+    use crate::builders::DynVarBinBuilder;
     use crate::builders::builder_with_capacity;
     use crate::dtype::DType;
     use crate::dtype::NativePType;
@@ -443,12 +443,11 @@ mod test {
     }
 
     #[test]
-    fn test_dict_utf8_append_to_varbin_buffer_builder() -> VortexResult<()> {
+    fn test_dict_utf8_append_to_dyn_varbin_builder() -> VortexResult<()> {
         let values = VarBinViewArray::from_iter_str(["zero", "one", "two"]);
         let dict = DictArray::try_new(buffer![2u8, 0, 2, 1].into_array(), values.into_array())?;
         let expected = VarBinViewArray::from_iter_str(["two", "zero", "two", "one"]);
-        let mut builder =
-            VarBinBufferBuilder::with_capacity(dict.dtype().clone(), false, dict.len());
+        let mut builder = DynVarBinBuilder::with_capacity(dict.dtype().clone(), false, dict.len());
         let mut ctx = array_session().create_execution_ctx();
 
         dict.into_array()

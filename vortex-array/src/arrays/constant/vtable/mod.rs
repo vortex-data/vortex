@@ -33,9 +33,9 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::BoolBuilder;
 use crate::builders::DecimalBuilder;
+use crate::builders::DynVarBinBuilder;
 use crate::builders::NullBuilder;
 use crate::builders::PrimitiveBuilder;
-use crate::builders::VarBinBufferBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
@@ -223,7 +223,7 @@ impl VTable for Constant {
                 });
             }
             DType::Utf8(_) => {
-                if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinBufferBuilder>() {
+                if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
                     builder.append_scalar_repeated(scalar, n)?;
                 } else {
                     append_value_or_nulls::<VarBinViewBuilder>(builder, scalar.is_null(), n, |b| {
@@ -236,7 +236,7 @@ impl VTable for Constant {
                 }
             }
             DType::Binary(_) => {
-                if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinBufferBuilder>() {
+                if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
                     builder.append_scalar_repeated(scalar, n)?;
                 } else {
                     append_value_or_nulls::<VarBinViewBuilder>(builder, scalar.is_null(), n, |b| {

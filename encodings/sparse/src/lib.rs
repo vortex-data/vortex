@@ -699,7 +699,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builders::VarBinBufferBuilder;
+    use vortex_array::builders::DynVarBinBuilder;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -908,7 +908,7 @@ mod test {
     }
 
     #[test]
-    fn test_append_utf8_to_varbin_buffer_builder() {
+    fn test_append_utf8_to_dyn_varbin_builder() {
         let mut ctx = SESSION.create_execution_ctx();
         let values = VarBinViewArray::from_iter_nullable_str([Some("patched"), None, Some("last")])
             .into_array();
@@ -924,7 +924,7 @@ mod test {
         ])
         .into_array();
         let mut builder =
-            VarBinBufferBuilder::with_capacity(array.dtype().clone(), false, array.len());
+            DynVarBinBuilder::with_capacity(array.dtype().clone(), false, array.len());
         array.append_to_builder(&mut builder, &mut ctx).unwrap();
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
     }
@@ -942,7 +942,7 @@ mod test {
         .unwrap();
         let expected = VarBinViewArray::from_iter_str(["fill", "second"]).into_array();
         let mut builder =
-            VarBinBufferBuilder::with_capacity(array.dtype().clone(), false, array.len());
+            DynVarBinBuilder::with_capacity(array.dtype().clone(), false, array.len());
         array.append_to_builder(&mut builder, &mut ctx).unwrap();
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
     }

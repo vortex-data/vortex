@@ -16,7 +16,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::assert_arrays_eq;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::builders::VarBinBufferBuilder;
+use vortex_array::builders::DynVarBinBuilder;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -66,7 +66,7 @@ fn test_direct_offset_builder() -> vortex_error::VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let input = sample_input();
     let encoded = compress_onpair(input.as_ref(), &mut ctx)?;
-    let mut builder = VarBinBufferBuilder::with_capacity(input.dtype().clone(), false, input.len());
+    let mut builder = DynVarBinBuilder::with_capacity(input.dtype().clone(), false, input.len());
     encoded
         .into_array()
         .append_to_builder(&mut builder, &mut ctx)?;

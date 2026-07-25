@@ -16,7 +16,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
-use vortex_array::builders::VarBinBufferBuilder;
+use vortex_array::builders::DynVarBinBuilder;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -53,7 +53,7 @@ where
         return varbin_to_byte_array::<T>(array, ctx);
     }
 
-    let mut builder = VarBinBufferBuilder::with_capacity(
+    let mut builder = DynVarBinBuilder::with_capacity(
         array.dtype().clone(),
         T::Offset::PTYPE == PType::I64,
         array.len(),

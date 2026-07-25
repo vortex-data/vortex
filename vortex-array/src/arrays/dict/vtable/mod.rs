@@ -43,7 +43,7 @@ use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::arrays::dict::execute::take_canonical;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
-use crate::builders::VarBinBufferBuilder;
+use crate::builders::DynVarBinBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -219,10 +219,10 @@ impl VTable for Dict {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinBufferBuilder>() {
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
             // Dictionary values may exceed the target's offset width even when the selected
             // output does not. Keep the intermediate wide and narrow only after applying codes.
-            let mut values_builder = VarBinBufferBuilder::with_capacity(
+            let mut values_builder = DynVarBinBuilder::with_capacity(
                 array.values().dtype().clone(),
                 true,
                 array.values().len(),

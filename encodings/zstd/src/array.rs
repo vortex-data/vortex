@@ -30,7 +30,7 @@ use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::builders::VarBinBufferBuilder;
+use vortex_array::builders::DynVarBinBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
@@ -277,13 +277,42 @@ impl VTable for Zstd {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         if matches!(array.dtype(), DType::Binary(_) | DType::Utf8(_))
-            && let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinBufferBuilder>()
+            && let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>()
         {
             let unsliced_validity =
                 child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
-            return array
+            let slice = array
                 .data()
-                .append_varbin(array.dtype(), &unsliced_validity, builder, ctx);
+                .decompress_slice(array.dtype(), &unsliced_validity, ctx)?;
+            let value_start = slice.value_idx_start - slice.n_skipped_values;
+            let value_count = slice.value_idx_stop - slice.value_idx_start;
+            let mut values = zstd_values(slice.bytes.as_slice())
+                .skip(value_start)
+                .take(value_count);
+            let mask = slice.validity.execute_mask(slice.n_rows, ctx)?;
+            match mask.indices() {
+                AllOr::All => {
+                    for value in values {
+                        builder.append_n_values(value, 1);
+                    }
+                }
+                AllOr::None => builder.append_nulls(slice.n_rows),
+                AllOr::Some(valid_indices) => {
+                    let mut row = 0;
+                    for &valid_index in valid_indices {
+                        builder.append_nulls(valid_index - row);
+                        builder.append_n_values(
+                            values
+                                .next()
+                                .vortex_expect("Zstd value count must match validity"),
+                            1,
+                        );
+                        row = valid_index + 1;
+                    }
+                    builder.append_nulls(slice.n_rows - row);
+                }
+            }
+            return Ok(());
         }
 
         array
@@ -1139,45 +1168,6 @@ impl ZstdData {
             }
             _ => vortex_panic!("Unsupported dtype for Zstd array: {}", dtype),
         }
-    }
-
-    fn append_varbin(
-        &self,
-        dtype: &DType,
-        unsliced_validity: &Validity,
-        builder: &mut VarBinBufferBuilder,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        let slice = self.decompress_slice(dtype, unsliced_validity, ctx)?;
-        let value_start = slice.value_idx_start - slice.n_skipped_values;
-        let value_count = slice.value_idx_stop - slice.value_idx_start;
-        let mut values = zstd_values(slice.bytes.as_slice())
-            .skip(value_start)
-            .take(value_count);
-        let mask = slice.validity.execute_mask(slice.n_rows, ctx)?;
-        match mask.indices() {
-            AllOr::All => {
-                for value in values {
-                    builder.append_n_values(value, 1);
-                }
-            }
-            AllOr::None => builder.append_nulls(slice.n_rows),
-            AllOr::Some(valid_indices) => {
-                let mut row = 0;
-                for &valid_index in valid_indices {
-                    builder.append_nulls(valid_index - row);
-                    builder.append_n_values(
-                        values
-                            .next()
-                            .vortex_expect("Zstd value count must match validity"),
-                        1,
-                    );
-                    row = valid_index + 1;
-                }
-                builder.append_nulls(slice.n_rows - row);
-            }
-        }
-        Ok(())
     }
 
     /// Returns the length of the array.
