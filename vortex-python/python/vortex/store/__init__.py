@@ -23,15 +23,7 @@ from ._local import LocalStore
 from ._memory import MemoryStore
 from ._retry import BackoffConfig, RetryConfig
 
-ObjectStore: TypeAlias = (
-    AzureStore
-    | CosStore
-    | GCSStore
-    | HTTPStore
-    | S3Store
-    | LocalStore
-    | MemoryStore
-)
+ObjectStore: TypeAlias = AzureStore | CosStore | GCSStore | HTTPStore | S3Store | LocalStore | MemoryStore
 """All supported ObjectStore implementations."""
 
 
@@ -101,9 +93,6 @@ def from_url(  # type: ignore[misc] # docstring in pyi file
     - ``cos://bucket/path`` -> OpenDAL-backed Tencent Cloud COS store (requires the
       ``opendal`` feature; configure via environment variables such as
       ``TENCENTCLOUD_SECRET_ID`` / ``TENCENTCLOUD_SECRET_KEY`` and ``COS_ENDPOINT``)
-    - ``oss://bucket/path`` -> OpenDAL-backed Alibaba Cloud OSS store (requires the
-      ``opendal`` feature; configure via ``ALIBABACLOUD_ACCESS_KEY_ID`` /
-      ``ALIBABACLOUD_ACCESS_KEY_SECRET`` and ``OSS_ENDPOINT``)
     - ``http://mydomain/path`` -> :class:`~vortex.store.HTTPStore`
     - ``https://mydomain/path`` -> :class:`~vortex.store.HTTPStore`
 

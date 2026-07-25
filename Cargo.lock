@@ -10100,6 +10100,7 @@ dependencies = [
  "object_store",
  "object_store_opendal",
  "opendal",
+ "tracing",
  "url",
  "vortex-utils",
 ]

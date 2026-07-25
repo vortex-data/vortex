@@ -193,7 +193,7 @@ impl<'py> FromPyObject<'_, 'py> for AnyVortexStore {
 /// path : str
 ///     The file path.
 ///
-/// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+/// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
 ///     An optional object store configuration to use for writing the output.
 ///
 /// Examples
@@ -335,7 +335,7 @@ impl PyVortexWriteOptions {
     /// path : str
     ///     The file path.
     ///
-    /// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+    /// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
     ///     An optional object store configuration to use for writing the output.
     ///
     /// Examples

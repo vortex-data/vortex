@@ -41,8 +41,8 @@ vortex-parquet-variant = { workspace = true }
 jni = { workspace = true, features = ["invocation"] }
 
 [features]
-# Enable OpenDAL-backed object stores (Tencent COS, Alibaba OSS) for `cos://` and `oss://` URLs.
-# This pulls in the `opendal` dependency, so it is opt-in.
+# Enable OpenDAL-backed object stores (Tencent COS) for `cos://` URLs. This pulls in the
+# `opendal` dependency, so it is opt-in.
 opendal = ["dep:vortex-object-store-opendal"]
 
 [lib]

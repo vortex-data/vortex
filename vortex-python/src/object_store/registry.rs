@@ -20,7 +20,7 @@ use object_store::registry::ObjectStoreRegistry;
 use parking_lot::RwLock;
 use url::Url;
 #[cfg(feature = "opendal")]
-use vortex::utils::aliases::hash_map::HashMap as VortexHashMap;
+use vortex_utils::aliases::hash_map::HashMap as VortexHashMap;
 
 #[derive(Debug, Default)]
 struct PathEntry {
@@ -78,11 +78,25 @@ impl ObjectStoreRegistry for Registry {
     fn resolve(&self, to_resolve: &Url) -> object_store::Result<(Arc<dyn ObjectStore>, Path)> {
         let key = url_key(to_resolve);
 
-        // OpenDAL-backed stores (Tencent COS) use schemes that the `object_store`
-        // crate does not recognize. Resolve them via the optional `opendal` feature, relying on
-        // OpenDAL's environment-variable configuration (e.g. `TENCENTCLOUD_SECRET_ID`).
+        // 1. Consult the user-registered map first. Every other scheme does this, so an explicit
+        //    `Registry::register("cos://...", store)` should also win over the env-var / OpenDAL
+        //    fallback below. This also means a previously-resolved OpenDAL store can be cached
+        //    here for the lifetime of the process (the lookup at the bottom of this function
+        //    inserts into the same map).
+        {
+            let map = self.map.read();
+
+            if let Some((store, depth)) = map.get(key).and_then(|entry| entry.lookup(to_resolve)) {
+                let path = path_suffix(to_resolve, depth)?;
+                return Ok((Arc::clone(store), path));
+            }
+        }
+
+        // 2. OpenDAL-backed schemes (Tencent COS) are not recognized by the `object_store` crate.
+        //    Resolve them via the optional `opendal` feature, relying on OpenDAL's environment-
+        //    variable configuration (e.g. `TENCENTCLOUD_SECRET_ID`).
         #[cfg(feature = "opendal")]
-        if matches!(to_resolve.scheme(), "cos") {
+        if to_resolve.scheme() == "cos" {
             let store =
                 vortex_object_store_opendal::make_opendal_store(to_resolve, &VortexHashMap::new())
                     .map_err(|e| object_store::Error::Generic {
@@ -95,16 +109,20 @@ impl ObjectStoreRegistry for Registry {
                     source: Box::new(e),
                 }
             })?;
-            return Ok((store, path));
-        }
 
-        {
-            let map = self.map.read();
-
-            if let Some((store, depth)) = map.get(key).and_then(|entry| entry.lookup(to_resolve)) {
-                let path = path_suffix(to_resolve, depth)?;
-                return Ok((Arc::clone(store), path));
+            // Cache the resolved store under the URL's authority so subsequent `resolve` calls
+            // for the same bucket/configuration share a single client.
+            let mut map = self.map.write();
+            let mut entry = map.entry(key.to_string()).or_default();
+            for segment in path_segments(to_resolve.path()) {
+                entry = entry.children.entry(segment.to_string()).or_default();
             }
+            let stored = Arc::clone(match &entry.store {
+                None => entry.store.insert(Arc::clone(&store)),
+                Some(x) => x, // Racing creation - use existing
+            });
+
+            return Ok((stored, path));
         }
 
         let normalized_env = std::env::vars().map(|(k, v)| (k.to_ascii_lowercase(), v));

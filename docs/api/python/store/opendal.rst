@@ -1,6 +1,6 @@
-========
+=============
 OpenDAL (COS)
-========
+=============
 
 Vortex can read from and write to Tencent Cloud COS through
 `OpenDAL <https://opendal.apache.org/>`_, which provides native service support.
@@ -24,20 +24,24 @@ variables OpenDAL's COS builder reads (``TENCENTCLOUD_SECRET_ID``, ``TENCENTCLOU
 
    a = vx.io.read_url("cos://my-bucket/path/to/dataset.vortex")
 
-Or configure explicitly with :class:`~vortex.store.CosStore` before reading:
+Or configure explicitly with :class:`~vortex.store.CosStore` and pass it to
+:func:`vortex.io.read_url` via ``store=``:
 
 .. code-block:: python
 
+   from vortex.io import read_url
    from vortex.store import CosStore
 
-   CosStore(
+   store = CosStore(
        bucket="my-bucket",
        endpoint="https://cos.ap-guangzhou.myqcloud.com",
        secret_id="AKID...",
        secret_key="...",
-   ).apply()
+   )
 
-   a = vx.io.read_url("cos://my-bucket/path/to/dataset.vortex")
+   # When `store=` is supplied, the path is a key within the store, so the scheme and
+   # bucket are not part of the path passed to read_url.
+   a = read_url("path/to/dataset.vortex", store=store)
 
 Passing a store object directly
 ===============================
@@ -58,5 +62,6 @@ exactly like the built-in S3/Azure/GCS stores:
        secret_key="...",
    )
 
-   a = read_url("cos://my-bucket/path/to/dataset.vortex", store=store)
-
+   # When `store=` is supplied, the path is resolved as a key within the store, so the scheme
+   # and bucket are not part of the path passed to read_url.
+   a = read_url("path/to/dataset.vortex", store=store)

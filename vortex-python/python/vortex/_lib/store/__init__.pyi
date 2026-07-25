@@ -92,9 +92,6 @@ def from_url(  # type: ignore[misc] # docstring in pyi file
     - `cos://bucket/path` -> OpenDAL-backed Tencent Cloud COS store (requires the
       `opendal` feature; configure via environment variables such as
       `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY` and `COS_ENDPOINT`)
-    - `oss://bucket/path` -> OpenDAL-backed Alibaba Cloud OSS store (requires the
-      `opendal` feature; configure via `ALIBABACLOUD_ACCESS_KEY_ID` /
-      `ALIBABACLOUD_ACCESS_KEY_SECRET` and `OSS_ENDPOINT`)
     - `http://mydomain/path` -> [`HTTPStore`][vortex.store.HTTPStore]
     - `https://mydomain/path` -> [`HTTPStore`][vortex.store.HTTPStore]
 

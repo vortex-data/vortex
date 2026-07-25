@@ -15,28 +15,14 @@ use std::sync::Arc;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use url::Url;
-use vortex_utils::aliases::hash_map::HashMap;
-
-/// Build an `object_store::ObjectStore` for the given `cos://` / `oss://` URL and properties.
-fn build_store(
-    url: &str,
-    properties: HashMap<String, String>,
-) -> PyResult<Arc<dyn object_store::ObjectStore>> {
-    let url = Url::parse(url)
-        .map_err(|e| PyValueError::new_err(format!("invalid store URL {url}: {e}")))?;
-    let store: Arc<dyn object_store::ObjectStore> =
-        vortex_object_store_opendal::make_opendal_store(&url, &properties)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    Ok(store)
-}
+use vortex_object_store_opendal::CosConfig;
 
 /// A Tencent Cloud COS object store, backed by OpenDAL.
 ///
 /// Construct it with explicit configuration and pass it to
 /// ``vortex.io.read_url(url, store=cos_store)`` / ``vortex.io.write(arrays, path, store=cos_store)``.
-#[pyclass(name = "CosStore", module = "vortex._lib", from_py_object)]
-#[derive(Clone)]
+#[pyclass(name = "CosStore", module = "vortex._lib", frozen, from_py_object)]
+#[derive(Clone, Debug)]
 pub struct CosStore {
     store: Arc<dyn object_store::ObjectStore>,
 }
@@ -68,52 +54,62 @@ impl CosStore {
         root: Option<String>,
         disable_config_load: bool,
     ) -> PyResult<Self> {
-        let mut properties = HashMap::new();
-        properties.insert("bucket".to_string(), bucket);
-        properties.insert("endpoint".to_string(), endpoint);
-        if let Some(v) = secret_id {
-            properties.insert("secret_id".to_string(), v);
-        }
-        if let Some(v) = secret_key {
-            properties.insert("secret_key".to_string(), v);
-        }
-        if let Some(v) = root {
-            properties.insert("root".to_string(), v);
-        }
-        if disable_config_load {
-            properties.insert("disable_config_load".to_string(), "true".to_string());
-        }
-        let store = build_store("cos://bucket", properties)?;
+        let config = CosConfig {
+            bucket,
+            endpoint,
+            secret_id,
+            secret_key,
+            root,
+            disable_config_load,
+        };
+        let store = vortex_object_store_opendal::make_cos_store(config)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self { store })
     }
 }
 
 /// Register the OpenDAL-backed store classes on the `vortex._lib` module.
-#[cfg(feature = "opendal")]
 pub(crate) fn init(_py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     parent.add_class::<CosStore>()?;
     Ok(())
 }
 
-#[cfg(all(test, feature = "opendal"))]
+#[cfg(test)]
 mod tests {
+    use vortex_object_store_opendal::CosConfig;
+
     use super::*;
 
-    /// A `CosStore` built in Rust must yield a non-null `Arc<dyn ObjectStore>` that can be
-    /// handed to `read_url`/`write`.
+    /// `make_cos_store` (the strongly-typed entry point used by the `CosStore` pyclass) must
+    /// accept a fully-specified `CosConfig` and yield a usable `Arc<dyn ObjectStore>`.
     #[test]
-    fn cos_store_builds_object_store() {
-        let store = CosStore::new(
-            "my-bucket".to_string(),
-            "https://cos.ap-guangzhou.myqcloud.com".to_string(),
-            Some("AKID".to_string()),
-            Some("secret".to_string()),
-            None,
-            false,
-        )
-        .expect("cos store should build");
-        // The store must be usable as an `Arc<dyn ObjectStore>`.
-        let arc: Arc<dyn object_store::ObjectStore> = store.to_arc();
-        assert!(Arc::strong_count(&arc) >= 1);
+    fn cos_config_builds_object_store() {
+        let config = CosConfig {
+            bucket: "my-bucket".to_string(),
+            endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
+            secret_id: Some("AKID".to_string()),
+            secret_key: Some("secret".to_string()),
+            root: Some("nested/prefix".to_string()),
+            disable_config_load: true,
+        };
+        let store =
+            vortex_object_store_opendal::make_cos_store(config).expect("cos store should build");
+        // Sanity-check the result is a non-null `Arc<dyn ObjectStore>`.
+        assert!(Arc::strong_count(&store) >= 1);
+    }
+
+    /// Constructing a `CosConfig` with an empty `bucket` must surface as a `MissingConfig` error
+    /// rather than silently building an invalid store.
+    #[test]
+    fn cos_config_rejects_empty_bucket() {
+        let result = vortex_object_store_opendal::make_cos_store(CosConfig {
+            bucket: String::new(),
+            endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
+            ..CosConfig::default()
+        });
+        assert!(matches!(
+            result,
+            Err(vortex_object_store_opendal::OpenDALStoreError::MissingConfig("bucket"))
+        ));
     }
 }
