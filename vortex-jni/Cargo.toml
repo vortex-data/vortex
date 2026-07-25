@@ -34,8 +34,8 @@ url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files"] }
 vortex-arrow = { workspace = true }
 vortex-geo = { workspace = true }
-vortex-parquet-variant = { workspace = true }
 vortex-object-store-opendal = { path = "../vortex-object-store-opendal", optional = true }
+vortex-parquet-variant = { workspace = true }
 
 [dev-dependencies]
 jni = { workspace = true, features = ["invocation"] }

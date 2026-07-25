@@ -15,10 +15,10 @@ categories = { workspace = true }
 
 [dependencies]
 object_store = { workspace = true, features = ["cloud"] }
+object_store_opendal = "0.57.0"
 opendal = { version = "0.57.0", default-features = false, features = [
     "services-cos",
 ] }
-object_store_opendal = "0.57.0"
 url = { workspace = true }
 vortex-utils = { workspace = true }
 

@@ -58,8 +58,8 @@ vortex = { workspace = true, features = ["object_store"] }
 vortex-arrow = { workspace = true }
 vortex-object-store-opendal = { path = "../vortex-object-store-opendal", optional = true }
 vortex-python-abi = { path = "../vortex-python-abi" }
-vortex-utils = { workspace = true }
 vortex-tui = { workspace = true, optional = true }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
