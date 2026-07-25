@@ -17,9 +17,9 @@ use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
+use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
-use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -30,7 +30,7 @@ use crate::scalar::StructScalar;
 /// The builder for building a [`StructArray`].
 pub struct StructBuilder {
     dtype: DType,
-    builders: Vec<Box<dyn ArrayBuilder>>,
+    builders: Vec<ChildBuilder>,
     nulls: LazyBitBufferBuilder,
 }
 
@@ -48,7 +48,7 @@ impl StructBuilder {
     ) -> Self {
         let builders = struct_dtype
             .fields()
-            .map(|dt| builder_with_capacity(&dt, capacity))
+            .map(|dt| ChildBuilder::with_capacity(&dt, capacity))
             .collect();
 
         Self {
@@ -131,7 +131,7 @@ impl StructBuilder {
             .iter_unmasked_fields()
             .zip_eq(self.builders.iter_mut())
         {
-            field.append_to_builder(builder.as_mut(), ctx)?;
+            builder.append_array(field, ctx)?;
         }
 
         self.nulls

@@ -4,17 +4,41 @@
 use std::sync::Arc;
 
 use rstest::rstest;
+use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::array_session;
+use crate::arrays::Chunked;
+use crate::arrays::ChunkedArray;
+use crate::arrays::Constant;
+use crate::arrays::ConstantArray;
+use crate::arrays::Extension;
+use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeList;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListView;
+use crate::arrays::ListViewArray;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::Struct;
+use crate::arrays::StructArray;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::extension::ExtensionArraySlotsExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
+use crate::arrays::struct_::StructArrayExt;
+use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
+use crate::builders::child::MIN_CHUNK_LEN;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
@@ -24,6 +48,7 @@ use crate::dtype::half::f16;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::scalar::Scalar;
+use crate::validity::Validity;
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///
@@ -896,4 +921,134 @@ fn test_set_validity_noop_when_non_nullable() -> VortexResult<()> {
         );
     }
     Ok(())
+}
+
+/// Builders only promise a canonical *top level*, so a child array that is long enough to be worth
+/// a chunk must come back out of the builder in the encoding it went in with.
+///
+/// Each case appends the same array twice, which additionally checks that the two chunks are
+/// stitched back together into a [`ChunkedArray`] rather than being decoded and concatenated.
+#[rstest]
+#[case::struct_field(
+    StructArray::try_from_iter([("a", constant_i32())])
+        .vortex_expect("struct array")
+        .into_array(),
+    |array: &ArrayRef| array.as_::<Struct>().unmasked_field(0).clone()
+)]
+#[case::list_elements(
+    ListViewArray::new(
+        constant_i32(),
+        (0..MIN_CHUNK_LEN as u64).collect::<Buffer<_>>().into_array(),
+        Buffer::full(1u64, MIN_CHUNK_LEN).into_array(),
+        Validity::NonNullable,
+    )
+    .into_array(),
+    |array: &ArrayRef| array.as_::<ListView>().elements().clone()
+)]
+#[case::fixed_size_list_elements(
+    FixedSizeListArray::new(
+        constant_i32(),
+        2,
+        Validity::NonNullable,
+        MIN_CHUNK_LEN / 2,
+    )
+    .into_array(),
+    |array: &ArrayRef| array.as_::<FixedSizeList>().elements().clone()
+)]
+#[case::extension_storage(
+    ExtensionArray::new(
+        Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
+        ConstantArray::new(
+            Scalar::primitive(0i64, Nullability::NonNullable),
+            MIN_CHUNK_LEN,
+        )
+        .into_array(),
+    )
+    .into_array(),
+    |array: &ArrayRef| array.as_::<Extension>().storage().clone()
+)]
+fn test_children_are_not_canonicalized(
+    #[case] array: ArrayRef,
+    #[case] child_of: fn(&ArrayRef) -> ArrayRef,
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    let built = builder.finish();
+
+    let child = child_of(&built);
+    let chunked = child.as_::<Chunked>();
+    assert_eq!(
+        chunked.nchunks(),
+        2,
+        "expected one chunk per appended array"
+    );
+    assert!(
+        chunked.iter_chunks().all(|chunk| chunk.is::<Constant>()),
+        "the constant-encoded child was decoded by the builder",
+    );
+
+    let expected = ChunkedArray::try_new(vec![array.clone(), array], built.dtype().clone())?;
+    assert_arrays_eq!(&built, &expected, &mut ctx);
+
+    Ok(())
+}
+
+/// Children short enough that a chunk would cost more than a copy are still materialized, so that
+/// scalar-sized appends do not produce a [`ChunkedArray`] with more chunks than values.
+#[test]
+fn test_short_children_are_materialized() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let elements = ConstantArray::new(1i32, 2).into_array();
+    let array = FixedSizeListArray::new(elements, 2, Validity::NonNullable, 1).into_array();
+
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    for _ in 0..MIN_CHUNK_LEN {
+        array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    }
+    let built = builder.finish();
+
+    assert!(built.as_::<FixedSizeList>().elements().is::<Primitive>());
+    assert_eq!(built.len(), MIN_CHUNK_LEN);
+
+    Ok(())
+}
+
+/// A builder that mixes appended arrays with scalar appends must keep the two in order.
+#[test]
+fn test_struct_builder_interleaves_arrays_and_scalars() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let array = StructArray::try_from_iter([("a", constant_i32())])?.into_array();
+    let scalar = Scalar::struct_(
+        array.dtype().clone(),
+        vec![Scalar::primitive(1i32, Nullability::NonNullable)],
+    );
+
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    builder.append_scalar(&scalar)?;
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    builder.append_scalar(&scalar)?;
+    let built = builder.finish();
+
+    let scalar_array = StructArray::try_from_iter([(
+        "a",
+        PrimitiveArray::new(buffer![1i32], Validity::NonNullable),
+    )])?
+    .into_array();
+    let expected = ChunkedArray::try_new(
+        vec![scalar_array.clone(), array, scalar_array],
+        built.dtype().clone(),
+    )?;
+    assert_arrays_eq!(&built, &expected, &mut ctx);
+
+    Ok(())
+}
+
+/// A non-canonical array of [`MIN_CHUNK_LEN`] `i32` values.
+fn constant_i32() -> ArrayRef {
+    ConstantArray::new(0i32, MIN_CHUNK_LEN).into_array()
 }

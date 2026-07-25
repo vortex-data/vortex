@@ -25,10 +25,10 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::builders::ArrayBuilder;
+use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
-use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
@@ -44,7 +44,7 @@ pub struct ListBuilder<O: IntegerPType> {
     dtype: DType,
 
     /// The builder for the underlying elements of the [`ListArray`].
-    elements_builder: Box<dyn ArrayBuilder>,
+    elements_builder: ChildBuilder,
 
     /// The builder for the `offsets` into the `elements` array.
     offsets_builder: PrimitiveBuilder<O>,
@@ -79,7 +79,7 @@ impl<O: IntegerPType> ListBuilder<O> {
         elements_capacity: usize,
         capacity: usize,
     ) -> Self {
-        let elements_builder = builder_with_capacity(value_dtype.as_ref(), elements_capacity);
+        let elements_builder = ChildBuilder::with_capacity(value_dtype.as_ref(), elements_capacity);
         let mut offsets_builder = PrimitiveBuilder::<O>::with_capacity(NonNullable, capacity + 1);
 
         // The first offset is always 0 and represents an empty list.
@@ -111,8 +111,7 @@ impl<O: IntegerPType> ListBuilder<O> {
             self.element_dtype()
         );
 
-        self.elements_builder.reserve_exact(array.len());
-        array.append_to_builder(self.elements_builder.as_mut(), ctx)?;
+        self.elements_builder.append_array(array, ctx)?;
         self.nulls.append_non_null();
         self.offsets_builder.append_value(
             O::from_usize(self.elements_builder.len())
@@ -210,7 +209,7 @@ where
             let list_elements = new_elements
                 .slice(offset..offset + size)
                 .vortex_expect("list builder slice");
-            list_elements.append_to_builder(builder.elements_builder.as_mut(), ctx)?;
+            builder.elements_builder.append_array(&list_elements, ctx)?;
             curr_offset += size;
         }
 
@@ -320,11 +319,8 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
             // in bulk and the offsets rebased onto this builder's elements.
             let elements_base = self.elements_builder.len();
             if last > first {
-                self.elements_builder.reserve_exact(last - first);
-                array
-                    .elements()
-                    .slice(first..last)?
-                    .append_to_builder(self.elements_builder.as_mut(), ctx)?;
+                self.elements_builder
+                    .append_array(&array.elements().slice(first..last)?, ctx)?;
             }
 
             self.offsets_builder.reserve_exact(num_lists);

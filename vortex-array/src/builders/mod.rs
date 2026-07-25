@@ -6,6 +6,12 @@
 //! Every logical type in Vortex has a canonical (uncompressed) in-memory encoding. This module
 //! provides pre-allocated builders to construct new canonical arrays.
 //!
+//! Canonical form is not recursive, and neither are these builders: appending an array to a nested
+//! builder keeps the child in the encoding it arrived in instead of decoding it. The fields of a
+//! [`StructArray`](crate::arrays::StructArray), the elements of a list, and the storage of an
+//! [`ExtensionArray`](crate::arrays::ExtensionArray) may therefore come back compressed, or as a
+//! [`ChunkedArray`](crate::arrays::ChunkedArray) when several arrays were appended in turn.
+//!
 //! ## Example:
 //!
 //! ```
@@ -53,6 +59,7 @@ mod lazy_null_builder;
 pub(crate) use lazy_null_builder::LazyBitBufferBuilder;
 
 mod bool;
+mod child;
 mod decimal;
 pub mod dict;
 mod extension;
@@ -65,6 +72,7 @@ mod struct_;
 mod varbinview;
 
 pub use bool::*;
+pub(crate) use child::ChildBuilder;
 pub use decimal::*;
 pub use extension::*;
 pub use fixed_size_list::*;
@@ -181,6 +189,9 @@ pub trait ArrayBuilder: Send {
     unsafe fn set_validity_unchecked(&mut self, validity: Mask);
 
     /// Constructs an Array from the builder components.
+    ///
+    /// The returned array is canonical at the top level only; its children keep whatever encoding
+    /// they were appended with.
     ///
     /// # Panics
     ///

@@ -13,8 +13,8 @@ use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builders::ArrayBuilder;
+use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
-use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
@@ -24,7 +24,7 @@ use crate::scalar::Scalar;
 /// The builder for building a [`ExtensionArray`].
 pub struct ExtensionBuilder {
     dtype: DType,
-    storage: Box<dyn ArrayBuilder>,
+    storage: ChildBuilder,
 }
 
 impl ExtensionBuilder {
@@ -36,7 +36,7 @@ impl ExtensionBuilder {
     /// Creates a new `ExtensionBuilder` with the given `capacity`.
     pub fn with_capacity(ext_dtype: ExtDTypeRef, capacity: usize) -> Self {
         Self {
-            storage: builder_with_capacity(ext_dtype.storage_dtype(), capacity),
+            storage: ChildBuilder::with_capacity(ext_dtype.storage_dtype(), capacity),
             dtype: DType::Extension(ext_dtype),
         }
     }
@@ -53,9 +53,7 @@ impl ExtensionBuilder {
         array: &ExtensionArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        array
-            .storage_array()
-            .append_to_builder(self.storage.as_mut(), ctx)
+        self.storage.append_array(array.storage_array(), ctx)
     }
 
     /// Finishes the builder directly into a [`ExtensionArray`].
