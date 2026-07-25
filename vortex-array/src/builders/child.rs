@@ -18,13 +18,16 @@ use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
-/// The shortest array that a [`ChildBuilder`] keeps as a chunk of its own.
+/// The default shortest array that a [`ChildBuilder`] keeps as a chunk of its own.
 ///
 /// Nested builders routinely append very short arrays (the elements of a single list, for
 /// example), and giving each one its own chunk would produce a [`ChunkedArray`] with more chunks
 /// than values. Below this length, copying the values costs less than the indirection that every
 /// later access to the chunk would pay.
-pub(super) const MIN_CHUNK_LEN: usize = 64;
+///
+/// Callers that would rather keep every chunk boundary, however short, can lower the threshold
+/// with [`ArrayBuilder::set_min_chunk_len`].
+pub(super) const DEFAULT_MIN_CHUNK_LEN: usize = 64;
 
 /// Accumulates the child of a nested [`ArrayBuilder`] without canonicalizing appended arrays.
 ///
@@ -51,6 +54,9 @@ pub struct ChildBuilder {
 
     /// Builder holding the scalars appended after the last chunk.
     pending: Box<dyn ArrayBuilder>,
+
+    /// The shortest appended array that is kept as a chunk rather than copied.
+    min_chunk_len: usize,
 }
 
 impl ChildBuilder {
@@ -61,7 +67,16 @@ impl ChildBuilder {
             chunks: Vec::new(),
             chunks_len: 0,
             pending: builder_with_capacity(dtype, capacity),
+            min_chunk_len: DEFAULT_MIN_CHUNK_LEN,
         }
+    }
+
+    /// Sets the shortest appended array that is kept as a chunk rather than copied.
+    ///
+    /// See [`ArrayBuilder::set_min_chunk_len`].
+    pub fn set_min_chunk_len(&mut self, min_chunk_len: usize) {
+        self.min_chunk_len = min_chunk_len;
+        self.pending.set_min_chunk_len(min_chunk_len);
     }
 
     /// The number of values appended so far.
@@ -85,7 +100,7 @@ impl ChildBuilder {
             return Ok(());
         }
 
-        if array.len() < MIN_CHUNK_LEN {
+        if array.len() < self.min_chunk_len {
             return array.append_to_builder(self.pending.as_mut(), ctx);
         }
 
@@ -196,6 +211,8 @@ impl ChildBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -203,7 +220,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::ChildBuilder;
-    use super::MIN_CHUNK_LEN;
+    use super::DEFAULT_MIN_CHUNK_LEN as MIN_CHUNK_LEN;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -212,16 +229,20 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::Constant;
     use crate::arrays::ConstantArray;
+    use crate::arrays::ListView;
+    use crate::arrays::ListViewArray;
     use crate::arrays::Masked;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArrayExt;
+    use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
+    use crate::validity::Validity;
 
     /// A non-canonical array of `len` values, all equal to `value`.
     fn constant(value: i32, len: usize) -> ArrayRef {
@@ -474,6 +495,50 @@ mod tests {
             .vortex_expect("append");
 
         unsafe { builder.set_validity_unchecked(Mask::new_true(MIN_CHUNK_LEN)) };
+    }
+
+    /// A threshold of zero keeps every chunk boundary, however short.
+    #[test]
+    fn test_min_chunk_len_zero_keeps_every_chunk() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = ChildBuilder::with_capacity(&DType::from(I32), 0);
+        builder.set_min_chunk_len(0);
+
+        builder.append_array(&constant(1, 1), &mut ctx)?;
+        builder.append_array(&constant(2, 1), &mut ctx)?;
+
+        let child = builder.finish();
+        let chunked = child.as_::<Chunked>();
+        assert_eq!(chunked.nchunks(), 2);
+        assert!(chunked.iter_chunks().all(|chunk| chunk.is::<Constant>()));
+
+        Ok(())
+    }
+
+    /// The threshold reaches the children of a child: an array short enough to be materialized
+    /// lands in the scalar builder, which is itself a nested builder with children of its own.
+    #[test]
+    fn test_min_chunk_len_applies_transitively() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype = DType::List(Arc::new(DType::from(I32)), NonNullable);
+        let mut builder = ChildBuilder::with_capacity(&dtype, 0);
+        builder.set_min_chunk_len(4 * MIN_CHUNK_LEN);
+
+        // Two lists — far too few to be a chunk — holding enough elements between them that those
+        // elements would become a chunk if the threshold stopped at the outer builder.
+        let lists = ListViewArray::new(
+            constant(1, 2 * MIN_CHUNK_LEN),
+            buffer![0u64, MIN_CHUNK_LEN as u64].into_array(),
+            buffer![MIN_CHUNK_LEN as u64; 2].into_array(),
+            Validity::NonNullable,
+        )
+        .into_array();
+        builder.append_array(&lists, &mut ctx)?;
+
+        let child = builder.finish();
+        assert!(child.as_::<ListView>().elements().is::<Primitive>());
+
+        Ok(())
     }
 
     #[test]

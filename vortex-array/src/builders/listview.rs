@@ -311,6 +311,10 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.append_value(list_scalar)
     }
 
+    fn set_min_chunk_len(&mut self, min_chunk_len: usize) {
+        self.elements_builder.set_min_chunk_len(min_chunk_len);
+    }
+
     fn reserve_exact(&mut self, capacity: usize) {
         self.elements_builder.reserve_exact(capacity * 2);
         self.offsets_builder.reserve_exact(capacity);

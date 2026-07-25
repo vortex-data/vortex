@@ -170,6 +170,20 @@ pub trait ArrayBuilder: Send {
     /// Allocate space for extra `additional` items
     fn reserve_exact(&mut self, additional: usize);
 
+    /// Sets the shortest array that this builder's children keep as a chunk of their own.
+    ///
+    /// Arrays shorter than this are copied into a canonical child instead, which costs a copy but
+    /// spares every later reader the chunk indirection. Pass `0` to keep every chunk boundary,
+    /// however short — worthwhile when the appended arrays are themselves chunks whose identity is
+    /// the point, as when canonicalizing a [`ChunkedArray`](crate::arrays::ChunkedArray).
+    ///
+    /// The threshold is read when an array is appended, so it only affects subsequent appends. It
+    /// applies transitively to the children of this builder's children. Builders without array
+    /// children ignore it.
+    fn set_min_chunk_len(&mut self, min_chunk_len: usize) {
+        let _ = min_chunk_len;
+    }
+
     /// Override builders validity with the one provided.
     ///
     /// Note that this will have no effect on the final array if the array builder is non-nullable.

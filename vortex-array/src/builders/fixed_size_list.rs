@@ -255,6 +255,10 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
+    fn set_min_chunk_len(&mut self, min_chunk_len: usize) {
+        self.elements_builder.set_min_chunk_len(min_chunk_len);
+    }
+
     fn reserve_exact(&mut self, additional: usize) {
         self.elements_builder
             .reserve_exact(additional * self.list_size() as usize);

@@ -184,6 +184,12 @@ impl ArrayBuilder for StructBuilder {
         self.append_value(scalar.as_struct())
     }
 
+    fn set_min_chunk_len(&mut self, min_chunk_len: usize) {
+        for builder in &mut self.builders {
+            builder.set_min_chunk_len(min_chunk_len);
+        }
+    }
+
     fn reserve_exact(&mut self, capacity: usize) {
         self.builders.iter_mut().for_each(|builder| {
             builder.reserve_exact(capacity);

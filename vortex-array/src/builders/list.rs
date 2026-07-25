@@ -274,6 +274,10 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.append_value(scalar.as_list())
     }
 
+    fn set_min_chunk_len(&mut self, min_chunk_len: usize) {
+        self.elements_builder.set_min_chunk_len(min_chunk_len);
+    }
+
     fn reserve_exact(&mut self, additional: usize) {
         self.elements_builder.reserve_exact(additional);
         self.offsets_builder.reserve_exact(additional);

@@ -43,7 +43,7 @@ use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
 use crate::builders::builder_with_capacity;
-use crate::builders::child::MIN_CHUNK_LEN;
+use crate::builders::child::DEFAULT_MIN_CHUNK_LEN as MIN_CHUNK_LEN;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
@@ -1048,6 +1048,35 @@ fn test_struct_builder_interleaves_arrays_and_scalars() -> VortexResult<()> {
         vec![scalar_array.clone(), array, scalar_array],
         built.dtype().clone(),
     )?;
+    assert_arrays_eq!(&built, &expected, &mut ctx);
+
+    Ok(())
+}
+
+/// Lowering the threshold to zero keeps every chunk boundary a nested builder is handed, however
+/// short — what a caller wants when the appended arrays are themselves chunks worth preserving.
+#[test]
+fn test_min_chunk_len_zero_preserves_short_chunks() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let array = StructArray::try_from_iter([("a", buffer![1i32])])?.into_array();
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    builder.set_min_chunk_len(0);
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    let built = builder.finish();
+
+    assert_eq!(
+        built
+            .as_::<Struct>()
+            .unmasked_field(0)
+            .as_::<Chunked>()
+            .nchunks(),
+        2,
+        "a one-row field should still have earned a chunk",
+    );
+
+    let expected = ChunkedArray::try_new(vec![array.clone(), array], built.dtype().clone())?;
     assert_arrays_eq!(&built, &expected, &mut ctx);
 
     Ok(())

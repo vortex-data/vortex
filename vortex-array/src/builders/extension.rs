@@ -110,6 +110,10 @@ impl ArrayBuilder for ExtensionBuilder {
         self.append_value(scalar.as_extension())
     }
 
+    fn set_min_chunk_len(&mut self, min_chunk_len: usize) {
+        self.storage.set_min_chunk_len(min_chunk_len);
+    }
+
     fn reserve_exact(&mut self, capacity: usize) {
         self.storage.reserve_exact(capacity)
     }
