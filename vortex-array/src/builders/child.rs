@@ -389,7 +389,7 @@ mod tests {
         builder.append_array(&nullable_constant(1, MIN_CHUNK_LEN), &mut ctx)?;
         builder.append_array(&nullable_constant(2, MIN_CHUNK_LEN), &mut ctx)?;
 
-        // Straddle the chunk boundary, so a mis-sliced override cannot pass.
+        // Straddle the chunk boundary, so an override sliced wrongly cannot pass.
         let invalid = [MIN_CHUNK_LEN - 1, MIN_CHUNK_LEN];
         let validity = Mask::from_iter((0..2 * MIN_CHUNK_LEN).map(|i| !invalid.contains(&i)));
         unsafe { builder.set_validity_unchecked(validity) };
