@@ -35,7 +35,7 @@ use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::UninitRange;
-use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
+use crate::builders::ValidityBuilder;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -68,7 +68,7 @@ pub struct ListViewBuilder<O: OffsetBuilderPType, S: OffsetBuilderPType> {
     sizes_builder: PrimitiveBuilder<S>,
 
     /// The null map builder of the [`ListViewArray`].
-    nulls: LazyBitBufferBuilder,
+    nulls: ValidityBuilder,
 
     /// Whether the appends so far leave the result zero-copyable to a [`ListArray`].
     ///
@@ -112,7 +112,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         let sizes_builder =
             PrimitiveBuilder::<S>::with_capacity(Nullability::NonNullable, capacity);
 
-        let nulls = LazyBitBufferBuilder::new(capacity);
+        let nulls = ValidityBuilder::new(capacity);
 
         Self {
             dtype: DType::List(element_dtype, nullability),
@@ -259,8 +259,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
             return Ok(());
         }
 
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+        self.nulls.append_validity(array.validity()?, array.len());
 
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
@@ -304,8 +303,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         // it lands flush against the elements already in the builder. Any other layout does not.
         self.zero_copy_to_list &= listview.is_zero_copy_to_list();
 
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+        self.nulls.append_validity(array.validity()?, array.len());
 
         // Bulk append the trimmed elements; the offsets are rebased onto them below.
         let old_elements_len = self.elements_builder.len();
@@ -419,7 +417,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuil
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
+        self.nulls.set_validity(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

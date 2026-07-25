@@ -28,8 +28,8 @@ use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::ArrayBuilder;
 use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
-use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
+use crate::builders::ValidityBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
@@ -52,7 +52,7 @@ pub struct ListBuilder<O: OffsetBuilderPType> {
     offsets_builder: PrimitiveBuilder<O>,
 
     /// The null map builder of the [`ListArray`].
-    nulls: LazyBitBufferBuilder,
+    nulls: ValidityBuilder,
 }
 
 impl<O: OffsetBuilderPType> ListBuilder<O> {
@@ -90,7 +90,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         Self {
             elements_builder,
             offsets_builder,
-            nulls: LazyBitBufferBuilder::new(capacity),
+            nulls: ValidityBuilder::new(capacity),
             dtype: DType::List(value_dtype, nullability),
         }
     }
@@ -191,8 +191,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
             return Ok(());
         }
 
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+        self.nulls.append_validity(array.validity()?, array.len());
 
         let num_lists = array.len();
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
@@ -242,8 +241,7 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
             return Ok(());
         }
 
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+        self.nulls.append_validity(array.validity()?, array.len());
 
         // Flatten the views into the only layout `ListArray` offsets can express. This is a cheap
         // clone when they already are laid out that way, and the flattened result keeps the
@@ -380,7 +378,7 @@ impl<O: OffsetBuilderPType> ArrayBuilder for ListBuilder<O> {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
+        self.nulls.set_validity(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

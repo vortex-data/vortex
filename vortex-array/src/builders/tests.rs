@@ -1083,6 +1083,37 @@ fn test_struct_builder_interleaves_arrays_and_scalars() -> VortexResult<()> {
 /// length long enough to tell chunks apart.
 const CHUNK_LEN: usize = 64;
 
+/// A nested builder's own validity is accumulated the same way its children are: an appended
+/// array's validity is kept as it arrived rather than executed into a mask and copied bit by bit.
+#[test]
+fn test_appended_validity_is_not_materialized() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let array = StructArray::try_from_iter_with_validity(
+        [("a", iota(CHUNK_LEN))],
+        Validity::from_iter((0..CHUNK_LEN).map(|i| i % 3 != 0)),
+    )?
+    .into_array();
+
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    let built = builder.finish();
+
+    let Validity::Array(validity) = built.validity()? else {
+        panic!("expected array-backed validity");
+    };
+    assert!(
+        validity.is::<Chunked>(),
+        "the two appended validities should have been concatenated, not copied into one buffer",
+    );
+
+    let expected = ChunkedArray::try_new(vec![array.clone(), array], built.dtype().clone())?;
+    assert_arrays_eq!(&built, &expected, &mut ctx);
+
+    Ok(())
+}
+
 /// A non-canonical array of [`CHUNK_LEN`] `i32` values.
 fn constant_i32() -> ArrayRef {
     ConstantArray::new(0i32, CHUNK_LEN).into_array()

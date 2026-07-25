@@ -19,7 +19,7 @@ use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
-use crate::builders::LazyBitBufferBuilder;
+use crate::builders::ValidityBuilder;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -39,7 +39,7 @@ pub struct FixedSizeListBuilder {
     /// The null map builder of the [`FixedSizeListArray`].
     ///
     /// We also use this type to store the length of the final output array.
-    nulls: LazyBitBufferBuilder,
+    nulls: ValidityBuilder,
 }
 
 impl FixedSizeListBuilder {
@@ -64,7 +64,7 @@ impl FixedSizeListBuilder {
 
         let elements_builder = ChildBuilder::with_capacity(&element_dtype, elements_capacity);
         let fsl_dtype = DType::FixedSizeList(element_dtype, list_size, nullability);
-        let nulls = LazyBitBufferBuilder::new(capacity);
+        let nulls = ValidityBuilder::new(capacity);
 
         Self {
             dtype: fsl_dtype,
@@ -116,8 +116,7 @@ impl FixedSizeListBuilder {
         }
 
         self.elements_builder.append_array(array.elements(), ctx)?;
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+        self.nulls.append_validity(array.validity()?, array.len());
         Ok(())
     }
 
@@ -262,7 +261,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
+        self.nulls.set_validity(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {

@@ -19,7 +19,7 @@ use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
-use crate::builders::LazyBitBufferBuilder;
+use crate::builders::ValidityBuilder;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -31,7 +31,7 @@ use crate::scalar::StructScalar;
 pub struct StructBuilder {
     dtype: DType,
     builders: Vec<ChildBuilder>,
-    nulls: LazyBitBufferBuilder,
+    nulls: ValidityBuilder,
 }
 
 impl StructBuilder {
@@ -53,7 +53,7 @@ impl StructBuilder {
 
         Self {
             builders,
-            nulls: LazyBitBufferBuilder::new(capacity),
+            nulls: ValidityBuilder::new(capacity),
             dtype: DType::Struct(struct_dtype, nullability),
         }
     }
@@ -134,8 +134,7 @@ impl StructBuilder {
             builder.append_array(field, ctx)?;
         }
 
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+        self.nulls.append_validity(array.validity()?, array.len());
         Ok(())
     }
 }
@@ -192,7 +191,7 @@ impl ArrayBuilder for StructBuilder {
     }
 
     unsafe fn set_validity_unchecked(&mut self, validity: Mask) {
-        self.nulls = LazyBitBufferBuilder::from_validity_mask(validity);
+        self.nulls.set_validity(validity);
     }
 
     fn finish(&mut self) -> ArrayRef {
