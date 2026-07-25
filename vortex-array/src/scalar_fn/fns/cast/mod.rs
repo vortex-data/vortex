@@ -42,6 +42,7 @@ use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::literal::Literal;
 
 /// A cast expression that converts values to a target data type.
 #[derive(Clone)]
@@ -149,6 +150,19 @@ impl ScalarFnVTable for Cast {
         Ok(None)
     }
 
+    fn simplify_untyped(
+        &self,
+        target_dtype: &DType,
+        expr: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let Some(scalar) = expr.child(0).as_opt::<Literal>() else {
+            return Ok(None);
+        };
+        // A failing cast (e.g. null to a non-nullable dtype) is left in place so the error
+        // surfaces at execution time rather than during optimization.
+        Ok(scalar.cast(target_dtype).ok().map(lit))
+    }
+
     fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Option<Expression>> {
         Ok(Some(if dtype.is_nullable() {
             expression.child(0).validity()?
@@ -207,17 +221,25 @@ fn cast_constant(array: ArrayView<Constant>, dtype: &DType) -> VortexResult<Opti
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect as _;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
+    use super::Cast;
     use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::Expression;
     use crate::expr::cast;
     use crate::expr::get_item;
+    use crate::expr::lit;
     use crate::expr::root;
     use crate::expr::test_harness;
+    use crate::scalar::DecimalValue;
+    use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::literal::Literal;
 
     #[test]
     fn dtype() {
@@ -256,6 +278,61 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
+    }
+
+    #[test]
+    fn simplify_folds_cast_of_literal() -> VortexResult<()> {
+        let expr = cast(
+            lit(3i32),
+            DType::Primitive(PType::F64, Nullability::NonNullable),
+        );
+        let optimized = expr.optimize(&test_harness::struct_dtype())?;
+
+        let scalar = optimized
+            .as_opt::<Literal>()
+            .ok_or_else(|| vortex_err!("expected a bare literal, got {optimized}"))?;
+        assert_eq!(scalar, &Scalar::primitive(3.0f64, Nullability::NonNullable));
+        Ok(())
+    }
+
+    #[test]
+    fn simplify_folds_cast_of_decimal_literal() -> VortexResult<()> {
+        let decimal = Scalar::decimal(
+            DecimalValue::I128(319),
+            DecimalDType::new(3, 2),
+            Nullability::NonNullable,
+        );
+        let expr = cast(
+            lit(decimal),
+            DType::Primitive(PType::F64, Nullability::NonNullable),
+        );
+        let optimized = expr.optimize(&test_harness::struct_dtype())?;
+
+        let scalar = optimized
+            .as_opt::<Literal>()
+            .ok_or_else(|| vortex_err!("expected a bare literal, got {optimized}"))?;
+        assert_eq!(
+            scalar,
+            &Scalar::primitive(3.19f64, Nullability::NonNullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn simplify_leaves_failing_cast_unchanged() -> VortexResult<()> {
+        let target = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let expr = cast(
+            lit(Scalar::null(DType::Primitive(
+                PType::I32,
+                Nullability::Nullable,
+            ))),
+            target.clone(),
+        );
+        let optimized = expr.optimize(&test_harness::struct_dtype())?;
+
+        assert!(optimized.as_opt::<Literal>().is_none());
+        assert_eq!(optimized.as_opt::<Cast>(), Some(&target));
+        Ok(())
     }
 
     #[test]
