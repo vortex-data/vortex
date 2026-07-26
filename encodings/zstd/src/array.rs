@@ -276,51 +276,49 @@ impl VTable for Zstd {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if matches!(array.dtype(), DType::Binary(_) | DType::Utf8(_))
-            && let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>()
-        {
-            let unsliced_validity =
-                child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
-            let slice = array
-                .data()
-                .decompress_slice(array.dtype(), &unsliced_validity, ctx)?;
-            let value_start = slice.value_idx_start - slice.n_skipped_values;
-            let value_count = slice.value_idx_stop - slice.value_idx_start;
-            let mut values = zstd_values(slice.bytes.as_slice())
-                .skip(value_start)
-                .take(value_count);
-            let mask = slice.validity.execute_mask(slice.n_rows, ctx)?;
-            match mask.indices() {
-                AllOr::All => {
-                    for value in values {
-                        builder.append_n_values(value, 1);
-                    }
-                }
-                AllOr::None => builder.append_nulls(slice.n_rows),
-                AllOr::Some(valid_indices) => {
-                    let mut row = 0;
-                    for &valid_index in valid_indices {
-                        builder.append_nulls(valid_index - row);
-                        builder.append_n_values(
-                            values
-                                .next()
-                                .vortex_expect("Zstd value count must match validity"),
-                            1,
-                        );
-                        row = valid_index + 1;
-                    }
-                    builder.append_nulls(slice.n_rows - row);
+        let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() else {
+            return array
+                .array()
+                .clone()
+                .execute::<Canonical>(ctx)?
+                .into_array()
+                .append_to_builder(builder, ctx);
+        };
+
+        let unsliced_validity =
+            child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
+        let slice = array
+            .data()
+            .decompress_slice(array.dtype(), &unsliced_validity, ctx)?;
+        let value_start = slice.value_idx_start - slice.n_skipped_values;
+        let value_count = slice.value_idx_stop - slice.value_idx_start;
+        let mut values = zstd_values(slice.bytes.as_slice())
+            .skip(value_start)
+            .take(value_count);
+        let mask = slice.validity.execute_mask(slice.n_rows, ctx)?;
+        match mask.indices() {
+            AllOr::All => {
+                for value in values {
+                    builder.append_n_values(value, 1);
                 }
             }
-            return Ok(());
+            AllOr::None => builder.append_nulls(slice.n_rows),
+            AllOr::Some(valid_indices) => {
+                let mut row = 0;
+                for &valid_index in valid_indices {
+                    builder.append_nulls(valid_index - row);
+                    builder.append_n_values(
+                        values
+                            .next()
+                            .vortex_expect("Zstd value count must match validity"),
+                        1,
+                    );
+                    row = valid_index + 1;
+                }
+                builder.append_nulls(slice.n_rows - row);
+            }
         }
-
-        array
-            .array()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_array()
-            .append_to_builder(builder, ctx)
+        Ok(())
     }
 
     fn reduce_parent(

@@ -562,8 +562,8 @@ impl VTable for OnPair {
                         Some(*end)
                     }),
                     &validity,
-                );
-            });
+                )
+            })?;
             return Ok(());
         }
 

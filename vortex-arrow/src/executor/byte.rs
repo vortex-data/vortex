@@ -24,6 +24,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::byte_view::execute_varbinview_to_arrow;
 use crate::executor::validity::to_arrow_null_buffer;
@@ -36,6 +37,14 @@ pub(super) fn to_arrow_byte_array<T: ByteArrayType>(
 where
     T::Offset: NativePType,
 {
+    if !matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_)) {
+        vortex_bail!(
+            "Cannot convert Vortex array with dtype {} to Arrow byte array type {}",
+            array.dtype(),
+            T::DATA_TYPE
+        );
+    }
+
     let source_is_utf8 = matches!(array.dtype(), DType::Utf8(_));
     let target_is_utf8 = matches!(T::DATA_TYPE, DataType::Utf8 | DataType::LargeUtf8);
     if source_is_utf8 != target_is_utf8 {
@@ -97,6 +106,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -198,6 +208,24 @@ mod tests {
         assert!(!arrow.is_null(0));
         assert!(arrow.is_null(1));
         assert!(!arrow.is_null(2));
+    }
+
+    #[rstest]
+    #[case(DataType::Utf8)]
+    #[case(DataType::LargeUtf8)]
+    #[case(DataType::Binary)]
+    #[case(DataType::LargeBinary)]
+    fn incompatible_vortex_dtype_returns_error(#[case] target_dtype: DataType) {
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+        let field = Field::new("test_field", target_dtype, true);
+        let result = session.arrow().execute_arrow(
+            PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
+            Some(&field),
+            &mut ctx,
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]

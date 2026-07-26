@@ -6,7 +6,6 @@ use num_traits::AsPrimitive;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
@@ -92,9 +91,9 @@ where
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
     match logical_validity.bit_buffer() {
         AllOr::All => {
-            mask_slices.iter().for_each(|(start, end)| {
-                update_non_nullable_slice(data, offsets, &mut builder, *start, *end)
-            });
+            for &(start, end) in mask_slices {
+                update_non_nullable_slice(data, offsets, &mut builder, start, end)?;
+            }
         }
         AllOr::None => {
             builder.append_n_nulls(selection_count);
@@ -103,7 +102,7 @@ where
             for (start, end) in mask_slices.iter().copied() {
                 let null_sl = validity.slice(start..end);
                 if null_sl.true_count() == null_sl.len() {
-                    update_non_nullable_slice(data, offsets, &mut builder, start, end)
+                    update_non_nullable_slice(data, offsets, &mut builder, start, end)?;
                 } else {
                     for (idx, valid) in null_sl.iter().enumerate() {
                         if valid {
@@ -137,19 +136,18 @@ fn update_non_nullable_slice<O>(
     builder: &mut VarBinBuilder<O>,
     start: usize,
     end: usize,
-) where
+) -> VortexResult<()>
+where
     O: IntegerPType,
     usize: AsPrimitive<O>,
 {
-    let new_data = {
-        let offset_start = offsets[start].to_usize().unwrap_or_else(|| {
-            vortex_panic!("Failed to convert offset to usize: {}", offsets[start])
-        });
-        let offset_end = offsets[end].to_usize().unwrap_or_else(|| {
-            vortex_panic!("Failed to convert offset to usize: {}", offsets[end])
-        });
-        &data[offset_start..offset_end]
-    };
+    let offset_start = offsets[start]
+        .to_usize()
+        .ok_or_else(|| vortex_err!("Failed to convert offset to usize: {}", offsets[start]))?;
+    let offset_end = offsets[end]
+        .to_usize()
+        .ok_or_else(|| vortex_err!("Failed to convert offset to usize: {}", offsets[end]))?;
+    let new_data = &data[offset_start..offset_end];
     let new_offsets = offsets[start..end + 1]
         .iter()
         .map(|o| *o - offsets[start])

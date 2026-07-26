@@ -5,7 +5,6 @@ use std::hash::Hasher;
 
 use prost::Message;
 use smallvec::smallvec;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -35,15 +34,12 @@ use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
-use crate::arrays::VarBin;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
-use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::arrays::dict::execute::take_canonical;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
-use crate::builders::DynVarBinBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -219,24 +215,6 @@ impl VTable for Dict {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
-            // Dictionary values may exceed the target's offset width even when the selected
-            // output does not. Keep the intermediate wide and narrow only after applying codes.
-            let mut values_builder = DynVarBinBuilder::with_capacity(
-                array.values().dtype().clone(),
-                true,
-                array.values().len(),
-            );
-            array
-                .values()
-                .clone()
-                .append_to_builder(&mut values_builder, ctx)?;
-            let values = values_builder.finish_into_varbin();
-            let taken = <VarBin as TakeExecute>::take(values.as_view(), array.codes(), ctx)?
-                .vortex_expect("taking dictionary values should produce an array");
-            return builder.append_varbin(taken.as_::<VarBin>(), ctx);
-        }
-
         if !array.is_empty()
             && let (Some(codes), Some(values)) = (
                 array.codes().as_opt::<Primitive>(),

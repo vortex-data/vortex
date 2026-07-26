@@ -105,30 +105,56 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         values: &[u8],
         end_offsets: impl Iterator<Item = P>,
         validity: &Mask,
-    ) where
+    ) -> VortexResult<()>
+    where
         P: AsPrimitive<usize>,
     {
+        let offsets_start = self.offsets.len();
         let data_start = self.data.len();
-        let mut last_end = data_start;
+        let mut previous_end = data_start;
         let mut len = 0;
-        self.offsets.extend(end_offsets.map(|offset| {
+
+        for offset in end_offsets {
             let relative_end = offset.as_();
-            let end = data_start.checked_add(relative_end).unwrap_or_else(|| {
-                vortex_panic!("Byte offset overflow: {data_start} + {relative_end}")
-            });
-            last_end = end;
-            len += 1;
-            O::from(end).unwrap_or_else(|| {
-                vortex_panic!(
-                    "Failed to convert byte offset {end} to {}",
+            let Some(end) = data_start.checked_add(relative_end) else {
+                self.offsets.truncate(offsets_start);
+                vortex_bail!("Byte offset overflow: {data_start} + {relative_end}");
+            };
+            if end < previous_end {
+                self.offsets.truncate(offsets_start);
+                vortex_bail!("End offsets must be monotonically increasing");
+            }
+            let Some(end_offset) = O::from(end) else {
+                self.offsets.truncate(offsets_start);
+                vortex_bail!(
+                    "Byte offset {end} does not fit in {}",
                     std::any::type_name::<O>()
-                )
-            })
-        }));
-        debug_assert_eq!(len, validity.len());
-        debug_assert_eq!(last_end - data_start, values.len());
+                );
+            };
+            self.offsets.push(end_offset);
+            previous_end = end;
+            len += 1;
+        }
+
+        if len != validity.len() {
+            self.offsets.truncate(offsets_start);
+            vortex_bail!(
+                "End offset count {len} does not match validity length {}",
+                validity.len()
+            );
+        }
+        if previous_end - data_start != values.len() {
+            self.offsets.truncate(offsets_start);
+            vortex_bail!(
+                "Final relative end offset {} does not match values length {}",
+                previous_end - data_start,
+                values.len()
+            );
+        }
+
         self.data.extend_from_slice(values);
         self.append_validity(validity);
+        Ok(())
     }
 
     fn append_validity(&mut self, validity: &Mask) {
@@ -161,14 +187,18 @@ impl<O: IntegerPType> VarBinBuilder<O> {
 
     #[allow(clippy::disallowed_methods)]
     pub fn finish(self, dtype: DType) -> VarBinArray {
+        assert_eq!(
+            self.offsets.len() - 1,
+            self.validity.len(),
+            "The offset count must be one more than the validity length"
+        );
         let offsets = PrimitiveArray::new(self.offsets.freeze(), Validity::NonNullable);
         let nulls = self.validity.freeze();
 
         let validity = Validity::from_bit_buffer(nulls, dtype.nullability());
 
-        // The builder guarantees offsets are monotonically increasing, so we can set
-        // this stat eagerly. This avoids an O(n) recomputation when the array is
-        // deserialized and VarBinArray::validate checks sortedness.
+        // The builder adds offsets in monotonically increasing order. Store this statistic to
+        // prevent VarBinArray::validate from recomputing it after deserialization.
         #[cfg(debug_assertions)]
         {
             let offsets_are_sorted = offsets
@@ -210,7 +240,10 @@ enum DynOffsets {
 impl DynVarBinBuilder {
     /// Creates a builder with 32-bit offsets, or 64-bit offsets when `large_offsets` is true.
     pub fn with_capacity(dtype: DType, large_offsets: bool, capacity: usize) -> Self {
-        assert!(matches!(dtype, DType::Utf8(_) | DType::Binary(_)));
+        assert!(
+            matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
+            "DynVarBinBuilder dtype must be Utf8 or Binary"
+        );
         let storage = if large_offsets {
             DynOffsets::I64(VarBinBuilder::with_capacity(capacity))
         } else {
@@ -219,14 +252,16 @@ impl DynVarBinBuilder {
         Self { dtype, storage }
     }
 
-    /// Appends decompressed values represented by one contiguous byte buffer and relative end
-    /// offsets.
+    /// Appends decompressed values from one contiguous byte buffer.
+    ///
+    /// Each offset in `end_offsets` marks the end of one value relative to the start of `values`.
     pub fn append_values<P>(
         &mut self,
         values: &[u8],
         end_offsets: impl Iterator<Item = P>,
         validity: &Mask,
-    ) where
+    ) -> VortexResult<()>
+    where
         P: AsPrimitive<usize>,
     {
         match &mut self.storage {
@@ -286,8 +321,8 @@ impl DynVarBinBuilder {
                     .skip(1)
                     .map(|offset| AsPrimitive::<usize>::as_(*offset) - first_offset),
                 &validity,
-            );
-        });
+            )
+        })?;
         Ok(())
     }
 
@@ -480,6 +515,27 @@ mod tests {
 
         assert_arrays_eq!(builder.finish_into_varbin(), source, &mut ctx);
         Ok(())
+    }
+
+    #[test]
+    fn append_values_offset_overflow_returns_error() {
+        let mut builder = VarBinBuilder::<i8>::new();
+        let values = [0u8; 128];
+
+        let result = builder.append_values(&values, [values.len()].into_iter(), &Mask::new_true(1));
+
+        assert!(result.is_err());
+        assert_eq!(builder.offsets.len(), 1);
+        assert!(builder.data.is_empty());
+        assert_eq!(builder.validity.len(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "The offset count must be one more than the validity length")]
+    fn finish_rejects_mismatched_validity() {
+        let mut builder = VarBinBuilder::<i32>::new();
+        builder.validity.append_true();
+        drop(builder.finish(DType::Utf8(Nullable)));
     }
 
     #[rstest]

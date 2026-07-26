@@ -321,8 +321,8 @@ impl VTable for FSST {
                         Some(*end)
                     }),
                     &validity,
-                );
-            });
+                )
+            })?;
             return Ok(());
         }
 
