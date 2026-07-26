@@ -8,8 +8,28 @@ Vortex can read from and write to Tencent Cloud COS through
 This store is available only when Vortex is built with the ``opendal`` feature
 (e.g. ``maturin develop --features opendal`` or ``cargo build -p vortex-jni --features opendal``).
 
-.. autoclass:: vortex.store.CosStore
-   :members:
+:class:`vortex.store.CosStore`
+==============================
+
+.. py:class:: vortex.store.CosStore(bucket, endpoint, *, secret_id=None, secret_key=None, root=None, disable_config_load=False)
+
+   A Tencent Cloud COS object store, backed by OpenDAL. Construct it with explicit
+   configuration and pass it to
+   :func:`vortex.io.read_url` / :func:`vortex.io.write` via the ``store=`` argument,
+   exactly like the built-in S3/Azure/GCS stores.
+
+   The class is only available when Vortex is built with the ``opendal`` feature; on
+   a default build, instantiating it raises :class:`ImportError`.
+
+   :param bucket: COS bucket name (e.g. ``"my-bucket"``).
+   :param endpoint: COS endpoint (e.g. ``"https://cos.ap-guangzhou.myqcloud.com"``).
+   :param secret_id: Optional Tencent Cloud secret id. Maps to the ``TENCENTCLOUD_SECRET_ID``
+       environment variable when unset.
+   :param secret_key: Optional Tencent Cloud secret key. Maps to the
+       ``TENCENTCLOUD_SECRET_KEY`` environment variable when unset.
+   :param root: Optional key prefix applied to every operation.
+   :param disable_config_load: When ``True``, disable OpenDAL's automatic config loading
+       and rely only on the explicit configuration. Defaults to ``False``.
 
 Reading from COS
 ================
