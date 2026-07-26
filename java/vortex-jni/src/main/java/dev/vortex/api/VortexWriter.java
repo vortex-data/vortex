@@ -139,22 +139,38 @@ public final class VortexWriter implements AutoCloseable {
             return this;
         }
 
-        /** Open the writer. */
+        /**
+         * Open the writer.
+         *
+         * @throws IOException if the writer cannot be opened, including when the native side rejects the configured
+         *     metadata
+         */
         public VortexWriter build() throws IOException {
             ArrowSchema ffi = ArrowSchema.allocateNew(allocator);
             try {
                 Data.exportSchema(allocator, arrowSchema, null, ffi);
-                long pointer = uri != null
-                        ? NativeWriter.create(session.nativePointer(), uri, ffi.memoryAddress(), options, metadata)
-                        : NativeWriter.createStream(session.nativePointer(), writable, ffi.memoryAddress(), metadata);
+                final long pointer;
+                try {
+                    pointer = uri != null
+                            ? NativeWriter.create(session.nativePointer(), uri, ffi.memoryAddress(), options, metadata)
+                            : NativeWriter.createStream(
+                                    session.nativePointer(), writable, ffi.memoryAddress(), metadata);
+                } catch (RuntimeException e) {
+                    // Native failures arrive as RuntimeException. Wrap them so callers can handle every
+                    // failure to open a writer as an IOException, as writeBatch and finish already do.
+                    throw new IOException("failed to create writer for " + destination(), e);
+                }
                 if (pointer <= 0) {
-                    String destination = uri != null ? "uri " + uri : "stream";
-                    throw new IOException("failed to create writer for " + destination + " (ptr=" + pointer + ")");
+                    throw new IOException("failed to create writer for " + destination() + " (ptr=" + pointer + ")");
                 }
                 return new VortexWriter(pointer);
             } finally {
                 ffi.close();
             }
+        }
+
+        private String destination() {
+            return uri != null ? "uri " + uri : "stream";
         }
 
         private void checkOptionsApply() {

@@ -610,3 +610,56 @@ impl WriteSummary {
             .collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_buffer::ByteBuffer;
+
+    use super::*;
+
+    fn write_options_with_keys(keys: &[String]) -> VortexWriteOptions {
+        vortex_array::array_session()
+            .write_options()
+            .with_metadata_segments(
+                keys.iter()
+                    .map(|key| (key.clone(), ByteBuffer::copy_from(b"value"))),
+            )
+    }
+
+    #[rstest]
+    #[case::empty_key(vec![String::new()], "non-empty")]
+    #[case::oversized_key(vec!["k".repeat(MAX_METADATA_KEY_BYTES + 1)], "keys must be at most")]
+    // The cap is on bytes, not characters.
+    #[case::oversized_multibyte_key(
+        vec!["é".repeat(MAX_METADATA_KEY_BYTES / "é".len() + 1)],
+        "keys must be at most"
+    )]
+    #[case::too_many_segments(
+        (0..=MAX_METADATA_SEGMENTS).map(|idx| format!("key-{idx}")).collect(),
+        "at most 16 metadata segments"
+    )]
+    fn validate_metadata_rejects(#[case] keys: Vec<String>, #[case] expected: &str) {
+        let Err(error) = write_options_with_keys(&keys).validate_metadata() else {
+            panic!("metadata must be rejected for {keys:?}");
+        };
+        assert!(
+            error.to_string().contains(expected),
+            "error should mention {expected:?}, got: {error}"
+        );
+    }
+
+    #[test]
+    fn validate_metadata_accepts_the_limits() -> VortexResult<()> {
+        // Distinct keys, each exactly at the key-length cap.
+        let keys = (0..MAX_METADATA_SEGMENTS)
+            .map(|idx| format!("{idx:0>width$}", width = MAX_METADATA_KEY_BYTES))
+            .collect::<Vec<_>>();
+        write_options_with_keys(&keys).validate_metadata()
+    }
+
+    #[test]
+    fn validate_metadata_accepts_no_metadata() -> VortexResult<()> {
+        write_options_with_keys(&[]).validate_metadata()
+    }
+}

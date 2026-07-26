@@ -19,6 +19,7 @@ pub use uri::parse_uri_or_path;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::VortexReadAt;
 use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
 use vortex_layout::LayoutReaderRef;
@@ -232,23 +233,51 @@ async fn open_file(
 ) -> VortexResult<VortexFile> {
     tracing::trace!(path = %file.path, "opening vortex file");
 
-    // Open the reader first so we can use its URI as the cache key.
-    // The URI includes the full path (with any filesystem prefix), making it unique
-    // even when different PrefixFileSystem instances strip paths to the same relative name.
     let source = fs.open_read(&file.path).await?;
+    open_cached(
+        session,
+        source,
+        Some(&file.path),
+        file.size,
+        open_options_fn,
+    )
+    .await
+}
+
+/// Open a single Vortex file through the session's footer cache, so that a later open of the
+/// same file skips the footer read.
+///
+/// The cache is keyed by the source's [`uri`](vortex_io::VortexReadAt::uri), which includes the
+/// full path (with any filesystem prefix) and so stays unique even when different filesystems
+/// strip paths to the same relative name. `fallback_key` names the file for sources that report
+/// no URI; pass `None` for one with no stable identity — a caller-provided reader, say — which
+/// bypasses the cache entirely.
+///
+/// Caching the footer is independent of [`VortexOpenOptions::include_metadata`]: the footer holds
+/// only metadata *locators*, and each open resolves the segments it was asked for.
+pub async fn open_cached(
+    session: &VortexSession,
+    source: Arc<dyn VortexReadAt>,
+    fallback_key: Option<&str>,
+    file_size: Option<u64>,
+    open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
+) -> VortexResult<VortexFile> {
     let cache_key = source
         .uri()
-        .map(|u| u.to_string())
-        .unwrap_or_else(|| file.path.clone());
+        .map(|uri| uri.to_string())
+        .or_else(|| fallback_key.map(ToOwned::to_owned));
 
-    // Build open options. The DashMap Ref from multi_file() must not live across an await,
+    // Build open options. The cache guard from multi_file() must not live across an await,
     // so we scope the cache lookup in a block.
     let options = {
         let mut options = open_options_fn(session.open_options());
-        if let Some(size) = file.size {
+        if let Some(size) = file_size {
             options = options.with_file_size(size);
         }
-        if let Some(footer) = session.multi_file().get_footer(&cache_key) {
+        if let Some(footer) = cache_key
+            .as_deref()
+            .and_then(|key| session.multi_file().get_footer(key))
+        {
             options = options.with_footer(footer);
         }
         options
@@ -256,10 +285,12 @@ async fn open_file(
 
     let vortex_file = options.open(source).await?;
 
-    // Store footer in cache (scoped to avoid holding the Ref across subsequent code).
-    session
-        .multi_file()
-        .put_footer(&cache_key, vortex_file.footer().clone());
+    // Store footer in cache (scoped to avoid holding the guard across subsequent code).
+    if let Some(key) = cache_key.as_deref() {
+        session
+            .multi_file()
+            .put_footer(key, vortex_file.footer().clone());
+    }
     Ok(vortex_file)
 }
 

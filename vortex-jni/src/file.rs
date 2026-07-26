@@ -20,7 +20,7 @@ use object_store::path::Path;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::file::OpenOptionsSessionExt;
+use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::io::VortexReadAt;
 use vortex::io::runtime::BlockingRuntime;
@@ -74,12 +74,18 @@ pub(crate) fn extract_metadata(
     while let Some(entry) = iterator.next(env)? {
         let key_obj = entry.key(env)?;
         let val_obj = entry.value(env)?;
-        let key = env.cast_local::<JString>(key_obj)?.try_to_string(env)?;
+        let key_str = env.cast_local::<JString>(key_obj)?;
+        let key = key_str.try_to_string(env)?;
         if val_obj.is_null() {
             return Err(vortex_err!("null metadata value for key '{key}'").into());
         }
         let bytes = env.cast_local::<JByteArray>(val_obj)?;
         segments.insert(key, ByteBuffer::from(env.convert_byte_array(&bytes)?));
+        // Each entry costs three local refs, so release them as we go rather than relying on
+        // the frame's guaranteed capacity.
+        env.delete_local_ref(bytes);
+        env.delete_local_ref(key_str);
+        env.delete_local_ref(entry);
     }
 
     Ok(segments)
@@ -118,11 +124,12 @@ fn read_metadata_segments(
     source: Arc<dyn VortexReadAt>,
 ) -> VortexResult<Vec<(String, ByteBuffer)>> {
     RUNTIME.block_on(async move {
-        let file = session
-            .open_options()
-            .include_metadata()
-            .open(source)
-            .await?;
+        // Open through the session footer cache, so reading metadata and later scanning the same
+        // file share a single footer read. A `NativeReadable` reports no URI and so is not cached.
+        let file = open_cached(session, source, None, None, &|options| {
+            options.include_metadata()
+        })
+        .await?;
         Ok(file
             .metadata_segments()
             .map(|(key, value)| (key.to_string(), value.clone()))

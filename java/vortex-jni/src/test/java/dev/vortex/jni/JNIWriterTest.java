@@ -6,6 +6,7 @@ package dev.vortex.jni;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -309,13 +310,17 @@ public final class JNIWriterTest {
         // are produced, rather than failing the first writeBatch with a send error.
         Map<String, byte[]> metadata = Map.of("k".repeat(1024), new byte[] {1});
 
-        RuntimeException thrown = assertThrows(
-                RuntimeException.class, () -> VortexWriter.builder(session, writePath, personSchema(), allocator)
+        IOException thrown = assertThrows(
+                IOException.class, () -> VortexWriter.builder(session, writePath, personSchema(), allocator)
                         .metadata(metadata)
                         .build());
+        Throwable cause = thrown.getCause();
+        assertNotNull(cause, "native failure should be retained as the cause");
         assertTrue(
-                thrown.getMessage().contains("metadata key"),
-                "error should identify the offending key, got: " + thrown.getMessage());
+                cause.getMessage().contains("metadata key"),
+                "error should identify the offending key, got: " + cause.getMessage());
+        // Rejected before the sink is touched, so no partial file is left behind.
+        assertFalse(Files.exists(outputPath));
     }
 
     @Test
