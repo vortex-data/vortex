@@ -66,89 +66,88 @@ pub(crate) struct Registry {
 impl ObjectStoreRegistry for Registry {
     fn register(&self, url: Url, store: Arc<dyn ObjectStore>) -> Option<Arc<dyn ObjectStore>> {
         let mut map = self.map.write();
-        let key = url_key(&url);
-        let mut entry = map.entry(key.to_string()).or_default();
-
-        for segment in path_segments(url.path()) {
-            entry = entry.children.entry(segment.to_string()).or_default();
-        }
+        let entry = entry_at(
+            &mut map,
+            url_key(&url),
+            url.path(),
+            num_segments(url.path()),
+        );
         entry.store.replace(store)
     }
 
     fn resolve(&self, to_resolve: &Url) -> object_store::Result<(Arc<dyn ObjectStore>, Path)> {
         let key = url_key(to_resolve);
 
-        // 1. Consult the user-registered map first. Every other scheme does this, so an explicit
-        //    `Registry::register("cos://...", store)` should also win over the env-var / OpenDAL
-        //    fallback below. This also means a previously-resolved OpenDAL store can be cached
-        //    here for the lifetime of the process (the lookup at the bottom of this function
-        //    inserts into the same map).
+        // 1. Look up the user-registered map first. Every other scheme does this, so an explicit
+        //    `Registry::register("cos://...", store)` should also win over the build-and-cache
+        //    fallback below. This also means a previously-resolved store (built by us for the
+        //    same URL) is served from the cache here, without rebuilding the client.
         {
             let map = self.map.read();
-
             if let Some((store, depth)) = map.get(key).and_then(|entry| entry.lookup(to_resolve)) {
                 let path = path_suffix(to_resolve, depth)?;
                 return Ok((Arc::clone(store), path));
             }
         }
 
-        // 2. OpenDAL-backed schemes (Tencent COS) are not recognized by the `object_store` crate.
-        //    Resolve them via the optional `opendal` feature, relying on OpenDAL's environment-
-        //    variable configuration (e.g. `TENCENTCLOUD_SECRET_ID`).
-        #[cfg(feature = "opendal")]
-        if to_resolve.scheme() == "cos" {
-            let store =
-                vortex_object_store_opendal::make_opendal_store(to_resolve, &VortexHashMap::new())
-                    .map_err(|e| object_store::Error::Generic {
-                        store: "OpenDAL",
-                        source: Box::new(e),
-                    })?;
-            let path = Path::from_url_path(to_resolve.path()).map_err(|e| {
-                object_store::Error::Generic {
-                    store: "OpenDAL",
-                    source: Box::new(e),
-                }
-            })?;
+        // 2. Build the store and the path *within* that store. `build_store` reports the path
+        //    the way `parse_url_opts` does — i.e. the path is what the store will see as the
+        //    key — which is what keeps every scheme on the one caching rule in
+        //    `cache_and_resolve`. The depth is then just the difference in segment counts.
+        let (store, path) = build_store(to_resolve)?;
+        let depth = num_segments(to_resolve.path()) - num_segments(path.as_ref());
 
-            // Cache the resolved store under the URL's authority so subsequent `resolve` calls
-            // for the same bucket/configuration share a single client.
-            let mut map = self.map.write();
-            let mut entry = map.entry(key.to_string()).or_default();
-            for segment in path_segments(to_resolve.path()) {
-                entry = entry.children.entry(segment.to_string()).or_default();
-            }
-            let stored = Arc::clone(match &entry.store {
-                None => entry.store.insert(Arc::clone(&store)),
-                Some(x) => x, // Racing creation - use existing
-            });
-
-            return Ok((stored, path));
-        }
-
-        let normalized_env = std::env::vars().map(|(k, v)| (k.to_ascii_lowercase(), v));
-
-        if let Ok((store, path)) = parse_url_opts(to_resolve, normalized_env) {
-            let depth = num_segments(to_resolve.path()) - num_segments(path.as_ref());
-
-            let mut map = self.map.write();
-            let mut entry = map.entry(key.to_string()).or_default();
-            for segment in path_segments(to_resolve.path()).take(depth) {
-                entry = entry.children.entry(segment.to_string()).or_default();
-            }
-            let store = Arc::clone(match &entry.store {
-                None => entry.store.insert(Arc::from(store)),
-                Some(x) => x, // Racing creation - use existing
-            });
-
-            let path = path_suffix(to_resolve, depth)?;
-            return Ok((store, path));
-        }
-
-        Err(object_store::Error::Generic {
-            store: "ObjectStoreRegistry",
-            source: "URL could not be resolved".into(),
-        })
+        // 3. Cache the store and return it alongside the path that lives inside the store.
+        self.cache_and_resolve(to_resolve, store, depth)
     }
+}
+
+impl Registry {
+    /// Caches `store` as the store serving the first `depth` path segments of `to_resolve`, and
+    /// returns it alongside the remaining path.
+    ///
+    /// If a racing `resolve` cached a store at the same position first, that store wins and the
+    /// one just built is dropped, so all callers of a given prefix share a single client.
+    fn cache_and_resolve(
+        &self,
+        to_resolve: &Url,
+        store: Arc<dyn ObjectStore>,
+        depth: usize,
+    ) -> object_store::Result<(Arc<dyn ObjectStore>, Path)> {
+        let path = path_suffix(to_resolve, depth)?;
+
+        let mut map = self.map.write();
+        let entry = entry_at(&mut map, url_key(to_resolve), to_resolve.path(), depth);
+        let stored = Arc::clone(match &entry.store {
+            None => entry.store.insert(store),
+            Some(existing) => existing, // Racing creation - use existing
+        });
+
+        Ok((stored, path))
+    }
+}
+
+/// Builds the [`ObjectStore`] that serves `to_resolve`, with the path within that store.
+///
+/// This mirrors [`parse_url_opts`], extended with schemes the `object_store` crate does not
+/// recognize. Reporting the path the way `parse_url_opts` does is what keeps every scheme on
+/// the one caching rule in [`Registry::resolve`]: a scheme says where its store is rooted, and
+/// the registry decides how to cache it.
+fn build_store(to_resolve: &Url) -> object_store::Result<(Arc<dyn ObjectStore>, Path)> {
+    // OpenDAL-backed schemes (Tencent COS) are not recognized by `object_store`, so build them
+    // from OpenDAL's own environment-variable configuration (e.g. `TENCENTCLOUD_SECRET_ID`).
+    // The operator is rooted at the bucket, which lives in the URL authority, so — exactly as
+    // for `s3://bucket/path` — the whole URL path is the object key.
+    #[cfg(feature = "opendal")]
+    if to_resolve.scheme() == vortex_object_store_opendal::COS_SCHEME {
+        let store =
+            vortex_object_store_opendal::make_opendal_store(to_resolve, &VortexHashMap::new())?;
+        return Ok((store, Path::from_url_path(to_resolve.path())?));
+    }
+
+    let normalized_env = std::env::vars().map(|(k, v)| (k.to_ascii_lowercase(), v));
+    let (store, path) = parse_url_opts(to_resolve, normalized_env)?;
+    Ok((Arc::from(store), path))
 }
 
 /// Extracts the scheme and authority of a URL (components before the Path)
@@ -181,10 +180,27 @@ fn path_suffix(url: &Url, depth: usize) -> Result<Path, object_store::Error> {
     Ok(path)
 }
 
+/// Walks to the [`PathEntry`] for `key` sitting `depth` segments into `path`, creating the
+/// intermediate entries as needed.
+fn entry_at<'a>(
+    map: &'a mut HashMap<String, PathEntry>,
+    key: &str,
+    path: &str,
+    depth: usize,
+) -> &'a mut PathEntry {
+    let mut current = map.entry(key.to_string()).or_default();
+    for segment in path_segments(path).take(depth) {
+        current = current.children.entry(segment.to_string()).or_default();
+    }
+    current
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt::Write;
+    use std::sync::Arc;
 
+    use object_store::ObjectStore;
     use object_store::registry::ObjectStoreRegistry;
     use url::Url;
 
@@ -229,5 +245,65 @@ mod tests {
 
             assert!(debug_str.contains("us-east-3"));
         });
+    }
+
+    /// Two resolves of the same URL must return the same `Arc` (the cached client) and the same
+    /// path, and two different keys must get distinct stores. This pins the symmetry the registry
+    /// promises: cache hit returns the same client and the same key.
+    #[test]
+    fn test_resolve_url_caches_per_key() {
+        with_var("AWS_REGION", "us-east-3", || {
+            let registry = Registry::default();
+            let first = Url::parse("s3://my-bucket/first/second").unwrap();
+            let second = Url::parse("s3://my-bucket/first/second").unwrap();
+
+            let (store_a, path_a) = registry.resolve(&first).unwrap();
+            let (store_b, path_b) = registry.resolve(&second).unwrap();
+            assert!(Arc::ptr_eq(&store_a, &store_b));
+            assert_eq!(path_a, path_b);
+
+            // A different bucket gets its own client.
+            let other = Url::parse("s3://other-bucket/first/second").unwrap();
+            let (store_c, _) = registry.resolve(&other).unwrap();
+            assert!(!Arc::ptr_eq(&store_a, &store_c));
+        });
+    }
+
+    /// Two objects in the same bucket must share a cached client. This is the regression that
+    /// the bespoke "walk every segment then return the whole key" path caused: by walking all
+    /// segments it stored the store at full depth, so the next resolve saw the whole key
+    /// already consumed and returned an empty path. Pinning the path here guards against that.
+    #[test]
+    fn test_resolve_url_shared_client_same_bucket() {
+        with_var("AWS_REGION", "us-east-3", || {
+            let registry = Registry::default();
+            let a = Url::parse("s3://my-bucket/path/to/data.vortex").unwrap();
+            let b = Url::parse("s3://my-bucket/other/data.vortex").unwrap();
+
+            let (store_a, path_a) = registry.resolve(&a).unwrap();
+            let (store_b, path_b) = registry.resolve(&b).unwrap();
+            assert!(Arc::ptr_eq(&store_a, &store_b));
+            assert_eq!(path_a.as_ref(), "path/to/data.vortex");
+            assert_eq!(path_b.as_ref(), "other/data.vortex");
+        });
+    }
+
+    /// Pinning the `entry_at` helper at depth > 0 (the path-prefix case) protects the shared
+    /// `entry_at` / `cache_and_resolve` helpers from regressing prefix registration.
+    #[test]
+    fn test_register_at_prefix_shares_store() {
+        let registry = Registry::default();
+        let prefix = Url::parse("s3://my-bucket/prefix/").unwrap();
+        let (inner, _) = registry.resolve(&prefix).unwrap();
+        let cached: Arc<dyn ObjectStore> = Arc::clone(&inner);
+        let replaced = registry.register(prefix.clone(), Arc::clone(&cached));
+        // First registration at this prefix replaces nothing.
+        assert!(replaced.is_none());
+
+        // A resolve at a deeper key still walks through the registered prefix's store.
+        let deeper = Url::parse("s3://my-bucket/prefix/inner/key").unwrap();
+        let (store_deeper, path_deeper) = registry.resolve(&deeper).unwrap();
+        assert!(Arc::ptr_eq(&store_deeper, &cached));
+        assert_eq!(path_deeper.as_ref(), "inner/key");
     }
 }

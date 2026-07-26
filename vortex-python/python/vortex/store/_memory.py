@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: Copyright (c) 2024 Development Seed
 
-from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
+from .._lib import store as _store
 
 
 class MemoryStore(_store.MemoryStore):

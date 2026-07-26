@@ -7,7 +7,7 @@ from typing import Any, Literal, NotRequired, Protocol, Self, TypeAlias, TypedDi
 
 from typing_extensions import override
 
-from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
+from .._lib import store as _store
 from ._client import ClientConfig
 from ._retry import RetryConfig
 

@@ -145,14 +145,33 @@ pub fn make_opendal_store(
     // precedence) and falls back to the URL host; endpoint is taken from `properties["endpoint"]`
     // first and falls back to `COS_ENDPOINT`; credentials fall back to the variables that
     // OpenDAL's COS builder reads.
-    let config = url_and_properties_to_cos_config(url, properties)?;
+    let config = url_and_properties_to_cos_config(url, properties, env_var_lookup)?;
     make_cos_store(config)
 }
 
-fn url_and_properties_to_cos_config(
+/// Default environment-variable lookup: reads `key` from the process environment.
+///
+/// The lookup is factored out so tests can pass a fixed map instead of mutating the global
+/// environment, which is unsound when `cargo test` runs tests on multiple threads within one
+/// process (the `unsafe std::env::set_var` block became `unsafe` in Rust 2024 for exactly this
+/// reason).
+fn env_var_lookup(key: &str) -> Option<String> {
+    std::env::var(key).ok()
+}
+
+/// Translate the (URL, properties) pair into a strongly-typed [`CosConfig`].
+///
+/// `env_lookup` is the source of truth for environment-variable fallbacks. The production
+/// entry points pass [`env_var_lookup`]; tests pass a closure that returns from a fixed map, so
+/// they do not race against the process environment.
+fn url_and_properties_to_cos_config<F>(
     url: &Url,
     properties: &HashMap<String, String>,
-) -> Result<CosConfig, OpenDALStoreError> {
+    env_lookup: F,
+) -> Result<CosConfig, OpenDALStoreError>
+where
+    F: Fn(&str) -> Option<String>,
+{
     warn_on_unknown_properties(properties);
 
     let bucket = properties
@@ -164,7 +183,7 @@ fn url_and_properties_to_cos_config(
     let endpoint = properties
         .get("endpoint")
         .cloned()
-        .or_else(|| std::env::var("COS_ENDPOINT").ok())
+        .or_else(|| env_lookup("COS_ENDPOINT"))
         .ok_or(OpenDALStoreError::MissingConfig("endpoint"))?;
 
     Ok(CosConfig {
@@ -173,11 +192,11 @@ fn url_and_properties_to_cos_config(
         secret_id: properties
             .get("secret_id")
             .cloned()
-            .or_else(|| std::env::var("TENCENTCLOUD_SECRET_ID").ok()),
+            .or_else(|| env_lookup("TENCENTCLOUD_SECRET_ID")),
         secret_key: properties
             .get("secret_key")
             .cloned()
-            .or_else(|| std::env::var("TENCENTCLOUD_SECRET_KEY").ok()),
+            .or_else(|| env_lookup("TENCENTCLOUD_SECRET_KEY")),
         root: properties.get("root").cloned(),
         disable_config_load: properties.get("disable_config_load").map(String::as_str)
             == Some("true"),
@@ -224,59 +243,54 @@ mod tests {
         ));
     }
 
+    /// The endpoint is required. With a fixed env-lookup that returns `None`, the call must
+    /// fail with `MissingConfig("endpoint")` regardless of what the process environment
+    /// happens to contain. This makes the test deterministic under `cargo test`'s default
+    /// multi-threaded runner (and avoids the `unsafe std::env::set_var` that became unsound in
+    /// Rust 2024).
     #[test]
     fn cos_requires_endpoint() {
         let url = Url::parse("cos://my-bucket/path").unwrap();
         let props = HashMap::new();
-        // Clear any `COS_ENDPOINT` left over from the environment so the test is deterministic.
-        // SAFETY: this is a unit test, single-threaded.
-        let previous = std::env::var("COS_ENDPOINT").ok();
-        unsafe { std::env::remove_var("COS_ENDPOINT") };
-        let result = make_opendal_store(&url, &props);
-        if let Some(value) = previous {
-            unsafe { std::env::set_var("COS_ENDPOINT", value) };
-        }
+        let result = url_and_properties_to_cos_config(&url, &props, |_| None).unwrap_err();
         assert!(matches!(
             result,
-            Err(OpenDALStoreError::MissingConfig("endpoint"))
+            OpenDALStoreError::MissingConfig("endpoint")
         ));
     }
 
-    /// With explicit credentials and `disable_config_load=true` so that no environment variables
-    /// are consulted, the store should build successfully. The bucket is taken from the URL host.
-    #[test]
-    fn cos_builds_with_explicit_config() {
-        let url = Url::parse("cos://my-bucket/path/to/dataset.vortex").unwrap();
-        let mut props = HashMap::new();
-        props.insert("endpoint".to_string(), "https://example.com".to_string());
-        props.insert("secret_id".to_string(), "AKID".to_string());
-        props.insert("secret_key".to_string(), "secret".to_string());
-        props.insert("disable_config_load".to_string(), "true".to_string());
-
-        let store = make_opendal_store(&url, &props).expect("store should build");
-        // Sanity: the returned store is a non-null `Arc<dyn ObjectStore>`.
-        assert!(Arc::strong_count(&store) >= 1);
-    }
-
-    /// When `properties` does not contain `endpoint`, the builder must fall back to the
-    /// `COS_ENDPOINT` environment variable instead of erroring out.
+    /// When `properties` does not contain `endpoint`, the env-lookup should be consulted.
+    /// The fixed lookup returns `"https://example.com"`, so the build must succeed.
     #[test]
     fn cos_falls_back_to_cos_endpoint_env() {
         let url = Url::parse("cos://my-bucket/path").unwrap();
-        // SAFETY: this is a unit test, single-threaded.
-        unsafe { std::env::set_var("COS_ENDPOINT", "https://example.com") };
+        let env = |key: &str| match key {
+            "COS_ENDPOINT" => Some("https://example.com".to_string()),
+            _ => None,
+        };
+        let props = HashMap::new();
+        let config = url_and_properties_to_cos_config(&url, &props, env).expect("config");
+        assert_eq!(config.endpoint, "https://example.com");
+    }
+
+    /// With a fixed env-lookup that returns explicit credentials, the strongly-typed
+    /// `make_cos_store` should build a store successfully.
+    #[test]
+    fn cos_builds_with_explicit_config() {
+        let url = Url::parse("cos://my-bucket/path/to/dataset.vortex").unwrap();
+        let env = |key: &str| match key {
+            "COS_ENDPOINT" => Some("https://example.com".to_string()),
+            "TENCENTCLOUD_SECRET_ID" => Some("AKID".to_string()),
+            "TENCENTCLOUD_SECRET_KEY" => Some("secret".to_string()),
+            _ => None,
+        };
         let mut props = HashMap::new();
-        props.insert("secret_id".to_string(), "AKID".to_string());
-        props.insert("secret_key".to_string(), "secret".to_string());
         props.insert("disable_config_load".to_string(), "true".to_string());
 
-        let result = make_opendal_store(&url, &props);
-        // SAFETY: this is a unit test, single-threaded.
-        unsafe { std::env::remove_var("COS_ENDPOINT") };
-        assert!(
-            result.is_ok(),
-            "expected store to build with COS_ENDPOINT set"
-        );
+        let config = url_and_properties_to_cos_config(&url, &props, env).expect("config");
+        let store = make_cos_store(config).expect("store should build");
+        // Sanity: the returned store is a non-null `Arc<dyn ObjectStore>`.
+        assert!(Arc::strong_count(&store) >= 1);
     }
 
     /// The strongly-typed `make_cos_store` entry point must reject an empty bucket or endpoint

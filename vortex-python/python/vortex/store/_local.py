@@ -6,7 +6,7 @@ from typing import Self
 
 from typing_extensions import override
 
-from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
+from .._lib import store as _store
 
 
 class LocalStore(_store.LocalStore):
