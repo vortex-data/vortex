@@ -119,14 +119,18 @@ fn metadata_to_java(
 }
 
 /// Open a Vortex file with metadata resolution enabled and collect its metadata segments.
+///
+/// `cache_key` identifies the file in the session footer cache. Both entry points name the file
+/// the same way the scan path does — the object-store path, or the `NativeReadable`'s name — so a
+/// metadata read and a later scan of the same file share one footer read.
 fn read_metadata_segments(
     session: &VortexSession,
     source: Arc<dyn VortexReadAt>,
+    cache_key: &str,
+    file_size: Option<u64>,
 ) -> VortexResult<Vec<(String, ByteBuffer)>> {
     RUNTIME.block_on(async move {
-        // Open through the session footer cache, so reading metadata and later scanning the same
-        // file share a single footer read. A `NativeReadable` reports no URI and so is not cached.
-        let file = open_cached(session, source, None, None, &|options| {
+        let file = open_cached(session, source, cache_key, file_size, &|options| {
             options.include_metadata()
         })
         .await?;
@@ -160,27 +164,35 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadata(
         let path = Path::from_url_path(url.path())
             .map_err(|_| vortex_err!("cannot parse uri as object_store Path"))?
             .to_string();
-        let source = RUNTIME.block_on(async move { fs.open_read(&path).await })?;
+        let source = RUNTIME.block_on(async { fs.open_read(&path).await })?;
 
-        let segments = read_metadata_segments(session, source)?;
+        let segments = read_metadata_segments(session, source, &path, None)?;
         metadata_to_java(env, segments)
     })
 }
 
 /// Read the user-defined metadata segments of a Vortex file through a caller-provided
 /// `dev.vortex.io.NativeReadable`, so no native storage client is created.
+///
+/// `name` is the readable's `name()`, which the interface requires to be stable and unique; it
+/// keys the file in the session footer cache, as it does for the scan path.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadataFromReadable(
     mut env: EnvUnowned,
     _class: JClass,
     session_ptr: jlong,
     readable: JObject,
+    name: JString,
     length: jlong,
 ) -> jobject {
     try_or_throw(&mut env, |env| {
         let session = unsafe { session_ref(session_ptr) };
         if readable.is_null() {
             throw_runtime!("null readable");
+        }
+        let name: String = name.try_to_string(env)?;
+        if name.is_empty() {
+            throw_runtime!("readable name must not be empty");
         }
         let length =
             u64::try_from(length).map_err(|_| vortex_err!("negative readable length: {length}"))?;
@@ -189,7 +201,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadataFromReadable(
         let readable = Arc::new(env.new_global_ref(&readable)?);
         let source = java_readable(vm, readable, length, session.handle());
 
-        let segments = read_metadata_segments(session, source)?;
+        // `MultiFileDataSource` strips leading slashes and the scan path keys Java readables by
+        // that same normalized form, so normalize here too — otherwise a metadata read and a
+        // scan of the same readable would land on two different cache entries.
+        let cache_key = name.trim_start_matches('/');
+        let segments = read_metadata_segments(session, source, cache_key, Some(length))?;
         metadata_to_java(env, segments)
     })
 }

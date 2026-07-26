@@ -237,6 +237,13 @@ public final class NativeIOBridgeTest {
             assertEquals(Set.of("iceberg.schema"), metadata.keySet());
             assertArrayEquals(value, metadata.get("iceberg.schema"));
         }
+
+        // The readable's name keys the session footer cache, so this read resolves the metadata
+        // against the footer cached by the read above rather than reading it again.
+        try (FileChannelReadable readable = new FileChannelReadable(path)) {
+            Map<String, byte[]> metadata = NativeFiles.readMetadata(session, readable);
+            assertArrayEquals(value, metadata.get("iceberg.schema"));
+        }
     }
 
     @Test

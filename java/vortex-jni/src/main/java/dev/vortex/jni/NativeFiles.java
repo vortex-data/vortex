@@ -47,12 +47,17 @@ public final class NativeFiles {
      * instead of a native storage client. See {@link #readMetadata(Session, String, Map)}.
      *
      * <p>The readable must stay open for the duration of the call; native code never closes it.
+     *
+     * <p>{@link NativeReadable#name()} keys the file in the session's footer cache, exactly as it does when the
+     * readable is scanned, so reading metadata and then scanning the same file share one footer read.
      */
     public static Map<String, byte[]> readMetadata(Session session, NativeReadable readable) {
         Objects.requireNonNull(readable, "readable");
+        String name = readable.name();
+        Preconditions.checkArgument(name != null && !name.isEmpty(), "readable reported an empty name");
         long length = readable.length();
-        Preconditions.checkArgument(length >= 0, "readable for %s reported negative length", readable.name());
-        return readMetadataFromReadable(session.nativePointer(), readable, length);
+        Preconditions.checkArgument(length >= 0, "readable for %s reported negative length", name);
+        return readMetadataFromReadable(session.nativePointer(), readable, name, length);
     }
 
     private static native List<String> listFiles(long sessionPointer, String uri, Map<String, String> options);
@@ -63,5 +68,5 @@ public final class NativeFiles {
             long sessionPointer, String uri, Map<String, String> options);
 
     private static native Map<String, byte[]> readMetadataFromReadable(
-            long sessionPointer, Object readable, long length);
+            long sessionPointer, Object readable, String name, long length);
 }
