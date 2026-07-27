@@ -10,6 +10,7 @@ use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -22,6 +23,12 @@ pub(super) fn to_arrow_fixed_list(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
+    vortex_ensure!(
+        matches!(array.dtype(), DType::FixedSizeList(..)),
+        "Cannot convert Vortex array with dtype {} to an Arrow FixedSizeList array",
+        array.dtype()
+    );
+
     // Check for Vortex FixedSizeListArray and convert directly.
     if let Some(array) = array.as_opt::<FixedSizeList>() {
         return list_to_list(&array.into_owned(), elements_field, list_size, ctx);
