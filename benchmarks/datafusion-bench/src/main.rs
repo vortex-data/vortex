@@ -21,6 +21,7 @@ use datafusion_bench::metrics::MetricsSetExt;
 use datafusion_bench::tracer::get_labelset_from_global;
 use datafusion_bench::tracer::get_static_tracer;
 use datafusion_bench::tracer::set_labels;
+use datafusion_common::TableReference;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
 use parking_lot::Mutex;
@@ -266,7 +267,9 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
 
         for table in benchmark.table_specs().iter() {
             let pattern = benchmark.pattern(table.name, format);
-            let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?;
+            let table_ref = TableReference::bare(table.name);
+            let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?
+                .with_table_ref(table_ref.clone());
 
             let listing_options = ListingOptions::new(Arc::clone(&file_format))
                 .with_session_config_options(session.state().config());
@@ -287,7 +290,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
                 ),
             );
 
-            session.register_table(table.name, listing_table)?;
+            session.register_table(table_ref, listing_table)?;
         }
 
         Ok(())
