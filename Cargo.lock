@@ -226,7 +226,7 @@ dependencies = [
  "arrow-cast 58.4.0",
  "arrow-csv",
  "arrow-data 58.4.0",
- "arrow-ipc 58.4.0",
+ "arrow-ipc",
  "arrow-json",
  "arrow-ord 58.4.0",
  "arrow-row 58.4.0",
@@ -430,20 +430,6 @@ dependencies = [
 
 [[package]]
 name = "arrow-ipc"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31f88b0fbb33af28089ccd3e4dcd0ff09de46842168d00220b920f7231feddf5"
-dependencies = [
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-data 56.2.1",
- "arrow-schema 56.2.1",
- "arrow-select 56.2.1",
- "flatbuffers",
-]
-
-[[package]]
-name = "arrow-ipc"
 version = "58.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29a908a11fcfb3fb2f6730f4ac15e367bc644e419155e96238f68cf3adde572b"
@@ -454,7 +440,7 @@ dependencies = [
  "arrow-schema 58.4.0",
  "arrow-select 58.4.0",
  "flatbuffers",
- "lz4_flex 0.13.1",
+ "lz4_flex",
  "zstd",
 ]
 
@@ -1559,7 +1545,7 @@ dependencies = [
  "indicatif",
  "itertools 0.14.0",
  "lance-bench",
- "parquet 58.4.0",
+ "parquet",
  "regex",
  "tokio",
  "tracing",
@@ -2044,7 +2030,7 @@ dependencies = [
  "log",
  "object_store",
  "parking_lot",
- "parquet 58.4.0",
+ "parquet",
  "sqlparser",
  "tempfile",
  "tokio",
@@ -2135,7 +2121,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca43b263cdff57042cfa8fb817fb3469f4878933380dccff25f5e793580abbf9"
 dependencies = [
  "arrow 58.4.0",
- "arrow-ipc 58.4.0",
+ "arrow-ipc",
  "arrow-schema 58.4.0",
  "chrono",
  "foldhash 0.2.0",
@@ -2146,7 +2132,7 @@ dependencies = [
  "libc",
  "log",
  "object_store",
- "parquet 58.4.0",
+ "parquet",
  "recursive",
  "sqlparser",
  "tokio",
@@ -2208,7 +2194,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a24cc0b9cf6e367f27f27406eff13abf48a11b72446aaa40b3105c0ded5c17d9"
 dependencies = [
  "arrow 58.4.0",
- "arrow-ipc 58.4.0",
+ "arrow-ipc",
  "async-trait",
  "bytes",
  "datafusion-common",
@@ -2317,7 +2303,7 @@ dependencies = [
  "log",
  "object_store",
  "parking_lot",
- "parquet 58.4.0",
+ "parquet",
  "tokio",
 ]
 
@@ -2629,7 +2615,7 @@ checksum = "9bc84da934c903407ba297971ebcc020c4c1a38aafd765d6c144c76eff3fa6a1"
 dependencies = [
  "arrow 58.4.0",
  "arrow-data 58.4.0",
- "arrow-ipc 58.4.0",
+ "arrow-ipc",
  "arrow-ord 58.4.0",
  "arrow-schema 58.4.0",
  "async-trait",
@@ -4541,7 +4527,7 @@ dependencies = [
  "arrow-array 58.4.0",
  "arrow-buffer 58.4.0",
  "arrow-cast 58.4.0",
- "arrow-ipc 58.4.0",
+ "arrow-ipc",
  "arrow-ord 58.4.0",
  "arrow-row 58.4.0",
  "arrow-schema 58.4.0",
@@ -4612,7 +4598,7 @@ dependencies = [
  "arrow-array 58.4.0",
  "arrow-buffer 58.4.0",
  "arrow-data 58.4.0",
- "arrow-ipc 58.4.0",
+ "arrow-ipc",
  "arrow-ord 58.4.0",
  "arrow-schema 58.4.0",
  "arrow-select 58.4.0",
@@ -4664,7 +4650,7 @@ dependencies = [
  "futures",
  "lance",
  "lance-encoding",
- "parquet 58.4.0",
+ "parquet",
  "tempfile",
  "tokio",
  "tracing",
@@ -5056,7 +5042,7 @@ dependencies = [
  "arrow 58.4.0",
  "arrow-array 58.4.0",
  "arrow-buffer 58.4.0",
- "arrow-ipc 58.4.0",
+ "arrow-ipc",
  "arrow-schema 58.4.0",
  "async-trait",
  "byteorder",
@@ -5400,15 +5386,6 @@ checksum = "6bd8c0d6c6ed0cd30b3652886bb8711dc4bb01d637a68105a3d5158039b418e6"
 dependencies = [
  "cc",
  "libc",
-]
-
-[[package]]
-name = "lz4_flex"
-version = "0.11.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
-dependencies = [
- "twox-hash",
 ]
 
 [[package]]
@@ -6178,41 +6155,6 @@ dependencies = [
 
 [[package]]
 name = "parquet"
-version = "56.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3abbfef8a25900f4925c86e4cb881ea24672ca3c31ee4fb50a8083c4c56d313"
-dependencies = [
- "ahash 0.8.12",
- "arrow-array 56.2.1",
- "arrow-buffer 56.2.1",
- "arrow-cast 56.2.1",
- "arrow-data 56.2.1",
- "arrow-ipc 56.2.1",
- "arrow-schema 56.2.1",
- "arrow-select 56.2.1",
- "base64",
- "brotli",
- "bytes",
- "chrono",
- "flate2",
- "futures",
- "half",
- "hashbrown 0.16.1",
- "lz4_flex 0.11.6",
- "num",
- "num-bigint",
- "paste",
- "seq-macro",
- "simdutf8",
- "snap",
- "thrift",
- "tokio",
- "twox-hash",
- "zstd",
-]
-
-[[package]]
-name = "parquet"
 version = "58.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d298093b2dec60289dce0684c986d0f7679e9dd15771c2c65406e1aaf604a704"
@@ -6221,7 +6163,7 @@ dependencies = [
  "arrow-array 58.4.0",
  "arrow-buffer 58.4.0",
  "arrow-data 58.4.0",
- "arrow-ipc 58.4.0",
+ "arrow-ipc",
  "arrow-schema 58.4.0",
  "arrow-select 58.4.0",
  "base64",
@@ -6232,7 +6174,7 @@ dependencies = [
  "futures",
  "half",
  "hashbrown 0.17.1",
- "lz4_flex 0.13.1",
+ "lz4_flex",
  "num-bigint",
  "num-integer",
  "num-traits",
@@ -9101,7 +9043,7 @@ dependencies = [
  "codspeed-divan-compat",
  "fastlanes",
  "mimalloc",
- "parquet 58.4.0",
+ "parquet",
  "rand 0.10.2",
  "serde_json",
  "tokio",
@@ -9282,8 +9224,7 @@ dependencies = [
  "noodles-bgzf",
  "noodles-vcf",
  "parking_lot",
- "parquet 56.2.1",
- "parquet 58.4.0",
+ "parquet",
  "rand 0.10.2",
  "regex",
  "reqwest 0.13.4",
@@ -9383,7 +9324,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures",
- "parquet 58.4.0",
+ "parquet",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -10229,7 +10170,7 @@ dependencies = [
  "humansize",
  "indicatif",
  "itertools 0.14.0",
- "parquet 58.4.0",
+ "parquet",
  "ratatui",
  "ratzilla",
  "serde",
@@ -10257,7 +10198,7 @@ name = "vortex-web-wasm"
 version = "0.1.0"
 dependencies = [
  "arrow-array 58.4.0",
- "arrow-ipc 58.4.0",
+ "arrow-ipc",
  "arrow-schema 58.4.0",
  "console_error_panic_hook",
  "futures",

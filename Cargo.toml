@@ -245,7 +245,7 @@ spatialbench-arrow = "0.2"
 # spatialbench still pins arrow 56, two majors behind the workspace arrow. Until upstream
 # catches up, write its generated batches with a matching parquet instead of converting
 # arrow versions at the boundary.
-spatialbench-parquet = { package = "parquet", version = "56", features = [
+spatialbench-parquet = { package = "parquet", version = "58", features = [
     "async",
 ] }
 static_assertions = "1.1"
