@@ -3,6 +3,7 @@
 
 """CLI for benchmark orchestration."""
 
+import json
 import subprocess
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from .ci_matrix import MATRIX_PRESETS, resolve_matrix
 from .comparison import analyzer
 from .comparison.reporter import pivot_comparison_table
 from .config import (
@@ -212,6 +214,30 @@ def prepare_data(
     except subprocess.CalledProcessError as exc:
         console.print(f"[red]Data generation failed: {exc}[/red]")
         raise typer.Exit(1) from exc
+
+
+@app.command("matrix")
+def matrix(
+    preset: Annotated[
+        str | None,
+        typer.Argument(help="Matrix preset to render; omit to list available presets"),
+    ] = None,
+    list_presets: Annotated[bool, typer.Option("--list", help="List available presets and exit")] = False,
+    pretty: Annotated[bool, typer.Option("--pretty", help="Pretty-print the JSON output")] = False,
+) -> None:
+    """Emit a GitHub Actions benchmark matrix."""
+    if preset is None or list_presets:
+        for name, description in MATRIX_PRESETS.items():
+            console.print(f"[bold cyan]{name}[/bold cyan]: {description}")
+        return
+
+    if preset not in MATRIX_PRESETS:
+        known = ", ".join(MATRIX_PRESETS)
+        console.print(f"[red]Unknown matrix preset '{preset}'. Available: {known}[/red]")
+        raise typer.Exit(1)
+
+    entries = resolve_matrix(preset)
+    typer.echo(json.dumps(entries, indent=2 if pretty else None))
 
 
 @app.command()

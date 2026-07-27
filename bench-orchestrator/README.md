@@ -70,6 +70,24 @@ vx-bench prepare-data <benchmark> [options]
 - `--formats-json`: Exact data formats as JSON, e.g. `'["parquet","vortex"]'`
 - `--opt`: Benchmark-specific options such as `scale-factor=10.0`
 
+
+### `matrix` - Render a CI Benchmark Matrix
+
+Emit the GitHub Actions `include:` array for a named preset. The benchmark workflows use this
+to keep benchmark coverage in Python instead of copying large JSON matrices between YAML files.
+
+```bash
+vx-bench matrix            # list available presets
+vx-bench matrix develop    # emit compact JSON
+vx-bench matrix pr-full     # emit full pull-request coverage
+vx-bench matrix nightly --pretty
+```
+
+**Options:**
+
+- `--list`: List available presets and exit
+- `--pretty`: Pretty-print the JSON output
+
 ### `compare` - Compare Results
 
 Compare benchmark results within a run or across multiple runs. Results are displayed in a pivot table format.
@@ -136,6 +154,16 @@ vx-bench clean --older-than "30 days" [options]
 - `--older-than`: Delete runs older than (required)
 - `--keep-labeled`: Don't delete labeled runs (default: true)
 - `--dry-run, -n`: Show what would be deleted
+
+## CI Benchmark Matrices
+
+CI benchmark coverage lives in `bench_orchestrator/ci_matrix/catalog.py`. This is the only file to
+edit when changing what runs in the `develop`, `pr`, `pr-full`, or `nightly` presets. The remaining
+modules in `ci_matrix` model, validate, and render that catalog as the JSON expected by GitHub
+Actions.
+
+When adding coverage, update the benchmark declarations and the expected preset membership in
+`tests/test_matrix.py`.
 
 ## Example Workflows
 

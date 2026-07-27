@@ -139,3 +139,4 @@ jobs:
     secrets: inherit
     with:
       mode: "pr"
+      matrix_preset: "pr-full"

@@ -6,520 +6,45 @@ on:
       mode:
         required: true
         type: string
+      matrix_preset:
+        required: true
+        type: string
+        description: "Named benchmark matrix to run"
       machine_type:
         required: false
         type: string
         default: i7i.metal-24xl
-      benchmark_matrix:
-        required: false
-        type: string
-        description: "JSON string containing the full matrix configuration"
-        default: |
-          [
-            {
-              "id": "clickbench-nvme",
-              "subcommand": "clickbench",
-              "name": "Clickbench on NVME",
-              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "datafusion", "format": "lance"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ]
-            },
-            {
-              "id": "clickbench-sorted-nvme",
-              "subcommand": "clickbench-sorted",
-              "name": "Clickbench Sorted on NVME",
-              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "datafusion", "format": "lance"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ]
-            },
-            {
-              "id": "tpch-nvme",
-              "subcommand": "tpch",
-              "name": "TPC-H SF=1 on NVME",
-              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "datafusion", "format": "lance"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ],
-              "scale_factor": "1.0",
-              "iterations": "10"
-            },
-            {
-              "id": "tpch-s3",
-              "subcommand": "tpch",
-              "name": "TPC-H SF=1 on S3",
-              "local_dir": "vortex-bench/data/tpch/1.0",
-              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
-              "data_formats": ["parquet", "vortex", "vortex-compact"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"}
-              ],
-              "scale_factor": "1.0",
-              "iterations": "10"
-            },
-            {
-              "id": "tpch-nvme-10",
-              "subcommand": "tpch",
-              "name": "TPC-H SF=10 on NVME",
-              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "datafusion", "format": "lance"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ],
-              "scale_factor": "10.0",
-              "iterations": "10"
-            },
-            {
-              "id": "tpch-s3-10",
-              "subcommand": "tpch",
-              "name": "TPC-H SF=10 on S3",
-              "local_dir": "vortex-bench/data/tpch/10.0",
-              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
-              "data_formats": ["parquet", "vortex", "vortex-compact"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"}
-              ],
-              "scale_factor": "10.0",
-              "iterations": "10"
-            },
-            {
-              "id": "tpcds-nvme",
-              "subcommand": "tpcds",
-              "name": "TPC-DS SF=1 on NVME",
-              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ],
-              "scale_factor": "1.0"
-            },
-            {
-              "id": "statpopgen",
-              "subcommand": "statpopgen",
-              "name": "Statistical and Population Genetics",
-              "local_dir": "vortex-bench/data/statpopgen",
-              "data_formats": ["parquet", "vortex", "vortex-compact"],
-              "pr_targets": [
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"}
-              ],
-              "develop_targets": [
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"}
-              ],
-              "scale_factor": "100"
-            },
-            {
-              "id": "fineweb",
-              "subcommand": "fineweb",
-              "name": "FineWeb NVMe",
-              "data_formats": ["parquet", "vortex", "vortex-compact"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"}
-              ],
-              "scale_factor": "100"
-            },
-            {
-              "id": "fineweb-s3",
-              "subcommand": "fineweb",
-              "name": "FineWeb S3",
-              "local_dir": "vortex-bench/data/fineweb",
-              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
-              "data_formats": ["parquet", "vortex", "vortex-compact"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"}
-              ],
-              "scale_factor": "100"
-            },
-            {
-              "id": "polarsignals",
-              "subcommand": "polarsignals",
-              "name": "PolarSignals Profiling",
-              "data_formats": ["vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "vortex"}
-              ],
-              "scale_factor": "1"
-            },
-            {
-              "id": "appian-nvme",
-              "subcommand": "appian",
-              "name": "Appian on NVME",
-              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"},
-                {"engine": "duckdb", "format": "vortex-compact"},
-                {"engine": "duckdb", "format": "duckdb"}
-              ],
-              "iterations": "10"
-            },
-            {
-              "id": "vortex-queries",
-              "subcommand": "vortex",
-              "name": "Vortex queries",
-              "data_formats": ["parquet", "vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "iterations": "100"
-            }
-          ]
-      base_benchmark_matrix:
-        required: false
-        type: string
-        description: "JSON string containing the base matrix configuration"
-        default: |
-          [
-            {
-              "id": "clickbench-nvme",
-              "subcommand": "clickbench",
-              "name": "Clickbench on NVME",
-              "data_formats": ["parquet", "vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "lance"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ]
-            },
-            {
-              "id": "clickbench-sorted-nvme",
-              "subcommand": "clickbench-sorted",
-              "name": "Clickbench Sorted on NVME",
-              "data_formats": ["parquet", "vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "lance"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ]
-            },
-            {
-              "id": "tpch-nvme",
-              "subcommand": "tpch",
-              "name": "TPC-H SF=1 on NVME",
-              "data_formats": ["parquet", "vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "lance"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "scale_factor": "1.0",
-              "iterations": "10"
-            },
-            {
-              "id": "tpch-s3",
-              "subcommand": "tpch",
-              "name": "TPC-H SF=1 on S3",
-              "local_dir": "vortex-bench/data/tpch/1.0",
-              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
-              "data_formats": ["parquet", "vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "scale_factor": "1.0",
-              "iterations": "10"
-            },
-            {
-              "id": "tpch-nvme-10",
-              "subcommand": "tpch",
-              "name": "TPC-H SF=10 on NVME",
-              "data_formats": ["parquet", "vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "datafusion", "format": "lance"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "scale_factor": "10.0",
-              "iterations": "10"
-            },
-            {
-              "id": "tpcds-nvme",
-              "subcommand": "tpcds",
-              "name": "TPC-DS SF=1 on NVME",
-              "data_formats": ["parquet", "vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "scale_factor": "1.0"
-            },
-            {
-              "id": "statpopgen",
-              "subcommand": "statpopgen",
-              "name": "Statistical and Population Genetics",
-              "local_dir": "vortex-bench/data/statpopgen",
-              "data_formats": ["parquet", "vortex"],
-              "pr_targets": [
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "scale_factor": "100"
-            },
-            {
-              "id": "fineweb",
-              "subcommand": "fineweb",
-              "name": "FineWeb NVMe",
-              "data_formats": ["parquet", "vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "scale_factor": "100"
-            },
-            {
-              "id": "fineweb-s3",
-              "subcommand": "fineweb",
-              "name": "FineWeb S3",
-              "local_dir": "vortex-bench/data/fineweb",
-              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
-              "data_formats": ["parquet", "vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "parquet"},
-                {"engine": "datafusion", "format": "vortex"},
-                {"engine": "duckdb", "format": "parquet"},
-                {"engine": "duckdb", "format": "vortex"}
-              ],
-              "scale_factor": "100"
-            },
-            {
-              "id": "polarsignals",
-              "subcommand": "polarsignals",
-              "name": "PolarSignals Profiling",
-              "data_formats": ["vortex"],
-              "pr_targets": [
-                {"engine": "datafusion", "format": "vortex"}
-              ],
-              "develop_targets": [
-                {"engine": "datafusion", "format": "vortex"}
-              ],
-              "scale_factor": "1"
-            }
-          ]
-      benchmark_profile:
-        required: false
-        type: string
-        description: "Benchmark profile to run: full or base"
-        default: "full"
 
 jobs:
+  resolve-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      benchmark_matrix: ${{ steps.resolve.outputs.benchmark_matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install uv
+        uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
+        with:
+          sync: false
+      - name: Resolve benchmark matrix
+        id: resolve
+        shell: bash
+        env:
+          MATRIX_PRESET: ${{ inputs.matrix_preset }}
+        run: |
+          set -Eeuo pipefail
+
+          matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET")"
+          echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   bench:
+    needs: resolve-matrix
     timeout-minutes: 120
     env:
       VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
@@ -529,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.benchmark_profile == 'base' && inputs.base_benchmark_matrix || inputs.benchmark_matrix) }}
+        include: ${{ fromJSON(needs.resolve-matrix.outputs.benchmark_matrix) }}
 
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -541,12 +66,8 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        if: inputs.mode == 'pr'
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
-        if: inputs.mode != 'pr'
+          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-rust
@@ -565,21 +86,6 @@ jobs:
           echo "$PWD" >> "$GITHUB_PATH"
 
       - uses: ./.github/actions/system-info
-
-      - name: Resolve benchmark targets
-        id: targets
-        shell: bash
-        run: |
-          if [ "${{ inputs.mode }}" = "pr" ]; then
-            targets='${{ toJSON(matrix.pr_targets) }}'
-          else
-            targets='${{ toJSON(matrix.develop_targets) }}'
-          fi
-          {
-            echo 'targets_json<<__TARGETS_JSON__'
-            echo "$targets"
-            echo '__TARGETS_JSON__'
-          } >> "$GITHUB_OUTPUT"
 
       - name: Build binaries
         shell: bash
@@ -611,13 +117,14 @@ jobs:
           role-duration-seconds: 7200
 
       - name: Upload data
-        if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
+        if: matrix.remote_key != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
         env:
           AWS_REGION: "us-east-1"
+          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ matrix.remote_key }}/"
         run: |
-          aws s3 rm --recursive ${{ matrix.remote_storage }}
-          aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
+          aws s3 rm --recursive "$REMOTE_STORAGE"
+          aws s3 cp --recursive "${{ matrix.local_dir }}" "$REMOTE_STORAGE"
 
       - name: Setup Polar Signals
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
@@ -630,7 +137,7 @@ jobs:
           extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
 
       - name: Run ${{ matrix.name }} benchmark
-        if: matrix.remote_storage == null || github.event.pull_request.head.repo.fork == true
+        if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
         shell: bash
         env:
           OTEL_SERVICE_NAME: "vortex-bench"
@@ -640,7 +147,7 @@ jobs:
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
         run: |
           bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
-            --targets-json '${{ steps.targets.outputs.targets_json }}' \
+            --targets-json '${{ toJSON(matrix.targets) }}' \
             --output results.json \
             --gh-json-v3 results.v3.jsonl \
             --no-build \
@@ -649,7 +156,7 @@ jobs:
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       - name: Run ${{ matrix.name }} benchmark (remote)
-        if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
+        if: matrix.remote_key != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
         env:
           AWS_REGION: "us-east-1"
@@ -658,19 +165,20 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
+          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ matrix.remote_key }}/"
         run: |
           bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
-            --targets-json '${{ steps.targets.outputs.targets_json }}' \
+            --targets-json '${{ toJSON(matrix.targets) }}' \
             --output results.json \
             --gh-json-v3 results.v3.jsonl \
             --no-build \
             --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
-            --opt remote-data-dir=${{ matrix.remote_storage }} \
+            --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
       - name: Capture file sizes
-        if: matrix.remote_storage == null
+        if: matrix.remote_key == null
         shell: bash
         run: |
           uv run --no-project scripts/capture-file-sizes.py \
@@ -709,7 +217,7 @@ jobs:
           message: |
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
 
-            Benchmark `${{ matrix.name }}` (${{ inputs.benchmark_profile }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+            Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
           comment-tag: bench-pr-comment-${{ matrix.id }}
 
       - name: Upload Benchmark Results
