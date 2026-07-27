@@ -13,6 +13,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
@@ -22,12 +24,28 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::byte_view::execute_varbinview_to_arrow;
 use crate::executor::validity::to_arrow_null_buffer;
+
+/// Matches the encodings [`to_arrow_byte_array`] requires for export.
+///
+/// `Chunked` and `Constant` are matched to stop execution before it destroys them: they have
+/// specialized `append_to_builder` impls (chunk-wise append, scalar repeat) that the builder
+/// fallback exploits.
+struct ArrowByteExportable;
+
+impl Matcher for ArrowByteExportable {
+    type Match<'a> = &'a ArrayRef;
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (array.is::<VarBin>() || array.is::<Chunked>() || array.is::<Constant>()).then_some(array)
+    }
+}
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
 pub(super) fn to_arrow_byte_array<T: ByteArrayType>(
@@ -57,7 +75,9 @@ where
         return arrow_cast::cast(&binary_view, &T::DATA_TYPE).map_err(VortexError::from);
     }
 
-    // If the Vortex array is already in VarBin format, we can directly convert it.
+    let array = array.execute_until::<ArrowByteExportable>(ctx)?;
+
+    // If the Vortex array is in VarBin format, we can directly convert it.
     if let Some(array) = array.as_opt::<VarBin>() {
         return varbin_to_byte_array::<T>(array, ctx);
     }
@@ -106,14 +126,46 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::scalar_fn::EmptyOptions;
+    use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::ArrowSessionExt;
+
+    #[test]
+    fn mask_wrapped_varbin_exports() -> VortexResult<()> {
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let varbin = VarBinArray::from_vec(
+            vec!["hello", "world", "vortex"],
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let mask = BoolArray::from_iter([true, false, true]);
+        let masked =
+            MaskFn.try_new_array(3, EmptyOptions, [varbin.into_array(), mask.into_array()])?;
+
+        let field = Field::new("s", DataType::Utf8, true);
+        let arrow = session
+            .arrow()
+            .execute_arrow(masked, Some(&field), &mut ctx)?;
+
+        let strings = arrow.as_string::<i32>();
+        assert_eq!(strings.len(), 3);
+        assert!(!strings.is_null(0));
+        assert!(strings.is_null(1));
+        assert_eq!(strings.value(0), "hello");
+        assert_eq!(strings.value(2), "vortex");
+        Ok(())
+    }
 
     fn make_utf8_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["hello", "world", "this is a longer string for testing"])
