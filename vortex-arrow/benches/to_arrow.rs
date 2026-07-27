@@ -176,20 +176,18 @@ fn chunked_fsst(ctx: &mut vortex_array::ExecutionCtx) -> ArrayRef {
     let source = structured_strings(OFFSET_STRING_ROWS).into_array();
     let compressor = fsst_train_compressor(&source, ctx).unwrap();
     let chunk_size = OFFSET_STRING_ROWS / OFFSET_STRING_CHUNKS;
-    let chunks = (0..OFFSET_STRING_CHUNKS)
-        .map(|chunk_index| {
-            let start = chunk_index * chunk_size;
-            let end = if chunk_index + 1 == OFFSET_STRING_CHUNKS {
-                OFFSET_STRING_ROWS
-            } else {
-                start + chunk_size
-            };
-            let chunk = source.slice(start..end).unwrap();
-            fsst_compress(&chunk, &compressor, ctx)
-                .unwrap()
-                .into_array()
-        })
-        .collect();
+    let chunks = (0..OFFSET_STRING_CHUNKS).map(|chunk_index| {
+        let start = chunk_index * chunk_size;
+        let end = if chunk_index + 1 == OFFSET_STRING_CHUNKS {
+            OFFSET_STRING_ROWS
+        } else {
+            start + chunk_size
+        };
+        let chunk = source.slice(start..end).unwrap();
+        fsst_compress(&chunk, &compressor, ctx)
+            .unwrap()
+            .into_array()
+    });
     ChunkedArray::try_new(chunks, source.dtype().clone())
         .unwrap()
         .into_array()

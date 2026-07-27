@@ -162,7 +162,7 @@ impl LayoutStrategy for RepartitionStrategy {
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
                     let to_flush = ChunkedArray::try_new(
-                        chunks.data.drain(..).map(|(arr, _)| arr).collect(),
+                        chunks.data.drain(..).map(|(arr, _)| arr),
                         dtype_clone.clone(),
                     )?;
                     if !to_flush.is_empty() {

@@ -168,7 +168,7 @@ impl Array<Chunked> {
     ) -> VortexResult<ArrayParts<Chunked>> {
         let chunks = chunks.into_iter();
         let (lower, _) = chunks.size_hint();
-        let mut slots = ArraySlots::with_capacity(CHUNKS_OFFSET + lower);
+        let mut slots = ArraySlots::with_capacity(ChunkedSlots::CHUNKS_OFFSET + lower);
         slots.push(None);
         let mut chunk_offsets = Vec::with_capacity(lower + 1);
         chunk_offsets.push(0);
@@ -183,7 +183,8 @@ impl Array<Chunked> {
             slots.push(Some(chunk));
         }
 
-        slots[CHUNK_OFFSETS_SLOT] = Some(ChunkedData::make_chunk_offsets_array(&chunk_offsets));
+        slots[ChunkedSlots::CHUNK_OFFSETS] =
+            Some(ChunkedData::make_chunk_offsets_array(&chunk_offsets));
         Ok(ArrayParts::new(Chunked, dtype, len, ChunkedData::new(chunk_offsets)).with_slots(slots))
     }
 
@@ -270,7 +271,7 @@ impl Array<Chunked> {
     ///
     /// All chunks must have exactly the same [`DType`] as the provided `dtype`.
     pub unsafe fn new_unchecked(chunks: impl IntoIterator<Item = ArrayRef>, dtype: DType) -> Self {
-        let parts = Self::parts_from_chunks::<true>(chunks, dtype)
+        let parts = Self::parts_from_chunks::<false>(chunks, dtype)
             .vortex_expect("unchecked chunked construction cannot fail");
         unsafe { Array::from_parts_unchecked(parts) }
     }
