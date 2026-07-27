@@ -28,12 +28,14 @@ pub struct FixedSizeListSlots {
     ///
     /// The fixed-size list scalars are contiguous (regardless of nullability for easy lookups),
     /// each with equal size in memory.
+    #[slot(0)]
     pub elements: ArrayRef,
     /// The validity / null map of the array.
     ///
     /// Note that this null map refers to which fixed-size list scalars are null, **not** which
     /// sub-elements of fixed-size list scalars are null. The `elements` array will track
     /// individual value nullability.
+    #[slot(1)]
     pub validity: Option<ArrayRef>,
 }
 

@@ -3,10 +3,11 @@
 
 use std::any::Any;
 
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
-use vortex_session::registry::Registry;
+use vortex_session::registry::Id;
 
 use crate::LayoutEncoding;
 use crate::LayoutEncodingRef;
@@ -18,7 +19,8 @@ use crate::layouts::struct_::Struct;
 use crate::layouts::zoned::LegacyStats;
 use crate::layouts::zoned::Zoned;
 
-pub type LayoutRegistry = Registry<LayoutEncodingRef>;
+/// Registry of layout encodings.
+pub type LayoutRegistry = ArcSwapMap<Id, LayoutEncodingRef>;
 
 /// Session state for layout encodings.
 #[derive(Clone, Debug)]
@@ -28,14 +30,15 @@ pub struct LayoutSession {
 
 impl LayoutSession {
     /// Register a layout encoding in the session, replacing any existing encoding with the same ID.
-    pub fn register(&self, layout: LayoutEncodingRef) {
-        self.registry.register(layout.id(), layout);
+    pub fn register(&self, layout_ref: impl Into<LayoutEncodingRef>) {
+        let layout = layout_ref.into();
+        self.registry.insert(layout.id(), layout);
     }
 
     /// Register layout encodings in the session, replacing any existing encodings with the same IDs.
     pub fn register_many(&self, layouts: impl IntoIterator<Item = LayoutEncodingRef>) {
         for layout in layouts {
-            self.registry.register(layout.id(), layout);
+            self.registry.insert(layout.id(), layout);
         }
     }
 
@@ -47,18 +50,19 @@ impl LayoutSession {
 
 impl Default for LayoutSession {
     fn default() -> Self {
-        let layouts = LayoutRegistry::default();
+        let this = Self {
+            registry: LayoutRegistry::default(),
+        };
 
         // Register the built-in layout encodings.
-        layouts.register(Chunked.id(), &Chunked as &dyn LayoutEncoding);
-        layouts.register(Flat.id(), &Flat as &dyn LayoutEncoding);
-        layouts.register(Struct.id(), &Struct as &dyn LayoutEncoding);
-        layouts.register(Zoned.id(), &Zoned as &dyn LayoutEncoding);
-        layouts.register(LegacyStats.id(), &LegacyStats as &dyn LayoutEncoding);
-        layouts.register(Dict.id(), &Dict as &dyn LayoutEncoding);
-        layouts.register(List.id(), &List as &dyn LayoutEncoding);
-
-        Self { registry: layouts }
+        this.register(&Chunked as &dyn LayoutEncoding);
+        this.register(&Flat as &dyn LayoutEncoding);
+        this.register(&Struct as &dyn LayoutEncoding);
+        this.register(&Zoned as &dyn LayoutEncoding);
+        this.register(&LegacyStats as &dyn LayoutEncoding);
+        this.register(&Dict as &dyn LayoutEncoding);
+        this.register(&List as &dyn LayoutEncoding);
+        this
     }
 }
 

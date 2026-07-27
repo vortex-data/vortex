@@ -20,6 +20,7 @@ use crate::dtype::extension::ExtVTable;
 #[array_slots(Extension)]
 pub struct ExtensionSlots {
     /// The backing storage array for this extension array.
+    #[slot(0)]
     pub storage: ArrayRef,
 }
 

@@ -101,8 +101,8 @@ impl ScalarFnVTable for Literal {
         Ok(Some(lit(scalar.is_valid())))
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
-        false
+    fn is_strict(&self, _instance: &Self::Options) -> bool {
+        true
     }
 
     fn is_fallible(&self, _instance: &Self::Options) -> bool {

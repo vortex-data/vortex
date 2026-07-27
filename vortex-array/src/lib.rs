@@ -4,7 +4,7 @@
 //!
 //! At the heart of Vortex are [arrays](ArrayRef).
 //!
-//! Arrays are typed views of memory buffers that hold [scalars](crate::scalar::Scalar). These
+//! Arrays are typed views of memory buffers that hold [scalars](scalar::Scalar). These
 //! buffers can be held in a number of physical encodings to perform lightweight compression that
 //! exploits the particular data distribution of the array's values.
 //!
@@ -51,10 +51,10 @@
 //!
 //! # Nulls and Scalars
 //!
-//! [`Validity`](crate::validity::Validity) separates nullness from values. It can be a cheap
+//! [`Validity`](validity::Validity) separates nullness from values. It can be a cheap
 //! constant state (`NonNullable`, `AllValid`, `AllInvalid`) or a boolean array that may itself be
-//! encoded. [`Scalar`](crate::scalar::Scalar) is the single-value counterpart: it pairs a
-//! [`DType`] with an optional [`ScalarValue`](crate::scalar::ScalarValue).
+//! encoded. [`Scalar`](scalar::Scalar) is the single-value counterpart: it pairs a
+//! [`DType`] with an optional [`ScalarValue`](scalar::ScalarValue).
 //!
 //! # Extending Vortex
 //!
@@ -66,16 +66,16 @@
 //! - [`OperationsVTable`] provides scalar access.
 //! - [`ValidityVTable`] exposes validity only for nullable arrays.
 //!
-//! New logical extension dtypes implement [`ExtVTable`](crate::dtype::extension::ExtVTable) and
+//! New logical extension dtypes implement [`ExtVTable`](dtype::extension::ExtVTable) and
 //! store values in an ordinary Vortex storage dtype.
 //!
-//! [`PrimitiveArray`]: crate::arrays::PrimitiveArray
-//! [`DType`]: crate::dtype::DType
-//! [`ChunkedArray`]: crate::arrays::ChunkedArray
-//! [`ConstantArray`]: crate::arrays::ConstantArray
-//! [`FilterArray`]: crate::arrays::FilterArray
-//! [`SliceArray`]: crate::arrays::SliceArray
-//! [`ScalarFnArray`]: crate::arrays::ScalarFnArray
+//! [`PrimitiveArray`]: arrays::PrimitiveArray
+//! [`DType`]: dtype::DType
+//! [`ChunkedArray`]: arrays::ChunkedArray
+//! [`ConstantArray`]: arrays::ConstantArray
+//! [`FilterArray`]: arrays::FilterArray
+//! [`SliceArray`]: arrays::SliceArray
+//! [`ScalarFnArray`]: arrays::ScalarFnArray
 
 extern crate self as vortex_array;
 
@@ -92,7 +92,7 @@ pub use smallvec;
 pub use vortex_array_macros::array_slots;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
-use vortex_session::registry::Context;
+use vortex_session::registry::Interner;
 
 use crate::aggregate_fn::session::AggregateFnSession;
 use crate::dtype::session::DTypeSession;
@@ -105,7 +105,6 @@ use crate::stats::session::StatsSession;
 pub mod aggregate_fn;
 #[doc(hidden)]
 pub mod aliases;
-pub mod arc_swap_map;
 mod array;
 pub mod arrays;
 pub mod buffer;
@@ -149,7 +148,7 @@ pub mod flatbuffers {
 }
 
 /// Register vortex-array's built-in session-scoped kernels into the active
-/// [`ArrayKernels`](crate::optimizer::kernels::ArrayKernels) registry.
+/// [`ArrayKernels`](optimizer::kernels::ArrayKernels) registry.
 ///
 /// If the session contains a [`KernelSession`], this registers into its registry. Sessions that use
 /// [`KernelSession::default`] already receive these built-in kernels.
@@ -190,4 +189,4 @@ pub fn legacy_session() -> &'static VortexSession {
     &LEGACY_SESSION
 }
 
-pub type ArrayContext = Context;
+pub type ArrayContext = Interner;

@@ -39,13 +39,12 @@ use crate::validity::Validity;
 #[array_slots(Chunked)]
 pub struct ChunkedSlots {
     /// The non-nullable `u64` array of cumulative chunk offsets.
+    #[slot(0)]
     pub chunk_offsets: ArrayRef,
     /// The chunk arrays, each sharing the outer dtype.
+    #[slot(1..)]
     pub chunks: Vec<ArrayRef>,
 }
-
-pub(super) const CHUNK_OFFSETS_SLOT: usize = ChunkedSlots::CHUNK_OFFSETS;
-pub(super) const CHUNKS_OFFSET: usize = ChunkedSlots::CHUNKS_OFFSET;
 
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
@@ -62,24 +61,27 @@ impl Display for ChunkedData {
 
 pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
     fn chunk_offsets_array(&self) -> &ArrayRef {
-        self.as_ref().slots()[CHUNK_OFFSETS_SLOT]
+        self.as_ref().slots()[ChunkedSlots::CHUNK_OFFSETS]
             .as_ref()
             .vortex_expect("validated chunk offsets slot")
     }
 
     fn nchunks(&self) -> usize {
-        self.as_ref().slots().len().saturating_sub(CHUNKS_OFFSET)
+        self.as_ref()
+            .slots()
+            .len()
+            .saturating_sub(ChunkedSlots::CHUNKS_OFFSET)
     }
 
     fn chunk(&self, idx: usize) -> &ArrayRef {
-        self.as_ref().slots()[CHUNKS_OFFSET + idx]
+        self.as_ref().slots()[ChunkedSlots::CHUNKS_OFFSET + idx]
             .as_ref()
             .vortex_expect("validated chunk slot")
     }
 
     fn iter_chunks<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ArrayRef> + 'a> {
         Box::new(
-            self.as_ref().slots()[CHUNKS_OFFSET..]
+            self.as_ref().slots()[ChunkedSlots::CHUNKS_OFFSET..]
                 .iter()
                 .map(|slot| slot.as_ref().vortex_expect("validated chunk slot")),
         )
@@ -133,7 +135,7 @@ impl ChunkedData {
     pub(super) fn new(chunk_offsets: Vec<usize>) -> Self {
         Self {
             chunk_offsets,
-            next_builder_slot: CHUNKS_OFFSET,
+            next_builder_slot: ChunkedSlots::CHUNKS_OFFSET,
         }
     }
 

@@ -141,7 +141,7 @@ fn core_edition_ids_are_registered_array_encodings() {
     let registry = session.arrays().registry().clone();
     for inclusion in session.editions().encodings_in(&CORE_2026_07_0) {
         assert!(
-            registry.find(&inclusion.encoding_id).is_some(),
+            registry.contains_key(&inclusion.encoding_id),
             "{} is declared in core but not registered as an array encoding",
             inclusion.encoding_id
         );

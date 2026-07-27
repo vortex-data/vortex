@@ -68,7 +68,6 @@ on:
               "name": "TPC-H SF=1 on NVME",
               "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
               "pr_targets": [
-                {"engine": "datafusion", "format": "arrow"},
                 {"engine": "datafusion", "format": "parquet"},
                 {"engine": "datafusion", "format": "vortex"},
                 {"engine": "datafusion", "format": "vortex-compact"},
@@ -78,7 +77,6 @@ on:
                 {"engine": "duckdb", "format": "duckdb"}
               ],
               "develop_targets": [
-                {"engine": "datafusion", "format": "arrow"},
                 {"engine": "datafusion", "format": "parquet"},
                 {"engine": "datafusion", "format": "vortex"},
                 {"engine": "datafusion", "format": "vortex-compact"},
@@ -123,7 +121,6 @@ on:
               "name": "TPC-H SF=10 on NVME",
               "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
               "pr_targets": [
-                {"engine": "datafusion", "format": "arrow"},
                 {"engine": "datafusion", "format": "parquet"},
                 {"engine": "datafusion", "format": "vortex"},
                 {"engine": "datafusion", "format": "vortex-compact"},
@@ -133,7 +130,6 @@ on:
                 {"engine": "duckdb", "format": "duckdb"}
               ],
               "develop_targets": [
-                {"engine": "datafusion", "format": "arrow"},
                 {"engine": "datafusion", "format": "parquet"},
                 {"engine": "datafusion", "format": "vortex"},
                 {"engine": "datafusion", "format": "vortex-compact"},
@@ -369,14 +365,12 @@ on:
               "name": "TPC-H SF=1 on NVME",
               "data_formats": ["parquet", "vortex"],
               "pr_targets": [
-                {"engine": "datafusion", "format": "arrow"},
                 {"engine": "datafusion", "format": "parquet"},
                 {"engine": "datafusion", "format": "vortex"},
                 {"engine": "duckdb", "format": "parquet"},
                 {"engine": "duckdb", "format": "vortex"}
               ],
               "develop_targets": [
-                {"engine": "datafusion", "format": "arrow"},
                 {"engine": "datafusion", "format": "parquet"},
                 {"engine": "datafusion", "format": "vortex"},
                 {"engine": "datafusion", "format": "lance"},
@@ -414,14 +408,12 @@ on:
               "name": "TPC-H SF=10 on NVME",
               "data_formats": ["parquet", "vortex"],
               "pr_targets": [
-                {"engine": "datafusion", "format": "arrow"},
                 {"engine": "datafusion", "format": "parquet"},
                 {"engine": "datafusion", "format": "vortex"},
                 {"engine": "duckdb", "format": "parquet"},
                 {"engine": "duckdb", "format": "vortex"}
               ],
               "develop_targets": [
-                {"engine": "datafusion", "format": "arrow"},
                 {"engine": "datafusion", "format": "parquet"},
                 {"engine": "datafusion", "format": "vortex"},
                 {"engine": "datafusion", "format": "lance"},

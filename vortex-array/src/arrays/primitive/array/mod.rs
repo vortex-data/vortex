@@ -52,6 +52,7 @@ use crate::builtins::ArrayBuiltins;
 #[array_slots(Primitive)]
 pub struct PrimitiveSlots {
     /// The validity bitmap indicating which elements are non-null.
+    #[slot(0)]
     pub validity: Option<ArrayRef>,
 }
 

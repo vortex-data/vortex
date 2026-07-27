@@ -34,10 +34,12 @@ use crate::dtype::DType;
 #[array_slots(Variant)]
 pub struct VariantSlots {
     /// The logical variant storage that preserves the full value for every row.
+    #[slot(0)]
     pub core_storage: ArrayRef,
     /// The optional row-aligned typed shredded tree for selected variant paths.
     /// This slot is `Some` only if the array was canonicalized and the shredded data
     /// was pulled out of the underlying variant storage.
+    #[slot(1)]
     pub shredded: Option<ArrayRef>,
 }
 

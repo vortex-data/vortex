@@ -214,14 +214,14 @@ mod default_encoding_tests {
     fn register_default_encodings_registers_external_execute_parent_kernels() {
         let session = array_session();
 
-        assert!(session.arrays().registry().find(&FSST.id()).is_none());
+        assert!(!session.arrays().registry().contains_key(&FSST.id()));
         assert!(!session.kernels().has_execute_parent(Filter.id(), FSST.id()));
 
         register_default_encodings(&session);
 
-        assert!(session.arrays().registry().find(&FSST.id()).is_some());
+        assert!(session.arrays().registry().contains_key(&FSST.id()));
         assert!(session.kernels().has_execute_parent(Filter.id(), FSST.id()));
-        assert!(session.arrays().registry().find(&OnPair.id()).is_some());
+        assert!(session.arrays().registry().contains_key(&OnPair.id()));
         assert!(
             session
                 .kernels()

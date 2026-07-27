@@ -270,7 +270,7 @@ impl TryFrom<ViewedDType> for DType {
                         vortex_err!("failed to parse extension metadata from flatbuffer")
                     })?
                     .bytes();
-                let ext_dtype = if let Some(vtable) = vfdt.session.dtypes().registry().find(&id) {
+                let ext_dtype = if let Some(vtable) = vfdt.session.dtypes().registry().get(&id) {
                     vtable.deserialize(metadata, storage_dtype)?
                 } else if vfdt.session.allows_unknown() {
                     ForeignExtDType::from_parts(id, metadata.to_vec(), storage_dtype)?

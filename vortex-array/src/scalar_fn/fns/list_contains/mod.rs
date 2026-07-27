@@ -121,9 +121,9 @@ impl ScalarFnVTable for ListContains {
         compute_list_contains(&list_array, &value_array, ctx)
     }
 
-    // Nullability matters for contains([], x) where x is false.
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
-        true
+    // An empty list can produce false even when the needle is null.
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        false
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {

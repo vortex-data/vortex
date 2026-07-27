@@ -70,7 +70,7 @@ pub fn layout_from_flatbuffer_with_options(
     let encoding_id = layout_ctx
         .resolve(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
-    let encoding = layouts.find(&encoding_id);
+    let encoding = layouts.get(&encoding_id);
 
     if encoding.is_none() && allow_unknown {
         return foreign_layout_from_fb(fb_layout, dtype, layout_ctx);

@@ -141,8 +141,6 @@ impl Display for Target {
 pub enum Format {
     #[clap(name = "csv")]
     Csv,
-    #[clap(name = "arrow")]
-    Arrow,
     #[clap(name = "parquet")]
     Parquet,
     #[clap(name = "vortex")]
@@ -189,7 +187,6 @@ impl Format {
     pub fn name(&self) -> &'static str {
         match self {
             Format::Csv => "csv",
-            Format::Arrow => "arrow",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
@@ -202,7 +199,6 @@ impl Format {
     pub fn ext(&self) -> &'static str {
         match self {
             Format::Csv => "csv",
-            Format::Arrow => "arrow",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
@@ -218,7 +214,6 @@ impl Format {
 pub enum Engine {
     #[default]
     Vortex,
-    Arrow,
     #[clap(name = "datafusion")]
     #[serde(rename = "datafusion")]
     DataFusion,
@@ -233,7 +228,6 @@ impl Display for Engine {
             Engine::DataFusion => write!(f, "datafusion"),
             Engine::DuckDB => write!(f, "duckdb"),
             Engine::Vortex => write!(f, "vortex"),
-            Engine::Arrow => write!(f, "arrow"),
         }
     }
 }

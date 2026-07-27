@@ -18,6 +18,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // docs:begin:example
     const Session session;
     const DataType dtype = dtype::struct_({
         {"age", dtype::uint8()},
@@ -50,6 +51,7 @@ int main(int argc, char **argv) {
     Writer writer = Writer::open(session, argv[1], dtype);
     writer.push({array, array2});
     writer.finish();
+    // docs:end:example
 
     return 0;
 }

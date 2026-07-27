@@ -7,7 +7,7 @@ to the returned data.
 ## Scalar Functions
 
 Expressions are defined as abstract scalar functions. These vtables define the signature of the function, properties
-such as whether the function is null-sensitive, and the actual logic for executing the function over input arrays.
+such as whether the function is strict, and the actual logic for executing the function over input arrays.
 
 The built-in scalar functions can be found in the `vortex-array::expr` module, with additional use-case specific
 functions provided by integration and plugin crates.

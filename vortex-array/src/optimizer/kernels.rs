@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_error::VortexResult;
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
@@ -42,7 +43,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arc_swap_map::ArcSwapMap;
 use crate::array::VTable;
 use crate::arrays::Struct;
 use crate::arrays::struct_::compute::rules::struct_cast_reduce_parent;
@@ -172,14 +172,19 @@ impl Borrow<u64> for ExecuteParentFnId {
     }
 }
 
+/// Registry of [`ReduceParentFn`]s, keyed by hashed `(parent, child)` pair.
+type ReduceParentRegistry = ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentFn]>>;
+/// Registry of [`ExecuteParentKernelRef`]s, keyed by hashed `(parent, child)` pair.
+type ExecuteParentRegistry = ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>;
+
 /// Session-scoped registry of optimizer kernel functions.
 ///
 /// Each kernel kind has its own storage map, keyed by `(outer_id, child_id)`. Registering
 /// functions for an existing key appends them to that key's ordered list.
 #[derive(Clone, Debug)]
 pub struct ArrayKernels {
-    reduce_parent: ArcSwapMap<ReduceParentFnId, Arc<[ReduceParentFn]>>,
-    execute_parent: ArcSwapMap<ExecuteParentFnId, Arc<[ExecuteParentKernelRef]>>,
+    reduce_parent: ReduceParentRegistry,
+    execute_parent: ExecuteParentRegistry,
 }
 
 impl Default for ArrayKernels {
@@ -194,8 +199,8 @@ impl ArrayKernels {
     /// Create an empty [`ArrayKernels`] with no kernels registered.
     pub fn empty() -> Self {
         Self {
-            reduce_parent: ArcSwapMap::default(),
-            execute_parent: ArcSwapMap::default(),
+            reduce_parent: ReduceParentRegistry::default(),
+            execute_parent: ExecuteParentRegistry::default(),
         }
     }
 

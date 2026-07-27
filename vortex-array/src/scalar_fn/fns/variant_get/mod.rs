@@ -154,6 +154,10 @@ impl ScalarFnVTable for VariantGet {
         let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
         VariantArray::try_new(array, None).map(|array| array.into_array())
     }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        true
+    }
 }
 
 fn variant_get_scalar(

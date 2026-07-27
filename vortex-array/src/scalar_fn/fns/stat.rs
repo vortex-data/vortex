@@ -123,6 +123,10 @@ impl ScalarFnVTable for StatFn {
         let dtype = stat_dtype(options.aggregate_fn(), input.dtype())?;
         stat_array(&input, options.aggregate_fn(), dtype, args.row_count())
     }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
 
 fn stat_dtype(aggregate_fn: &AggregateFnRef, input_dtype: &DType) -> VortexResult<DType> {

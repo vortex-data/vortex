@@ -32,8 +32,7 @@ use crate::array::with_empty_buffers;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::chunked::ChunkedData;
-use crate::arrays::chunked::array::CHUNK_OFFSETS_SLOT;
-use crate::arrays::chunked::array::CHUNKS_OFFSET;
+use crate::arrays::chunked::array::ChunkedSlots;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
 use crate::buffer::BufferHandle;
@@ -88,7 +87,7 @@ impl VTable for Chunked {
             !slots.is_empty(),
             "ChunkedArray must have at least a chunk offsets slot"
         );
-        let chunk_offsets = slots[CHUNK_OFFSETS_SLOT]
+        let chunk_offsets = slots[ChunkedSlots::CHUNK_OFFSETS]
             .as_ref()
             .vortex_expect("validated chunk offsets slot");
         vortex_ensure!(
@@ -103,10 +102,10 @@ impl VTable for Chunked {
             data.chunk_offsets.len()
         );
         vortex_ensure!(
-            data.chunk_offsets.len() == slots.len() - CHUNKS_OFFSET + 1,
+            data.chunk_offsets.len() == slots.len() - ChunkedSlots::CHUNKS_OFFSET + 1,
             "ChunkedArray chunk offsets length {} does not match {} chunks",
             data.chunk_offsets.len(),
-            slots.len() - CHUNKS_OFFSET
+            slots.len() - ChunkedSlots::CHUNKS_OFFSET
         );
         vortex_ensure!(
             data.chunk_offsets
@@ -125,7 +124,7 @@ impl VTable for Chunked {
             .tuple_windows()
             .enumerate()
         {
-            let chunk = slots[CHUNKS_OFFSET + idx]
+            let chunk = slots[ChunkedSlots::CHUNKS_OFFSET + idx]
                 .as_ref()
                 .vortex_expect("validated chunk slot");
             vortex_ensure!(
@@ -193,7 +192,7 @@ impl VTable for Chunked {
 
         let nchunks = children.len() - 1;
         let chunk_offsets = children.get(
-            CHUNK_OFFSETS_SLOT,
+            ChunkedSlots::CHUNK_OFFSETS,
             &DType::Primitive(PType::U64, Nullability::NonNullable),
             nchunks + 1,
         )?;
@@ -219,7 +218,11 @@ impl VTable for Chunked {
             .enumerate()
         {
             let chunk_len = end - start;
-            slots.push(Some(children.get(idx + CHUNKS_OFFSET, dtype, chunk_len)?));
+            slots.push(Some(children.get(
+                idx + ChunkedSlots::CHUNKS_OFFSET,
+                dtype,
+                chunk_len,
+            )?));
         }
 
         Ok(ArrayParts::new(
@@ -244,8 +247,8 @@ impl VTable for Chunked {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
-            CHUNK_OFFSETS_SLOT => "chunk_offsets".to_string(),
-            n => format!("chunks[{}]", n - CHUNKS_OFFSET),
+            ChunkedSlots::CHUNK_OFFSETS => "chunk_offsets".to_string(),
+            n => format!("chunks[{}]", n - ChunkedSlots::CHUNKS_OFFSET),
         }
     }
 
@@ -265,7 +268,7 @@ impl VTable for Chunked {
             }
             // For all other types, use the builder path via AppendChild.
             _ => {
-                let slot_idx = array.next_builder_slot.max(CHUNKS_OFFSET);
+                let slot_idx = array.next_builder_slot.max(ChunkedSlots::CHUNKS_OFFSET);
                 if slot_idx < array.slots().len() {
                     Ok(ExecutionResult::append_child(
                         array.with_next_builder_slot(slot_idx + 1),

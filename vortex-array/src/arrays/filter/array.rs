@@ -17,6 +17,7 @@ use crate::arrays::Filter;
 #[array_slots(Filter)]
 pub struct FilterSlots {
     /// The source array being filtered.
+    #[slot(0)]
     pub child: ArrayRef,
 }
 

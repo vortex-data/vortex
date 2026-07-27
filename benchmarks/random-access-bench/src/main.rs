@@ -88,28 +88,25 @@ struct Args {
     open_mode: OpenMode,
 }
 
-impl Args {
-    fn into_run_config(self) -> RunConfig {
-        RunConfig {
-            datasets: self
-                .datasets
-                .into_iter()
-                .map(DatasetArg::into_dataset)
-                .collect(),
-            formats: self.formats,
-            patterns: self.patterns,
-            time_limit: self.time_limit,
-            open_mode: self.open_mode,
-            display_format: self.display_format,
-            output_path: self.output_path,
-            gh_json_v3: self.gh_json_v3,
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
     setup_logging_and_tracing(args.verbose, args.tracing)?;
-    random_access_bench::run(args.into_run_config()).await
+
+    let run_config = RunConfig {
+        datasets: args
+            .datasets
+            .into_iter()
+            .map(DatasetArg::into_dataset)
+            .collect(),
+        formats: args.formats,
+        patterns: args.patterns,
+        time_limit: args.time_limit,
+        open_mode: args.open_mode,
+        display_format: args.display_format,
+        output_path: args.output_path,
+        gh_json_v3: args.gh_json_v3,
+    };
+
+    random_access_bench::run(run_config).await
 }

@@ -169,7 +169,7 @@ async fn benchmark_random_access(
     let timing = TimingMeasurement {
         name: measurement_name.to_string(),
         storage: storage.to_string(),
-        target: Target::new(format_to_engine(format), format),
+        target: Target::new(Engine::default(), format),
         runs,
     };
     Ok(RandomAccessRun {
@@ -224,17 +224,6 @@ fn push_v3_random_access_record(records: &mut Vec<v3::V3Record>, run: &RandomAcc
 
     let dataset = v3_random_access_dataset_name(&run.dataset, run.pattern);
     records.push(v3::random_access_record(&run.timing, &dataset));
-}
-
-/// Map format to the appropriate engine for random access benchmarks.
-fn format_to_engine(format: Format) -> Engine {
-    match format {
-        Format::OnDiskVortex | Format::VortexCompact => Engine::Vortex,
-        Format::Parquet => Engine::Arrow,
-        #[cfg(feature = "lance")]
-        Format::Lance => Engine::Arrow, // Is this right here?
-        _ => Engine::default(),
-    }
 }
 
 /// Open a random accessor for any supported format.
@@ -440,7 +429,7 @@ mod tests {
         RandomAccessRun {
             timing: TimingMeasurement {
                 name: format!("random-access/{dataset}/parquet-tokio-local-disk"),
-                target: Target::new(Engine::Arrow, Format::Parquet),
+                target: Target::new(Engine::Vortex, Format::Parquet),
                 storage: STORAGE_NVME.to_string(),
                 runs: vec![Duration::from_nanos(10)],
             },

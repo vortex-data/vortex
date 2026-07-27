@@ -132,8 +132,9 @@ impl ScalarFnVTable for FillNull {
         Ok(Some(expression.child(1).validity()?))
     }
 
-    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
-        true
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        // This function replaces null input values instead of propagating them.
+        false
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {

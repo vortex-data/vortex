@@ -119,8 +119,7 @@ impl ScalarFnVTable for DynamicComparison {
         .into_array())
     }
 
-    // Defer to the child
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+    fn is_strict(&self, _options: &Self::Options) -> bool {
         false
     }
 }
@@ -286,6 +285,20 @@ mod tests {
     use crate::dtype::PType;
     use crate::expr::dynamic;
     use crate::expr::root;
+
+    #[test]
+    fn is_not_strict() {
+        let expr = dynamic(
+            CompareOperator::Lt,
+            || None,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+
+        assert!(!expr.signature().is_strict());
+    }
+
     #[test]
     fn return_dtype_bool() -> VortexResult<()> {
         let expr = dynamic(

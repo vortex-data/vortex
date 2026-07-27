@@ -269,7 +269,7 @@ vx-bench clean --older-than "30 days" --no-keep-labeled
 
 | Engine     | Supported Formats                          |
 |------------|-------------------------------------------|
-| datafusion | arrow, parquet, vortex, vortex-compact, lance |
+| datafusion | parquet, vortex, vortex-compact, lance        |
 | duckdb     | parquet, vortex, vortex-compact, duckdb   |
 | lance      | lance                                      |
 

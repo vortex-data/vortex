@@ -45,8 +45,10 @@ pub struct DictMetadata {
 #[array_slots(Dict)]
 pub struct DictSlots {
     /// The codes array mapping each element to a dictionary entry.
+    #[slot(0)]
     pub codes: ArrayRef,
     /// The dictionary values array containing the unique values.
+    #[slot(1)]
     pub values: ArrayRef,
 }
 

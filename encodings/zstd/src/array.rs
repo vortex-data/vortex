@@ -405,6 +405,7 @@ impl Zstd {
 #[array_slots(Zstd)]
 pub struct ZstdSlots {
     /// The validity bitmap indicating which elements are non-null.
+    #[slot(0)]
     pub validity: Option<ArrayRef>,
 }
 

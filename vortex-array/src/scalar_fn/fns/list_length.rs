@@ -108,8 +108,8 @@ impl ScalarFnVTable for ListLength {
         Ok(Some(expression.child(0).validity()?))
     }
 
-    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
-        false
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        true
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {

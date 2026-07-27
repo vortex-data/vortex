@@ -297,7 +297,7 @@ fn deserialize_metadata_tree(
     let plugin = session
         .arrays()
         .registry()
-        .find(&encoding_id)
+        .get(&encoding_id)
         .ok_or_else(|| vortex_err!("Unknown array encoding: {}", metadata.encoding_id))?;
     let decoded = plugin.deserialize(
         &dtype,

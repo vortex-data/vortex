@@ -42,10 +42,13 @@ use crate::validity::Validity;
 #[array_slots(List)]
 pub struct ListSlots {
     /// The elements data array containing all list elements concatenated together.
+    #[slot(0)]
     pub elements: ArrayRef,
     /// The offsets array defining the start/end of each list within the elements array.
+    #[slot(1)]
     pub offsets: ArrayRef,
     /// The validity bitmap indicating which list elements are non-null.
+    #[slot(2)]
     pub validity: Option<ArrayRef>,
 }
 

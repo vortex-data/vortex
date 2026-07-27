@@ -17,6 +17,7 @@ use crate::arrays::Slice;
 #[array_slots(Slice)]
 pub struct SliceSlots {
     /// The underlying child array being sliced.
+    #[slot(0)]
     pub child: ArrayRef,
 }
 

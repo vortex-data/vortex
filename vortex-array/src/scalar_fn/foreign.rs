@@ -118,4 +118,8 @@ impl ScalarFnVTable for ForeignScalarFnVTable {
     ) -> VortexResult<ArrayRef> {
         vortex_bail!("Cannot execute unknown scalar function '{}'", self.id);
     }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        false
+    }
 }
