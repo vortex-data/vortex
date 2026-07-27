@@ -3,13 +3,16 @@
 
 use std::hash::Hasher;
 
+use num_traits::AsPrimitive;
 use prost::Message;
 use smallvec::smallvec;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -34,17 +37,21 @@ use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinViewArray;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::arrays::dict::execute::take_canonical;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
+use crate::builders::DynVarBinBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
+use crate::match_each_integer_ptype;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -215,6 +222,18 @@ impl VTable for Dict {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        // The generic path below takes the values to full logical length, allocating an
+        // intermediate that is then copied into the builder again. Gather by code instead.
+        if matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_))
+            && !array.is_empty()
+            && let Some(codes) = array.codes().as_opt::<Primitive>()
+            && !codes.validity()?.definitely_all_null()
+            && builder.as_any().is::<DynVarBinBuilder>()
+        {
+            let codes = codes.into_owned();
+            return append_dict_bytes(array, &codes, builder, ctx);
+        }
+
         if !array.is_empty()
             && let (Some(codes), Some(values)) = (
                 array.codes().as_opt::<Primitive>(),
@@ -244,4 +263,72 @@ impl VTable for Dict {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+}
+
+/// Gathers UTF-8 or binary dictionary values into a [`DynVarBinBuilder`] by code.
+///
+/// `builder` must be a [`DynVarBinBuilder`]; the caller checks this before dispatching here.
+fn append_dict_bytes(
+    array: ArrayView<'_, Dict>,
+    codes: &PrimitiveArray,
+    builder: &mut dyn ArrayBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let len = array.len();
+    let values = array.values().clone().execute::<VarBinViewArray>(ctx)?;
+    let values_mask = values.validity()?.execute_mask(values.len(), ctx)?;
+    let codes_mask = codes.as_ref().validity()?.execute_mask(len, ctx)?;
+
+    let views = values.views();
+    let buffers: Vec<&[u8]> = (0..values.data_buffers().len())
+        .map(|idx| values.buffer(idx).as_slice())
+        .collect();
+
+    let view_bytes = |index: usize| -> &[u8] {
+        let view = &views[index];
+        if view.is_inlined() {
+            view.as_inlined().value()
+        } else {
+            let reference = view.as_view();
+            &buffers[reference.buffer_index as usize][reference.as_range()]
+        }
+    };
+
+    let builder = builder
+        .as_any_mut()
+        .downcast_mut::<DynVarBinBuilder>()
+        .vortex_expect("caller checked that the builder is a DynVarBinBuilder");
+
+    match_each_integer_ptype!(codes.ptype(), |P| {
+        let codes = codes.as_slice::<P>();
+        let append_code = |builder: &mut DynVarBinBuilder, row: usize| {
+            let code: usize = codes[row].as_();
+            if values_mask.value(code) {
+                builder.append_n_values(view_bytes(code), 1);
+            } else {
+                // The code may point at a null dictionary entry.
+                builder.append_nulls(1);
+            }
+        };
+
+        match codes_mask.bit_buffer() {
+            AllOr::All => {
+                for row in 0..len {
+                    append_code(&mut *builder, row);
+                }
+            }
+            AllOr::None => builder.append_nulls(len),
+            AllOr::Some(valid) => {
+                let mut row = 0;
+                valid.for_each_set_index(|index| {
+                    builder.append_nulls(index - row);
+                    append_code(&mut *builder, index);
+                    row = index + 1;
+                });
+                builder.append_nulls(len - row);
+            }
+        }
+    });
+
+    Ok(())
 }

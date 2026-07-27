@@ -280,6 +280,7 @@ mod test {
     use rand::distr::Distribution;
     use rand::distr::StandardUniform;
     use rand::prelude::StdRng;
+    use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -288,6 +289,7 @@ mod test {
     use vortex_mask::AllOr;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
@@ -300,6 +302,7 @@ mod test {
     use crate::builders::builder_with_capacity;
     use crate::dtype::DType;
     use crate::dtype::NativePType;
+    use crate::dtype::Nullability;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType;
     use crate::dtype::UnsignedPType;
@@ -452,6 +455,55 @@ mod test {
 
         dict.into_array()
             .append_to_builder(&mut builder, &mut ctx)?;
+
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    /// The gather path must agree with canonicalizing the dict and appending that.
+    #[rstest]
+    #[case::all_valid(vec![Some("aa"), Some("bb"), Some("cc")], vec![Some(2u8), Some(0), Some(1), Some(2)])]
+    #[case::null_codes(vec![Some("aa"), Some("bb")], vec![Some(1u8), None, Some(0), None])]
+    #[case::null_values(vec![Some("aa"), None], vec![Some(1u8), Some(0), Some(1)])]
+    #[case::null_codes_and_values(vec![Some("aa"), None], vec![Some(1u8), None, Some(0)])]
+    #[case::heap_values(
+        vec![
+            Some("a string comfortably longer than twelve bytes"),
+            Some("another string that also exceeds twelve bytes"),
+        ],
+        vec![Some(1u8), Some(0), Some(1), Some(0)],
+    )]
+    #[case::mixed_inlined_and_heap(
+        vec![Some("tiny"), Some("a string comfortably longer than twelve bytes"), None],
+        vec![Some(0u8), Some(1), Some(2), Some(1), Some(0)],
+    )]
+    #[case::leading_and_trailing_null_codes(
+        vec![Some("aa"), Some("bb")],
+        vec![None, Some(0u8), Some(1), None],
+    )]
+    #[case::single_value(vec![Some("only")], vec![Some(0u8), Some(0), Some(0)])]
+    fn dict_byte_gather_matches_canonical(
+        #[case] values: Vec<Option<&str>>,
+        #[case] codes: Vec<Option<u8>>,
+        #[values(false, true)] large_offsets: bool,
+        #[values(false, true)] sliced: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let values = VarBinViewArray::from_iter(values, DType::Utf8(Nullability::Nullable));
+        let codes = PrimitiveArray::from_option_iter(codes);
+        let dict = DictArray::try_new(codes.into_array(), values.into_array())?.into_array();
+
+        let dict = if sliced && dict.len() > 1 {
+            dict.slice(1..dict.len())?
+        } else {
+            dict
+        };
+
+        let expected = dict.clone().execute::<Canonical>(&mut ctx)?.into_array();
+
+        let mut builder =
+            DynVarBinBuilder::with_capacity(dict.dtype().clone(), large_offsets, dict.len());
+        dict.append_to_builder(&mut builder, &mut ctx)?;
 
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
         Ok(())

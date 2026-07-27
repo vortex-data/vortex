@@ -204,6 +204,10 @@ name = "validity_is_valid"
 harness = false
 
 [[bench]]
+name = "dict_append_varbin"
+harness = false
+
+[[bench]]
 name = "dict_unreferenced_mask"
 harness = false
 
