@@ -229,13 +229,10 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// Nullary functions are vacuously strict because they have no input values.
     ///
-    /// Conservatively defaults to `false` (non-strict).
+    /// Every implementation must declare its strictness explicitly.
     ///
     /// This method only checks the expression itself, not its children.
-    fn is_strict(&self, options: &Self::Options) -> bool {
-        _ = options;
-        false
-    }
+    fn is_strict(&self, options: &Self::Options) -> bool;
 
     /// Returns whether this expression is semantically fallible. Conservatively defaults to
     /// `true`.
