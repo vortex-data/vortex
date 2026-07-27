@@ -14,7 +14,6 @@ use arc_swap::ArcSwap;
 use arc_swap::Guard;
 use vortex_utils::aliases::hash_map::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
 
 /// A concurrent [`HashMap`] backed by an [`ArcSwap`], offering lock-free reads
 /// and copy-on-write writes.
@@ -122,15 +121,6 @@ impl<K: Eq + Hash, V, S: BuildHasher> ArcSwapMap<K, V, S> {
         self.inner.load().contains_key(key)
     }
 
-    /// Return a clone of the keys in the current snapshot.
-    pub fn keys(&self) -> HashSet<K>
-    where
-        K: Clone,
-    {
-        self.read(|map| map.keys().cloned().collect())
-    }
-
-    /// Insert `value` under `key`, replacing any existing value.
     pub fn insert(&self, key: K, value: V)
     where
         K: Clone,

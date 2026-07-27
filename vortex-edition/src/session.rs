@@ -8,11 +8,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
-use vortex_session::registry::Registry;
+use vortex_session::{ArcSwapMap, SessionExt};
 
 use crate::Edition;
 use crate::EditionDeclaration;
@@ -48,23 +47,23 @@ struct Inner {
 /// registration describes what a session knows how to reason about, while enabling is the
 /// explicit writer policy.
 ///
-/// Backed by the shared session [`Registry`] keyed by edition family, so clones observe the
+/// Backed by the shared session [`ArcSwapMap`] keyed by edition family, so clones observe the
 /// same selection and enabling an edition replaces the family's previous entry.
 #[derive(Clone, Debug, Default)]
 pub struct EnabledEditions {
-    inner: Registry<EditionId>,
+    inner: ArcSwapMap<Id, EditionId>,
 }
 
 impl EnabledEditions {
     /// Return the enabled editions.
     pub fn editions(&self) -> Vec<EditionId> {
-        self.inner.items().collect()
+        self.inner.read(|map| map.values().copied().collect())
     }
 
     fn enable(&self, edition: EditionId) {
         // The family is a `&'static str`; `Into<Id>` interns it once at enable time (a rare
         // config-time write, never on the read path).
-        self.inner.register(edition.family, edition);
+        self.inner.insert(Id::from(edition.family), edition);
     }
 }
 
