@@ -13,7 +13,6 @@ use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::match_each_signed_integer_ptype;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
@@ -26,6 +25,7 @@ use vortex::error::vortex_err;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
+use crate::device_buffer::with_cuda_view_mut;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
@@ -60,20 +60,18 @@ impl CudaExecute for ZigZagExecutor {
         );
 
         match_each_unsigned_integer_ptype!(encoded_ptype, |U| {
-            match_each_signed_integer_ptype!(output_ptype, |S| {
-                decode_zigzag::<U, S>(array, ctx).await
-            })
+            decode_zigzag::<U>(array, output_ptype, ctx).await
         })
     }
 }
 
-async fn decode_zigzag<U, S>(
+async fn decode_zigzag<U>(
     array: ZigZagArray,
+    output_ptype: PType,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
 where
     U: NativePType + DeviceRepr + Send + Sync + 'static,
-    S: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
     vortex_ensure!(array_len > 0, "ZigZag array must not be empty");
@@ -89,7 +87,7 @@ where
     let array_len_u64 = array_len as u64;
 
     let cuda_function = ctx.load_function("zigzag", &[U::PTYPE])?;
-    let (next, launch) = device_buffer.with_cuda_view_mut::<U, _>(|view| {
+    let (next, launch) = with_cuda_view_mut::<U, _>(device_buffer, |view| {
         ctx.launch_kernel(&cuda_function, array_len, |args| {
             args.arg(view).arg(&array_len_u64);
         })
@@ -99,7 +97,7 @@ where
         launch?;
         return Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
             device_buffer,
-            S::PTYPE,
+            output_ptype,
             validity,
         )));
     }
@@ -118,7 +116,7 @@ where
     let output = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output,
-        S::PTYPE,
+        output_ptype,
         validity,
     )))
 }

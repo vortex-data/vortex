@@ -207,6 +207,29 @@ pub(crate) fn cuda_backing_allocation(handle: &BufferHandle) -> VortexResult<Buf
     })))
 }
 
+pub(crate) fn with_cuda_view_mut<T: DeviceRepr + Send + Sync + 'static, R>(
+    handle: BufferHandle,
+    function: impl FnOnce(&mut CudaViewMut<'_, T>) -> R,
+) -> VortexResult<(BufferHandle, Option<R>)> {
+    if !handle.is_on_device() {
+        return Err(vortex_err!("Buffer is not on device"));
+    }
+
+    let device_buffer = handle.unwrap_device();
+    if !device_buffer.as_any().is::<CudaDeviceBuffer>() {
+        return Err(vortex_err!(
+            "expected CudaDeviceBuffer, was {device_buffer:?}"
+        ));
+    }
+
+    let device_buffer: Arc<dyn Any + Send + Sync> = device_buffer;
+    let mut cuda_buf = Arc::downcast::<CudaDeviceBuffer>(device_buffer)
+        .map_err(|_| vortex_err!("CudaDeviceBuffer downcast failed after type check"))?;
+    let result = Arc::get_mut(&mut cuda_buf).and_then(|buffer| buffer.with_view_mut(function));
+
+    Ok((BufferHandle::new_device(cuda_buf), result))
+}
+
 /// Extension trait for getting CUDA views from a [`BufferHandle`].
 pub trait CudaBufferExt {
     /// Returns a readonly [`CudaView`] for the buffer handle.
@@ -215,22 +238,6 @@ pub trait CudaBufferExt {
     ///
     /// Returns an error if the buffer is not a CUDA buffer.
     fn cuda_view<T: DeviceRepr + Send + Sync + 'static>(&self) -> VortexResult<CudaView<'_, T>>;
-
-    /// Consumes and returns this handle, calling `function` with a mutable CUDA view when the
-    /// handle and backing allocation are unique.
-    ///
-    /// The returned option is `None` when another handle references the same device buffer or
-    /// allocation.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the buffer is not a CUDA buffer.
-    fn with_cuda_view_mut<T: DeviceRepr + Send + Sync + 'static, R>(
-        self,
-        function: impl FnOnce(&mut CudaViewMut<'_, T>) -> R,
-    ) -> VortexResult<(Self, Option<R>)>
-    where
-        Self: Sized;
 
     /// Returns the on-device pointer for the start of the buffer handle.
     ///
@@ -259,29 +266,6 @@ impl CudaBufferExt for BufferHandle {
             .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
 
         Ok(cuda_buf.as_view::<T>())
-    }
-
-    fn with_cuda_view_mut<T: DeviceRepr + Send + Sync + 'static, R>(
-        self,
-        function: impl FnOnce(&mut CudaViewMut<'_, T>) -> R,
-    ) -> VortexResult<(Self, Option<R>)> {
-        if !self.is_on_device() {
-            return Err(vortex_err!("Buffer is not on device"));
-        }
-
-        let device_buffer = self.unwrap_device();
-        if !device_buffer.as_any().is::<CudaDeviceBuffer>() {
-            return Err(vortex_err!(
-                "expected CudaDeviceBuffer, was {device_buffer:?}"
-            ));
-        }
-
-        let device_buffer: Arc<dyn Any + Send + Sync> = device_buffer;
-        let mut cuda_buf = Arc::downcast::<CudaDeviceBuffer>(device_buffer)
-            .map_err(|_| vortex_err!("CudaDeviceBuffer downcast failed after type check"))?;
-        let result = Arc::get_mut(&mut cuda_buf).and_then(|buffer| buffer.with_view_mut(function));
-
-        Ok((BufferHandle::new_device(cuda_buf), result))
     }
 
     fn cuda_device_ptr(&self) -> VortexResult<sys::CUdeviceptr> {
@@ -525,17 +509,17 @@ mod tests {
         let allocation = ctx.device_alloc::<u32>(4)?;
         let mut handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(allocation)));
 
-        let (next, result) = handle.with_cuda_view_mut::<u32, _>(|view| view.len())?;
+        let (next, result) = with_cuda_view_mut::<u32, _>(handle, |view| view.len())?;
         handle = next;
         assert_eq!(result, Some(4));
 
         let alias = handle.clone();
-        let (next, result) = handle.with_cuda_view_mut::<u32, _>(|view| view.len())?;
+        let (next, result) = with_cuda_view_mut::<u32, _>(handle, |view| view.len())?;
         handle = next;
         assert!(result.is_none());
         drop(alias);
 
-        let (_, result) = handle.with_cuda_view_mut::<u32, _>(|view| view.len())?;
+        let (_, result) = with_cuda_view_mut::<u32, _>(handle, |view| view.len())?;
         assert_eq!(result, Some(4));
         Ok(())
     }
@@ -557,7 +541,7 @@ mod tests {
         let kernel = launch_ctx.load_function("constant_numeric", &[PType::U32])?;
         let value = 42u32;
         let len = 4u64;
-        let (handle, launch) = handle.with_cuda_view_mut::<u32, _>(|view| {
+        let (handle, launch) = with_cuda_view_mut::<u32, _>(handle, |view| {
             launch_ctx.launch_kernel(&kernel, 4, |args| {
                 args.arg(view).arg(&value).arg(&len);
             })

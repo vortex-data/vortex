@@ -31,6 +31,7 @@ use vortex::error::vortex_err;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
+use crate::device_buffer::with_cuda_view_mut;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
@@ -110,7 +111,7 @@ where
     let array_len_u64 = array_len as u64;
 
     let cuda_function = ctx.load_function("for", &[P::PTYPE])?;
-    let (next, launch) = device_buffer.with_cuda_view_mut::<P, _>(|view| {
+    let (next, launch) = with_cuda_view_mut::<P, _>(device_buffer, |view| {
         ctx.launch_kernel(&cuda_function, array_len, |args| {
             args.arg(view).arg(&reference).arg(&array_len_u64);
         })
