@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![allow(non_camel_case_types)]
-#![deny(missing_docs)]
 
 use core::slice;
 use std::ffi::c_int;
@@ -27,6 +25,7 @@ use vortex::error::vortex_ensure;
 use vortex::expr::root;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
+use vortex::scan::DataSource;
 use vortex::scan::DataSourceScan;
 use vortex::scan::Partition;
 use vortex::scan::PartitionStream;
@@ -37,6 +36,7 @@ use vortex_arrow::ToArrowType;
 
 use crate::RUNTIME;
 use crate::array::vx_array;
+use crate::box_wrapper;
 use crate::data_source::vx_data_source;
 use crate::dtype::vx_dtype;
 use crate::error::try_or;
@@ -50,9 +50,9 @@ pub enum VxScan {
     Started(PartitionStream),
     Finished,
 }
-crate::box_wrapper!(
-    /// A scan is a single traversal of a data source with projections and
-    /// filters. A scan can be consumed only once.
+box_wrapper!(
+    /// A vx_scan is a single traversal of a vx_data_source with projections and
+    /// filters. A vx_scan can be consumed only once.
     VxScan,
     vx_scan);
 
@@ -61,9 +61,10 @@ pub enum VxPartitionScan {
     Started(SendableArrayStream),
     Finished,
 }
-crate::box_wrapper!(
-    /// A partition is an independent unit of work. Call vx_partition_next repeatedly to
-    /// retrieve arrays, then free the partition with vx_partition_free.
+box_wrapper!(
+    /// A vx_partition is an independent unit of work. Call vx_partition_next
+    /// repeatedly to retrieve arrays, then free the partition with
+    /// vx_partition_free.
     VxPartitionScan,
     vx_partition);
 
@@ -268,7 +269,7 @@ pub unsafe extern "C-unwind" fn vx_scan_dtype(
         let VxScan::Pending(scan) = scan else {
             vortex_bail!("dtype unavailable: scan already started");
         };
-        Ok(vx_dtype::new(Arc::new(scan.dtype().clone())))
+        Ok(vx_dtype::new(scan.dtype().clone()))
     })
 }
 
@@ -419,7 +420,7 @@ pub unsafe extern "C-unwind" fn vx_partition_next(
         let on_stream = |mut stream: SendableArrayStream| -> VortexResult<*const vx_array> {
             match RUNTIME.block_on(stream.next()) {
                 Some(array) => {
-                    let array = vx_array::new(Arc::new(array?));
+                    let array = vx_array::new(array?);
                     ptr::write(ptr, VxPartitionScan::Started(stream));
                     Ok(array)
                 }

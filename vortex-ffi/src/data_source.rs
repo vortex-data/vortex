@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![allow(non_camel_case_types)]
-#![deny(missing_docs)]
 
 use std::ffi::c_void;
 use std::ptr;
 use std::slice;
-use std::sync::Arc;
 
 use bytes::Bytes;
 use vortex::buffer::ByteBuffer;
@@ -20,9 +17,9 @@ use vortex::file::multi::MultiFileDataSource;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::scan::DataSource;
-use vortex::scan::DataSourceRef;
 
 use crate::RUNTIME;
+use crate::box_wrapper;
 use crate::dtype::vx_dtype;
 use crate::error::try_or;
 use crate::error::vx_error;
@@ -31,12 +28,16 @@ use crate::scan::vx_estimate_type;
 use crate::session::vx_session;
 use crate::string::vx_view;
 
-crate::arc_dyn_wrapper!(
-    /// A reference to one or more (possibly remote) paths.
+// MultiLayoutDataSource's fields are Arc'd inside
+box_wrapper!(
+    /// A reference to one or more possibly remote paths.
+    ///
     /// Creating vx_data_source opens the first matched path to read the schema.
-    /// All other I/O is deferred until a scan is requested. Multiple scans may
-    /// be requested from a single data source.
-    dyn DataSource,
+    /// All other I/O is deferred until a scan is requested. Multiple vx_scan's
+    /// may be requested from a single vx_data_source.
+    ///
+    /// Copying a vx_data_source via vx_data_source_clone is a cheap operation.
+    MultiLayoutDataSource,
     vx_data_source);
 
 /// Options for creating a data source.
@@ -44,9 +45,9 @@ crate::arc_dyn_wrapper!(
 pub struct vx_data_source_options {
     /// Required: paths to files, tables, or layout trees. Each entry may be a
     /// glob pattern like "*.vortex". Must point to an array of size
-    /// "paths_len". paths bytes are copied.
+    /// "paths_len". "paths" bytes are copied.
     pub paths: *const vx_view,
-    /// Number of entries in `paths`.
+    /// Number of entries in "paths".
     pub paths_len: usize,
 }
 
@@ -98,7 +99,7 @@ unsafe fn data_source_new(
         }
         data_source
     })?;
-    Ok(vx_data_source::new(Arc::new(data_source) as DataSourceRef))
+    Ok(vx_data_source::new(data_source))
 }
 
 /// Create a data source.
@@ -147,14 +148,22 @@ pub unsafe extern "C-unwind" fn vx_data_source_new_buffer(
             session,
         );
 
-        Ok(vx_data_source::new(Arc::new(ds) as DataSourceRef))
+        Ok(vx_data_source::new(ds))
     })
+}
+
+/// Increase reference count on vx_data_source
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_data_source_clone(
+    ptr: *const vx_data_source,
+) -> *const vx_data_source {
+    vx_data_source::new(vx_data_source::as_ref(ptr).clone())
 }
 
 /// Return data source's dtype
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_data_source_dtype(ds: *const vx_data_source) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(vx_data_source::as_ref(ds).dtype().clone()))
+    vx_dtype::new(vx_data_source::as_ref(ds).dtype().clone())
 }
 
 /// Write data source's row count estimate into "row_count".

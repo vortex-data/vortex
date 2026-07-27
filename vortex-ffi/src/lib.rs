@@ -2,17 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![deny(missing_docs)]
+#![expect(non_camel_case_types)]
+#![forbid(clippy::todo)]
+#![forbid(clippy::unimplemented)]
 
 //! Native interface to Vortex arrays, types, files and streams.
 
 mod array;
-mod array_iterator;
 mod data_source;
 mod dtype;
 mod error;
 mod expression;
 mod log;
-mod macros;
 mod ptype;
 mod scalar;
 mod scan;
@@ -63,6 +64,68 @@ static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRunt
 /// Creating the pool does not create threads. It starts empty so callers retain the default
 /// host-thread-owned execution model until they opt in with [`vx_runtime_set_worker_threads`].
 static POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| RUNTIME.new_pool());
+
+/// Define a native FFI type that uses a [`Box`] wrapper.
+#[macro_export]
+macro_rules! box_wrapper {
+    ($(#[$meta:meta])* $T:ty, $ffi_ident:ident) => {
+        paste::paste! {
+            $(#[$meta])*
+            pub struct $ffi_ident($T);
+
+            #[expect(dead_code)]
+            impl $ffi_ident {
+                /// Wrap an owned object into a raw pointer.
+                pub(crate) fn new_box(obj: Box<$T>) -> *mut $ffi_ident {
+                    Box::into_raw(obj).cast::<$ffi_ident>()
+                }
+
+                /// Wrap an owned object into a raw pointer.
+                pub(crate) fn new(obj: $T) -> *mut $ffi_ident {
+                    Box::into_raw(Box::new(obj)).cast::<$ffi_ident>()
+                }
+
+                /// Extract a borrowed reference from a const pointer.
+                pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a $T {
+                    use vortex::error::VortexExpect;
+                    // TODO(joe): propagate this error up instead of expecting
+                    &unsafe { ptr.as_ref() }
+                        .vortex_expect("null pointer")
+                        .0
+                }
+
+                /// Extract a borrowed mutable reference from a mut pointer.
+                pub(crate) fn as_mut<'a>(ptr: *mut $ffi_ident) -> &'a mut $T {
+                    use vortex::error::VortexExpect;
+                    // TODO(joe): propagate this error up instead of expecting
+                    &mut unsafe { ptr.as_mut() }
+                        .vortex_expect("null pointer")
+                        .0
+                }
+
+                /// Extract an owned reference.
+                pub(crate) fn into_box(ptr: *mut $ffi_ident) -> Box<$T>{
+                    if ptr.is_null() {
+                        vortex::error::vortex_panic!("null pointer");
+                    }
+                    unsafe { Box::from_raw(ptr.cast::<$T>()) }
+                }
+            }
+
+            #[doc = r" Free a " $ffi_ident]
+            // These allows only matter once the destructor is re-exported (e.g. `vx_error_free`):
+            // its `# Safety` lives at the C boundary, and its doc links a private wrapper type.
+            #[allow(clippy::missing_safety_doc)]
+            #[allow(rustdoc::private_intra_doc_links)]
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
+                if !ptr.is_null() {
+                    std::mem::drop(unsafe { Box::from_raw(ptr.cast::<$T>().cast_mut()) })
+                }
+            }
+        }
+    };
+}
 
 /// Set the number of background worker threads driving the shared FFI runtime.
 ///
@@ -117,7 +180,6 @@ pub(crate) unsafe fn to_field_names(
 #[cfg(test)]
 mod tests {
     use std::ptr;
-    use std::sync::Arc;
 
     use rand::RngExt;
     use tempfile::NamedTempFile;
@@ -209,10 +271,10 @@ mod tests {
         let dtype = struct_array.dtype();
 
         unsafe {
-            let vx_dtype_ptr = vx_dtype::new(Arc::new(dtype.clone()));
+            let vx_dtype_ptr = vx_dtype::new(dtype.clone());
             let mut error = ptr::null_mut();
             let sink = vx_array_sink_open_file(session, path, vx_dtype_ptr, &raw mut error);
-            let array = vx_array::new(Arc::new(struct_array.clone().into_array()));
+            let array = vx_array::new(struct_array.clone().into_array());
             vx_array_sink_push(sink, array, &raw mut error);
             vx_array_sink_close(sink, &raw mut error);
             vx_array_free(array);
