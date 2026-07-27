@@ -262,10 +262,16 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        let fields: Vec<_> = fields.into_iter().collect();
-        let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype().clone()).collect();
+        let fields = fields.into_iter();
+        let (lower, _) = fields.size_hint();
+        let mut field_dtypes = Vec::with_capacity(lower);
+        let mut slots = ArraySlots::with_capacity(StructSlots::FIELDS_OFFSET + lower);
+        slots.push(validity_to_child(&validity, length));
+        for field in fields {
+            field_dtypes.push(field.dtype().clone());
+            slots.push(Some(field));
+        }
         let dtype = StructFields::new(names, field_dtypes);
-        let slots = make_struct_slots(&fields, &validity, length);
         Array::try_from_parts(
             ArrayParts::new(
                 Struct,
@@ -288,9 +294,12 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> Self {
-        let fields: Vec<_> = fields.into_iter().collect();
         let outer_dtype = DType::Struct(dtype, validity.nullability());
-        let slots = make_struct_slots(&fields, &validity, length);
+        let fields = fields.into_iter();
+        let (lower, _) = fields.size_hint();
+        let mut slots = ArraySlots::with_capacity(StructSlots::FIELDS_OFFSET + lower);
+        slots.push(validity_to_child(&validity, length));
+        slots.extend(fields.map(Some));
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
@@ -305,9 +314,12 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        let fields: Vec<_> = fields.into_iter().collect();
         let outer_dtype = DType::Struct(dtype, validity.nullability());
-        let slots = make_struct_slots(&fields, &validity, length);
+        let fields = fields.into_iter();
+        let (lower, _) = fields.size_hint();
+        let mut slots = ArraySlots::with_capacity(StructSlots::FIELDS_OFFSET + lower);
+        slots.push(validity_to_child(&validity, length));
+        slots.extend(fields.map(Some));
         Array::try_from_parts(
             ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
         )
@@ -517,10 +529,7 @@ impl Array<Struct> {
             .enumerate()
             .map(|(i, dtype)| {
                 // SAFETY: We establish above that every array has the same type.
-                let chunks = field_arrays_per_chunk
-                    .iter()
-                    .map(|x| x[i].clone())
-                    .collect();
+                let chunks = field_arrays_per_chunk.iter().map(|x| x[i].clone());
                 unsafe { ChunkedArray::new_unchecked(chunks, dtype) }.into_array()
             })
             .collect::<Vec<_>>();

@@ -108,18 +108,17 @@ mod tests {
     }
 
     fn row_storage(values: impl IntoIterator<Item = i32>) -> VortexResult<ArrayRef> {
-        let chunks = values
-            .into_iter()
-            .map(|value| {
+        Ok(ChunkedArray::try_new(
+            values.into_iter().map(|value| {
                 ConstantArray::new(
                     Scalar::variant(Scalar::primitive(value, Nullability::NonNullable)),
                     1,
                 )
                 .into_array()
-            })
-            .collect();
-
-        Ok(ChunkedArray::try_new(chunks, DType::Variant(Nullability::NonNullable))?.into_array())
+            }),
+            DType::Variant(Nullability::NonNullable),
+        )?
+        .into_array())
     }
 
     fn variant_with_shredded(

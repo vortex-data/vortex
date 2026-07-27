@@ -273,7 +273,7 @@ mod test {
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
     #[case(ChunkedArray::try_new(
-        (0..10).map(|i| buffer![i as i64, i as i64 + 10, i as i64 + 20].into_array()).collect(),
+        (0..10).map(|i| buffer![i as i64, i as i64 + 10, i as i64 + 20].into_array()),
         DType::Primitive(PType::I64, Nullability::NonNullable),
     ).unwrap())]
     fn test_filter_chunked_conformance(#[case] chunked: ChunkedArray) {

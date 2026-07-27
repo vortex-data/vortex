@@ -143,7 +143,7 @@ impl VTable for Union {
         Ok(make_union_parts(
             type_ids,
             variants.clone(),
-            &sparse_children,
+            sparse_children,
         ))
     }
 

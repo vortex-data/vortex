@@ -137,17 +137,6 @@ impl ChunkedData {
         }
     }
 
-    pub(super) fn compute_chunk_offsets(chunks: &[ArrayRef]) -> Vec<usize> {
-        let mut chunk_offsets = Vec::with_capacity(chunks.len() + 1);
-        chunk_offsets.push(0);
-        let mut curr_offset = 0;
-        for chunk in chunks {
-            curr_offset += chunk.len();
-            chunk_offsets.push(curr_offset);
-        }
-        chunk_offsets
-    }
-
     pub(super) fn make_chunk_offsets_array(chunk_offsets: &[usize]) -> ArrayRef {
         let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(chunk_offsets.len());
         for &offset in chunk_offsets {
@@ -173,6 +162,31 @@ impl ChunkedData {
 }
 
 impl Array<Chunked> {
+    fn parts_from_chunks<const VALIDATE: bool>(
+        chunks: impl IntoIterator<Item = ArrayRef>,
+        dtype: DType,
+    ) -> VortexResult<ArrayParts<Chunked>> {
+        let chunks = chunks.into_iter();
+        let (lower, _) = chunks.size_hint();
+        let mut slots = ArraySlots::with_capacity(CHUNKS_OFFSET + lower);
+        slots.push(None);
+        let mut chunk_offsets = Vec::with_capacity(lower + 1);
+        chunk_offsets.push(0);
+        let mut len = 0usize;
+
+        for chunk in chunks {
+            if VALIDATE && chunk.dtype() != &dtype {
+                vortex_bail!(MismatchedTypes: &dtype, chunk.dtype());
+            }
+            len += chunk.len();
+            chunk_offsets.push(len);
+            slots.push(Some(chunk));
+        }
+
+        slots[CHUNK_OFFSETS_SLOT] = Some(ChunkedData::make_chunk_offsets_array(&chunk_offsets));
+        Ok(ArrayParts::new(Chunked, dtype, len, ChunkedData::new(chunk_offsets)).with_slots(slots))
+    }
+
     pub(super) fn with_next_builder_slot(mut self, next_builder_slot: usize) -> Self {
         if let Some(data) = self.data_mut() {
             data.next_builder_slot = next_builder_slot;
@@ -194,10 +208,8 @@ impl Array<Chunked> {
     }
 
     /// Constructs a new `ChunkedArray`.
-    pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
-        ChunkedData::validate(&chunks, &dtype)?;
-        // SAFETY just validated on previous line.
-        Ok(unsafe { Self::new_unchecked(chunks, dtype) })
+    pub fn try_new(chunks: impl IntoIterator<Item = ArrayRef>, dtype: DType) -> VortexResult<Self> {
+        Array::try_from_parts(Self::parts_from_chunks::<true>(chunks, dtype)?)
     }
 
     pub fn rechunk(
@@ -257,23 +269,10 @@ impl Array<Chunked> {
     /// # Safety
     ///
     /// All chunks must have exactly the same [`DType`] as the provided `dtype`.
-    pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
-        let len = chunks.iter().map(|chunk| chunk.len()).sum();
-        let chunk_offsets = ChunkedData::compute_chunk_offsets(&chunks);
-        // Move `chunks` into the slot storage rather than cloning each `ArrayRef`. The generated
-        // `into_slots` pushes the offsets array then `extend`s the tail, which reserves from the
-        // `Vec`'s exact size hint (a single allocation).
-        let slots = ChunkedSlots {
-            chunk_offsets: ChunkedData::make_chunk_offsets_array(&chunk_offsets),
-            chunks,
-        }
-        .into_slots();
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Chunked, dtype, len, ChunkedData::new(chunk_offsets))
-                    .with_slots(slots),
-            )
-        }
+    pub unsafe fn new_unchecked(chunks: impl IntoIterator<Item = ArrayRef>, dtype: DType) -> Self {
+        let parts = Self::parts_from_chunks::<true>(chunks, dtype)
+            .vortex_expect("unchecked chunked construction cannot fail");
+        unsafe { Array::from_parts_unchecked(parts) }
     }
 }
 

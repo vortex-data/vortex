@@ -687,7 +687,7 @@ impl Executable for CanonicalValidity {
                 let type_ids = type_ids.execute::<CanonicalValidity>(ctx)?.0.into_array();
 
                 Ok(CanonicalValidity(Canonical::Union(unsafe {
-                    UnionArray::new_unchecked(type_ids, variants, children)
+                    UnionArray::new_unchecked(type_ids, variants, children.iter().cloned())
                 })))
             }
             Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension(
@@ -882,7 +882,7 @@ impl Executable for RecursiveCanonical {
                             .execute::<RecursiveCanonical>(ctx)
                             .map(|canonical| canonical.0.into_array())
                     })
-                    .collect::<VortexResult<Arc<[_]>>>()?;
+                    .collect::<VortexResult<Vec<_>>>()?;
 
                 Ok(RecursiveCanonical(Canonical::Union(unsafe {
                     UnionArray::new_unchecked(type_ids, variants, children)
