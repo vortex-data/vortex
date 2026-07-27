@@ -19,14 +19,12 @@ use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
@@ -169,7 +167,7 @@ impl TakeExecute for Chunked {
             return array.chunk(0).take(indices.clone()).map(Some);
         }
 
-        if let Some(taken) = take_chunked_fsl(array, indices)? {
+        if let Some(taken) = take_chunked_fsl(array, indices, ctx)? {
             return Ok(Some(taken));
         }
 
@@ -183,42 +181,23 @@ impl TakeExecute for Chunked {
     }
 }
 
-/// Rewrites take over a chunked array of [`FixedSizeList`] chunks as take over a single
-/// [`FixedSizeListArray`] whose elements child chains the chunks' elements.
+/// Rewrites take over a chunked fixed-size list array as take over a single
+/// [`FixedSizeListArray`].
 ///
-/// Each FSL chunk stores exactly `chunk.len() * list_size` elements starting at its first list,
-/// so the chunks' elements children concatenate zero-copy into the elements of the combined
-/// array, exactly as chunked canonicalization does. The FSL take implementation then gathers the
-/// elements with a single `PiecewiseSequenceArray`, which [`take_piecewise_chunked`] resolves per
-/// chunk without expanding one index per element. Chunks that are not FSL-encoded fall back to
-/// the generic path since accessing their elements would require canonicalizing whole chunks.
+/// Chunked FSL canonicalization executes each logical FSL chunk into its canonical representation,
+/// then concatenates the chunks' elements children zero-copy. The FSL take implementation gathers
+/// those elements with a single `PiecewiseSequenceArray`, which [`take_piecewise_chunked`] resolves
+/// per chunk without expanding one index per element.
 fn take_chunked_fsl(
     array: ArrayView<'_, Chunked>,
     indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let DType::FixedSizeList(element_dtype, list_size, _) = array.dtype() else {
+    let DType::FixedSizeList(..) = array.dtype() else {
         return Ok(None);
     };
 
-    let mut element_chunks = Vec::with_capacity(array.nchunks());
-    for chunk in array.iter_chunks() {
-        let Some(fsl) = chunk.as_opt::<FixedSizeList>() else {
-            return Ok(None);
-        };
-        element_chunks.push(fsl.elements().clone());
-    }
-
-    let validity = array.array().validity()?;
-    // SAFETY: every chunk is a FixedSizeList with element dtype `element_dtype`.
-    let elements =
-        unsafe { ChunkedArray::new_unchecked(element_chunks, element_dtype.as_ref().clone()) }
-            .into_array();
-    // SAFETY: each FSL chunk holds exactly `chunk.len() * list_size` elements, so the chained
-    // elements hold `array.len() * list_size` entries, and the chunked validity covers
-    // `array.len()` lists with the array's nullability.
-    let fsl = unsafe {
-        FixedSizeListArray::new_unchecked(elements, *list_size, validity, array.as_ref().len())
-    };
+    let fsl = array.as_ref().clone().execute::<FixedSizeListArray>(ctx)?;
     fsl.into_array().take(indices.clone()).map(Some)
 }
 
@@ -395,6 +374,7 @@ mod test {
     use vortex_buffer::bitbuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
 
     use crate::ArrayRef;
     use crate::Canonical;
@@ -693,7 +673,7 @@ mod test {
     }
 
     #[test]
-    fn test_take_chunked_fsl_non_fsl_chunk_falls_back() -> VortexResult<()> {
+    fn test_take_chunked_fsl_executes_non_fsl_chunk() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let c0 = FixedSizeListArray::try_new(
             PrimitiveArray::from_iter(0i32..6).into_array(),
@@ -713,7 +693,9 @@ mod test {
         let arr = ChunkedArray::try_new(vec![c0.into_array(), nested.into_array()], dtype)?;
 
         let indices = buffer![4u64, 0, 3, 1].into_array();
-        let result = arr.take(indices.clone())?;
+        let Some(result) = super::take_chunked_fsl(arr.as_view(), &indices, &mut ctx)? else {
+            vortex_bail!("fixed-size list optimization did not execute");
+        };
         let expected = FixedSizeListArray::try_new(
             PrimitiveArray::from_iter(0i32..10).into_array(),
             2,
