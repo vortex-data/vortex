@@ -4658,13 +4658,13 @@ name = "lance-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow-cast 58.3.0",
+ "arrow-cast 58.4.0",
  "async-trait",
  "clap",
  "futures",
  "lance",
  "lance-encoding",
- "parquet 58.3.0",
+ "parquet 58.4.0",
  "tempfile",
  "tokio",
  "tracing",
