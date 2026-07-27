@@ -34,10 +34,12 @@ tokio = { workspace = true, features = [
     "sync",
 ] } # this is the maximum subset of fetaures that is safe for wasm32 targets
 tracing = { workspace = true }
+url = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-object-store-opendal = { workspace = true, optional = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
@@ -62,6 +64,23 @@ tokio = { workspace = true, features = ["full"] }
 
 [features]
 object_store = ["dep:object_store", "vortex-error/object_store"]
+# The URL -> ObjectStore registry, plus the cloud backends it resolves URLs to. Kept separate from
+# `object_store` so that plain file IO does not pull in the cloud HTTP stack.
+object_store_registry = [
+    "object_store",
+    "dep:url",
+    "object_store/aws",
+    "object_store/azure",
+    "object_store/gcp",
+    "object_store/http",
+]
+# OpenDAL-backed schemes (`cos://`, `oss://`) in the object store registry.
+opendal = [
+    "object_store_registry",
+    "dep:vortex-object-store-opendal",
+    "vortex-object-store-opendal/cos",
+    "vortex-object-store-opendal/oss",
+]
 tokio = ["tokio/fs", "tokio/rt-multi-thread"]
 
 [lints]

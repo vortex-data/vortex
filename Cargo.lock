@@ -2894,6 +2894,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dlv-list"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "442039f5147480ba31067cb00ada1adae6892028e40e45fc5de7b7df6dcc1b5f"
+dependencies = [
+ "const-random",
+]
+
+[[package]]
 name = "document-features"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6014,6 +6023,7 @@ checksum = "96c9c85ce253ff87225e7669979d877a20c98a06604ec9d6dd5f4473e08f1ae1"
 dependencies = [
  "opendal-core",
  "opendal-service-cos",
+ "opendal-service-oss",
 ]
 
 [[package]]
@@ -6058,6 +6068,23 @@ dependencies = [
  "reqsign-core",
  "reqsign-file-read-tokio",
  "reqsign-tencent-cos",
+ "serde",
+]
+
+[[package]]
+name = "opendal-service-oss"
+version = "0.57.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "328fa55e8888cbdfe00826bfea2a79042422b720e8369e9e021e46121dea5ace"
+dependencies = [
+ "bytes",
+ "http",
+ "log",
+ "opendal-core",
+ "quick-xml",
+ "reqsign-aliyun-oss",
+ "reqsign-core",
+ "reqsign-file-read-tokio",
  "serde",
 ]
 
@@ -6159,6 +6186,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7d950ca161dc355eaf28f82b11345ed76c6e1f6eb1f4f4479e0323b9e2fbd0e"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "ordered-multimap"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49203cdcae0030493bad186b28da2fa25645fa276a51b6fec8010d281e02ef79"
+dependencies = [
+ "dlv-list",
+ "hashbrown 0.14.5",
 ]
 
 [[package]]
@@ -7326,6 +7363,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "reqsign-aliyun-oss"
+version = "3.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f2a76ce7588780351c0f68eb8feaba8d23a99b40655195edbf50bfbce2af09b"
+dependencies = [
+ "anyhow",
+ "form_urlencoded",
+ "http",
+ "log",
+ "percent-encoding",
+ "reqsign-core",
+ "rust-ini",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "reqsign-core"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7567,6 +7621,16 @@ dependencies = [
  "quote",
  "rand 0.8.7",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "rust-ini"
+version = "0.21.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "796e8d2b6696392a43bea58116b667fb4c29727dc5abd27d6acf338bb4f688c7"
+dependencies = [
+ "cfg-if",
+ "ordered-multimap",
 ]
 
 [[package]]
@@ -9944,10 +10008,12 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "url",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
  "vortex-metrics",
+ "vortex-object-store-opendal",
  "vortex-session",
  "vortex-utils",
  "wasm-bindgen-futures",
@@ -10188,7 +10254,6 @@ dependencies = [
  "vortex-object-store-opendal",
  "vortex-python-abi",
  "vortex-tui",
- "vortex-utils",
 ]
 
 [[package]]

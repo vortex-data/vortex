@@ -2,11 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use itertools::Itertools;
-use object_store::ObjectStore;
-use object_store::aws::AmazonS3Builder;
-use object_store::local::LocalFileSystem;
+use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -16,6 +15,7 @@ use vortex::file::multi::parse_uri_or_path;
 use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileSystemRef;
 use vortex::io::object_store::ObjectStoreFileSystem;
+use vortex::io::object_store::Registry;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -25,18 +25,15 @@ use crate::SESSION;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::ExtractedValue;
 
+/// Process-wide registry, so repeated scans against the same bucket share one client.
+static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
+
 fn resolve_filesystem(base_url: &Url) -> VortexResult<FileSystemRef> {
-    let object_store: Arc<dyn ObjectStore> = match base_url.scheme() {
-        "file" => Arc::new(LocalFileSystem::new()),
-        "s3" => Arc::new(
-            AmazonS3Builder::from_env()
-                .with_bucket_name(base_url.host_str().ok_or_else(|| {
-                    vortex_err!("Failed to extract bucket name from URL: {base_url}")
-                })?)
-                .build()?,
-        ),
-        other => vortex_bail!("Unsupported URL scheme '{other}'"),
-    };
+    // `base_url` has its path cleared by the caller, so the resolved path is empty and only the
+    // store matters here. Going through the shared registry means DuckDB resolves the same set of
+    // schemes as the Python and Java bindings, including the OpenDAL-backed ones when the
+    // `opendal` feature is on.
+    let (object_store, _) = REGISTRY.resolve(base_url)?;
 
     Ok(Arc::new(ObjectStoreFileSystem::new(
         Arc::new(Compat::new(object_store)),

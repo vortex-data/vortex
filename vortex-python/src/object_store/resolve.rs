@@ -12,8 +12,7 @@ use url::Url;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::compat::Compat;
-
-use crate::object_store::registry::Registry;
+use vortex::io::object_store::Registry;
 
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::default);
 

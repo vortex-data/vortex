@@ -1,12 +1,28 @@
-=============
-OpenDAL (COS)
-=============
+==================
+OpenDAL (COS, OSS)
+==================
 
-Vortex can read from and write to Tencent Cloud COS through
+Vortex can read from and write to Tencent Cloud COS and Alibaba Cloud OSS through
 `OpenDAL <https://opendal.apache.org/>`_, which provides native service support.
 
-This store is available only when Vortex is built with the ``opendal`` feature
+These stores are available only when Vortex is built with the ``opendal`` feature
 (e.g. ``maturin develop --features opendal`` or ``cargo build -p vortex-jni --features opendal``).
+
+.. list-table::
+   :header-rows: 1
+
+   * - Scheme
+     - Service
+     - Endpoint variable
+     - Credential variables
+   * - ``cos://``
+     - Tencent Cloud COS
+     - ``COS_ENDPOINT``
+     - ``TENCENTCLOUD_SECRET_ID``, ``TENCENTCLOUD_SECRET_KEY``
+   * - ``oss://``
+     - Alibaba Cloud OSS
+     - ``OSS_ENDPOINT``
+     - ``ALIBABA_CLOUD_ACCESS_KEY_ID``, ``ALIBABA_CLOUD_ACCESS_KEY_SECRET``
 
 :class:`vortex.store.CosStore`
 ==============================
@@ -85,3 +101,16 @@ exactly like the built-in S3/Azure/GCS stores:
    # When `store=` is supplied, the path is resolved as a key within the store, so the scheme
    # and bucket are not part of the path passed to read_url.
    a = read_url("path/to/dataset.vortex", store=store)
+
+Reading from OSS
+================
+
+Alibaba Cloud OSS is reachable by URL. There is no standalone ``OssStore`` class yet, so
+configuration comes from the environment variables OpenDAL's OSS builder reads
+(``ALIBABA_CLOUD_ACCESS_KEY_ID``, ``ALIBABA_CLOUD_ACCESS_KEY_SECRET`` and ``OSS_ENDPOINT``):
+
+.. code-block:: python
+
+   import vortex as vx
+
+   a = vx.io.read_url("oss://my-bucket/path/to/dataset.vortex")

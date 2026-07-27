@@ -28,9 +28,9 @@ default = ["extension-module", "tui"]
 # duplicate PyInit__lib symbols.
 extension-module = []
 tui = ["dep:tokio", "dep:vortex-tui"]
-# OpenDAL-backed object stores (Tencent COS) for `cos://` URLs. Pulls in `opendal`, so it is
-# opt-in.
-opendal = ["dep:vortex-object-store-opendal", "dep:vortex-utils"]
+# OpenDAL-backed object stores (Tencent COS, Alibaba OSS) for `cos://` and `oss://` URLs. Pulls in
+# `opendal`, so it is opt-in.
+opendal = ["dep:vortex-object-store-opendal", "vortex/opendal"]
 
 [dependencies]
 arrow-array = { workspace = true }
@@ -54,12 +54,17 @@ pyo3-log = { workspace = true }
 pyo3-object_store = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 url = { workspace = true }
-vortex = { workspace = true, features = ["object_store"] }
+vortex = { workspace = true, features = [
+    "object_store",
+    "object_store_registry",
+] }
 vortex-arrow = { workspace = true }
-vortex-object-store-opendal = { path = "../vortex-object-store-opendal", optional = true }
+vortex-object-store-opendal = { workspace = true, optional = true, features = [
+    "cos",
+    "oss",
+] }
 vortex-python-abi = { path = "../vortex-python-abi" }
 vortex-tui = { workspace = true, optional = true }
-vortex-utils = { workspace = true, optional = true }
 
 [dev-dependencies]
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }

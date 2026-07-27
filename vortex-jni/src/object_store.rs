@@ -62,11 +62,12 @@ pub(crate) fn make_object_store(
         // guard dropped at close of scope
     }
 
-    // OpenDAL-backed stores (Tencent COS) use schemes that `object_store` does not recognize
-    // natively. Resolve them via the optional `opendal` feature, and cache the result so
-    // subsequent calls for the same URL share a single client.
+    // OpenDAL-backed stores (Tencent COS, Alibaba OSS) use schemes that `object_store` does not
+    // recognize natively. Resolve them via the optional `opendal` feature, and cache the result so
+    // subsequent calls for the same URL share a single client. Asking `supports_scheme` rather
+    // than matching scheme strings here keeps this call site correct as services are added.
     #[cfg(feature = "opendal")]
-    if url.scheme() == "cos" {
+    if vortex_object_store_opendal::supports_scheme(url.scheme()) {
         let store = vortex_object_store_opendal::make_opendal_store(url, properties)
             .map_err(|e| VortexError::from(object_store::Error::from(e)))?;
         return cache_and_return(store, url, properties, &start);

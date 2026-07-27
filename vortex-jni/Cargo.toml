@@ -34,15 +34,18 @@ url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files"] }
 vortex-arrow = { workspace = true }
 vortex-geo = { workspace = true }
-vortex-object-store-opendal = { path = "../vortex-object-store-opendal", optional = true }
+vortex-object-store-opendal = { workspace = true, optional = true, features = [
+    "cos",
+    "oss",
+] }
 vortex-parquet-variant = { workspace = true }
 
 [dev-dependencies]
 jni = { workspace = true, features = ["invocation"] }
 
 [features]
-# Enable OpenDAL-backed object stores (Tencent COS) for `cos://` URLs. This pulls in the
-# `opendal` dependency, so it is opt-in.
+# Enable OpenDAL-backed object stores (Tencent COS, Alibaba OSS) for `cos://` and `oss://` URLs.
+# This pulls in the `opendal` dependency, so it is opt-in.
 opendal = ["dep:vortex-object-store-opendal"]
 
 [lib]

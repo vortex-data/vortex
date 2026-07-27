@@ -2,36 +2,67 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! OpenDAL-backed [`object_store::ObjectStore`] implementations for cloud providers that are not
-//! natively supported by the `object_store` crate, such as Tencent Cloud COS.
+//! natively supported by the `object_store` crate: Tencent Cloud COS and Alibaba Cloud OSS.
 //!
 //! OpenDAL exposes each service as an `Operator`. We adapt an `Operator` into an
 //! `object_store::ObjectStore` via the `object_store_opendal::OpendalStore` bridge, which is built
 //! against the same `object_store 0.13.x` version the rest of Vortex uses. This lets Vortex consume
-//! COS through its existing `ObjectStoreFileSystem` abstraction without any changes to
-//! `vortex-io`.
+//! these services through its existing `ObjectStoreFileSystem` abstraction.
+//!
+//! Callers that dispatch on a URL scheme should ask [`supports_scheme`] rather than comparing
+//! against [`COS_SCHEME`] / [`OSS_SCHEME`] themselves, so that enabling another service does not
+//! require touching every call site.
+//!
+//! # Cargo features
+//!
+//! * `cos` (default) — Tencent Cloud COS, the `cos://` scheme.
+//! * `oss` (default) — Alibaba Cloud OSS, the `oss://` scheme.
+//!
+//! With both features disabled the crate still compiles: [`supports_scheme`] returns `false` for
+//! every scheme and [`make_opendal_store`] always reports
+//! [`OpenDALStoreError::UnsupportedScheme`].
 //!
 //! # Limitations
 //!
-//! The [`OpendalStore`] bridge owns its own HTTP request client. Configuration that the JNI/Python
+//! The `OpendalStore` bridge owns its own HTTP request client. Configuration that the JNI/Python
 //! layers normally pass through [`object_store::ClientOptions`] — connect/request timeouts,
-//! retries, proxy settings, `allow_http` — has no effect on COS URLs handled here. Properties
-//! that are not recognized by this crate are dropped without a warning; callers that need strict
+//! retries, proxy settings, `allow_http` — has no effect on URLs handled here. Properties that a
+//! service does not recognize are logged at `warn` and dropped; callers that need strict
 //! validation must pre-filter their property maps.
+
+#[cfg(feature = "cos")]
+mod cos;
+#[cfg(feature = "oss")]
+mod oss;
 
 use std::sync::Arc;
 
 use object_store::ObjectStore;
-use object_store_opendal::OpendalStore;
+#[cfg(any(feature = "cos", feature = "oss"))]
 use opendal::Operator;
-use opendal::services;
+#[cfg(any(feature = "cos", feature = "oss"))]
 use tracing::warn;
 use url::Url;
 use vortex_utils::aliases::hash_map::HashMap;
 
+#[cfg(feature = "cos")]
+pub use crate::cos::COS_SCHEME;
+#[cfg(feature = "cos")]
+pub use crate::cos::CosConfig;
+#[cfg(feature = "cos")]
+pub use crate::cos::make_cos_store;
+#[cfg(feature = "oss")]
+pub use crate::oss::OSS_SCHEME;
+#[cfg(feature = "oss")]
+pub use crate::oss::OssConfig;
+#[cfg(feature = "oss")]
+pub use crate::oss::make_oss_store;
+
 /// Error type for building an OpenDAL-backed object store.
 #[derive(Debug)]
 pub enum OpenDALStoreError {
-    /// The URL scheme is not one this crate handles (e.g. `s3`, `gs`, ...).
+    /// The URL scheme is not one this crate handles (e.g. `s3`, `gs`, ...), or its Cargo feature
+    /// is not enabled.
     UnsupportedScheme(String),
     /// A required configuration value (bucket and/or endpoint) was missing.
     MissingConfig(&'static str),
@@ -64,89 +95,72 @@ impl From<OpenDALStoreError> for object_store::Error {
     }
 }
 
-/// Schemes handled by this crate.
-pub const COS_SCHEME: &str = "cos";
+/// The URL schemes this crate can build stores for, given the enabled Cargo features.
+pub const SUPPORTED_SCHEMES: &[&str] = &[
+    #[cfg(feature = "cos")]
+    COS_SCHEME,
+    #[cfg(feature = "oss")]
+    OSS_SCHEME,
+];
 
-/// Strongly-typed configuration for building a [`OpendalStore`] against Tencent Cloud COS.
+/// Returns `true` if `scheme` is served by an OpenDAL-backed store in this build.
 ///
-/// The fields mirror the keyword arguments of the `CosStore` Python class. Building from a
-/// `CosConfig` avoids the URL-round-trip that the legacy `make_opendal_store(url, properties)`
-/// entry point used, and is the preferred way to construct a COS store.
-#[derive(Debug, Clone, Default)]
-pub struct CosConfig {
-    /// COS bucket name. May be overridden by `properties["bucket"]` when adapting a URL.
-    pub bucket: String,
-    /// COS endpoint, e.g. `https://cos.ap-guangzhou.myqcloud.com`.
-    pub endpoint: String,
-    /// Tencent Cloud secret id (mapped to `TENCENTCLOUD_SECRET_ID`).
-    pub secret_id: Option<String>,
-    /// Tencent Cloud secret key (mapped to `TENCENTCLOUD_SECRET_KEY`).
-    pub secret_key: Option<String>,
-    /// Optional root prefix applied to all operations.
-    pub root: Option<String>,
-    /// When `true`, disable OpenDAL's automatic config loading (so only the explicit
-    /// configuration is used).
-    pub disable_config_load: bool,
+/// This is the dispatch predicate every caller should use: it tracks the enabled Cargo features,
+/// so a consumer that adds a service feature picks it up without changing its own scheme matching.
+///
+/// ```
+/// # use vortex_object_store_opendal::supports_scheme;
+/// assert!(!supports_scheme("s3"));
+/// ```
+pub fn supports_scheme(scheme: &str) -> bool {
+    SUPPORTED_SCHEMES.contains(&scheme)
 }
 
-/// Build an [`object_store::ObjectStore`] for Tencent Cloud COS directly from a [`CosConfig`].
-///
-/// This is the preferred entry point for callers that have a strongly-typed configuration object
-/// (such as the `CosStore` pyclass in `vortex-python`). It does not synthesize a URL and so is not
-/// fragile against reordering of `bucket` vs URL host precedence.
-pub fn make_cos_store(config: CosConfig) -> Result<Arc<dyn ObjectStore>, OpenDALStoreError> {
-    if config.bucket.is_empty() {
-        return Err(OpenDALStoreError::MissingConfig("bucket"));
-    }
-    if config.endpoint.is_empty() {
-        return Err(OpenDALStoreError::MissingConfig("endpoint"));
-    }
-
-    let mut builder = services::Cos::default()
-        .bucket(&config.bucket)
-        .endpoint(&config.endpoint);
-
-    if let Some(root) = config.root.as_deref() {
-        builder = builder.root(root);
-    }
-    if let Some(secret_id) = config.secret_id.as_deref() {
-        builder = builder.secret_id(secret_id);
-    }
-    if let Some(secret_key) = config.secret_key.as_deref() {
-        builder = builder.secret_key(secret_key);
-    }
-    if config.disable_config_load {
-        builder = builder.disable_config_load();
-    }
-
-    let operator = build_operator(builder)?;
-    Ok(Arc::new(OpendalStore::new(operator)))
-}
-
-/// Build an [`object_store::ObjectStore`] for a `cos://` URL.
+/// Build an [`object_store::ObjectStore`] for an OpenDAL-backed URL (`cos://`, `oss://`).
 ///
 /// `properties` are per-request configuration overrides (matching the `HashMap<String, String>`
-/// passed through the JNI/Python layers). Missing values fall back to environment variables that
-/// OpenDAL's builders read automatically (e.g. `TENCENTCLOUD_SECRET_ID`).
+/// passed through the JNI/Python layers). Missing values fall back to the environment variables
+/// the corresponding service reads (e.g. `TENCENTCLOUD_SECRET_ID`, `ALIBABA_CLOUD_ACCESS_KEY_ID`).
 ///
-/// Returns [`OpenDALStoreError::UnsupportedScheme`] if `url` does not use `cos://`.
+/// Returns [`OpenDALStoreError::UnsupportedScheme`] if `url` uses a scheme this build does not
+/// serve; test it up-front with [`supports_scheme`].
 pub fn make_opendal_store(
     url: &Url,
     properties: &HashMap<String, String>,
 ) -> Result<Arc<dyn ObjectStore>, OpenDALStoreError> {
-    if url.scheme() != COS_SCHEME {
-        return Err(OpenDALStoreError::UnsupportedScheme(
-            url.scheme().to_string(),
-        ));
-    }
+    make_opendal_store_with_env(url, properties, env_var_lookup)
+}
 
-    // Translate the (URL, properties) pair into a strongly-typed `CosConfig` and delegate to
-    // `make_cos_store`. Bucket is taken from `properties["bucket"]` first (matching the historical
-    // precedence) and falls back to the URL host; endpoint is taken from `properties["endpoint"]`
-    // first and falls back to `COS_ENDPOINT`; credentials fall back to the variables that
-    // OpenDAL's COS builder reads.
-    let config = url_and_properties_to_cos_config(url, properties, env_var_lookup)?;
-    make_cos_store(config)
+/// Build an OpenDAL-backed store, resolving environment fallbacks through `env_lookup` instead of
+/// the process environment.
+///
+/// Callers that already own a configuration source — such as a registry that resolves variables
+/// case-insensitively — should use this so that store construction does not silently depend on
+/// global state. [`make_opendal_store`] is the same call against the real environment.
+pub fn make_opendal_store_with_env<F>(
+    url: &Url,
+    properties: &HashMap<String, String>,
+    env_lookup: F,
+) -> Result<Arc<dyn ObjectStore>, OpenDALStoreError>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    match url.scheme() {
+        #[cfg(feature = "cos")]
+        COS_SCHEME => make_cos_store(cos::url_and_properties_to_config(
+            url, properties, env_lookup,
+        )?),
+        #[cfg(feature = "oss")]
+        OSS_SCHEME => make_oss_store(oss::url_and_properties_to_config(
+            url, properties, env_lookup,
+        )?),
+        other => {
+            // Consumes the arguments so they count as used even in a build with no service
+            // features enabled, where every scheme lands here.
+            drop((properties, env_lookup));
+            Err(OpenDALStoreError::UnsupportedScheme(other.to_string()))
+        }
+    }
 }
 
 /// Default environment-variable lookup: reads `key` from the process environment.
@@ -159,67 +173,33 @@ fn env_var_lookup(key: &str) -> Option<String> {
     std::env::var(key).ok()
 }
 
-/// Translate the (URL, properties) pair into a strongly-typed [`CosConfig`].
-///
-/// `env_lookup` is the source of truth for environment-variable fallbacks. The production
-/// entry points pass [`env_var_lookup`]; tests pass a closure that returns from a fixed map, so
-/// they do not race against the process environment.
-fn url_and_properties_to_cos_config<F>(
-    url: &Url,
+/// Take `key` from `properties`, falling back to `env_lookup(env_var)`.
+#[cfg(any(feature = "cos", feature = "oss"))]
+pub(crate) fn property_or_env<F>(
     properties: &HashMap<String, String>,
-    env_lookup: F,
-) -> Result<CosConfig, OpenDALStoreError>
+    key: &str,
+    env_var: &str,
+    env_lookup: &F,
+) -> Option<String>
 where
     F: Fn(&str) -> Option<String>,
 {
-    warn_on_unknown_properties(properties);
-
-    let bucket = properties
-        .get("bucket")
-        .cloned()
-        .or_else(|| url.host_str().map(str::to_string))
-        .ok_or(OpenDALStoreError::MissingConfig("bucket"))?;
-
-    let endpoint = properties
-        .get("endpoint")
-        .cloned()
-        .or_else(|| env_lookup("COS_ENDPOINT"))
-        .ok_or(OpenDALStoreError::MissingConfig("endpoint"))?;
-
-    Ok(CosConfig {
-        bucket,
-        endpoint,
-        secret_id: properties
-            .get("secret_id")
-            .cloned()
-            .or_else(|| env_lookup("TENCENTCLOUD_SECRET_ID")),
-        secret_key: properties
-            .get("secret_key")
-            .cloned()
-            .or_else(|| env_lookup("TENCENTCLOUD_SECRET_KEY")),
-        root: properties.get("root").cloned(),
-        disable_config_load: properties.get("disable_config_load").map(String::as_str)
-            == Some("true"),
-    })
+    properties.get(key).cloned().or_else(|| env_lookup(env_var))
 }
 
-fn warn_on_unknown_properties(properties: &HashMap<String, String>) {
-    const KNOWN: &[&str] = &[
-        "bucket",
-        "endpoint",
-        "secret_id",
-        "secret_key",
-        "root",
-        "disable_config_load",
-    ];
+/// Log a warning for every property key the service does not recognize.
+#[cfg(any(feature = "cos", feature = "oss"))]
+pub(crate) fn warn_on_unknown_properties(properties: &HashMap<String, String>, known: &[&str]) {
     for key in properties.keys() {
-        if !KNOWN.contains(&key.as_str()) {
+        if !known.contains(&key.as_str()) {
             warn!("ignoring unknown OpenDAL store property: {key}");
         }
     }
 }
 
-fn build_operator<B>(builder: B) -> Result<Operator, OpenDALStoreError>
+/// Finish an OpenDAL builder into an [`Operator`], mapping builder errors into our error type.
+#[cfg(any(feature = "cos", feature = "oss"))]
+pub(crate) fn build_operator<B>(builder: B) -> Result<Operator, OpenDALStoreError>
 where
     B: opendal::Builder,
 {
@@ -243,74 +223,29 @@ mod tests {
         ));
     }
 
-    /// The endpoint is required. With a fixed env-lookup that returns `None`, the call must
-    /// fail with `MissingConfig("endpoint")` regardless of what the process environment
-    /// happens to contain. This makes the test deterministic under `cargo test`'s default
-    /// multi-threaded runner (and avoids the `unsafe std::env::set_var` that became unsound in
-    /// Rust 2024).
     #[test]
-    fn cos_requires_endpoint() {
-        let url = Url::parse("cos://my-bucket/path").unwrap();
-        let props = HashMap::new();
-        let result = url_and_properties_to_cos_config(&url, &props, |_| None).unwrap_err();
-        assert!(matches!(
-            result,
-            OpenDALStoreError::MissingConfig("endpoint")
-        ));
+    fn supports_scheme_tracks_enabled_features() {
+        assert!(!supports_scheme("s3"));
+        assert_eq!(supports_scheme("cos"), cfg!(feature = "cos"));
+        assert_eq!(supports_scheme("oss"), cfg!(feature = "oss"));
     }
 
-    /// When `properties` does not contain `endpoint`, the env-lookup should be consulted.
-    /// The fixed lookup returns `"https://example.com"`, so the build must succeed.
+    /// Every scheme advertised by [`SUPPORTED_SCHEMES`] must actually reach a builder rather than
+    /// falling through to the `UnsupportedScheme` arm of [`make_opendal_store`]. Without a
+    /// configured endpoint the build fails, but it must fail with `MissingConfig`, not
+    /// `UnsupportedScheme` — that difference is what pins the dispatch table to the feature set.
     #[test]
-    fn cos_falls_back_to_cos_endpoint_env() {
-        let url = Url::parse("cos://my-bucket/path").unwrap();
-        let env = |key: &str| match key {
-            "COS_ENDPOINT" => Some("https://example.com".to_string()),
-            _ => None,
-        };
-        let props = HashMap::new();
-        let config = url_and_properties_to_cos_config(&url, &props, env).expect("config");
-        assert_eq!(config.endpoint, "https://example.com");
-    }
-
-    /// With a fixed env-lookup that returns explicit credentials, the strongly-typed
-    /// `make_cos_store` should build a store successfully.
-    #[test]
-    fn cos_builds_with_explicit_config() {
-        let url = Url::parse("cos://my-bucket/path/to/dataset.vortex").unwrap();
-        let env = |key: &str| match key {
-            "COS_ENDPOINT" => Some("https://example.com".to_string()),
-            "TENCENTCLOUD_SECRET_ID" => Some("AKID".to_string()),
-            "TENCENTCLOUD_SECRET_KEY" => Some("secret".to_string()),
-            _ => None,
-        };
-        let mut props = HashMap::new();
-        props.insert("disable_config_load".to_string(), "true".to_string());
-
-        let config = url_and_properties_to_cos_config(&url, &props, env).expect("config");
-        let store = make_cos_store(config).expect("store should build");
-        // Sanity: the returned store is a non-null `Arc<dyn ObjectStore>`.
-        assert!(Arc::strong_count(&store) >= 1);
-    }
-
-    /// The strongly-typed `make_cos_store` entry point must reject an empty bucket or endpoint
-    /// with a `MissingConfig` error before consulting any environment or builder.
-    #[test]
-    fn cos_config_rejects_empty_fields() {
-        assert!(matches!(
-            make_cos_store(CosConfig {
-                bucket: String::new(),
-                ..CosConfig::default()
-            }),
-            Err(OpenDALStoreError::MissingConfig("bucket"))
-        ));
-        assert!(matches!(
-            make_cos_store(CosConfig {
-                bucket: "b".to_string(),
-                endpoint: String::new(),
-                ..CosConfig::default()
-            }),
-            Err(OpenDALStoreError::MissingConfig("endpoint"))
-        ));
+    fn every_supported_scheme_dispatches() {
+        for scheme in SUPPORTED_SCHEMES {
+            let url = Url::parse(&format!("{scheme}://bucket/path")).unwrap();
+            let props = HashMap::new();
+            assert!(
+                !matches!(
+                    make_opendal_store(&url, &props),
+                    Err(OpenDALStoreError::UnsupportedScheme(_))
+                ),
+                "{scheme} is advertised but not dispatched"
+            );
+        }
     }
 }
