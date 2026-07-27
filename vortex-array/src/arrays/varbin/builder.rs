@@ -27,6 +27,7 @@ use crate::arrays::VarBinView;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::arrays::varbinview::VarBinViewArrayExt;
+use crate::arrays::varbinview::build_views::BinaryView;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -174,6 +175,12 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         self.validity.reserve(additional);
     }
 
+    /// Reserves space for `additional` value *bytes*, unlike [`Self::reserve_exact`], which takes
+    /// a row count and so cannot size the data buffer.
+    fn reserve_data(&mut self, additional: usize) {
+        self.data.reserve(additional);
+    }
+
     fn set_validity(&mut self, validity: Mask) {
         self.validity = match validity {
             Mask::AllTrue(len) => BitBufferMut::new_set(len),
@@ -219,6 +226,18 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         unsafe {
             VarBinArray::new_unchecked(offsets.into_array(), self.data.freeze(), dtype, validity)
         }
+    }
+}
+
+/// Resolves one view to its bytes, borrowing from `buffers` instead of building an owned
+/// `ByteBuffer` per call like `bytes_at` does.
+#[inline]
+fn view_bytes<'a>(view: &'a BinaryView, buffers: &[&'a [u8]]) -> &'a [u8] {
+    if view.is_inlined() {
+        view.as_inlined().value()
+    } else {
+        let reference = view.as_view();
+        &buffers[reference.buffer_index as usize][reference.as_range()]
     }
 }
 
@@ -327,30 +346,47 @@ impl DynVarBinBuilder {
     }
 
     /// Appends a [`VarBinViewArray`](crate::arrays::VarBinViewArray).
+    ///
+    /// Converting views to offsets must visit each value, but the views, data buffers and byte
+    /// total are all resolved once up front rather than per row.
     pub fn append_varbinview(
         &mut self,
         array: crate::ArrayView<'_, VarBinView>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let validity = array
-            .varbinview_validity()
-            .execute_mask(array.as_ref().len(), ctx)?;
+        let len = array.as_ref().len();
+        let validity = array.varbinview_validity().execute_mask(len, ctx)?;
+
+        // `views()` may be empty when every slot is null.
+        if let Mask::AllFalse(n) = &validity {
+            self.push_nulls(*n);
+            return Ok(());
+        }
+
+        let views = array.views();
+        let buffers: Vec<&[u8]> = (0..array.data_buffers().len())
+            .map(|idx| array.buffer(idx).as_slice())
+            .collect();
+
+        // An upper bound when some slots are null, which is fine for a reservation.
+        self.reserve_data(views.iter().map(|view| view.len() as usize).sum());
+
         match &validity {
             Mask::AllTrue(_) => {
-                for index in 0..array.as_ref().len() {
-                    self.append_value(array.bytes_at(index));
+                for view in views {
+                    self.append_value(view_bytes(view, &buffers));
                 }
             }
-            Mask::AllFalse(len) => self.push_nulls(*len),
-            Mask::Values(values) => {
-                for (index, is_valid) in values.bit_buffer().iter().enumerate() {
-                    if is_valid {
-                        self.append_value(array.bytes_at(index));
-                    } else {
-                        self.push_null();
-                    }
-                }
+            Mask::Values(mask_values) => {
+                let mut row = 0;
+                mask_values.bit_buffer().for_each_set_index(|index| {
+                    self.push_nulls(index - row);
+                    self.append_value(view_bytes(&views[index], &buffers));
+                    row = index + 1;
+                });
+                self.push_nulls(len - row);
             }
+            Mask::AllFalse(_) => unreachable!("handled above"),
         }
         Ok(())
     }
@@ -370,17 +406,17 @@ impl DynVarBinBuilder {
         }
     }
 
-    fn push_null(&mut self) {
-        match &mut self.storage {
-            DynOffsets::I32(builder) => builder.append_null(),
-            DynOffsets::I64(builder) => builder.append_null(),
-        }
-    }
-
     fn push_nulls(&mut self, n: usize) {
         match &mut self.storage {
             DynOffsets::I32(builder) => builder.append_n_nulls(n),
             DynOffsets::I64(builder) => builder.append_n_nulls(n),
+        }
+    }
+
+    fn reserve_data(&mut self, additional: usize) {
+        match &mut self.storage {
+            DynOffsets::I32(builder) => builder.reserve_data(additional),
+            DynOffsets::I64(builder) => builder.reserve_data(additional),
         }
     }
 }
@@ -583,6 +619,57 @@ mod tests {
         mixed
             .into_array()
             .append_to_builder(&mut builder, &mut ctx)?;
+
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    /// Covers both storage kinds, every validity shape, and slices (which shift the bit offset).
+    #[rstest]
+    #[case::inlined_all_valid(vec![Some("short"), Some("tiny"), Some("abc")])]
+    #[case::inlined_with_nulls(vec![Some("short"), None, Some("abc"), None])]
+    #[case::heap_all_valid(vec![
+        Some("a string comfortably longer than twelve bytes"),
+        Some("another string that also exceeds twelve bytes"),
+    ])]
+    #[case::heap_with_nulls(vec![
+        Some("a string comfortably longer than twelve bytes"),
+        None,
+        Some("another string that also exceeds twelve bytes"),
+    ])]
+    #[case::mixed_inlined_and_heap(vec![
+        Some("tiny"),
+        Some("a string comfortably longer than twelve bytes"),
+        None,
+        Some("abc"),
+        Some("yet another string exceeding the inline limit"),
+    ])]
+    #[case::all_null(vec![None, None, None])]
+    #[case::leading_and_trailing_nulls(vec![None, Some("mid"), None])]
+    #[case::empty(vec![])]
+    fn append_varbinview_matches_source(
+        #[case] values: Vec<Option<&str>>,
+        #[values(false, true)] large_offsets: bool,
+        #[values(false, true)] sliced: bool,
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let source =
+            VarBinViewArray::from_iter(values.iter().copied(), DType::Utf8(Nullable)).into_array();
+
+        let (source, expected) = if sliced && !values.is_empty() {
+            let start = 1.min(values.len() - 1);
+            (
+                source.slice(start..values.len())?,
+                VarBinViewArray::from_iter(values[start..].iter().copied(), DType::Utf8(Nullable))
+                    .into_array(),
+            )
+        } else {
+            (source.clone(), source)
+        };
+
+        let mut builder =
+            DynVarBinBuilder::with_capacity(DType::Utf8(Nullable), large_offsets, source.len());
+        source.append_to_builder(&mut builder, &mut ctx)?;
 
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
         Ok(())
