@@ -290,10 +290,13 @@ pub(super) fn bit_buffer_from_words(words: BufferMut<u64>, len: usize) -> BitBuf
 }
 
 /// Bit-pack the predicate `f(lhs[i], rhs[i])` over two equal-length slices into a [`BitBuffer`].
-pub(super) fn collect_zip_bits<T: Copy>(
-    lhs: &[T],
-    rhs: &[T],
-    mut f: impl FnMut(T, T) -> bool,
+///
+/// The two slices need not share an element type: decimal operands can be stored at different
+/// widths and are widened lane by lane inside `f`.
+pub(super) fn collect_zip_bits<L: Copy, R: Copy>(
+    lhs: &[L],
+    rhs: &[R],
+    mut f: impl FnMut(L, R) -> bool,
 ) -> BitBuffer {
     let len = lhs.len();
     let mut words = BufferMut::<u64>::zeroed(len.div_ceil(64));

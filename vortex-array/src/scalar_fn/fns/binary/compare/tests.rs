@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::Ordering;
 use std::sync::Arc;
 
 use rstest::rstest;
@@ -29,8 +30,10 @@ use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
+use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::i256;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
@@ -527,8 +530,8 @@ fn decimal_compare() {
     assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]), &mut ctx);
 }
 
-/// Two decimal arrays with the same logical dtype but different storage widths compare through
-/// the widened common storage type.
+/// Two decimal arrays with the same logical dtype but different storage widths compare at the
+/// wider of the two widths.
 #[test]
 fn decimal_compare_mixed_storage_widths() {
     let mut ctx = array_session().create_execution_ctx();
@@ -538,6 +541,93 @@ fn decimal_compare_mixed_storage_widths() {
 
     let result = execute_compare_test(lhs, rhs, Operator::Lte);
     assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]), &mut ctx);
+}
+
+/// Mixed storage widths must agree with the ordering of the unscaled values for every operator and
+/// in either operand order, including when only the wider side can represent its own values.
+#[rstest]
+#[case(Operator::Eq, Ordering::is_eq as fn(Ordering) -> bool)]
+#[case(Operator::NotEq, Ordering::is_ne)]
+#[case(Operator::Lt, Ordering::is_lt)]
+#[case(Operator::Lte, Ordering::is_le)]
+#[case(Operator::Gt, Ordering::is_gt)]
+#[case(Operator::Gte, Ordering::is_ge)]
+fn decimal_compare_mixed_widths_match_value_ordering(
+    #[case] op: Operator,
+    #[case] holds: fn(Ordering) -> bool,
+) {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(38, 2);
+    let narrow = [0i32, 1, -1, i32::MAX, i32::MIN, 12_345];
+    let wide = [
+        0i128,
+        -1,
+        1,
+        i32::MAX as i128 + 1,
+        i32::MIN as i128 - 1,
+        12_345,
+    ];
+
+    let narrow_array = DecimalArray::from_iter::<i32, _>(narrow, dtype).into_array();
+    let wide_array = DecimalArray::from_iter::<i128, _>(wide, dtype).into_array();
+
+    let result = execute_compare_test(narrow_array.clone(), wide_array.clone(), op);
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter(
+            narrow
+                .iter()
+                .zip(wide.iter())
+                .map(|(l, r)| holds((*l as i128).cmp(r)))
+        ),
+        &mut ctx
+    );
+
+    let result = execute_compare_test(wide_array, narrow_array, op);
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter(
+            wide.iter()
+                .zip(narrow.iter())
+                .map(|(l, r)| holds(l.cmp(&(*r as i128))))
+        ),
+        &mut ctx
+    );
+}
+
+/// The same check where the wider side is an `i256`, so the narrow side is sign extended across
+/// the limb boundary.
+#[rstest]
+#[case(Operator::Lt, Ordering::is_lt as fn(Ordering) -> bool)]
+#[case(Operator::Gte, Ordering::is_ge)]
+#[case(Operator::Eq, Ordering::is_eq)]
+fn decimal_compare_i64_against_i256(#[case] op: Operator, #[case] holds: fn(Ordering) -> bool) {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(76, 0);
+    let narrow = [0i64, -1, 1, i64::MAX, i64::MIN];
+    let wide = [
+        i256::ZERO,
+        -i256::ONE,
+        i256::from_i128(i64::MAX as i128 + 1),
+        i256::from_i128(i64::MAX as i128),
+        <i256 as NativeDecimalType>::MIN_BY_PRECISION[76],
+    ];
+
+    let result = execute_compare_test(
+        DecimalArray::from_iter::<i64, _>(narrow, dtype).into_array(),
+        DecimalArray::from_iter::<i256, _>(wide, dtype).into_array(),
+        op,
+    );
+    assert_arrays_eq!(
+        result,
+        BoolArray::from_iter(
+            narrow
+                .iter()
+                .zip(wide.iter())
+                .map(|(l, r)| holds(i256::from_i128(*l as i128).cmp(r)))
+        ),
+        &mut ctx
+    );
 }
 
 /// A decimal constant that does not fit the array's narrow storage type still compares

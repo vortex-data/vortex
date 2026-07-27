@@ -105,6 +105,44 @@ impl i256 {
         Self(self.0.wrapping_add(other.0))
     }
 
+    /// Wrapping (modular) subtraction. Computes `self - other`, wrapping around at the boundary.
+    pub fn wrapping_sub(&self, other: Self) -> Self {
+        Self(self.0.wrapping_sub(other.0))
+    }
+
+    /// Computes `self + other`, returning the wrapped result and whether an overflow occurred.
+    ///
+    /// Signed addition overflows exactly when both operands share a sign that the sum does not,
+    /// which is a property of the sign bit alone. Testing it as
+    /// `((lhs ^ sum) & (rhs ^ sum)) < 0` over the high limbs costs two 128-bit `xor`s, an `and`
+    /// and a sign test, rather than the pair of full 256-bit three-way comparisons that
+    /// re-deriving the condition from the operand ordering requires.
+    #[inline]
+    pub fn overflowing_add(self, other: Self) -> (Self, bool) {
+        let sum = self.wrapping_add(other);
+        let (_, lhs_high) = self.to_parts();
+        let (_, rhs_high) = other.to_parts();
+        let (_, sum_high) = sum.to_parts();
+        (sum, ((lhs_high ^ sum_high) & (rhs_high ^ sum_high)) < 0)
+    }
+
+    /// Computes `self - other`, returning the wrapped result and whether an overflow occurred.
+    ///
+    /// Signed subtraction overflows exactly when the operands differ in sign and the difference
+    /// does not take the sign of the left-hand side. See [`i256::overflowing_add`] for why this
+    /// is cheaper than comparing the operands.
+    #[inline]
+    pub fn overflowing_sub(self, other: Self) -> (Self, bool) {
+        let difference = self.wrapping_sub(other);
+        let (_, lhs_high) = self.to_parts();
+        let (_, rhs_high) = other.to_parts();
+        let (_, difference_high) = difference.to_parts();
+        (
+            difference,
+            ((lhs_high ^ rhs_high) & (lhs_high ^ difference_high)) < 0,
+        )
+    }
+
     /// Return the memory representation of this integer as a byte array in little-endian byte order.
     #[inline]
     pub const fn to_le_bytes(&self) -> [u8; 32] {
@@ -205,8 +243,10 @@ impl One for i256 {
 }
 
 impl CheckedAdd for i256 {
+    #[inline]
     fn checked_add(&self, v: &Self) -> Option<Self> {
-        self.0.checked_add(v.0).map(Self)
+        let (sum, overflow) = self.overflowing_add(*v);
+        (!overflow).then_some(sum)
     }
 }
 
@@ -217,8 +257,10 @@ impl WrappingAdd for i256 {
 }
 
 impl CheckedSub for i256 {
+    #[inline]
     fn checked_sub(&self, v: &Self) -> Option<Self> {
-        self.0.checked_sub(v.0).map(Self)
+        let (difference, overflow) = self.overflowing_sub(*v);
+        (!overflow).then_some(difference)
     }
 }
 
@@ -515,6 +557,89 @@ mod tests {
         assert_eq!(result, Some(i256::from_i128(300)));
 
         // Note: Testing overflow would require values larger than i128
+    }
+
+    #[test]
+    fn test_i256_overflowing_add() {
+        assert_eq!(
+            i256::from_i128(100).overflowing_add(i256::from_i128(200)),
+            (i256::from_i128(300), false)
+        );
+        assert_eq!(
+            i256::MAX.overflowing_add(i256::ZERO),
+            (i256::MAX, false),
+            "adding zero never overflows"
+        );
+        assert_eq!(
+            i256::MAX.overflowing_add(i256::ONE),
+            (i256::MIN, true),
+            "positive overflow wraps to the minimum"
+        );
+        assert_eq!(
+            i256::MIN.overflowing_add(-i256::ONE),
+            (i256::MAX, true),
+            "negative overflow wraps to the maximum"
+        );
+        assert_eq!(
+            i256::MIN.overflowing_add(i256::MAX),
+            (-i256::ONE, false),
+            "opposite signs can never overflow"
+        );
+        // Crossing the low limb into the high limb is not an overflow.
+        let low_max = i256::from_parts(u128::MAX, 0);
+        assert_eq!(
+            low_max.overflowing_add(i256::ONE),
+            (i256::from_parts(0, 1), false)
+        );
+    }
+
+    #[test]
+    fn test_i256_overflowing_sub() {
+        assert_eq!(
+            i256::from_i128(500).overflowing_sub(i256::from_i128(200)),
+            (i256::from_i128(300), false)
+        );
+        assert_eq!(
+            i256::from_i128(200).overflowing_sub(i256::from_i128(500)),
+            (i256::from_i128(-300), false)
+        );
+        assert_eq!(
+            i256::MIN.overflowing_sub(i256::ONE),
+            (i256::MAX, true),
+            "negative overflow wraps to the maximum"
+        );
+        assert_eq!(
+            i256::MAX.overflowing_sub(-i256::ONE),
+            (i256::MIN, true),
+            "positive overflow wraps to the minimum"
+        );
+        assert_eq!(
+            i256::MAX.overflowing_sub(i256::MAX),
+            (i256::ZERO, false),
+            "equal signs can never overflow"
+        );
+        // Borrowing from the high limb is not an overflow.
+        assert_eq!(
+            i256::from_parts(0, 1).overflowing_sub(i256::ONE),
+            (i256::from_parts(u128::MAX, 0), false)
+        );
+    }
+
+    #[test]
+    fn test_i256_checked_add_sub_at_the_boundary() {
+        assert_eq!(i256::MAX.checked_add(&i256::ONE), None);
+        assert_eq!(i256::MIN.checked_add(&-i256::ONE), None);
+        assert_eq!(
+            i256::MAX.checked_add(&-i256::ONE),
+            Some(i256::MAX - i256::ONE)
+        );
+
+        assert_eq!(i256::MIN.checked_sub(&i256::ONE), None);
+        assert_eq!(i256::MAX.checked_sub(&-i256::ONE), None);
+        assert_eq!(
+            i256::MIN.checked_sub(&-i256::ONE),
+            Some(i256::MIN + i256::ONE)
+        );
     }
 
     #[test]

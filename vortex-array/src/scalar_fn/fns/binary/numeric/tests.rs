@@ -386,6 +386,135 @@ fn test_decimal_add_reserves_carry_digit() {
 }
 
 #[rstest]
+#[case::precision_1(1, 2)]
+#[case::precision_17(17, 18)]
+#[case::precision_37(37, 38)]
+// 39 digits do not fit an i128, so the carry digit is dropped rather than widening to i256.
+#[case::precision_38(38, 38)]
+#[case::precision_39(39, 40)]
+#[case::precision_75(75, 76)]
+#[case::precision_76(76, 76)]
+fn test_decimal_add_sub_result_precision(
+    #[case] precision: u8,
+    #[case] expected: u8,
+    #[values(NumericOperator::Add, NumericOperator::Sub)] op: NumericOperator,
+) -> VortexResult<()> {
+    let result = result_decimal_dtype(DecimalDType::new(precision, 0), op)?;
+    assert_eq!(result.precision(), expected);
+    Ok(())
+}
+
+#[test]
+fn test_decimal_precision_38_saturation_reports_overflow() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(38, 0);
+    let max = <i128 as NativeDecimalType>::MAX_BY_PRECISION[38];
+
+    // A sum that still fits 38 digits is exact and stays at the i128 working width.
+    let result = decimal_binary(
+        DecimalArray::from_iter::<i128, _>([max - 1], dtype).into_array(),
+        DecimalArray::from_iter::<i128, _>([1], dtype).into_array(),
+        Operator::Add,
+    )?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_iter::<i128, _>([max], dtype),
+        &mut ctx
+    );
+
+    // A sum needing the 39th digit is an overflow error, not a silent widening to i256.
+    assert!(
+        decimal_binary(
+            DecimalArray::from_iter::<i128, _>([max], dtype).into_array(),
+            DecimalArray::from_iter::<i128, _>([1], dtype).into_array(),
+            Operator::Add,
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
+/// Every lane must agree with exact 256-bit arithmetic bounded by the result precision: an
+/// in-range pair produces the exact value, an out-of-range pair is an error. Covers each working
+/// width, including the two precisions where the result precision saturates.
+#[rstest]
+#[case::precision_2(2)]
+#[case::precision_4(4)]
+#[case::precision_9(9)]
+#[case::precision_18(18)]
+#[case::precision_38(38)]
+#[case::precision_39(39)]
+#[case::precision_76(76)]
+fn test_decimal_add_sub_matches_exact_arithmetic(
+    #[case] precision: u8,
+    #[values(NumericOperator::Add, NumericOperator::Sub)] op: NumericOperator,
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let dtype = DecimalDType::new(precision, 0);
+    let result_dtype = result_decimal_dtype(dtype, op)?;
+    let result_precision = result_dtype.precision() as usize;
+    let lower = <i256 as NativeDecimalType>::MIN_BY_PRECISION[result_precision];
+    let upper = <i256 as NativeDecimalType>::MAX_BY_PRECISION[result_precision];
+
+    let max = <i256 as NativeDecimalType>::MAX_BY_PRECISION[precision as usize];
+    let half = max / i256::from_i128(2);
+    let operands = [i256::ZERO, i256::ONE, -i256::ONE, max, -max, half, -half];
+
+    let mut in_range = Vec::new();
+    for lhs in operands {
+        for rhs in operands {
+            // Both operands are in precision, so the exact result cannot itself overflow an i256.
+            let exact = match op {
+                NumericOperator::Add => lhs + rhs,
+                _ => lhs - rhs,
+            };
+            if lower <= exact && exact <= upper {
+                in_range.push((lhs, rhs, exact));
+                continue;
+            }
+            assert!(
+                decimal_binary(
+                    DecimalArray::from_iter::<i256, _>([lhs], dtype).into_array(),
+                    DecimalArray::from_iter::<i256, _>([rhs], dtype).into_array(),
+                    op.into(),
+                )
+                .is_err(),
+                "{lhs} {op} {rhs} is outside decimal({result_precision}, 0) and must error"
+            );
+        }
+    }
+
+    let result = decimal_binary(
+        DecimalArray::from_iter::<i256, _>(in_range.iter().map(|(lhs, ..)| *lhs), dtype)
+            .into_array(),
+        DecimalArray::from_iter::<i256, _>(in_range.iter().map(|(_, rhs, _)| *rhs), dtype)
+            .into_array(),
+        op.into(),
+    )?;
+    assert_arrays_eq!(
+        result,
+        DecimalArray::from_iter::<i256, _>(
+            in_range.iter().map(|(_, _, exact)| *exact),
+            result_dtype
+        ),
+        &mut ctx
+    );
+    Ok(())
+}
+
+#[test]
+fn test_decimal_working_width_overflow_wrapping_into_precision_errors() {
+    // Out-of-precision inputs whose sum wraps the i128 working width back into the in-precision
+    // range: `i128::MAX + i128::MAX` wraps to -2. The bounds check alone would accept that, so the
+    // overflow check has to reject it first.
+    let dtype = DecimalDType::new(38, 0);
+    let lhs = DecimalArray::from_iter::<i128, _>([i128::MAX], dtype).into_array();
+    let rhs = DecimalArray::from_iter::<i128, _>([i128::MAX], dtype).into_array();
+
+    assert!(decimal_binary(lhs, rhs, Operator::Add).is_err());
+}
+
+#[rstest]
 #[case::precision_2(
     DecimalArray::from_iter::<i8, _>([10, 20], DecimalDType::new(2, 0)),
     DecimalType::I16,
@@ -394,9 +523,14 @@ fn test_decimal_add_reserves_carry_digit() {
     DecimalArray::from_iter::<i64, _>([10, 20], DecimalDType::new(18, 0)),
     DecimalType::I128,
 )]
+#[case::precision_37(
+    DecimalArray::from_iter::<i128, _>([10, 20], DecimalDType::new(37, 0)),
+    DecimalType::I128,
+)]
+// The carry digit saturates at 38 rather than promoting the result to an i256 working width.
 #[case::precision_38(
     DecimalArray::from_iter::<i128, _>([10, 20], DecimalDType::new(38, 0)),
-    DecimalType::I256,
+    DecimalType::I128,
 )]
 #[case::precision_76(
     DecimalArray::from_iter::<i256, _>(

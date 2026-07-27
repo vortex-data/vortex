@@ -5,11 +5,15 @@
 //!
 //! Both operands share a logical [`DecimalDType`] (equal precision and scale), so comparing the
 //! unscaled integer values is sufficient. The physical storage width may differ per operand; when
-//! it does, both sides are widened once to the larger storage type before the lane loop.
+//! it does, the narrower side is widened lane by lane inside the comparison loop rather than
+//! materialized into a widened buffer first.
 //!
 //! [`DecimalDType`]: crate::dtype::DecimalDType
 
+use std::cmp::Ordering;
+
 use vortex_buffer::BitBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -19,7 +23,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::DecimalArray;
-use crate::arrays::decimal::widened_buffer;
+use crate::dtype::BigCast;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::dtype::i256;
@@ -111,12 +115,24 @@ fn compare_decimal_values(
     rhs: &DecimalArray,
     op: CompareOperator,
 ) -> BitBuffer {
-    let common = lhs.values_type().max(rhs.values_type());
-    match_each_decimal_value_type!(common, |W| {
-        let lhs = widened_buffer::<W>(lhs);
-        let rhs = widened_buffer::<W>(rhs);
-        compare_slices::<W>(&lhs, &rhs, op)
-    })
+    // Compressed chunks are narrowed independently, so mixed storage widths are the common case
+    // rather than the exception. Widening the narrow side is a per-lane sign extension, so it is
+    // fused into the comparison instead of materializing a whole widened buffer first.
+    match lhs.values_type().cmp(&rhs.values_type()) {
+        Ordering::Equal => match_each_decimal_value_type!(lhs.values_type(), |T| {
+            compare_slices::<T, T, T>(&lhs.buffer::<T>(), &rhs.buffer::<T>(), op)
+        }),
+        Ordering::Less => match_each_decimal_value_type!(rhs.values_type(), |W| {
+            match_each_decimal_value_type!(lhs.values_type(), |L| {
+                compare_slices::<L, W, W>(&lhs.buffer::<L>(), &rhs.buffer::<W>(), op)
+            })
+        }),
+        Ordering::Greater => match_each_decimal_value_type!(lhs.values_type(), |W| {
+            match_each_decimal_value_type!(rhs.values_type(), |R| {
+                compare_slices::<W, R, W>(&lhs.buffer::<W>(), &rhs.buffer::<R>(), op)
+            })
+        }),
+    }
 }
 
 fn compare_decimal_constant(
@@ -145,14 +161,38 @@ fn compare_decimal_constant(
     })
 }
 
-fn compare_slices<T: NativeDecimalType>(lhs: &[T], rhs: &[T], op: CompareOperator) -> BitBuffer {
+/// Compare two decimal buffers stored at widths `L` and `R` at the common width `W`.
+///
+/// `W` must be at least as wide as both `L` and `R`, so that both widening casts are lossless.
+fn compare_slices<L, R, W>(lhs: &[L], rhs: &[R], op: CompareOperator) -> BitBuffer
+where
+    L: NativeDecimalType,
+    R: NativeDecimalType,
+    W: NativeDecimalType,
+{
+    /// Widen a lane to the comparison width. Constant-folds away whenever `N` is `W`, and for a
+    /// genuine widening it is the sign extension alone: the cast is infallible by construction.
+    #[inline]
+    fn widen<N: NativeDecimalType, W: NativeDecimalType>(value: N) -> W {
+        <W as BigCast>::from(value).vortex_expect("decimal compare widens to a common width")
+    }
+
+    macro_rules! zip {
+        (| $a:ident, $b:ident | $predicate:expr) => {
+            collect_zip_bits(lhs, rhs, |a: L, b: R| {
+                let ($a, $b) = (widen::<L, W>(a), widen::<R, W>(b));
+                $predicate
+            })
+        };
+    }
+
     match op {
-        CompareOperator::Eq => collect_zip_bits(lhs, rhs, |a: T, b: T| a == b),
-        CompareOperator::NotEq => collect_zip_bits(lhs, rhs, |a: T, b: T| a != b),
-        CompareOperator::Gt => collect_zip_bits(lhs, rhs, |a: T, b: T| a > b),
-        CompareOperator::Gte => collect_zip_bits(lhs, rhs, |a: T, b: T| a >= b),
-        CompareOperator::Lt => collect_zip_bits(lhs, rhs, |a: T, b: T| a < b),
-        CompareOperator::Lte => collect_zip_bits(lhs, rhs, |a: T, b: T| a <= b),
+        CompareOperator::Eq => zip!(|a, b| a == b),
+        CompareOperator::NotEq => zip!(|a, b| a != b),
+        CompareOperator::Gt => zip!(|a, b| a > b),
+        CompareOperator::Gte => zip!(|a, b| a >= b),
+        CompareOperator::Lt => zip!(|a, b| a < b),
+        CompareOperator::Lte => zip!(|a, b| a <= b),
     }
 }
 
