@@ -178,11 +178,12 @@ pub(super) fn make_struct_slots(
     validity: &Validity,
     length: usize,
 ) -> ArraySlots {
-    StructSlots {
-        validity: validity_to_child(validity, length),
-        fields: fields.to_vec(),
-    }
-    .into_slots()
+    // `fields` is borrowed, so its arrays must be cloned regardless; clone them straight into the
+    // `SmallVec` rather than through an intermediate `Vec`.
+    let mut slots = ArraySlots::with_capacity(StructSlots::FIELDS_OFFSET + fields.len());
+    slots.push(validity_to_child(validity, length));
+    slots.extend(fields.iter().cloned().map(Some));
+    slots
 }
 
 pub trait StructArrayExt: TypedArrayRef<Struct> {

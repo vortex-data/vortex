@@ -4,6 +4,8 @@
 mod array;
 pub use array::ChunkedArrayExt;
 pub use array::ChunkedData;
+pub use array::ChunkedSlots;
+pub use array::ChunkedSlotsView;
 pub use vtable::ChunkedArray;
 
 pub(crate) mod compute;

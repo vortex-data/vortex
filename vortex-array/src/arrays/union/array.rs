@@ -9,6 +9,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -38,11 +39,12 @@ pub(super) fn make_union_parts(
 ) -> ArrayParts<Union> {
     let len = type_ids.len();
     let nullability = type_ids.dtype().nullability();
-    let slots = UnionSlots {
-        type_ids,
-        children: children.to_vec(),
-    }
-    .into_slots();
+    // Build the slot storage in a single pass. `children` is borrowed, so the child arrays must
+    // be cloned regardless; clone them straight into the `SmallVec` rather than through an
+    // intermediate `Vec`.
+    let mut slots = ArraySlots::with_capacity(UnionSlots::CHILDREN_OFFSET + children.len());
+    slots.push(Some(type_ids));
+    slots.extend(children.iter().cloned().map(Some));
 
     ArrayParts::new(
         Union,
@@ -167,7 +169,7 @@ impl Array<Union> {
     pub fn into_data_parts(self) -> UnionDataParts {
         let variants = self.variants().clone();
         let type_ids = self.type_ids().clone();
-        let children = self.children().to_vec().into();
+        let children: Arc<[ArrayRef]> = self.iter_children().cloned().collect();
         UnionDataParts {
             variants,
             type_ids,
