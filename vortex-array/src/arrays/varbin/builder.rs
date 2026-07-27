@@ -15,6 +15,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -27,6 +28,7 @@ use crate::arrays::VarBinView;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::arrays::varbinview::VarBinViewArrayExt;
+use crate::arrays::varbinview::build_views::BinaryView;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -97,6 +99,30 @@ impl<O: IntegerPType> VarBinBuilder<O> {
     pub fn append_n_nulls(&mut self, n: usize) {
         self.offsets.push_n(self.offsets[self.offsets.len() - 1], n);
         self.validity.append_n(false, n);
+    }
+
+    /// Appends `n` non-null empty values.
+    ///
+    /// Every appended value has the same start and end offset, so no bytes are written.
+    #[inline]
+    pub fn append_n_empty(&mut self, n: usize) {
+        self.offsets.push_n(self.offsets[self.offsets.len() - 1], n);
+        self.validity.append_n(true, n);
+    }
+
+    /// Appends the same non-null value `n` times.
+    #[inline]
+    pub fn append_n_values(&mut self, value: impl AsRef<[u8]>, n: usize) {
+        let slice = value.as_ref();
+        if slice.is_empty() {
+            return self.append_n_empty(n);
+        }
+
+        self.offsets.reserve(n);
+        self.data.reserve(slice.len().saturating_mul(n));
+        for _ in 0..n {
+            self.append_value(slice);
+        }
     }
 
     #[inline]
@@ -272,9 +298,9 @@ impl DynVarBinBuilder {
 
     /// Appends the same non-null value `n` times.
     pub fn append_n_values(&mut self, value: impl AsRef<[u8]>, n: usize) {
-        let value = value.as_ref();
-        for _ in 0..n {
-            self.append_value(value);
+        match &mut self.storage {
+            DynOffsets::I32(builder) => builder.append_n_values(value, n),
+            DynOffsets::I64(builder) => builder.append_n_values(value, n),
         }
     }
 
@@ -303,7 +329,7 @@ impl DynVarBinBuilder {
     /// Appends an existing [`VarBinArray`] without constructing views.
     pub fn append_varbin(
         &mut self,
-        array: crate::ArrayView<'_, VarBin>,
+        array: ArrayView<'_, VarBin>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
@@ -329,28 +355,15 @@ impl DynVarBinBuilder {
     /// Appends a [`VarBinViewArray`](crate::arrays::VarBinViewArray).
     pub fn append_varbinview(
         &mut self,
-        array: crate::ArrayView<'_, VarBinView>,
+        array: ArrayView<'_, VarBinView>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let validity = array
             .varbinview_validity()
             .execute_mask(array.as_ref().len(), ctx)?;
-        match &validity {
-            Mask::AllTrue(_) => {
-                for index in 0..array.as_ref().len() {
-                    self.append_value(array.bytes_at(index));
-                }
-            }
-            Mask::AllFalse(len) => self.push_nulls(*len),
-            Mask::Values(values) => {
-                for (index, is_valid) in values.bit_buffer().iter().enumerate() {
-                    if is_valid {
-                        self.append_value(array.bytes_at(index));
-                    } else {
-                        self.push_null();
-                    }
-                }
-            }
+        match &mut self.storage {
+            DynOffsets::I32(builder) => append_varbinview_to(builder, array, &validity),
+            DynOffsets::I64(builder) => append_varbinview_to(builder, array, &validity),
         }
         Ok(())
     }
@@ -363,25 +376,57 @@ impl DynVarBinBuilder {
         }
     }
 
-    fn append_value(&mut self, value: impl AsRef<[u8]>) {
-        match &mut self.storage {
-            DynOffsets::I32(builder) => builder.append_value(value),
-            DynOffsets::I64(builder) => builder.append_value(value),
-        }
-    }
-
-    fn push_null(&mut self) {
-        match &mut self.storage {
-            DynOffsets::I32(builder) => builder.append_null(),
-            DynOffsets::I64(builder) => builder.append_null(),
-        }
-    }
-
     fn push_nulls(&mut self, n: usize) {
         match &mut self.storage {
             DynOffsets::I32(builder) => builder.append_n_nulls(n),
             DynOffsets::I64(builder) => builder.append_n_nulls(n),
         }
+    }
+}
+
+/// Appends `array` to a [`VarBinBuilder`] with a statically known offset type.
+///
+/// [`DynVarBinBuilder`] resolves its offset width once before calling this, so the loops below
+/// append through a monomorphized [`VarBinBuilder`] rather than re-reading [`DynOffsets`] per row.
+fn append_varbinview_to<O: IntegerPType>(
+    builder: &mut VarBinBuilder<O>,
+    array: ArrayView<'_, VarBinView>,
+    validity: &Mask,
+) {
+    // Read the views slice once. `bytes_at` would re-derive it and hand back a refcounted
+    // `ByteBuffer` per row; `view_bytes` borrows the payload instead.
+    let views = array.views();
+    match validity {
+        Mask::AllTrue(len) => {
+            builder.reserve_exact(*len);
+            for view in &views[..*len] {
+                builder.append_value(view_bytes(&array, view));
+            }
+        }
+        Mask::AllFalse(len) => builder.append_n_nulls(*len),
+        Mask::Values(values) => {
+            builder.reserve_exact(values.len());
+            // Offsets and validity must be appended in row order, so this cannot use the
+            // set-index fast paths: the null rows carry offsets too.
+            for (view, is_valid) in views[..values.len()].iter().zip(values.bit_buffer().iter()) {
+                if is_valid {
+                    builder.append_value(view_bytes(&array, view));
+                } else {
+                    builder.append_null();
+                }
+            }
+        }
+    }
+}
+
+/// Borrows the bytes of a single view without constructing a [`ByteBuffer`].
+#[inline]
+fn view_bytes<'a>(array: &'a ArrayView<'_, VarBinView>, view: &'a BinaryView) -> &'a [u8] {
+    if view.is_inlined() {
+        view.as_inlined().value()
+    } else {
+        let view_ref = view.as_view();
+        &array.buffer(view_ref.buffer_index as usize).as_slice()[view_ref.as_range()]
     }
 }
 
@@ -406,8 +451,9 @@ impl ArrayBuilder for DynVarBinBuilder {
     }
 
     fn append_zeros(&mut self, n: usize) {
-        for _ in 0..n {
-            self.append_value([]);
+        match &mut self.storage {
+            DynOffsets::I32(builder) => builder.append_n_empty(n),
+            DynOffsets::I64(builder) => builder.append_n_empty(n),
         }
     }
 
@@ -586,6 +632,55 @@ mod tests {
 
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
         Ok(())
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn append_zeros_appends_non_null_empty_values(#[case] large_offsets: bool) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = DynVarBinBuilder::with_capacity(DType::Utf8(Nullable), large_offsets, 0);
+
+        builder.append_scalar(&Scalar::utf8("hello", Nullable))?;
+        builder.append_zeros(3);
+
+        assert_eq!(builder.len(), 4);
+        let expected = VarBinArray::from_iter(
+            [Some("hello"), Some(""), Some(""), Some("")],
+            DType::Utf8(Nullable),
+        );
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn append_n_values_repeats_the_value(#[case] large_offsets: bool) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = DynVarBinBuilder::with_capacity(DType::Utf8(Nullable), large_offsets, 0);
+
+        builder.append_n_values("ab", 2);
+        builder.append_null();
+        builder.append_n_values("", 2);
+
+        let expected = VarBinArray::from_iter(
+            [Some("ab"), Some("ab"), None, Some(""), Some("")],
+            DType::Utf8(Nullable),
+        );
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn append_n_empty_preserves_previous_offset() {
+        let mut builder = VarBinBuilder::<i32>::new();
+        builder.append_value(b"abc");
+        builder.append_n_empty(2);
+        let array = builder.finish(DType::Utf8(Nullable));
+
+        assert_eq!(array.len(), 3);
+        assert_eq!(array.bytes().len(), 3);
     }
 
     #[test]
