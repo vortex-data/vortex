@@ -104,15 +104,15 @@ where
         )));
     }
 
-    // Preserve aliased inputs by using the out-of-place kernel only when unique
-    // mutable access is unavailable.
+    // Preserve aliased inputs by copying into a unique allocation, then use the same in-place
+    // kernel as the zero-copy path.
     let input_view = device_buffer.cuda_view::<U>()?;
-    let mut output = ctx.device_alloc::<S>(array_len)?;
-    let ptype_suffix = U::PTYPE.to_string();
-    let cuda_function =
-        ctx.load_function_with_suffixes("zigzag", &["in", "out", ptype_suffix.as_str()])?;
+    let mut output = ctx.device_alloc::<U>(array_len)?;
+    ctx.stream()
+        .memcpy_dtod(&input_view, &mut output)
+        .map_err(|err| vortex_err!("Failed to copy shared ZigZag input: {err}"))?;
     ctx.launch_kernel(&cuda_function, array_len, |args| {
-        args.arg(&input_view).arg(&mut output).arg(&array_len_u64);
+        args.arg(&mut output).arg(&array_len_u64);
     })?;
 
     let output = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)));
