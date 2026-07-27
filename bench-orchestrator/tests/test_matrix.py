@@ -33,6 +33,9 @@ REGULAR_IDS = (
     "appian-nvme",
     "vortex-queries",
 )
+COMPACT_IDS = tuple(
+    benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id not in {"polarsignals", "vortex-queries"}
+)
 EXPECTED_IDS = {
     "develop": REGULAR_IDS,
     "pr": tuple(
@@ -40,6 +43,7 @@ EXPECTED_IDS = {
         for benchmark_id in REGULAR_IDS
         if benchmark_id not in {"tpch-s3-10", "appian-nvme", "vortex-queries"}
     ),
+    "pr-compact": COMPACT_IDS,
     "pr-full": REGULAR_IDS,
     "nightly": ("tpch-nvme", "tpch-s3"),
 }
@@ -68,6 +72,7 @@ def test_matrix_presets(preset: str, expected_ids: tuple[str, ...]) -> None:
 def test_pr_target_selection() -> None:
     develop = {entry["id"]: entry for entry in _entries("develop")}
     pr = {entry["id"]: entry for entry in _entries("pr")}
+    pr_compact = {entry["id"]: entry for entry in _entries("pr-compact")}
     pr_full = {entry["id"]: entry for entry in _entries("pr-full")}
 
     assert _targets(pr["tpch-nvme"]) == {
@@ -79,6 +84,10 @@ def test_pr_target_selection() -> None:
     assert ("datafusion", "lance") in _targets(develop["tpch-nvme"])
     assert all(("datafusion", "lance") not in _targets(entry) for entry in pr_full.values())
     assert "vortex-compact" in cast("list[str]", pr_full["clickbench-nvme"]["data_formats"])
+    assert all(
+        all(target[1] == "vortex-compact" for target in _targets(entry)) and entry["data_formats"] == ["vortex-compact"]
+        for entry in pr_compact.values()
+    )
 
 
 def test_resolver_rejects_empty_targets() -> None:

@@ -1,6 +1,6 @@
 # Runs after every commit to `develop` (or in other words, _after_ every pull request merges).
 
-name: Benchmarks
+name: Develop Benchmarks
 
 on:
   push:
@@ -188,7 +188,7 @@ jobs:
           deduplication-key: ci-bench-${{ matrix.benchmark.id }}-failure
 
   sql:
-    uses: ./.github/workflows/sql-benchmarks.yml
+    uses: ./.github/workflows/sql-bench-matrix.yml
     secrets: inherit
     with:
       mode: "develop"

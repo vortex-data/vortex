@@ -1,4 +1,4 @@
-name: "SQL-related benchmarks"
+name: SQL Benchmark Matrix
 
 on:
   workflow_call:
@@ -259,8 +259,10 @@ jobs:
         with:
           file-path: comment.md
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
-          # this action will *update* the comment instead of posting a new comment.
-          comment-tag: bench-pr-comment-${{ matrix.id }}
+          # this action will *update* the comment instead of posting a new comment. The preset is
+          # part of the tag because presets overlap on benchmark ids (`pr` and `pr-compact` share
+          # nine) and can run concurrently, so a preset-less tag would let them clobber each other.
+          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
@@ -270,7 +272,7 @@ jobs:
             # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
 
             Benchmark `${{ matrix.name }}` (${{ inputs.matrix_preset }}) failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-comment-${{ matrix.id }}
+          comment-tag: bench-pr-comment-${{ matrix.id }}-${{ inputs.matrix_preset }}
 
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'
@@ -279,7 +281,7 @@ jobs:
           bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
-      # benchmarks website (see bench.yml for the full rationale); a failure here fails the
+      # benchmarks website (see develop-bench.yml for the full rationale); a failure here fails the
       # job. Gated on inputs.mode == 'develop' + the ingest-role ARN var (the assume-role
       # input that MUST exist for OIDC to succeed). post-ingest.py mints the RDS IAM token
       # (boto3) from the assumed GitHubBenchmarkIngestRole; sslmode=verify-full validates

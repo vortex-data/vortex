@@ -22,13 +22,13 @@ jobs:
         with:
           fetch-depth: 2
 
-      # v4 (Postgres) ingest -- REQUIRED (see bench.yml rationale). Empty records:
+      # v4 (Postgres) ingest -- REQUIRED (see develop-bench.yml rationale). Empty records:
       # post-ingest.py --postgres upserts the commit row only. Gated on the
       # ingest-role ARN var (the assume-role input that MUST exist for OIDC to
       # succeed).
       #
       # `sync: false` -- the ingest runs `uv run --no-project --with`, which needs only
-      # the uv binary, never the synced workspace (see bench.yml rationale).
+      # the uv binary, never the synced workspace (see develop-bench.yml rationale).
       - name: Install uv for v4 ingest
         if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6

@@ -2,7 +2,7 @@
 # This is a separate workflow so that non-benchmark label events don't create
 # phantom check suites that obscure in-progress benchmark runs on the PR.
 
-name: Benchmark Dispatch
+name: PR Benchmark Dispatch
 
 on:
   pull_request:
@@ -16,68 +16,86 @@ permissions:
   id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
-  remove-bench-label:
+  remove-random-access-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/benchmark'
+    if: github.event.label.name == 'action/bench-random-access'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
         with:
-          labels: action/benchmark
+          labels: action/bench-random-access
           fail_on_error: true
 
-  bench:
-    needs: remove-bench-label
-    uses: ./.github/workflows/bench-pr.yml
+  random-access-bench:
+    needs: remove-random-access-label
+    uses: ./.github/workflows/pr-bench-random-access.yml
     secrets: inherit
 
-  remove-gpu-compress-bench-label:
+  remove-compress-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/benchmark-gpu-compress'
+    if: github.event.label.name == 'action/bench-compress'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
         with:
-          labels: action/benchmark-gpu-compress
+          labels: action/bench-compress
+          fail_on_error: true
+
+  compression-bench:
+    needs: remove-compress-label
+    uses: ./.github/workflows/pr-bench-compress.yml
+    secrets: inherit
+
+  remove-gpu-compress-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.label.name == 'action/bench-gpu-compress'
+    steps:
+      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+        if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+        with:
+          labels: action/bench-gpu-compress
           fail_on_error: true
 
   gpu-compress-bench:
-    needs: remove-gpu-compress-bench-label
-    uses: ./.github/workflows/gpu-compress-bench-pr.yml
+    needs: remove-gpu-compress-label
+    uses: ./.github/workflows/pr-bench-gpu-compress.yml
     secrets: inherit
 
   remove-sql-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/benchmark-sql'
+    if: github.event.label.name == 'action/bench-sql'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
         with:
-          labels: action/benchmark-sql
+          labels: action/bench-sql
           fail_on_error: true
 
   sql-bench:
     needs: remove-sql-label
-    uses: ./.github/workflows/sql-pr.yml
+    uses: ./.github/workflows/pr-bench-sql.yml
     secrets: inherit
+    with:
+      matrix_preset: "pr"
 
-  remove-sql-full-label:
+  remove-sql-compact-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event.label.name == 'action/benchmark-sql-full'
+    if: github.event.label.name == 'action/bench-sql-compact'
     steps:
       - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
         with:
-          labels: action/benchmark-sql-full
+          labels: action/bench-sql-compact
           fail_on_error: true
 
-  sql-full-bench:
-    needs: remove-sql-full-label
-    uses: ./.github/workflows/sql-pr.yml
+  sql-compact-bench:
+    needs: remove-sql-compact-label
+    uses: ./.github/workflows/pr-bench-sql.yml
     secrets: inherit
     with:
-      matrix_preset: "pr-full"
+      matrix_preset: "pr-compact"

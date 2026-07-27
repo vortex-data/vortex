@@ -1,10 +1,10 @@
 # Runs the GPU-enabled compression decompression benchmarks for a pull request.
-# Called from bench-dispatch.yml when the `action/benchmark-gpu-compress` label is added.
+# Called from pr-bench-dispatch.yml when the `action/bench-gpu-compress` label is added.
 
-name: GPU Compression Benchmarks
+name: PR GPU Compression Benchmark
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-gpu-compress
   cancel-in-progress: false
 
 on:
@@ -71,13 +71,13 @@ jobs:
           } > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       - name: Comment PR
-        if: github.event.pull_request.head.repo.fork == false
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           file-path: comment.md
           comment-tag: bench-pr-comment-gpu-compress
       - name: Comment PR on failure
-        if: failure() && github.event.pull_request.head.repo.fork == false
+        if: failure() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
         with:
           message: |

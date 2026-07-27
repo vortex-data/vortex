@@ -1,0 +1,21 @@
+# Runs the random-access benchmark for a pull request.
+
+name: PR Random Access Benchmark
+
+on:
+  workflow_call: { }
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+  pull-requests: write  # for commenting on PRs
+  id-token: write  # enables AWS-GitHub OIDC
+
+jobs:
+  bench:
+    uses: ./.github/workflows/pr-bench-runner.yml
+    secrets: inherit
+    with:
+      benchmark_id: random-access-bench
+      benchmark_name: Random Access
+      with_lance: true

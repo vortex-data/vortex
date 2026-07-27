@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   sql:
-    uses: ./.github/workflows/sql-benchmarks.yml
+    uses: ./.github/workflows/sql-bench-matrix.yml
     secrets: inherit
     with:
       mode: "develop"
