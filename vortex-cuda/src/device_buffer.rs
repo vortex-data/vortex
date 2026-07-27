@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaView;
+use cudarc::driver::CudaViewMut;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::sys;
@@ -63,6 +64,7 @@ mod private {
     use cudarc::driver::CudaSlice;
     use cudarc::driver::CudaStream;
     use cudarc::driver::CudaView;
+    use cudarc::driver::CudaViewMut;
     use cudarc::driver::DeviceRepr;
     use vortex::buffer::Alignment;
     use vortex::error::VortexExpect;
@@ -74,8 +76,11 @@ mod private {
         /// Get a reference to the underlying cuStream.
         fn stream(&self) -> &Arc<CudaStream>;
 
-        /// Access the values as a bytes view
+        /// Access the values as a bytes view.
         fn as_bytes_view(&self) -> CudaView<'_, u8>;
+
+        /// Access the values as a mutable bytes view.
+        fn as_bytes_view_mut(&mut self) -> CudaViewMut<'_, u8>;
     }
 
     // CudaSlice needs to be held by the CudaDeviceBuffer
@@ -90,8 +95,15 @@ mod private {
 
         fn as_bytes_view(&self) -> CudaView<'_, u8> {
             let bytes_len = self.len() * size_of::<T>();
-            // SAFETY: all types can be reinterpreted as a byte slice
+            // SAFETY: all types can be reinterpreted as a byte slice.
             let result = unsafe { self.as_view().transmute::<u8>(bytes_len) };
+            result.vortex_expect("Downcasting CudaSlice<T> => CudaSlice<u8> must succeed")
+        }
+
+        fn as_bytes_view_mut(&mut self) -> CudaViewMut<'_, u8> {
+            let bytes_len = self.len() * size_of::<T>();
+            // SAFETY: all types can be reinterpreted as a mutable byte slice.
+            let result = unsafe { self.transmute_mut::<u8>(bytes_len) };
             result.vortex_expect("Downcasting CudaSlice<T> => CudaSlice<u8> must succeed")
         }
     }
@@ -146,8 +158,8 @@ impl CudaDeviceBuffer {
         // Return a new &[T]
         let new_len = self.len / size_of::<T>();
 
-        // SAFETY: All DeviecRepr types are aligned to < 256 bytes, which is what CUDA allocator
-        //  gives us back. So we should not suffer any alignment issues at runtime.
+        // SAFETY: All DeviceRepr types are aligned to < 256 bytes, which is what CUDA allocator
+        // gives us back. So we should not suffer any alignment issues at runtime.
         unsafe {
             self.allocation
                 .as_bytes_view()
@@ -155,6 +167,21 @@ impl CudaDeviceBuffer {
                 .transmute::<T>(new_len)
                 .vortex_expect("Failed to transmute from CudaView<u8> to CudaView<T>")
         }
+    }
+
+    pub(crate) fn with_view_mut<T: DeviceRepr + 'static, R>(
+        &mut self,
+        function: impl FnOnce(&mut CudaViewMut<'_, T>) -> R,
+    ) -> Option<R> {
+        let new_len = self.len / size_of::<T>();
+        let allocation = Arc::get_mut(&mut self.allocation)?;
+        let mut bytes = allocation.as_bytes_view_mut();
+        let mut bytes = bytes.slice_mut(self.offset..self.offset + self.len);
+        // SAFETY: The same alignment and size requirements as `as_view` apply, and unique
+        // ownership of both allocation Arcs guarantees no other device view can alias this one.
+        let mut values = unsafe { bytes.transmute_mut::<T>(new_len) }
+            .vortex_expect("Failed to transmute from CudaViewMut<u8> to CudaViewMut<T>");
+        Some(function(&mut values))
     }
 }
 
@@ -180,10 +207,7 @@ pub(crate) fn cuda_backing_allocation(handle: &BufferHandle) -> VortexResult<Buf
     })))
 }
 
-// TODO(aduffy): we should add cuda_view_mut and enforce the borrow rules. This is a bit tricky
-//  because many executions are async, we should lean into that with ownership and having any
-//  async context actions take ownership of the buffer and return ownership when they're done.
-/// Extension trait for getting a [`CudaView`] from a [`BufferHandle`].
+/// Extension trait for getting CUDA views from a [`BufferHandle`].
 pub trait CudaBufferExt {
     /// Returns a readonly [`CudaView`] for the buffer handle.
     ///
@@ -191,6 +215,22 @@ pub trait CudaBufferExt {
     ///
     /// Returns an error if the buffer is not a CUDA buffer.
     fn cuda_view<T: DeviceRepr + Send + Sync + 'static>(&self) -> VortexResult<CudaView<'_, T>>;
+
+    /// Consumes and returns this handle, calling `function` with a mutable CUDA view when the
+    /// handle and backing allocation are unique.
+    ///
+    /// The returned option is `None` when another handle references the same device buffer or
+    /// allocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer is not a CUDA buffer.
+    fn with_cuda_view_mut<T: DeviceRepr + Send + Sync + 'static, R>(
+        self,
+        function: impl FnOnce(&mut CudaViewMut<'_, T>) -> R,
+    ) -> VortexResult<(Self, Option<R>)>
+    where
+        Self: Sized;
 
     /// Returns the on-device pointer for the start of the buffer handle.
     ///
@@ -219,6 +259,29 @@ impl CudaBufferExt for BufferHandle {
             .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
 
         Ok(cuda_buf.as_view::<T>())
+    }
+
+    fn with_cuda_view_mut<T: DeviceRepr + Send + Sync + 'static, R>(
+        self,
+        function: impl FnOnce(&mut CudaViewMut<'_, T>) -> R,
+    ) -> VortexResult<(Self, Option<R>)> {
+        if !self.is_on_device() {
+            return Err(vortex_err!("Buffer is not on device"));
+        }
+
+        let device_buffer = self.unwrap_device();
+        if !device_buffer.as_any().is::<CudaDeviceBuffer>() {
+            return Err(vortex_err!(
+                "expected CudaDeviceBuffer, was {device_buffer:?}"
+            ));
+        }
+
+        let device_buffer: Arc<dyn Any + Send + Sync> = device_buffer;
+        let mut cuda_buf = Arc::downcast::<CudaDeviceBuffer>(device_buffer)
+            .map_err(|_| vortex_err!("CudaDeviceBuffer downcast failed after type check"))?;
+        let result = Arc::get_mut(&mut cuda_buf).and_then(|buffer| buffer.with_view_mut(function));
+
+        Ok((BufferHandle::new_device(cuda_buf), result))
     }
 
     fn cuda_device_ptr(&self) -> VortexResult<sys::CUdeviceptr> {
@@ -340,9 +403,10 @@ impl DeviceBuffer for CudaDeviceBuffer {
         alignment: Alignment,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
         let stream = self.allocation.stream();
-
-        // Add offset to device pointer to account for any previous slicing operations.
-        let src_ptr = self.device_ptr + self.offset as u64;
+        let source = self.as_view::<u8>();
+        // Use cudarc's read guard so this allocation stream waits for writes submitted on any
+        // other managed stream before scheduling the device-to-host copy.
+        let (src_ptr, record_read) = source.device_ptr(stream);
 
         let mut host_buffer: ByteBufferMut =
             ByteBufferMut::with_capacity_aligned(self.len, alignment);
@@ -365,6 +429,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
             .result()
             .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
         }
+        drop(record_read);
 
         let cuda_slice = Arc::clone(&self.allocation);
 
@@ -439,5 +504,71 @@ impl DeviceBuffer for CudaDeviceBuffer {
         } else {
             vortex_panic!("some how we alloc a cuda buffer with alignment less than 256")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cudarc::driver::CudaContext;
+    use cudarc::driver::PushKernelArg;
+    use vortex::buffer::Buffer;
+    use vortex::dtype::PType;
+    use vortex::error::VortexResult;
+    use vortex::error::vortex_bail;
+
+    use super::*;
+    use crate::CudaSession;
+
+    #[crate::test]
+    async fn mutable_view_requires_unique_ownership() -> VortexResult<()> {
+        let ctx = CudaSession::create_execution_ctx(&crate::cuda_session())?;
+        let allocation = ctx.device_alloc::<u32>(4)?;
+        let mut handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(allocation)));
+
+        let (next, result) = handle.with_cuda_view_mut::<u32, _>(|view| view.len())?;
+        handle = next;
+        assert_eq!(result, Some(4));
+
+        let alias = handle.clone();
+        let (next, result) = handle.with_cuda_view_mut::<u32, _>(|view| view.len())?;
+        handle = next;
+        assert!(result.is_none());
+        drop(alias);
+
+        let (_, result) = handle.with_cuda_view_mut::<u32, _>(|view| view.len())?;
+        assert_eq!(result, Some(4));
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn copy_to_host_waits_for_write_on_another_stream() -> VortexResult<()> {
+        let context = CudaContext::new(0)
+            .map_err(|err| vortex_err!("failed to create CUDA context: {err}"))?;
+        let cuda_session = CudaSession::with_stream_pool_capacity(context, 2);
+        let session = vortex::array::array_session().with_some(cuda_session);
+        let allocation_ctx = CudaSession::create_execution_ctx(&session)?;
+        let mut launch_ctx = CudaSession::create_execution_ctx(&session)?;
+        assert_ne!(
+            allocation_ctx.stream().cu_stream(),
+            launch_ctx.stream().cu_stream()
+        );
+
+        let handle = allocation_ctx.copy_to_device(vec![0u32; 4])?.await?;
+        let kernel = launch_ctx.load_function("constant_numeric", &[PType::U32])?;
+        let value = 42u32;
+        let len = 4u64;
+        let (handle, launch) = handle.with_cuda_view_mut::<u32, _>(|view| {
+            launch_ctx.launch_kernel(&kernel, 4, |args| {
+                args.arg(view).arg(&value).arg(&len);
+            })
+        })?;
+        let Some(launch) = launch else {
+            vortex_bail!("fresh CUDA allocation was unexpectedly shared");
+        };
+        launch?;
+
+        let values = Buffer::<u32>::from_byte_buffer(handle.try_to_host()?.await?);
+        assert_eq!(values.as_slice(), &[42; 4]);
+        Ok(())
     }
 }

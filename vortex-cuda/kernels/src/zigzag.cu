@@ -20,10 +20,8 @@ struct ZigZagOp {
 // Macro to generate ZigZag kernels for each type.
 #define GENERATE_ZIGZAG_KERNEL(suffix, UnsignedType, SignedType)                                             \
     extern "C" __global__ void zigzag_##suffix(UnsignedType *__restrict values, uint64_t array_len) {        \
-        scalar_kernel(values,                                                                                \
-                      reinterpret_cast<SignedType *>(values),                                                \
-                      array_len,                                                                             \
-                      ZigZagOp<UnsignedType, SignedType> {});                                                \
+        /* Assigning the signed result back to UnsignedType preserves its modulo-2^N bit pattern. */         \
+        scalar_kernel_inplace(values, array_len, ZigZagOp<UnsignedType, SignedType> {});                     \
     }
 
 #define GENERATE_ZIGZAG_IN_OUT_KERNEL(suffix, UnsignedType, SignedType)                                      \

@@ -85,15 +85,32 @@ where
         buffer, validity, ..
     } = primitive.into_data_parts();
 
-    let device_buffer = ctx.ensure_on_device(buffer).await?;
-    let input_view = device_buffer.cuda_view::<U>()?;
-    let mut output = ctx.device_alloc::<S>(array_len)?;
+    let mut device_buffer = ctx.ensure_on_device(buffer).await?;
     let array_len_u64 = array_len as u64;
 
+    let cuda_function = ctx.load_function("zigzag", &[U::PTYPE])?;
+    let (next, launch) = device_buffer.with_cuda_view_mut::<U, _>(|view| {
+        ctx.launch_kernel(&cuda_function, array_len, |args| {
+            args.arg(view).arg(&array_len_u64);
+        })
+    })?;
+    device_buffer = next;
+    if let Some(launch) = launch {
+        launch?;
+        return Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+            device_buffer,
+            S::PTYPE,
+            validity,
+        )));
+    }
+
+    // Preserve aliased inputs by using the out-of-place kernel only when unique
+    // mutable access is unavailable.
+    let input_view = device_buffer.cuda_view::<U>()?;
+    let mut output = ctx.device_alloc::<S>(array_len)?;
     let ptype_suffix = U::PTYPE.to_string();
     let cuda_function =
         ctx.load_function_with_suffixes("zigzag", &["in", "out", ptype_suffix.as_str()])?;
-
     ctx.launch_kernel(&cuda_function, array_len, |args| {
         args.arg(&input_view).arg(&mut output).arg(&array_len_u64);
     })?;
