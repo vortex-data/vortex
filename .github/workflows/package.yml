@@ -78,7 +78,7 @@ jobs:
           PY
 
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
         # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter
         if: "${{ matrix.target.runs-on == 'macos-latest' }}"
         with:
