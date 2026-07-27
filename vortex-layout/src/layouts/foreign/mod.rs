@@ -153,8 +153,7 @@ impl DynLayout for ForeignLayout {
     }
 
     fn dyn_slot_type(&self, slot: usize) -> Option<LayoutChildType> {
-        (slot < self.children.len())
-            .then(|| LayoutChildType::Auxiliary(format!("[{slot}]").into()))
+        (slot < self.children.len()).then(|| LayoutChildType::Auxiliary(format!("[{slot}]").into()))
     }
 
     fn dyn_metadata(&self) -> Vec<u8> {
