@@ -33,6 +33,7 @@ use crate::validity::Validity;
 #[array_slots(Bool)]
 pub struct BoolSlots {
     /// The validity bitmap indicating which elements are non-null.
+    #[slot(0)]
     pub validity: Option<ArrayRef>,
 }
 

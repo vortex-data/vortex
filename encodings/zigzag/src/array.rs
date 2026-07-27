@@ -164,6 +164,7 @@ impl ArrayEq for ZigZagData {
 #[array_slots(ZigZag)]
 pub struct ZigZagSlots {
     /// The zigzag-encoded values (signed integers mapped to unsigned).
+    #[slot(0)]
     pub encoded: ArrayRef,
 }
 

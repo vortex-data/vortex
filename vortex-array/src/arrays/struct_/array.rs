@@ -34,8 +34,10 @@ use crate::validity::Validity;
 #[array_slots(Struct)]
 pub struct StructSlots {
     /// The optional row-level validity child.
+    #[slot(0)]
     pub validity: Option<ArrayRef>,
     /// The field arrays, one per struct field, all sharing the outer length.
+    #[slot(1..)]
     pub fields: Vec<ArrayRef>,
 }
 

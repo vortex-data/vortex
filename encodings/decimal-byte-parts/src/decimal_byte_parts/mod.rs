@@ -175,6 +175,7 @@ impl VTable for DecimalByteParts {
 #[array_slots(DecimalByteParts)]
 pub struct DecimalBytePartsSlots {
     /// The most significant parts of the decimal values.
+    #[slot(0)]
     pub msp: ArrayRef,
 }
 

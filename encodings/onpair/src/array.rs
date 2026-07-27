@@ -105,17 +105,22 @@ impl OnPairMetadata {
 pub struct OnPairSlots {
     /// Primitive integer dictionary offsets, length `dict_size + 1`. The
     /// cascading compressor may re-encode this child independently.
+    #[slot(0)]
     pub dict_offsets: ArrayRef,
     /// Primitive integer token codes. Downstream integer compression may
     /// narrow or bit-pack this child independently of the OnPair metadata.
+    #[slot(1)]
     pub codes: ArrayRef,
     /// Primitive integer row offsets into `codes`, length `num_rows + 1`. The
     /// cascading compressor may re-encode this child independently.
+    #[slot(2)]
     pub codes_offsets: ArrayRef,
     /// Integer decoded-length child, length `num_rows`. Used to size the
     /// canonical output buffer.
+    #[slot(3)]
     pub uncompressed_lengths: ArrayRef,
     /// Optional validity child for the outer string column.
+    #[slot(4)]
     pub validity: Option<ArrayRef>,
 }
 

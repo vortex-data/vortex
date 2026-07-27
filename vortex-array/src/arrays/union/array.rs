@@ -27,8 +27,10 @@ use crate::dtype::UnionVariants;
 #[array_slots(Union)]
 pub struct UnionSlots {
     /// The row-aligned array of type IDs selecting a union child.
+    #[slot(0)]
     pub type_ids: ArrayRef,
     /// The row-aligned sparse children in variant order.
+    #[slot(1..)]
     pub children: Vec<ArrayRef>,
 }
 

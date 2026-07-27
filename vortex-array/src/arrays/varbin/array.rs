@@ -34,8 +34,10 @@ use crate::validity::Validity;
 #[array_slots(VarBin)]
 pub struct VarBinSlots {
     /// The offsets array defining the start/end of each variable-length binary element.
+    #[slot(0)]
     pub offsets: ArrayRef,
     /// The validity bitmap indicating which elements are non-null.
+    #[slot(1)]
     pub validity: Option<ArrayRef>,
 }
 

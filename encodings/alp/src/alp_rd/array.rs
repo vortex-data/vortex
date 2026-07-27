@@ -313,14 +313,19 @@ impl VTable for ALPRD {
 #[array_slots(ALPRD)]
 pub struct ALPRDSlots {
     /// The left (most significant) parts of the real-double encoded values.
+    #[slot(0)]
     pub left_parts: ArrayRef,
     /// The right (least significant) parts of the real-double encoded values.
+    #[slot(1)]
     pub right_parts: ArrayRef,
     /// The indices of left-parts exception values that could not be dictionary-encoded.
+    #[slot(2)]
     pub patch_indices: Option<ArrayRef>,
     /// The exception values for left-parts that could not be dictionary-encoded.
+    #[slot(3)]
     pub patch_values: Option<ArrayRef>,
     /// Chunk offsets for the left-parts patch indices/values.
+    #[slot(4)]
     pub patch_chunk_offsets: Option<ArrayRef>,
 }
 

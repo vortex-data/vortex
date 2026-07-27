@@ -17,8 +17,10 @@ pub mod rle_decompress;
 #[array_slots(crate::RLE)]
 pub struct RLESlots {
     /// Run values in the dictionary.
+    #[slot(0)]
     pub values: ArrayRef,
     /// Chunk-local indices from all chunks. The start of each chunk is looked up in `values_idx_offsets`.
+    #[slot(1)]
     pub indices: ArrayRef,
     /// Index start positions of each value chunk.
     ///
@@ -29,6 +31,7 @@ pub struct RLESlots {
     /// let values = [10, 20, 30, 40];           // Global values array
     /// let values_idx_offsets = [0, 2];         // Chunk 0 starts at index 0, Chunk 1 starts at index 2
     /// ```
+    #[slot(2)]
     pub values_idx_offsets: ArrayRef,
 }
 

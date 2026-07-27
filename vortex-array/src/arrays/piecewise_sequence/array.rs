@@ -16,10 +16,13 @@ use crate::dtype::PType;
 #[array_slots(PiecewiseSequence)]
 pub struct PiecewiseSequenceSlots {
     /// The inclusive start index of each sequential piece.
+    #[slot(0)]
     pub starts: ArrayRef,
     /// The length of each sequential piece.
+    #[slot(1)]
     pub lengths: ArrayRef,
     /// The distance between consecutive indices in each piece.
+    #[slot(2)]
     pub multipliers: ArrayRef,
 }
 

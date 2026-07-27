@@ -39,8 +39,10 @@ use crate::validity::Validity;
 #[array_slots(Chunked)]
 pub struct ChunkedSlots {
     /// The non-nullable `u64` array of cumulative chunk offsets.
+    #[slot(0)]
     pub chunk_offsets: ArrayRef,
     /// The chunk arrays, each sharing the outer dtype.
+    #[slot(1..)]
     pub chunks: Vec<ArrayRef>,
 }
 

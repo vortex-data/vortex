@@ -345,6 +345,7 @@ impl Pco {
 #[array_slots(Pco)]
 pub struct PcoSlots {
     /// The validity bitmap indicating which elements are non-null.
+    #[slot(0)]
     pub validity: Option<ArrayRef>,
 }
 

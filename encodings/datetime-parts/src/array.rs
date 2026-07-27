@@ -212,10 +212,13 @@ impl VTable for DateTimeParts {
 #[array_slots(DateTimeParts)]
 pub struct DateTimePartsSlots {
     /// The days component of the datetime, stored as an integer array.
+    #[slot(0)]
     pub days: ArrayRef,
     /// The seconds component of the datetime (within the day).
+    #[slot(1)]
     pub seconds: ArrayRef,
     /// The sub-second component of the datetime.
+    #[slot(2)]
     pub subseconds: ArrayRef,
 }
 

@@ -117,8 +117,11 @@ pub type SparseArray = Array<Sparse>;
 
 #[vortex_array::array_slots(Sparse)]
 pub struct SparseSlots {
+    #[slot(0)]
     pub patch_indices: ArrayRef,
+    #[slot(1)]
     pub patch_values: ArrayRef,
+    #[slot(2)]
     pub patch_chunk_offsets: Option<ArrayRef>,
 }
 

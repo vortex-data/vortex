@@ -200,12 +200,16 @@ impl VTable for ALP {
 #[array_slots(ALP)]
 pub struct ALPSlots {
     /// The ALP-encoded values array.
+    #[slot(0)]
     pub encoded: ArrayRef,
     /// The indices of exception values that could not be ALP-encoded.
+    #[slot(1)]
     pub patch_indices: Option<ArrayRef>,
     /// The exception values that could not be ALP-encoded.
+    #[slot(2)]
     pub patch_values: Option<ArrayRef>,
     /// Chunk offsets for the patch indices/values.
+    #[slot(3)]
     pub patch_chunk_offsets: Option<ArrayRef>,
 }
 

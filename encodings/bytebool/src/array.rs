@@ -179,6 +179,7 @@ impl VTable for ByteBool {
 #[array_slots(ByteBool)]
 pub struct ByteBoolSlots {
     /// The validity bitmap indicating which elements are non-null.
+    #[slot(0)]
     pub validity: Option<ArrayRef>,
 }
 

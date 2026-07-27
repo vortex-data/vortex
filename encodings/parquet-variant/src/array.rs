@@ -53,12 +53,16 @@ use crate::ParquetVariantArray;
 #[array_slots(ParquetVariant)]
 pub struct ParquetVariantSlots {
     /// The validity bitmap indicating which elements are non-null.
+    #[slot(0)]
     pub validity: Option<ArrayRef>,
     /// The metadata array for the Parquet variant values.
+    #[slot(1)]
     pub metadata: ArrayRef,
     /// The value array containing the Parquet variant data.
+    #[slot(2)]
     pub value: Option<ArrayRef>,
     /// The typed value array for strongly-typed Parquet variant data.
+    #[slot(3)]
     pub typed_value: Option<ArrayRef>,
 }
 

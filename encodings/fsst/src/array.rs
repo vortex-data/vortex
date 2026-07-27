@@ -364,10 +364,13 @@ impl VTable for FSST {
 #[array_slots(FSST)]
 pub struct FSSTSlots {
     /// Lengths of the original values before compression, can be compressed.
+    #[slot(0)]
     pub uncompressed_lengths: ArrayRef,
     /// The offsets array for the FSST-compressed codes.
+    #[slot(1)]
     pub codes_offsets: ArrayRef,
     /// The validity bitmap for the compressed codes.
+    #[slot(2)]
     pub codes_validity: Option<ArrayRef>,
 }
 
