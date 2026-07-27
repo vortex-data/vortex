@@ -8,10 +8,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use vortex_session::ArcSwapMap;
+use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
 use vortex_session::registry::Id;
-use vortex_session::{ArcSwapMap, SessionExt};
 
 use crate::Edition;
 use crate::EditionDeclaration;
