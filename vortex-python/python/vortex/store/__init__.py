@@ -4,7 +4,7 @@
 from collections.abc import Callable
 from typing import TypeAlias, Unpack, overload
 
-from .._lib import store as _store
+from .._lib import store as _store  # pyright: ignore[reportMissingModuleSource]
 from ._aws import S3Config, S3Credential, S3CredentialProvider, S3Store
 from ._azure import (
     AzureAccessKey,

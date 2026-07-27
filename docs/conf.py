@@ -54,7 +54,12 @@ intersphinx_mapping = {
 git_root = Path(__file__).parent.parent
 
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
-nitpick_ignore = []
+nitpick_ignore = [
+    # `vortex.store.CosStore` is re-exported through the private `vortex.store._cos` module,
+    # and the `ObjectStore` type alias resolves to the private path. The public class is
+    # fully documented in `opendal.rst`; the private path is intentionally not.
+    ("py:class", "vortex.store._cos.CosStore"),
+]
 
 doctest_global_setup = "import pyarrow; import vortex; import vortex as vx; import random; random.seed(a=0)"
 doctest_default_flags = (
