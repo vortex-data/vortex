@@ -34,20 +34,23 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
 use crate::arrays::Variant;
 
+/// Registry of array encodings.
+pub type ArrayRegistry = ArcSwapMap<Id, ArrayPluginRef>;
+
 #[derive(Clone, Debug)]
 pub struct ArraySession {
     /// The set of registered array encodings.
-    registry: ArcSwapMap<Id, ArrayPluginRef>,
+    registry: ArrayRegistry,
 }
 
 impl ArraySession {
     pub fn empty() -> ArraySession {
         Self {
-            registry: ArcSwapMap::default(),
+            registry: ArrayRegistry::default(),
         }
     }
 
-    pub fn registry(&self) -> &ArcSwapMap<Id, ArrayPluginRef> {
+    pub fn registry(&self) -> &ArrayRegistry {
         &self.registry
     }
 
@@ -61,7 +64,7 @@ impl ArraySession {
 impl Default for ArraySession {
     fn default() -> Self {
         let this = ArraySession {
-            registry: ArcSwapMap::default(),
+            registry: ArrayRegistry::default(),
         };
 
         // Register the canonical encodings.

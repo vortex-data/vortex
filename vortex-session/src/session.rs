@@ -69,6 +69,9 @@ type IdHashBuilder = BuildHasherDefault<IdHasher>;
 /// The immutable type-map backing a published [`VortexSession`] snapshot.
 type SessionVars = HashMap<TypeId, Arc<dyn VortexSessionVar>, IdHashBuilder>;
 
+/// The shared, copy-on-write store that publishes [`SessionVars`] snapshots.
+type SharedSessionVars = ArcSwapMap<TypeId, Arc<dyn VortexSessionVar>, IdHashBuilder>;
+
 /// A reference to a session variable of type `V`, returned by [`SessionExt::get`] and
 /// [`SessionExt::get_opt`].
 ///
@@ -158,7 +161,7 @@ impl<V: VortexSessionVar> Debug for SessionMut<'_, V> {
 /// clone (via [`VortexSession::with_some`] or one of the `with_*` helpers) is observed by all
 /// clones. To build an *independent* session, start from [`VortexSession::empty`].
 #[derive(Clone)]
-pub struct VortexSession(ArcSwapMap<TypeId, Arc<dyn VortexSessionVar>, IdHashBuilder>);
+pub struct VortexSession(SharedSessionVars);
 
 impl Debug for VortexSession {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -170,7 +173,7 @@ impl Debug for VortexSession {
 impl VortexSession {
     /// Create a new [`VortexSession`] with no session state.
     pub fn empty() -> Self {
-        Self(ArcSwapMap::default())
+        Self(SharedSessionVars::default())
     }
 
     /// Inserts `V::default()` if no variable of type `V` is present yet, copy-on-write.

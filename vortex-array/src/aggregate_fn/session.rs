@@ -54,12 +54,11 @@ use crate::dtype::DType;
 /// [`VortexSession`](vortex_session::VortexSession).
 #[derive(Clone, Debug)]
 pub struct AggregateFnSession {
-    registry: ArcSwapMap<AggregateFnId, AggregateFnPluginRef>,
+    registry: AggregateFnRegistry,
 
-    kernels: ArcSwapMap<AggregateKernelKey, &'static dyn DynAggregateKernel>,
-    grouped_kernels: ArcSwapMap<AggregateFnId, &'static dyn DynGroupedAggregateKernel>,
-    grouped_encoding_kernels:
-        ArcSwapMap<GroupedEncodingKernelKey, &'static dyn DynGroupedAggregateKernel>,
+    kernels: AggregateKernelRegistry,
+    grouped_kernels: GroupedKernelRegistry,
+    grouped_encoding_kernels: GroupedEncodingKernelRegistry,
 }
 
 impl SessionVar for AggregateFnSession {
@@ -75,13 +74,23 @@ impl SessionVar for AggregateFnSession {
 type AggregateKernelKey = (ArrayId, Option<AggregateFnId>);
 type GroupedEncodingKernelKey = (ArrayId, AggregateFnId);
 
+/// Registry of aggregate function plugins, keyed by aggregate function id.
+type AggregateFnRegistry = ArcSwapMap<AggregateFnId, AggregateFnPluginRef>;
+/// Registry of aggregate kernels, keyed by encoding and optional aggregate function.
+type AggregateKernelRegistry = ArcSwapMap<AggregateKernelKey, &'static dyn DynAggregateKernel>;
+/// Registry of encoding-agnostic grouped aggregate kernels, keyed by aggregate function id.
+type GroupedKernelRegistry = ArcSwapMap<AggregateFnId, &'static dyn DynGroupedAggregateKernel>;
+/// Registry of grouped aggregate kernels, keyed by encoding and aggregate function.
+type GroupedEncodingKernelRegistry =
+    ArcSwapMap<GroupedEncodingKernelKey, &'static dyn DynGroupedAggregateKernel>;
+
 impl Default for AggregateFnSession {
     fn default() -> Self {
         let this = Self {
-            registry: ArcSwapMap::default(),
-            kernels: ArcSwapMap::default(),
-            grouped_kernels: ArcSwapMap::default(),
-            grouped_encoding_kernels: ArcSwapMap::default(),
+            registry: AggregateFnRegistry::default(),
+            kernels: AggregateKernelRegistry::default(),
+            grouped_kernels: GroupedKernelRegistry::default(),
+            grouped_encoding_kernels: GroupedEncodingKernelRegistry::default(),
         };
 
         // Register the built-in aggregate functions

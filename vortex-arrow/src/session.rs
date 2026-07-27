@@ -158,6 +158,13 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
 pub type ArrowExportVTableRef = Arc<dyn ArrowExportVTable>;
 pub type ArrowImportVTableRef = Arc<dyn ArrowImportVTable>;
 
+/// Registry of Arrow exporters, keyed by target Arrow extension [`Id`].
+type ArrowExporterRegistry = ArcSwapMap<Id, Arc<[ArrowExportVTableRef]>>;
+/// Registry of Arrow exporters, keyed by source Vortex extension [`ExtId`].
+type VortexExporterRegistry = ArcSwapMap<ExtId, Arc<[ArrowExportVTableRef]>>;
+/// Registry of Arrow importers, keyed by source Arrow extension [`Id`].
+type ArrowImporterRegistry = ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>;
+
 /// Session-scoped registry of Arrow extension plugins.
 ///
 /// Exporters are stored in two indices: one keyed by Arrow extension Id (used for
@@ -169,17 +176,17 @@ pub type ArrowImportVTableRef = Arc<dyn ArrowImportVTable>;
 /// need plugins.
 #[derive(Clone, Debug)]
 pub struct ArrowSession {
-    exporters: ArcSwapMap<Id, Arc<[ArrowExportVTableRef]>>,
-    exporters_by_vortex: ArcSwapMap<ExtId, Arc<[ArrowExportVTableRef]>>,
-    importers: ArcSwapMap<Id, Arc<[ArrowImportVTableRef]>>,
+    exporters: ArrowExporterRegistry,
+    exporters_by_vortex: VortexExporterRegistry,
+    importers: ArrowImporterRegistry,
 }
 
 impl Default for ArrowSession {
     fn default() -> Self {
         let session = Self {
-            exporters: ArcSwapMap::default(),
-            exporters_by_vortex: ArcSwapMap::default(),
-            importers: ArcSwapMap::default(),
+            exporters: ArrowExporterRegistry::default(),
+            exporters_by_vortex: VortexExporterRegistry::default(),
+            importers: ArrowImporterRegistry::default(),
         };
 
         session.register_exporter(Arc::new(Uuid));

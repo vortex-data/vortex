@@ -33,14 +33,17 @@ use crate::scalar_fn::fns::select::Select;
 use crate::scalar_fn::fns::stat::StatFn;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 
+/// Registry of scalar function vtables.
+pub type ScalarFnRegistry = ArcSwapMap<Id, ScalarFnPluginRef>;
+
 /// Session state for scalar function vtables and rewrite rules.
 #[derive(Clone, Debug)]
 pub struct ScalarFnSession {
-    registry: ArcSwapMap<Id, ScalarFnPluginRef>,
+    registry: ScalarFnRegistry,
 }
 
 impl ScalarFnSession {
-    pub fn registry(&self) -> &ArcSwapMap<Id, ScalarFnPluginRef> {
+    pub fn registry(&self) -> &ScalarFnRegistry {
         &self.registry
     }
 
@@ -54,7 +57,7 @@ impl ScalarFnSession {
 impl Default for ScalarFnSession {
     fn default() -> Self {
         let this = Self {
-            registry: ArcSwapMap::default(),
+            registry: ScalarFnRegistry::default(),
         };
 
         // Register built-in expressions.

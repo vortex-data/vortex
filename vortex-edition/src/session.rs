@@ -41,6 +41,9 @@ struct Inner {
     inclusions: BTreeMap<Id, EditionInclusion>,
 }
 
+/// Registry of enabled editions, keyed by interned edition family.
+type EditionsByFamily = ArcSwapMap<Id, EditionId>;
+
 /// The editions enabled for writing in a session.
 ///
 /// At most one edition is enabled per family. Enabling a newer or older edition from the
@@ -48,11 +51,11 @@ struct Inner {
 /// registration describes what a session knows how to reason about, while enabling is the
 /// explicit writer policy.
 ///
-/// Backed by the shared session [`ArcSwapMap`] keyed by edition family, so clones observe the
-/// same selection and enabling an edition replaces the family's previous entry.
+/// Backed by an [`ArcSwapMap`] keyed by edition family, so clones observe the same selection
+/// and enabling an edition replaces the family's previous entry.
 #[derive(Clone, Debug, Default)]
 pub struct EnabledEditions {
-    inner: ArcSwapMap<Id, EditionId>,
+    inner: EditionsByFamily,
 }
 
 impl EnabledEditions {

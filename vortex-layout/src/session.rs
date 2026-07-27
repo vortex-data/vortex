@@ -19,10 +19,13 @@ use crate::layouts::struct_::Struct;
 use crate::layouts::zoned::LegacyStats;
 use crate::layouts::zoned::Zoned;
 
+/// Registry of layout encodings.
+pub type LayoutRegistry = ArcSwapMap<Id, LayoutEncodingRef>;
+
 /// Session state for layout encodings.
 #[derive(Clone, Debug)]
 pub struct LayoutSession {
-    registry: ArcSwapMap<Id, LayoutEncodingRef>,
+    registry: LayoutRegistry,
 }
 
 impl LayoutSession {
@@ -40,7 +43,7 @@ impl LayoutSession {
     }
 
     /// Returns the layout encoding registry.
-    pub fn registry(&self) -> &ArcSwapMap<Id, LayoutEncodingRef> {
+    pub fn registry(&self) -> &LayoutRegistry {
         &self.registry
     }
 }
@@ -48,7 +51,7 @@ impl LayoutSession {
 impl Default for LayoutSession {
     fn default() -> Self {
         let this = Self {
-            registry: ArcSwapMap::default(),
+            registry: LayoutRegistry::default(),
         };
 
         // Register the built-in layout encodings.

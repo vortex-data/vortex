@@ -19,16 +19,19 @@ use crate::extension::datetime::Time;
 use crate::extension::datetime::Timestamp;
 use crate::extension::uuid::Uuid;
 
+/// Registry for extension dtypes.
+pub type ExtDTypeRegistry = ArcSwapMap<Id, ExtDTypePluginRef>;
+
 /// Session for managing extension dtypes.
 #[derive(Clone, Debug)]
 pub struct DTypeSession {
-    registry: ArcSwapMap<Id, ExtDTypePluginRef>,
+    registry: ExtDTypeRegistry,
 }
 
 impl Default for DTypeSession {
     fn default() -> Self {
         let this = Self {
-            registry: ArcSwapMap::default(),
+            registry: ExtDTypeRegistry::default(),
         };
 
         // Register built-in temporal extension dtypes
@@ -59,7 +62,7 @@ impl DTypeSession {
     }
 
     /// Return the registry of extension dtypes.
-    pub fn registry(&self) -> &ArcSwapMap<Id, ExtDTypePluginRef> {
+    pub fn registry(&self) -> &ExtDTypeRegistry {
         &self.registry
     }
 }
