@@ -7327,14 +7327,13 @@ dependencies = [
 
 [[package]]
 name = "reqsign-core"
-version = "3.1.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "514a1e0b4aa288652a3fdbda4f0a610f379cdf5374e55a37c9edd03d57ed856b"
+checksum = "7e38b44697c60a823705ccef85cb04d8e0527c9d16ed7c58bf1c6395bdd24ceb"
 dependencies = [
  "anyhow",
  "base64",
  "bytes",
- "form_urlencoded",
  "futures",
  "hex",
  "hmac",
@@ -7343,15 +7342,15 @@ dependencies = [
  "log",
  "percent-encoding",
  "sha1",
- "sha2 0.11.0",
+ "sha2",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "reqsign-file-read-tokio"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b472a8d1f2e5a4be8ce13bb7bdf4b59e9bee613ce124aca23959ddb42176b39"
+checksum = "688ff0ae421b8d4b92b53fdafaf53df2de28f428a9962edcf21702990b26f74b"
 dependencies = [
  "anyhow",
  "reqsign-core",
@@ -7360,9 +7359,9 @@ dependencies = [
 
 [[package]]
 name = "reqsign-tencent-cos"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f5c353c69bdbd6e3deb8b067a5547504cc155b7f024998fef005e37d65d646c"
+checksum = "f6497dd9f6e3d1349b420521484099b284f95e8d3a65f088fccef42493a7b644"
 dependencies = [
  "anyhow",
  "http",
@@ -9991,14 +9990,8 @@ dependencies = [
  "url",
  "vortex",
  "vortex-arrow",
- "vortex-object-store-opendal",
->>>>>>> 64006a996 (feat(vortex-python): Add OpenDAL-backed CosStore to the Python object-store API)
-=======
  "vortex-geo",
  "vortex-object-store-opendal",
-=======
- "vortex-object-store-opendal",
->>>>>>> 64006a996 (feat(vortex-python): Add OpenDAL-backed CosStore to the Python object-store API)
  "vortex-parquet-variant",
 ]
 
