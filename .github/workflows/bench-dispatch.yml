@@ -64,4 +64,4 @@ jobs:
     uses: ./.github/workflows/sql-pr.yml
     secrets: inherit
     with:
-      benchmark_profile: "full"
+      matrix_preset: "pr-full"
