@@ -16,9 +16,9 @@ struct ZigZagOp {
 };
 
 // Macro to generate the in-place ZigZag kernel for each type.
-#define GENERATE_ZIGZAG_KERNEL(suffix, UnsignedType)                                                  \
-    extern "C" __global__ void zigzag_##suffix(UnsignedType *__restrict values, uint64_t array_len) { \
-        scalar_kernel_inplace(values, array_len, ZigZagOp<UnsignedType> {});                           \
+#define GENERATE_ZIGZAG_KERNEL(suffix, UnsignedType)                                                         \
+    extern "C" __global__ void zigzag_##suffix(UnsignedType *__restrict values, uint64_t array_len) {        \
+        scalar_kernel_inplace(values, array_len, ZigZagOp<UnsignedType> {});                                 \
     }
 
 GENERATE_ZIGZAG_KERNEL(u8, uint8_t)
