@@ -132,8 +132,8 @@ use syn::spanned::Spanned;
 /// }
 /// ```
 ///
-/// The view field and ext trait accessor for the tail are a [`SlotSlice`], a
-/// borrowed run of required slots supporting `len()`, `get()`, `iter()`, and
+/// The view field and ext trait accessor for the tail are a `vortex_array::SlotSlice`,
+/// a borrowed run of required slots supporting `len()`, `get()`, `iter()`, and
 /// indexing:
 ///
 /// ```ignore
@@ -148,8 +148,6 @@ use syn::spanned::Spanned;
 ///     fn slots_view(&self) -> ChunkedSlotsView<'_> { ... }
 /// }
 /// ```
-///
-/// [`SlotSlice`]: ::vortex_array::SlotSlice
 #[proc_macro_attribute]
 pub fn array_slots(attr: TokenStream, item: TokenStream) -> TokenStream {
     let encoding = parse_macro_input!(attr as Path);

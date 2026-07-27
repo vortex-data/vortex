@@ -72,7 +72,6 @@ impl<'a> SlotSlice<'a> {
     }
 
     /// The number of slots in the run.
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.slots.len()
     }
