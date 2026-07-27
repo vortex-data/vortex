@@ -69,10 +69,9 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(short, long)]
     output_path: Option<PathBuf>,
-    /// Additionally write v3 JSONL records to this path. See
-    /// `benchmarks-website/planning/02-contracts.md`.
-    #[arg(long)]
-    gh_json_v3: Option<PathBuf>,
+    /// Additionally write benchmark ingest JSONL records to this path.
+    #[arg(long = "ingest-jsonl")]
+    ingest_output: Option<PathBuf>,
     #[arg(long)]
     tracing: bool,
     /// Format for the primary stderr log sink. `text` is the default human-readable format;
@@ -94,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
         args.ops,
         args.display_format,
         args.output_path,
-        args.gh_json_v3,
+        args.ingest_output,
     )
     .await
 }
@@ -123,7 +122,7 @@ async fn run_compress(
     ops: Vec<CompressOp>,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
-    gh_json_v3: Option<PathBuf>,
+    ingest_output: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let targets = formats
         .iter()
@@ -195,7 +194,7 @@ async fn run_compress(
 
     progress.finish();
 
-    if let Some(path) = gh_json_v3 {
+    if let Some(path) = ingest_output {
         v3::write_jsonl_to_path(&path, &v3_records)?;
     }
 

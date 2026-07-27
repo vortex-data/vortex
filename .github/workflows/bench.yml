@@ -94,7 +94,7 @@ jobs:
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          python3 scripts/random-access-split.py --v3
+          python3 scripts/random-access-split.py --emit-ingest-records
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         if: matrix.benchmark.id != 'random-access-bench'
@@ -104,7 +104,7 @@ jobs:
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json --gh-json-v3 results.v3.jsonl
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json --ingest-jsonl results.ingest.jsonl
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
@@ -153,7 +153,7 @@ jobs:
             -o "${RUNNER_TEMP}/rds-global-bundle.pem"
           DSN="postgresql://bench_ingest@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
           uv run --no-project --with 'psycopg[binary]' --with boto3 --with xxhash \
-            scripts/post-ingest.py results.v3.jsonl \
+            scripts/post-ingest.py results.ingest.jsonl \
             --postgres "${DSN}" \
             --commit-sha "${{ github.sha }}" \
             --region "${AWS_REGION}"

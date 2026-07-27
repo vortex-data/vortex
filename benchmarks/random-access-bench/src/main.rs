@@ -63,10 +63,9 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(short)]
     output_path: Option<PathBuf>,
-    /// Additionally write v3 JSONL records to this path. See
-    /// `benchmarks-website/planning/02-contracts.md`.
-    #[arg(long)]
-    gh_json_v3: Option<PathBuf>,
+    /// Additionally write benchmark ingest JSONL records to this path.
+    #[arg(long = "ingest-jsonl")]
+    ingest_output: Option<PathBuf>,
     /// Which datasets to benchmark random access on.
     #[arg(
         long,
@@ -105,7 +104,7 @@ async fn main() -> Result<()> {
         open_mode: args.open_mode,
         display_format: args.display_format,
         output_path: args.output_path,
-        gh_json_v3: args.gh_json_v3,
+        ingest_output: args.ingest_output,
     };
 
     random_access_bench::run(run_config).await

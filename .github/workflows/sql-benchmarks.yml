@@ -642,7 +642,7 @@ jobs:
           bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ steps.targets.outputs.targets_json }}' \
             --output results.json \
-            --gh-json-v3 results.v3.jsonl \
+            --ingest-jsonl results.ingest.jsonl \
             --no-build \
             --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
@@ -662,7 +662,7 @@ jobs:
           bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ steps.targets.outputs.targets_json }}' \
             --output results.json \
-            --gh-json-v3 results.v3.jsonl \
+            --ingest-jsonl results.ingest.jsonl \
             --no-build \
             --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
@@ -747,7 +747,7 @@ jobs:
             -o "${RUNNER_TEMP}/rds-global-bundle.pem"
           DSN="postgresql://bench_ingest@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
           uv run --no-project --with 'psycopg[binary]' --with boto3 --with xxhash \
-            scripts/post-ingest.py results.v3.jsonl \
+            scripts/post-ingest.py results.ingest.jsonl \
             --postgres "${DSN}" \
             --commit-sha "${{ github.sha }}" \
             --region "${AWS_REGION}"

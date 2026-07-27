@@ -119,32 +119,32 @@ def open_results_output(path: Path | None):
 
 
 @contextmanager
-def temporary_v3_output_dir(enabled: bool):
-    """Create a temporary directory for per-backend v3 JSONL files."""
+def temporary_ingest_output_dir(enabled: bool):
+    """Create a temporary directory for per-backend ingest JSONL files."""
     if not enabled:
         yield None
         return
 
-    with TemporaryDirectory(prefix="vx-bench-v3-") as temp_dir:
+    with TemporaryDirectory(prefix="vx-bench-ingest-") as temp_dir:
         yield Path(temp_dir)
 
 
-def backend_v3_output_path(temp_dir: Path | None, index: int, backend: Engine) -> Path | None:
-    """Return the v3 JSONL path a backend should write, if v3 output is enabled."""
+def backend_ingest_output_path(temp_dir: Path | None, index: int, backend: Engine) -> Path | None:
+    """Return the ingest JSONL path a backend should write, if enabled."""
     if temp_dir is None:
         return None
     return temp_dir / f"{index:02d}-{backend.value}.jsonl"
 
 
-def write_combined_v3_output(output_path: Path, input_paths: list[Path]) -> None:
-    """Concatenate successful per-backend v3 JSONL files into the requested output."""
+def write_combined_ingest_output(output_path: Path, input_paths: list[Path]) -> None:
+    """Concatenate successful per-backend ingest JSONL files into the requested output."""
     if output_path.parent != Path():
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with output_path.open("w", encoding="utf-8") as output:
         for input_path in input_paths:
             if not input_path.exists():
-                raise RuntimeError(f"v3 output was not written by benchmark backend: {input_path}")
+                raise RuntimeError(f"ingest output was not written by benchmark backend: {input_path}")
             with input_path.open("r", encoding="utf-8") as input_file:
                 for line in input_file:
                     output.write(line)
@@ -245,9 +245,9 @@ def run(
         Path | None,
         typer.Option("--output", help="Optional path for compatibility JSONL output"),
     ] = None,
-    gh_json_v3: Annotated[
+    ingest_output: Annotated[
         Path | None,
-        typer.Option("--gh-json-v3", help="Optional path for v3 JSONL records emitted by the benchmark binary"),
+        typer.Option("--ingest-jsonl", help="Optional path for ingest JSONL records emitted by the benchmark binary"),
     ] = None,
     options: Annotated[list[str] | None, typer.Option("--opt", help="Engine or benchmark specific options")] = None,
 ) -> None:
@@ -318,13 +318,13 @@ def run(
         with (
             store.create_run(config, build_config) as ctx,
             open_results_output(output) as compatibility_file,
-            temporary_v3_output_dir(gh_json_v3 is not None) as v3_temp_dir,
+            temporary_ingest_output_dir(ingest_output is not None) as ingest_temp_dir,
         ):
-            v3_output_parts: list[Path] = []
+            ingest_output_parts: list[Path] = []
             for backend_idx, (backend, backend_targets) in enumerate(backend_groups.items()):
                 executor = BenchmarkExecutor(binary_paths[backend], backend, verbose=verbose)
                 backend_formats = [target.format for target in backend_targets]
-                backend_gh_json_v3 = backend_v3_output_path(v3_temp_dir, backend_idx, backend)
+                backend_ingest_output = backend_ingest_output_path(ingest_temp_dir, backend_idx, backend)
 
                 try:
                     results = executor.run(
@@ -339,7 +339,7 @@ def run(
                         sample_rate=sample_rate,
                         tracing=tracing,
                         runner=runner,
-                        gh_json_v3=backend_gh_json_v3,
+                        ingest_output=backend_ingest_output,
                         on_result=lambda line, store_writer=ctx.write_raw_json, compatibility=compatibility_file: (
                             write_result_line(
                                 line,
@@ -348,8 +348,8 @@ def run(
                             )
                         ),
                     )
-                    if backend_gh_json_v3 is not None:
-                        v3_output_parts.append(backend_gh_json_v3)
+                    if backend_ingest_output is not None:
+                        ingest_output_parts.append(backend_ingest_output)
                     console.print(f"[green]{backend.value}: {len(results)} results[/green]")
                 except RuntimeError as exc:
                     ctx.metadata.partial = True
@@ -358,8 +358,8 @@ def run(
                     console.print(f"[red]{backend.value} failed: {exc}[/red]")
                     soft_failures.append(str(exc))
 
-            if gh_json_v3 is not None:
-                write_combined_v3_output(gh_json_v3, v3_output_parts)
+            if ingest_output is not None:
+                write_combined_ingest_output(ingest_output, ingest_output_parts)
 
             ctx.metadata.binaries = {backend.value: str(path) for backend, path in binary_paths.items()}
     except RuntimeError as exc:
