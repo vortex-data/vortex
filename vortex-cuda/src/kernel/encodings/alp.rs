@@ -85,9 +85,7 @@ where
 
     // Allocate output rounded up to a full chunk: the fused kernel writes a
     // whole 1024-element chunk per block, and we slice off any padding below.
-    let output_slice = ctx.device_alloc::<A>(array_len.next_multiple_of(1024))?;
-    let output_buf = CudaDeviceBuffer::new(output_slice);
-    let output_view = output_buf.as_view::<A>();
+    let mut output_slice = ctx.device_alloc::<A>(array_len.next_multiple_of(1024))?;
 
     // Patch validity does not need to be scattered: the ALP encoder strips null
     // positions from the exception list, so patches only exist at valid
@@ -116,7 +114,7 @@ where
     let array_len_u64 = array_len as u64;
     ctx.launch_kernel_config(&cuda_function, config, array_len, |args| {
         args.arg(&input_view)
-            .arg(&output_view)
+            .arg(&mut output_slice)
             .arg(&f)
             .arg(&e)
             .arg(&array_len_u64)
@@ -127,6 +125,7 @@ where
     ctx.synchronize_stream()?;
     drop(device_patches);
 
+    let output_buf = CudaDeviceBuffer::new(output_slice);
     let output_handle = BufferHandle::new_device(output_buf.slice_typed::<A>(0..array_len));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,

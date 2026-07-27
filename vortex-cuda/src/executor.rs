@@ -239,7 +239,8 @@ impl CudaExecutionCtx {
 
     /// Returns a launch builder for a CUDA kernel function.
     ///
-    /// Arguments can be added to the kernel launch with `.arg(buffer)`.
+    /// Arguments can be added to the kernel launch with `.arg(&buffer)`. Buffers written by the
+    /// kernel must be passed with `.arg(&mut buffer)` so their writes are tracked.
     ///
     /// # Arguments
     ///

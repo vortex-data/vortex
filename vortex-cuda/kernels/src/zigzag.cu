@@ -17,8 +17,7 @@ struct ZigZagOp {
     }
 };
 
-// Macro to generate ZigZag kernel for each type.
-// In-place operation: unsigned input, signed output (same size, reinterpret).
+// Macro to generate ZigZag kernels for each type.
 #define GENERATE_ZIGZAG_KERNEL(suffix, UnsignedType, SignedType)                                             \
     extern "C" __global__ void zigzag_##suffix(UnsignedType *__restrict values, uint64_t array_len) {        \
         scalar_kernel(values,                                                                                \
@@ -27,7 +26,19 @@ struct ZigZagOp {
                       ZigZagOp<UnsignedType, SignedType> {});                                                \
     }
 
+#define GENERATE_ZIGZAG_IN_OUT_KERNEL(suffix, UnsignedType, SignedType)                                      \
+    extern "C" __global__ void zigzag_in_out_##suffix(const UnsignedType *__restrict input,                 \
+                                                       SignedType *__restrict output,                        \
+                                                       uint64_t array_len) {                                 \
+        scalar_kernel(input, output, array_len, ZigZagOp<UnsignedType, SignedType> {});                      \
+    }
+
 GENERATE_ZIGZAG_KERNEL(u8, uint8_t, int8_t)
 GENERATE_ZIGZAG_KERNEL(u16, uint16_t, int16_t)
 GENERATE_ZIGZAG_KERNEL(u32, uint32_t, int32_t)
 GENERATE_ZIGZAG_KERNEL(u64, uint64_t, int64_t)
+
+GENERATE_ZIGZAG_IN_OUT_KERNEL(u8, uint8_t, int8_t)
+GENERATE_ZIGZAG_IN_OUT_KERNEL(u16, uint16_t, int16_t)
+GENERATE_ZIGZAG_IN_OUT_KERNEL(u32, uint32_t, int32_t)
+GENERATE_ZIGZAG_IN_OUT_KERNEL(u64, uint64_t, int64_t)

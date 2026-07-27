@@ -180,9 +180,7 @@ where
     let output_len = offset + len;
 
     // Allocate output buffer
-    let output_slice = ctx.device_alloc::<A>(output_len.next_multiple_of(1024))?;
-    let output_buf = CudaDeviceBuffer::new(output_slice);
-    let output_view = output_buf.as_view::<A>();
+    let mut output_slice = ctx.device_alloc::<A>(output_len.next_multiple_of(1024))?;
 
     let output_width = size_of::<A>() * 8;
     let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, ctx)?;
@@ -203,7 +201,7 @@ where
 
     ctx.launch_kernel_config(&cuda_function, config, output_len, |args| {
         args.arg(&input_view)
-            .arg(&output_view)
+            .arg(&mut output_slice)
             .arg(&reference)
             .arg(&patches_arg);
     })?;
@@ -213,6 +211,7 @@ where
         ctx.synchronize_stream()?;
     }
 
+    let output_buf = CudaDeviceBuffer::new(output_slice);
     let output_handle =
         BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
 

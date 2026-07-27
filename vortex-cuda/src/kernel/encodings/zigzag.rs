@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
@@ -11,6 +12,8 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::match_each_signed_integer_ptype;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
@@ -22,6 +25,7 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
 use crate::CudaBufferExt;
+use crate::CudaDeviceBuffer;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
@@ -50,20 +54,26 @@ impl CudaExecute for ZigZagExecutor {
         // The encoded array is unsigned, we decode to signed of the same width.
         let encoded_ptype = array.encoded().dtype().as_ptype();
         let output_ptype = PType::try_from(array.dtype())?;
+        vortex_ensure!(
+            output_ptype == encoded_ptype.to_signed(),
+            "ZigZag output type {output_ptype} must be the signed equivalent of {encoded_ptype}"
+        );
 
         match_each_unsigned_integer_ptype!(encoded_ptype, |U| {
-            decode_zigzag::<U>(array, output_ptype, ctx).await
+            match_each_signed_integer_ptype!(output_ptype, |S| {
+                decode_zigzag::<U, S>(array, ctx).await
+            })
         })
     }
 }
 
-async fn decode_zigzag<U>(
+async fn decode_zigzag<U, S>(
     array: ZigZagArray,
-    output_ptype: PType,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
 where
     U: NativePType + DeviceRepr + Send + Sync + 'static,
+    S: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
     vortex_ensure!(array_len > 0, "ZigZag array must not be empty");
@@ -76,22 +86,22 @@ where
     } = primitive.into_data_parts();
 
     let device_buffer = ctx.ensure_on_device(buffer).await?;
-
-    // Get CUDA view of the buffer
-    let cuda_view = device_buffer.cuda_view::<U>()?;
+    let input_view = device_buffer.cuda_view::<U>()?;
+    let mut output = ctx.device_alloc::<S>(array_len)?;
     let array_len_u64 = array_len as u64;
 
-    // Load kernel function
-    let cuda_function = ctx.load_function("zigzag", &[U::PTYPE])?;
+    let ptype_suffix = U::PTYPE.to_string();
+    let cuda_function =
+        ctx.load_function_with_suffixes("zigzag", &["in", "out", ptype_suffix.as_str()])?;
 
     ctx.launch_kernel(&cuda_function, array_len, |args| {
-        args.arg(&cuda_view).arg(&array_len_u64);
+        args.arg(&input_view).arg(&mut output).arg(&array_len_u64);
     })?;
 
-    // Build result - in-place, reinterpret as signed
+    let output = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output)));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-        device_buffer,
-        output_ptype,
+        output,
+        S::PTYPE,
         validity,
     )))
 }

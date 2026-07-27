@@ -21,6 +21,7 @@ use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -91,7 +92,7 @@ pub(crate) fn build_gpu_patches(
     }
 }
 
-/// Apply a set of patches in-place onto a [`CudaDeviceBuffer`] holding `ValuesT`.
+/// Apply a set of patches to a copy of a [`CudaDeviceBuffer`] holding `ValuesT`.
 ///
 /// Naive scatter kernel. Kept as a reusable fallback for encoders that cannot
 /// use the chunk-based fused patching path (e.g., where `chunk_offsets` are
@@ -152,20 +153,25 @@ pub(crate) async fn execute_patches<
     let d_patch_indices = ctx.ensure_on_device(indices_buffer).await?;
     let d_patch_values = ctx.ensure_on_device(values_buffer).await?;
 
-    let d_target_view = target.as_view::<ValuesT>();
+    let target_view = target.as_view::<ValuesT>();
+    let mut output = ctx.device_alloc::<ValuesT>(target_view.len())?;
+    ctx.stream()
+        .memcpy_dtod(&target_view, &mut output)
+        .map_err(|err| vortex_err!("Failed to copy CUDA patch target: {err}"))?;
+
     let d_patch_indices_view = d_patch_indices.cuda_view::<IndicesT>()?;
     let d_patch_values_view = d_patch_values.cuda_view::<ValuesT>()?;
 
     let kernel_func = ctx.load_function("patches", &[ValuesT::PTYPE, IndicesT::PTYPE])?;
 
     ctx.launch_kernel(&kernel_func, patches_len, |args| {
-        args.arg(&d_target_view)
+        args.arg(&mut output)
             .arg(&d_patch_indices_view)
             .arg(&d_patch_values_view)
             .arg(&patches_len_u64);
     })?;
 
-    Ok(target)
+    Ok(CudaDeviceBuffer::new(output))
 }
 
 #[cfg(test)]

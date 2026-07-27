@@ -487,11 +487,9 @@ where
             .await;
     }
 
-    let output_buffer = ctx.device_alloc::<D>(len)?;
-    let output_device = CudaDeviceBuffer::new(output_buffer);
+    let mut output_buffer = ctx.device_alloc::<D>(len)?;
 
     let values_view = values.cuda_view::<S>()?;
-    let output_view = output_device.as_view::<D>();
     let len_u64 = len as u64;
     let cuda_function = ctx.load_function_with_suffixes(
         "decimal_cast",
@@ -499,10 +497,12 @@ where
     )?;
 
     ctx.launch_kernel(&cuda_function, len, |args| {
-        args.arg(&values_view).arg(&output_view).arg(&len_u64);
+        args.arg(&values_view).arg(&mut output_buffer).arg(&len_u64);
     })?;
 
-    Ok(BufferHandle::new_device(Arc::new(output_device)))
+    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
+        output_buffer,
+    ))))
 }
 
 /// Export Vortex binary views as an Arrow Device array with `Utf8View`/`BinaryView` layout.
@@ -655,21 +655,25 @@ async fn export_binary_buffers(
     }
     let data_buffer_ptrs = device_buffer_from(ptr_values, ctx).await?;
     let data_buffer_lens = device_buffer_from(len_values, ctx).await?;
-    let status = device_buffer_from(vec![0u32], ctx).await?;
+    let mut status = ctx.device_alloc::<u32>(1)?;
+    ctx.stream()
+        .memset_zeros(&mut status)
+        .map_err(|err| vortex_err!("Failed to zero Arrow Binary status buffer: {err}"))?;
 
     let scan_input = init_binary_scan(
         views,
         validity,
         &data_buffer_lens,
         device_data_buffers.len(),
-        &status,
+        &mut status,
         len,
         ctx,
     )?;
     let output_offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
         exclusive_sum_i32(&scan_input, len + 1, ctx)?,
     )));
-    validate_binary_offsets(&output_offsets, len, &status, ctx)?;
+    validate_binary_offsets(&output_offsets, len, &mut status, ctx)?;
+    let status = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(status)));
 
     // One status read covers init_scan and offset validation. Both must pass before gather may
     // dereference view payloads through the scanned offsets. Enqueue both copies up front so the
@@ -726,7 +730,7 @@ fn init_binary_scan(
     validity: Option<&BufferHandle>,
     data_buffer_lens: &BufferHandle,
     data_buffer_count: usize,
-    status: &BufferHandle,
+    status: &mut CudaSlice<u32>,
     len: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<CudaSlice<i32>> {
@@ -738,18 +742,17 @@ fn init_binary_scan(
         .transpose()?
         .unwrap_or(0);
     let lens_view = data_buffer_lens.cuda_view::<u64>()?;
-    let status_view = status.cuda_view::<u32>()?;
     let data_buffer_count_u64 = data_buffer_count as u64;
     let len_u64 = len as u64;
-    let scan_input = ctx.device_alloc::<i32>(scan_len)?;
+    let mut scan_input = ctx.device_alloc::<i32>(scan_len)?;
     let kernel = ctx.load_function_with_suffixes("arrow_binary", &["init_scan"])?;
 
     ctx.launch_kernel(&kernel, scan_len, |args| {
         args.arg(&views_view)
             .arg(&validity_ptr)
             .arg(&lens_view)
-            .arg(&scan_input)
-            .arg(&status_view)
+            .arg(&mut scan_input)
+            .arg(&mut *status)
             .arg(&data_buffer_count_u64)
             .arg(&len_u64);
     })?;
@@ -763,17 +766,16 @@ fn init_binary_scan(
 fn validate_binary_offsets(
     offsets: &BufferHandle,
     len: usize,
-    status: &BufferHandle,
+    status: &mut CudaSlice<u32>,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<()> {
     let scan_len = len + 1;
     let offsets_view = offsets.cuda_view::<i32>()?;
-    let status_view = status.cuda_view::<u32>()?;
     let scan_len_u64 = scan_len as u64;
     let kernel = ctx.load_function_with_suffixes("arrow_binary", &["validate_offsets"])?;
 
     ctx.launch_kernel(&kernel, scan_len, |args| {
-        args.arg(&offsets_view).arg(&status_view).arg(&scan_len_u64);
+        args.arg(&offsets_view).arg(&mut *status).arg(&scan_len_u64);
     })
 }
 
@@ -785,7 +787,7 @@ fn gather_binary_values(
     len: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<BufferHandle> {
-    let output_values = ctx.device_alloc::<u8>(total_bytes.max(1))?;
+    let mut output_values = ctx.device_alloc::<u8>(total_bytes.max(1))?;
 
     if total_bytes != 0 {
         let views_view = views.cuda_view::<u8>()?;
@@ -799,7 +801,7 @@ fn gather_binary_values(
             args.arg(&views_view)
                 .arg(&ptrs_view)
                 .arg(&offsets_view)
-                .arg(&output_values)
+                .arg(&mut output_values)
                 .arg(&len_u64)
                 .arg(&total_bytes_u64);
         })?;
@@ -979,10 +981,8 @@ pub fn count_arrow_validity_nulls(
     ctx.stream()
         .memset_zeros(&mut count)
         .map_err(|err| vortex_err!("Failed to zero Arrow validity count buffer: {err}"))?;
-    let count = CudaDeviceBuffer::new(count);
 
     let input_view = bitmap.cuda_view::<u8>()?;
-    let output_view = count.as_view::<u64>();
     let len = u64::try_from(len)?;
     let arrow_offset = u64::try_from(arrow_offset)?;
 
@@ -998,14 +998,14 @@ pub fn count_arrow_validity_nulls(
     };
     ctx.launch_kernel_config(&kernel, config, expected_bytes, |args| {
         args.arg(&input_view)
-            .arg(&output_view)
+            .arg(&mut count)
             .arg(&len)
             .arg(&arrow_offset);
     })?;
 
     let valid_count = ctx
         .stream()
-        .clone_dtoh(&output_view)
+        .clone_dtoh(&count)
         .map_err(|err| vortex_err!("Failed to copy Arrow validity count to host: {err}"))?
         .into_iter()
         .next()
@@ -1055,12 +1055,9 @@ pub fn repack_arrow_validity_buffer(
     ctx.stream()
         .memset_zeros(&mut output)
         .map_err(|err| vortex_err!("Failed to zero Arrow validity buffer padding: {err}"))?;
-    // The memset above zeroed all allocation bytes after the logical output.
-    let output_device = CudaDeviceBuffer::new_with_zeroed_tail(output, output_bytes)?;
 
     if output_words > 0 {
         let input_view = input_buffer.cuda_view::<u8>()?;
-        let output_view = output_device.as_view::<u64>();
         let len = u64::try_from(len)?;
         let input_offset = u64::try_from(input_offset)?;
         let arrow_offset = u64::try_from(arrow_offset)?;
@@ -1076,7 +1073,7 @@ pub fn repack_arrow_validity_buffer(
         };
         ctx.launch_kernel_config(&kernel, config, output_words, |args| {
             args.arg(&input_view)
-                .arg(&output_view)
+                .arg(&mut output)
                 .arg(&len)
                 .arg(&input_offset)
                 .arg(&arrow_offset)
@@ -1084,6 +1081,8 @@ pub fn repack_arrow_validity_buffer(
         })?;
     }
 
+    // The memset above zeroed all allocation bytes after the logical output.
+    let output_device = CudaDeviceBuffer::new_with_zeroed_tail(output, output_bytes)?;
     Ok(BufferHandle::new_device(Arc::new(output_device)).slice(0..output_bytes))
 }
 
@@ -1255,13 +1254,13 @@ fn fixed_size_list_offsets(
     let output_len = len
         .checked_add(1)
         .ok_or_else(|| vortex_err!("FixedSizeList Arrow List offsets length overflows usize"))?;
-    let offsets = ctx.device_alloc::<i32>(output_len)?;
+    let mut offsets = ctx.device_alloc::<i32>(output_len)?;
     let base = 0i32;
     let output_len_u64 = output_len as u64;
     let kernel = ctx.load_function_with_suffixes("sequence", &["i32"])?;
 
     ctx.launch_kernel(&kernel, output_len, |args| {
-        args.arg(&offsets)
+        args.arg(&mut offsets)
             .arg(&base)
             .arg(&list_size)
             .arg(&output_len_u64);
