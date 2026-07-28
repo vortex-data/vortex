@@ -5,9 +5,7 @@ use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::GenericByteArray;
-use arrow_array::types::BinaryViewType;
 use arrow_array::types::ByteArrayType;
-use arrow_array::types::StringViewType;
 use arrow_schema::DataType;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -16,7 +14,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::Chunked;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::VarBin;
-use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::builders::DynVarBinBuilder;
 use vortex_array::builtins::ArrayBuiltins;
@@ -25,11 +22,9 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::matcher::Matcher;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::byte_view::execute_varbinview_to_arrow;
 use crate::executor::validity::to_arrow_null_buffer;
 
 /// Matches the encodings [`to_arrow_byte_array`] requires for export.
@@ -63,23 +58,19 @@ where
         );
     }
 
+    // Exporting Binary to Utf8 is the only combination that needs value validation, which
+    // `GenericByteArray::try_new` performs over the whole values buffer. Routing such exports
+    // through the builder guarantees the buffer is exactly the concatenated values, making
+    // whole-buffer validation equivalent to per-value validation.
     let source_is_utf8 = matches!(array.dtype(), DType::Utf8(_));
     let target_is_utf8 = matches!(T::DATA_TYPE, DataType::Utf8 | DataType::LargeUtf8);
-    if source_is_utf8 != target_is_utf8 {
-        let varbinview = array.execute::<VarBinViewArray>(ctx)?;
-        let binary_view = match varbinview.dtype() {
-            DType::Utf8(_) => execute_varbinview_to_arrow::<StringViewType>(&varbinview, ctx),
-            DType::Binary(_) => execute_varbinview_to_arrow::<BinaryViewType>(&varbinview, ctx),
-            _ => unreachable!("VarBinViewArray must have Utf8 or Binary dtype"),
-        }?;
-        return arrow_cast::cast(&binary_view, &T::DATA_TYPE).map_err(VortexError::from);
-    }
+    let validate_utf8 = target_is_utf8 && !source_is_utf8;
 
     let array = array.execute_until::<ArrowByteExportable>(ctx)?;
 
     // If the Vortex array is in VarBin format, we can directly convert it.
-    if let Some(array) = array.as_opt::<VarBin>() {
-        return varbin_to_byte_array::<T>(array, ctx);
+    if !validate_utf8 && let Some(array) = array.as_opt::<VarBin>() {
+        return varbin_to_byte_array::<T>(array, false, ctx);
     }
 
     let mut builder = DynVarBinBuilder::with_capacity(
@@ -88,12 +79,17 @@ where
         array.len(),
     );
     array.append_to_builder(&mut builder, ctx)?;
-    varbin_to_byte_array::<T>(builder.finish_into_varbin().as_view(), ctx)
+    varbin_to_byte_array::<T>(builder.finish_into_varbin().as_view(), validate_utf8, ctx)
 }
 
 /// Convert a Vortex VarBinArray into an Arrow GenericBinaryArray.
+///
+/// `validate_utf8` must be set when the Vortex dtype does not already guarantee the bytes are
+/// valid for `T` (i.e. Binary source, Utf8 target). Validation covers the whole bytes buffer, so
+/// callers must pass a compact array whose buffer holds only the concatenated values.
 fn varbin_to_byte_array<T: ByteArrayType>(
     array: ArrayView<'_, VarBin>,
+    validate_utf8: bool,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef>
 where
@@ -111,6 +107,13 @@ where
     let data = array.bytes().clone().into_arrow_buffer();
 
     let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;
+    if validate_utf8 {
+        return Ok(Arc::new(GenericByteArray::<T>::try_new(
+            offsets,
+            data,
+            null_buffer,
+        )?));
+    }
     Ok(Arc::new(unsafe {
         GenericByteArray::<T>::new_unchecked(offsets, data, null_buffer)
     }))
@@ -180,13 +183,13 @@ mod tests {
     }
 
     #[rstest]
-    // Utf8 source can convert to all string types and binary types (via arrow_cast)
+    // Utf8 source can convert to all string types and binary types
     #[case::utf8_to_binary(make_utf8_array(), DataType::Binary)]
     #[case::utf8_to_large_binary(make_utf8_array(), DataType::LargeBinary)]
     #[case::utf8_to_utf8(make_utf8_array(), DataType::Utf8)]
     #[case::utf8_to_large_utf8(make_utf8_array(), DataType::LargeUtf8)]
     #[case::utf8_to_utf8_view(make_utf8_array(), DataType::Utf8View)]
-    // Binary source can convert to all binary types and string types (via arrow_cast)
+    // Binary source can convert to all binary types and string types
     #[case::binary_to_binary(make_binary_array(), DataType::Binary)]
     #[case::binary_to_large_binary(make_binary_array(), DataType::LargeBinary)]
     #[case::binary_to_utf8(make_binary_array(), DataType::Utf8)]
@@ -260,6 +263,26 @@ mod tests {
         assert!(!arrow.is_null(0));
         assert!(arrow.is_null(1));
         assert!(!arrow.is_null(2));
+    }
+
+    #[rstest]
+    #[case(DataType::Utf8)]
+    #[case(DataType::LargeUtf8)]
+    fn binary_with_invalid_utf8_to_string_returns_error(#[case] target_dtype: DataType) {
+        let vortex_array = VarBinViewArray::from_iter_bin([
+            b"hello".as_slice(),
+            b"\xff\xfe invalid utf8".as_slice(),
+        ]);
+
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+        let field = Field::new("test_field", target_dtype, true);
+        let result =
+            session
+                .arrow()
+                .execute_arrow(vortex_array.into_array(), Some(&field), &mut ctx);
+
+        assert!(result.is_err());
     }
 
     #[rstest]
