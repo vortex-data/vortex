@@ -102,8 +102,8 @@ runs:
           cat "$upload_log"
 
           if [[ "$status" -ne 0 ]]; then
-            if grep -Eiq "upload id mismatch|already exists|AlreadyExists" "$upload_log"; then
-              echo "::notice::Debuginfo already uploaded for $binary; continuing"
+            if grep -Eiq "upload id mismatch|already exists|AlreadyExists|previous upload is still in-progress|not stale yet|only stale uploads can be retried" "$upload_log"; then
+              echo "::notice::Debuginfo upload already exists or is in progress for $binary; continuing"
             else
               exit "$status"
             fi
