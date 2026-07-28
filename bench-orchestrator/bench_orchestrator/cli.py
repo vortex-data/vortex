@@ -161,7 +161,7 @@ def drop_os_caches() -> None:
             check=True,
             capture_output=True,
         )
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, subprocess.CalledProcessError):
         pass
 
 
