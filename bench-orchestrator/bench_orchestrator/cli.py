@@ -132,7 +132,7 @@ def temporary_ingest_output_dir(enabled: bool):
 
 
 def backend_ingest_output_path(temp_dir: Path | None, index: int, backend: Engine) -> Path | None:
-    """Return the ingest JSONL path a backend should write, if enabled."""
+    """Return the ingest JSONL path a single benchmark run should write, if enabled."""
     if temp_dir is None:
         return None
     return temp_dir / f"{index:02d}-{backend.value}.jsonl"
@@ -150,6 +150,19 @@ def write_combined_ingest_output(output_path: Path, input_paths: list[Path]) -> 
             with input_path.open("r", encoding="utf-8") as input_file:
                 for line in input_file:
                     output.write(line)
+
+
+def drop_os_caches() -> None:
+    """Try to drop OS caches and "sync" if runners have passwordless sudo"""
+    try:
+        subprocess.run(["sync"], check=True)
+        subprocess.run(
+            ["sudo", "-n", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"],
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        pass
 
 
 def write_result_line(line: str, store_writer, compatibility_file) -> None:
@@ -347,42 +360,46 @@ def run(
             temporary_ingest_output_dir(ingest_output is not None) as ingest_temp_dir,
         ):
             ingest_output_parts: list[Path] = []
-            for backend_idx, (backend, backend_targets) in enumerate(backend_groups.items()):
+            run_idx = 0
+            for backend, backend_targets in backend_groups.items():
                 executor = BenchmarkExecutor(binary_paths[backend], backend, verbose=verbose)
-                backend_formats = [target.format for target in backend_targets]
-                backend_ingest_output = backend_ingest_output_path(ingest_temp_dir, backend_idx, backend)
+                for target in backend_targets:
+                    part_ingest_output = backend_ingest_output_path(ingest_temp_dir, run_idx, backend)
+                    run_idx += 1
 
-                try:
-                    results = executor.run(
-                        benchmark=benchmark,
-                        formats=backend_formats,
-                        queries=query_list,
-                        exclude_queries=exclude_list,
-                        iterations=iterations,
-                        options=bench_opts,
-                        track_memory=track_memory,
-                        samply=samply,
-                        sample_rate=sample_rate,
-                        tracing=tracing,
-                        runner=runner,
-                        ingest_output=backend_ingest_output,
-                        on_result=lambda line, store_writer=ctx.write_raw_json, compatibility=compatibility_file: (
-                            write_result_line(
-                                line,
-                                store_writer,
-                                compatibility,
-                            )
-                        ),
-                    )
-                    if backend_ingest_output is not None:
-                        ingest_output_parts.append(backend_ingest_output)
-                    console.print(f"[green]{backend.value}: {len(results)} results[/green]")
-                except RuntimeError as exc:
-                    ctx.metadata.partial = True
-                    if strict_failures:
-                        raise
-                    console.print(f"[red]{backend.value} failed: {exc}[/red]")
-                    soft_failures.append(str(exc))
+                    drop_os_caches()
+
+                    try:
+                        results = executor.run(
+                            benchmark=benchmark,
+                            formats=[target.format],
+                            queries=query_list,
+                            exclude_queries=exclude_list,
+                            iterations=iterations,
+                            options=bench_opts,
+                            track_memory=track_memory,
+                            samply=samply,
+                            sample_rate=sample_rate,
+                            tracing=tracing,
+                            runner=runner,
+                            ingest_output=part_ingest_output,
+                            on_result=lambda line, store_writer=ctx.write_raw_json, compatibility=compatibility_file: (
+                                write_result_line(
+                                    line,
+                                    store_writer,
+                                    compatibility,
+                                )
+                            ),
+                        )
+                        if part_ingest_output is not None:
+                            ingest_output_parts.append(part_ingest_output)
+                        console.print(f"[green]{target}: {len(results)} results[/green]")
+                    except RuntimeError as exc:
+                        ctx.metadata.partial = True
+                        if strict_failures:
+                            raise
+                        console.print(f"[red]{target} failed: {exc}[/red]")
+                        soft_failures.append(str(exc))
 
             if ingest_output is not None:
                 write_combined_ingest_output(ingest_output, ingest_output_parts)
