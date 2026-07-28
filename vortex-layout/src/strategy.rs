@@ -125,7 +125,6 @@ impl From<ArrayContext> for LayoutWriterContext {
     }
 }
 
-// [layout writer]
 /// Writes an ordered array stream into a layout tree and segment sink.
 ///
 /// Layout strategies are writer-side extension points. Strategies may repartition, buffer,
@@ -246,7 +245,6 @@ impl LayoutStrategy for Arc<dyn LayoutStrategy> {
             .await
     }
 }
-// [layout writer]
 
 #[cfg(test)]
 mod tests {
