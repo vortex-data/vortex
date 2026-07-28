@@ -22,7 +22,6 @@ from typing import Any
 import numpy as np
 import orjson
 import pandas as pd
-from polarsignals_url import build_query_url_from_env
 
 # Analysis overview:
 # - Join base and PR benchmark rows on benchmark identity.
@@ -810,15 +809,6 @@ def format_report_help() -> str:
     )
 
 
-def format_polarsignals_link() -> str | None:
-    """Render the Polar Signals profile link for the current benchmark run."""
-
-    url = build_query_url_from_env()
-    if url is None:
-        return None
-    return f"**Profile**: [Polar Signals]({url})"
-
-
 ENGINE_ORDER = {
     "vortex": 0,
     "datafusion": 1,
@@ -903,10 +893,6 @@ def main() -> None:
         summary_fields.append(f"**Attributed Vortex impact**: {verdict['impact']}")
     if engine_summary is not None:
         summary_fields.append(f"**Engines**: {engine_summary}")
-
-    profile_link = format_polarsignals_link()
-    if profile_link is not None:
-        summary_fields.append(profile_link)
 
     if len(vortex_df) > 0:
         vortex_performance = format_performance(

@@ -81,8 +81,9 @@ jobs:
         uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ github.sha }};benchmark=${{ matrix.benchmark.id }}"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          job_name: "${{ matrix.benchmark.id }}"
           profiling_frequency: 199
           extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
 

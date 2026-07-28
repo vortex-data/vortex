@@ -31,6 +31,7 @@ pub fn get_labelset_from_global() -> Labelset {
 
 pub fn set_labels(benchmark_name: String, query_idx: usize, format: Format) -> Labelset {
     let labels = vec![
+        ("engine", "datafusion".to_string()),
         ("benchmark_name", benchmark_name),
         ("query_idx", query_idx.to_string()),
         ("format", format.to_string()),
