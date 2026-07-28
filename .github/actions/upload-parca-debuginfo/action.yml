@@ -1,5 +1,5 @@
-name: "Upload Parca debuginfo"
-description: "Upload debuginfo for built binaries to Polar Signals Cloud"
+name: "Pre-upload benchmark debuginfo to Polar Signals"
+description: "Install parca-debuginfo and upload built benchmark binaries to Polar Signals Cloud"
 
 inputs:
   paths:
@@ -27,7 +27,7 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Install parca-debuginfo
+    - name: Download and verify parca-debuginfo CLI
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
@@ -56,7 +56,7 @@ runs:
 
         echo "$PWD" >> "$GITHUB_PATH"
 
-    - name: Upload debuginfo
+    - name: Upload benchmark binary debuginfo to Polar Signals
       shell: bash
       env:
         PATHS: ${{ inputs.paths }}
