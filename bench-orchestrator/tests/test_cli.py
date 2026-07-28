@@ -50,7 +50,7 @@ def test_prepare_data_uses_formats_json(tmp_path, monkeypatch) -> None:
 def test_run_writes_compatibility_results_output(tmp_path, monkeypatch) -> None:
     run_store = ResultStore(base_dir=tmp_path / "runs")
     output_path = tmp_path / "artifacts" / "results.json"
-    binary_path = tmp_path / "datafusion-bench"
+    binary_path = tmp_path / "df-bench"
     binary_path.write_text("", encoding="utf-8")
 
     sample_line = json.dumps(
@@ -111,7 +111,7 @@ def test_run_combines_ingest_output_per_backend(tmp_path, monkeypatch) -> None:
     run_store = ResultStore(base_dir=tmp_path / "runs")
     output_path = tmp_path / "artifacts" / "results.ingest.jsonl"
     binary_paths = {
-        cli_module.Engine.DATAFUSION: tmp_path / "datafusion-bench",
+        cli_module.Engine.DATAFUSION: tmp_path / "df-bench",
         cli_module.Engine.DUCKDB: tmp_path / "duckdb-bench",
     }
     for binary_path in binary_paths.values():

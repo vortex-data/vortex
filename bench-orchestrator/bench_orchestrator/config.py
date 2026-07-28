@@ -20,7 +20,16 @@ class Engine(Enum):
 
     @property
     def binary_name(self) -> str:
-        """Return the cargo binary name for this engine when used to execute benchmarks."""
+        """Return the benchmark executable name for this engine."""
+        return {
+            Engine.DUCKDB: "duckdb-bench",
+            Engine.DATAFUSION: "df-bench",
+            Engine.LANCE: "lance-bench",
+        }[self]
+
+    @property
+    def package_name(self) -> str:
+        """Return the Cargo package name that provides this engine's benchmark binary."""
         return {
             Engine.DUCKDB: "duckdb-bench",
             Engine.DATAFUSION: "datafusion-bench",

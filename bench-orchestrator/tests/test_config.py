@@ -123,3 +123,8 @@ def test_group_targets_by_backend_routes_lance_to_lance_binary() -> None:
         Engine.DUCKDB,
     ]
     assert groups[Engine.LANCE] == [BenchmarkTarget(engine=Engine.DATAFUSION, format=Format.LANCE)]
+
+
+def test_datafusion_package_and_binary_names_are_distinct() -> None:
+    assert Engine.DATAFUSION.package_name == "datafusion-bench"
+    assert Engine.DATAFUSION.binary_name == "df-bench"
