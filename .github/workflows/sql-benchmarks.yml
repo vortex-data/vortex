@@ -212,6 +212,11 @@ jobs:
           # this action will *update* the comment instead of posting a new comment.
           comment-tag: bench-pr-comment-${{ matrix.id }}
 
+      - name: Print Parca log
+        shell: bash
+        run: |
+          cat ${{ runner.temp }}/parca-agent.log
+
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@24bffb9b452ba05a4f3f77933840a6a841d1b32b  # v3
