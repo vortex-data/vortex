@@ -19,6 +19,7 @@ ignored = ["vortex-cuda"]
 
 [[bin]]
 name = "datafusion-bench"
+path = "src/main.rs"
 test = false
 
 [lib]

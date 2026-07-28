@@ -199,6 +199,7 @@ fn main() -> anyhow::Result<()> {
         },
         |ctx, query_idx, format, query| {
             set_global_labels(vec![
+                ("engine", "duckdb".to_string()),
                 ("format", format.to_string()),
                 ("benchmark_name", benchmark_name.clone()),
                 ("query_idx", query_idx.to_string()),

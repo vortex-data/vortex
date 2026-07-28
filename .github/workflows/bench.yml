@@ -66,25 +66,35 @@ jobs:
         run: |
           wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip | funzip > duckdb
           chmod +x duckdb
-          echo "$PWD" >> $GITHUB_PATH
+          echo "$PWD" >> "$GITHUB_PATH"
 
       - uses: ./.github/actions/system-info
 
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
           cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
+
+      - name: Pre-upload benchmark debuginfo to Polar Signals
+        uses: ./.github/actions/upload-parca-debuginfo
+        with:
+          paths: |
+            target/release_debug/${{ matrix.benchmark.id }}
+          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ github.sha }};benchmark=${{ matrix.benchmark.id }}"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          job_name: "${{ matrix.benchmark.id }}"
           profiling_frequency: 199
-          extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
+          extra_args: "--debuginfo-strip=false"
+          parca_agent_version: "0.49.0"
 
       - name: Run ${{ matrix.benchmark.name }} benchmark (per-combination)
         if: matrix.benchmark.id == 'random-access-bench'

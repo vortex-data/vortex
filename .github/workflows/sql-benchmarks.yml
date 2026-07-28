@@ -90,13 +90,24 @@ jobs:
       - name: Build binaries
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
           packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
           if [ "${{ inputs.mode }}" != "pr" ]; then
             packages+=(--bin lance-bench)
           fi
           cargo build "${packages[@]}" --profile release_debug --features unstable_encodings
+
+      - name: Pre-upload SQL benchmark debuginfo to Polar Signals
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        uses: ./.github/actions/upload-parca-debuginfo
+        with:
+          paths: |
+            target/release_debug/datafusion-bench
+            target/release_debug/duckdb-bench
+            ${{ inputs.mode != 'pr' && 'target/release_debug/lance-bench' || '' }}
+          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
 
       - name: Generate data
         shell: bash
@@ -131,10 +142,12 @@ jobs:
         uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}"
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }};benchmark=${{ matrix.id }}"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          job_name: "${{ matrix.id }}"
           profiling_frequency: 199
-          extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
+          extra_args: "--debuginfo-strip=false"
+          parca_agent_version: "0.49.0"
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
