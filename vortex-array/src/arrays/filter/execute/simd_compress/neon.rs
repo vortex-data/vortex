@@ -39,6 +39,8 @@ use super::super::slice::for_each_mask_word;
 use super::super::slice::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
+use super::compress_lut;
+use super::compress_tail;
 
 /// The mask-density band in which the kernel for `T` beats both scalar strategies.
 ///
@@ -90,77 +92,10 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Optio
     }
 }
 
-/// Build the `tbl` index rows for one element width: `lut[m]` gathers the lanes selected by
-/// mask `m` into the front of the vector, leaving the trailing bytes as don't-care zeros.
-///
-/// `BYTES` is the table width and `ROWS` must cover every mask value over the `BYTES /
-/// elem_size` lanes it holds; both are checked at compile time by the `static` initializers.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "byte indices are bounded by the 8- or 16-byte table width"
-)]
-const fn compress_lut<const ROWS: usize, const BYTES: usize>(
-    elem_size: usize,
-) -> [[u8; BYTES]; ROWS] {
-    let lanes = BYTES / elem_size;
-    assert!(ROWS == 1 << lanes);
-
-    let mut lut = [[0u8; BYTES]; ROWS];
-    let mut m = 0;
-    while m < ROWS {
-        let mut out_lane = 0;
-        let mut lane = 0;
-        while lane < lanes {
-            if m & (1 << lane) != 0 {
-                let mut byte = 0;
-                while byte < elem_size {
-                    lut[m][out_lane * elem_size + byte] = (lane * elem_size + byte) as u8;
-                    byte += 1;
-                }
-                out_lane += 1;
-            }
-            lane += 1;
-        }
-        m += 1;
-    }
-    lut
-}
-
-static IDX_LUT_8: [[u8; 8]; 256] = compress_lut::<256, 8>(1);
-static IDX_LUT_16: [[u8; 16]; 256] = compress_lut::<256, 16>(2);
-static IDX_LUT_32: [[u8; 16]; 16] = compress_lut::<16, 16>(4);
-static IDX_LUT_64: [[u8; 16]; 4] = compress_lut::<4, 16>(8);
-
-/// Compact the elements selected by `bits` (bit `i` selects element `base + i`) one at a time.
-///
-/// Used for the final partial chunk of a mask word, where a full-width vector load would read
-/// past the end of the source. A mask has at most two such chunks — one for an unaligned
-/// leading word and one for the trailing word — so this never runs in the hot loop.
-///
-/// # Safety
-///
-/// The pointer contract of [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
-/// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold, and `bits` must
-/// only select elements that are in bounds.
-#[inline(always)]
-unsafe fn compress_tail<const IN_PLACE: bool>(
-    src: *const u8,
-    dst: *mut u8,
-    mut bits: u64,
-    base: usize,
-    mut write_pos: usize,
-    elem_size: usize,
-) -> usize {
-    while bits != 0 {
-        let index = base + bits.trailing_zeros() as usize;
-        // SAFETY: `index` is in bounds per the contract above and stable compaction guarantees
-        // `write_pos <= index`.
-        unsafe { bulk_copy::<IN_PLACE>(src, dst, index, 1, write_pos, elem_size) };
-        write_pos += 1;
-        bits &= bits - 1;
-    }
-    write_pos
-}
+static IDX_LUT_8: [[u8; 8]; 256] = compress_lut::<256, 8>(8, 1);
+static IDX_LUT_16: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 2);
+static IDX_LUT_32: [[u8; 16]; 16] = compress_lut::<16, 16>(4, 4);
+static IDX_LUT_64: [[u8; 16]; 4] = compress_lut::<4, 16>(2, 8);
 
 /// Generate a NEON `tbl` kernel for one element width: a per-word compress (`$word_fn`) plus
 /// the mask-word walk (`$walk_fn`) that drives it. Each chunk of `$lanes` mask bits indexes

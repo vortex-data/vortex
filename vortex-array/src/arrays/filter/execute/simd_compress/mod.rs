@@ -10,12 +10,16 @@
 //!
 //! - AVX-512: `vpcompress[b/w/d/q]` consumes each mask (sub)word directly as the `k`-register
 //!   (AVX-512F for 4/8-byte elements, additionally VBMI2 for 1/2-byte elements).
-//! - AVX2 (4/8-byte elements only): a per-mask-byte (or nibble) permutation LUT feeding
-//!   `vpermd`, a vectorized version of the scalar `BYTE_COMPRESS_LUT`. AVX2 has no cross-lane
-//!   byte shuffle, so 1/2-byte elements stay on the scalar byte-LUT below AVX-512.
-//! - NEON: `tbl` with a byte-index LUT. `tbl` *is* a cross-lane byte shuffle, so unlike AVX2 it
-//!   serves every element width, but its table is one register, so wide elements get few lanes
-//!   per shuffle.
+//! - AVX2, 4/8-byte elements: a per-mask-byte (or nibble) lane-index LUT feeding `vpermd`, a
+//!   vectorized version of the scalar `BYTE_COMPRESS_LUT`.
+//! - AVX2, 1/2-byte elements: a byte-index LUT feeding 128-bit `pshufb`. `pshufb` only shuffles
+//!   within a 128-bit lane, but eight lanes of a 1- or 2-byte element need at most a 16-byte
+//!   table, so one lane is all the table has to span.
+//! - NEON: the same byte-index LUT construction feeding `tbl`, which unlike `pshufb` spans a
+//!   whole register, so it also serves 4- and 8-byte elements.
+//!
+//! The byte-shuffle kernels (`pshufb`/`tbl`) share [`compress_lut`] and [`compress_tail`]; only
+//! the load/shuffle/store intrinsics differ.
 //!
 //! x86 selects a kernel per buffer by runtime feature detection (`is_x86_feature_detected!`
 //! caches per feature, so this stays cheap); NEON is part of the aarch64 baseline and needs no
@@ -121,6 +125,77 @@ fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
         let _ = mask;
         None
     }
+}
+
+/// Build the byte-shuffle index rows for one element width: `lut[m]` gathers the lanes selected
+/// by mask `m` into the front of the vector, leaving the trailing bytes as don't-care zeros.
+///
+/// `BYTES` is the table width, which may exceed the `lanes * elem_size` bytes the mask covers —
+/// `pshufb` always indexes a full 16-byte register even when only its low half holds lanes. Both
+/// `ROWS == 1 << lanes` and the table fit are checked at compile time by the `static`
+/// initializers.
+#[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(miri)))]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "byte indices are bounded by the 8- or 16-byte table width"
+)]
+const fn compress_lut<const ROWS: usize, const BYTES: usize>(
+    lanes: usize,
+    elem_size: usize,
+) -> [[u8; BYTES]; ROWS] {
+    assert!(ROWS == 1 << lanes);
+    assert!(lanes * elem_size <= BYTES);
+
+    let mut lut = [[0u8; BYTES]; ROWS];
+    let mut m = 0;
+    while m < ROWS {
+        let mut out_lane = 0;
+        let mut lane = 0;
+        while lane < lanes {
+            if m & (1 << lane) != 0 {
+                let mut byte = 0;
+                while byte < elem_size {
+                    lut[m][out_lane * elem_size + byte] = (lane * elem_size + byte) as u8;
+                    byte += 1;
+                }
+                out_lane += 1;
+            }
+            lane += 1;
+        }
+        m += 1;
+    }
+    lut
+}
+
+/// Compact the elements selected by `bits` (bit `i` selects element `base + i`) one at a time.
+///
+/// Used for the final partial chunk of a mask word, where a full-width vector load would read
+/// past the end of the source. A mask has at most two such chunks — one for an unaligned leading
+/// word and one for the trailing word — so this never runs in the hot loop.
+///
+/// # Safety
+///
+/// The pointer contract of [`filter_slice_by_bitmap`] / [`filter_slice_mut_by_bitmap`] must hold,
+/// and `bits` must only select elements that are in bounds.
+#[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(miri)))]
+#[inline(always)]
+unsafe fn compress_tail<const IN_PLACE: bool>(
+    src: *const u8,
+    dst: *mut u8,
+    mut bits: u64,
+    base: usize,
+    mut write_pos: usize,
+    elem_size: usize,
+) -> usize {
+    while bits != 0 {
+        let index = base + bits.trailing_zeros() as usize;
+        // SAFETY: `index` is in bounds per the contract above and stable compaction guarantees
+        // `write_pos <= index`.
+        unsafe { bulk_copy::<IN_PLACE>(src, dst, index, 1, write_pos, elem_size) };
+        write_pos += 1;
+        bits &= bits - 1;
+    }
+    write_pos
 }
 
 /// Copy `word_len` elements of `elem_size` bytes for a fully-set mask word.

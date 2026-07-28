@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! AVX-512 `vpcompress` and AVX2 `vpermd` compress kernels.
+//! AVX-512 `vpcompress`, AVX2 `vpermd`, and 128-bit `pshufb` compress kernels.
 //!
 //! See the [module docs](super) for how these fit the shared dispatch.
 
+use std::arch::x86_64::__m128i;
+use std::arch::x86_64::_mm_loadl_epi64;
+use std::arch::x86_64::_mm_loadu_si128;
+use std::arch::x86_64::_mm_shuffle_epi8;
+use std::arch::x86_64::_mm_storel_epi64;
+use std::arch::x86_64::_mm_storeu_si128;
 use std::arch::x86_64::_mm256_loadu_si256;
 use std::arch::x86_64::_mm256_maskload_epi32;
 use std::arch::x86_64::_mm256_maskload_epi64;
@@ -39,6 +45,8 @@ use super::super::slice::for_each_mask_word;
 use super::super::slice::low_bits_mask;
 use super::Kernel;
 use super::bulk_copy;
+use super::compress_lut;
+use super::compress_tail;
 
 /// Choose the widest kernel the CPU supports for this element width, and the minimum mask
 /// density at which it beats the scalar strategies.
@@ -55,12 +63,20 @@ use super::bulk_copy;
 ///
 /// | kernel | lanes per compress | element | floor | at floor | best in band |
 /// | --- | --- | --- | --- | --- | --- |
-/// | `vpcompressb` | 64 | 1 byte | none | 1.9x at 0.05 | 5.5x at 0.8 |
-/// | `vpcompressw` | 32 | 2 bytes | 0.15 | 1.1x | 3.8x at 0.8 |
+/// | `vpcompressb` | 64 | 1 byte | none | 2.1x at 0.05 | 5.7x at 0.8 |
+/// | `vpcompressw` | 32 | 2 bytes | 0.15 | 1.1x | 3.9x at 0.8 |
 /// | `vpcompressd` | 16 | 4 bytes | 0.25 | 1.1x | 2.8x at 0.8 |
-/// | `vpcompressq` | 8 | 8 bytes | 0.30 | 1.1x | 3.2x at 0.65 |
-/// | `vpermd` | 8 | 4 bytes | 0.25 | 1.1x | 2.5x at 0.8 |
-/// | `vpermd` | 4 | 8 bytes | 0.45 | 1.4x | 2.0x at 0.65 |
+/// | `vpcompressq` | 8 | 8 bytes | 0.30 | 1.1x | 3.1x at 0.65 |
+/// | `pshufb` | 8 | 1 byte | 0.15 | 1.4x | 2.6x at 0.8 |
+/// | `pshufb` | 8 | 2 bytes | 0.25 | 1.0x | 2.5x at 0.8 |
+/// | `vpermd` | 8 | 4 bytes | 0.25 | 1.0x | 2.6x at 0.8 |
+/// | `vpermd` | 4 | 8 bytes | 0.45 | 1.0x | 1.4x at 0.65 |
+///
+/// The two `pshufb` rows have the same lane count but different floors because they compete
+/// against different scalar strategies. `byte_compress_density_threshold` routes 1-byte elements
+/// to the byte-LUT at *every* density on x86, and that LUT is weak on a sparse mask, so the
+/// 1-byte kernel already wins at 0.15; 2-byte elements fall to the set-bit walk instead, which
+/// holds out until 0.25. Retuning that threshold would raise the 1-byte floor to match.
 ///
 /// `is_x86_feature_detected!` caches per feature, so per-buffer selection stays cheap.
 pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
@@ -69,6 +85,9 @@ pub(super) fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Optio
         2 if avx512_vbmi2() => (compress_avx512_epi16::<IN_PLACE> as Kernel, 0.15),
         4 if avx512f() => (compress_avx512_epi32::<IN_PLACE> as Kernel, 0.25),
         8 if avx512f() => (compress_avx512_epi64::<IN_PLACE> as Kernel, 0.30),
+        // AVX-512F without VBMI2 (e.g. Skylake-X) falls through to these too.
+        1 if avx2() => (compress_pshufb_epi8::<IN_PLACE> as Kernel, 0.15),
+        2 if avx2() => (compress_pshufb_epi16::<IN_PLACE> as Kernel, 0.25),
         4 if avx2() => (compress_avx2_epi32::<IN_PLACE> as Kernel, 0.25),
         8 if avx2() => (compress_avx2_epi64::<IN_PLACE> as Kernel, 0.45),
         _ => return None,
@@ -469,4 +488,147 @@ avx2_compress_kernel!(
     lane_masks: LANE_MASK_64,
     maskload: _mm256_maskload_epi64,
     maskstore: _mm256_maskstore_epi64
+);
+
+/// Byte-index rows for `pshufb`, which always indexes a full 16-byte register even though only
+/// the low 8 (1-byte elements) or all 16 (2-byte elements) bytes hold lanes.
+static SHUF_LUT_8: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 1);
+static SHUF_LUT_16: [[u8; 16]; 256] = compress_lut::<256, 16>(8, 2);
+
+/// Generate a 128-bit `pshufb` kernel for one narrow element width, giving 1- and 2-byte
+/// elements the vector compress that `vpermd` cannot express.
+///
+/// This is the same construction as the NEON kernels — see
+/// [`neon`](super::super::simd_compress) for the LUT layout and the reason the chunk loop is
+/// branchless. `pshufb` shuffles only within a 128-bit lane, but eight lanes of a 1- or 2-byte
+/// element need at most a 16-byte table, so a single lane spans the whole table.
+///
+/// Enabling AVX2 rather than just SSSE3 costs nothing in reach worth having and gets the
+/// VEX-encoded `vpshufb`, which avoids AVX/SSE transition penalties in mixed code.
+macro_rules! pshufb_compress_kernel {
+    (
+        $word_fn:ident,
+        $walk_fn:ident,elem_size:
+        $elem_size:literal,idx_lut:
+        $idx_lut:ident,load:
+        $load:ident,store:
+        $store:ident
+    ) => {
+        /// Compress the elements selected by one mask word.
+        ///
+        /// # Safety
+        ///
+        /// The CPU must support AVX2 and the pointer contract of
+        /// [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
+        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "deliberate submask narrowing"
+        )]
+        #[target_feature(enable = "avx2")]
+        #[inline]
+        unsafe fn $word_fn<const IN_PLACE: bool>(
+            src: *const u8,
+            dst: *mut u8,
+            word: u64,
+            word_start: usize,
+            word_len: usize,
+            mut write_pos: usize,
+        ) -> usize {
+            if word == 0 {
+                return write_pos;
+            }
+            if word == low_bits_mask(word_len) {
+                // SAFETY: forwarded from the caller contract.
+                unsafe {
+                    bulk_copy::<IN_PLACE>(src, dst, word_start, word_len, write_pos, $elem_size)
+                };
+                return write_pos + word_len;
+            }
+
+            // Branchless for the same reason as the NEON kernels: with eight lanes per chunk,
+            // `P(m == 0) = (1 - density)^8` crosses 0.5 near density 0.08, so an `m != 0` guard
+            // mispredicts hardest exactly where skipping would pay.
+            let mut sub = 0;
+            while sub + 8 <= word_len {
+                let m = ((word >> sub) & low_bits_mask(8)) as usize;
+                // SAFETY: the chunk holds 8 in-bounds source elements.
+                let chunk = unsafe { $load(src.add((word_start + sub) * $elem_size).cast()) };
+                // SAFETY: every LUT row is 16 bytes.
+                let idx = unsafe { _mm_loadu_si128($idx_lut[m].as_ptr().cast()) };
+                // SAFETY: the store covers 8 elements at `write_pos`, of which the leading
+                // `m.count_ones()` are selected values and the rest are garbage that a later
+                // store overwrites, since stores resume at the advanced `write_pos`.
+                // Out-of-place, the trailing garbage of the final store lands in the vector of
+                // slack past `true_count`. In-place, `write_pos <= word_start + sub`, so the
+                // store ends at or before `word_start + sub + 8 <= word_start + word_len
+                // <= len`, and it can only overwrite source elements already loaded into
+                // `chunk` or output positions not yet final.
+                unsafe {
+                    $store(
+                        dst.add(write_pos * $elem_size).cast::<__m128i>(),
+                        _mm_shuffle_epi8(chunk, idx),
+                    )
+                };
+                write_pos += m.count_ones() as usize;
+                sub += 8;
+            }
+
+            if sub < word_len {
+                let bits = (word >> sub) & low_bits_mask(word_len - sub);
+                // SAFETY: forwarded from the caller contract.
+                write_pos = unsafe {
+                    compress_tail::<IN_PLACE>(
+                        src,
+                        dst,
+                        bits,
+                        word_start + sub,
+                        write_pos,
+                        $elem_size,
+                    )
+                };
+            }
+
+            write_pos
+        }
+
+        /// Walk the mask words of `mask`, compressing the selected elements.
+        ///
+        /// # Safety
+        ///
+        /// The CPU must support AVX2 and the pointer contract of
+        /// [`filter_slice_by_bitmap`](super::filter_slice_by_bitmap) /
+        /// [`filter_slice_mut_by_bitmap`](super::filter_slice_mut_by_bitmap) must hold.
+        #[target_feature(enable = "avx2")]
+        pub(super) unsafe fn $walk_fn<const IN_PLACE: bool>(
+            src: *const u8,
+            dst: *mut u8,
+            mask: &MaskValues,
+        ) -> usize {
+            let mut write_pos = 0;
+            for_each_mask_word(mask, |word, word_start, word_len| {
+                // SAFETY: forwarded from the caller contract.
+                write_pos = unsafe {
+                    $word_fn::<IN_PLACE>(src, dst, word, word_start, word_len, write_pos)
+                };
+            });
+            write_pos
+        }
+    };
+}
+
+pshufb_compress_kernel!(
+    compress_word_pshufb_epi8, compress_pshufb_epi8,
+    elem_size: 1,
+    idx_lut: SHUF_LUT_8,
+    load: _mm_loadl_epi64,
+    store: _mm_storel_epi64
+);
+
+pshufb_compress_kernel!(
+    compress_word_pshufb_epi16, compress_pshufb_epi16,
+    elem_size: 2,
+    idx_lut: SHUF_LUT_16,
+    load: _mm_loadu_si128,
+    store: _mm_storeu_si128
 );

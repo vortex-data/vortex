@@ -115,7 +115,8 @@ fn declines_sparse_and_short_masks() {
 }
 
 /// The dispatcher never selects the AVX2 tier on AVX-512 machines, so exercise those kernels
-/// directly.
+/// directly. Covers both the `vpermd` kernels for 4/8-byte elements and the `pshufb` kernels
+/// for 1/2-byte elements.
 #[cfg(all(target_arch = "x86_64", not(miri)))]
 #[test]
 fn avx2_kernels_match_scalar() {
@@ -154,8 +155,22 @@ fn avx2_kernels_match_scalar() {
                 let Some(mask) = mask_values(&mask) else {
                     continue;
                 };
+                let u8_values: Vec<u8> = (0..len).map(|i| i as u8).collect();
+                let u16_values: Vec<u16> = (0..len).map(|i| i as u16).collect();
                 let u32_values: Vec<u32> = (0..len as u32).collect();
                 let u64_values: Vec<u64> = (0..len as u64).collect();
+                check_kernel(
+                    x86::compress_pshufb_epi8::<false>,
+                    x86::compress_pshufb_epi8::<true>,
+                    &u8_values,
+                    mask,
+                );
+                check_kernel(
+                    x86::compress_pshufb_epi16::<false>,
+                    x86::compress_pshufb_epi16::<true>,
+                    &u16_values,
+                    mask,
+                );
                 check_kernel(
                     x86::compress_avx2_epi32::<false>,
                     x86::compress_avx2_epi32::<true>,
