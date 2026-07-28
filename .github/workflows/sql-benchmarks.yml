@@ -90,7 +90,7 @@ jobs:
       - name: Build binaries
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
           packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
           if [ "${{ inputs.mode }}" != "pr" ]; then
