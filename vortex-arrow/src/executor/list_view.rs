@@ -76,6 +76,7 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
         ..
     } = array.into_data_parts();
 
+    let n_elements = elements.len();
     let elements = ctx.session().clone().arrow().execute_arrow(
         elements,
         Some(elements_field.as_ref()),
@@ -84,6 +85,13 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Elements field is non-nullable but elements array contains nulls"
+    );
+    // The unchecked construction below needs the views in bounds of the *exported* elements, so
+    // confirm the export preserved the length the Vortex invariant was checked against.
+    vortex_ensure!(
+        elements.len() == n_elements,
+        "Arrow export changed the elements length: {n_elements} became {}",
+        elements.len()
     );
 
     let offsets = offsets
@@ -99,13 +107,17 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
 
     let null_buffer = to_arrow_null_buffer(validity, offsets.len(), ctx)?;
 
-    Ok(Arc::new(GenericListViewArray::<O>::new(
-        Arc::clone(elements_field),
-        offsets,
-        sizes,
-        elements,
-        null_buffer,
-    )))
+    // SAFETY: `ListViewData::validate` guarantees `offsets[i] + sizes[i] <= elements.len()`, and
+    // the length check above carries that across the export. Skips Arrow's unvectorizable re-check.
+    Ok(Arc::new(unsafe {
+        GenericListViewArray::<O>::new_unchecked(
+            Arc::clone(elements_field),
+            offsets,
+            sizes,
+            elements,
+            null_buffer,
+        )
+    }))
 }
 
 #[cfg(test)]
