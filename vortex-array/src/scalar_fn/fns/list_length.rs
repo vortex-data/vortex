@@ -109,6 +109,8 @@ impl ScalarFnVTable for ListLength {
     }
 
     fn is_strict(&self, _options: &Self::Options) -> bool {
+        // A null list has a null length, and the length of a valid list is a non-null value
+        // determined by that list alone, with `return_dtype` carrying over the input nullability.
         true
     }
 

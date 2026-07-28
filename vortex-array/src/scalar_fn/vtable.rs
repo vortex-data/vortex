@@ -192,46 +192,45 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(None)
     }
 
-    /// Returns whether this expression itself is strict.
+    /// Returns whether this scalar function is strict.
     ///
-    /// Strict has the same value-level meaning as PostgreSQL `STRICT`: if any input value at row
-    /// `i` is null, the output value at row `i` is null. Formally, `f` is strict iff at each row,
-    /// for some total function `g` over non-null values,
+    /// A strict function propagates nulls: at each row, a null in any argument always produces a
+    /// null result:
     ///
     /// ```text
-    /// f(v1, .., vk) = NULL           if vj = NULL for some j
-    /// f(v1, .., vk) = g(v1, .., vk)  otherwise
+    /// vj = NULL for some j  =>  f(v1, .., vk) = NULL
     /// ```
     ///
-    /// That is, any null input yields a null output, and non-null outputs depend only on the (all
-    /// non-null) inputs at that row. Lifted columnwise, this is equivalent to the mask-hoisting
-    /// law: for any argument `aj = mask(aj', m)`,
+    /// Strictness does not guarantee that non-null inputs produce a non-null result. For example,
+    /// `list_sum` returns null for a valid but empty list. Therefore, strictness only bounds the
+    /// output validity:
+    ///
+    /// ```text
+    /// valid(f(a1, .., ak)) ⊆ valid(a1) ∧ .. ∧ valid(ak)
+    /// ```
+    ///
+    /// Many strict functions satisfy the stronger equality, where output validity is exactly the
+    /// intersection of the input validities. They can advertise that through
+    /// [`ScalarFnVTable::validity`], but callers must not infer it from strictness alone.
+    ///
+    /// Optimizations use strictness to move a mask through the function:
     ///
     /// ```text
     /// f(a1, .., mask(aj', m), .., ak) == mask(f(a1, .., aj', .., ak), m)
     /// ```
     ///
-    /// Optimizations rely on this per-argument form when pushing a function through dictionary
-    /// codes while leaving sibling constants unmasked. It is stronger than commuting with masking
-    /// all arguments at once: Kleene `AND` and `OR` satisfy the all-arguments law but are not
-    /// strict because, for example, `false AND null = false`.
-    ///
-    /// Two consequences that optimizations rely on:
-    /// 1. Output validity is precomputable as the `AND` of the input validities, so
-    ///    `valid(f(a1, .., ak)) = valid(a1) ∧ .. ∧ valid(ak)`.
-    /// 2. Values behind null slots are irrelevant, so kernels may compute `g` densely over all
-    ///    lanes (including garbage) and apply validity afterwards.
+    /// The per-argument requirement matters when, for example, pushing a function through
+    /// dictionary codes while leaving its other arguments unmasked. Kleene `AND` and `OR` are not
+    /// strict even though a mask can be moved when applied to all arguments together:
+    /// `false AND null = false`.
     ///
     /// Returning `true` also requires [`ScalarFnVTable::return_dtype`] to propagate nullability:
     /// if any input dtype is nullable, the output dtype must be nullable. For example, `cast` is
     /// value-strict but can pin a non-nullable output dtype through its options, so it must return
     /// `false`.
     ///
-    /// Nullary functions are vacuously strict because they have no input values.
-    ///
-    /// Conservatively defaults to `false` (non-strict).
-    ///
-    /// This method only checks the expression itself, not its children.
+    /// This method describes only the scalar function, not its child expressions. Nullary
+    /// functions are vacuously strict. The default is conservatively `false`.
     fn is_strict(&self, options: &Self::Options) -> bool {
         _ = options;
         false
