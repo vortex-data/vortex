@@ -19,12 +19,14 @@ use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::fixed_size_list::FixedSizeListDataParts;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
@@ -274,13 +276,15 @@ impl TakeExecute for Chunked {
             return array.chunk(0).take(indices.clone()).map(Some);
         }
 
-        if let Some(taken) = take_chunked_fsl(array, indices, ctx)? {
-            return Ok(Some(taken));
-        }
-
+        // Piecewise indices go first: the piecewise take only touches chunks the pieces
+        // intersect, while the FSL rewrite canonicalizes every chunk up front.
         if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
             && let Some(taken) = take_piecewise_chunked(array, piecewise_indices, ctx)?
         {
+            return Ok(Some(taken));
+        }
+
+        if let Some(taken) = take_chunked_fsl(array, indices, ctx)? {
             return Ok(Some(taken));
         }
 
@@ -291,21 +295,44 @@ impl TakeExecute for Chunked {
 /// Rewrites take over a chunked fixed-size list array as take over a single
 /// [`FixedSizeListArray`].
 ///
-/// Chunked FSL canonicalization executes each logical FSL chunk into its canonical representation,
-/// then concatenates the chunks' elements children zero-copy. The FSL take implementation gathers
-/// those elements with a single `PiecewiseSequenceArray`, which [`take_piecewise_chunked`] resolves
-/// per chunk without expanding one index per element.
+/// Chunked FSL canonicalization concatenates the chunks' elements children zero-copy. The FSL
+/// take implementation then gathers those elements with a single `PiecewiseSequenceArray`, which
+/// [`take_piecewise_chunked`] resolves per chunk without expanding one index per element.
+///
+/// Applies only when every chunk is FSL-encoded, so canonicalization reuses the chunks' elements
+/// children zero-copy. Converting any other encoding (constant, dict, ...) would materialize
+/// whole chunks the indices may never touch, so those fall back to the generic filter-based path,
+/// which only decodes selected rows.
 fn take_chunked_fsl(
     array: ArrayView<'_, Chunked>,
     indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let DType::FixedSizeList(..) = array.dtype() else {
+    let DType::FixedSizeList(_, list_size, nullability) = array.dtype() else {
         return Ok(None);
     };
+    if !array.iter_chunks().all(|chunk| chunk.is::<FixedSizeList>()) {
+        return Ok(None);
+    }
 
+    let len = array.as_ref().len();
     let fsl = array.as_ref().clone().execute::<FixedSizeListArray>(ctx)?;
-    fsl.into_array().take(indices.clone()).map(Some)
+    let FixedSizeListDataParts {
+        elements, validity, ..
+    } = fsl.into_data_parts();
+    // The canonicalized validity chains the chunks' validities as a chunked bool array; letting
+    // the FSL take gather from it would recurse into a second chunked take over the same indices.
+    // Execute it into a flat mask once so the validity take is a plain bitmap gather.
+    let validity = match validity {
+        validity @ Validity::Array(_) => {
+            Validity::from_mask(validity.execute_mask(len, ctx)?, *nullability)
+        }
+        validity => validity,
+    };
+    FixedSizeListArray::try_new(elements, *list_size, validity, len)?
+        .into_array()
+        .take(indices.clone())
+        .map(Some)
 }
 
 /// A per-chunk gather plan: chunk-local sub-piece runs to take from one chunk, in output order.
@@ -481,7 +508,6 @@ mod test {
     use vortex_buffer::bitbuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_bail;
 
     use crate::ArrayRef;
     use crate::Canonical;
@@ -502,6 +528,7 @@ mod test {
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     fn chunked_i32() -> VortexResult<ChunkedArray> {
@@ -780,7 +807,7 @@ mod test {
     }
 
     #[test]
-    fn test_take_chunked_fsl_executes_non_fsl_chunk() -> VortexResult<()> {
+    fn test_take_chunked_fsl_non_fsl_chunk_falls_back() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let c0 = FixedSizeListArray::try_new(
             PrimitiveArray::from_iter(0i32..6).into_array(),
@@ -800,9 +827,12 @@ mod test {
         let arr = ChunkedArray::try_new(vec![c0.into_array(), nested.into_array()], dtype)?;
 
         let indices = buffer![4u64, 0, 3, 1].into_array();
-        let Some(result) = super::take_chunked_fsl(arr.as_view(), &indices, &mut ctx)? else {
-            vortex_bail!("fixed-size list optimization did not execute");
-        };
+        assert!(
+            super::take_chunked_fsl(arr.as_view(), &indices, &mut ctx)?.is_none(),
+            "expected fallback to the generic take path"
+        );
+
+        let result = arr.take(indices.clone())?;
         let expected = FixedSizeListArray::try_new(
             PrimitiveArray::from_iter(0i32..10).into_array(),
             2,
@@ -812,6 +842,81 @@ mod test {
         .take(indices)?;
 
         assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_chunked_fsl_constant_chunk_falls_back() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let c0 = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0i32..6).into_array(),
+            2,
+            Validity::AllValid,
+            3,
+        )?;
+        let dtype = c0.dtype().clone();
+        // A constant chunk is only logically FSL; converting it materializes the whole chunk.
+        let c1 = ConstantArray::new(Scalar::null(dtype.clone()), 2).into_array();
+        let arr = ChunkedArray::try_new(vec![c0.into_array(), c1], dtype)?;
+
+        let indices = buffer![4u64, 0, 3, 1].into_array();
+        assert!(
+            super::take_chunked_fsl(arr.as_view(), &indices, &mut ctx)?.is_none(),
+            "expected fallback to the generic take path"
+        );
+
+        let result = arr.take(indices.clone())?;
+        let expected = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0i32..10).into_array(),
+            2,
+            Validity::Array(bitbuffer![1 1 1 0 0].into_array()),
+            5,
+        )?
+        .take(indices)?;
+
+        assert_arrays_eq!(result, expected, &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_piecewise_chunked_fsl() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let c0 = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0i32..6).into_array(),
+            2,
+            Validity::NonNullable,
+            3,
+        )?;
+        let c1 = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(6i32..10).into_array(),
+            2,
+            Validity::NonNullable,
+            2,
+        )?;
+        let dtype = c0.dtype().clone();
+        let arr = ChunkedArray::try_new(vec![c0.into_array(), c1.into_array()], dtype)?;
+        let reference = FixedSizeListArray::try_new(
+            PrimitiveArray::from_iter(0i32..10).into_array(),
+            2,
+            Validity::NonNullable,
+            5,
+        )?;
+
+        // A monotonic run crossing the chunk boundary.
+        let indices = contiguous_pieces(&[1], &[3])?;
+        assert_arrays_eq!(
+            arr.take(indices.clone())?,
+            reference.take(indices)?,
+            &mut ctx
+        );
+
+        // Out-of-order pieces forcing the reorder take.
+        let indices = contiguous_pieces(&[3, 0], &[2, 2])?;
+        assert_arrays_eq!(
+            arr.take(indices.clone())?,
+            reference.take(indices)?,
+            &mut ctx
+        );
         Ok(())
     }
 
