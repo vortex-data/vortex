@@ -23,7 +23,7 @@ class Engine(Enum):
         """Return the benchmark executable name for this engine."""
         return {
             Engine.DUCKDB: "duckdb-bench",
-            Engine.DATAFUSION: "df-bench",
+            Engine.DATAFUSION: "datafusion-bench",
             Engine.LANCE: "lance-bench",
         }[self]
 

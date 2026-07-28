@@ -92,7 +92,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          packages=(--bin data-gen --bin df-bench --bin duckdb-bench)
+          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
           if [ "${{ inputs.mode }}" != "pr" ]; then
             packages+=(--bin lance-bench)
           fi
@@ -103,7 +103,7 @@ jobs:
         uses: ./.github/actions/upload-parca-debuginfo
         with:
           paths: |
-            target/release_debug/df-bench
+            target/release_debug/datafusion-bench
             target/release_debug/duckdb-bench
             ${{ inputs.mode != 'pr' && 'target/release_debug/lance-bench' || '' }}
           polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
@@ -222,11 +222,6 @@ jobs:
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
           # this action will *update* the comment instead of posting a new comment.
           comment-tag: bench-pr-comment-${{ matrix.id }}
-
-      - name: Print Parca log
-        shell: bash
-        run: |
-          cat ${{ runner.temp }}/parca-agent.log
 
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false

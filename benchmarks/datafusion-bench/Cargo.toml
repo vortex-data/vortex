@@ -18,7 +18,7 @@ publish = false
 ignored = ["vortex-cuda"]
 
 [[bin]]
-name = "df-bench"
+name = "datafusion-bench"
 path = "src/main.rs"
 test = false
 

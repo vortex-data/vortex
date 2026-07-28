@@ -15,7 +15,6 @@ CAPTURE_SCRIPT = REPO_ROOT / "scripts" / "capture-file-sizes.py"
 
 
 def load_compare_module():
-    sys.path.insert(0, str(COMPARE_SCRIPT.parent))
     spec = importlib.util.spec_from_file_location("compare_benchmark_jsons", COMPARE_SCRIPT)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
