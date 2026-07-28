@@ -60,14 +60,14 @@ mod tests {
     #[case(DType::Utf8(Nullability::Nullable))]
     #[case(DType::Binary(Nullability::Nullable))]
     fn test_canonical_varbin_sliced(#[case] dtype: DType) {
-        let mut varbin = VarBinBuilder::<i32>::with_capacity(10);
-        varbin.append_null();
-        varbin.append_null();
+        let mut varbin = VarBinBuilder::<i32>::with_capacity(dtype.clone(), 10);
+        varbin.push_null();
+        varbin.push_null();
         // inlined value
         varbin.append_value("123456789012".as_bytes());
         // non-inlinable value
         varbin.append_value("1234567890123".as_bytes());
-        let varbin = varbin.finish(dtype.clone());
+        let varbin = varbin.finish_into_varbin();
 
         let varbin = varbin.slice(1..4).unwrap();
 

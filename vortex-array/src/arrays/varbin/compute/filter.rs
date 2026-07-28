@@ -88,7 +88,7 @@ where
     O: IntegerPType,
     usize: AsPrimitive<O>,
 {
-    let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
+    let mut builder = VarBinBuilder::<O>::with_capacity(dtype, selection_count);
     match logical_validity.bit_buffer() {
         AllOr::All => {
             for &(start, end) in mask_slices {
@@ -96,7 +96,7 @@ where
             }
         }
         AllOr::None => {
-            builder.append_n_nulls(selection_count);
+            builder.push_nulls(selection_count);
         }
         AllOr::Some(validity) => {
             for (start, end) in mask_slices.iter().copied() {
@@ -120,14 +120,14 @@ where
                             })?;
                             builder.append_value(&data[s..e])
                         } else {
-                            builder.append_null()
+                            builder.push_null()
                         }
                     }
                 }
             }
         }
     }
-    Ok(builder.finish(dtype))
+    Ok(builder.finish_into_varbin())
 }
 
 fn update_non_nullable_slice<O>(
@@ -195,7 +195,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
         Ok(&data[start..end])
     };
 
-    let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);
+    let mut builder = VarBinBuilder::<O>::with_capacity(dtype, selection_count);
     match mask.bit_buffer() {
         AllOr::All => {
             for idx in mask_indices.iter().copied() {
@@ -203,19 +203,19 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
             }
         }
         AllOr::None => {
-            builder.append_n_nulls(selection_count);
+            builder.push_nulls(selection_count);
         }
         AllOr::Some(validity) => {
             for idx in mask_indices.iter().copied() {
                 if validity.value(idx) {
                     builder.append_value(value_at(idx)?)
                 } else {
-                    builder.append_null()
+                    builder.push_null()
                 }
             }
         }
     }
-    Ok(builder.finish(dtype))
+    Ok(builder.finish_into_varbin())
 }
 
 #[cfg(test)]

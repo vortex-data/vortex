@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![expect(clippy::cast_possible_truncation)]
 
+use rstest::rstest;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
@@ -10,15 +12,19 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
-use vortex_array::builders::DynVarBinBuilder;
+use vortex_array::builders::VarBinBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::Zstd;
+use crate::ZstdArray;
+use crate::ZstdData;
+use crate::ZstdMetadata;
 
 #[test]
 fn test_zstd_compress_decompress() {
@@ -224,7 +230,7 @@ fn test_zstd_append_to_offset_builder() {
         .slice(1..4)
         .unwrap();
     let mut builder =
-        DynVarBinBuilder::with_capacity(compressed.dtype().clone(), false, compressed.len());
+        VarBinBuilder::<i32>::with_capacity(compressed.dtype().clone(), compressed.len());
     compressed
         .append_to_builder(&mut builder, &mut ctx)
         .unwrap();
@@ -274,6 +280,98 @@ fn test_sliced_array_children() {
         Zstd::from_primitive(&PrimitiveArray::from_option_iter(data), 0, 100, &mut ctx).unwrap();
     let sliced = compressed.slice(0..4).unwrap();
     sliced.children();
+}
+
+/// Six rows, five of them stored, compressed into `values_per_frame`-sized frames with the frame
+/// metadata a reader would have deserialized rewritten by `corrupt`.
+fn corrupt_var_bin_view_metadata(
+    values_per_frame: usize,
+    corrupt: impl FnOnce(&mut ZstdMetadata),
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(VarBinViewArray, ZstdArray)> {
+    let array = VarBinViewArray::from_iter(
+        [
+            Some(b"foo".as_slice()),
+            Some(b"bar".as_slice()),
+            None,
+            Some(b"Lorem ipsum dolor sit amet".as_slice()),
+            Some(b"baz".as_slice()),
+            Some(b"quux".as_slice()),
+        ],
+        DType::Utf8(Nullability::Nullable),
+    );
+    let mut data = ZstdData::from_var_bin_view(&array, 0, values_per_frame, ctx)?;
+    corrupt(&mut data.metadata);
+    let compressed = Zstd::try_new(array.dtype().clone(), data, array.validity()?)?;
+    Ok((array, compressed))
+}
+
+/// Frame metadata comes straight off disk, so an inconsistent value count has to surface as an
+/// error from both read paths rather than a panic or a wrapped length.
+#[rstest]
+#[case::frame_holds_fewer_values_than_claimed(|metadata: &mut ZstdMetadata| {
+    metadata.frames[0].n_values = 1000;
+})]
+#[case::frame_value_counts_overflow(|metadata: &mut ZstdMetadata| {
+    metadata.frames[1].n_values = u64::MAX;
+})]
+#[case::missing_value_count_across_frames(|metadata: &mut ZstdMetadata| {
+    metadata.frames[0].n_values = 0;
+})]
+fn test_zstd_rejects_corrupt_frame_metadata(
+    #[case] corrupt: fn(&mut ZstdMetadata),
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let (_, compressed) = corrupt_var_bin_view_metadata(3, corrupt, &mut ctx)?;
+
+    assert!(Zstd::decompress(&compressed, &mut ctx).is_err());
+
+    let mut builder =
+        VarBinBuilder::<i32>::with_capacity(compressed.dtype().clone(), compressed.len());
+    assert!(
+        compressed
+            .append_to_builder(&mut builder, &mut ctx)
+            .is_err()
+    );
+    Ok(())
+}
+
+/// Metadata written before frames recorded their value count leaves it at zero. A single frame
+/// holds every stored value, so those arrays still read back.
+#[test]
+fn test_zstd_reads_legacy_single_frame_var_bin_metadata() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let (array, compressed) =
+        corrupt_var_bin_view_metadata(0, |metadata| metadata.frames[0].n_values = 0, &mut ctx)?;
+
+    assert_arrays_eq!(compressed, array.clone().into_array(), &mut ctx);
+    assert_arrays_eq!(
+        compressed.slice(2..5)?,
+        array.into_array().slice(2..5)?,
+        &mut ctx
+    );
+    Ok(())
+}
+
+/// The same legacy metadata for fixed-width values recovers the count from the frame size, which
+/// stays exact across frames.
+#[test]
+fn test_zstd_reads_legacy_primitive_frame_metadata() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let array = PrimitiveArray::from_iter(0..200_i32);
+    let mut data = ZstdData::from_primitive(&array, 3, 30, &mut ctx)?;
+    for frame in &mut data.metadata.frames {
+        frame.n_values = 0;
+    }
+    let compressed = Zstd::try_new(array.dtype().clone(), data, array.validity()?)?;
+
+    assert_arrays_eq!(compressed, PrimitiveArray::from_iter(0..200_i32), &mut ctx);
+    assert_arrays_eq!(
+        compressed.slice(100..105)?,
+        PrimitiveArray::from_iter(100..105_i32),
+        &mut ctx
+    );
+    Ok(())
 }
 
 /// Tests that each beginning of a frame in ZSTD matches

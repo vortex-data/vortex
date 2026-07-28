@@ -9377,12 +9377,14 @@ dependencies = [
  "itertools 0.14.0",
  "num-traits",
  "rstest",
+ "simdutf8",
  "tracing",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
  "vortex-fsst",
  "vortex-mask",
+ "vortex-onpair",
  "vortex-runend",
  "vortex-session",
  "vortex-zstd",
@@ -10437,6 +10439,7 @@ name = "vortex-zstd"
 version = "0.1.0"
 dependencies = [
  "itertools 0.14.0",
+ "num-traits",
  "prost 0.14.4",
  "rstest",
  "vortex-array",

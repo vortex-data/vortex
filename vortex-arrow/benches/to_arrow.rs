@@ -11,6 +11,7 @@ use arrow_schema::Field;
 use divan::Bencher;
 use divan::counter::ItemsCount;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
@@ -22,6 +23,8 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::builders::VarBinBuilder;
+use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
@@ -39,6 +42,8 @@ use vortex_arrow::dtype::ToArrowType as _;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_mask::Mask;
+use vortex_onpair::DEFAULT_DICT12_CONFIG;
+use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
 use vortex_zstd::Zstd;
 
@@ -50,6 +55,7 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = array_session();
     vortex_fsst::initialize(&session);
+    vortex_onpair::initialize(&session);
     session.arrays().register(Zstd);
     session
 });
@@ -116,9 +122,10 @@ fn ArrowExportVTable_to_arrow_field(bencher: Bencher) {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum OffsetStringEncoding {
+enum StringEncoding {
     View,
     Fsst,
+    OnPair,
     Zstd,
     Dict,
     DictFsst,
@@ -127,20 +134,48 @@ enum OffsetStringEncoding {
     FilterZstd,
     FilterDictFsst,
     ChunkedFsst,
+    /// Every third row null, so the export walks a partial validity mask rather than an all-valid
+    /// one and has to interleave nulls with the decoded values.
+    NullableFsst,
+    NullableZstd,
+    NullableDict,
 }
 
-const OFFSET_STRING_ENCODINGS: &[OffsetStringEncoding] = &[
-    OffsetStringEncoding::View,
-    OffsetStringEncoding::Fsst,
-    OffsetStringEncoding::Zstd,
-    OffsetStringEncoding::Dict,
-    OffsetStringEncoding::DictFsst,
-    OffsetStringEncoding::DictZstd,
-    OffsetStringEncoding::FilterFsst,
-    OffsetStringEncoding::FilterZstd,
-    OffsetStringEncoding::FilterDictFsst,
-    OffsetStringEncoding::ChunkedFsst,
+const STRING_ENCODINGS: &[StringEncoding] = &[
+    StringEncoding::View,
+    StringEncoding::Fsst,
+    StringEncoding::OnPair,
+    StringEncoding::Zstd,
+    StringEncoding::Dict,
+    StringEncoding::DictFsst,
+    StringEncoding::DictZstd,
+    StringEncoding::FilterFsst,
+    StringEncoding::FilterZstd,
+    StringEncoding::FilterDictFsst,
+    StringEncoding::ChunkedFsst,
+    StringEncoding::NullableFsst,
+    StringEncoding::NullableZstd,
+    StringEncoding::NullableDict,
 ];
+
+/// Encodings whose `append_to_builder` the builder benchmarks reach directly.
+///
+/// The Arrow export cannot stand in for these: `execute_until` stops at the first canonical array,
+/// so a bare FSST/OnPair/Zstd root is canonicalized to `VarBinView` before any builder sees it.
+/// Only `Chunked`, `Constant` and `VarBin` roots reach an encoding's own `append_to_builder` that
+/// way, whereas the scan machinery appends encoded arrays into a builder directly.
+const BUILDER_STRING_ENCODINGS: &[StringEncoding] = &[
+    StringEncoding::View,
+    StringEncoding::Fsst,
+    StringEncoding::OnPair,
+    StringEncoding::Zstd,
+    StringEncoding::Dict,
+    StringEncoding::ChunkedFsst,
+    StringEncoding::NullableFsst,
+    StringEncoding::NullableZstd,
+    StringEncoding::NullableDict,
+];
+
 const OFFSET_STRING_ROWS: usize = 100_000;
 const OFFSET_STRING_CHUNKS: usize = 4;
 const DICTIONARY_SIZE: usize = 2_048;
@@ -150,6 +185,19 @@ fn structured_strings(len: usize) -> VarBinViewArray {
         .map(|index| format!("https://example.com/common/path/{index:06}/shared-suffix"))
         .collect::<Vec<_>>();
     VarBinViewArray::from_iter_str(values.iter().map(String::as_str))
+}
+
+fn nullable_structured_strings(len: usize) -> VarBinViewArray {
+    let values = (0..len)
+        .map(|index| {
+            (!index.is_multiple_of(3))
+                .then(|| format!("https://example.com/common/path/{index:06}/shared-suffix"))
+        })
+        .collect::<Vec<_>>();
+    VarBinViewArray::from_iter(
+        values.iter().map(|value| value.as_deref()),
+        DType::Utf8(Nullability::Nullable),
+    )
 }
 
 fn dictionary_values() -> VarBinViewArray {
@@ -172,7 +220,7 @@ fn filtered(array: ArrayRef) -> ArrayRef {
     FilterArray::new(array, half_rows_mask()).into_array()
 }
 
-fn chunked_fsst(ctx: &mut vortex_array::ExecutionCtx) -> ArrayRef {
+fn chunked_fsst(ctx: &mut ExecutionCtx) -> ArrayRef {
     let source = structured_strings(OFFSET_STRING_ROWS).into_array();
     let compressor = fsst_train_compressor(&source, ctx).unwrap();
     let chunk_size = OFFSET_STRING_ROWS / OFFSET_STRING_CHUNKS;
@@ -195,39 +243,45 @@ fn chunked_fsst(ctx: &mut vortex_array::ExecutionCtx) -> ArrayRef {
         .into_array()
 }
 
-fn offset_string_array(encoding: OffsetStringEncoding) -> ArrayRef {
+fn fsst(source: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
+    let compressor = fsst_train_compressor(&source, ctx).unwrap();
+    fsst_compress(&source, &compressor, ctx)
+        .unwrap()
+        .into_array()
+}
+
+fn string_array(encoding: StringEncoding) -> ArrayRef {
     let mut ctx = SESSION.create_execution_ctx();
     match encoding {
-        OffsetStringEncoding::View => structured_strings(OFFSET_STRING_ROWS).into_array(),
-        OffsetStringEncoding::Fsst => {
-            let source = structured_strings(OFFSET_STRING_ROWS).into_array();
-            let compressor = fsst_train_compressor(&source, &mut ctx).unwrap();
-            fsst_compress(&source, &compressor, &mut ctx)
-                .unwrap()
-                .into_array()
-        }
-        OffsetStringEncoding::Zstd => {
+        StringEncoding::View => structured_strings(OFFSET_STRING_ROWS).into_array(),
+        StringEncoding::Fsst => fsst(
+            structured_strings(OFFSET_STRING_ROWS).into_array(),
+            &mut ctx,
+        ),
+        StringEncoding::OnPair => onpair_compress(
+            &structured_strings(OFFSET_STRING_ROWS).into_array(),
+            DEFAULT_DICT12_CONFIG,
+            &mut ctx,
+        )
+        .unwrap(),
+        StringEncoding::Zstd => {
             let source = structured_strings(OFFSET_STRING_ROWS);
             Zstd::from_var_bin_view_without_dict(&source, 3, 8_192, &mut ctx)
                 .unwrap()
                 .into_array()
         }
-        OffsetStringEncoding::Dict => {
+        StringEncoding::Dict => {
             DictArray::try_new(dictionary_codes(), dictionary_values().into_array())
                 .unwrap()
                 .into_array()
         }
-        OffsetStringEncoding::DictFsst => {
-            let values = dictionary_values().into_array();
-            let compressor = fsst_train_compressor(&values, &mut ctx).unwrap();
-            let compressed_values = fsst_compress(&values, &compressor, &mut ctx)
-                .unwrap()
-                .into_array();
-            DictArray::try_new(dictionary_codes(), compressed_values)
+        StringEncoding::DictFsst => {
+            let values = fsst(dictionary_values().into_array(), &mut ctx);
+            DictArray::try_new(dictionary_codes(), values)
                 .unwrap()
                 .into_array()
         }
-        OffsetStringEncoding::DictZstd => {
+        StringEncoding::DictZstd => {
             let values = dictionary_values();
             let compressed_values =
                 Zstd::from_var_bin_view_without_dict(&values, 3, 8_192, &mut ctx)
@@ -237,22 +291,35 @@ fn offset_string_array(encoding: OffsetStringEncoding) -> ArrayRef {
                 .unwrap()
                 .into_array()
         }
-        OffsetStringEncoding::FilterFsst => {
-            filtered(offset_string_array(OffsetStringEncoding::Fsst))
+        StringEncoding::FilterFsst => filtered(string_array(StringEncoding::Fsst)),
+        StringEncoding::FilterZstd => filtered(string_array(StringEncoding::Zstd)),
+        StringEncoding::FilterDictFsst => filtered(string_array(StringEncoding::DictFsst)),
+        StringEncoding::ChunkedFsst => chunked_fsst(&mut ctx),
+        StringEncoding::NullableFsst => fsst(
+            nullable_structured_strings(OFFSET_STRING_ROWS).into_array(),
+            &mut ctx,
+        ),
+        StringEncoding::NullableZstd => {
+            let source = nullable_structured_strings(OFFSET_STRING_ROWS);
+            Zstd::from_var_bin_view_without_dict(&source, 3, 8_192, &mut ctx)
+                .unwrap()
+                .into_array()
         }
-        OffsetStringEncoding::FilterZstd => {
-            filtered(offset_string_array(OffsetStringEncoding::Zstd))
+        StringEncoding::NullableDict => {
+            // Nulls live in the dictionary rather than the codes, so the export has to combine
+            // the two validities.
+            let values = nullable_structured_strings(DICTIONARY_SIZE);
+            DictArray::try_new(dictionary_codes(), values.into_array())
+                .unwrap()
+                .into_array()
         }
-        OffsetStringEncoding::FilterDictFsst => {
-            filtered(offset_string_array(OffsetStringEncoding::DictFsst))
-        }
-        OffsetStringEncoding::ChunkedFsst => chunked_fsst(&mut ctx),
     }
 }
 
-#[divan::bench(args = OFFSET_STRING_ENCODINGS)]
-fn offset_string_export(bencher: Bencher, encoding: OffsetStringEncoding) {
-    let array = offset_string_array(encoding);
+/// End-to-end export to Arrow `Utf8`, which is served through a `VarBinBuilder`.
+#[divan::bench(args = STRING_ENCODINGS)]
+fn offset_string_export(bencher: Bencher, encoding: StringEncoding) {
+    let array = string_array(encoding);
     let field = Field::new("value", DataType::Utf8, array.dtype().is_nullable());
 
     bencher
@@ -263,6 +330,37 @@ fn offset_string_export(bencher: Bencher, encoding: OffsetStringEncoding) {
                 .arrow()
                 .execute_arrow(array, Some(&field), &mut ctx)
                 .unwrap()
+        });
+}
+
+/// Appends an encoded array straight into an offset builder.
+#[divan::bench(args = BUILDER_STRING_ENCODINGS)]
+fn append_to_varbin_builder(bencher: Bencher, encoding: StringEncoding) {
+    let array = string_array(encoding);
+
+    bencher
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .input_counter(|(array, _)| ItemsCount::new(array.len()))
+        .bench_values(|(array, mut ctx)| {
+            let mut builder =
+                VarBinBuilder::<i32>::with_capacity(array.dtype().clone(), array.len());
+            array.append_to_builder(&mut builder, &mut ctx).unwrap();
+            builder.finish_into_varbin()
+        });
+}
+
+/// Appends an encoded array straight into a view builder.
+#[divan::bench(args = BUILDER_STRING_ENCODINGS)]
+fn append_to_view_builder(bencher: Bencher, encoding: StringEncoding) {
+    let array = string_array(encoding);
+
+    bencher
+        .with_inputs(|| (array.clone(), SESSION.create_execution_ctx()))
+        .input_counter(|(array, _)| ItemsCount::new(array.len()))
+        .bench_values(|(array, mut ctx)| {
+            let mut builder = VarBinViewBuilder::with_capacity(array.dtype().clone(), array.len());
+            array.append_to_builder(&mut builder, &mut ctx).unwrap();
+            builder.finish_into_varbinview()
         });
 }
 

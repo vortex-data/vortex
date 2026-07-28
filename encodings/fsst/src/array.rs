@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
+use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -34,13 +35,15 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::varbin::VarBinArraySlotsExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::builders::DynVarBinBuilder;
+use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::legacy_session;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_varbin_builder;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -58,8 +61,9 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::canonical::FSST_DECODE_SLACK;
+use crate::canonical::FsstDecodePlan;
 use crate::canonical::canonicalize_fsst;
-use crate::canonical::fsst_decode_bytes;
 use crate::canonical::fsst_decode_views;
 use crate::rules::RULES;
 
@@ -307,23 +311,10 @@ impl VTable for FSST {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
-            let (bytes, lengths) = fsst_decode_bytes(array, ctx)?;
-            let validity = array
-                .array()
-                .validity()?
-                .execute_mask(array.array().len(), ctx)?;
-            match_each_integer_ptype!(lengths.ptype(), |P| {
-                builder.append_values(
-                    bytes.as_slice(),
-                    lengths.as_slice::<P>().iter().scan(0usize, |end, length| {
-                        *end += AsPrimitive::<usize>::as_(*length);
-                        Some(*end)
-                    }),
-                    &validity,
-                )
-            })?;
-            return Ok(());
+        if let Some(result) =
+            match_each_varbin_builder!(builder, |builder| append_to_varbin(array, builder, ctx))
+        {
+            return result;
         }
 
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
@@ -359,6 +350,41 @@ impl VTable for FSST {
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
     }
+}
+
+/// Decompresses the code stream straight into `builder`'s byte storage.
+///
+/// The offsets are the running sum of the uncompressed lengths the array already stores, so the
+/// only work beyond the bulk `decompress_into` is one prefix sum over them.
+fn append_to_varbin<O: IntegerPType>(
+    array: ArrayView<'_, FSST>,
+    builder: &mut VarBinBuilder<O>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()>
+where
+    usize: AsPrimitive<O>,
+{
+    let plan = FsstDecodePlan::new(array, ctx)?;
+    let validity = array
+        .array()
+        .validity()?
+        .execute_mask(array.array().len(), ctx)?;
+    let decompressor = array.decompressor();
+    // Built once, outside the ptype match: the decoder is `#[inline(always)]`, so creating the
+    // closure inside each arm would stamp out a copy of the whole decode loop per length type.
+    let mut decode = |out: &mut [MaybeUninit<u8>]| plan.decode_into(&decompressor, out);
+    match_each_integer_ptype!(plan.lengths.ptype(), |P| {
+        // SAFETY: `decode_into` initializes exactly the prefix whose length it returns.
+        unsafe {
+            builder.append_decoded(
+                plan.total_size,
+                FSST_DECODE_SLACK,
+                plan.lengths.as_slice::<P>(),
+                &validity,
+                &mut decode,
+            )
+        }
+    })
 }
 
 #[array_slots(FSST)]
