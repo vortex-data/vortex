@@ -95,6 +95,10 @@ fn byte_compress_density_threshold<T>() -> f64 {
     // The scalar byte-LUT has a later crossover on AArch64, where the word-at-a-time set-bit walk
     // is particularly efficient. Wider values also favor the word walk until all-set bytes become
     // common. Keep these cases covered by `benches/filter_fixed_width.rs`.
+    //
+    // On AArch64 the NEON kernels above already cover most of the range these thresholds used to
+    // govern, so this is reached only where `simd_compress::neon::density_band` declines: 8-byte
+    // values at density >= 0.8, and the 16/32-byte widths NEON has no kernel for.
     if cfg!(target_arch = "aarch64") {
         return match width {
             8 => 0.75,
