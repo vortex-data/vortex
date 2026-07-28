@@ -25,11 +25,10 @@ SELECT name, age FROM 'data.vortex' WHERE age > 30;
 
 ## Writing files
 
-Export data to Vortex using the `COPY` statement. The `FORMAT vortex` clause is required —
-without it, DuckDB defaults to CSV.
+Export data to Vortex using the `COPY` statement.
 
 ```sql
-COPY (SELECT * FROM my_table) TO 'output.vortex' (FORMAT vortex);
+COPY (SELECT * FROM my_table) TO 'output.vortex';
 ```
 
 ## Python
