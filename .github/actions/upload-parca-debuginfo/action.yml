@@ -22,7 +22,7 @@ inputs:
   force:
     description: "Replace existing debuginfo for the same build ID"
     required: false
-    default: "true"
+    default: "false"
 
 runs:
   using: "composite"
@@ -68,7 +68,8 @@ runs:
         set -Eeu -o pipefail
 
         token_file="$(mktemp)"
-        trap 'rm -f "$token_file"' EXIT
+        upload_log="$(mktemp)"
+        trap 'rm -f "$token_file" "$upload_log"' EXIT
         printf "%s" "$POLARSIGNALS_CLOUD_TOKEN" > "$token_file"
 
         uploaded=0
@@ -94,7 +95,19 @@ runs:
             cmd+=(--force)
           fi
 
-          "${cmd[@]}"
+          set +e
+          "${cmd[@]}" > "$upload_log" 2>&1
+          status=$?
+          set -e
+          cat "$upload_log"
+
+          if [[ "$status" -ne 0 ]]; then
+            if grep -Eiq "upload id mismatch|already exists|AlreadyExists" "$upload_log"; then
+              echo "::notice::Debuginfo already uploaded for $binary; continuing"
+            else
+              exit "$status"
+            fi
+          fi
           uploaded=$((uploaded + 1))
         done <<< "$PATHS"
 
