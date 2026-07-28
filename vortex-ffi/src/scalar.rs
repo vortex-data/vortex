@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! FFI interface for working with Vortex scalar values.
-
 use std::ptr;
 use std::slice;
-use std::str;
 use std::sync::Arc;
 
+use paste::paste;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::Nullability;
 use vortex::dtype::half::f16;
 use vortex::dtype::i256;
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -28,7 +27,10 @@ use crate::string::vx_view;
 
 box_wrapper!(
     /// A vx_scalar is a single value with an associated vx_dtype.
+    ///
     /// Scalar value may be Null is vx_dtype is nullable.
+    /// One example where you can get a Null scalar is vx_array_get_scalar
+    /// where the element at some index is invalid/null.
     Scalar,
     vx_scalar
 );
@@ -45,7 +47,7 @@ pub unsafe extern "C-unwind" fn vx_scalar_dtype(scalar: *const vx_scalar) -> *co
     vx_dtype::new(vx_scalar::as_ref(scalar).dtype().clone())
 }
 
-/// Return whether scalar is a typed null value.
+/// Return whether scalar is a typed Null value.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scalar_is_null(scalar: *const vx_scalar) -> bool {
     vx_scalar::as_ref(scalar).is_null()
@@ -60,70 +62,58 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_bool(
     vx_scalar::new(Scalar::bool(value, Nullability::from(is_nullable)))
 }
 
-/// Create an unsigned 8-bit integer scalar.
+/// Return the boolean value stored in the scalar.
+///
+/// Panics if the scalar is not a Bool scalar, or is null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_u8(value: u8, is_nullable: bool) -> *mut vx_scalar {
-    vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
+pub unsafe extern "C-unwind" fn vx_scalar_get_bool(scalar: *const vx_scalar) -> bool {
+    vx_scalar::as_ref(scalar)
+        .as_bool()
+        .value()
+        .vortex_expect("scalar is null or not a bool")
 }
 
-/// Create an unsigned 16-bit integer scalar.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_u16(value: u16, is_nullable: bool) -> *mut vx_scalar {
-    vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
+macro_rules! scalar_primitive {
+    ($ptype:ident) => {
+        paste! {
+            #[doc = concat!(" Create a ", stringify!($ptype), " scalar.")]
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C-unwind" fn [<vx_scalar_new_ $ptype>](
+                value: $ptype,
+                is_nullable: bool,
+            ) -> *mut vx_scalar {
+                vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
+            }
+
+            #[doc = concat!(" Return ", stringify!($ptype), " value stored in scalar.")]
+            ///
+            /// Panics if scalar is not a primitive scalar of this type or is null.
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C-unwind" fn [<vx_scalar_get_ $ptype>](
+                scalar: *const vx_scalar,
+            ) -> $ptype {
+                vx_scalar::as_ref(scalar)
+                    .as_primitive()
+                    .typed_value::<$ptype>()
+                    .vortex_expect(concat!("scalar is null or not a ", stringify!($ptype)))
+            }
+        }
+    };
 }
 
-/// Create an unsigned 32-bit integer scalar.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_u32(value: u32, is_nullable: bool) -> *mut vx_scalar {
-    vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
-}
-
-/// Create an unsigned 64-bit integer scalar.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_u64(value: u64, is_nullable: bool) -> *mut vx_scalar {
-    vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
-}
-
-/// Create a signed 8-bit integer scalar.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_i8(value: i8, is_nullable: bool) -> *mut vx_scalar {
-    vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
-}
-
-/// Create a signed 16-bit integer scalar.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_i16(value: i16, is_nullable: bool) -> *mut vx_scalar {
-    vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
-}
-
-/// Create a signed 32-bit integer scalar.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_i32(value: i32, is_nullable: bool) -> *mut vx_scalar {
-    vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
-}
-
-/// Create a signed 64-bit integer scalar.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_i64(value: i64, is_nullable: bool) -> *mut vx_scalar {
-    vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
-}
-
-/// Create a 32-bit floating point scalar.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_f32(value: f32, is_nullable: bool) -> *mut vx_scalar {
-    vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
-}
-
-/// Create a 64-bit floating point scalar.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_f64(value: f64, is_nullable: bool) -> *mut vx_scalar {
-    vx_scalar::new(Scalar::primitive(value, Nullability::from(is_nullable)))
-}
+scalar_primitive!(u8);
+scalar_primitive!(u16);
+scalar_primitive!(u32);
+scalar_primitive!(u64);
+scalar_primitive!(i8);
+scalar_primitive!(i16);
+scalar_primitive!(i32);
+scalar_primitive!(i64);
+scalar_primitive!(f32);
+scalar_primitive!(f64);
 
 /// Create a 16-bit floating point scalar.
-///
-/// The value is read from raw half-precision bits because C has no portable
-/// half-precision floating point ABI.
+/// The value is read from raw uint16_t.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scalar_new_f16_bits(
     bits: u16,
@@ -137,8 +127,8 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_f16_bits(
 
 /// Create a UTF-8 scalar.
 ///
-/// The string bytes are copied into the scalar. Invalid UTF-8 returns NULL and
-/// writes the error output.
+/// "value" bytes are copied into scalar.
+/// Errors on invalid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_scalar_new_utf8(
     value: vx_view,
@@ -156,8 +146,9 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_utf8(
 
 /// Create a binary scalar.
 ///
-/// The byte range is copied into the scalar. NULL "ptr" is allowed only when
-/// len == 0.
+/// Byte range is copied into the scalar.
+///
+/// NULL "ptr" is allowed only when len == 0.
 ///
 /// Returns NULL and sets "err" on error.
 #[unsafe(no_mangle)]
@@ -174,6 +165,34 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_binary(
             Nullability::from(is_nullable),
         )))
     })
+}
+
+/// Return UTF-8 string stored in scalar.
+///
+/// Returned view borrows the scalar and is valid as long as "scalar" is valid.
+///
+/// Panics if scalar is not a Utf8 scalar, or is null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_scalar_get_utf8(scalar: *const vx_scalar) -> vx_view {
+    let value = vx_scalar::as_ref(scalar)
+        .as_utf8()
+        .value()
+        .vortex_expect("scalar is null or not a utf8");
+    vx_view::from_str(value.as_str())
+}
+
+/// Return binary bytes stored in the scalar.
+///
+/// Returned view borrows scalar and is valid as long as "scalar" is valid.
+///
+/// Panics if scalar is not a Binary scalar, or is null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_scalar_get_binary(scalar: *const vx_scalar) -> vx_view {
+    let value = vx_scalar::as_ref(scalar)
+        .as_binary()
+        .value()
+        .vortex_expect("scalar is null or not a binary");
+    vx_view::from_bytes(value.as_slice())
 }
 
 /// Create a typed null scalar.
@@ -194,77 +213,55 @@ pub unsafe extern "C-unwind" fn vx_scalar_new_null(
     })
 }
 
-/// Create a decimal scalar.
-///
-/// The unscaled value is provided as a signed 8-bit integer.
-///
-/// Returns NULL and sets "err" on error.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_decimal_i8(
-    value: i8,
-    precision: u8,
-    scale: i8,
-    is_nullable: bool,
-    err: *mut *mut vx_error,
-) -> *mut vx_scalar {
-    try_or(err, ptr::null_mut(), || {
-        decimal_scalar_from_value(DecimalValue::I8(value), precision, scale, is_nullable)
-    })
+macro_rules! scalar_decimal {
+    ($int:ident, $variant:ident) => {
+        paste! {
+            #[doc = concat!(" Create a decimal scalar from a signed ", stringify!($int), " unscaled value.")]
+            ///
+            /// Returns NULL and sets "err" on error.
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C-unwind" fn [<vx_scalar_new_decimal_ $int>](
+                value: $int,
+                precision: u8,
+                scale: i8,
+                is_nullable: bool,
+                err: *mut *mut vx_error,
+            ) -> *mut vx_scalar {
+                try_or(err, ptr::null_mut(), || {
+                    decimal_scalar_from_value(
+                        DecimalValue::$variant(value),
+                        precision,
+                        scale,
+                        is_nullable,
+                    )
+                })
+            }
+
+            #[doc = concat!(" Return the unscaled ", stringify!($int), " value of a decimal scalar.")]
+            ///
+            /// Panics if the scalar is not a decimal scalar, is null, or the
+            #[doc = concat!(" unscaled value does not fit in ", stringify!($int), ".")]
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C-unwind" fn [<vx_scalar_get_decimal_ $int>](
+                scalar: *const vx_scalar,
+            ) -> $int {
+                vx_scalar::as_ref(scalar)
+                    .as_decimal()
+                    .decimal_value()
+                    .and_then(|value| value.cast::<$int>())
+                    .vortex_expect(concat!(
+                        "scalar is null or its decimal value does not fit in ",
+                        stringify!($int)
+                    ))
+            }
+        }
+    };
 }
 
-/// Create a decimal scalar.
-///
-/// The unscaled value is provided as a signed 16-bit integer.
-///
-/// Returns NULL and sets "err" on error.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_decimal_i16(
-    value: i16,
-    precision: u8,
-    scale: i8,
-    is_nullable: bool,
-    err: *mut *mut vx_error,
-) -> *mut vx_scalar {
-    try_or(err, ptr::null_mut(), || {
-        decimal_scalar_from_value(DecimalValue::I16(value), precision, scale, is_nullable)
-    })
-}
-
-/// Create a decimal scalar.
-///
-/// The unscaled value is provided as a signed 32-bit integer.
-///
-/// Returns NULL and sets "err" on error.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_decimal_i32(
-    value: i32,
-    precision: u8,
-    scale: i8,
-    is_nullable: bool,
-    err: *mut *mut vx_error,
-) -> *mut vx_scalar {
-    try_or(err, ptr::null_mut(), || {
-        decimal_scalar_from_value(DecimalValue::I32(value), precision, scale, is_nullable)
-    })
-}
-
-/// Create a decimal scalar.
-///
-/// The unscaled value is provided as a signed 64-bit integer.
-///
-/// Returns NULL and sets "err" on error.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_scalar_new_decimal_i64(
-    value: i64,
-    precision: u8,
-    scale: i8,
-    is_nullable: bool,
-    err: *mut *mut vx_error,
-) -> *mut vx_scalar {
-    try_or(err, ptr::null_mut(), || {
-        decimal_scalar_from_value(DecimalValue::I64(value), precision, scale, is_nullable)
-    })
-}
+scalar_decimal!(i8, I8);
+scalar_decimal!(i16, I16);
+scalar_decimal!(i32, I32);
+scalar_decimal!(i64, I64);
 
 /// Create a decimal scalar.
 ///
@@ -439,6 +436,10 @@ mod tests {
     use std::ptr;
     use std::sync::Arc;
 
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::buffer;
     use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::Nullability;
@@ -448,40 +449,16 @@ mod tests {
     use vortex::scalar::DecimalValue;
     use vortex::scalar::Scalar;
 
+    use crate::array::*;
     use crate::dtype::vx_dtype;
     use crate::dtype::vx_dtype_free;
     use crate::dtype::vx_dtype_new_bool;
     use crate::dtype::vx_dtype_new_primitive;
     use crate::ptype::vx_ptype;
-    use crate::scalar::vx_scalar;
-    use crate::scalar::vx_scalar_clone;
-    use crate::scalar::vx_scalar_dtype;
-    use crate::scalar::vx_scalar_free;
-    use crate::scalar::vx_scalar_is_null;
-    use crate::scalar::vx_scalar_new_binary;
-    use crate::scalar::vx_scalar_new_bool;
-    use crate::scalar::vx_scalar_new_decimal_i8;
-    use crate::scalar::vx_scalar_new_decimal_i16;
-    use crate::scalar::vx_scalar_new_decimal_i32;
-    use crate::scalar::vx_scalar_new_decimal_i64;
-    use crate::scalar::vx_scalar_new_decimal_i128_le;
-    use crate::scalar::vx_scalar_new_decimal_i256_le;
-    use crate::scalar::vx_scalar_new_f16_bits;
-    use crate::scalar::vx_scalar_new_f32;
-    use crate::scalar::vx_scalar_new_f64;
-    use crate::scalar::vx_scalar_new_fixed_size_list;
-    use crate::scalar::vx_scalar_new_i8;
-    use crate::scalar::vx_scalar_new_i16;
-    use crate::scalar::vx_scalar_new_i32;
-    use crate::scalar::vx_scalar_new_i64;
-    use crate::scalar::vx_scalar_new_list;
-    use crate::scalar::vx_scalar_new_null;
-    use crate::scalar::vx_scalar_new_struct;
-    use crate::scalar::vx_scalar_new_u8;
-    use crate::scalar::vx_scalar_new_u16;
-    use crate::scalar::vx_scalar_new_u32;
-    use crate::scalar::vx_scalar_new_u64;
-    use crate::scalar::vx_scalar_new_utf8;
+    use crate::scalar::*;
+    use crate::session::vx_session;
+    use crate::session::vx_session_free;
+    use crate::session::vx_session_new;
     use crate::string::vx_view;
     use crate::tests::assert_error;
     use crate::tests::assert_no_error;
@@ -653,7 +630,7 @@ mod tests {
             );
             assert_no_error(error);
 
-            let i256_value = vortex::dtype::i256::from_i128(12345);
+            let i256_value = i256::from_i128(12345);
             assert_scalar(
                 vx_scalar_new_decimal_i256_le(
                     i256_value.to_le_bytes().as_ptr(),
@@ -799,6 +776,113 @@ mod tests {
             assert!(!empty.is_null());
             vx_scalar_free(empty);
             vx_dtype_free(dtype);
+        }
+    }
+
+    #[test]
+    // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
+    #[cfg_attr(miri, ignore)]
+    fn test_array_scalar_getters() {
+        unsafe fn get_i32(session: *const vx_session, array: *const vx_array, index: usize) -> i32 {
+            let mut error = ptr::null_mut();
+            let scalar = unsafe { vx_array_get_scalar(session, array, index, &raw mut error) };
+            assert_no_error(error);
+            let value = unsafe { vx_scalar_get_i32(scalar) };
+            unsafe { vx_scalar_free(scalar.cast_mut()) };
+            value
+        }
+
+        unsafe fn get_f64(session: *const vx_session, array: *const vx_array, index: usize) -> f64 {
+            let mut error = ptr::null_mut();
+            let scalar = unsafe { vx_array_get_scalar(session, array, index, &raw mut error) };
+            assert_no_error(error);
+            let value = unsafe { vx_scalar_get_f64(scalar) };
+            unsafe { vx_scalar_free(scalar.cast_mut()) };
+            value
+        }
+
+        unsafe {
+            let session = vx_session_new();
+
+            let i32_array =
+                PrimitiveArray::new(buffer![i32::MAX, i32::MIN, 0], Validity::NonNullable)
+                    .into_array();
+            let ffi_i32 = vx_array::new(i32_array);
+            assert!(vx_array_is_primitive(ffi_i32, vx_ptype::PTYPE_I32));
+            assert_eq!(get_i32(session, ffi_i32, 0), i32::MAX);
+            assert_eq!(get_i32(session, ffi_i32, 1), i32::MIN);
+            assert_eq!(get_i32(session, ffi_i32, 2), 0);
+            vx_array_free(ffi_i32);
+
+            let f64_array = PrimitiveArray::new(
+                buffer![f64::NEG_INFINITY, 0.0f64, f64::NAN],
+                Validity::NonNullable,
+            )
+            .into_array();
+            let ffi_f64 = vx_array::new(f64_array);
+            assert_eq!(get_f64(session, ffi_f64, 0), f64::NEG_INFINITY);
+            assert_eq!(get_f64(session, ffi_f64, 1), 0.0);
+            assert!(get_f64(session, ffi_f64, 2).is_nan());
+            vx_array_free(ffi_f64);
+
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    fn test_scalar_primitive_getters() {
+        unsafe {
+            let s = vx_scalar_new_i32(-42, false);
+            assert_eq!(vx_scalar_get_i32(s), -42);
+            vx_scalar_free(s);
+
+            let s = vx_scalar_new_u64(u64::MAX, true);
+            assert_eq!(vx_scalar_get_u64(s), u64::MAX);
+            vx_scalar_free(s);
+
+            let s = vx_scalar_new_f64(1.5, false);
+            assert_eq!(vx_scalar_get_f64(s), 1.5);
+            vx_scalar_free(s);
+
+            let s = vx_scalar_new_bool(true, false);
+            assert!(vx_scalar_get_bool(s));
+            vx_scalar_free(s);
+        }
+    }
+
+    #[test]
+    fn test_scalar_string_getters() {
+        unsafe {
+            let mut error = ptr::null_mut();
+
+            let value = "hello";
+            let s = vx_scalar_new_utf8(vx_view::from_str(value), false, &raw mut error);
+            assert_no_error(error);
+            assert_eq!(vx_scalar_get_utf8(s).as_str().unwrap(), value);
+            vx_scalar_free(s);
+
+            let bytes = b"\xde\xad\xbe\xef";
+            let s = vx_scalar_new_binary(bytes.as_ptr(), bytes.len(), false, &raw mut error);
+            assert_no_error(error);
+            assert_eq!(vx_scalar_get_binary(s).as_bytes().unwrap(), bytes);
+            vx_scalar_free(s);
+        }
+    }
+
+    #[test]
+    fn test_scalar_decimal_getters() {
+        unsafe {
+            let mut error = ptr::null_mut();
+
+            let s = vx_scalar_new_decimal_i32(1234, 5, 2, false, &raw mut error);
+            assert_no_error(error);
+            assert_eq!(vx_scalar_get_decimal_i32(s), 1234);
+            vx_scalar_free(s);
+
+            let s = vx_scalar_new_decimal_i64(99999, 12, 3, false, &raw mut error);
+            assert_no_error(error);
+            assert_eq!(vx_scalar_get_decimal_i64(s), 99999);
+            vx_scalar_free(s);
         }
     }
 }

@@ -26,6 +26,27 @@ public:
     bool is_null() const;
     DataType dtype() const;
 
+    /**
+     * Read scalar's value.
+     *
+     * Supported types are bool, primitives, std::string_view, and BinaryView.
+     *
+     * std::string_view and BinaryView returned borrow from scalar and stay
+     * valid while scalar is valid.
+     *
+     * Throws if scalar type does not match T or value is Null.
+     */
+    template <element_type T>
+    T get() const;
+
+    /**
+     * Read a decimal scalar's unscaled value.
+     * int8/16/32/64_t are supported.
+     * Throws if scalar is not a decimal, is Null, or value does not fit in T.
+     */
+    template <primitive_type T>
+    T get_decimal() const;
+
 private:
     friend struct detail::Access;
     explicit Scalar(vx_scalar *owned) : handle_(owned) {
@@ -39,6 +60,58 @@ private:
     };
     std::unique_ptr<vx_scalar, Deleter> handle_;
 };
+
+template <element_type T>
+T Scalar::get() const {
+    vx_scalar *h = handle_.get();
+    if constexpr (std::is_same_v<T, bool>) {
+        return vx_scalar_get_bool(h);
+    } else if constexpr (std::is_same_v<T, std::string_view>) {
+        vx_view v = vx_scalar_get_utf8(h);
+        return std::string_view(v.ptr, v.len);
+    } else if constexpr (std::is_same_v<T, BinaryView>) {
+        vx_view v = vx_scalar_get_binary(h);
+        return BinaryView(reinterpret_cast<const std::byte *>(v.ptr), v.len);
+    } else if constexpr (std::is_same_v<T, uint8_t>) {
+        return vx_scalar_get_u8(h);
+    } else if constexpr (std::is_same_v<T, uint16_t>) {
+        return vx_scalar_get_u16(h);
+    } else if constexpr (std::is_same_v<T, uint32_t>) {
+        return vx_scalar_get_u32(h);
+    } else if constexpr (std::is_same_v<T, uint64_t>) {
+        return vx_scalar_get_u64(h);
+    } else if constexpr (std::is_same_v<T, int8_t>) {
+        return vx_scalar_get_i8(h);
+    } else if constexpr (std::is_same_v<T, int16_t>) {
+        return vx_scalar_get_i16(h);
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        return vx_scalar_get_i32(h);
+    } else if constexpr (std::is_same_v<T, int64_t>) {
+        return vx_scalar_get_i64(h);
+    } else if constexpr (std::is_same_v<T, float>) {
+        return vx_scalar_get_f32(h);
+    } else if constexpr (std::is_same_v<T, double>) {
+        return vx_scalar_get_f64(h);
+    } else {
+        static_assert(false, "f16 scalar get is not supported");
+    }
+}
+
+template <primitive_type T>
+T Scalar::get_decimal() const {
+    vx_scalar *h = handle_.get();
+    if constexpr (std::is_same_v<T, int8_t>) {
+        return vx_scalar_get_decimal_i8(h);
+    } else if constexpr (std::is_same_v<T, int16_t>) {
+        return vx_scalar_get_decimal_i16(h);
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        return vx_scalar_get_decimal_i32(h);
+    } else if constexpr (std::is_same_v<T, int64_t>) {
+        return vx_scalar_get_decimal_i64(h);
+    } else {
+        static_assert(false, "unsupported decimal scalar get type");
+    }
+}
 
 namespace detail {
 vx_scalar *make_bool(bool value, bool nullable);

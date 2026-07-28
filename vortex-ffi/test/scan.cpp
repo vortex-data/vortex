@@ -302,7 +302,7 @@ TEST_CASE("Write file and read dtypes", "[datasource]") {
     REQUIRE(to_string_view(height_name) == "height");
 }
 
-void verify_age_field(const vx_array *age_field) {
+void verify_age_field(vx_session *session, const vx_array *age_field) {
     REQUIRE(vx_array_has_dtype(age_field, DTYPE_PRIMITIVE));
     const vx_dtype *dtype = vx_array_dtype(age_field);
     defer {
@@ -311,11 +311,11 @@ void verify_age_field(const vx_array *age_field) {
     REQUIRE(vx_dtype_primitive_ptype(dtype) == PTYPE_U8);
     REQUIRE(vx_array_len(age_field) == SAMPLE_ROWS);
     for (size_t i = 0; i < SAMPLE_ROWS; ++i) {
-        REQUIRE(vx_array_get_u8(age_field, i) == i);
+        REQUIRE(array_get_u8(session, age_field, i) == i);
     }
 }
 
-void verify_height_field(const vx_array *height_field) {
+void verify_height_field(vx_session *session, const vx_array *height_field) {
     REQUIRE(vx_array_has_dtype(height_field, DTYPE_PRIMITIVE));
     const vx_dtype *dtype = vx_array_dtype(height_field);
     defer {
@@ -324,11 +324,11 @@ void verify_height_field(const vx_array *height_field) {
     REQUIRE(vx_dtype_primitive_ptype(dtype) == PTYPE_U16);
     REQUIRE(vx_array_len(height_field) == SAMPLE_ROWS);
     for (size_t i = 0; i < SAMPLE_ROWS; ++i) {
-        REQUIRE(vx_array_get_u16(height_field, i) > 0);
+        REQUIRE(array_get_u16(session, height_field, i) > 0);
     }
 }
 
-void verify_sample_array(const vx_array *array) {
+void verify_sample_array(vx_session *session, const vx_array *array) {
     REQUIRE(vx_array_len(array) == SAMPLE_ROWS);
     REQUIRE(vx_array_has_dtype(array, DTYPE_STRUCT));
 
@@ -363,12 +363,12 @@ void verify_sample_array(const vx_array *array) {
 
     const vx_array *age_field = vx_array_get_field(array, 0, &error);
     require_no_error(error);
-    verify_age_field(age_field);
+    verify_age_field(session, age_field);
     vx_array_free(age_field);
 
     const vx_array *height_field = vx_array_get_field(array, 1, &error);
     require_no_error(error);
-    verify_height_field(height_field);
+    verify_height_field(session, height_field);
     vx_array_free(height_field);
 
     REQUIRE(vx_array_get_field(array, 2, &error) == nullptr);
@@ -413,7 +413,7 @@ TEST_CASE("Requesting scans", "[datasource]") {
     }
 }
 
-void basic_scan(const vx_data_source *ds) {
+void basic_scan(vx_session *session, const vx_data_source *ds) {
     vx_error *error = nullptr;
     vx_estimate estimate = {};
     vx_scan *scan = vx_data_source_scan(ds, nullptr, &estimate, &error);
@@ -450,7 +450,7 @@ void basic_scan(const vx_data_source *ds) {
     REQUIRE(vx_partition_next(partition, &error) == nullptr);
     require_no_error(error);
 
-    verify_sample_array(array);
+    verify_sample_array(session, array);
 }
 
 TEST_CASE("Basic scan", "[datasource]") {
@@ -472,7 +472,7 @@ TEST_CASE("Basic scan", "[datasource]") {
         vx_data_source_free(ds);
     };
 
-    basic_scan(ds);
+    basic_scan(session, ds);
 }
 
 TEST_CASE("Basic scan from memory", "[datasource]") {
@@ -496,7 +496,7 @@ TEST_CASE("Basic scan from memory", "[datasource]") {
         vx_data_source_free(ds);
     };
 
-    basic_scan(ds);
+    basic_scan(session, ds);
 }
 
 TEST_CASE("Multithreaded scan", "[datasource]") {
@@ -590,15 +590,11 @@ TEST_CASE("Multithreaded scan", "[datasource]") {
         defer {
             vx_array_free(array);
         };
-        verify_sample_array(array);
+        verify_sample_array(session, array);
     }
 }
 
-const vx_array *scan_with_options(vx_scan_options &options) {
-    vx_session *session = vx_session_new();
-    defer {
-        vx_session_free(session);
-    };
+const vx_array *scan_with_options(vx_session *session, vx_scan_options &options) {
     TempPath path = write_sample(session);
     vx_error *error = nullptr;
 
@@ -636,29 +632,41 @@ const vx_array *scan_with_options(vx_scan_options &options) {
 }
 
 TEST_CASE("Project all fields", "[projection]") {
+    vx_session *session = vx_session_new();
+    defer {
+        vx_session_free(session);
+    };
     vx_scan_options opts = {};
-    const vx_array *array = scan_with_options(opts);
+    const vx_array *array = scan_with_options(session, opts);
     defer {
         vx_array_free(array);
     };
-    verify_sample_array(array);
+    verify_sample_array(session, array);
 }
 
 TEST_CASE("Project root", "[projection]") {
+    vx_session *session = vx_session_new();
+    defer {
+        vx_session_free(session);
+    };
     vx_expression *root = vx_expression_root();
     defer {
         vx_expression_free(root);
     };
     vx_scan_options opts = {};
     opts.projection = root;
-    const vx_array *array = scan_with_options(opts);
+    const vx_array *array = scan_with_options(session, opts);
     defer {
         vx_array_free(array);
     };
-    verify_sample_array(array);
+    verify_sample_array(session, array);
 }
 
 TEST_CASE("Project single field", "[projection]") {
+    vx_session *session = vx_session_new();
+    defer {
+        vx_session_free(session);
+    };
     vx_expression *root = vx_expression_root();
     defer {
         vx_expression_free(root);
@@ -673,11 +681,11 @@ TEST_CASE("Project single field", "[projection]") {
 
     {
         opts.projection = age_field;
-        const vx_array *array = scan_with_options(opts);
+        const vx_array *array = scan_with_options(session, opts);
         defer {
             vx_array_free(array);
         };
-        verify_age_field(array);
+        verify_age_field(session, array);
     }
 
     vx_expression *height_field = vx_expression_get_item(vx_view_from_cstr("height"), root);
@@ -688,15 +696,19 @@ TEST_CASE("Project single field", "[projection]") {
 
     {
         opts.projection = height_field;
-        const vx_array *array = scan_with_options(opts);
+        const vx_array *array = scan_with_options(session, opts);
         defer {
             vx_array_free(array);
         };
-        verify_height_field(array);
+        verify_height_field(session, array);
     }
 }
 
 TEST_CASE("Filter with literal expression", "[filter]") {
+    vx_session *session = vx_session_new();
+    defer {
+        vx_session_free(session);
+    };
     vx_expression *root = vx_expression_root();
     defer {
         vx_expression_free(root);
@@ -731,7 +743,7 @@ TEST_CASE("Filter with literal expression", "[filter]") {
 
     vx_scan_options opts = {};
     opts.filter = filter;
-    const vx_array *array = scan_with_options(opts);
+    const vx_array *array = scan_with_options(session, opts);
     defer {
         vx_array_free(array);
     };
@@ -747,11 +759,15 @@ TEST_CASE("Filter with literal expression", "[filter]") {
     };
 
     for (size_t i = 0; i < vx_array_len(filtered_age); ++i) {
-        REQUIRE(vx_array_get_u8(filtered_age, i) == static_cast<uint8_t>(threshold + i));
+        REQUIRE(array_get_u8(session, filtered_age, i) == static_cast<uint8_t>(threshold + i));
     }
 }
 
 TEST_CASE("Project UTF-8 literal expression", "[projection]") {
+    vx_session *session = vx_session_new();
+    defer {
+        vx_session_free(session);
+    };
     constexpr auto value = "constant"sv;
     vx_error *scalar_error = nullptr;
     vx_scalar *literal_scalar =
@@ -772,17 +788,13 @@ TEST_CASE("Project UTF-8 literal expression", "[projection]") {
 
     vx_scan_options opts = {};
     opts.projection = literal_expr;
-    const vx_array *array = scan_with_options(opts);
+    const vx_array *array = scan_with_options(session, opts);
     defer {
         vx_array_free(array);
     };
 
     REQUIRE(vx_array_len(array) == SAMPLE_ROWS);
 
-    vx_session *session = vx_session_new();
-    defer {
-        vx_session_free(session);
-    };
     vx_error *canon_error = nullptr;
     const vx_array *canonical = vx_array_canonicalize(session, array, &canon_error);
     require_no_error(canon_error);

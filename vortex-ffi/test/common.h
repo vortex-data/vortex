@@ -27,6 +27,24 @@ inline void require_no_error(vx_error *error, bool assert = true) {
     }
 }
 
+inline uint8_t array_get_u8(vx_session *session, const vx_array *array, size_t index) {
+    vx_error *error = nullptr;
+    const vx_scalar *scalar = vx_array_get_scalar(session, array, index, &error);
+    require_no_error(error);
+    const uint8_t value = vx_scalar_get_u8(scalar);
+    vx_scalar_free(scalar);
+    return value;
+}
+
+inline uint16_t array_get_u16(vx_session *session, const vx_array *array, size_t index) {
+    vx_error *error = nullptr;
+    const vx_scalar *scalar = vx_array_get_scalar(session, array, index, &error);
+    require_no_error(error);
+    const uint16_t value = vx_scalar_get_u16(scalar);
+    vx_scalar_free(scalar);
+    return value;
+}
+
 template <class F>
 struct Defer {
     Defer(F &&f) : f(std::move(f)) {

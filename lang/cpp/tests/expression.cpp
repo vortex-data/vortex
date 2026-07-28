@@ -85,6 +85,7 @@ TEST_CASE("Operator overloading", "[expr]") {
     REQUIRE(bits.value(1));
     REQUIRE(bits.value(2));
     REQUIRE_FALSE(bits.value(3));
+    REQUIRE_THROWS_AS(bits.value(data.size()), VortexException);
 }
 
 TEST_CASE("Apply error", "[expr]") {

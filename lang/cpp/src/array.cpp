@@ -325,6 +325,11 @@ BytesView Array::bytes(const Session &session) const {
 }
 
 bool PrimitiveView<bool>::value(size_t i) const {
+    if (i >= size_) {
+        throw VortexException("index " + std::to_string(i) + " out of bounds for view of size " +
+                                  std::to_string(size_),
+                              ErrorCode::OutOfBounds);
+    }
     return vx_array_get_bool(Access::c_ptr(canonical_), i);
 }
 

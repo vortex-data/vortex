@@ -10,6 +10,8 @@ using namespace std::string_view_literals;
 
 namespace {
 using enum vortex::PType;
+using scalar::decimal;
+using scalar::of;
 
 TEST_CASE("Boolean scalar", "[scalar]") {
     Scalar s = scalar::of(true);
@@ -29,7 +31,7 @@ TEST_CASE("Integer scalars", "[scalar]") {
 }
 
 TEST_CASE("Float scalars", "[scalar]") {
-    REQUIRE(scalar::of(1.5F).dtype().primitive_type() == F32);
+    REQUIRE(scalar::of(1.5f).dtype().primitive_type() == F32);
     REQUIRE(scalar::of(1.5).dtype().primitive_type() == F64);
     REQUIRE(scalar::of(float16_t {0x3C00}).dtype().primitive_type() == F16);
 }
@@ -85,6 +87,32 @@ TEST_CASE("Decimal scalars", "[scalar]") {
     REQUIRE(d64.dtype().variant() == DataTypeVariant::Decimal);
     REQUIRE(d64.dtype().decimal_precision() == 12);
     REQUIRE(d64.dtype().decimal_scale() == 3);
+}
+
+TEST_CASE("Primitive getters", "[scalar]") {
+    REQUIRE(of<uint64_t>(1ULL << 40).get<uint64_t>() == (1ULL << 40));
+    REQUIRE(of<int32_t>(-7).get<int32_t>() == -7);
+    REQUIRE(of(2.5).get<double>() == 2.5);
+    REQUIRE(of(true).get<bool>());
+}
+
+TEST_CASE("String getters", "[scalar]") {
+    Scalar s = of("hello"sv);
+    REQUIRE(s.get<std::string_view>() == "hello"sv);
+
+    const std::byte bytes[] = {std::byte {1}, std::byte {2}, std::byte {0}, std::byte {4}};
+    Scalar b = of(std::span<const std::byte> {bytes});
+    BinaryView view = b.get<BinaryView>();
+    REQUIRE(view.size() == 4);
+    REQUIRE(view[0] == std::byte {1});
+    REQUIRE(view[3] == std::byte {4});
+}
+
+TEST_CASE("Decimal getters", "[scalar]") {
+    REQUIRE(decimal<int8_t>(56, 5, 2).get_decimal<int8_t>() == 56);
+    REQUIRE(decimal<int16_t>(1234, 5, 2).get_decimal<int16_t>() == 1234);
+    REQUIRE(decimal<int32_t>(5678, 6, 2).get_decimal<int32_t>() == 5678);
+    REQUIRE(decimal<int64_t>(99999, 12, 3).get_decimal<int64_t>() == 99999);
 }
 
 TEST_CASE("Copy scalar", "[scalar]") {

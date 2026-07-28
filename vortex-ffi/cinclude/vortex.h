@@ -429,7 +429,10 @@ typedef struct vx_partition vx_partition;
 
 /**
  * A vx_scalar is a single value with an associated vx_dtype.
+ *
  * Scalar value may be Null is vx_dtype is nullable.
+ * One example where you can get a Null scalar is vx_array_get_scalar
+ * where the element at some index is invalid/null.
  */
 typedef struct vx_scalar vx_scalar;
 
@@ -645,7 +648,10 @@ const vx_array *vx_array_slice(const vx_array *array, size_t start, size_t stop,
  * validity array. Sets error if index is out of bounds or underlying validity
  * array is corrupted.
  */
-bool vx_array_element_is_invalid(const vx_array *array, size_t index, vx_error **error);
+bool vx_array_element_is_invalid(const vx_session *session,
+                                 const vx_array *array,
+                                 size_t index,
+                                 vx_error **error);
 
 /**
  * Check how many items in the array are invalid (null).
@@ -708,50 +714,6 @@ const vx_array *vx_array_new_primitive(vx_ptype ptype,
 const vx_array *
 vx_array_from_arrow(FFI_ArrowArray *array, FFI_ArrowSchema *schema, bool nullable, vx_error **error_out);
 
-uint8_t vx_array_get_u8(const vx_array *array, size_t index);
-
-uint8_t vx_array_get_storage_u8(const vx_array *array, size_t index);
-
-uint16_t vx_array_get_u16(const vx_array *array, size_t index);
-
-uint16_t vx_array_get_storage_u16(const vx_array *array, size_t index);
-
-uint32_t vx_array_get_u32(const vx_array *array, size_t index);
-
-uint32_t vx_array_get_storage_u32(const vx_array *array, size_t index);
-
-uint64_t vx_array_get_u64(const vx_array *array, size_t index);
-
-uint64_t vx_array_get_storage_u64(const vx_array *array, size_t index);
-
-int8_t vx_array_get_i8(const vx_array *array, size_t index);
-
-int8_t vx_array_get_storage_i8(const vx_array *array, size_t index);
-
-int16_t vx_array_get_i16(const vx_array *array, size_t index);
-
-int16_t vx_array_get_storage_i16(const vx_array *array, size_t index);
-
-int32_t vx_array_get_i32(const vx_array *array, size_t index);
-
-int32_t vx_array_get_storage_i32(const vx_array *array, size_t index);
-
-int64_t vx_array_get_i64(const vx_array *array, size_t index);
-
-int64_t vx_array_get_storage_i64(const vx_array *array, size_t index);
-
-uint16_t vx_array_get_f16(const vx_array *array, size_t index);
-
-uint16_t vx_array_get_storage_f16(const vx_array *array, size_t index);
-
-float vx_array_get_f32(const vx_array *array, size_t index);
-
-float vx_array_get_storage_f32(const vx_array *array, size_t index);
-
-double vx_array_get_f64(const vx_array *array, size_t index);
-
-double vx_array_get_storage_f64(const vx_array *array, size_t index);
-
 /**
  * Return UTF-8 string at "index" in a canonical Utf8 array.
  *
@@ -782,6 +744,19 @@ vx_view vx_array_binary_at(const vx_array *array, size_t index, vx_error **error
  * Panics if "index" is out of bounds.
  */
 bool vx_array_get_bool(const vx_array *array, size_t index);
+
+/**
+ * Get array's element at position "index".
+ *
+ * If element at index is invalid, returns a Null vx_scalar.
+ *
+ * This is an expensive operation. If you need bulk access, use
+ * vx_array_data_ptr_primitive or vx_data_ptr_bool.
+ *
+ * Errors if "index" is out of bounds.
+ */
+const vx_scalar *
+vx_array_get_scalar(const vx_session *session, const vx_array *array, size_t index, vx_error **error_out);
 
 /**
  * Decode array into its canonical form.
@@ -1174,7 +1149,7 @@ vx_scalar *vx_scalar_clone(const vx_scalar *scalar);
 const vx_dtype *vx_scalar_dtype(const vx_scalar *scalar);
 
 /**
- * Return whether scalar is a typed null value.
+ * Return whether scalar is a typed Null value.
  */
 bool vx_scalar_is_null(const vx_scalar *scalar);
 
@@ -1184,80 +1159,174 @@ bool vx_scalar_is_null(const vx_scalar *scalar);
 vx_scalar *vx_scalar_new_bool(bool value, bool is_nullable);
 
 /**
- * Create an unsigned 8-bit integer scalar.
+ * Return the boolean value stored in the scalar.
+ *
+ * Panics if the scalar is not a Bool scalar, or is null.
+ */
+bool vx_scalar_get_bool(const vx_scalar *scalar);
+
+/**
+ * Create a u8 scalar.
  */
 vx_scalar *vx_scalar_new_u8(uint8_t value, bool is_nullable);
 
 /**
- * Create an unsigned 16-bit integer scalar.
+ * Return u8 value stored in scalar.
+ *
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+uint8_t vx_scalar_get_u8(const vx_scalar *scalar);
+
+/**
+ * Create a u16 scalar.
  */
 vx_scalar *vx_scalar_new_u16(uint16_t value, bool is_nullable);
 
 /**
- * Create an unsigned 32-bit integer scalar.
+ * Return u16 value stored in scalar.
+ *
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+uint16_t vx_scalar_get_u16(const vx_scalar *scalar);
+
+/**
+ * Create a u32 scalar.
  */
 vx_scalar *vx_scalar_new_u32(uint32_t value, bool is_nullable);
 
 /**
- * Create an unsigned 64-bit integer scalar.
+ * Return u32 value stored in scalar.
+ *
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+uint32_t vx_scalar_get_u32(const vx_scalar *scalar);
+
+/**
+ * Create a u64 scalar.
  */
 vx_scalar *vx_scalar_new_u64(uint64_t value, bool is_nullable);
 
 /**
- * Create a signed 8-bit integer scalar.
+ * Return u64 value stored in scalar.
+ *
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+uint64_t vx_scalar_get_u64(const vx_scalar *scalar);
+
+/**
+ * Create a i8 scalar.
  */
 vx_scalar *vx_scalar_new_i8(int8_t value, bool is_nullable);
 
 /**
- * Create a signed 16-bit integer scalar.
+ * Return i8 value stored in scalar.
+ *
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+int8_t vx_scalar_get_i8(const vx_scalar *scalar);
+
+/**
+ * Create a i16 scalar.
  */
 vx_scalar *vx_scalar_new_i16(int16_t value, bool is_nullable);
 
 /**
- * Create a signed 32-bit integer scalar.
+ * Return i16 value stored in scalar.
+ *
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+int16_t vx_scalar_get_i16(const vx_scalar *scalar);
+
+/**
+ * Create a i32 scalar.
  */
 vx_scalar *vx_scalar_new_i32(int32_t value, bool is_nullable);
 
 /**
- * Create a signed 64-bit integer scalar.
+ * Return i32 value stored in scalar.
+ *
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+int32_t vx_scalar_get_i32(const vx_scalar *scalar);
+
+/**
+ * Create a i64 scalar.
  */
 vx_scalar *vx_scalar_new_i64(int64_t value, bool is_nullable);
 
 /**
- * Create a 32-bit floating point scalar.
+ * Return i64 value stored in scalar.
+ *
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+int64_t vx_scalar_get_i64(const vx_scalar *scalar);
+
+/**
+ * Create a f32 scalar.
  */
 vx_scalar *vx_scalar_new_f32(float value, bool is_nullable);
 
 /**
- * Create a 64-bit floating point scalar.
+ * Return f32 value stored in scalar.
+ *
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+float vx_scalar_get_f32(const vx_scalar *scalar);
+
+/**
+ * Create a f64 scalar.
  */
 vx_scalar *vx_scalar_new_f64(double value, bool is_nullable);
 
 /**
- * Create a 16-bit floating point scalar.
+ * Return f64 value stored in scalar.
  *
- * The value is read from raw half-precision bits because C has no portable
- * half-precision floating point ABI.
+ * Panics if scalar is not a primitive scalar of this type or is null.
+ */
+double vx_scalar_get_f64(const vx_scalar *scalar);
+
+/**
+ * Create a 16-bit floating point scalar.
+ * The value is read from raw uint16_t.
  */
 vx_scalar *vx_scalar_new_f16_bits(uint16_t bits, bool is_nullable);
 
 /**
  * Create a UTF-8 scalar.
  *
- * The string bytes are copied into the scalar. Invalid UTF-8 returns NULL and
- * writes the error output.
+ * "value" bytes are copied into scalar.
+ * Errors on invalid UTF-8.
  */
 vx_scalar *vx_scalar_new_utf8(vx_view value, bool is_nullable, vx_error **err);
 
 /**
  * Create a binary scalar.
  *
- * The byte range is copied into the scalar. NULL "ptr" is allowed only when
- * len == 0.
+ * Byte range is copied into the scalar.
+ *
+ * NULL "ptr" is allowed only when len == 0.
  *
  * Returns NULL and sets "err" on error.
  */
 vx_scalar *vx_scalar_new_binary(const uint8_t *ptr, size_t len, bool is_nullable, vx_error **err);
+
+/**
+ * Return UTF-8 string stored in scalar.
+ *
+ * Returned view borrows the scalar and is valid as long as "scalar" is valid.
+ *
+ * Panics if scalar is not a Utf8 scalar, or is null.
+ */
+vx_view vx_scalar_get_utf8(const vx_scalar *scalar);
+
+/**
+ * Return binary bytes stored in the scalar.
+ *
+ * Returned view borrows scalar and is valid as long as "scalar" is valid.
+ *
+ * Panics if scalar is not a Binary scalar, or is null.
+ */
+vx_view vx_scalar_get_binary(const vx_scalar *scalar);
 
 /**
  * Create a typed null scalar.
@@ -1270,9 +1339,7 @@ vx_scalar *vx_scalar_new_binary(const uint8_t *ptr, size_t len, bool is_nullable
 vx_scalar *vx_scalar_new_null(const vx_dtype *dtype, vx_error **err);
 
 /**
- * Create a decimal scalar.
- *
- * The unscaled value is provided as a signed 8-bit integer.
+ * Create a decimal scalar from a signed i8 unscaled value.
  *
  * Returns NULL and sets "err" on error.
  */
@@ -1280,9 +1347,15 @@ vx_scalar *
 vx_scalar_new_decimal_i8(int8_t value, uint8_t precision, int8_t scale, bool is_nullable, vx_error **err);
 
 /**
- * Create a decimal scalar.
+ * Return the unscaled i8 value of a decimal scalar.
  *
- * The unscaled value is provided as a signed 16-bit integer.
+ * Panics if the scalar is not a decimal scalar, is null, or the
+ * unscaled value does not fit in i8.
+ */
+int8_t vx_scalar_get_decimal_i8(const vx_scalar *scalar);
+
+/**
+ * Create a decimal scalar from a signed i16 unscaled value.
  *
  * Returns NULL and sets "err" on error.
  */
@@ -1290,9 +1363,15 @@ vx_scalar *
 vx_scalar_new_decimal_i16(int16_t value, uint8_t precision, int8_t scale, bool is_nullable, vx_error **err);
 
 /**
- * Create a decimal scalar.
+ * Return the unscaled i16 value of a decimal scalar.
  *
- * The unscaled value is provided as a signed 32-bit integer.
+ * Panics if the scalar is not a decimal scalar, is null, or the
+ * unscaled value does not fit in i16.
+ */
+int16_t vx_scalar_get_decimal_i16(const vx_scalar *scalar);
+
+/**
+ * Create a decimal scalar from a signed i32 unscaled value.
  *
  * Returns NULL and sets "err" on error.
  */
@@ -1300,14 +1379,28 @@ vx_scalar *
 vx_scalar_new_decimal_i32(int32_t value, uint8_t precision, int8_t scale, bool is_nullable, vx_error **err);
 
 /**
- * Create a decimal scalar.
+ * Return the unscaled i32 value of a decimal scalar.
  *
- * The unscaled value is provided as a signed 64-bit integer.
+ * Panics if the scalar is not a decimal scalar, is null, or the
+ * unscaled value does not fit in i32.
+ */
+int32_t vx_scalar_get_decimal_i32(const vx_scalar *scalar);
+
+/**
+ * Create a decimal scalar from a signed i64 unscaled value.
  *
  * Returns NULL and sets "err" on error.
  */
 vx_scalar *
 vx_scalar_new_decimal_i64(int64_t value, uint8_t precision, int8_t scale, bool is_nullable, vx_error **err);
+
+/**
+ * Return the unscaled i64 value of a decimal scalar.
+ *
+ * Panics if the scalar is not a decimal scalar, is null, or the
+ * unscaled value does not fit in i64.
+ */
+int64_t vx_scalar_get_decimal_i64(const vx_scalar *scalar);
 
 /**
  * Create a decimal scalar.
