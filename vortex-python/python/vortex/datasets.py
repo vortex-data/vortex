@@ -656,7 +656,7 @@ def _scan_file_as_tables(
 def _features_for_files(
     files: Sequence[str], columns: Sequence[str] | None, store: ObjectStore | None = None
 ) -> hf_datasets.Features:
-    # Assumes every file shares the schema of the first; mixed-schema datasets would mis-type
+    # Assumes every file shares the schema of the first; mixed-schema datasets would mistype
     # because the features are derived from files[0] alone.
     schema = vx.open(files[0], store=store).dtype.to_arrow_schema()
     if columns is not None:
