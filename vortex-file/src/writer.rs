@@ -40,6 +40,7 @@ use vortex_io::VortexWrite;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_layout::BufferedBytesTracker;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::LayoutWriterContext;
 use vortex_layout::layouts::file_stats::accumulate_stats;
@@ -70,7 +71,7 @@ use crate::segments::writer::BufferedSegmentSink;
 pub struct VortexWriteOptions {
     session: VortexSession,
     strategy: Arc<dyn LayoutStrategy>,
-    writer_ctx: LayoutWriterContext,
+    buffered_bytes: BufferedBytesTracker,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
@@ -92,10 +93,9 @@ impl VortexWriteOptions {
         let strategy = WriteStrategyBuilder::default()
             .with_allow_encodings(session.enabled_encoding_ids().into_iter().collect())
             .build();
-        let writer_ctx = new_layout_writer_context(&session);
         VortexWriteOptions {
             strategy,
-            writer_ctx,
+            buffered_bytes: BufferedBytesTracker::new(),
             session,
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
@@ -114,9 +114,14 @@ impl VortexWriteOptions {
         self
     }
 
-    /// Returns the state shared by the strategies participating in this write.
-    pub fn layout_writer_context(&self) -> LayoutWriterContext {
-        self.writer_ctx.clone()
+    /// Returns the tracker accounting for bytes that layout strategies are holding but have not
+    /// yet emitted.
+    ///
+    /// The tracker is shared with the write these options start, so it can be captured before
+    /// calling [`Self::write`] and polled while the write runs. [`Writer::buffered_bytes`] exposes
+    /// the same counter for the push-based API.
+    pub fn buffered_bytes_tracker(&self) -> BufferedBytesTracker {
+        self.buffered_bytes.clone()
     }
 
     /// Exclude the DType from the Vortex file. You must provide the DType to the reader.
@@ -177,7 +182,7 @@ impl VortexWriteOptions {
     /// Drop into the blocking writer API using the given runtime.
     ///
     /// The returned adapter drives async writer internals on `runtime` while accepting ordinary
-    /// [`Write`] sinks and [`ArrayIterator`] inputs.
+    /// [`std::io::Write`] sinks and [`ArrayIterator`] inputs.
     pub fn blocking<B: BlockingRuntime>(self, runtime: &B) -> BlockingWrite<'_, B> {
         BlockingWrite {
             options: self,
@@ -189,6 +194,9 @@ impl VortexWriteOptions {
     ///
     /// Note that buffers are flushed as soon as they are available with no buffering, the caller
     /// is responsible for deciding how to configure buffering on the underlying `Write` sink.
+    ///
+    /// The set of encodings permitted in the file is snapshotted from the session's array registry
+    /// here, so encodings registered after this call are not written.
     pub async fn write<W: VortexWrite + Unpin, S: ArrayStream + Send + 'static>(
         self,
         write: W,
@@ -205,7 +213,10 @@ impl VortexWriteOptions {
     ) -> VortexResult<WriteSummary> {
         validate_metadata_segments(&self.metadata)?;
 
-        let ctx = self.writer_ctx.clone();
+        // The array context is built here, rather than when the options were constructed, so that
+        // encodings registered on the session in between are still eligible for the file.
+        let ctx = LayoutWriterContext::new(new_array_context(&self.session))
+            .with_buffered_bytes_tracker(self.buffered_bytes.clone());
         let dtype = stream.dtype().clone();
 
         let (mut ptr, eof) = SequenceId::root().split();
@@ -319,30 +330,28 @@ impl VortexWriteOptions {
 
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
-        let writer_ctx = self.writer_ctx.clone();
+        let buffered_bytes = self.buffered_bytes.clone();
         let future = self.write(write, arrays).boxed_local().fuse();
 
         Writer {
             arrays: Some(arrays_send),
             future,
             bytes_written,
-            writer_ctx,
+            buffered_bytes,
         }
     }
 }
 
-fn new_layout_writer_context(session: &VortexSession) -> LayoutWriterContext {
+fn new_array_context(session: &VortexSession) -> ArrayContext {
     // NOTE(os): Setup an array context that already has all known encodings pre-populated.
     // This is preferred for now over having an empty context here, because only the
     // serialised array order is deterministic. The serialisation of arrays are done
     // parallel and with an empty context they can register their encodings to the context
     // in different order, changing the written bytes from run to run.
     let enabled_encoding_ids = session.enabled_encoding_ids();
-    LayoutWriterContext::new(
-        ArrayContext::new(enabled_encoding_ids.iter().cloned().sorted().collect())
-            // Only permit encodings known to the session.
-            .with_allowed_ids(enabled_encoding_ids.into_iter().collect()),
-    )
+    ArrayContext::new(enabled_encoding_ids.iter().cloned().sorted().collect())
+        // Only permit encodings known to the session.
+        .with_allowed_ids(enabled_encoding_ids.into_iter().collect())
 }
 
 fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexResult<()> {
@@ -385,8 +394,8 @@ pub struct Writer<'w> {
     future: Fuse<LocalBoxFuture<'w, VortexResult<WriteSummary>>>,
     // The bytes written so far.
     bytes_written: Arc<AtomicU64>,
-    // The context shared by the layout strategies for this write.
-    writer_ctx: LayoutWriterContext,
+    // The buffered bytes accounting shared with the layout strategies for this write.
+    buffered_bytes: BufferedBytesTracker,
 }
 
 impl Writer<'_> {
@@ -465,7 +474,7 @@ impl Writer<'_> {
 
     /// Returns the number of bytes currently buffered by the layout writers.
     pub fn buffered_bytes(&self) -> u64 {
-        self.writer_ctx.buffered_bytes()
+        self.buffered_bytes.buffered_bytes()
     }
 
     /// Finish writing the Vortex file, flushing any remaining buffers and returning the

@@ -35,24 +35,6 @@ impl BufferedStrategy {
     }
 }
 
-struct BufferedBytesReservation {
-    ctx: LayoutWriterContext,
-    bytes: u64,
-}
-
-impl BufferedBytesReservation {
-    fn new(ctx: LayoutWriterContext, bytes: u64) -> Self {
-        ctx.add_buffered_bytes(bytes);
-        Self { ctx, bytes }
-    }
-}
-
-impl Drop for BufferedBytesReservation {
-    fn drop(&mut self) {
-        self.ctx.remove_buffered_bytes(self.bytes);
-    }
-}
-
 #[async_trait]
 impl LayoutStrategy for BufferedStrategy {
     async fn write_stream(
@@ -65,7 +47,7 @@ impl LayoutStrategy for BufferedStrategy {
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
-        let buffered_ctx = ctx.clone();
+        let buffered_bytes = ctx.buffered_bytes_tracker().clone();
 
         let buffered_stream = try_stream! {
             let stream = stream.peekable();
@@ -78,10 +60,7 @@ impl LayoutStrategy for BufferedStrategy {
                 let (sequence_id, chunk) = chunk?;
                 let chunk_size = chunk.nbytes();
                 nbytes += chunk_size;
-                chunks.push_back((
-                    chunk,
-                    BufferedBytesReservation::new(buffered_ctx.clone(), chunk_size),
-                ));
+                chunks.push_back((chunk, buffered_bytes.reserve(chunk_size)));
 
                 // If this is the last element, flush everything.
                 if stream.as_mut().peek().await.is_none() {
@@ -104,7 +83,7 @@ impl LayoutStrategy for BufferedStrategy {
                     let Some((chunk, reservation)) = chunks.pop_front() else {
                         break;
                     };
-                    nbytes -= reservation.bytes;
+                    nbytes -= reservation.bytes();
                     drop(reservation);
                     yield (sequence_ptr.advance(), chunk)
                 }

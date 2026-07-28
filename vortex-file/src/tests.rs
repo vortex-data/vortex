@@ -85,6 +85,7 @@ use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
+use vortex_zigzag::ZigZag;
 
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
@@ -1587,7 +1588,7 @@ async fn test_writer_buffered_bytes(
 
     let mut buf = ByteBufferMut::empty();
     let options = SESSION.write_options().with_strategy(Arc::clone(&strategy));
-    let writer_ctx = options.layout_writer_context();
+    let buffered_bytes = options.buffered_bytes_tracker();
     let mut writer = options.writer(&mut buf, array.dtype().clone());
 
     assert_eq!(writer.buffered_bytes(), 0);
@@ -1602,7 +1603,7 @@ async fn test_writer_buffered_bytes(
 
     let summary = writer.finish().await?;
     assert_eq!(summary.row_count(), 12);
-    assert_eq!(writer_ctx.buffered_bytes(), 0);
+    assert_eq!(buffered_bytes.buffered_bytes(), 0);
 
     Ok(())
 }
@@ -1645,6 +1646,40 @@ async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
 
     first.finish().await?;
     second.finish().await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_encoding_registered_after_write_options() -> VortexResult<()> {
+    // A session that does not know about ZigZag yet.
+    let session = array_session()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+
+    // Configure the options before the encoding is registered; `write` is what snapshots the
+    // session's encodings, so registering in between must still be honoured.
+    let options = session
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()));
+    vortex_zigzag::initialize(&session);
+
+    let array = ZigZag::try_new(buffer![1u32, 2, 3, 4].into_array())?.into_array();
+    let dtype = array.dtype().clone();
+
+    let mut buf = ByteBufferMut::empty();
+    options.write(&mut buf, array.to_array_stream()).await?;
+
+    let chunks: Vec<_> = session
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .try_collect()
+        .await?;
+    let read = ChunkedArray::try_new(chunks, dtype)?.into_array();
+    let mut ctx = session.create_execution_ctx();
+    assert_arrays_eq!(read, buffer![-1i32, 1, -2, 2].into_array(), &mut ctx);
 
     Ok(())
 }

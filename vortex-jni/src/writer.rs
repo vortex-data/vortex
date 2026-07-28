@@ -59,8 +59,8 @@ use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::BufferedBytesTracker;
 use vortex::layout::LayoutStrategy;
-use vortex::layout::LayoutWriterContext;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_arrow::ArrowSessionExt;
@@ -144,7 +144,7 @@ pub struct NativeWriter {
     arrow_schema: SchemaRef,
     write_schema: DType,
     bytes_written: Arc<AtomicU64>,
-    writer_ctx: LayoutWriterContext,
+    buffered_bytes: BufferedBytesTracker,
     sender: mpsc::Sender<VortexResult<ArrayRef>>,
 }
 
@@ -154,7 +154,7 @@ impl NativeWriter {
         arrow_schema: SchemaRef,
         write_schema: DType,
         bytes_written: Arc<AtomicU64>,
-        writer_ctx: LayoutWriterContext,
+        buffered_bytes: BufferedBytesTracker,
         handle: Task<VortexResult<WriteSummary>>,
         sender: mpsc::Sender<VortexResult<ArrayRef>>,
     ) -> Self {
@@ -164,7 +164,7 @@ impl NativeWriter {
             arrow_schema,
             write_schema,
             bytes_written,
-            writer_ctx,
+            buffered_bytes,
             sender,
         }
     }
@@ -207,7 +207,7 @@ impl NativeWriter {
     }
 
     fn buffered_bytes(&self) -> u64 {
-        self.writer_ctx.buffered_bytes()
+        self.buffered_bytes.buffered_bytes()
     }
 
     fn close(mut self) -> VortexResult<WriteSummary> {
@@ -430,7 +430,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         // The same check runs inside `write`, but only once the write task is under way, where
         // it would surface as an opaque send failure on the first batch.
         write_options.validate_metadata()?;
-        let writer_ctx = write_options.layout_writer_context();
+        let buffered_bytes = write_options.buffered_bytes_tracker();
 
         let (bytes_written, handle) = match resolved {
             ResolvedStore::Path(path) => {
@@ -468,7 +468,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
             arrow_schema,
             write_schema,
             bytes_written,
-            writer_ctx,
+            buffered_bytes,
             handle,
             tx,
         ))
@@ -519,7 +519,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
             .with_metadata_segments(metadata);
         // See the note in `create`: validate before the write task can start.
         write_options.validate_metadata()?;
-        let writer_ctx = write_options.layout_writer_context();
+        let buffered_bytes = write_options.buffered_bytes_tracker();
 
         let mut write = CountingVortexWrite::new(JavaWrite::new(vm, writable));
         let bytes_written = write.counter();
@@ -534,7 +534,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
             arrow_schema,
             write_schema,
             bytes_written,
-            writer_ctx,
+            buffered_bytes,
             handle,
             tx,
         ))

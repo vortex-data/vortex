@@ -22,24 +22,80 @@ use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
+/// A shared counter of the bytes that layout strategies are holding but have not yet emitted.
+///
+/// Clones share the same counter, so a tracker can be handed to a writer before the write begins
+/// and polled while it runs. Strategies report their own retained bytes with
+/// [`Self::reserve`], which releases the reservation on drop.
+#[derive(Clone, Debug, Default)]
+pub struct BufferedBytesTracker(Arc<AtomicU64>);
+
+impl BufferedBytesTracker {
+    /// Creates a tracker with a zeroed counter.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the number of bytes currently retained by layout strategies.
+    pub fn buffered_bytes(&self) -> u64 {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    /// Records `bytes` as buffered until the returned reservation is dropped.
+    pub fn reserve(&self, bytes: u64) -> BufferedBytesReservation {
+        self.0.fetch_add(bytes, Ordering::Relaxed);
+        BufferedBytesReservation {
+            tracker: self.clone(),
+            bytes,
+        }
+    }
+}
+
+/// An outstanding claim on a [`BufferedBytesTracker`], released when dropped.
+#[derive(Debug)]
+pub struct BufferedBytesReservation {
+    tracker: BufferedBytesTracker,
+    bytes: u64,
+}
+
+impl BufferedBytesReservation {
+    /// Returns the number of bytes held by this reservation.
+    pub fn bytes(&self) -> u64 {
+        self.bytes
+    }
+}
+
+impl Drop for BufferedBytesReservation {
+    fn drop(&mut self) {
+        self.tracker.0.fetch_sub(self.bytes, Ordering::Relaxed);
+    }
+}
+
 /// State shared by every strategy participating in a single layout write.
 ///
-/// Clones share the buffered-byte counter while retaining the array serialization context. Passing
-/// this context through the strategy tree keeps writer-scoped state independent of the strategy
-/// instances, which may be shared by multiple leaves or writers.
+/// Clones share the [`BufferedBytesTracker`] while retaining the array serialization context.
+/// Passing this context through the strategy tree keeps writer-scoped state independent of the
+/// strategy instances, which may be shared by multiple leaves or writers.
 #[derive(Clone)]
 pub struct LayoutWriterContext {
     array_ctx: ArrayContext,
-    buffered_bytes: Arc<AtomicU64>,
+    buffered_bytes: BufferedBytesTracker,
 }
 
 impl LayoutWriterContext {
-    /// Creates a context for a layout write.
+    /// Creates a context for a layout write with a fresh buffered bytes tracker.
     pub fn new(array_ctx: ArrayContext) -> Self {
         Self {
             array_ctx,
-            buffered_bytes: Arc::new(AtomicU64::new(0)),
+            buffered_bytes: BufferedBytesTracker::new(),
         }
+    }
+
+    /// Replaces the buffered bytes tracker, so callers can observe the counter from outside the
+    /// strategy tree.
+    pub fn with_buffered_bytes_tracker(mut self, tracker: BufferedBytesTracker) -> Self {
+        self.buffered_bytes = tracker;
+        self
     }
 
     /// Returns the array serialization context.
@@ -47,17 +103,19 @@ impl LayoutWriterContext {
         &self.array_ctx
     }
 
+    /// Returns the tracker that accounts for bytes retained by layout strategies.
+    pub fn buffered_bytes_tracker(&self) -> &BufferedBytesTracker {
+        &self.buffered_bytes
+    }
+
     /// Returns the number of bytes currently retained by layout strategies.
     pub fn buffered_bytes(&self) -> u64 {
-        self.buffered_bytes.load(Ordering::Relaxed)
+        self.buffered_bytes.buffered_bytes()
     }
 
-    pub(crate) fn add_buffered_bytes(&self, bytes: u64) {
-        self.buffered_bytes.fetch_add(bytes, Ordering::Relaxed);
-    }
-
-    pub(crate) fn remove_buffered_bytes(&self, bytes: u64) {
-        self.buffered_bytes.fetch_sub(bytes, Ordering::Relaxed);
+    /// Records `bytes` as retained by this write until the returned reservation is dropped.
+    pub fn reserve_buffered_bytes(&self, bytes: u64) -> BufferedBytesReservation {
+        self.buffered_bytes.reserve(bytes)
     }
 }
 
@@ -189,3 +247,37 @@ impl LayoutStrategy for Arc<dyn LayoutStrategy> {
     }
 }
 // [layout writer]
+
+#[cfg(test)]
+mod tests {
+    use crate::strategy::BufferedBytesTracker;
+
+    #[test]
+    fn reservations_accumulate_and_release() {
+        let tracker = BufferedBytesTracker::new();
+        assert_eq!(tracker.buffered_bytes(), 0);
+
+        let first = tracker.reserve(16);
+        let second = tracker.reserve(32);
+        assert_eq!(tracker.buffered_bytes(), 48);
+        assert_eq!(first.bytes(), 16);
+
+        drop(first);
+        assert_eq!(tracker.buffered_bytes(), 32);
+
+        drop(second);
+        assert_eq!(tracker.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn clones_share_the_same_counter() {
+        let tracker = BufferedBytesTracker::new();
+        let observer = tracker.clone();
+
+        let reservation = tracker.reserve(8);
+        assert_eq!(observer.buffered_bytes(), 8);
+
+        drop(reservation);
+        assert_eq!(observer.buffered_bytes(), 0);
+    }
+}
