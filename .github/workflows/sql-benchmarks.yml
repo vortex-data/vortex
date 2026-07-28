@@ -98,6 +98,17 @@ jobs:
           fi
           cargo build "${packages[@]}" --profile release_debug --features unstable_encodings
 
+      - name: Upload Parca debuginfo
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        uses: ./.github/actions/upload-parca-debuginfo
+        with:
+          paths: |
+            target/release_debug/df-bench
+            target/release_debug/duckdb-bench
+            ${{ inputs.mode != 'pr' && 'target/release_debug/lance-bench' || '' }}
+          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+
       - name: Generate data
         shell: bash
         env:
@@ -135,7 +146,7 @@ jobs:
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
           job_name: "${{ matrix.id }}"
           profiling_frequency: 199
-          extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
+          extra_args: "--off-cpu-threshold=0.03 --debuginfo-upload-disable"  # Personally tuned by @brancz
           parca_agent_version: "0.49.0"
 
       - name: Run ${{ matrix.name }} benchmark
