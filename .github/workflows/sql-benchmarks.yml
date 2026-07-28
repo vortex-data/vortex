@@ -136,6 +136,7 @@ jobs:
           job_name: "${{ matrix.id }}"
           profiling_frequency: 199
           extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
+          parca_agent_version: "0.49.0"
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
