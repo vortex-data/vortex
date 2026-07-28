@@ -1,10 +1,9 @@
-C++ API
-=======
+C++ Quickstart
+==============
 
-The Vortex C++ API allows you to read and write ``.vortex`` files directly or
-via an Arrow compatibility layer like `nanoarrow
-<https://arrow.apache.org/nanoarrow/>`_. The only dependency apart from Vortex
-is ``nanoarrow``.
+Vortex C++ API allows you to read and write ``.vortex`` files directly or via
+an Arrow compatibility layer like `nanoarrow <https://arrow.apache.org/nanoarrow/>`_.
+The only dependency apart from Vortex is ``nanoarrow``.
 
 .. note::
    C++ API is a work in progress. Please reach out to us if you are interested
@@ -57,7 +56,7 @@ Assuming you have Vortex files ``people0``, ``people1``, and ``me`` in a local f
 each containing U8 column "age" and U16 column "height", this is how you
 print all ages for specific heights:
 
-.. literalinclude:: ../../../lang/cpp/examples/reader.cpp
+.. literalinclude:: ../../lang/cpp/examples/reader.cpp
    :language: cpp
    :start-after: docs:begin:example
    :end-before: docs:end:example
@@ -148,7 +147,7 @@ Now let's write the first files to be read by our previous example.
 Source code for this example is `writer.cpp
 <https://github.com/vortex-data/vortex/tree/develop/lang/cpp/examples/writer.cpp>`_.
 
-.. literalinclude:: ../../../lang/cpp/examples/writer.cpp
+.. literalinclude:: ../../lang/cpp/examples/writer.cpp
    :language: cpp
    :start-after: docs:begin:example
    :end-before: docs:end:example
