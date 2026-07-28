@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pandas as pd
 
@@ -15,6 +16,7 @@ CAPTURE_SCRIPT = REPO_ROOT / "scripts" / "capture-file-sizes.py"
 
 
 def load_compare_module():
+    sys.path.insert(0, str(COMPARE_SCRIPT.parent))
     spec = importlib.util.spec_from_file_location("compare_benchmark_jsons", COMPARE_SCRIPT)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
@@ -155,6 +157,49 @@ def test_within_engine_analysis_uses_each_engines_own_parquet_control() -> None:
     assert set(analyses) == {"datafusion", "duckdb"}
     assert compare.build_verdict(analyses["datafusion"])["impact"] == "-10.0%"
     assert compare.build_verdict(analyses["duckdb"])["impact"] == "+20.0%"
+
+
+def test_polarsignals_link_uses_run_labels_and_absolute_time(monkeypatch) -> None:
+    compare = load_compare_module()
+    monkeypatch.setenv("POLARSIGNALS_PROJECT_UUID", "project-uuid")
+    monkeypatch.setenv(
+        "POLARSIGNALS_LABELS",
+        "branch=feature/profile-links;gh_run_id=123456;benchmark=tpch-nvme",
+    )
+    monkeypatch.setenv("POLARSIGNALS_START_MS", "1000")
+    monkeypatch.setenv("POLARSIGNALS_END_MS", "61000")
+
+    field = compare.format_polarsignals_link()
+
+    assert field is not None
+    assert field.startswith("**Profile**: [Polar Signals](")
+    url = field.removeprefix("**Profile**: [Polar Signals](").removesuffix(")")
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "cloud.polarsignals.com"
+    assert parsed.path == "/projects/project-uuid"
+    assert query["time_selection_a"] == ["absolute:1000-61000"]
+    assert query["from_a"] == ["1000"]
+    assert query["to_a"] == ["61000"]
+    assert query["merge_from_a"] == ["1000000000"]
+    assert query["merge_to_a"] == ["61000000000"]
+    expected_expression = (
+        'parca_agent:samples:count:cpu:nanoseconds:delta{branch="feature/profile-links",'
+        'gh_run_id="123456",benchmark="tpch-nvme"}'
+    )
+    assert query["expression_a"] == [expected_expression]
+    assert query["selection_a"] == query["expression_a"]
+    assert query["sum_by_a"] == ["comm"]
+
+
+def test_polarsignals_link_is_omitted_without_labels(monkeypatch) -> None:
+    compare = load_compare_module()
+    monkeypatch.delenv("POLARSIGNALS_PROJECT_UUID", raising=False)
+    monkeypatch.delenv("POLARSIGNALS_LABELS", raising=False)
+
+    assert compare.format_polarsignals_link() is None
 
 
 def file_size_record(commit: str, size: int) -> dict[str, object]:

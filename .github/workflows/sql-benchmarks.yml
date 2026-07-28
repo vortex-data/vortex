@@ -126,6 +126,12 @@ jobs:
           aws s3 rm --recursive "$REMOTE_STORAGE"
           aws s3 cp --recursive "${{ matrix.local_dir }}" "$REMOTE_STORAGE"
 
+      - name: Capture Polar Signals start time
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        shell: bash
+        run: |
+          echo "POLARSIGNALS_START_MS=$(python3 -c 'import time; print(int(time.time() * 1000))')" >> "$GITHUB_ENV"
+
       - name: Setup Polar Signals
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
@@ -133,6 +139,7 @@ jobs:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          job_name: "${{ matrix.id }}"
           profiling_frequency: 199
           extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
 
@@ -191,6 +198,9 @@ jobs:
       - name: Compare results
         if: inputs.mode == 'pr'
         shell: bash
+        env:
+          POLARSIGNALS_PROJECT_UUID: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          POLARSIGNALS_LABELS: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}"
         run: |
           set -Eeu -o pipefail -x
 
