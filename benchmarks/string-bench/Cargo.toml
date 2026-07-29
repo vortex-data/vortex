@@ -1,0 +1,47 @@
+[package]
+name = "string-bench"
+description = "Vortex string benchmarks for direct compression and serialized write/read round trips"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
+indicatif = { workspace = true }
+parquet = { workspace = true }
+regex = { workspace = true }
+tabled = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+vortex = { workspace = true }
+vortex-arrow = { workspace = true }
+vortex-bench = { workspace = true }
+vortex-btrblocks = { workspace = true, optional = true }
+vortex-fsst = { workspace = true }
+vortex-onpair = { workspace = true }
+
+[features]
+# Opt-in so adding this benchmark to the workspace does not enable unstable
+# encodings for unrelated Vortex crates through Cargo feature unification.
+# Enables the serialized write/read flow: puts OnPair in the file compressor
+# and lets the benchmark force a selected string encoder when writing the file.
+unstable_encodings = [
+    "vortex/unstable_encodings",
+    "dep:vortex-btrblocks",
+    "vortex-btrblocks/unstable_encodings",
+]
+
+[lints]
+workspace = true

@@ -8385,6 +8385,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "string-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "clap",
+ "futures",
+ "indicatif",
+ "parquet 58.4.0",
+ "regex",
+ "tabled",
+ "tokio",
+ "tracing",
+ "vortex",
+ "vortex-arrow",
+ "vortex-bench",
+ "vortex-btrblocks",
+ "vortex-fsst",
+ "vortex-onpair",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
