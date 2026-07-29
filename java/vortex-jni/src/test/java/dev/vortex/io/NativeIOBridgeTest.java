@@ -4,6 +4,7 @@
 package dev.vortex.io;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -16,6 +17,7 @@ import dev.vortex.api.Session;
 import dev.vortex.api.VortexWriteSummary;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.arrow.ArrowAllocation;
+import dev.vortex.jni.NativeFiles;
 import dev.vortex.jni.NativeLoader;
 import java.io.EOFException;
 import java.io.IOException;
@@ -26,6 +28,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
 import org.apache.arrow.c.Data;
@@ -132,7 +136,8 @@ public final class NativeIOBridgeTest {
         Schema schema = personSchema();
         VortexWriteSummary summary;
         try (StreamWritable writable = new StreamWritable(path)) {
-            try (VortexWriter writer = VortexWriter.create(session, writable, schema, allocator);
+            try (VortexWriter writer = VortexWriter.builder(session, writable, schema, allocator)
+                            .build();
                     VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
                 VarCharVector nameVec = (VarCharVector) root.getVector("name");
                 IntVector ageVec = (IntVector) root.getVector("age");
@@ -199,6 +204,49 @@ public final class NativeIOBridgeTest {
     }
 
     @Test
+    public void testMetadataRoundTripThroughBridge() throws IOException {
+        Path path = tempDir.resolve("bridge_metadata.vortex");
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Session session = Session.create();
+        Schema schema = personSchema();
+        byte[] value = "{\"type\":\"struct\",\"fields\":[]}".getBytes(UTF_8);
+
+        try (StreamWritable writable = new StreamWritable(path)) {
+            try (VortexWriter writer = VortexWriter.builder(session, writable, schema, allocator)
+                            .putMetadata("iceberg.schema", value)
+                            .build();
+                    VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+                VarCharVector nameVec = (VarCharVector) root.getVector("name");
+                IntVector ageVec = (IntVector) root.getVector("age");
+                nameVec.allocateNew(1);
+                ageVec.allocateNew(1);
+                nameVec.setSafe(0, "Alice".getBytes(UTF_8));
+                ageVec.setSafe(0, 30);
+                root.setRowCount(1);
+                try (ArrowArray arrowArray = ArrowArray.allocateNew(allocator);
+                        ArrowSchema arrowSchemaFfi = ArrowSchema.allocateNew(allocator)) {
+                    Data.exportVectorSchemaRoot(allocator, root, null, arrowArray, arrowSchemaFfi);
+                    writer.writeBatch(arrowArray.memoryAddress(), arrowSchemaFfi.memoryAddress());
+                }
+            }
+        }
+
+        // Both directions go through caller-provided I/O: no native storage client is involved.
+        try (FileChannelReadable readable = new FileChannelReadable(path)) {
+            Map<String, byte[]> metadata = NativeFiles.readMetadata(session, readable);
+            assertEquals(Set.of("iceberg.schema"), metadata.keySet());
+            assertArrayEquals(value, metadata.get("iceberg.schema"));
+        }
+
+        // The readable's name keys the session footer cache, so this read resolves the metadata
+        // against the footer cached by the read above rather than reading it again.
+        try (FileChannelReadable readable = new FileChannelReadable(path)) {
+            Map<String, byte[]> metadata = NativeFiles.readMetadata(session, readable);
+            assertArrayEquals(value, metadata.get("iceberg.schema"));
+        }
+    }
+
+    @Test
     public void testMultipleReadables() throws IOException {
         Path first = tempDir.resolve("bridge_a.vortex");
         Path second = tempDir.resolve("bridge_b.vortex");
@@ -256,7 +304,8 @@ public final class NativeIOBridgeTest {
         int batches = 20;
         int rowsPerBatch = 5_000;
         try (StreamWritable writable = new StreamWritable(path)) {
-            try (VortexWriter writer = VortexWriter.create(session, writable, schema, allocator);
+            try (VortexWriter writer = VortexWriter.builder(session, writable, schema, allocator)
+                            .build();
                     VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
                 VarCharVector nameVec = (VarCharVector) root.getVector("name");
                 IntVector ageVec = (IntVector) root.getVector("age");

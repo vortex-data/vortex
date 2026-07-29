@@ -47,12 +47,15 @@ class BenchmarkBuilder:
 
         for backend in backends:
             binary_name = backend.binary_name
+            package_name = backend.package_name
             console.print(f"[blue]Building {binary_name}...[/blue]")
 
             cmd = [
                 "cargo",
                 "build",
-                "-p",
+                "--package",
+                package_name,
+                "--bin",
                 binary_name,
                 "--profile",
                 self.config.profile,

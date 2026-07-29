@@ -547,7 +547,9 @@ mod tests {
         assert_eq!(zoned.zone_len(), 4);
         assert_eq!(zoned.nzones(), 3);
 
-        let data = layout.child(0)?;
+        let data = layout
+            .slot(0)?
+            .vortex_expect("ZonedLayout always has a data child");
         assert!(data.is::<List>());
         assert_eq!(data.row_count(), 9);
         Ok(())

@@ -217,8 +217,7 @@ impl VortexFileHandle {
             }
 
             if let Ok(children) = layout.children() {
-                for (i, child_layout) in children.into_iter().enumerate() {
-                    let child_type = layout.child_type(i);
+                for (child_layout, child_type) in children.into_iter().zip(layout.child_types()) {
                     let child_name = child_type.name();
                     let child_path = format!("{path}.{child_name}");
 
@@ -545,8 +544,7 @@ fn build_layout_tree(
 
     let mut children_json = Vec::new();
     if let Ok(children) = children_result {
-        for (i, child_layout) in children.iter().enumerate() {
-            let ct = layout.child_type(i);
+        for (child_layout, ct) in children.iter().zip(layout.child_types()) {
             let child_name = ct.name();
             let child_id = format!("{id}.{child_name}");
 
@@ -693,9 +691,10 @@ fn find_layout_by_id(root: &LayoutRef, node_id: &str) -> Option<LayoutRef> {
     let mut current = root.clone();
     for seg in &segments[1..] {
         let children = current.children().ok()?;
+        let child_types: Vec<_> = current.child_types().collect();
         let mut found = false;
-        for (i, child) in children.into_iter().enumerate() {
-            let name = current.child_type(i).name();
+        for (child, child_type) in children.into_iter().zip(child_types) {
+            let name = child_type.name();
             if name.as_ref() == *seg {
                 current = child;
                 found = true;

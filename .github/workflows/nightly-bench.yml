@@ -23,49 +23,7 @@ jobs:
     with:
       mode: "develop"
       machine_type: ${{ matrix.machine_type.instance_name }}
-      benchmark_matrix: |
-        [
-          {
-            "id": "tpch-nvme",
-            "subcommand": "tpch",
-            "name": "TPC-H on NVME",
-            "data_formats": ["parquet", "vortex"],
-            "pr_targets": [
-              {"engine": "datafusion", "format": "parquet"},
-              {"engine": "datafusion", "format": "vortex"},
-              {"engine": "duckdb", "format": "parquet"},
-              {"engine": "duckdb", "format": "vortex"}
-            ],
-            "develop_targets": [
-              {"engine": "datafusion", "format": "parquet"},
-              {"engine": "datafusion", "format": "vortex"},
-              {"engine": "duckdb", "format": "parquet"},
-              {"engine": "duckdb", "format": "vortex"}
-            ],
-            "scale_factor": "100"
-          },
-          {
-            "id": "tpch-s3",
-            "subcommand": "tpch",
-            "name": "TPC-H on S3",
-            "local_dir": "vortex-bench/data/tpch/100.0",
-            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/100.0/",
-            "data_formats": ["parquet", "vortex"],
-            "pr_targets": [
-              {"engine": "datafusion", "format": "parquet"},
-              {"engine": "datafusion", "format": "vortex"},
-              {"engine": "duckdb", "format": "parquet"},
-              {"engine": "duckdb", "format": "vortex"}
-            ],
-            "develop_targets": [
-              {"engine": "datafusion", "format": "parquet"},
-              {"engine": "datafusion", "format": "vortex"},
-              {"engine": "duckdb", "format": "parquet"},
-              {"engine": "duckdb", "format": "vortex"}
-            ],
-            "scale_factor": "100.0"
-          }
-        ]
+      matrix_preset: "nightly"
     strategy:
       # A single run not should kill the others
       fail-fast: false

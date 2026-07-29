@@ -23,8 +23,8 @@ around the latest research from the database community.
 :::{container} card
 [**Read & write Vortex files**](getting-started/index.md)
 
-Get started with Vortex in **Python**, **Rust**, or **Java**. Convert from Parquet, compress
-your data, and query it.
+Get started with Vortex in **Python**, **Rust**, **C++**, or **Java**. Convert
+from Parquet, compress your data, and query it.
 :::
 
 :::{container} card

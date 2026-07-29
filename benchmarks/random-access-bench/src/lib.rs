@@ -293,8 +293,8 @@ pub struct RunConfig {
     pub display_format: DisplayFormat,
     /// Optional path for the primary result output.
     pub output_path: Option<PathBuf>,
-    /// Optional path for v3 JSONL benchmark records.
-    pub gh_json_v3: Option<PathBuf>,
+    /// Optional path for benchmark ingest JSONL records.
+    pub ingest_output: Option<PathBuf>,
 }
 
 /// Run random-access benchmarks with `config`.
@@ -307,7 +307,7 @@ pub async fn run(config: RunConfig) -> Result<()> {
         open_mode,
         display_format,
         output_path,
-        gh_json_v3,
+        ingest_output,
     } = config;
 
     let reopen_variants: &[bool] = match open_mode {
@@ -389,7 +389,7 @@ pub async fn run(config: RunConfig) -> Result<()> {
 
     progress.finish();
 
-    if let Some(path) = gh_json_v3 {
+    if let Some(path) = ingest_output {
         v3::write_jsonl_to_path(&path, &v3_records)?;
     }
 

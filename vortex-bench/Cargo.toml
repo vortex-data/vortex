@@ -83,6 +83,7 @@ wkb = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+rstest = { workspace = true }
 
 [features]
 unstable_encodings = ["vortex/unstable_encodings"]

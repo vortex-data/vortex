@@ -61,10 +61,9 @@ struct Args {
     #[arg(short)]
     output_path: Option<PathBuf>,
 
-    /// Additionally write v3 JSONL records to this path. See
-    /// `benchmarks-website/planning/02-contracts.md`.
-    #[arg(long)]
-    gh_json_v3: Option<PathBuf>,
+    /// Additionally write benchmark ingest JSONL records to this path.
+    #[arg(long = "ingest-jsonl")]
+    ingest_output: Option<PathBuf>,
 
     #[arg(long, default_value_t = false)]
     hide_progress_bar: bool,
@@ -131,7 +130,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-    if let Some(path) = args.gh_json_v3.as_ref() {
+    if let Some(path) = args.ingest_output.as_ref() {
         v3::write_jsonl_to_path(path, &runner.v3_records())?;
     }
 

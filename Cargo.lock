@@ -1561,11 +1561,13 @@ dependencies = [
  "lance-bench",
  "parquet 58.4.0",
  "regex",
+ "tempfile",
  "tokio",
  "tracing",
  "vortex",
  "vortex-arrow",
  "vortex-bench",
+ "vortex-cuda",
 ]
 
 [[package]]
@@ -9417,6 +9419,7 @@ dependencies = [
  "rand 0.10.2",
  "regex",
  "reqwest 0.13.4",
+ "rstest",
  "serde",
  "serde_json",
  "sha2",

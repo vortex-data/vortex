@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Small utility JNI entry points for listing and deleting Vortex files via an object store.
+//! Small utility JNI entry points for listing, deleting, and reading the user-defined
+//! metadata of Vortex files.
+
+use std::sync::Arc;
 
 use futures::StreamExt;
 use jni::EnvUnowned;
+use jni::objects::JByteArray;
 use jni::objects::JClass;
 use jni::objects::JMap;
 use jni::objects::JObject;
@@ -13,15 +17,20 @@ use jni::objects::JString;
 use jni::sys::jlong;
 use jni::sys::jobject;
 use object_store::path::Path;
+use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::file::multi::open_cached;
 use vortex::file::multi::parse_uri_or_path;
+use vortex::io::VortexReadAt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::RUNTIME;
 use crate::errors::try_or_throw;
+use crate::io::java_readable;
 use crate::object_store::object_store_fs;
 use crate::session::session_ref;
 
@@ -44,6 +53,161 @@ pub(crate) fn extract_properties(
         }
     }
     Ok(properties)
+}
+
+/// Extract a Java `Map<String, byte[]>` of user-defined metadata segments.
+///
+/// Values are opaque bytes, so they are copied out of the Java arrays rather than
+/// interpreted. A null map yields an empty set of segments.
+pub(crate) fn extract_metadata(
+    env: &mut jni::Env,
+    metadata: &JObject,
+) -> Result<HashMap<String, ByteBuffer>, crate::errors::JNIError> {
+    let mut segments = HashMap::new();
+    if metadata.is_null() {
+        return Ok(segments);
+    }
+
+    let metadata_ref = env.new_local_ref(metadata)?;
+    let map = env.cast_local::<JMap>(metadata_ref)?;
+    let mut iterator = map.iter(env)?;
+    while let Some(entry) = iterator.next(env)? {
+        let key_obj = entry.key(env)?;
+        let val_obj = entry.value(env)?;
+        let key_str = env.cast_local::<JString>(key_obj)?;
+        let key = key_str.try_to_string(env)?;
+        if val_obj.is_null() {
+            return Err(vortex_err!("null metadata value for key '{key}'").into());
+        }
+        let bytes = env.cast_local::<JByteArray>(val_obj)?;
+        segments.insert(key, ByteBuffer::from(env.convert_byte_array(&bytes)?));
+        // Each entry costs three local refs, so release them as we go rather than relying on
+        // the frame's guaranteed capacity.
+        env.delete_local_ref(bytes);
+        env.delete_local_ref(key_str);
+        env.delete_local_ref(entry);
+    }
+
+    Ok(segments)
+}
+
+/// Build a `java.util.HashMap<String, byte[]>` from user-defined metadata segments.
+fn metadata_to_java(
+    env: &mut jni::Env,
+    segments: Vec<(String, ByteBuffer)>,
+) -> Result<jobject, crate::errors::JNIError> {
+    let map = env.new_object(
+        jni::jni_str!("java/util/HashMap"),
+        jni::jni_sig!("()V"),
+        &[],
+    )?;
+    let raw = map.as_raw();
+    let map = env.cast_local::<JMap>(map)?;
+    for (key, value) in segments {
+        let key = env.new_string(key)?;
+        let value = env.byte_array_from_slice(value.as_slice())?;
+        // A file may hold several segments and each entry costs two local refs, so release
+        // them as we go rather than relying on the frame's guaranteed capacity.
+        if let Some(previous) = map.put(env, key.as_ref(), value.as_ref())? {
+            env.delete_local_ref(previous);
+        }
+        env.delete_local_ref(value);
+        env.delete_local_ref(key);
+    }
+
+    Ok(raw)
+}
+
+/// Open a Vortex file with metadata resolution enabled and collect its metadata segments.
+///
+/// `cache_key` identifies the file in the session footer cache. Both entry points name the file
+/// the same way the scan path does — the object-store path, or the `NativeReadable`'s name — so a
+/// metadata read and a later scan of the same file share one footer read.
+fn read_metadata_segments(
+    session: &VortexSession,
+    source: Arc<dyn VortexReadAt>,
+    cache_key: &str,
+    file_size: Option<u64>,
+) -> VortexResult<Vec<(String, ByteBuffer)>> {
+    RUNTIME.block_on(async move {
+        let file = open_cached(session, source, cache_key, file_size, &|options| {
+            options.include_metadata()
+        })
+        .await?;
+        Ok(file
+            .metadata_segments()
+            .map(|(key, value)| (key.to_string(), value.clone()))
+            .collect())
+    })
+}
+
+/// Read the user-defined metadata segments of the Vortex file at `uri`.
+///
+/// Returns a `java.util.HashMap<String, byte[]>`, empty when the file carries no metadata.
+/// Metadata lives in its own segments, so this may issue a read beyond the file tail.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadata(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    uri: JString,
+    options: JObject,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        let uri: String = uri.try_to_string(env)?;
+        let url = parse_uri_or_path(&uri)?;
+        let properties = extract_properties(env, &options)?;
+
+        let fs = object_store_fs(&url, &properties, session.handle())?;
+        // `FileSystem` keys are literal, already-decoded paths, so decode as `listFiles` does.
+        let path = Path::from_url_path(url.path())
+            .map_err(|_| vortex_err!("cannot parse uri as object_store Path"))?
+            .to_string();
+        let source = RUNTIME.block_on(async { fs.open_read(&path).await })?;
+
+        let segments = read_metadata_segments(session, source, &path, None)?;
+        metadata_to_java(env, segments)
+    })
+}
+
+/// Read the user-defined metadata segments of a Vortex file through a caller-provided
+/// `dev.vortex.io.NativeReadable`, so no native storage client is created.
+///
+/// `name` is the readable's `name()`, which the interface requires to be stable and unique; it
+/// keys the file in the session footer cache, as it does for the scan path.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFiles_readMetadataFromReadable(
+    mut env: EnvUnowned,
+    _class: JClass,
+    session_ptr: jlong,
+    readable: JObject,
+    name: JString,
+    length: jlong,
+) -> jobject {
+    try_or_throw(&mut env, |env| {
+        let session = unsafe { session_ref(session_ptr) };
+        if readable.is_null() {
+            throw_runtime!("null readable");
+        }
+        let name: String = name.try_to_string(env)?;
+        if name.is_empty() {
+            throw_runtime!("readable name must not be empty");
+        }
+        let length =
+            u64::try_from(length).map_err(|_| vortex_err!("negative readable length: {length}"))?;
+
+        let vm = env.get_java_vm()?;
+        let readable = Arc::new(env.new_global_ref(&readable)?);
+        let source = java_readable(vm, readable, length, session.handle());
+
+        // `MultiFileDataSource` strips leading slashes and the scan path keys Java readables by
+        // that same normalized form, so normalize here too — otherwise a metadata read and a
+        // scan of the same readable would land on two different cache entries.
+        let cache_key = name.trim_start_matches('/');
+        let segments = read_metadata_segments(session, source, cache_key, Some(length))?;
+        metadata_to_java(env, segments)
+    })
 }
 
 /// List Vortex files under the given URI prefix. Returns a `java.util.ArrayList<String>`.

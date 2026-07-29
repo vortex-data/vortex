@@ -7,7 +7,6 @@ use std::sync::Arc;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::DynLayout;
@@ -144,18 +143,17 @@ impl DynLayout for ForeignLayout {
         self.children.len()
     }
 
-    fn dyn_child(&self, idx: usize) -> VortexResult<LayoutRef> {
-        self.children.get(idx).cloned().ok_or_else(|| {
-            vortex_err!(
-                "Child index out of bounds: {} of {}",
-                idx,
-                self.children.len()
-            )
-        })
+    fn dyn_nslots(&self) -> usize {
+        // A foreign layout is opaque: its children are dense, so each slot is always present.
+        self.children.len()
     }
 
-    fn dyn_child_type(&self, idx: usize) -> LayoutChildType {
-        LayoutChildType::Auxiliary(format!("[{idx}]").into())
+    fn dyn_slot(&self, slot: usize) -> VortexResult<Option<LayoutRef>> {
+        Ok(self.children.get(slot).cloned())
+    }
+
+    fn dyn_slot_type(&self, slot: usize) -> Option<LayoutChildType> {
+        (slot < self.children.len()).then(|| LayoutChildType::Auxiliary(format!("[{slot}]").into()))
     }
 
     fn dyn_metadata(&self) -> Vec<u8> {

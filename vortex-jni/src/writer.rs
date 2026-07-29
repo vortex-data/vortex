@@ -69,6 +69,7 @@ use vortex_parquet_variant::ParquetVariant;
 use crate::RUNTIME;
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;
+use crate::file::extract_metadata;
 use crate::file::extract_properties;
 use crate::io::JavaWrite;
 use crate::object_store::make_object_store;
@@ -401,6 +402,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
     uri: JString,
     arrow_schema_addr: jlong,
     options: JObject,
+    metadata: JObject,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         if session_ptr == 0 {
@@ -417,11 +419,18 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
 
         let file_path: String = uri.try_to_string(env)?;
         let properties: HashMap<String, String> = extract_properties(env, &options)?;
+        let metadata = extract_metadata(env, &metadata)?;
         let resolved = resolve_store(&file_path, &properties)?;
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
         let strategy = write_strategy_for_schema(&write_schema);
-        let write_options = session.write_options().with_strategy(Arc::clone(&strategy));
+        let write_options = session
+            .write_options()
+            .with_strategy(Arc::clone(&strategy))
+            .with_metadata_segments(metadata);
+        // The same check runs inside `write`, but only once the write task is under way, where
+        // it would surface as an opaque send failure on the first batch.
+        write_options.validate_metadata()?;
 
         let (bytes_written, handle) = match resolved {
             ResolvedStore::Path(path) => {
@@ -480,6 +489,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
     session_ptr: jlong,
     writable: JObject,
     arrow_schema_addr: jlong,
+    metadata: JObject,
 ) -> jlong {
     try_or_throw(&mut env, |env| {
         if session_ptr == 0 {
@@ -497,12 +507,18 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         let arrow_schema = Arc::new(Schema::try_from(ffi_schema)?);
         let write_schema = session.arrow().from_arrow_schema(arrow_schema.as_ref())?;
 
+        let metadata = extract_metadata(env, &metadata)?;
         let vm = env.get_java_vm()?;
         let writable = Arc::new(env.new_global_ref(&writable)?);
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
         let strategy = write_strategy_for_schema(&write_schema);
-        let write_options = session.write_options().with_strategy(Arc::clone(&strategy));
+        let write_options = session
+            .write_options()
+            .with_strategy(Arc::clone(&strategy))
+            .with_metadata_segments(metadata);
+        // See the note in `create`: validate before the write task can start.
+        write_options.validate_metadata()?;
 
         let mut write = CountingVortexWrite::new(JavaWrite::new(vm, writable));
         let bytes_written = write.counter();

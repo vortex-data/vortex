@@ -132,8 +132,11 @@ fn mark_zone_map_segments(
     control_segments: &mut [bool],
 ) -> VortexResult<()> {
     if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
-        mark_layout_segments(layout.child(1)?.as_ref(), control_segments)?;
-        mark_zone_map_segments(layout.child(0)?.as_ref(), control_segments)?;
+        let (Some(data), Some(zones)) = (layout.slot(0)?, layout.slot(1)?) else {
+            vortex_bail!("zone map layout is missing its data or zones child");
+        };
+        mark_layout_segments(zones.as_ref(), control_segments)?;
+        mark_zone_map_segments(data.as_ref(), control_segments)?;
         return Ok(());
     }
 

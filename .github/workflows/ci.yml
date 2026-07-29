@@ -118,6 +118,14 @@ jobs:
           uv run --all-packages pytest --benchmark-disable -n auto test/
         working-directory: vortex-python/
 
+      # The datasets integration relies on private `datasets` APIs, so exercise the oldest
+      # supported release in addition to the locked one.
+      - name: Pytest - Vortex (datasets 4.x floor)
+        run: |
+          uv run --all-packages --with 'datasets==4.0.0' --with 'huggingface-hub<1' \
+            pytest --benchmark-disable test/test_hf_datasets.py
+        working-directory: vortex-python/
+
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
 

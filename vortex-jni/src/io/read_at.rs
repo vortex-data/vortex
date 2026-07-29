@@ -195,6 +195,26 @@ impl VortexReadAt for JavaReadable {
     }
 }
 
+/// Wrap a single Java `NativeReadable` as a [`VortexReadAt`], without registering it in a
+/// [`JavaFileSystem`].
+///
+/// For one-shot reads (opening a file to inspect its metadata, say) where there is no glob to
+/// resolve and no other file to share an upcall budget with.
+pub(crate) fn java_readable(
+    vm: JavaVM,
+    readable: Arc<Global<JObject<'static>>>,
+    len: u64,
+    handle: Handle,
+) -> Arc<dyn VortexReadAt> {
+    Arc::new(JavaReadable::new(
+        vm,
+        readable,
+        len,
+        handle,
+        UpcallLimiter::new(DEFAULT_CONCURRENCY),
+    ))
+}
+
 struct JavaFileEntry {
     readable: Arc<Global<JObject<'static>>>,
     size: u64,

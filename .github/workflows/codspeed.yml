@@ -2,11 +2,13 @@ name: Codspeed Benchmarking
 
 # Concurrency control:
 # - PRs: new commits on a feature branch will cancel in-progress (outdated) runs.
-# - Push to develop: runs queue sequentially, never cancelled. This allows us to have benchmarks
-#   run on every commit for our benchmarks website.
+# - Push to develop: every commit gets its own group, so baseline runs never cancel and never
+#   queue behind each other. Serialising them meant a burst of merges left later commits without
+#   a finished baseline, so CodSpeed fell back to an older comparison base and reported changes
+#   unrelated to the PR being tested.
 # - `workflow_dispatch`: groups by branch and queues if run on develop.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 on:
   push:
@@ -40,7 +42,8 @@ jobs:
           filters: |
             cuda:
               - "vortex-cuda/**"
-              - ".github/workflows/**"
+              # Only this workflow defines the CUDA benchmark jobs.
+              - ".github/workflows/codspeed.yml"
 
   bench-codspeed:
     strategy:

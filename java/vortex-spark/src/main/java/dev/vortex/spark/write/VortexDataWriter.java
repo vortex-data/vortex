@@ -123,8 +123,9 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
             var arrowSchema = SparkToArrowSchema.convert(schema);
 
             this.session = VortexSparkSession.get(options.asCaseSensitiveMap());
-            this.vortexWriter =
-                    VortexWriter.create(session, filePath, arrowSchema, options.asCaseSensitiveMap(), allocator);
+            this.vortexWriter = VortexWriter.builder(session, filePath, arrowSchema, allocator)
+                    .options(options.asCaseSensitiveMap())
+                    .build();
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);
 
             logger.debug("Initialized VortexDataWriter for {}", filePath);
