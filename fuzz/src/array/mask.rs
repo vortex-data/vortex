@@ -131,7 +131,7 @@ pub fn mask_canonical_array(
         Canonical::Struct(array) => {
             let new_validity = mask_validity(&array.validity()?, mask, ctx);
             StructArray::try_new_with_dtype(
-                array.unmasked_fields(),
+                array.iter_unmasked_fields().cloned(),
                 array.struct_fields().clone(),
                 array.len(),
                 new_validity,

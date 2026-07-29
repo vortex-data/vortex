@@ -475,7 +475,6 @@ fn execute_sparse_struct(
         ),
     };
     let patch_values_as_struct = unresolved_patches.values().as_::<Struct>().into_owned();
-    let columns_patch_values = patch_values_as_struct.unmasked_fields();
     let names = patch_values_as_struct.names();
     let validity = top_level_fill_validity.patch(
         len,
@@ -494,8 +493,8 @@ fn execute_sparse_struct(
 
     Ok(StructArray::try_from_iter_with_validity(
         names.iter().zip_eq(
-            columns_patch_values
-                .iter()
+            patch_values_as_struct
+                .iter_unmasked_fields()
                 .cloned()
                 .zip_eq(fill_values)
                 .map(|(patch_values, fill_value)| unsafe {

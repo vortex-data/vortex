@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::StructArrayExt;
+pub use array::StructArraySlotsExt;
 pub use array::StructDataParts;
 pub use array::StructSlots;
 pub use array::StructSlotsView;

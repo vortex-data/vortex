@@ -376,10 +376,12 @@ pub fn pack_nested_structs() -> VortexResult<()> {
     )?
     .into_array();
     let canonical_struct = chunked.execute::<StructArray>(&mut ctx)?;
-    let canonical_varbin = canonical_struct.unmasked_fields()[0]
+    let canonical_varbin = canonical_struct
+        .unmasked_field(0)
         .clone()
         .execute::<VarBinViewArray>(&mut ctx)?;
-    let original_varbin = struct_array.unmasked_fields()[0]
+    let original_varbin = struct_array
+        .unmasked_field(0)
         .clone()
         .execute::<VarBinViewArray>(&mut ctx)?;
     assert_arrays_eq!(original_varbin, canonical_varbin, &mut ctx);

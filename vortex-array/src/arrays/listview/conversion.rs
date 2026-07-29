@@ -250,11 +250,11 @@ pub fn recursive_list_from_list_view(
             }
         }
         Canonical::Struct(struct_array) => {
-            let fields = struct_array.unmasked_fields();
-            let mut converted_fields = Vec::with_capacity(fields.len());
+            let mut converted_fields =
+                Vec::with_capacity(struct_array.iter_unmasked_fields().len());
             let mut any_changed = false;
 
-            for field in fields.iter() {
+            for field in struct_array.iter_unmasked_fields() {
                 let converted_field = recursive_list_from_list_view(field.clone(), ctx)?;
                 // Avoid cloning if elements didn't change.
                 any_changed |= !ArrayRef::ptr_eq(&converted_field, field);

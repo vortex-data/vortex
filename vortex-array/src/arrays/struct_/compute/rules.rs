@@ -333,7 +333,7 @@ mod tests {
             .unwrap()
             .execute::<StructArray>(&mut SESSION.create_execution_ctx())
             .unwrap();
-        assert_eq!(result.unmasked_fields().len(), 2);
+        assert_eq!(result.iter_unmasked_fields().len(), 2);
         assert_arrays_eq!(
             result.unmasked_field_by_name("a").unwrap(),
             buffer![1i32, 2, 3].into_array(),

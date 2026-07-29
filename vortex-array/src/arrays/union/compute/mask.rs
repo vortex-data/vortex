@@ -18,7 +18,7 @@ impl MaskReduce for Union {
         UnionArray::try_new(
             array.type_ids().clone().mask(mask.clone())?,
             array.variants().clone(),
-            array.children().to_vec(),
+            array.iter_children().cloned(),
         )
         .map(|a| Some(a.into_array()))
     }

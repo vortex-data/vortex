@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -19,7 +18,7 @@ use crate::array::VTable;
 use crate::array::child_to_validity;
 use crate::array::with_empty_buffers;
 use crate::arrays::struct_::array::StructSlots;
-use crate::arrays::struct_::array::make_struct_slots;
+use crate::arrays::struct_::array::struct_slots_with_capacity;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -173,16 +172,18 @@ impl VTable for Struct {
             );
         };
 
-        let field_children: Vec<_> = (0..struct_dtype.nfields())
-            .map(|i| {
-                let child_dtype = struct_dtype
-                    .field_by_index(i)
-                    .vortex_expect("no out of bounds");
-                children.get(non_data_children + i, &child_dtype, len)
-            })
-            .try_collect()?;
+        let mut slots = struct_slots_with_capacity(&validity, len, struct_dtype.nfields());
+        for i in 0..struct_dtype.nfields() {
+            let child_dtype = struct_dtype
+                .field_by_index(i)
+                .vortex_expect("no out of bounds");
+            slots.push(Some(children.get(
+                non_data_children + i,
+                &child_dtype,
+                len,
+            )?));
+        }
 
-        let slots = make_struct_slots(&field_children, &validity, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
     }
 
