@@ -113,10 +113,8 @@ fn write_strategy_for_schema(
         return WriteStrategyBuilder::default().build();
     }
 
-    let mut allowed: HashSet<ArrayId> = session.enabled_encoding_ids().into_iter().collect();
-
     WriteStrategyBuilder::default()
-        .with_allow_encodings(allowed)
+        .with_allow_encodings(session.enabled_encoding_ids().into_iter().collect())
         .build()
 }
 
