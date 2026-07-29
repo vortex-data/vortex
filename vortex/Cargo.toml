@@ -75,7 +75,7 @@ files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]
 object_store = ["vortex-file?/object_store", "vortex-io/object_store"]
 # The URL -> ObjectStore registry, plus the cloud backends it resolves URLs to.
-object_store_registry = ["object_store", "dep:vortex-cloud", "vortex-cloud/registry"]
+object_store_registry = ["object_store", "vortex-cloud/registry"]
 # OpenDAL-backed schemes (`cos://`, `oss://`) in the object store registry.
 opendal = ["object_store_registry", "vortex-cloud/opendal"]
 tokio = [

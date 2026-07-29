@@ -34,7 +34,7 @@ url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files"] }
 vortex-arrow = { workspace = true }
 vortex-geo = { workspace = true }
-vortex-cloud = { workspace = true, optional = true, features = ["opendal"] }
+vortex-cloud = { workspace = true, optional = true }
 vortex-parquet-variant = { workspace = true }
 
 [dev-dependencies]
@@ -43,7 +43,7 @@ jni = { workspace = true, features = ["invocation"] }
 [features]
 # Enable OpenDAL-backed object stores (Tencent COS, Alibaba OSS) for `cos://` and `oss://` URLs.
 # This pulls in the `opendal` dependency, so it is opt-in.
-opendal = ["dep:vortex-cloud"]
+opendal = ["vortex-cloud/opendal"]
 
 [lib]
 crate-type = ["cdylib"]
