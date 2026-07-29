@@ -36,6 +36,7 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::match_each_list_builder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod operations;
@@ -199,12 +200,21 @@ impl VTable for List {
         ))
     }
 
+    // The complexity comes from the expansion of `match_each_list_builder!`.
+    #[expect(clippy::cognitive_complexity)]
     fn append_to_builder(
         array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        builder.append_list_array(array, ctx)
+        match match_each_list_builder!(&mut *builder, |b| b.append_list_array(array, ctx)) {
+            Some(result) => result,
+            None => vortex_bail!(
+                "cannot append a List array of dtype {} to a {} builder",
+                array.dtype(),
+                builder.dtype()
+            ),
+        }
     }
 }
 

@@ -174,6 +174,94 @@ impl<O: IntegerPType> ListBuilder<O> {
 
         element_dtype
     }
+
+    /// Appends the values of a [`List`]-encoded `array` to this builder.
+    ///
+    /// List encodings dispatch here through
+    /// [`match_each_list_builder!`](crate::match_each_list_builder) because the concrete list
+    /// builders are generic over their offset integer type, which cannot be named through a
+    /// `dyn ArrayBuilder`.
+    pub fn append_list_array(
+        &mut self,
+        array: ArrayView<'_, List>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if array.is_empty() {
+            return Ok(());
+        }
+
+        self.nulls
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+
+        let num_lists = array.len();
+        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
+            let offsets = offsets.as_slice::<OffsetType>();
+            let first: usize = offsets[0].as_();
+            let last: usize = offsets[num_lists].as_();
+
+            // Lists in a `ListArray` are contiguous, so the referenced elements can be appended
+            // in bulk and the offsets rebased onto this builder's elements.
+            let elements_base = self.elements_builder.len();
+            if last > first {
+                self.elements_builder.reserve_exact(last - first);
+                array
+                    .elements()
+                    .slice(first..last)?
+                    .append_to_builder(self.elements_builder.as_mut(), ctx)?;
+            }
+
+            self.offsets_builder.reserve_exact(num_lists);
+            let mut offsets_range = self.offsets_builder.uninit_range(num_lists);
+            for i in 0..num_lists {
+                let end: usize = offsets[i + 1].as_();
+                offsets_range.set_value(
+                    i,
+                    O::from_usize(end - first + elements_base)
+                        .vortex_expect("Failed to convert offset"),
+                );
+            }
+            // SAFETY: We have initialized all `num_lists` values, and since the `offsets` array is
+            // non-nullable, we are done.
+            unsafe { offsets_range.finish() };
+        });
+        Ok(())
+    }
+
+    /// Appends the values of a [`ListView`]-encoded `array` to this builder.
+    ///
+    /// See [`append_list_array`](Self::append_list_array); this is the same hook for the canonical
+    /// [`ListViewArray`](crate::arrays::ListViewArray) encoding.
+    pub fn append_listview_array(
+        &mut self,
+        array: ArrayView<'_, ListView>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if array.is_empty() {
+            return Ok(());
+        }
+
+        self.nulls
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+
+        // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
+        let elements = array.elements();
+        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        let sizes = array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
+
+        match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
+            match_each_integer_ptype!(sizes.ptype(), |SizeType| {
+                extend_from_listview(
+                    self,
+                    elements,
+                    offsets.as_slice::<OffsetType>(),
+                    sizes.as_slice::<SizeType>(),
+                    ctx,
+                )?
+            })
+        });
+        Ok(())
+    }
 }
 
 /// Appends `ListViewArray`-layout lists (`n` offsets and sizes) into a [`ListBuilder`], converting
@@ -295,84 +383,6 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
             .execute::<ListViewArray>(ctx)
             .vortex_expect("list builder should canonicalize to listview");
         Canonical::List(listview)
-    }
-
-    fn append_list_array(
-        &mut self,
-        array: ArrayView<'_, List>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        if array.is_empty() {
-            return Ok(());
-        }
-
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
-
-        let num_lists = array.len();
-        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-        match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
-            let offsets = offsets.as_slice::<OffsetType>();
-            let first: usize = offsets[0].as_();
-            let last: usize = offsets[num_lists].as_();
-
-            // Lists in a `ListArray` are contiguous, so the referenced elements can be appended
-            // in bulk and the offsets rebased onto this builder's elements.
-            let elements_base = self.elements_builder.len();
-            if last > first {
-                self.elements_builder.reserve_exact(last - first);
-                array
-                    .elements()
-                    .slice(first..last)?
-                    .append_to_builder(self.elements_builder.as_mut(), ctx)?;
-            }
-
-            self.offsets_builder.reserve_exact(num_lists);
-            let mut offsets_range = self.offsets_builder.uninit_range(num_lists);
-            for i in 0..num_lists {
-                let end: usize = offsets[i + 1].as_();
-                offsets_range.set_value(
-                    i,
-                    O::from_usize(end - first + elements_base)
-                        .vortex_expect("Failed to convert offset"),
-                );
-            }
-            // SAFETY: We have initialized all `num_lists` values, and since the `offsets` array is
-            // non-nullable, we are done.
-            unsafe { offsets_range.finish() };
-        });
-        Ok(())
-    }
-
-    fn append_listview_array(
-        &mut self,
-        array: ArrayView<'_, ListView>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        if array.is_empty() {
-            return Ok(());
-        }
-
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
-
-        // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
-        let elements = array.elements();
-        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-        let sizes = array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
-
-        match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
-            match_each_integer_ptype!(sizes.ptype(), |SizeType| {
-                extend_from_listview(
-                    self,
-                    elements,
-                    offsets.as_slice::<OffsetType>(),
-                    sizes.as_slice::<SizeType>(),
-                    ctx,
-                )?
-            })
-        });
-        Ok(())
     }
 }
 
