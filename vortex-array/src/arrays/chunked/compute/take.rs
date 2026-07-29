@@ -19,14 +19,12 @@ use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PiecewiseSequence;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::fixed_size_list::FixedSizeListDataParts;
 use crate::arrays::piecewise_sequence::constant_unsigned_usize;
 use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
@@ -39,12 +37,9 @@ use crate::executor::ExecutionCtx;
 use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
-/// Flattens per-chunk take/filter results into a single array.
-///
-/// Flat dtypes append directly into a canonical builder. Nested dtypes instead collect the chunks
-/// and canonicalize them as a chunked array, which reuses the chunks' children zero-copy (e.g.
-/// chunked FixedSizeLists canonicalize into one FixedSizeList over the chained elements) and lets
-/// the follow-up take push down lazily instead of deep-copying every child.
+/// Flattens per-chunk take/filter results into a single array. Flat dtypes append directly into
+/// a canonical builder; nested dtypes collect the chunks and canonicalize them as a chunked
+/// array, which reuses the chunks' children zero-copy.
 enum ChunkFlattener {
     Builder(Box<dyn ArrayBuilder>),
     Chunks(Vec<ArrayRef>),
@@ -182,6 +177,12 @@ fn take_chunked(
     let chunk_offsets = array.chunk_offset_values();
     let nchunks = array.nchunks();
 
+    // Strictly increasing non-nullable indices select every row at most once and in order, so the
+    // per-chunk filters concatenate straight into the result with no dedup or reorder take.
+    if !indices.as_ref().dtype().is_nullable() && indices_values.is_sorted_by(|a, b| a < b) {
+        return take_chunked_sorted(array, indices_values);
+    }
+
     // For a small unsorted fixed-size-list take over a small number of chunks, sorting has lower
     // fixed overhead and lets the nested elements filter in source order. Larger, monotonic, and
     // non-nested takes use bucketing.
@@ -259,10 +260,53 @@ fn take_chunked(
         return Ok(flat);
     };
 
-    // Restore original order. Carry the original index validity so null indices produce null
-    // outputs.
+    // A single take restores original order and expands duplicates. Carrying the original index
+    // validity makes null indices produce null outputs.
     let take_validity = Validity::from_mask(indices_mask, indices.dtype().nullability());
     flat.take(PrimitiveArray::new(final_take.freeze(), take_validity).into_array())
+}
+
+/// Take for strictly increasing, non-nullable indices: every row is selected at most once and in
+/// order, so the per-chunk filters concatenate directly into the result with no dedup or reorder
+/// take.
+fn take_chunked_sorted(
+    array: ArrayView<'_, Chunked>,
+    indices_values: &[u64],
+) -> VortexResult<ArrayRef> {
+    let chunk_offsets = array.chunk_offset_values();
+    let mut chunks = Vec::new();
+    let mut cursor = 0usize;
+
+    for chunk_idx in 0..array.nchunks() {
+        if cursor == indices_values.len() {
+            break;
+        }
+        let chunk_start = chunk_offsets[chunk_idx];
+        let chunk_end = chunk_offsets[chunk_idx + 1];
+        let chunk_end_u64 = u64::try_from(chunk_end)?;
+
+        let range_end = cursor + indices_values[cursor..].partition_point(|&v| v < chunk_end_u64);
+        if range_end > cursor {
+            let mut local_indices = Vec::with_capacity(range_end - cursor);
+            for &val in &indices_values[cursor..range_end] {
+                local_indices.push(usize::try_from(val)? - chunk_start);
+            }
+            let filter_mask = Mask::from_indices(chunk_end - chunk_start, local_indices);
+            chunks.push(array.chunk(chunk_idx).filter(filter_mask)?);
+        }
+        cursor = range_end;
+    }
+    if cursor != indices_values.len() {
+        vortex_bail!(
+            OutOfBounds: usize::try_from(indices_values[cursor])?, 0, array.as_ref().len()
+        );
+    }
+
+    if chunks.len() == 1 {
+        return Ok(chunks.swap_remove(0));
+    }
+    // SAFETY: every chunk is a filter of a chunk of `array`, which leaves the dtype unchanged.
+    Ok(unsafe { ChunkedArray::new_unchecked(chunks, array.dtype().clone()) }.into_array())
 }
 
 impl TakeExecute for Chunked {
@@ -271,20 +315,17 @@ impl TakeExecute for Chunked {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // A single chunk is logically identical to the chunked array, so delegate directly.
         if array.nchunks() == 1 {
             return array.chunk(0).take(indices.clone()).map(Some);
         }
 
-        // Piecewise indices go first: the piecewise take only touches chunks the pieces
-        // intersect, while the FSL rewrite canonicalizes every chunk up front.
-        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
-            && let Some(taken) = take_piecewise_chunked(array, piecewise_indices, ctx)?
-        {
+        if let Some(taken) = take_chunked_fsl(array, indices, ctx)? {
             return Ok(Some(taken));
         }
 
-        if let Some(taken) = take_chunked_fsl(array, indices, ctx)? {
+        if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+            && let Some(taken) = take_piecewise_chunked(array, piecewise_indices, ctx)?
+        {
             return Ok(Some(taken));
         }
 
@@ -293,46 +334,20 @@ impl TakeExecute for Chunked {
 }
 
 /// Rewrites take over a chunked fixed-size list array as take over a single
-/// [`FixedSizeListArray`].
-///
-/// Chunked FSL canonicalization concatenates the chunks' elements children zero-copy. The FSL
-/// take implementation then gathers those elements with a single `PiecewiseSequenceArray`, which
-/// [`take_piecewise_chunked`] resolves per chunk without expanding one index per element.
-///
-/// Applies only when every chunk is FSL-encoded, so canonicalization reuses the chunks' elements
-/// children zero-copy. Converting any other encoding (constant, dict, ...) would materialize
-/// whole chunks the indices may never touch, so those fall back to the generic filter-based path,
-/// which only decodes selected rows.
+/// [`FixedSizeListArray`]. The swizzle is structural: FSL-encoded chunks execute to themselves,
+/// so their elements chain zero-copy, and the FSL take then gathers per-chunk element runs
+/// instead of taking each chunk.
 fn take_chunked_fsl(
     array: ArrayView<'_, Chunked>,
     indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let DType::FixedSizeList(_, list_size, nullability) = array.dtype() else {
-        return Ok(None);
-    };
-    if !array.iter_chunks().all(|chunk| chunk.is::<FixedSizeList>()) {
+    if !matches!(array.dtype(), DType::FixedSizeList(..)) {
         return Ok(None);
     }
 
-    let len = array.as_ref().len();
     let fsl = array.as_ref().clone().execute::<FixedSizeListArray>(ctx)?;
-    let FixedSizeListDataParts {
-        elements, validity, ..
-    } = fsl.into_data_parts();
-    // The canonicalized validity chains the chunks' validities as a chunked bool array; letting
-    // the FSL take gather from it would recurse into a second chunked take over the same indices.
-    // Execute it into a flat mask once so the validity take is a plain bitmap gather.
-    let validity = match validity {
-        validity @ Validity::Array(_) => {
-            Validity::from_mask(validity.execute_mask(len, ctx)?, *nullability)
-        }
-        validity => validity,
-    };
-    FixedSizeListArray::try_new(elements, *list_size, validity, len)?
-        .into_array()
-        .take(indices.clone())
-        .map(Some)
+    fsl.into_array().take(indices.clone()).map(Some)
 }
 
 /// A per-chunk gather plan: chunk-local sub-piece runs to take from one chunk, in output order.
@@ -345,11 +360,11 @@ struct ChunkGather {
 
 /// Take for [`PiecewiseSequence`] indices with unit multipliers.
 ///
-/// Each piece is a contiguous index run, so instead of expanding one index per element and
-/// sorting them (as [`take_chunked`] does), pieces are split at chunk boundaries and gathered
-/// from each chunk with a chunk-local `PiecewiseSequenceArray`. When the sub-pieces visit chunks
-/// in non-decreasing order the gathered chunks concatenate directly into the result; otherwise
-/// the gathered chunks are canonicalized once and a second piecewise take restores output order.
+/// Each piece is a contiguous index run, so instead of expanding one index per element, pieces
+/// are split at chunk boundaries and gathered from each chunk with a chunk-local
+/// `PiecewiseSequenceArray`. Sub-pieces that visit chunks in non-decreasing order concatenate
+/// directly into the result; otherwise the gathered chunks are flattened once and a second
+/// piecewise take restores output order.
 fn take_piecewise_chunked(
     array: ArrayView<'_, Chunked>,
     indices: ArrayView<'_, PiecewiseSequence>,
@@ -421,9 +436,24 @@ fn take_piecewise_chunked(
             prev_chunk = chunk_idx;
 
             let plan = &mut plans[chunk_idx];
-            sub_pieces.push((chunk_idx, plan.total, run));
-            plan.starts.push((cursor - chunk_offsets[chunk_idx]) as u64);
-            plan.lengths.push(run as u64);
+            // Consecutive sub-pieces in the same chunk stay adjacent in its gathered output, so
+            // they merge into one reorder run.
+            match sub_pieces.last_mut() {
+                Some((last_chunk, _, last_run)) if *last_chunk == chunk_idx => *last_run += run,
+                _ => sub_pieces.push((chunk_idx, plan.total, run)),
+            }
+            // A run that continues exactly where the chunk's previous run ended extends it, so
+            // contiguous spans gather as one run.
+            let local_start = (cursor - chunk_offsets[chunk_idx]) as u64;
+            match (plan.starts.last(), plan.lengths.last_mut()) {
+                (Some(&prev_start), Some(prev_len)) if prev_start + *prev_len == local_start => {
+                    *prev_len += run as u64;
+                }
+                _ => {
+                    plan.starts.push(local_start);
+                    plan.lengths.push(run as u64);
+                }
+            }
             plan.total += run;
 
             cursor += run;
@@ -436,16 +466,14 @@ fn take_piecewise_chunked(
         "PiecewiseSequenceArray expanded length {total_len} does not match declared length {output_len}"
     );
 
-    // Gather the sub-pieces of each touched chunk with one chunk-local piecewise take. When the
-    // sub-pieces visit chunks in order, the gathered chunks already concatenate into the result.
+    // Chunks visited in order: the per-chunk gathers already concatenate into the result.
     if monotonic {
         let mut gathered = Vec::new();
         for (chunk_idx, plan) in plans.into_iter().enumerate() {
             if plan.starts.is_empty() {
                 continue;
             }
-            let chunk_indices = contiguous_runs(plan.starts, plan.lengths, plan.total);
-            gathered.push(array.chunk(chunk_idx).take(chunk_indices)?);
+            gathered.push(gather_chunk(array.chunk(chunk_idx), plan)?);
         }
         let result = if gathered.len() == 1 {
             gathered.swap_remove(0)
@@ -457,8 +485,8 @@ fn take_piecewise_chunked(
         return Ok(Some(result));
     }
 
-    // Out-of-order sub-pieces: flatten each chunk's gather once through a [`ChunkFlattener`],
-    // then take the sub-piece runs from the flattened result in output order.
+    // Out-of-order sub-pieces: flatten the per-chunk gathers, then take the sub-piece runs from
+    // the flattened result in output order.
     let mut bases = vec![0usize; nchunks];
     let mut running = 0usize;
     let mut flattener = ChunkFlattener::new(array.dtype(), output_len);
@@ -468,8 +496,7 @@ fn take_piecewise_chunked(
         }
         bases[chunk_idx] = running;
         running += plan.total;
-        let chunk_indices = contiguous_runs(plan.starts, plan.lengths, plan.total);
-        flattener.push(array.chunk(chunk_idx).take(chunk_indices)?, ctx)?;
+        flattener.push(gather_chunk(array.chunk(chunk_idx), plan)?, ctx)?;
     }
     let flat = flattener.finish(array.dtype(), ctx)?;
 
@@ -481,6 +508,16 @@ fn take_piecewise_chunked(
     }
     flat.take(contiguous_runs(reorder_starts, reorder_lengths, output_len))
         .map(Some)
+}
+
+/// Gathers a chunk's planned runs: a single run is a zero-copy slice, multiple runs become a
+/// chunk-local piecewise take.
+fn gather_chunk(chunk: &ArrayRef, plan: ChunkGather) -> VortexResult<ArrayRef> {
+    if let [start] = plan.starts.as_slice() {
+        let start = usize::try_from(*start)?;
+        return chunk.slice(start..start + plan.total);
+    }
+    chunk.take(contiguous_runs(plan.starts, plan.lengths, plan.total))
 }
 
 /// Builds a `PiecewiseSequenceArray` of contiguous (unit multiplier) runs whose lengths sum to
@@ -503,7 +540,7 @@ fn contiguous_runs(starts: Vec<u64>, lengths: Vec<u64>, total: usize) -> ArrayRe
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::bitbuffer;
     use vortex_buffer::buffer;
@@ -619,6 +656,37 @@ mod test {
         let result = arr.take(indices)?;
 
         assert_arrays_eq!(result, PrimitiveArray::from_iter([3i32, 4, 5, 6]), &mut ctx);
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_piecewise_adjacent_pieces_merge() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let arr = chunked_i32()?;
+
+        // The first two pieces are contiguous within one chunk, so they merge into a single run
+        // that gathers as a zero-copy slice.
+        let indices = contiguous_pieces(&[0, 2, 7], &[2, 2, 2])?;
+        let result = arr.take(indices)?;
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_iter([0i32, 1, 2, 3, 7, 8]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_piecewise_same_chunk_out_of_order() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let arr = chunked_i32()?;
+
+        // Non-contiguous pieces in the same chunk must stay separate runs in piece order.
+        let indices = contiguous_pieces(&[2, 0], &[2, 2])?;
+        let result = arr.take(indices)?;
+
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([2i32, 3, 0, 1]), &mut ctx);
         Ok(())
     }
 
@@ -807,7 +875,7 @@ mod test {
     }
 
     #[test]
-    fn test_take_chunked_fsl_non_fsl_chunk_falls_back() -> VortexResult<()> {
+    fn test_take_chunked_fsl_non_fsl_chunk() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let c0 = FixedSizeListArray::try_new(
             PrimitiveArray::from_iter(0i32..6).into_array(),
@@ -822,16 +890,12 @@ mod test {
             2,
         )?;
         let dtype = c0.dtype().clone();
-        // Wrap one chunk in a nested chunked array so it is not FSL-encoded.
+        // Wrap one chunk in a nested chunked array so it is not FSL-encoded; the dtype-based
+        // swizzle must still handle it.
         let nested = ChunkedArray::try_new(vec![c1.into_array()], dtype.clone())?;
         let arr = ChunkedArray::try_new(vec![c0.into_array(), nested.into_array()], dtype)?;
 
         let indices = buffer![4u64, 0, 3, 1].into_array();
-        assert!(
-            super::take_chunked_fsl(arr.as_view(), &indices, &mut ctx)?.is_none(),
-            "expected fallback to the generic take path"
-        );
-
         let result = arr.take(indices.clone())?;
         let expected = FixedSizeListArray::try_new(
             PrimitiveArray::from_iter(0i32..10).into_array(),
@@ -846,7 +910,7 @@ mod test {
     }
 
     #[test]
-    fn test_take_chunked_fsl_constant_chunk_falls_back() -> VortexResult<()> {
+    fn test_take_chunked_fsl_constant_chunk() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let c0 = FixedSizeListArray::try_new(
             PrimitiveArray::from_iter(0i32..6).into_array(),
@@ -855,16 +919,11 @@ mod test {
             3,
         )?;
         let dtype = c0.dtype().clone();
-        // A constant chunk is only logically FSL; converting it materializes the whole chunk.
+        // A constant chunk is only logically FSL; the swizzle canonicalizes it in place.
         let c1 = ConstantArray::new(Scalar::null(dtype.clone()), 2).into_array();
         let arr = ChunkedArray::try_new(vec![c0.into_array(), c1], dtype)?;
 
         let indices = buffer![4u64, 0, 3, 1].into_array();
-        assert!(
-            super::take_chunked_fsl(arr.as_view(), &indices, &mut ctx)?.is_none(),
-            "expected fallback to the generic take path"
-        );
-
         let result = arr.take(indices.clone())?;
         let expected = FixedSizeListArray::try_new(
             PrimitiveArray::from_iter(0i32..10).into_array(),
@@ -1225,6 +1284,54 @@ mod test {
                 None,
                 Some(30)
             ]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_sorted_indices() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let arr = chunked_i32()?;
+
+        // Strictly increasing indices spanning chunks hit the sorted fast path.
+        let indices = buffer![1u64, 4, 5, 9, 10, 14].into_array();
+        let result = arr.take(indices)?;
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_iter([1i32, 4, 5, 9, 10, 14]),
+            &mut ctx
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_out_of_bounds() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let arr = chunked_i32()?;
+
+        // Sorted indices hit the fast path, unsorted the generic path; both must fail.
+        for indices in [buffer![0u64, 100], buffer![100u64, 0]] {
+            let result = arr
+                .take(indices.into_array())
+                .and_then(|taken| taken.execute::<Canonical>(&mut ctx));
+            assert!(result.is_err(), "expected out-of-bounds error");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_all_null_indices() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let arr = chunked_i32()?;
+
+        let indices = PrimitiveArray::from_option_iter([None::<u64>, None]).into_array();
+        let result = arr.take(indices)?;
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([None::<i32>, None]),
             &mut ctx
         );
         Ok(())

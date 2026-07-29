@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -10,23 +11,28 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::PiecewiseSequence;
 use crate::arrays::PiecewiseSequenceArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::arrays::piecewise_sequence::constant_unsigned_usize;
+use crate::arrays::piecewise_sequence::maybe_contiguous_slices;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
 
@@ -105,10 +111,113 @@ fn take_non_empty_fsl(
         return take_non_empty_degenerate_fsl(array, indices, ctx);
     }
 
+    if let Some(piecewise_indices) = indices.as_opt::<PiecewiseSequence>()
+        && let Some(taken) = take_piecewise_fsl(array, piecewise_indices, ctx)?
+    {
+        return Ok(taken);
+    }
+
     let indices_array = indices.clone().execute::<PrimitiveArray>(ctx)?;
     match_each_integer_ptype!(indices_array.ptype(), |I| {
         take_non_empty_non_degenerate_fsl::<I>(array, indices, indices_array.as_view(), ctx)
     })
+}
+
+/// Take for [`PiecewiseSequence`] indices with unit multipliers: a piece of `length` consecutive
+/// lists gathers `length * list_size` consecutive elements, so each piece scales by `list_size`
+/// instead of expanding into one element run per list.
+fn take_piecewise_fsl(
+    array: ArrayView<'_, FixedSizeList>,
+    indices: ArrayView<'_, PiecewiseSequence>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    let Some((starts, lengths)) = maybe_contiguous_slices(indices, ctx)? else {
+        return Ok(None);
+    };
+
+    let list_size = array.list_size() as usize;
+    let array_len = array.as_ref().len();
+    let new_len = indices.as_ref().len();
+    let elements_len = new_len.checked_mul(list_size).ok_or_else(|| {
+        vortex_err!(
+            "FixedSizeList take output length overflow: {new_len} lists of size {list_size}"
+        )
+    })?;
+
+    let starts: Vec<usize> = match_each_unsigned_integer_ptype!(starts.ptype(), |S| {
+        starts
+            .as_slice::<S>()
+            .iter()
+            .map(|&start| start.as_())
+            .collect()
+    });
+    let lengths: Vec<usize> = match lengths {
+        Columnar::Constant(lengths) => vec![constant_unsigned_usize(&lengths); starts.len()],
+        Columnar::Canonical(lengths) => {
+            let lengths = lengths.into_primitive();
+            match_each_unsigned_integer_ptype!(lengths.ptype(), |L| {
+                lengths
+                    .as_slice::<L>()
+                    .iter()
+                    .map(|&length| length.as_())
+                    .collect()
+            })
+        }
+    };
+
+    let mut element_starts = BufferMut::<u64>::with_capacity(starts.len());
+    let mut element_lengths = BufferMut::<u64>::with_capacity(starts.len());
+    let mut total_len = 0usize;
+    for (&start, &length) in starts.iter().zip_eq(&lengths) {
+        if length == 0 {
+            continue;
+        }
+        let end = start
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray range overflows usize"))?;
+        if end > array_len {
+            vortex_bail!(OutOfBounds: end - 1, 0, array_len);
+        }
+        total_len += length;
+        element_starts.push(u64::try_from(start * list_size)?);
+        element_lengths.push(u64::try_from(length * list_size)?);
+    }
+    vortex_ensure!(
+        total_len == new_len,
+        "PiecewiseSequenceArray expanded length {total_len} does not match declared length {new_len}"
+    );
+
+    let new_elements =
+        if let ([start], [length]) = (element_starts.as_slice(), element_lengths.as_slice()) {
+            let start = usize::try_from(*start)?;
+            array
+                .elements()
+                .slice(start..start + usize::try_from(*length)?)?
+        } else {
+            let run_count = element_starts.len();
+            let starts =
+                PrimitiveArray::new(element_starts.freeze(), Validity::NonNullable).into_array();
+            let lengths =
+                PrimitiveArray::new(element_lengths.freeze(), Validity::NonNullable).into_array();
+            let multipliers = ConstantArray::new(1u64, run_count).into_array();
+            // SAFETY: starts, lengths, and multipliers are non-nullable u64 arrays of equal length,
+            // and the piece lengths were validated to sum to `new_len`, so the element runs sum to
+            // `elements_len`.
+            let element_indices = unsafe {
+                PiecewiseSequenceArray::new_unchecked(starts, lengths, multipliers, elements_len)
+            };
+            array.elements().take(element_indices.into_array())?
+        };
+    let new_validity = array.validity()?.take(indices.as_ref())?;
+
+    // SAFETY: `new_elements` has `new_len * list_size` elements, and `Validity::take` produces
+    // validity for `new_len`.
+    unsafe {
+        FixedSizeListArray::new_unchecked(new_elements, array.list_size(), new_validity, new_len)
+    }
+    .into_array()
+    .optimize_ctx(ctx.session())
+    .map(Some)
 }
 
 fn take_non_empty_degenerate_fsl(

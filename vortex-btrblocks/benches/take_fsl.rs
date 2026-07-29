@@ -18,10 +18,12 @@ use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::array_session;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::PiecewiseSequenceArray;
 use vortex_array::arrays::Primitive;
-use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
@@ -80,9 +82,22 @@ fn create_chunked_compressed_fsl(list_size: usize) -> ArrayRef {
     ChunkedArray::try_new(chunks, dtype).unwrap().into_array()
 }
 
-fn bench_take<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
+fn create_piecewise_indices(num_indices: usize) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(42);
+    let num_pieces = 8;
+    let piece_len = num_indices / num_pieces;
+    let starts: Buffer<u64> = (0..num_pieces)
+        .map(|_| rng.random_range(0..NUM_LISTS - piece_len) as u64)
+        .collect();
+    let lengths = ConstantArray::new(piece_len as u64, num_pieces).into_array();
+    let multipliers = ConstantArray::new(1u64, num_pieces).into_array();
+    PiecewiseSequenceArray::try_new(starts.into_array(), lengths, multipliers, num_indices)
+        .unwrap()
+        .into_array()
+}
+
+fn bench_take<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize, indices: ArrayRef) {
     let array = create_chunked_compressed_fsl(LIST_SIZE);
-    let indices = create_random_indices(num_indices);
 
     bencher
         .counter(BytesCount::of_many::<i64>(num_indices * LIST_SIZE))
@@ -98,5 +113,13 @@ fn bench_take<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
 
 #[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
 fn take_chunked_compressed_fsl<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
-    bench_take::<LIST_SIZE>(bencher, num_indices);
+    bench_take::<LIST_SIZE>(bencher, num_indices, create_random_indices(num_indices));
+}
+
+#[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
+fn take_chunked_compressed_fsl_piecewise<const LIST_SIZE: usize>(
+    bencher: Bencher,
+    num_indices: usize,
+) {
+    bench_take::<LIST_SIZE>(bencher, num_indices, create_piecewise_indices(num_indices));
 }
