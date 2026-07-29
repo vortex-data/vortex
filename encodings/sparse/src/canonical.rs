@@ -1568,15 +1568,17 @@ mod test {
         expected_elements.extend(buffer![42i32; 252]);
         let expected = ListArray::try_new(
             expected_elements.freeze().into_array(),
-            buffer![0u16, 1, 2, 3, 4, 256].into_array(),
+            buffer![0u32, 1, 2, 3, 4, 256].into_array(),
             Validity::AllValid,
         )?
         .into_array();
 
+        // The canonical offsets outgrow the source's u8 offsets; u32 is the smallest offset type
+        // a list builder can produce (see `OffsetBuilderPType`).
         let actual_listview = actual.clone().execute::<ListViewArray>(&mut ctx)?;
         assert_eq!(
             actual_listview.offsets().dtype(),
-            &DType::Primitive(PType::U16, NonNullable)
+            &DType::Primitive(PType::U32, NonNullable)
         );
         assert_arrays_eq!(&actual, &expected, &mut ctx);
 
