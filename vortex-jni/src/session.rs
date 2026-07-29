@@ -7,6 +7,10 @@ use jni::EnvUnowned;
 use jni::objects::JClass;
 use jni::sys::jlong;
 use vortex::VortexSessionDefault;
+use vortex::editions::DEFAULT_UNSTABLE_EDITION;
+use vortex::editions::EditionSessionExt;
+use vortex::error::VortexExpect;
+use vortex::error::vortex_err;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
@@ -17,6 +21,10 @@ use crate::RUNTIME;
 /// an opaque pointer that Java must pass to [`Java_dev_vortex_jni_NativeSession_free`].
 pub(crate) fn new_session() -> Box<VortexSession> {
     let session = VortexSession::default().with_handle(RUNTIME.handle());
+    session
+        .enable_edition(DEFAULT_UNSTABLE_EDITION)
+        .map_err(|error| vortex_err!("{error}"))
+        .vortex_expect("default unstable edition is registered");
     vortex_parquet_variant::initialize(&session);
     vortex_geo::initialize(&session);
     Box::new(session)

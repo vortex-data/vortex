@@ -765,19 +765,20 @@ mod tests {
         // Project out the nested struct field.
         // The projection should preserve the nulls of the `b` struct when we select out the
         // child column `c`.
-        let reader = layout
-            .new_reader("".into(), segments, &SESSION, &Default::default())
-            .unwrap();
         let expr = select(
             vec![FieldName::from("c")],
             get_item("b", get_item("a", root())),
         );
-
-        let project = reader
-            .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
-            .unwrap();
-
-        let result = block_on(move |_| project).unwrap();
+        let result = block_on(move |handle| {
+            let session = new_session().with_handle(handle);
+            async move {
+                layout
+                    .new_reader("".into(), segments, &session, &Default::default())?
+                    .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
+                    .await
+            }
+        })
+        .unwrap();
 
         // The result is a nullable struct (because root.a.b is nullable) with a non-nullable
         // field "c" (because the original field was non-nullable).

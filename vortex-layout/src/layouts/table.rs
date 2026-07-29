@@ -349,6 +349,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutRef;
     use crate::LayoutStrategy;
@@ -367,13 +368,15 @@ mod tests {
     use crate::sequence::SequentialStreamAdapter;
     use crate::sequence::SequentialStreamExt;
     use crate::test::SESSION;
+    use crate::test::new_session;
 
     async fn write<S: LayoutStrategy>(strategy: &S, array: ArrayRef) -> VortexResult<LayoutRef> {
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let stream = array.to_array_stream().sequenced(ptr);
+        let session = new_session().with_tokio();
         strategy
-            .write_stream(ArrayContext::empty(), segments, stream, eof, &SESSION)
+            .write_stream(ArrayContext::empty(), segments, stream, eof, &session)
             .await
     }
 
