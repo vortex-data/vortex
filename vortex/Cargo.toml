@@ -29,6 +29,7 @@ vortex-arrow = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
+vortex-cloud = { workspace = true, optional = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-edition = { workspace = true }
@@ -37,7 +38,6 @@ vortex-fastlanes = { workspace = true }
 vortex-file = { workspace = true, optional = true, default-features = true }
 vortex-flatbuffers = { workspace = true }
 vortex-fsst = { workspace = true }
-vortex-cloud = { workspace = true, optional = true }
 vortex-io = { workspace = true }
 vortex-ipc = { workspace = true }
 vortex-layout = { workspace = true }

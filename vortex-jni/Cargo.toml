@@ -33,8 +33,8 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files"] }
 vortex-arrow = { workspace = true }
-vortex-geo = { workspace = true }
 vortex-cloud = { workspace = true, optional = true }
+vortex-geo = { workspace = true }
 vortex-parquet-variant = { workspace = true }
 
 [dev-dependencies]

@@ -10,7 +10,7 @@
 //!    various `Store::from_env` builders behave (see
 //!    <https://github.com/apache/arrow-rs-object-store/issues/529>);
 //! 2. schemes that `object_store` does not recognize natively — the OpenDAL-backed `cos://` and
-//!    `oss://` — are served by [`crate::opendal`] under the matching service feature.
+//!    `oss://` — are served by the crate's `opendal` module under the matching service feature.
 
 use std::sync::Arc;
 

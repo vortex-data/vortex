@@ -6,19 +6,22 @@
 //! This crate owns everything Vortex needs to turn a URL into a credentialed
 //! [`object_store::ObjectStore`]:
 //!
-//! * [`Registry`] resolves a URL to a store, caching one client per bucket. It reads configuration
+//! * `Registry` resolves a URL to a store, caching one client per bucket. It reads configuration
 //!   out of environment variables case-insensitively, matching how the `object_store` `from_env`
 //!   builders behave.
-//! * [`opendal`] supplies stores for cloud services the `object_store` crate does not implement
+//! * `opendal` supplies stores for cloud services the `object_store` crate does not implement
 //!   natively — Tencent Cloud COS and Alibaba Cloud OSS — bridged through
 //!   `object_store_opendal`.
 //!
 //! Every Vortex language binding resolves URLs through this one crate, so a scheme added here is
 //! reachable from Python, Java and DuckDB alike.
 //!
+//! Both are feature-gated, so this overview refers to them by name rather than by link: an
+//! intra-doc link would dangle in a build that leaves the corresponding feature off.
+//!
 //! # Cargo features
 //!
-//! * `registry` — the [`Registry`], plus the natively-supported cloud backends (S3, Azure, GCS,
+//! * `registry` — the `Registry`, plus the natively-supported cloud backends (S3, Azure, GCS,
 //!   HTTP) it resolves URLs to.
 //! * `cos` — Tencent Cloud COS, the `cos://` scheme.
 //! * `oss` — Alibaba Cloud OSS, the `oss://` scheme.
