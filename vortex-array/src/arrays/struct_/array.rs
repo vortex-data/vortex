@@ -222,9 +222,21 @@ pub trait StructArrayExt: StructArraySlotsExt {
         self.fields().iter()
     }
 
+    /// The field array at `idx`, or `None` if `idx` is out of bounds.
+    ///
+    /// Use this over [`unmasked_field`](Self::unmasked_field) when the index comes from outside
+    /// the library and an out-of-bounds value is an error to report rather than a bug to panic on.
+    fn unmasked_field_opt(&self, idx: usize) -> Option<&ArrayRef> {
+        self.fields().get(idx)
+    }
+
+    /// The field array at `idx`.
+    ///
+    /// # Panics
+    ///
+    /// If `idx` is out of bounds.
     fn unmasked_field(&self, idx: usize) -> &ArrayRef {
-        self.fields()
-            .get(idx)
+        self.unmasked_field_opt(idx)
             .vortex_expect("StructArray field slot")
     }
 

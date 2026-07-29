@@ -22,7 +22,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinView;
 use vortex::array::arrays::bool::BoolArrayExt;
-use vortex::array::arrays::struct_::StructArraySlotsExt;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::legacy_session;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
@@ -236,8 +236,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
         let mut ctx = legacy_session().create_execution_ctx();
         let struct_array = array.clone().execute::<StructArray>(&mut ctx)?;
         let field_array = struct_array
-            .fields()
-            .get(index)
+            .unmasked_field_opt(index)
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?
             .clone();
 
