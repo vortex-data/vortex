@@ -114,7 +114,6 @@ fn write_strategy_for_schema(
     }
 
     let mut allowed: HashSet<ArrayId> = session.enabled_encoding_ids().into_iter().collect();
-    allowed.insert(ParquetVariant.id());
 
     WriteStrategyBuilder::default()
         .with_allow_encodings(allowed)
