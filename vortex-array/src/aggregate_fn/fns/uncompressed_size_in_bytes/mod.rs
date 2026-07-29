@@ -343,6 +343,7 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::RecursiveCanonical;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
     use crate::aggregate_fn::AggregateFnVTable;
@@ -382,14 +383,21 @@ mod tests {
     use crate::validity::Validity;
 
     fn materialized_uncompressed_size_in_bytes(array: &ArrayRef) -> u64 {
+        let mut ctx = array_session().create_execution_ctx();
         let mut builder = builder_with_capacity(array.dtype(), array.len());
         array
-            .append_to_builder(
-                builder.as_mut(),
-                &mut array_session().create_execution_ctx(),
-            )
+            .append_to_builder(builder.as_mut(), &mut ctx)
             .vortex_expect("appended");
-        builder.finish().nbytes()
+
+        // A builder keeps its children in whatever encoding they were appended in, so the bytes of
+        // what it finishes only stand in for the uncompressed size once the whole tree is decoded.
+        builder
+            .finish()
+            .execute::<RecursiveCanonical>(&mut ctx)
+            .vortex_expect("recursively canonicalized")
+            .0
+            .into_array()
+            .nbytes()
     }
 
     fn aggregate(array: &ArrayRef) -> VortexResult<u64> {

@@ -17,9 +17,9 @@ use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::builders::ArrayBuilder;
+use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
-use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -34,7 +34,7 @@ pub struct FixedSizeListBuilder {
     /// The builder for the underlying elements of the [`FixedSizeListArray`].
     ///
     /// This builder will have a capacity equal to the `list_size * capacity`.
-    elements_builder: Box<dyn ArrayBuilder>,
+    elements_builder: ChildBuilder,
 
     /// The null map builder of the [`FixedSizeListArray`].
     ///
@@ -62,7 +62,7 @@ impl FixedSizeListBuilder {
     ) -> Self {
         let elements_capacity = capacity * list_size as usize;
 
-        let elements_builder = builder_with_capacity(&element_dtype, elements_capacity);
+        let elements_builder = ChildBuilder::with_capacity(&element_dtype, elements_capacity);
         let fsl_dtype = DType::FixedSizeList(element_dtype, list_size, nullability);
         let nulls = LazyBitBufferBuilder::new(capacity);
 
@@ -98,7 +98,7 @@ impl FixedSizeListBuilder {
             self.list_size()
         );
 
-        array.append_to_builder(self.elements_builder.as_mut(), ctx)?;
+        self.elements_builder.append_array(array, ctx)?;
         self.nulls.append_non_null();
 
         Ok(())
@@ -115,9 +115,7 @@ impl FixedSizeListBuilder {
             return Ok(());
         }
 
-        array
-            .elements()
-            .append_to_builder(self.elements_builder.as_mut(), ctx)?;
+        self.elements_builder.append_array(array.elements(), ctx)?;
         self.nulls
             .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
         Ok(())

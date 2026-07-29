@@ -4,16 +4,44 @@
 use std::sync::Arc;
 
 use rstest::rstest;
+use vortex_buffer::Buffer;
+use vortex_buffer::buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::RecursiveCanonical;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::array_session;
+use crate::arrays::Chunked;
+use crate::arrays::ChunkedArray;
+use crate::arrays::Constant;
+use crate::arrays::ConstantArray;
+use crate::arrays::Extension;
+use crate::arrays::ExtensionArray;
+use crate::arrays::FixedSizeList;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::List;
+use crate::arrays::ListArray;
+use crate::arrays::ListView;
+use crate::arrays::ListViewArray;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::Struct;
+use crate::arrays::StructArray;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::extension::ExtensionArraySlotsExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::arrays::list::ListArraySlotsExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
+use crate::arrays::struct_::StructArrayExt;
+use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
+use crate::builders::ListBuilder;
 use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
@@ -24,6 +52,7 @@ use crate::dtype::half::f16;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::scalar::Scalar;
+use crate::validity::Validity;
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///
@@ -898,5 +927,372 @@ fn test_set_validity_noop_when_non_nullable() -> VortexResult<()> {
             "index {i} should remain valid"
         );
     }
+    Ok(())
+}
+
+/// Builders only promise a canonical *top level*, so a child array that is long enough to be worth
+/// a chunk must come back out of the builder in the encoding it went in with.
+///
+/// Each case appends the same array twice, which additionally checks that the two chunks are
+/// stitched back together into a [`ChunkedArray`] rather than being decoded and concatenated.
+#[rstest]
+#[case::struct_field(
+    StructArray::try_from_iter([("a", constant_i32())])
+        .vortex_expect("struct array")
+        .into_array(),
+    |array: &ArrayRef| array.as_::<Struct>().unmasked_field(0).clone()
+)]
+#[case::list_elements(
+    ListViewArray::new(
+        constant_i32(),
+        (0..CHUNK_LEN as u64).collect::<Buffer<_>>().into_array(),
+        Buffer::full(1u64, CHUNK_LEN).into_array(),
+        Validity::NonNullable,
+    )
+    .into_array(),
+    |array: &ArrayRef| array.as_::<ListView>().elements().clone()
+)]
+#[case::fixed_size_list_elements(
+    FixedSizeListArray::new(
+        constant_i32(),
+        2,
+        Validity::NonNullable,
+        CHUNK_LEN / 2,
+    )
+    .into_array(),
+    |array: &ArrayRef| array.as_::<FixedSizeList>().elements().clone()
+)]
+#[case::extension_storage(
+    ExtensionArray::new(
+        Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased(),
+        ConstantArray::new(
+            Scalar::primitive(0i64, Nullability::NonNullable),
+            CHUNK_LEN,
+        )
+        .into_array(),
+    )
+    .into_array(),
+    |array: &ArrayRef| array.as_::<Extension>().storage().clone()
+)]
+fn test_children_are_not_canonicalized(
+    #[case] array: ArrayRef,
+    #[case] child_of: fn(&ArrayRef) -> ArrayRef,
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    let built = builder.finish();
+
+    let child = child_of(&built);
+    let chunked = child.as_::<Chunked>();
+    assert_eq!(
+        chunked.nchunks(),
+        2,
+        "expected one chunk per appended array"
+    );
+    assert!(
+        chunked.iter_chunks().all(|chunk| chunk.is::<Constant>()),
+        "the constant-encoded child was decoded by the builder",
+    );
+
+    let expected = ChunkedArray::try_new(vec![array.clone(), array], built.dtype().clone())?;
+    assert_arrays_eq!(&built, &expected, &mut ctx);
+
+    Ok(())
+}
+
+/// A child is chunked on the boundaries it is appended on, however small the appends. Appending
+/// scalars instead is what asks the builder to copy the values into one canonical child.
+#[test]
+fn test_children_are_chunked_on_the_boundaries_they_are_appended_on() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let elements = ConstantArray::new(1i32, 2).into_array();
+    let array = FixedSizeListArray::new(elements, 2, Validity::NonNullable, 1).into_array();
+
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    for _ in 0..CHUNK_LEN {
+        array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    }
+    let built = builder.finish();
+
+    assert_eq!(built.len(), CHUNK_LEN);
+    assert_eq!(
+        built
+            .as_::<FixedSizeList>()
+            .elements()
+            .as_::<Chunked>()
+            .nchunks(),
+        CHUNK_LEN,
+        "one chunk per appended array",
+    );
+
+    // The same values appended as scalars land in a single canonical child.
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    let scalar = array.execute_scalar(0, &mut ctx)?;
+    for _ in 0..CHUNK_LEN {
+        builder.append_scalar(&scalar)?;
+    }
+    let built_from_scalars = builder.finish();
+
+    assert!(
+        built_from_scalars
+            .as_::<FixedSizeList>()
+            .elements()
+            .is::<Primitive>()
+    );
+    assert_arrays_eq!(&built_from_scalars, &built, &mut ctx);
+
+    Ok(())
+}
+
+/// A builder that mixes appended arrays with scalar appends must keep the two in order.
+#[test]
+fn test_struct_builder_interleaves_arrays_and_scalars() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let array = StructArray::try_from_iter([("a", constant_i32())])?.into_array();
+    let scalar = Scalar::struct_(
+        array.dtype().clone(),
+        vec![Scalar::primitive(1i32, Nullability::NonNullable)],
+    );
+
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    builder.append_scalar(&scalar)?;
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    builder.append_scalar(&scalar)?;
+    let built = builder.finish();
+
+    let scalar_array = StructArray::try_from_iter([(
+        "a",
+        PrimitiveArray::new(buffer![1i32], Validity::NonNullable),
+    )])?
+    .into_array();
+    let expected = ChunkedArray::try_new(
+        vec![scalar_array.clone(), array, scalar_array],
+        built.dtype().clone(),
+    )?;
+    assert_arrays_eq!(&built, &expected, &mut ctx);
+
+    Ok(())
+}
+
+/// An arbitrary array length. Nested builders treat no length specially, so the tests only need a
+/// length long enough to tell chunks apart.
+const CHUNK_LEN: usize = 64;
+
+/// A non-canonical array of [`CHUNK_LEN`] `i32` values.
+fn constant_i32() -> ArrayRef {
+    ConstantArray::new(0i32, CHUNK_LEN).into_array()
+}
+
+/// Two lists of [`CHUNK_LEN`] elements each, so that appending them chunks the elements.
+fn two_lists_of_chunk_len() -> ListViewArray {
+    ListViewArray::new(
+        iota(2 * CHUNK_LEN),
+        u64s([0, CHUNK_LEN]),
+        u64s([CHUNK_LEN, CHUNK_LEN]),
+        Validity::NonNullable,
+    )
+}
+
+/// `0..n` as an `i32` array, so that the values of one chunk are distinguishable from the next.
+fn iota(n: usize) -> ArrayRef {
+    (0..n)
+        .map(|i| i32::try_from(i).vortex_expect("iota value fits in an i32"))
+        .collect::<Buffer<_>>()
+        .into_array()
+}
+
+/// A `u64` array of list offsets or sizes.
+fn u64s(values: impl IntoIterator<Item = usize>) -> ArrayRef {
+    values
+        .into_iter()
+        .map(|v| u64::try_from(v).vortex_expect("list offset fits in a u64"))
+        .collect::<Buffer<_>>()
+        .into_array()
+}
+
+/// Once a list builder keeps its elements as chunks, `elements_builder.len()` is a running total
+/// across those chunks — every offset appended afterwards has to be rebased onto it.
+///
+/// The two cases cover the two bulk paths into the elements builder: appending a `ListViewArray`
+/// rebases the view's own offsets, while appending a `ListArray` slices the elements first.
+#[rstest]
+#[case::from_listview(two_lists_of_chunk_len().into_array())]
+#[case::from_list(
+    ListArray::new(
+        iota(2 * CHUNK_LEN),
+        u64s([0, CHUNK_LEN, 2 * CHUNK_LEN]),
+        Validity::NonNullable,
+    )
+    .into_array()
+)]
+fn test_list_offsets_are_rebased_across_element_chunks(
+    #[case] lists: ArrayRef,
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let mut builder = builder_with_capacity(
+        &DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        ),
+        0,
+    );
+    lists.append_to_builder(builder.as_mut(), &mut ctx)?;
+    lists.append_to_builder(builder.as_mut(), &mut ctx)?;
+    let built = builder.finish();
+
+    assert!(
+        built.as_::<ListView>().elements().is::<Chunked>(),
+        "the elements should have been kept as chunks",
+    );
+
+    let expected = ChunkedArray::try_new(vec![lists.clone(), lists], built.dtype().clone())?;
+    assert_arrays_eq!(&built, &expected, &mut ctx);
+
+    Ok(())
+}
+
+/// `ListBuilder` computes each offset from the running element count as well, and reaches the
+/// elements builder through `append_array_as_list` rather than a bulk append.
+#[test]
+fn test_list_builder_offsets_are_rebased_across_element_chunks() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
+
+    let mut builder =
+        ListBuilder::<u64>::with_capacity(element_dtype, Nullability::NonNullable, 0, 0);
+    for value in 0..3i32 {
+        builder
+            .append_array_as_list(&ConstantArray::new(value, CHUNK_LEN).into_array(), &mut ctx)?;
+    }
+    let built = builder.finish();
+
+    assert!(built.as_::<List>().elements().is::<Chunked>());
+
+    let expected = ListArray::new(
+        (0..3i32)
+            .flat_map(|value| std::iter::repeat_n(value, CHUNK_LEN))
+            .collect::<Buffer<_>>()
+            .into_array(),
+        u64s((0..=3).map(|i| i * CHUNK_LEN)),
+        Validity::NonNullable,
+    );
+    assert_arrays_eq!(&built, &expected, &mut ctx);
+
+    Ok(())
+}
+
+/// A nested builder's own validity buffer is independent of its chunked child, so nulls appended
+/// alongside chunks must survive.
+#[rstest]
+#[case::fixed_size_list(
+    FixedSizeListArray::new(
+        iota(CHUNK_LEN),
+        4,
+        Validity::from_iter((0..CHUNK_LEN / 4).map(|i| i % 3 != 0)),
+        CHUNK_LEN / 4,
+    )
+    .into_array(),
+    |array: &ArrayRef| array.as_::<FixedSizeList>().elements().clone()
+)]
+#[case::struct_(
+    StructArray::try_from_iter_with_validity(
+        [("a", iota(CHUNK_LEN))],
+        Validity::from_iter((0..CHUNK_LEN).map(|i| i % 3 != 0)),
+    )
+    .vortex_expect("struct array")
+    .into_array(),
+    |array: &ArrayRef| array.as_::<Struct>().unmasked_field(0).clone()
+)]
+fn test_validity_survives_chunked_children(
+    #[case] array: ArrayRef,
+    #[case] child_of: fn(&ArrayRef) -> ArrayRef,
+) -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    builder.append_nulls(1);
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    let built = builder.finish();
+
+    assert!(child_of(&built).is::<Chunked>());
+
+    let mut null = builder_with_capacity(array.dtype(), 1);
+    null.append_nulls(1);
+    let expected = ChunkedArray::try_new(
+        vec![array.clone(), null.finish(), array],
+        built.dtype().clone(),
+    )?;
+    assert_arrays_eq!(&built, &expected, &mut ctx);
+
+    Ok(())
+}
+
+/// An extension array has no validity of its own — it lives in the storage — so overriding the
+/// builder's validity has to reach into the chunked storage.
+#[test]
+fn test_extension_set_validity_reaches_chunked_storage() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
+
+    let array = ExtensionArray::new(
+        ext_dtype.clone(),
+        ConstantArray::new(Scalar::primitive(0i64, Nullability::Nullable), CHUNK_LEN).into_array(),
+    )
+    .into_array();
+
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+
+    let invalid = [0, 2 * CHUNK_LEN - 1];
+    builder.set_validity(Mask::from_iter(
+        (0..2 * CHUNK_LEN).map(|i| !invalid.contains(&i)),
+    ));
+    let built = builder.finish();
+
+    assert!(built.as_::<Extension>().storage().is::<Chunked>());
+
+    let expected = ExtensionArray::new(
+        ext_dtype,
+        PrimitiveArray::from_option_iter(
+            (0..2 * CHUNK_LEN).map(|i| (!invalid.contains(&i)).then_some(0i64)),
+        )
+        .into_array(),
+    )
+    .into_array();
+    assert_arrays_eq!(&built, &expected, &mut ctx);
+
+    Ok(())
+}
+
+/// Consumers that genuinely need a fully-decoded tree ask for it, and must still get one.
+#[test]
+fn test_chunked_children_canonicalize_recursively() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+
+    let array = StructArray::try_from_iter([("a", constant_i32())])?.into_array();
+    let mut builder = builder_with_capacity(array.dtype(), 0);
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    array.append_to_builder(builder.as_mut(), &mut ctx)?;
+    let built = builder.finish();
+
+    let recursive = built.clone().execute::<RecursiveCanonical>(&mut ctx)?.0;
+    assert!(
+        recursive
+            .clone()
+            .into_array()
+            .as_::<Struct>()
+            .unmasked_field(0)
+            .is::<Primitive>()
+    );
+    assert_arrays_eq!(&recursive.into_array(), &built, &mut ctx);
+
     Ok(())
 }

@@ -586,6 +586,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Chunked;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::ListArray;
@@ -594,6 +595,7 @@ mod test {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::chunked::ChunkedArrayExt;
     use vortex_array::arrays::listview::ListViewArrayExt;
     use vortex_array::arrays::listview::ListViewArraySlotsExt;
     use vortex_array::assert_arrays_eq;
@@ -1335,6 +1337,50 @@ mod test {
             PrimitiveArray::from_iter([2i32]),
             &mut ctx
         );
+
+        Ok(())
+    }
+
+    /// Nested builders chunk a child on the boundaries it is appended on, so the number of appends
+    /// canonicalization makes is now visible in the elements child. A run of consecutive patches
+    /// and the gap after it should cost one chunk each, not one chunk per row.
+    #[test]
+    fn test_sparse_list_chunks_elements_per_run_not_per_patch() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+
+        const PATCHES: usize = 100;
+        let patches_u32 = u32::try_from(PATCHES).vortex_expect("fits in u32");
+        let patches_i32 = i32::try_from(PATCHES).vortex_expect("fits in i32");
+
+        // `PATCHES` single-element lists, patched onto rows 0..PATCHES of a 2 * PATCHES-row array,
+        // so there is exactly one patch run followed by exactly one gap.
+        let patch_values = ListViewArray::new(
+            PrimitiveArray::from_iter(0..patches_i32).into_array(),
+            PrimitiveArray::from_iter(0..patches_u32).into_array(),
+            PrimitiveArray::from_iter(std::iter::repeat_n(1u32, PATCHES)).into_array(),
+            Validity::AllValid,
+        )
+        .into_array();
+
+        let indices = PrimitiveArray::from_iter(0..patches_u32).into_array();
+        let fill = Scalar::from(Some(vec![-1i32]));
+        let sparse = Sparse::try_new(indices, patch_values, 2 * PATCHES, fill)?.into_array();
+
+        let actual = sparse.execute::<ListViewArray>(&mut ctx)?;
+        assert_eq!(
+            actual.elements().as_::<Chunked>().nchunks(),
+            2,
+            "expected one chunk for the patch run and one for the gap",
+        );
+
+        let expected_lists = (0..patches_i32)
+            .map(|i| Some(vec![i]))
+            .chain(std::iter::repeat_n(Some(vec![-1i32]), PATCHES));
+        let expected = ListArray::from_iter_opt_slow::<u32, _, _>(
+            expected_lists,
+            Arc::new(PType::I32.into()),
+        )?;
+        assert_arrays_eq!(actual, expected, &mut ctx);
 
         Ok(())
     }

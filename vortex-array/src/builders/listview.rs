@@ -31,10 +31,10 @@ use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::ArrayBuilder;
+use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::UninitRange;
-use crate::builders::builder_with_capacity;
 use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -59,7 +59,7 @@ pub struct ListViewBuilder<O: OffsetBuilderPType, S: OffsetBuilderPType> {
     dtype: DType,
 
     /// The builder for the underlying elements of the [`ListArray`](crate::arrays::ListArray).
-    elements_builder: Box<dyn ArrayBuilder>,
+    elements_builder: ChildBuilder,
 
     /// The builder for the `offsets` into the `elements` array.
     offsets_builder: PrimitiveBuilder<O>,
@@ -105,7 +105,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         elements_capacity: usize,
         capacity: usize,
     ) -> Self {
-        let elements_builder = builder_with_capacity(&element_dtype, elements_capacity);
+        let elements_builder = ChildBuilder::with_capacity(&element_dtype, elements_capacity);
 
         let offsets_builder =
             PrimitiveBuilder::<O>::with_capacity(Nullability::NonNullable, capacity);
@@ -152,8 +152,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
             "appending this list would cause an offset overflow"
         );
 
-        self.elements_builder.reserve_exact(num_elements);
-        array.append_to_builder(self.elements_builder.as_mut(), ctx)?;
+        self.elements_builder.append_array(array, ctx)?;
         self.nulls.append_non_null();
 
         self.offsets_builder.append_value(
@@ -311,10 +310,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         // Bulk append the trimmed elements; the offsets are rebased onto them below.
         let old_elements_len = self.elements_builder.len();
         self.elements_builder
-            .reserve_exact(listview.elements().len());
-        listview
-            .elements()
-            .append_to_builder(self.elements_builder.as_mut(), ctx)?;
+            .append_array(listview.elements(), ctx)?;
         let new_elements_len = self.elements_builder.len();
 
         // Reserve enough space for the new views.
@@ -465,10 +461,9 @@ where
     );
 
     if last > first {
-        builder.elements_builder.reserve_exact(last - first);
-        elements
-            .slice(first..last)?
-            .append_to_builder(builder.elements_builder.as_mut(), ctx)?;
+        builder
+            .elements_builder
+            .append_array(&elements.slice(first..last)?, ctx)?;
     }
 
     builder.offsets_builder.reserve_exact(num_lists);
