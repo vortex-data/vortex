@@ -68,8 +68,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
-      - name: Setup benchmark environment
-        run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -148,6 +146,9 @@ jobs:
           profiling_frequency: 199
           extra_args: "--debuginfo-strip=false"
           parca_agent_version: "0.49.0"
+
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
 
       - name: Run ${{ matrix.name }} benchmark
         if: matrix.remote_key == null || github.event.pull_request.head.repo.fork == true
