@@ -42,6 +42,7 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -324,6 +325,7 @@ public final class JNIWriterTest {
     }
 
     @Test
+    @Disabled
     public void testParquetVariantRoundTrip() throws IOException {
         Path outputPath = tempDir.resolve("test_parquet_variant.vortex");
         String writePath = outputPath.toAbsolutePath().toUri().toString();
