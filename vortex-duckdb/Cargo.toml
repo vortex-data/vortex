@@ -48,8 +48,6 @@ vortex-geo = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [features]
-# OpenDAL-backed schemes (`cos://`, `oss://`) in the object store registry. Pulls in `opendal`, so
-# it is opt-in.
 opendal = ["vortex/opendal"]
 
 [dev-dependencies]
