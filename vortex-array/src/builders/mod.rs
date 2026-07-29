@@ -196,13 +196,15 @@ pub trait ArrayBuilder: Send {
 }
 
 /// Matches a `&mut dyn ArrayBuilder` against every concrete list builder type, i.e. every
-/// [`ListBuilder`]`<O>` and [`ListViewBuilder`]`<O, S>` instantiation over the integer
-/// offset/size types.
+/// [`ListBuilder`]`<O>` and [`ListViewBuilder`]`<O, S>` instantiation over the
+/// [`ListOffsetPType`](crate::dtype::ListOffsetPType) offset/size types (`u32`, `u64`, `i32`,
+/// `i64`).
 ///
 /// Binds the downcast builder as `$builder` and evaluates `$body` with it, yielding
 /// `Some($body)`; yields `None` when the builder is not a list builder. List encodings dispatch
 /// through this matcher because the concrete list builders are generic over their offset/size
-/// integer types, which cannot be named through a `dyn ArrayBuilder`.
+/// integer types, which cannot be named through a `dyn ArrayBuilder`. The matcher is exhaustive
+/// because `ListOffsetPType` is sealed, so no other instantiations can be constructed.
 #[macro_export]
 macro_rules! match_each_list_builder {
     ($dyn_builder:expr, | $builder:ident | $body:expr) => {{
@@ -211,14 +213,14 @@ macro_rules! match_each_list_builder {
             __dyn_builder,
             $builder,
             $body,
-            [u8, u16, u32, u64, i8, i16, i32, i64]
+            [u32, u64, i32, i64]
         ) {
             ::core::option::Option::Some(__result) => ::core::option::Option::Some(__result),
             ::core::option::Option::None => $crate::__match_each_listview_builder!(
                 __dyn_builder,
                 $builder,
                 $body,
-                [u8, u16, u32, u64, i8, i16, i32, i64]
+                [u32, u64, i32, i64]
             ),
         }
     }};
@@ -254,7 +256,7 @@ macro_rules! __match_each_listview_builder {
             $builder,
             $body,
             $offset,
-            [u8, u16, u32, u64, i8, i16, i32, i64]
+            [u32, u64, i32, i64]
         ) {
             ::core::option::Option::Some(__result) => ::core::option::Option::Some(__result),
             ::core::option::Option::None => $crate::__match_each_listview_builder!(

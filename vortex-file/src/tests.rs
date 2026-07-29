@@ -242,13 +242,13 @@ async fn test_read_simple_with_spawn() {
     .into_array();
 
     let lists = ChunkedArray::from_iter([
-        ListArray::from_iter_slow::<i16, _>(
+        ListArray::from_iter_slow::<i32, _>(
             vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
             Arc::new(I32.into()),
         )
         .unwrap()
         .into_array(),
-        ListArray::from_iter_slow::<i8, _>(
+        ListArray::from_iter_slow::<i64, _>(
             vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
             Arc::new(I32.into()),
         )
@@ -1623,7 +1623,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let strings = VarBinArray::from(vec!["hello", "world", "test"]).into_array();
     let numbers = buffer![100i32, 200, 300].into_array();
-    let lists = ListArray::from_iter_slow::<i16, _>(
+    let lists = ListArray::from_iter_slow::<i32, _>(
         vec![vec![1, 2], vec![3, 4, 5], vec![6]],
         Arc::new(I32.into()),
     )?;

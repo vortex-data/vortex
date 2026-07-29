@@ -31,15 +31,16 @@ use crate::builders::PrimitiveBuilder;
 use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::dtype::ListOffsetPType;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 
-/// The builder for building a [`ListArray`], parametrized by the [`IntegerPType`] of the `offsets`
-/// builder.
-pub struct ListBuilder<O: IntegerPType> {
+/// The builder for building a [`ListArray`], parametrized by the [`ListOffsetPType`] of the
+/// `offsets` builder.
+pub struct ListBuilder<O: ListOffsetPType> {
     /// The [`DType`] of the [`ListArray`]. This **must** be a [`DType::List`].
     dtype: DType,
 
@@ -53,7 +54,7 @@ pub struct ListBuilder<O: IntegerPType> {
     nulls: LazyBitBufferBuilder,
 }
 
-impl<O: IntegerPType> ListBuilder<O> {
+impl<O: ListOffsetPType> ListBuilder<O> {
     /// Creates a new `ListBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(value_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self::with_capacity(
@@ -274,7 +275,7 @@ fn extend_from_listview<O, OffsetType, SizeType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()>
 where
-    O: IntegerPType,
+    O: ListOffsetPType,
     OffsetType: IntegerPType,
     SizeType: IntegerPType,
 {
@@ -313,7 +314,7 @@ where
     Ok(())
 }
 
-impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
+impl<O: ListOffsetPType> ArrayBuilder for ListBuilder<O> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -411,7 +412,7 @@ mod tests {
     use crate::builders::list::ListArray;
     use crate::builders::list::ListBuilder;
     use crate::dtype::DType;
-    use crate::dtype::IntegerPType;
+    use crate::dtype::ListOffsetPType;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::executor::VortexSessionExecute;
@@ -518,7 +519,7 @@ mod tests {
         assert_eq!(list_array.list_elements_at(2).unwrap().len(), 3);
     }
 
-    fn test_extend_builder_gen<O: IntegerPType>() {
+    fn test_extend_builder_gen<O: ListOffsetPType>() {
         let list = ListArray::from_iter_opt_slow::<O, _, _>(
             [Some(vec![0, 1, 2]), None, Some(vec![4, 5])],
             Arc::new(I32.into()),
@@ -607,19 +608,20 @@ mod tests {
 
         // A `ListViewBuilder` with non-`u64` (including signed) offset and size types must work
         // for both source encodings.
-        let mut lv_u32_u8 = ListViewBuilder::<u32, u8>::with_capacity(elem_dtype(), Nullable, 8, 4);
-        list.append_to_builder(&mut lv_u32_u8, &mut ctx)?;
-        assert_arrays_eq!(lv_u32_u8.finish(), list, &mut ctx);
+        let mut lv_u64_u32 =
+            ListViewBuilder::<u64, u32>::with_capacity(elem_dtype(), Nullable, 8, 4);
+        list.append_to_builder(&mut lv_u64_u32, &mut ctx)?;
+        assert_arrays_eq!(lv_u64_u32.finish(), list, &mut ctx);
 
-        let mut lv_i32_i16 =
-            ListViewBuilder::<i32, i16>::with_capacity(elem_dtype(), Nullable, 8, 4);
-        list.append_to_builder(&mut lv_i32_i16, &mut ctx)?;
-        assert_arrays_eq!(lv_i32_i16.finish(), list, &mut ctx);
+        let mut lv_i64_i32 =
+            ListViewBuilder::<i64, i32>::with_capacity(elem_dtype(), Nullable, 8, 4);
+        list.append_to_builder(&mut lv_i64_i32, &mut ctx)?;
+        assert_arrays_eq!(lv_i64_i32.finish(), list, &mut ctx);
 
-        let mut lv_u16_u16 =
-            ListViewBuilder::<u16, u16>::with_capacity(elem_dtype(), Nullable, 8, 4);
-        listview.append_to_builder(&mut lv_u16_u16, &mut ctx)?;
-        assert_arrays_eq!(lv_u16_u16.finish(), list, &mut ctx);
+        let mut lv_u32_u32 =
+            ListViewBuilder::<u32, u32>::with_capacity(elem_dtype(), Nullable, 8, 4);
+        listview.append_to_builder(&mut lv_u32_u32, &mut ctx)?;
+        assert_arrays_eq!(lv_u32_u32.finish(), list, &mut ctx);
 
         // Both source encodings appended into `ListBuilder`s with non-`u64` (including signed)
         // offset types.
@@ -627,9 +629,9 @@ mod tests {
         list.append_to_builder(&mut list_builder, &mut ctx)?;
         assert_arrays_eq!(list_builder.finish(), list, &mut ctx);
 
-        let mut list_builder_i16 = ListBuilder::<i16>::with_capacity(elem_dtype(), Nullable, 8, 4);
-        listview.append_to_builder(&mut list_builder_i16, &mut ctx)?;
-        assert_arrays_eq!(list_builder_i16.finish(), list, &mut ctx);
+        let mut list_builder_i32 = ListBuilder::<i32>::with_capacity(elem_dtype(), Nullable, 8, 4);
+        listview.append_to_builder(&mut list_builder_i32, &mut ctx)?;
+        assert_arrays_eq!(list_builder_i32.finish(), list, &mut ctx);
 
         Ok(())
     }
@@ -666,13 +668,9 @@ mod tests {
 
     #[test]
     fn test_extend_builder() {
-        test_extend_builder_gen::<i8>();
-        test_extend_builder_gen::<i16>();
         test_extend_builder_gen::<i32>();
         test_extend_builder_gen::<i64>();
 
-        test_extend_builder_gen::<u8>();
-        test_extend_builder_gen::<u16>();
         test_extend_builder_gen::<u32>();
         test_extend_builder_gen::<u64>();
     }

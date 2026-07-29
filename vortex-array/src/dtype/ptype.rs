@@ -91,6 +91,30 @@ pub trait UnsignedPType: IntegerPType + Unsigned {}
 /// Implements [`UnsignedPType`] for all possible `T` that have the correct bounds.
 impl<T> UnsignedPType for T where T: IntegerPType + Unsigned {}
 
+/// Trait for the integer types that can back a list builder's `offsets` and `sizes`: `u32`,
+/// `i32`, `u64`, and `i64`.
+///
+/// This trait is sealed and cannot be implemented for any other type. Restricting the set of
+/// widths keeps the concrete [`ListBuilder`](crate::builders::ListBuilder) and
+/// [`ListViewBuilder`](crate::builders::ListViewBuilder) instantiations small enough for
+/// [`match_each_list_builder!`](crate::match_each_list_builder) to enumerate them.
+pub trait ListOffsetPType: IntegerPType + list_offset_sealed::Sealed {}
+
+mod list_offset_sealed {
+    pub trait Sealed {}
+}
+
+macro_rules! impl_list_offset_ptype {
+    ($($T:ty),*) => {
+        $(
+            impl list_offset_sealed::Sealed for $T {}
+            impl ListOffsetPType for $T {}
+        )*
+    };
+}
+
+impl_list_offset_ptype!(u32, i32, u64, i64);
+
 /// A trait for native Rust types that correspond 1:1 to a PType.
 ///
 /// You can use the `match_each_native_ptype` macro to help with writing "generic" code over
@@ -681,6 +705,25 @@ macro_rules! match_smallest_offset_type {
             type $offset_type = u16;
             $body
         } else if n_elements <= u32::MAX as usize {
+            type $offset_type = u32;
+            $body
+        } else {
+            assert!(u64::try_from(n_elements).is_ok());
+            type $offset_type = u64;
+            $body
+        }
+    }};
+}
+
+/// Macro to match the smallest [`ListOffsetPType`] able to index a given number of elements.
+///
+/// Like [`match_smallest_offset_type!`](crate::match_smallest_offset_type), but restricted to the
+/// unsigned types valid as list builder offsets (`u32` and `u64`).
+#[macro_export]
+macro_rules! match_smallest_list_offset_type {
+    ($n_elements:expr, | $offset_type:ident | $body:block) => {{
+        let n_elements = $n_elements;
+        if n_elements <= u32::MAX as usize {
             type $offset_type = u32;
             $body
         } else {

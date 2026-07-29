@@ -39,21 +39,22 @@ use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::dtype::ListOffsetPType;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 
-/// A builder for creating [`ListViewArray`] instances, parameterized by the [`IntegerPType`] of
-/// the `offsets` and the `sizes` builders.
+/// A builder for creating [`ListViewArray`] instances, parameterized by the [`ListOffsetPType`]
+/// of the `offsets` and the `sizes` builders.
 ///
 /// This builder tracks both offsets and sizes using potentially different integer types for memory
 /// efficiency. For example, you might use `u64` for offsets but only `u8` for sizes if your lists
 /// are small.
 ///
-/// Any combination of [`IntegerPType`] types are valid, as long as the type of `sizes` can fit into
-/// the type of `offsets`.
-pub struct ListViewBuilder<O: IntegerPType, S: IntegerPType> {
+/// Any combination of [`ListOffsetPType`] types is valid, as long as the type of `sizes` can fit
+/// into the type of `offsets`.
+pub struct ListViewBuilder<O: ListOffsetPType, S: ListOffsetPType> {
     /// The [`DType`] of the [`ListViewArray`]. This **must** be a [`DType::List`].
     dtype: DType,
 
@@ -70,7 +71,7 @@ pub struct ListViewBuilder<O: IntegerPType, S: IntegerPType> {
     nulls: LazyBitBufferBuilder,
 }
 
-impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
+impl<O: ListOffsetPType, S: ListOffsetPType> ListViewBuilder<O, S> {
     /// Creates a new `ListViewBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self::with_capacity(
@@ -325,7 +326,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
     }
 }
 
-impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
+impl<O: ListOffsetPType, S: ListOffsetPType> ArrayBuilder for ListViewBuilder<O, S> {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -424,8 +425,8 @@ fn extend_from_list<O, S, OffsetType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()>
 where
-    O: IntegerPType,
-    S: IntegerPType,
+    O: ListOffsetPType,
+    S: ListOffsetPType,
     OffsetType: IntegerPType,
 {
     let num_lists = offsets.len() - 1;
@@ -614,10 +615,10 @@ mod tests {
     #[test]
     fn test_different_offset_size_types() {
         let mut ctx = array_session().create_execution_ctx();
-        // Test u32 offsets with u8 sizes.
+        // Test u64 offsets with u32 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
-            ListViewBuilder::<u32, u8>::with_capacity(Arc::clone(&dtype), NonNullable, 0, 0);
+            ListViewBuilder::<u64, u32>::with_capacity(Arc::clone(&dtype), NonNullable, 0, 0);
 
         builder
             .append_value(
@@ -658,10 +659,10 @@ mod tests {
             &mut ctx
         );
 
-        // Test u64 offsets with u16 sizes.
+        // Test i64 offsets with i32 sizes.
         let dtype2: Arc<DType> = Arc::new(I32.into());
         let mut builder2 =
-            ListViewBuilder::<u64, u16>::with_capacity(Arc::clone(&dtype2), NonNullable, 0, 0);
+            ListViewBuilder::<i64, i32>::with_capacity(Arc::clone(&dtype2), NonNullable, 0, 0);
 
         for i in 0..5 {
             builder2
@@ -864,7 +865,7 @@ mod tests {
         assert!(!source.is_zero_copy_to_list());
 
         let mut builder =
-            ListViewBuilder::<u32, u8>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
         builder
             .append_listview_array(source.as_view(), &mut ctx)
             .unwrap();
