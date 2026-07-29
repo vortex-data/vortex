@@ -584,8 +584,7 @@ fn collect_valid_vbv(
 /// tests to exercise the splitting path without allocating >2 GiB.
 ///
 /// The walk stops at the first length prefix that does not fit inside `buffer`, so a corrupt
-/// buffer yields views for its decodable prefix only. Use [`try_reconstruct_views`] to turn that
-/// into an error instead.
+/// buffer yields views for its decodable prefix only.
 pub fn reconstruct_views(
     buffer: &ByteBuffer,
     start_buf_index: u32,
