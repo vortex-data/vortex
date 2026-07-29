@@ -36,6 +36,7 @@ REGULAR_IDS = (
 COMPACT_IDS = tuple(
     benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id not in {"polarsignals", "vortex-queries"}
 )
+PR_ALL_IDS = tuple(benchmark_id for benchmark_id in REGULAR_IDS if benchmark_id != "vortex-queries")
 EXPECTED_IDS = {
     "develop": REGULAR_IDS,
     "pr": tuple(
@@ -44,6 +45,7 @@ EXPECTED_IDS = {
         if benchmark_id not in {"tpch-s3-10", "appian-nvme", "vortex-queries"}
     ),
     "pr-compact": COMPACT_IDS,
+    "pr-all": PR_ALL_IDS,
     "pr-full": REGULAR_IDS,
     "nightly": ("tpch-nvme", "tpch-s3"),
 }
@@ -88,6 +90,24 @@ def test_pr_target_selection() -> None:
         targets = _targets(entry)
         assert {file_format for _engine, file_format in targets} == {"parquet", "vortex-compact"}
         assert set(cast("list[str]", entry["data_formats"])) == {"parquet", "vortex-compact"}
+
+
+def test_pr_all_is_union_of_focused_presets() -> None:
+    pr = {entry["id"]: entry for entry in _entries("pr")}
+    pr_compact = {entry["id"]: entry for entry in _entries("pr-compact")}
+    pr_all = {entry["id"]: entry for entry in _entries("pr-all")}
+
+    assert set(pr_all) == set(pr) | set(pr_compact)
+    for benchmark_id, entry in pr_all.items():
+        expected_targets: set[tuple[str, str]] = set()
+        expected_formats: set[str] = set()
+        for preset in (pr, pr_compact):
+            if source := preset.get(benchmark_id):
+                expected_targets |= _targets(source)
+                expected_formats |= set(cast("list[str]", source["data_formats"]))
+
+        assert _targets(entry) == expected_targets
+        assert set(cast("list[str]", entry["data_formats"])) == expected_formats
 
 
 def test_resolver_rejects_empty_targets() -> None:

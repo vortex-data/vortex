@@ -19,6 +19,34 @@ permissions:
   id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
+  remove-all-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.label.name == 'action/bench-all'
+    steps:
+      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+        if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+        with:
+          labels: action/bench-all
+          fail_on_error: true
+
+  all-random-access-bench:
+    needs: remove-all-label
+    uses: ./.github/workflows/pr-bench-random-access.yml
+    secrets: inherit
+
+  all-compression-bench:
+    needs: remove-all-label
+    uses: ./.github/workflows/pr-bench-compress.yml
+    secrets: inherit
+
+  all-sql-bench:
+    needs: remove-all-label
+    uses: ./.github/workflows/pr-bench-sql.yml
+    secrets: inherit
+    with:
+      matrix_preset: "pr-all"
+
   remove-random-access-label:
     runs-on: ubuntu-latest
     timeout-minutes: 10

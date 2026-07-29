@@ -27,6 +27,7 @@ on:
         options:
           - "pr"
           - "pr-compact"
+          - "pr-all"
           - "pr-full"
 
 permissions:

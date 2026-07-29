@@ -15,6 +15,7 @@ PRESETS = {
     "develop": "Every regular SQL benchmark at full target coverage.",
     "pr": "The quicker pull-request SQL benchmark matrix.",
     "pr-compact": "Pull-request SQL benchmarks for Vortex Compact plus Parquet controls.",
+    "pr-all": "The union of the focused PR and PR Compact benchmark matrices.",
     "pr-full": "Every regular SQL benchmark at full PR target coverage.",
     "nightly": "Large-scale SF=100 TPC-H on NVMe and S3 at default targets.",
 }
@@ -87,6 +88,7 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
+            "pr-all": STANDARD,
             "pr-full": DEFAULT_WITH_DUCKDB_PR_FULL,
             "develop": FULL_LOCAL,
         },
@@ -98,6 +100,7 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
+            "pr-all": STANDARD,
             "pr-full": DEFAULT_WITH_DUCKDB_PR_FULL,
             "develop": FULL_LOCAL,
         },
@@ -111,6 +114,7 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
+            "pr-all": STANDARD,
             "pr-full": FULL_PR,
             "develop": FULL_LOCAL,
         },
@@ -127,6 +131,7 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
+            "pr-all": STANDARD,
             "pr-full": STANDARD,
             "develop": STANDARD,
         },
@@ -140,6 +145,7 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
+            "pr-all": STANDARD,
             "pr-full": FULL_PR,
             "develop": FULL_LOCAL,
         },
@@ -155,6 +161,7 @@ BENCHMARKS = (
         remote_key="tpch/10.0",
         runs={
             "pr-compact": COMPACT,
+            "pr-all": COMPACT,
             "pr-full": STANDARD,
             "develop": STANDARD,
         },
@@ -184,6 +191,7 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
+            "pr-all": STANDARD,
             "pr-full": STANDARD_WITH_DUCKDB,
             "develop": STANDARD_WITH_DUCKDB,
         },
@@ -197,6 +205,7 @@ BENCHMARKS = (
         runs={
             "pr": DUCKDB_DEFAULT,
             "pr-compact": COMPACT_DUCKDB,
+            "pr-all": DUCKDB_STANDARD,
             "pr-full": DUCKDB_STANDARD,
             "develop": DUCKDB_STANDARD,
         },
@@ -209,6 +218,7 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
+            "pr-all": STANDARD,
             "pr-full": STANDARD,
             "develop": STANDARD,
         },
@@ -224,6 +234,7 @@ BENCHMARKS = (
         runs={
             "pr": DEFAULT,
             "pr-compact": COMPACT,
+            "pr-all": STANDARD,
             "pr-full": STANDARD,
             "develop": STANDARD,
         },
@@ -235,6 +246,7 @@ BENCHMARKS = (
         scale_factor=1,
         runs={
             "pr": DATAFUSION_VORTEX,
+            "pr-all": DATAFUSION_VORTEX,
             "pr-full": DATAFUSION_VORTEX,
             "develop": DATAFUSION_VORTEX,
         },
@@ -246,6 +258,7 @@ BENCHMARKS = (
         iterations=10,
         runs={
             "pr-compact": COMPACT,
+            "pr-all": COMPACT,
             "pr-full": DEFAULT_WITH_DUCKDB_PR_FULL,
             "develop": STANDARD_WITH_DUCKDB,
         },
