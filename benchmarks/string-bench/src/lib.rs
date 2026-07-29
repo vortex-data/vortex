@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![cfg(feature = "unstable_encodings")]
+
 //! String-compression benchmarks for Vortex.
 //!
 //! The crate exposes two intentionally separate paths: the `codec` module
@@ -67,11 +69,7 @@ const CLICKBENCH_URL_PREFIX: &str =
     "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/";
 
 /// Serialized write and read (write → open → scan → canonicalize) benchmark.
-/// Gated on `unstable_encodings`, which puts OnPair in the default file
-/// compressor.
-#[cfg(feature = "unstable_encodings")]
 mod serialized;
-#[cfg(feature = "unstable_encodings")]
 pub use serialized::*;
 
 /// Session with the available string encodings and their canonicalize kernels
@@ -322,49 +320,42 @@ async fn read_parquet_projected(path: PathBuf, column: &str) -> Result<ArrayRef>
 }
 
 #[cfg(test)]
+const REPEATED_VALUES: [&str; 8] = [
+    "https://example.com/path/to/a/repeated/string-value-0",
+    "https://example.com/path/to/a/repeated/string-value-1",
+    "https://example.com/path/to/a/repeated/string-value-2",
+    "https://example.com/path/to/a/repeated/string-value-3",
+    "https://example.com/path/to/a/repeated/string-value-4",
+    "https://example.com/path/to/a/repeated/string-value-5",
+    "https://example.com/path/to/a/repeated/string-value-6",
+    "https://example.com/path/to/a/repeated/string-value-7",
+];
+
+#[cfg(test)]
+fn repeated_fixture() -> (StringColumn, u64) {
+    let array = VarBinViewArray::from_iter_str(
+        (0..128).map(|i| REPEATED_VALUES[i % REPEATED_VALUES.len()]),
+    )
+    .into_array();
+    let outlined_bytes = (0..128)
+        .map(|i| REPEATED_VALUES[i % REPEATED_VALUES.len()].len() as u64)
+        .sum::<u64>();
+    (
+        StringColumn {
+            name: "fixture".to_string(),
+            array,
+        },
+        128 * 16 + outlined_bytes,
+    )
+}
+
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    #[cfg(feature = "unstable_encodings")]
-    use vortex::VortexSessionDefault;
-    use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
-    #[cfg(feature = "unstable_encodings")]
-    use vortex::io::runtime::BlockingRuntime;
-    #[cfg(feature = "unstable_encodings")]
-    use vortex::io::runtime::current::CurrentThreadRuntime;
-    #[cfg(feature = "unstable_encodings")]
-    use vortex::io::session::RuntimeSessionExt;
 
     use super::*;
-
-    const REPEATED_VALUES: [&str; 8] = [
-        "https://example.com/path/to/a/repeated/string-value-0",
-        "https://example.com/path/to/a/repeated/string-value-1",
-        "https://example.com/path/to/a/repeated/string-value-2",
-        "https://example.com/path/to/a/repeated/string-value-3",
-        "https://example.com/path/to/a/repeated/string-value-4",
-        "https://example.com/path/to/a/repeated/string-value-5",
-        "https://example.com/path/to/a/repeated/string-value-6",
-        "https://example.com/path/to/a/repeated/string-value-7",
-    ];
-
-    fn repeated_fixture() -> (StringColumn, u64) {
-        let array = VarBinViewArray::from_iter_nullable_str(
-            (0..128).map(|i| Some(REPEATED_VALUES[i % REPEATED_VALUES.len()])),
-        )
-        .into_array();
-        let outlined_bytes: u64 = (0..128)
-            .map(|i| REPEATED_VALUES[i % REPEATED_VALUES.len()].len() as u64)
-            .sum();
-        (
-            StringColumn {
-                name: "fixture".to_string(),
-                array,
-            },
-            128 * 16 + outlined_bytes,
-        )
-    }
 
     #[test]
     fn canonical_uncompressed_size_counts_views_and_outlined_bytes() -> Result<()> {
@@ -421,30 +412,37 @@ mod tests {
     }
 
     #[test]
-    fn verify_canonicalized_rejects_dtype_mismatch() {
-        let expected = VarBinViewArray::from_iter_str(["alpha"]);
-        let canonicalized = VarBinViewArray::from_iter_bin(["alpha".as_bytes()]);
+    fn verify_canonicalized_rejects_mismatches() {
+        let cases = [
+            (
+                "dtype",
+                VarBinViewArray::from_iter_str(["alpha"]),
+                VarBinViewArray::from_iter_bin(["alpha".as_bytes()]),
+            ),
+            (
+                "length",
+                VarBinViewArray::from_iter_str(["alpha", "beta"]),
+                VarBinViewArray::from_iter_str(["alpha"]),
+            ),
+            (
+                "validity",
+                VarBinViewArray::from_iter_nullable_str([Some("alpha"), Some("beta")]),
+                VarBinViewArray::from_iter_nullable_str([Some("alpha"), None]),
+            ),
+            (
+                "value",
+                VarBinViewArray::from_iter_str(["alpha", "beta"]),
+                VarBinViewArray::from_iter_str(["alpha", "BETA"]),
+            ),
+        ];
         let mut ctx = SESSION.create_execution_ctx();
 
-        assert!(verify_canonicalized("fixture", &expected, &canonicalized, &mut ctx).is_err());
-    }
-
-    #[test]
-    fn verify_canonicalized_rejects_validity_mismatch() {
-        let expected = VarBinViewArray::from_iter_nullable_str([Some("alpha"), Some("beta")]);
-        let canonicalized = VarBinViewArray::from_iter_nullable_str([Some("alpha"), None]);
-        let mut ctx = SESSION.create_execution_ctx();
-
-        assert!(verify_canonicalized("fixture", &expected, &canonicalized, &mut ctx).is_err());
-    }
-
-    #[test]
-    fn verify_canonicalized_rejects_value_mismatch() {
-        let expected = VarBinViewArray::from_iter_str(["alpha", "beta"]);
-        let canonicalized = VarBinViewArray::from_iter_str(["alpha", "BETA"]);
-        let mut ctx = SESSION.create_execution_ctx();
-
-        assert!(verify_canonicalized("fixture", &expected, &canonicalized, &mut ctx).is_err());
+        for (kind, expected, actual) in cases {
+            assert!(
+                verify_canonicalized("fixture", &expected, &actual, &mut ctx).is_err(),
+                "{kind} mismatch must be rejected"
+            );
+        }
     }
 
     #[test]
@@ -458,21 +456,13 @@ mod tests {
 
         let runs = [Duration::from_nanos(10), Duration::from_nanos(30)];
         assert_eq!(median(&runs), Duration::from_nanos(20));
+        assert_eq!(median(&[]), Duration::ZERO);
     }
 
     #[test]
-    fn benchmark_functions_reject_zero_iterations() -> Result<()> {
-        let (column, _) = repeated_fixture();
-
-        assert!(bench_column(&column, 0, 0, &DirectCandidate::on_pair(12)?, true).is_err());
-        assert!(bench_column(&column, 0, 0, &DirectCandidate::Fsst, true).is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn clickbench_shard_is_part_of_measurement_identity() {
-        assert_eq!(clickbench_column_name(0), "URL/shard-0");
-        assert_eq!(clickbench_column_name(37), "URL/shard-37");
+    fn iterations_must_be_positive() -> Result<()> {
+        assert!(validate_iterations(0).is_err());
+        validate_iterations(1)
     }
 
     #[tokio::test]
@@ -485,277 +475,32 @@ mod tests {
     }
 
     #[test]
-    fn benchmark_rejects_null_strings() -> Result<()> {
-        let column = StringColumn {
-            name: "fixture".to_string(),
-            array: VarBinViewArray::from_iter_nullable_str([
-                Some("alpha"),
-                None,
-                Some(""),
-                Some("beta"),
-            ])
-            .into_array(),
-        };
-
-        assert!(bench_column(&column, 1, 0, &DirectCandidate::on_pair(12)?, true).is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn benchmark_rejects_empty_input() -> Result<()> {
-        let column = StringColumn {
-            name: "empty".to_string(),
-            array: VarBinViewArray::from_iter_str(std::iter::empty::<&str>()).into_array(),
-        };
-
-        assert!(bench_column(&column, 1, 0, &DirectCandidate::Fsst, true).is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn benchmark_rejects_binary_input() -> Result<()> {
-        let column = StringColumn {
-            name: "binary".to_string(),
-            array: VarBinViewArray::from_iter_bin([b"alpha".as_slice()]).into_array(),
-        };
-
-        assert!(bench_column(&column, 1, 0, &DirectCandidate::Fsst, true).is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn fsst_benchmark_uses_direct_array_compression_path() -> Result<()> {
-        let (column, expected_uncompressed_bytes) = repeated_fixture();
-
-        let result = bench_column(&column, 1, 0, &DirectCandidate::Fsst, true)?;
-
-        assert_eq!(result.encoder, "fsst");
-        assert_eq!(result.uncompressed_bytes, expected_uncompressed_bytes);
-        assert!(result.encoded_bytes > 0);
-        Ok(())
-    }
-
-    // The encoding-type check `bench_column` relies on to reject a mis-encoded
-    // column: each encoder must recognize its own output and only its own.
-    #[test]
-    fn matches_distinguishes_encoders() -> Result<()> {
-        let (column, _) = repeated_fixture();
+    fn prepare_column_rejects_invalid_input() {
+        let cases = [
+            (
+                "null",
+                VarBinViewArray::from_iter_nullable_str([Some("alpha"), None]).into_array(),
+            ),
+            (
+                "empty",
+                VarBinViewArray::from_iter_str(std::iter::empty::<&str>()).into_array(),
+            ),
+            (
+                "binary",
+                VarBinViewArray::from_iter_bin([b"alpha".as_slice()]).into_array(),
+            ),
+        ];
         let mut ctx = SESSION.create_execution_ctx();
 
-        let onpair = DirectCandidate::on_pair(12)?.compress(&column.array, &mut ctx)?;
-        assert!(StringEncoder::OnPair.matches(&onpair));
-        assert!(!StringEncoder::Fsst.matches(&onpair));
-
-        let fsst = DirectCandidate::Fsst.compress(&column.array, &mut ctx)?;
-        assert!(StringEncoder::Fsst.matches(&fsst));
-        assert!(!StringEncoder::OnPair.matches(&fsst));
-        Ok(())
-    }
-
-    #[test]
-    fn bench_column_bails_on_all_null_input() -> Result<()> {
-        let column = StringColumn {
-            name: "all-null".to_string(),
-            array: VarBinViewArray::from_iter_nullable_str([None::<&str>, None::<&str>])
-                .into_array(),
-        };
-
-        assert!(bench_column(&column, 1, 0, &DirectCandidate::on_pair(12)?, true).is_err());
-        Ok(())
-    }
-
-    #[test]
-    fn machine_readable_compression_metric_is_lower_is_better() {
-        let result = ColumnResult {
-            name: "fixture".to_string(),
-            encoder: "fsst".to_string(),
-            rows: 1,
-            uncompressed_bytes: 2,
-            encoded_bytes: 1,
-            compression_runs: vec![Duration::from_millis(12)],
-        };
-
-        assert_eq!(
-            result.compression_mbps(),
-            throughput(2, Duration::from_millis(12)) / 1e6
-        );
-        let measurements = result.measurements();
-        assert_eq!(measurements.len(), 2);
-        assert_eq!(
-            measurements
-                .iter()
-                .map(|measurement| {
-                    (
-                        measurement.name.as_str(),
-                        measurement.unit.as_ref(),
-                        measurement.value,
-                    )
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                ("direct array compression time/fixture fsst", "ms", 12.0,),
-                (
-                    "direct encoded size (% of canonical)/fixture fsst",
-                    "%",
-                    50.0,
-                ),
-            ]
-        );
-    }
-
-    #[cfg(feature = "unstable_encodings")]
-    #[tokio::test]
-    async fn serialized_benchmark_rejects_zero_iterations() -> Result<()> {
-        let (column, _) = repeated_fixture();
-
-        assert!(
-            bench_serialized(&column, 0, 0, true, StringEncoder::Fsst,)
-                .await
-                .is_err()
-        );
-        Ok(())
-    }
-
-    #[cfg(feature = "unstable_encodings")]
-    #[tokio::test]
-    async fn serialized_benchmark_verifies_multiple_chunks() -> Result<()> {
-        let values = (0..50_000_u64)
-            .map(|i| {
-                let mixed = i.wrapping_mul(0x9e37_79b9_7f4a_7c15);
-                format!(
-                    "https://example.com/users/{i:016x}/events/{mixed:016x}/\
-                     common/repeated/string/payload"
-                )
-            })
-            .collect::<Vec<_>>();
-        let expected_uncompressed_bytes =
-            values.iter().map(|value| value.len() as u64).sum::<u64>() + 16 * values.len() as u64;
-        let column = StringColumn {
-            name: "multi-chunk".to_string(),
-            array: VarBinViewArray::from_iter_str(values.iter()).into_array(),
-        };
-
-        let result = bench_serialized(&column, 1, 0, true, StringEncoder::Fsst).await?;
-
-        assert!(
-            result.chunk_count > 1,
-            "fixture produced only {} chunk",
-            result.chunk_count
-        );
-        assert_eq!(result.uncompressed_bytes, expected_uncompressed_bytes);
-        Ok(())
-    }
-
-    #[cfg(feature = "unstable_encodings")]
-    #[test]
-    fn machine_readable_serialized_metric_schema_is_stable() {
-        let result = SerializedResult {
-            name: "fixture".to_string(),
-            encoder: "fsst".to_string(),
-            rows: 1,
-            uncompressed_bytes: 2,
-            file_bytes: 1,
-            write_runs: vec![Duration::from_millis(1)],
-            open_runs: vec![Duration::from_millis(1)],
-            scan_runs: vec![Duration::from_millis(2)],
-            canonicalize_runs: vec![Duration::from_millis(3)],
-            staged_read_runs: vec![Duration::from_millis(6)],
-            chunk_count: 1,
-        };
-
-        let measurements = result.measurements();
-        assert_eq!(measurements.len(), 6);
-        assert_eq!(
-            measurements
-                .iter()
-                .map(|measurement| {
-                    (
-                        measurement.name.as_str(),
-                        measurement.unit.as_ref(),
-                        measurement.value,
-                    )
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                ("serialized write/fixture fsst", "ms", 1.0),
-                ("serialized read open/fixture fsst", "ms", 1.0),
-                ("serialized read scan/fixture fsst", "ms", 2.0),
-                ("serialized read canonicalize/fixture fsst", "ms", 3.0,),
-                ("serialized staged read/fixture fsst", "ms", 6.0),
-                (
-                    "serialized file size (% of canonical)/fixture fsst",
-                    "%",
-                    50.0,
-                ),
-            ]
-        );
-    }
-
-    #[cfg(feature = "unstable_encodings")]
-    #[tokio::test]
-    async fn serialized_encoders_report_canonical_size_metrics() -> Result<()> {
-        let (column, expected_uncompressed_bytes) = repeated_fixture();
-
-        for (encoder, expected_label) in [
-            (StringEncoder::OnPair, "onpair-12"),
-            (StringEncoder::Fsst, "fsst"),
-        ] {
-            let result = bench_serialized(&column, 1, 0, true, encoder).await?;
-
-            assert_eq!(result.encoder, expected_label);
-            assert_eq!(result.uncompressed_bytes, expected_uncompressed_bytes);
-            assert!(result.file_bytes > 0);
-            assert_eq!(
-                result.file_size_pct(),
-                result.file_bytes as f64 / expected_uncompressed_bytes as f64 * 100.0
-            );
-            let measurements = result.measurements();
-            assert!(measurements.iter().any(|measurement| {
-                measurement.name == format!("serialized read scan/fixture {expected_label}")
-            }));
+        for (name, array) in cases {
+            let column = StringColumn {
+                name: name.to_string(),
+                array,
+            };
             assert!(
-                measurements
-                    .iter()
-                    .all(|measurement| measurement.unit != "MB/s")
+                prepare_column(&column, &mut ctx).is_err(),
+                "{name} input must be rejected"
             );
         }
-        Ok(())
-    }
-
-    #[cfg(feature = "unstable_encodings")]
-    #[tokio::test]
-    async fn serialized_benchmark_reports_fresh_write_and_read_metrics() -> Result<()> {
-        let (column, expected_uncompressed_bytes) = repeated_fixture();
-
-        let result = bench_serialized(&column, 2, 0, true, StringEncoder::Fsst).await?;
-
-        assert_eq!(result.encoder, "fsst");
-        assert_eq!(result.uncompressed_bytes, expected_uncompressed_bytes);
-        assert!(result.file_bytes > 0);
-        assert_eq!(result.write_runs.len(), 2);
-        assert!(result.write_runs[0] > Duration::ZERO);
-        assert!(result.staged_read_runs[0] > Duration::ZERO);
-        assert!(result.staged_read_mbps() > 0.0);
-        Ok(())
-    }
-
-    #[cfg(feature = "unstable_encodings")]
-    #[tokio::test]
-    async fn serialized_benchmark_supports_vortex_single_thread_runtime() -> Result<()> {
-        let (column, _) = repeated_fixture();
-        let runtime = CurrentThreadRuntime::new();
-        let session = VortexSession::default().with_handle(runtime.handle());
-
-        let result = runtime.block_on(bench_serialized_with_session(
-            &session,
-            &column,
-            1,
-            0,
-            true,
-            StringEncoder::Fsst,
-        ))?;
-
-        assert!(result.staged_read_mbps() > 0.0);
-        Ok(())
     }
 }

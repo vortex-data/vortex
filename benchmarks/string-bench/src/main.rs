@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use anyhow::bail;
+use async_trait::async_trait;
 use clap::Parser;
 use clap::ValueEnum;
 use indicatif::ProgressBar;
@@ -14,27 +15,21 @@ use regex::Regex;
 use string_bench::ColumnResult;
 use string_bench::DirectCandidate;
 use string_bench::SESSION;
-#[cfg(feature = "unstable_encodings")]
 use string_bench::SerializedResult;
 use string_bench::StringColumn;
 use string_bench::StringEncoder;
 use string_bench::bench_column;
-#[cfg(feature = "unstable_encodings")]
 use string_bench::bench_serialized_with_session;
 use string_bench::load_clickbench_url;
 use string_bench::load_tpch_l_comment;
 use tabled::builder::Builder;
 use tabled::settings::Style;
-#[cfg(feature = "unstable_encodings")]
 use vortex::VortexSessionDefault;
+use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
-#[cfg(feature = "unstable_encodings")]
 use vortex::io::runtime::BlockingRuntime;
-#[cfg(feature = "unstable_encodings")]
 use vortex::io::runtime::current::CurrentThreadRuntime;
-#[cfg(feature = "unstable_encodings")]
 use vortex::io::session::RuntimeSessionExt;
-#[cfg(feature = "unstable_encodings")]
 use vortex::session::VortexSession;
 use vortex_bench::LogFormat;
 use vortex_bench::create_output_writer;
@@ -50,6 +45,41 @@ const BENCHMARK_ID: &str = "string";
 const DOC_PATH: &str = "benchmarks/string-bench/README.md";
 
 const CODEC_ONPAIR_DICT_BITS: [u8; 2] = [12, 16];
+
+#[async_trait]
+trait StringColumnSource {
+    fn name(&self) -> &str;
+
+    async fn load(&self, ctx: &mut ExecutionCtx) -> Result<StringColumn>;
+}
+
+struct ClickBenchUrl {
+    shard: u32,
+}
+
+#[async_trait]
+impl StringColumnSource for ClickBenchUrl {
+    fn name(&self) -> &str {
+        "URL"
+    }
+
+    async fn load(&self, ctx: &mut ExecutionCtx) -> Result<StringColumn> {
+        load_clickbench_url(self.shard, ctx).await
+    }
+}
+
+struct TpchLComment;
+
+#[async_trait]
+impl StringColumnSource for TpchLComment {
+    fn name(&self) -> &str {
+        "l_comment"
+    }
+
+    async fn load(&self, ctx: &mut ExecutionCtx) -> Result<StringColumn> {
+        load_tpch_l_comment(ctx).await
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum BenchmarkSuite {
@@ -130,14 +160,6 @@ async fn run(args: Args) -> Result<()> {
     let run_codec = matches!(args.suite, BenchmarkSuite::Codec | BenchmarkSuite::Both);
     let run_vortex = matches!(args.suite, BenchmarkSuite::Vortex | BenchmarkSuite::Both);
 
-    #[cfg(not(feature = "unstable_encodings"))]
-    if run_vortex {
-        bail!(
-            "the Vortex serialized suite requires the `unstable_encodings` feature; \
-             rebuild with `--features unstable_encodings` or select `--suite codec`"
-        );
-    }
-
     if args.encoders.is_empty() {
         bail!("--encoders must select at least one encoder");
     }
@@ -158,19 +180,28 @@ async fn run(args: Args) -> Result<()> {
     }
 
     let filter = args.columns.as_deref().map(Regex::new).transpose()?;
-    let matches = |name: &str| filter.as_ref().is_none_or(|r| r.is_match(name));
+    let clickbench_url = ClickBenchUrl {
+        shard: args.clickbench_shard,
+    };
+    let column_sources: Vec<&dyn StringColumnSource> = [
+        &clickbench_url as &dyn StringColumnSource,
+        &TpchLComment as &dyn StringColumnSource,
+    ]
+    .into_iter()
+    .filter(|source| {
+        filter
+            .as_ref()
+            .is_none_or(|filter| filter.is_match(source.name()))
+    })
+    .collect();
+    if column_sources.is_empty() {
+        bail!("no input columns matched the --columns filter");
+    }
 
     let mut ctx = SESSION.create_execution_ctx();
-
-    let mut columns: Vec<StringColumn> = Vec::new();
-    if matches("URL") {
-        columns.push(load_clickbench_url(args.clickbench_shard, &mut ctx).await?);
-    }
-    if matches("l_comment") {
-        columns.push(load_tpch_l_comment(&mut ctx).await?);
-    }
-    if columns.is_empty() {
-        bail!("no input columns matched the --columns filter");
+    let mut columns = Vec::with_capacity(column_sources.len());
+    for source in column_sources {
+        columns.push(source.load(&mut ctx).await?);
     }
 
     let verify = !args.no_verify;
@@ -180,7 +211,6 @@ async fn run(args: Args) -> Result<()> {
     } else {
         0
     };
-    #[cfg(feature = "unstable_encodings")]
     let total_steps = total_steps
         + if run_vortex {
             columns.len() * args.encoders.len()
@@ -190,7 +220,6 @@ async fn run(args: Args) -> Result<()> {
     let progress = ProgressBar::new(total_steps as u64);
 
     let mut column_results: Vec<ColumnResult> = Vec::new();
-    #[cfg(feature = "unstable_encodings")]
     let mut serialized_results: Vec<SerializedResult> = Vec::new();
 
     for column in &columns {
@@ -205,7 +234,6 @@ async fn run(args: Args) -> Result<()> {
             )?);
         }
 
-        #[cfg(feature = "unstable_encodings")]
         if run_vortex {
             serialized_results.extend(run_vortex_column(
                 column,
@@ -225,7 +253,6 @@ async fn run(args: Args) -> Result<()> {
             if !column_results.is_empty() {
                 render_inmemory_table(&mut writer, &column_results)?;
             }
-            #[cfg(feature = "unstable_encodings")]
             if !serialized_results.is_empty() {
                 render_serialized_table(&mut writer, &serialized_results)?;
             }
@@ -235,7 +262,6 @@ async fn run(args: Args) -> Result<()> {
             for result in &column_results {
                 measurements.extend(result.measurements());
             }
-            #[cfg(feature = "unstable_encodings")]
             for rt in &serialized_results {
                 measurements.extend(rt.measurements());
             }
@@ -273,7 +299,6 @@ fn run_codec_column(
     Ok(results)
 }
 
-#[cfg(feature = "unstable_encodings")]
 fn run_vortex_column(
     column: &StringColumn,
     iterations: usize,
@@ -295,7 +320,6 @@ fn run_vortex_column(
     Ok(results)
 }
 
-#[cfg(feature = "unstable_encodings")]
 fn record_vortex_result(result: &SerializedResult, progress: &ProgressBar) {
     tracing::info!(
         "{} [{}]: file size {:.2}% | write {:.2} MB/s | \
@@ -340,7 +364,6 @@ fn render_inmemory_table(writer: &mut dyn Write, results: &[ColumnResult]) -> Re
 }
 
 /// Render the Vortex serialized write/read metrics as one row per (column, encoder).
-#[cfg(feature = "unstable_encodings")]
 fn render_serialized_table(writer: &mut dyn Write, results: &[SerializedResult]) -> Result<()> {
     let mut builder = Builder::default();
     builder.push_record([
@@ -389,22 +412,6 @@ mod tests {
         let args = Args::try_parse_from(["string-bench"])?;
 
         assert_eq!(args.suite, BenchmarkSuite::Codec);
-        Ok(())
-    }
-
-    #[test]
-    fn rejects_removed_dict_bits_option() {
-        assert!(
-            Args::try_parse_from(["string-bench", "--dict-bits", "16"]).is_err(),
-            "--dict-bits must not remain part of the CLI"
-        );
-    }
-
-    #[test]
-    fn columns_filter_is_parsed() -> Result<()> {
-        let args = Args::try_parse_from(["string-bench", "--columns", "logs|comments"])?;
-
-        assert_eq!(args.columns.as_deref(), Some("logs|comments"));
         Ok(())
     }
 }

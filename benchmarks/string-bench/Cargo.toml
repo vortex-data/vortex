@@ -16,6 +16,7 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
@@ -28,20 +29,19 @@ tracing = { workspace = true }
 vortex = { workspace = true }
 vortex-arrow = { workspace = true }
 vortex-bench = { workspace = true }
-vortex-btrblocks = { workspace = true, optional = true }
+vortex-btrblocks = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-onpair = { workspace = true }
 
 [features]
-# Opt-in so adding this benchmark to the workspace does not enable unstable
-# encodings for unrelated Vortex crates through Cargo feature unification.
-# Enables the serialized write/read flow: puts OnPair in the file compressor
-# and lets the benchmark force a selected string encoder when writing the file.
 unstable_encodings = [
     "vortex/unstable_encodings",
-    "dep:vortex-btrblocks",
     "vortex-btrblocks/unstable_encodings",
 ]
+
+[[bin]]
+name = "string-bench"
+required-features = ["unstable_encodings"]
 
 [lints]
 workspace = true

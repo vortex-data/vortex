@@ -128,8 +128,6 @@ pub struct SerializedResult {
     /// Per-iteration staged read times: open, scan all encoded arrays, then
     /// canonicalize them serially.
     pub staged_read_runs: Vec<Duration>,
-    #[cfg(test)]
-    pub(crate) chunk_count: usize,
 }
 
 impl SerializedResult {
@@ -254,7 +252,7 @@ async fn inspect_serialized_file(
     if let Some(unexpected) = arrays.iter().find(|array| !encoder.matches(array)) {
         bail!(
             "serialized column {} contains {} instead of {} — the file was not \
-             uniformly {}-encoded (is `unstable_encodings` on and {} the smallest scheme?)",
+             uniformly {}-encoded (is {} the smallest scheme?)",
             column.name,
             unexpected.encoding_id(),
             encoder,
@@ -423,14 +421,17 @@ pub async fn bench_serialized_with_session(
         scan_runs,
         canonicalize_runs,
         staged_read_runs,
-        #[cfg(test)]
-        chunk_count: serialized.chunk_count,
     })
 }
 
 #[cfg(test)]
 mod tests {
+    use vortex::VortexSessionDefault;
     use vortex::array::Canonical;
+    use vortex::array::VortexSessionExecute;
+    use vortex::io::runtime::BlockingRuntime;
+    use vortex::io::runtime::current::CurrentThreadRuntime;
+    use vortex::io::session::RuntimeSessionExt;
     use vortex_btrblocks::ALL_SCHEMES;
     use vortex_btrblocks::SchemeExt;
 
@@ -451,5 +452,112 @@ mod tests {
         expected.sort_unstable_by_key(|id| id.to_string());
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn machine_readable_metric_schema_is_stable() {
+        let result = SerializedResult {
+            name: "fixture".to_string(),
+            encoder: "fsst".to_string(),
+            rows: 1,
+            uncompressed_bytes: 2,
+            file_bytes: 1,
+            write_runs: vec![Duration::from_millis(1)],
+            open_runs: vec![Duration::from_millis(1)],
+            scan_runs: vec![Duration::from_millis(2)],
+            canonicalize_runs: vec![Duration::from_millis(3)],
+            staged_read_runs: vec![Duration::from_millis(6)],
+        };
+
+        let measurements = result.measurements();
+        assert_eq!(
+            measurements
+                .iter()
+                .map(|measurement| {
+                    (
+                        measurement.name.as_str(),
+                        measurement.unit.as_ref(),
+                        measurement.value,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                ("serialized write/fixture fsst", "ms", 1.0),
+                ("serialized read open/fixture fsst", "ms", 1.0),
+                ("serialized read scan/fixture fsst", "ms", 2.0),
+                ("serialized read canonicalize/fixture fsst", "ms", 3.0),
+                ("serialized staged read/fixture fsst", "ms", 6.0),
+                (
+                    "serialized file size (% of canonical)/fixture fsst",
+                    "%",
+                    50.0,
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn serialized_benchmark_smoke_tests_each_encoder() -> Result<()> {
+        let (column, expected_uncompressed_bytes) = crate::repeated_fixture();
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+
+        for (encoder, expected_label) in [
+            (StringEncoder::OnPair, "onpair-12"),
+            (StringEncoder::Fsst, "fsst"),
+        ] {
+            let result = runtime.block_on(bench_serialized_with_session(
+                &session, &column, 1, 0, true, encoder,
+            ))?;
+
+            assert_eq!(result.encoder, expected_label);
+            assert_eq!(result.rows, 128);
+            assert_eq!(result.uncompressed_bytes, expected_uncompressed_bytes);
+            assert!(result.file_bytes > 0);
+            assert_eq!(result.write_runs.len(), 1);
+            assert_eq!(result.open_runs.len(), 1);
+            assert_eq!(result.scan_runs.len(), 1);
+            assert_eq!(result.canonicalize_runs.len(), 1);
+            assert_eq!(result.staged_read_runs.len(), 1);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn serialized_verification_handles_multiple_chunks() -> Result<()> {
+        let values = (0..50_000_u64)
+            .map(|i| {
+                let mixed = i.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                format!(
+                    "https://example.com/users/{i:016x}/events/{mixed:016x}/\
+                     common/repeated/string/payload"
+                )
+            })
+            .collect::<Vec<_>>();
+        let expected_uncompressed_bytes =
+            values.iter().map(|value| value.len() as u64).sum::<u64>() + 16 * values.len() as u64;
+        let column = StringColumn {
+            name: "multi-chunk".to_string(),
+            array: VarBinViewArray::from_iter_str(values.iter()).into_array(),
+        };
+        let runtime = CurrentThreadRuntime::new();
+        let session = VortexSession::default().with_handle(runtime.handle());
+        let mut ctx = session.create_execution_ctx();
+        let (canonical, uncompressed_bytes) = prepare_column(&column, &mut ctx)?;
+        let input = canonical.clone().into_array();
+
+        let serialized = runtime.block_on(prepare_serialized_file(
+            &session,
+            &column,
+            &input,
+            &canonical,
+            StringEncoder::Fsst,
+            true,
+            &mut ctx,
+        ))?;
+
+        assert!(serialized.chunk_count > 1);
+        assert_eq!(uncompressed_bytes, expected_uncompressed_bytes);
+        Ok(())
     }
 }

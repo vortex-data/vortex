@@ -237,3 +237,61 @@ pub fn bench_column(
         compression_runs,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn direct_benchmark_smoke_tests_each_encoder() -> Result<()> {
+        let (column, expected_uncompressed_bytes) = crate::repeated_fixture();
+
+        for (candidate, expected_label) in [
+            (DirectCandidate::on_pair(12)?, "onpair-12"),
+            (DirectCandidate::Fsst, "fsst"),
+        ] {
+            let result = bench_column(&column, 1, 0, &candidate, true)?;
+
+            assert_eq!(result.encoder, expected_label);
+            assert_eq!(result.rows, 128);
+            assert_eq!(result.uncompressed_bytes, expected_uncompressed_bytes);
+            assert!(result.encoded_bytes > 0);
+            assert_eq!(result.compression_runs.len(), 1);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn machine_readable_metric_schema_is_stable() {
+        let result = ColumnResult {
+            name: "fixture".to_string(),
+            encoder: "fsst".to_string(),
+            rows: 1,
+            uncompressed_bytes: 2,
+            encoded_bytes: 1,
+            compression_runs: vec![Duration::from_millis(12)],
+        };
+
+        let measurements = result.measurements();
+        assert_eq!(
+            measurements
+                .iter()
+                .map(|measurement| {
+                    (
+                        measurement.name.as_str(),
+                        measurement.unit.as_ref(),
+                        measurement.value,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                ("direct array compression time/fixture fsst", "ms", 12.0),
+                (
+                    "direct encoded size (% of canonical)/fixture fsst",
+                    "%",
+                    50.0,
+                ),
+            ]
+        );
+    }
+}

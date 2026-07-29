@@ -44,10 +44,10 @@ Input preparation is outside benchmark timing.
 
 ```bash
 # Default codec suite, all configured columns and encoders.
-cargo run -p string-bench --profile release_debug
+cargo run -p string-bench --profile release_debug --features unstable_encodings
 
 # Focus on selected columns or encoders.
-cargo run -p string-bench --profile release_debug -- \
+cargo run -p string-bench --profile release_debug --features unstable_encodings -- \
   --columns URL --encoders onpair
 
 # Include the in-memory Vortex write/read suite.
@@ -55,20 +55,12 @@ cargo run -p string-bench --profile release_debug --features unstable_encodings 
   --suite both
 
 # Emit benchmark-comparator JSONL.
-cargo run -p string-bench --profile release_debug -- \
+cargo run -p string-bench --profile release_debug --features unstable_encodings -- \
   --display-format gh-json --output-path results.json
 ```
 
-Run `cargo run -p string-bench -- --help` for all filters and tuning options.
-The `vortex` and `both` suites require the package's opt-in
-`unstable_encodings` feature; the default suite does not enable unstable
-features elsewhere in the workspace.
+Run `cargo run -p string-bench --features unstable_encodings -- --help` for all
+filters and tuning options.
 
 Before timing, the benchmark checks that each requested encoding was produced
 and, unless `--no-verify` is set, compares decoded output with the input.
-
-## CI status
-
-`string-bench` is a workspace member, so workspace CI can compile and test it.
-It is not currently listed in the benchmark or PR-benchmark matrices and its
-results are not uploaded to the benchmark dashboard.
