@@ -218,23 +218,15 @@ async fn generate_lance_data<B: Benchmark + ?Sized>(benchmark: &B) -> anyhow::Re
 
     // Convert each table to Lance format
     for table in benchmark.table_specs().iter() {
-        // Determine file prefix pattern for this table
-        // TPC-H/TPC-DS use {table}_ prefix, others may use the table name directly
-        let file_prefix = benchmark
+        let file_pattern = benchmark
             .pattern(table.name, Format::Parquet)
-            .and_then(|p| {
-                // Extract prefix from pattern like "customer_*.parquet" -> "customer_"
-                let pattern_str = p.as_str();
-                pattern_str
-                    .strip_suffix(&format!("*.{}", Format::Parquet.ext()))
-                    .map(|s| s.to_string())
-            });
+            .map(|p| p.to_string());
 
         convert_parquet_to_lance(
             &parquet_dir,
             &lance_dir,
             table.name,
-            file_prefix.as_deref(),
+            file_pattern.as_deref(),
             true, // Convert Utf8View to Utf8 for Lance compatibility
         )
         .await?;

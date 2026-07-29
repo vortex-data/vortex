@@ -4666,6 +4666,7 @@ dependencies = [
  "async-trait",
  "clap",
  "futures",
+ "glob",
  "lance",
  "lance-encoding",
  "parquet 58.4.0",

@@ -56,8 +56,6 @@ pub struct TpchGenOptions {
     pub format: Format,
     /// Batch size for streaming
     pub batch_size: usize,
-    /// The max size of uncompressed file .tbl that we should generate
-    pub max_file_size_mb: Option<u64>,
 }
 
 impl Default for TpchGenOptions {
@@ -67,7 +65,6 @@ impl Default for TpchGenOptions {
             output_dir: "tpch".to_data_path(),
             format: Format::Parquet,
             batch_size: 8192 * 64,
-            max_file_size_mb: None,
         }
     }
 }
@@ -88,11 +85,6 @@ impl TpchGenOptions {
 
     pub fn with_batch_size(mut self, batch_size: usize) -> Self {
         self.batch_size = batch_size;
-        self
-    }
-
-    pub fn with_max_file_size_mb(mut self, max_file_size_mb: Option<u64>) -> Self {
-        self.max_file_size_mb = max_file_size_mb;
         self
     }
 }
@@ -125,11 +117,10 @@ pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
             );
             let table_name = table_name.to_string();
 
-            generate_table_files(table_name, *generator, options.clone())
+            generate_table_file(table_name, *generator, options.clone())
         })
         .collect::<Result<Vec<_>>>()?
         .into_iter()
-        .flatten()
         .collect::<Vec<BoxFuture<'static, Result<()>>>>();
 
     let limiter = Arc::new(Semaphore::new(MAX_CONCURRENT_FILES));
@@ -169,29 +160,12 @@ enum TableGenerator {
     LineItem,
 }
 
-impl TableGenerator {
-    // Returns the size in MBs of the table at scale factor 1, if the table is constant size
-    // return None
-    fn uncompressed_data_size(&self) -> Option<u64> {
-        match self {
-            TableGenerator::Nation => None,
-            TableGenerator::Region => None,
-            TableGenerator::Part => Some(113),
-            TableGenerator::Supplier => Some(1),
-            TableGenerator::Customer => Some(23),
-            TableGenerator::PartSupp => Some(113),
-            TableGenerator::Orders => Some(164),
-            TableGenerator::LineItem => Some(725),
-        }
-    }
-}
-
-/// Generate files for a specific table in streaming fashion
-fn generate_table_files(
+/// Generate one file for a specific table in streaming fashion
+fn generate_table_file(
     table_name: String,
     generator: TableGenerator,
     options: TpchGenOptions,
-) -> Result<Vec<BoxFuture<'static, Result<()>>>> {
+) -> Result<BoxFuture<'static, Result<()>>> {
     let write_format = match options.format {
         Format::Parquet | Format::OnDiskDuckDB => Format::Parquet,
         Format::OnDiskVortex => Format::OnDiskVortex,
@@ -205,98 +179,60 @@ fn generate_table_files(
 
     fs::create_dir_all(&output_dir)?;
 
-    // Calculate number of partitions without creating expensive iterators
-    let num_parts = calculate_num_parts(generator, &options)?;
+    let output_file = output_dir.join(format!("{table_name}.{}", write_format.ext()));
 
-    let mut futures = Vec::new();
+    let future = async move {
+        let of = output_file.clone();
+        idempotent_async(output_file.to_string_lossy().as_ref(), |path| async move {
+            info!(
+                "Generating {table_name} table as {write_format}, at {}",
+                of.to_string_lossy()
+            );
 
-    for partition_idx in 0..num_parts {
-        let output_file = output_dir.join(format!(
-            "{table_name}_{partition_idx}.{}",
-            write_format.ext()
-        ));
+            let iter = create_batch_iterator(generator, &options)?;
 
-        // Clone necessary data for the async closure
-        let options_clone = options.clone();
-        let table_name = table_name.to_string();
+            // Create generator and process batches in streaming fashion
+            let schema = Arc::clone(iter.schema());
 
-        let future = async move {
-            let of = output_file.clone();
-            idempotent_async(output_file.to_string_lossy().as_ref(), |path| async move {
-                info!(
-                    "Generating {table_name} table as {write_format}, at {}",
-                    of.to_string_lossy()
-                );
+            // Create writer based on format
+            let mut writer: Box<dyn FileWriter + Send> = match write_format {
+                Format::Parquet => Box::new(ParquetWriter::new(path, schema).await?),
+                Format::OnDiskVortex => Box::new(VortexWriter::new(
+                    path,
+                    schema,
+                    CompactionStrategy::Default,
+                )?),
+                Format::VortexCompact => Box::new(VortexWriter::new(
+                    path,
+                    schema,
+                    CompactionStrategy::Compact,
+                )?),
+                _ => unreachable!(),
+            };
 
-                // Create the specific iterator for this partition only when we need to generate
-                let iter = create_single_batch_iterator(generator, &options_clone, partition_idx)?;
+            for batch in iter {
+                writer.write_batch(&batch).await?;
+            }
 
-                // Create generator and process batches in streaming fashion
-                let schema = Arc::clone(iter.schema());
-
-                // Create writer based on format
-                let mut writer: Box<dyn FileWriter + Send> = match write_format {
-                    Format::Parquet => Box::new(ParquetWriter::new(path, schema).await?),
-                    Format::OnDiskVortex => Box::new(VortexWriter::new(
-                        path,
-                        schema,
-                        CompactionStrategy::Default,
-                    )?),
-                    Format::VortexCompact => Box::new(VortexWriter::new(
-                        path,
-                        schema,
-                        CompactionStrategy::Compact,
-                    )?),
-                    _ => unreachable!(),
-                };
-
-                for batch in iter {
-                    writer.write_batch(&batch).await?;
-                }
-
-                writer.finalize().await?;
-                Ok::<(), anyhow::Error>(())
-            })
-            .await?;
-            Ok(())
-        }
-        .boxed();
-
-        futures.push(future);
+            writer.finalize().await?;
+            Ok::<(), anyhow::Error>(())
+        })
+        .await?;
+        Ok(())
     }
+    .boxed();
 
-    Ok(futures)
+    Ok(future)
 }
 
-/// Calculate the number of partitions without creating expensive iterators
-#[expect(clippy::cast_possible_truncation)]
-fn calculate_num_parts(generator: TableGenerator, options: &TpchGenOptions) -> Result<usize> {
-    let scale_factor = options.scale_factor.parse::<f64>()?;
-
-    let num_parts = if let Some((data_size, max_file_size)) = generator
-        .uncompressed_data_size()
-        .zip(options.max_file_size_mb)
-    {
-        #[expect(clippy::cast_precision_loss)]
-        let file_size = (data_size as f64 * scale_factor).ceil() as u64;
-        file_size.div_ceil(max_file_size)
-    } else {
-        1
-    };
-
-    Ok(num_parts as usize)
-}
-
-/// Create a single batch iterator for a specific partition
-#[expect(clippy::cast_possible_truncation)]
-fn create_single_batch_iterator(
+/// Create a batch iterator for one full table
+fn create_batch_iterator(
     generator: TableGenerator,
     options: &TpchGenOptions,
-    partition_idx: usize,
 ) -> Result<Box<dyn RecordBatchIterator>> {
     let scale_factor = options.scale_factor.parse::<f64>()?;
-    let num_parts = calculate_num_parts(generator, options)? as i32;
-    let part = (partition_idx + 1) as i32; // 1-indexed
+    let part = 1;
+    let num_parts = 1;
     let batch_size = options.batch_size;
 
     let iterator: Box<dyn RecordBatchIterator> = match generator {
@@ -370,7 +306,6 @@ impl ParquetWriter {
         let file = TokioFile::create(&path).await?;
         let props = WriterProperties::builder()
             .set_compression(Compression::SNAPPY)
-            .set_bloom_filter_enabled(true)
             .build();
         let writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;
         Ok(Self { writer })

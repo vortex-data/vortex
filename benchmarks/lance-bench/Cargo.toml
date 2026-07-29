@@ -23,6 +23,7 @@ arrow-cast = { version = "58" }
 async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 futures = { workspace = true }
+glob = { workspace = true }
 parquet = { version = "58" }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
