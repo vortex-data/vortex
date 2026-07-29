@@ -363,9 +363,20 @@ fn append_to_varbinview(
     // Build the views against the index the pushed buffers will land at, so the builder does not
     // have to rebase them afterwards.
     let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
-    let (buffers, all_views) =
-        try_reconstruct_views(&slice.bytes, next_buffer_index, MAX_BUFFER_LEN)?;
-    let valid_views = slice_views(&all_views, slice.value_range()?)?;
+    // The decompressed frames cover whole frames and so can extend past the requested values on
+    // either side. Reconstructing over just the requested region keeps the pushed buffers fully
+    // utilized, which is what `push_buffer_and_adjusted_views` requires: it hands them to the
+    // finished array as they are, without compacting them.
+    let value_bytes = slice.bytes.slice(slice.value_byte_range()?);
+    let (buffers, valid_views) =
+        try_reconstruct_views(&value_bytes, next_buffer_index, MAX_BUFFER_LEN)?;
+    vortex_ensure!(
+        valid_views.len() == mask.true_count(),
+        "Corrupt zstd metadata: the decompressed frames hold {} values for the {} valid rows of \
+         the slice",
+        valid_views.len(),
+        mask.true_count()
+    );
 
     let views = match valid_indices {
         AllOr::All => valid_views,
@@ -582,9 +593,6 @@ fn collect_valid_vbv(
 ///
 /// Pass [`MAX_BUFFER_LEN`] for `max_buffer_len` in production; a smaller value can be used in
 /// tests to exercise the splitting path without allocating >2 GiB.
-///
-/// The walk stops at the first length prefix that does not fit inside `buffer`, so a corrupt
-/// buffer yields views for its decodable prefix only.
 pub fn reconstruct_views(
     buffer: &ByteBuffer,
     start_buf_index: u32,
@@ -773,12 +781,11 @@ impl DecompressedSlice {
         Ok(start..end)
     }
 
-    /// The length-prefixed region of `bytes` holding exactly this slice's values, along with the
-    /// total size of those values once the length prefixes are dropped.
+    /// The bounds within `bytes` of the length-prefixed region holding exactly this slice's values.
     ///
     /// Walking the length prefixes is a dependent load chain, so both ends are derived from the
     /// slice metadata where possible: an unsliced array skips both walks.
-    fn value_bytes(&self) -> VortexResult<(&[u8], usize)> {
+    fn value_byte_range(&self) -> VortexResult<Range<usize>> {
         let Range { start, end } = self.value_range()?;
         let buffer = self.bytes.as_slice();
         let from = zstd_value_offset(buffer, 0, start)?;
@@ -787,26 +794,37 @@ impl DecompressedSlice {
         } else {
             zstd_value_offset(buffer, from, end - start)?
         };
-        let bytes = buffer.get(from..to).ok_or_else(|| {
+        vortex_ensure!(
+            from <= to && to <= buffer.len(),
+            "Corrupt zstd metadata: values {from}..{to} are out of bounds of the {} byte frame \
+             buffer",
+            buffer.len()
+        );
+        Ok(from..to)
+    }
+
+    /// The length-prefixed region of `bytes` holding exactly this slice's values, along with the
+    /// total size of those values once the length prefixes are dropped.
+    fn value_bytes(&self) -> VortexResult<(&[u8], usize)> {
+        let range = self.value_byte_range()?;
+        let n_values = self.value_range()?.len();
+        let buffer = self.bytes.as_slice();
+        let bytes = buffer.get(range.clone()).ok_or_else(|| {
             vortex_err!(
-                "Corrupt zstd metadata: values {from}..{to} are out of bounds of the {} byte \
-                 frame buffer",
+                "Corrupt zstd metadata: values {}..{} are out of bounds of the {} byte frame \
+                 buffer",
+                range.start,
+                range.end,
                 buffer.len()
             )
         })?;
         // Every value carries a length prefix, so the region must be at least that large.
-        let prefix_bytes = (end - start)
-            .checked_mul(size_of::<ViewLen>())
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Corrupt zstd metadata: value count {} overflows a byte count",
-                    end - start
-                )
-            })?;
+        let prefix_bytes = n_values.checked_mul(size_of::<ViewLen>()).ok_or_else(|| {
+            vortex_err!("Corrupt zstd metadata: value count {n_values} overflows a byte count")
+        })?;
         let num_bytes = bytes.len().checked_sub(prefix_bytes).ok_or_else(|| {
             vortex_err!(
-                "Corrupt zstd metadata: {} values do not fit in the {} bytes holding them",
-                end - start,
+                "Corrupt zstd metadata: {n_values} values do not fit in the {} bytes holding them",
                 bytes.len()
             )
         })?;

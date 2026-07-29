@@ -102,6 +102,12 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         self.data.reserve(additional);
     }
 
+    /// Appends one value, or a null when it is `None`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the resulting end offset does not fit in `O`. See
+    /// [`append_value`](Self::append_value).
     #[inline]
     pub fn append(&mut self, value: Option<&[u8]>) {
         match value {
@@ -110,6 +116,13 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         }
     }
 
+    /// Appends one non-null value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the resulting end offset does not fit in `O`. The bulk appends report that as an
+    /// error instead; use [`append_n_values`](Self::append_n_values) for a fallible single append,
+    /// or an `i64` builder for byte totals past `i32::MAX`.
     #[inline]
     pub fn append_value(&mut self, value: impl AsRef<[u8]>) {
         self.push_value(value.as_ref());
@@ -117,14 +130,25 @@ impl<O: IntegerPType> VarBinBuilder<O> {
     }
 
     /// Appends the same non-null value `n` times.
-    pub fn append_n_values(&mut self, value: impl AsRef<[u8]>, n: usize) {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error, leaving the builder unchanged, if the resulting end offsets do not fit
+    /// in `O`.
+    pub fn append_n_values(&mut self, value: impl AsRef<[u8]>, n: usize) -> VortexResult<()> {
         let value = value.as_ref();
+        let Some(num_bytes) = value.len().checked_mul(n) else {
+            vortex_bail!("Byte count overflow: {} values of {} bytes", n, value.len());
+        };
+        // Checking the total up front is what keeps `push_value` below from panicking.
+        self.check_offset_limit(self.data.len(), num_bytes)?;
         self.offsets.reserve(n);
-        self.data.reserve(value.len().saturating_mul(n));
+        self.data.reserve(num_bytes);
         for _ in 0..n {
             self.push_value(value);
         }
         self.validity.append_n(true, n);
+        Ok(())
     }
 
     /// Appends a null value.
@@ -145,6 +169,11 @@ impl<O: IntegerPType> VarBinBuilder<O> {
     }
 
     /// Appends the same UTF-8 or binary scalar `n` times.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `scalar` has a different dtype than the builder, or if the resulting
+    /// end offsets do not fit in `O`.
     pub fn append_scalar_repeated(&mut self, scalar: &Scalar, n: usize) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == &self.dtype,
@@ -154,11 +183,11 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         );
         match &self.dtype {
             DType::Utf8(_) => match scalar.as_utf8().value() {
-                Some(value) => self.append_n_values(value, n),
+                Some(value) => self.append_n_values(value, n)?,
                 None => self.push_nulls(n),
             },
             DType::Binary(_) => match scalar.as_binary().value() {
-                Some(value) => self.append_n_values(value, n),
+                Some(value) => self.append_n_values(value, n)?,
                 None => self.push_nulls(n),
             },
             dtype => vortex_bail!("VarBinBuilder cannot append scalar of dtype {dtype}"),
@@ -207,6 +236,12 @@ impl<O: IntegerPType> VarBinBuilder<O> {
     /// [`match_each_integer_ptype!`](crate::match_each_integer_ptype) can build the closure once
     /// outside that match rather than inlining a whole decoder into each of its arms.
     ///
+    /// # Errors
+    ///
+    /// Returns an error, leaving the builder unchanged, if `num_bytes` would push an offset past
+    /// what `O` can hold — checked before `decode` runs — or if `decode` reports a different byte
+    /// count than `num_bytes`, or if `lengths` does not describe those bytes.
+    ///
     /// # Safety
     ///
     /// `decode` must initialize the first `n` bytes of the slice it is passed, where `n` is the
@@ -227,6 +262,9 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         let Some(capacity) = num_bytes.checked_add(slack) else {
             vortex_bail!("Decoded size overflow: {num_bytes} + {slack}");
         };
+        // Checked before decoding: an `i32` builder that the decoded bytes would overflow should
+        // not pay for the decompression first.
+        self.check_offset_limit(self.data.len(), num_bytes)?;
         self.data.reserve(capacity);
 
         let data_len = self.data.len();
@@ -900,6 +938,42 @@ mod tests {
             VarBinViewArray::from_iter([Some("foo"), None, Some("bar")], DType::Utf8(Nullable));
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
         Ok(())
+    }
+
+    /// The offset width has to be checked before `decode` runs: an overflowing `i32` builder
+    /// should not pay for a full decompression first.
+    #[test]
+    fn append_decoded_rejects_an_offset_overflow_without_decoding() {
+        let mut builder = VarBinBuilder::<i8>::new(DType::Utf8(Nullable));
+        let mut decoded = false;
+
+        // SAFETY: the closure is never called, and reports only what it initializes if it were.
+        let result = unsafe {
+            builder.append_decoded(128, 0, &[128usize], &Mask::new_true(1), &mut |spare| {
+                decoded = true;
+                spare[..128].fill(MaybeUninit::new(b'x'));
+                Ok(128)
+            })
+        };
+
+        assert!(result.is_err());
+        assert!(!decoded, "decode ran before the offset width was checked");
+        assert_eq!(builder.offsets.len(), 1);
+        assert_eq!(builder.validity.len(), 0);
+    }
+
+    /// `append_scalar_repeated` reports an offset overflow rather than panicking, so a constant
+    /// column wider than the offset type errors like the bulk appends do.
+    #[test]
+    fn append_scalar_repeated_rejects_an_offset_overflow() {
+        let mut builder = VarBinBuilder::<i8>::new(DType::Utf8(Nullable));
+
+        let result = builder.append_scalar_repeated(&Scalar::utf8("hello", Nullable), 64);
+
+        assert!(result.is_err());
+        assert_eq!(builder.offsets.len(), 1);
+        assert!(builder.data.is_empty());
+        assert_eq!(builder.validity.len(), 0);
     }
 
     #[test]

@@ -13,6 +13,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::builders::VarBinBuilder;
+use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
@@ -239,6 +240,49 @@ fn test_zstd_append_to_offset_builder() {
         array.into_array().slice(1..4).unwrap(),
         &mut ctx
     );
+}
+
+/// A slice decompresses whole frames, so the frames hold values on either side of the ones it
+/// requests. `push_buffer_and_adjusted_views` publishes the buffers it is handed as they are, so
+/// only the requested region may reach it — otherwise the finished array retains the whole frames.
+#[test]
+fn test_zstd_append_to_view_builder_keeps_only_the_sliced_bytes() -> VortexResult<()> {
+    let mut ctx = array_session().create_execution_ctx();
+    // Long enough that the values live in the data buffers rather than inline in the views.
+    let values = (0..12)
+        .map(|i| format!("value number {i} padded well past the inline limit"))
+        .collect::<Vec<_>>();
+    let array = VarBinViewArray::from_iter_str(&values);
+    // Three values per frame, so the slice below starts and ends inside a frame holding more.
+    let compressed = Zstd::from_var_bin_view(&array, 0, 3, &mut ctx)?.slice(4..8)?;
+
+    // Seeded with a value of its own so the pushed buffers land after an in-progress buffer, and
+    // appended to twice so the second push has to rebase past the first.
+    let mut builder = VarBinViewBuilder::with_capacity(compressed.dtype().clone(), 9);
+    builder.append_value(&values[0]);
+    compressed.append_to_builder(&mut builder, &mut ctx)?;
+    compressed.append_to_builder(&mut builder, &mut ctx)?;
+    let appended = builder.finish_into_varbinview();
+
+    let expected = VarBinViewArray::from_iter_str(
+        std::iter::once(&values[0])
+            .chain(&values[4..8])
+            .chain(&values[4..8]),
+    );
+    assert_arrays_eq!(appended, expected, &mut ctx);
+
+    // Each stored value costs its bytes plus the u32 length prefix zstd interleaves.
+    let sliced_bytes: usize = values[4..8]
+        .iter()
+        .map(|value| value.len() + size_of::<u32>())
+        .sum();
+    let buffered: usize = appended
+        .data_buffers()
+        .iter()
+        .map(|buffer| buffer.as_host().len())
+        .sum();
+    assert_eq!(buffered, values[0].len() + 2 * sliced_bytes);
+    Ok(())
 }
 
 #[test]
