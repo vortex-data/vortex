@@ -24,6 +24,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
@@ -233,6 +234,9 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
     ///
     /// See [`append_list_array`](Self::append_list_array); this is the same hook for the canonical
     /// [`ListViewArray`] encoding.
+    ///
+    /// A `ListArray`'s offsets can only describe contiguous, in-order lists, so views laid out any
+    /// other way (overlapping, out of order, or with interior gaps) are flattened first.
     pub fn append_listview_array(
         &mut self,
         array: ArrayView<'_, ListView>,
@@ -244,6 +248,14 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
 
         self.nulls
             .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+
+        // Flatten the views into the only layout `ListArray` offsets can express. This is a cheap
+        // clone when they already are laid out that way, and the flattened result keeps the
+        // original validity, so the null map appended above still describes it.
+        let array = array
+            .into_owned()
+            .rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?;
+        debug_assert!(array.is_zero_copy_to_list());
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
         let elements = array.elements();
@@ -265,8 +277,13 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
     }
 }
 
-/// Appends `ListViewArray`-layout lists (`n` offsets and sizes) into a [`ListBuilder`], converting
-/// into the `ListArray` (`n + 1` offsets) layout.
+/// Appends the lists of a zero-copy-to-list [`ListViewArray`] (`n` offsets and sizes) into a
+/// [`ListBuilder`], converting into the `ListArray` (`n + 1` offsets) layout.
+///
+/// The caller must have made `new_offsets` and `new_sizes` zero-copyable to a `ListArray`, so the
+/// lists they describe are contiguous and in order — which is the only layout `ListArray` offsets
+/// can express. That lets the referenced elements be appended in bulk, with the offsets rebased
+/// onto this builder's elements, instead of appending a slice per list.
 fn extend_from_listview<O, OffsetType, SizeType>(
     builder: &mut ListBuilder<O>,
     new_elements: &ArrayRef,
@@ -282,30 +299,27 @@ where
     let num_lists = new_offsets.len();
     debug_assert_eq!(num_lists, new_sizes.len());
 
-    let total_elements: usize = new_sizes.iter().map(|size| size.as_()).sum();
-    builder.elements_builder.reserve_exact(total_elements);
+    // Leading and trailing unreferenced elements are allowed even in a zero-copy-to-list layout,
+    // so the referenced range is bounded by the first list's start and the last list's end.
+    let first: usize = new_offsets[0].as_();
+    let last: usize = new_offsets[num_lists - 1].as_() + new_sizes[num_lists - 1].as_();
 
-    let mut curr_offset = builder.elements_builder.len();
+    let elements_base = builder.elements_builder.len();
+    if last > first {
+        builder.elements_builder.reserve_exact(last - first);
+        new_elements
+            .slice(first..last)?
+            .append_to_builder(builder.elements_builder.as_mut(), ctx)?;
+    }
+
     builder.offsets_builder.reserve_exact(num_lists);
     let mut offsets_range = builder.offsets_builder.uninit_range(num_lists);
-
-    // We need to append each list individually, converting from `ListViewArray` format to
-    // the `ListArray` format that `ListBuilder` expects.
-    for i in 0..new_offsets.len() {
-        let offset: usize = new_offsets[i].as_();
-        let size: usize = new_sizes[i].as_();
-
-        if size > 0 {
-            let list_elements = new_elements
-                .slice(offset..offset + size)
-                .vortex_expect("list builder slice");
-            list_elements.append_to_builder(builder.elements_builder.as_mut(), ctx)?;
-            curr_offset += size;
-        }
-
-        let new_offset = O::from_usize(curr_offset).vortex_expect("Failed to convert offset");
-
-        offsets_range.set_value(i, new_offset);
+    for i in 0..num_lists {
+        let end: usize = new_offsets[i].as_() + new_sizes[i].as_();
+        offsets_range.set_value(
+            i,
+            O::from_usize(end - first + elements_base).vortex_expect("Failed to convert offset"),
+        );
     }
 
     // SAFETY: We have initialized all `num_lists` values, and since the `offsets` array is
@@ -662,6 +676,62 @@ mod tests {
         builder.append_listview_array(source_listview.as_view(), &mut ctx)?;
         builder.append_listview_array(source_listview.as_view(), &mut ctx)?;
         assert_arrays_eq!(builder.finish(), expected, &mut ctx);
+
+        Ok(())
+    }
+
+    /// A `ListArray`'s offsets can only describe contiguous, in-order lists, so an overlapping
+    /// source has to be flattened before its elements can be appended in bulk. A sliced source,
+    /// meanwhile, keeps the layout it has and is appended from wherever its first list starts.
+    #[test]
+    fn test_append_listview_array_flattens_overlaps_and_skips_leading_elements() -> VortexResult<()>
+    {
+        let mut ctx = array_session().create_execution_ctx();
+        let dtype: Arc<DType> = Arc::new(I32.into());
+
+        // Overlapping source, so not zero-copyable to a list:
+        // - List 0: [10, 20]
+        // - List 1: null (size is intentionally non-zero in the source metadata)
+        // - List 2: [10], sharing the elements list 0 already referenced
+        let overlapping = unsafe {
+            ListViewArray::new_unchecked(
+                buffer![10i32, 20, 30].into_array(),
+                buffer![0u32, 1, 0].into_array(),
+                buffer![2u8, 2, 1].into_array(),
+                Validity::from_iter([true, false, true]),
+            )
+        };
+        assert!(!overlapping.is_zero_copy_to_list());
+
+        // Zero-copyable source sliced past its first list, so its elements start at offset 2.
+        let sliced = unsafe {
+            ListViewArray::new_unchecked(
+                buffer![40i32, 50, 60, 70].into_array(),
+                buffer![0u32, 2].into_array(),
+                buffer![2u32, 2].into_array(),
+                Validity::AllValid,
+            )
+            .with_zero_copy_to_list(true)
+        }
+        .into_array()
+        .slice(1..2)?
+        .execute::<ListViewArray>(&mut ctx)?;
+
+        let mut builder = ListBuilder::<u32>::with_capacity(dtype, Nullable, 0, 0);
+        builder.append_listview_array(overlapping.as_view(), &mut ctx)?;
+        builder.append_listview_array(sliced.as_view(), &mut ctx)?;
+
+        let list = builder.finish_into_list();
+        assert_arrays_eq!(
+            list.elements(),
+            PrimitiveArray::from_iter([10i32, 20, 10, 60, 70]),
+            &mut ctx
+        );
+        assert_arrays_eq!(
+            list.offsets(),
+            PrimitiveArray::from_iter([0u32, 2, 2, 3, 5]),
+            &mut ctx
+        );
 
         Ok(())
     }
