@@ -170,7 +170,7 @@ jobs:
         shell: bash
         env:
           AWS_REGION: "us-east-1"
-          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ matrix.remote_key }}/"
+          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
         run: |
           aws s3 rm --recursive "$REMOTE_STORAGE"
           aws s3 cp --recursive "${{ matrix.local_dir }}" "$REMOTE_STORAGE"
@@ -218,7 +218,7 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
           OTEL_EXPORTER_OTLP_HEADERS: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_HEADERS || '' }}"
           OTEL_RESOURCE_ATTRIBUTES: "bench-name=${{ matrix.id }}"
-          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ matrix.remote_key }}/"
+          REMOTE_STORAGE: "s3://vortex-ci-benchmark-datasets/${{ github.ref_name }}/${{ github.run_id }}/${{ inputs.matrix_preset }}/${{ matrix.remote_key }}/"
         run: |
           bash scripts/bench-taskset.sh uv run --project bench-orchestrator vx-bench run "${{ matrix.subcommand }}" \
             --targets-json '${{ toJSON(matrix.targets) }}' \

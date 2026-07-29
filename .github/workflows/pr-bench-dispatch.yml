@@ -3,6 +3,9 @@
 # phantom check suites that obscure in-progress benchmark runs on the PR.
 
 name: PR Benchmark Dispatch
+run-name: >-
+  PR #${{ github.event.pull_request.number }} benchmark:
+  ${{ github.event.label.name }}
 
 on:
   pull_request:

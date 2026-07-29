@@ -106,7 +106,7 @@ def normalize_format_name(value: Any) -> str | None:
     return FORMAT_DISPLAY_NAMES.get(value, value)
 
 
-def comparison_target(name: Any, target: Any = None) -> tuple[str, str, int | None]:
+def comparison_target(name: Any, target: Any = None) -> tuple[str, str, int | str | None]:
     """Return the engine, display format, and optional SQL query number."""
 
     target_engine = None
@@ -119,6 +119,20 @@ def comparison_target(name: Any, target: Any = None) -> tuple[str, str, int | No
     name_engine = match.group(2) if match is not None else None
     name_format = match.group(3) if match is not None else None
     query = int(match.group(1)) if match is not None else None
+
+    if match is None and isinstance(name, str):
+        random_access = re.match(
+            r"^(?P<prefix>random-access(?:/.*)?)/"
+            r"(?P<file_format>parquet|vortex|lance)-(?P<variant>.+)$",
+            name,
+        )
+        if random_access is not None:
+            file_format = random_access.group("file_format")
+            if file_format == "vortex":
+                file_format = "vortex-file-compressed"
+            return "random-access", file_format, (
+                f"{random_access.group('prefix')}/{random_access.group('variant')}"
+            )
 
     engine = str(target_engine or name_engine or "unknown")
     file_format = str(target_format or normalize_format_name(name_format) or "unknown")
@@ -170,17 +184,35 @@ def benchmark_identity_rows(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def read_jsonl_rows_for_commit(path: str, commit_id: str) -> pd.DataFrame:
-    """Read only rows matching a commit from a JSONL benchmark history."""
+    """Read the latest copy of each row matching a history commit.
 
-    rows = []
+    Re-running a develop workflow appends a second result block for the same
+    commit. Keeping the last copy of each logical row prevents a many-to-one
+    merge from weighting that baseline multiple times.
+    """
+
+    rows_by_identity: dict[tuple[Any, ...], dict[str, Any]] = {}
     with open(path, encoding="utf-8") as lines:
         for line in lines:
             if '"commit_id"' not in line or f'"{commit_id}"' not in line:
                 continue
             record = orjson.loads(line)
-            if record.get("commit_id") == commit_id:
-                rows.append(record)
-    return pd.DataFrame(rows)
+            if record.get("commit_id") != commit_id:
+                continue
+
+            file_size = record.get("file_size")
+            if isinstance(file_size, dict):
+                identity = (
+                    FILE_SIZE_METRIC,
+                    file_size.get("benchmark"),
+                    file_size.get("scale_factor"),
+                    file_size.get("format"),
+                    file_size.get("file"),
+                )
+            else:
+                identity = ("timing", benchmark_identity(record))
+            rows_by_identity[identity] = record
+    return pd.DataFrame(rows_by_identity.values())
 
 
 def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
@@ -261,7 +293,7 @@ def normalize_measurement_rows(df: pd.DataFrame) -> pd.DataFrame:
         columns=["engine", "file_format", "query"],
         index=df.index,
     )
-    df["query"] = pd.array(df["query"], dtype="Int64")
+    df["query"] = df["query"].astype(object)
     return df
 
 
@@ -422,7 +454,7 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
         rows.append(
             {
                 "name": row["name"],
-                "query": int(row["query"]),
+                "query": row["query"],
                 "engine": row["engine"],
                 "file_format": row["file_format"],
                 "combo": f"{row['engine']}:{row['file_format']}",
@@ -442,7 +474,7 @@ def build_statistical_analysis(df: pd.DataFrame, threshold_pct: int) -> dict[str
         beta_log_ratio = float(group["log_ratio"].mean())
         query_rows.append(
             {
-                "query": int(query),
+                "query": query,
                 "beta_log_ratio": beta_log_ratio,
                 "beta_ratio": float(np.exp(beta_log_ratio)),
                 "beta_log_se": mean_with_standard_error(group, "log_ratio", "log_ratio_se"),

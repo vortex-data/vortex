@@ -14,7 +14,7 @@ from .targets import df, duck
 PRESETS = {
     "develop": "Every regular SQL benchmark at full target coverage.",
     "pr": "The quicker pull-request SQL benchmark matrix.",
-    "pr-compact": "Pull-request SQL benchmarks that only run Vortex Compact.",
+    "pr-compact": "Pull-request SQL benchmarks for Vortex Compact plus Parquet controls.",
     "pr-full": "Every regular SQL benchmark at full PR target coverage.",
     "nightly": "Large-scale SF=100 TPC-H on NVMe and S3 at default targets.",
 }
@@ -53,8 +53,11 @@ STANDARD_WITH_DUCKDB_TARGETS = STANDARD_TARGETS | duck(Format.DUCKDB)
 DUCKDB_DEFAULT_TARGETS = DEFAULT_TARGETS.only(Engine.DUCKDB)
 DUCKDB_STANDARD_TARGETS = STANDARD_TARGETS.only(Engine.DUCKDB)
 DATAFUSION_VORTEX_TARGETS = df(Format.VORTEX)
-COMPACT_TARGETS = df(Format.VORTEX_COMPACT) | duck(Format.VORTEX_COMPACT)
-COMPACT_DUCKDB_TARGETS = duck(Format.VORTEX_COMPACT)
+COMPACT_TARGETS = df(Format.PARQUET, Format.VORTEX_COMPACT) | duck(
+    Format.PARQUET,
+    Format.VORTEX_COMPACT,
+)
+COMPACT_DUCKDB_TARGETS = duck(Format.PARQUET, Format.VORTEX_COMPACT)
 
 DEFAULT = Coverage(DEFAULT_TARGETS)
 STANDARD = Coverage(STANDARD_TARGETS)

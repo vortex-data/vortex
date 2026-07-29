@@ -84,10 +84,10 @@ def test_pr_target_selection() -> None:
     assert ("datafusion", "lance") in _targets(develop["tpch-nvme"])
     assert all(("datafusion", "lance") not in _targets(entry) for entry in pr_full.values())
     assert "vortex-compact" in cast("list[str]", pr_full["clickbench-nvme"]["data_formats"])
-    assert all(
-        all(target[1] == "vortex-compact" for target in _targets(entry)) and entry["data_formats"] == ["vortex-compact"]
-        for entry in pr_compact.values()
-    )
+    for entry in pr_compact.values():
+        targets = _targets(entry)
+        assert {file_format for _engine, file_format in targets} == {"parquet", "vortex-compact"}
+        assert set(cast("list[str]", entry["data_formats"])) == {"parquet", "vortex-compact"}
 
 
 def test_resolver_rejects_empty_targets() -> None:

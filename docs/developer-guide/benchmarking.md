@@ -225,8 +225,8 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
 - **GPU compression** -- `action/bench-gpu-compress` runs the allow-listed Vortex decompression
   cases on a GPU runner.
 - **SQL** -- `action/bench-sql` runs the `pr` preset, which excludes `vortex-compact`.
-- **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which generates
-  and benchmarks only `vortex-compact`.
+- **SQL Compact** -- `action/bench-sql-compact` runs the `pr-compact` preset, which benchmarks
+  `vortex-compact` plus Parquet control rows used to distinguish code changes from runner drift.
 
 All CI benchmarks run on dedicated instances with the `release_debug` profile and
 `-C target-cpu=native` to produce representative numbers.
