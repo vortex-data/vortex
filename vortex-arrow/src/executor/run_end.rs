@@ -16,6 +16,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -27,34 +28,41 @@ use vortex_runend::RunEndArraySlotsExt;
 
 use crate::ArrowArrayExecutor;
 
+/// Matches the encodings [`to_arrow_run_end`] requires for export.
+struct ArrowRunEndExportable;
+
+impl Matcher for ArrowRunEndExportable {
+    type Match<'a> = &'a ArrayRef;
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (array.is::<RunEnd>() || array.is::<Constant>()).then_some(array)
+    }
+}
+
 pub(super) fn to_arrow_run_end(
     array: ArrayRef,
     ends_type: &DataType,
     values_type: &Field,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    let array = array.execute_until::<ArrowRunEndExportable>(ctx)?;
+
     let array = match array.try_downcast::<Constant>() {
-        Ok(constant) => {
-            return constant_to_run_end(constant, ends_type, values_type, ctx);
-        }
+        Ok(constant) => return constant_to_run_end(constant, ends_type, values_type, ctx),
+        Err(array) => array,
+    };
+    let array = match array.try_downcast::<RunEnd>() {
+        Ok(run_end) => return run_end_to_arrow(run_end, ends_type, values_type, ctx),
         Err(array) => array,
     };
 
-    // Execute to unwrap any wrapper VTables (Slice, Filter, etc.) which may
-    // reveal a RunEndArray.
-    let array = array.execute::<ArrayRef>(ctx)?;
-    match array.try_downcast::<RunEnd>() {
-        Ok(run_end) => run_end_to_arrow(run_end, ends_type, values_type, ctx),
-        Err(array) => {
-            // Fallback: canonicalize to flat Arrow, then cast to REE.
-            let flat = array.execute_arrow(Some(values_type.data_type()), ctx)?;
-            let ree_type = DataType::RunEndEncoded(
-                Arc::new(Field::new("run_ends", ends_type.clone(), false)),
-                Arc::new(values_type.clone()),
-            );
-            arrow_cast::cast(&flat, &ree_type).map_err(VortexError::from)
-        }
-    }
+    // Fallback: canonicalize to flat Arrow, then cast to REE.
+    let flat = array.execute_arrow(Some(values_type.data_type()), ctx)?;
+    let ree_type = DataType::RunEndEncoded(
+        Arc::new(Field::new("run_ends", ends_type.clone(), false)),
+        Arc::new(values_type.clone()),
+    );
+    arrow_cast::cast(&flat, &ree_type).map_err(VortexError::from)
 }
 
 fn run_end_to_arrow(
@@ -178,18 +186,26 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::SliceArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::ArrowArrayExecutor;
     use crate::executor::run_end::ConstantArray;
+    use crate::executor::run_end::RunEnd;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(vortex_array::array_session);
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let session = vortex_array::array_session();
+        vortex_runend::initialize(&session);
+        session
+    });
 
     fn ree_type(ends: DataType, values_dtype: DataType) -> DataType {
         DataType::RunEndEncoded(
@@ -259,6 +275,38 @@ mod tests {
     ) -> VortexResult<()> {
         let result = execute(input, &target_type)?;
         assert_eq!(result.as_ref(), expected.as_ref());
+        Ok(())
+    }
+
+    #[test]
+    fn nested_wrappers_reveal_run_end_fast_path() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Runs [7, 7, 8, 8] behind two nested lazy Slice wrappers. A single execution step
+        // only merges the slices, so the exporter must keep stepping to reveal the
+        // RunEndArray underneath.
+        let ends = PrimitiveArray::new(buffer![2u32, 4], Validity::NonNullable);
+        let values = PrimitiveArray::new(buffer![7i64, 8], Validity::NonNullable);
+        let values_ptr = values.as_slice::<i64>().as_ptr();
+        let ree = RunEnd::try_new(ends.into_array(), values.into_array(), &mut ctx)?;
+        let wrapped = SliceArray::new(SliceArray::new(ree.into_array(), 0..4).into_array(), 0..4)
+            .into_array();
+
+        let result = execute(wrapped, &ree_type(DataType::Int32, DataType::Int64))?;
+
+        let ree_arrow = result
+            .as_any()
+            .downcast_ref::<RunArray<Int32Type>>()
+            .ok_or_else(|| vortex_err!("expected Int32 run-end array"))?;
+        assert_eq!(ree_arrow.run_ends().values(), &[2, 4]);
+
+        // The RunEnd fast path exports the values buffer zero-copy; the flat-then-recode
+        // fallback would materialize new buffers.
+        let arrow_values = ree_arrow
+            .values()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| vortex_err!("expected Int64 values"))?;
+        assert_eq!(arrow_values.values().as_ptr(), values_ptr);
         Ok(())
     }
 

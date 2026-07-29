@@ -21,10 +21,10 @@ impl ScalarFnSignature<'_> {
         self.inner.child_name(index)
     }
 
-    /// Returns whether this expression itself is null-sensitive.
-    /// See [`crate::scalar_fn::ScalarFnVTable::is_null_sensitive`].
-    pub fn is_null_sensitive(&self) -> bool {
-        self.inner.is_null_sensitive()
+    /// Returns whether this expression itself is strict.
+    /// See [`crate::scalar_fn::ScalarFnVTable::is_strict`].
+    pub fn is_strict(&self) -> bool {
+        self.inner.is_strict()
     }
 
     /// Returns whether this expression itself is fallible.

@@ -17,7 +17,10 @@ use crate::dtype::PType;
 
 mod array;
 pub use array::UnionArrayExt;
+pub use array::UnionArraySlotsExt;
 pub use array::UnionDataParts;
+pub use array::UnionSlots;
+pub use array::UnionSlotsView;
 pub use vtable::UnionArray;
 
 pub(crate) mod compute;

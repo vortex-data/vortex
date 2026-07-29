@@ -116,7 +116,7 @@ impl DType {
                         .ok_or_else(|| vortex_err!("Extension DType missing storage proto"))?,
                     session,
                 )?;
-                let ext_dtype = if let Some(vtable) = session.dtypes().registry().find(&id) {
+                let ext_dtype = if let Some(vtable) = session.dtypes().registry().get(&id) {
                     vtable.deserialize(e.metadata(), storage_dtype)?
                 } else if session.allows_unknown() {
                     ForeignExtDType::from_parts(id, e.metadata().to_vec(), storage_dtype)?

@@ -89,7 +89,7 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     ) -> VortexResult<Option<ReduceNodeRef>>;
     fn arity(&self) -> Arity;
     fn child_name(&self, child_idx: usize) -> ChildName;
-    fn is_null_sensitive(&self) -> bool;
+    fn is_strict(&self) -> bool;
     fn is_fallible(&self) -> bool;
 
     // Expression methods — take &Expression for tree traversal
@@ -184,8 +184,8 @@ impl<V: ScalarFnVTable> DynScalarFn for TypedScalarFnInstance<V> {
         V::child_name(&self.vtable, &self.options, child_idx)
     }
 
-    fn is_null_sensitive(&self) -> bool {
-        V::is_null_sensitive(&self.vtable, &self.options)
+    fn is_strict(&self) -> bool {
+        V::is_strict(&self.vtable, &self.options)
     }
 
     fn is_fallible(&self) -> bool {

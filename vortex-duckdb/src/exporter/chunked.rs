@@ -29,7 +29,7 @@ pub(crate) fn new_exporter_with_flatten(
         return canonical::new_exporter(array.into_array(), cache, ctx);
     }
 
-    let chunk_offsets = array.chunk_offsets().to_vec();
+    let chunk_offsets = array.chunk_offset_values().to_vec();
     let chunks = array
         .chunks()
         .iter()

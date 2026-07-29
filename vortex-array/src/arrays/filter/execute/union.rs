@@ -10,6 +10,7 @@ use vortex_mask::MaskValues;
 use crate::ArrayRef;
 use crate::arrays::UnionArray;
 use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::UnionArraySlotsExt;
 
 pub fn filter_union(array: &UnionArray, mask: &Arc<MaskValues>) -> UnionArray {
     let filter_mask = Mask::Values(Arc::clone(mask));

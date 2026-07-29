@@ -13,16 +13,15 @@
 
 use num_traits::CheckedAdd;
 use num_traits::CheckedSub;
+use vortex_buffer::Buffer;
+use vortex_compute::lane_kernels::LaneZip;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use super::checked::CheckedValues;
-use super::checked::checked_all_lanes;
-use super::checked::checked_valid_lanes;
+use super::checked::checked_lanes;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
@@ -288,7 +287,7 @@ where
     let len = lhs.len();
     let bounds = DecimalValueBounds::<W>::new(result_decimal_dtype);
 
-    let checked = match (lhs, rhs) {
+    let values = match (lhs, rhs) {
         (DecimalOperand::Array { values: lhs, .. }, DecimalOperand::Array { values: rhs, .. }) => {
             checked_decimal_arrays::<W, Op>(lhs, rhs, &bounds, valid_rows)
         }
@@ -296,8 +295,8 @@ where
             let rhs = typed_constant::<W>(value);
             match_each_decimal_value_type!(lhs.values_type(), |L| {
                 let lhs = lhs.buffer::<L>();
-                checked_decimal_lanes::<W, _>(len, valid_rows, |idx| {
-                    Op::apply(<W as BigCast>::from(lhs[idx])?, rhs, &bounds)
+                checked_lanes(lhs.as_slice(), valid_rows, |lhs| {
+                    Op::apply(<W as BigCast>::from(lhs)?, rhs, &bounds)
                 })
             })
         }
@@ -305,8 +304,8 @@ where
             let lhs = typed_constant::<W>(value);
             match_each_decimal_value_type!(rhs.values_type(), |R| {
                 let rhs = rhs.buffer::<R>();
-                checked_decimal_lanes::<W, _>(len, valid_rows, |idx| {
-                    Op::apply(lhs, <W as BigCast>::from(rhs[idx])?, &bounds)
+                checked_lanes(rhs.as_slice(), valid_rows, |rhs| {
+                    Op::apply(lhs, <W as BigCast>::from(rhs)?, &bounds)
                 })
             })
         }
@@ -328,14 +327,11 @@ where
             )
             .into_array());
         }
-    };
-
-    if checked.failed {
-        return Err(vortex_err!(InvalidArgument: "{}", Op::ERROR));
     }
+    .map_err(|_lane| vortex_err!(InvalidArgument: "{}", Op::ERROR))?;
 
     Ok(DecimalArray::new(
-        checked.values,
+        values,
         result_decimal_dtype,
         validity.union_nullability(result_dtype.nullability()),
     )
@@ -347,38 +343,29 @@ fn checked_decimal_arrays<W, Op>(
     rhs: &DecimalArray,
     bounds: &DecimalValueBounds<W>,
     valid_rows: &Mask,
-) -> CheckedValues<W>
+) -> Result<Buffer<W>, usize>
 where
     W: NativeDecimalType + CheckedAdd + CheckedSub,
     Op: CheckedDecimalOp,
 {
-    let len = lhs.len();
-    debug_assert_eq!(len, rhs.len());
+    debug_assert_eq!(lhs.len(), rhs.len());
     match_each_decimal_value_type!(lhs.values_type(), |L| {
         let lhs = lhs.buffer::<L>();
         match_each_decimal_value_type!(rhs.values_type(), |R| {
             let rhs = rhs.buffer::<R>();
-            checked_decimal_lanes::<W, _>(len, valid_rows, |idx| {
-                Op::apply(
-                    <W as BigCast>::from(lhs[idx])?,
-                    <W as BigCast>::from(rhs[idx])?,
-                    bounds,
-                )
-            })
+            checked_lanes(
+                LaneZip::new(lhs.as_slice(), rhs.as_slice()),
+                valid_rows,
+                |(lhs, rhs)| {
+                    Op::apply(
+                        <W as BigCast>::from(lhs)?,
+                        <W as BigCast>::from(rhs)?,
+                        bounds,
+                    )
+                },
+            )
         })
     })
-}
-
-fn checked_decimal_lanes<W, F>(len: usize, valid_rows: &Mask, checked_at: F) -> CheckedValues<W>
-where
-    W: NativeDecimalType,
-    F: FnMut(usize) -> Option<W>,
-{
-    match valid_rows.bit_buffer() {
-        AllOr::All => checked_all_lanes(len, checked_at),
-        AllOr::None => CheckedValues::<W>::zeroed(len),
-        AllOr::Some(valid_bits) => checked_valid_lanes(len, valid_bits, checked_at),
-    }
 }
 
 fn typed_constant<W: NativeDecimalType>(value: &DecimalValue) -> W {

@@ -4,10 +4,11 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
-use vortex_session::registry::Registry;
+use vortex_session::registry::Id;
 
 use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
@@ -33,7 +34,7 @@ use crate::scalar_fn::fns::stat::StatFn;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 
 /// Registry of scalar function vtables.
-pub type ScalarFnRegistry = Registry<ScalarFnPluginRef>;
+pub type ScalarFnRegistry = ArcSwapMap<Id, ScalarFnPluginRef>;
 
 /// Session state for scalar function vtables and rewrite rules.
 #[derive(Clone, Debug)]
@@ -49,7 +50,7 @@ impl ScalarFnSession {
     /// Register a scalar function vtable in the session, replacing any existing vtable with the same ID.
     pub fn register<V: ScalarFnVTable>(&self, vtable: V) {
         self.registry
-            .register(vtable.id(), Arc::new(vtable) as ScalarFnPluginRef);
+            .insert(vtable.id(), Arc::new(vtable) as ScalarFnPluginRef);
     }
 }
 

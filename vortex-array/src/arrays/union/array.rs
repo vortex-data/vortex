@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter::once;
-use std::sync::Arc;
-
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -16,6 +13,7 @@ use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::EmptyArrayData;
 use crate::array::TypedArrayRef;
+use crate::array_slots;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::Union;
 use crate::dtype::DType;
@@ -23,21 +21,29 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::UnionVariants;
 
-/// The row-aligned array of type IDs selecting a union child.
-pub(super) const TYPE_IDS_SLOT: usize = 0;
-/// The offset at which the sparse child arrays begin in the slots vector.
-pub(super) const CHILDREN_OFFSET: usize = 1;
+/// Slot layout of a canonical sparse union array.
+#[array_slots(Union)]
+pub struct UnionSlots {
+    /// The row-aligned array of type IDs selecting a union child.
+    #[slot(0)]
+    pub type_ids: ArrayRef,
+    /// The row-aligned sparse children in variant order.
+    #[slot(1..)]
+    pub children: Vec<ArrayRef>,
+}
 
 pub(super) fn make_union_parts(
     type_ids: ArrayRef,
     variants: UnionVariants,
-    children: &[ArrayRef],
+    children: impl IntoIterator<Item = ArrayRef>,
 ) -> ArrayParts<Union> {
     let len = type_ids.len();
     let nullability = type_ids.dtype().nullability();
-    let slots: ArraySlots = once(Some(type_ids))
-        .chain(children.iter().cloned().map(Some))
-        .collect();
+    let children = children.into_iter();
+    let (lower, _) = children.size_hint();
+    let mut slots = ArraySlots::with_capacity(UnionSlots::CHILDREN_OFFSET + lower);
+    slots.push(Some(type_ids));
+    slots.extend(children.map(Some));
 
     ArrayParts::new(
         Union,
@@ -55,11 +61,14 @@ pub struct UnionDataParts {
     /// The row-aligned type IDs.
     pub type_ids: ArrayRef,
     /// The row-aligned sparse children in variant order.
-    pub children: Arc<[ArrayRef]>,
+    pub children: Vec<ArrayRef>,
 }
 
 /// Accessors for a canonical sparse union array.
-pub trait UnionArrayExt: TypedArrayRef<Union> {
+///
+/// Slot accessors (`type_ids`, `children`, `slots_view`) live on the generated
+/// [`UnionArraySlotsExt`] supertrait; this trait layers union-specific lookups on top.
+pub trait UnionArrayExt: UnionArraySlotsExt {
     /// The union's variant schema.
     fn variants(&self) -> &UnionVariants {
         match self.as_ref().dtype() {
@@ -68,28 +77,14 @@ pub trait UnionArrayExt: TypedArrayRef<Union> {
         }
     }
 
-    /// The row-aligned `u8` type IDs whose nulls represent outer union nulls.
-    fn type_ids(&self) -> &ArrayRef {
-        self.as_ref().slots()[TYPE_IDS_SLOT]
-            .as_ref()
-            .vortex_expect("UnionArray type_ids slot")
-    }
-
     /// Iterate over sparse children in variant order.
     fn iter_children(&self) -> impl ExactSizeIterator<Item = &ArrayRef> + '_ {
-        self.as_ref().slots()[CHILDREN_OFFSET..]
-            .iter()
-            .map(|slot| slot.as_ref().vortex_expect("UnionArray child slot"))
-    }
-
-    /// Return the sparse children in variant order.
-    fn children(&self) -> Arc<[ArrayRef]> {
-        self.iter_children().cloned().collect()
+        self.children().iter()
     }
 
     /// Return a sparse child by its variant index.
     fn child(&self, index: usize) -> Option<&ArrayRef> {
-        self.as_ref().slots().get(CHILDREN_OFFSET + index)?.as_ref()
+        self.children().get(index)
     }
 
     /// Return a sparse child selected by a data-level type ID.
@@ -125,7 +120,7 @@ impl Array<Union> {
     pub fn new(
         type_ids: ArrayRef,
         variants: UnionVariants,
-        children: impl Into<Arc<[ArrayRef]>>,
+        children: impl IntoIterator<Item = ArrayRef>,
     ) -> Self {
         Self::try_new(type_ids, variants, children).vortex_expect("UnionArray construction failed")
     }
@@ -142,7 +137,7 @@ impl Array<Union> {
     pub fn try_new(
         type_ids: ArrayRef,
         variants: UnionVariants,
-        children: impl Into<Arc<[ArrayRef]>>,
+        children: impl IntoIterator<Item = ArrayRef>,
     ) -> VortexResult<Self> {
         vortex_ensure!(
             matches!(type_ids.dtype(), DType::Primitive(PType::U8, _)),
@@ -150,8 +145,7 @@ impl Array<Union> {
             type_ids.dtype()
         );
 
-        let children = children.into();
-        Array::try_from_parts(make_union_parts(type_ids, variants, &children))
+        Array::try_from_parts(make_union_parts(type_ids, variants, children))
     }
 
     /// Construct a canonical sparse union array without validation.
@@ -163,17 +157,16 @@ impl Array<Union> {
     pub unsafe fn new_unchecked(
         type_ids: ArrayRef,
         variants: UnionVariants,
-        children: impl Into<Arc<[ArrayRef]>>,
+        children: impl IntoIterator<Item = ArrayRef>,
     ) -> Self {
-        let children = children.into();
-        unsafe { Array::from_parts_unchecked(make_union_parts(type_ids, variants, &children)) }
+        unsafe { Array::from_parts_unchecked(make_union_parts(type_ids, variants, children)) }
     }
 
     /// Deconstruct this array into its type IDs, variant schema, and sparse children.
     pub fn into_data_parts(self) -> UnionDataParts {
         let variants = self.variants().clone();
         let type_ids = self.type_ids().clone();
-        let children = self.children();
+        let children = self.iter_children().cloned().collect();
         UnionDataParts {
             variants,
             type_ids,

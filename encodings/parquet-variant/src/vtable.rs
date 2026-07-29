@@ -308,7 +308,6 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::EqMode;
     use vortex_array::IntoArray;
-    use vortex_array::VTable;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
@@ -326,6 +325,10 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
+    use vortex_edition::Edition;
+    use vortex_edition::EditionId;
+    use vortex_edition::EditionInclusion;
+    use vortex_edition::EditionSessionExt;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_file::OpenOptionsSessionExt;
@@ -388,22 +391,39 @@ mod tests {
     }
 
     #[fixture]
-    fn parquet_variant_file_session() -> VortexSession {
+    fn parquet_variant_file_session() -> VortexResult<VortexSession> {
+        const TEST_EDITION: EditionId = EditionId::new("test", 2026, 7, 0);
+
         let session = vortex_array::array_session()
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         vortex_file::register_default_encodings(&session);
         session.arrays().register(ParquetVariant);
+        let editions = session.editions();
+        editions
+            .declare_edition(Edition {
+                id: TEST_EDITION,
+                min_vortex_version: None,
+            })
+            .map_err(|error| vortex_err!("{error}"))?;
+        let ids = session
+            .arrays()
+            .registry()
+            .read(|map| map.keys().copied().collect::<Vec<_>>());
+        for id in ids {
+            editions
+                .declare_inclusion(EditionInclusion::new(&id, TEST_EDITION))
+                .map_err(|error| vortex_err!("{error}"))?;
+        }
         session
+            .enable_edition(TEST_EDITION)
+            .map_err(|error| vortex_err!("{error}"))?;
+        Ok(session)
     }
 
     #[fixture]
     fn write_strategy() -> Arc<dyn LayoutStrategy> {
-        let mut allowed = vortex_file::ALLOWED_ENCODINGS.clone();
-        allowed.insert(ParquetVariant.id());
-        vortex_file::WriteStrategyBuilder::default()
-            .with_allow_encodings(allowed)
-            .build()
+        vortex_file::WriteStrategyBuilder::default().build()
     }
 
     #[test]
@@ -451,9 +471,10 @@ mod tests {
     #[tokio::test]
     async fn test_file_roundtrip_typed_value_variant_with_statistics(
         #[from(typed_value_variant_array)] expected: VortexResult<ArrayRef>,
-        parquet_variant_file_session: VortexSession,
+        parquet_variant_file_session: VortexResult<VortexSession>,
     ) -> VortexResult<()> {
         let expected = expected?;
+        let parquet_variant_file_session = parquet_variant_file_session?;
 
         let mut bytes = ByteBufferMut::empty();
         parquet_variant_file_session
@@ -478,10 +499,11 @@ mod tests {
     #[tokio::test]
     async fn test_file_roundtrip_typed_value_variant_with_zoned_strategy(
         #[from(typed_value_variant_array)] expected: VortexResult<ArrayRef>,
-        parquet_variant_file_session: VortexSession,
+        parquet_variant_file_session: VortexResult<VortexSession>,
         write_strategy: Arc<dyn LayoutStrategy>,
     ) -> VortexResult<()> {
         let expected = expected?;
+        let parquet_variant_file_session = parquet_variant_file_session?;
 
         let mut bytes = ByteBufferMut::empty();
         parquet_variant_file_session

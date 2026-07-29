@@ -10,6 +10,7 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Union;
 use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::UnionArraySlotsExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Union> for Union {

@@ -23,7 +23,7 @@ pub use layout::*;
 pub use reader::*;
 pub use reader_context::*;
 pub use strategy::*;
-use vortex_session::registry::Context;
+use vortex_session::registry::Interner;
 pub use vtable::*;
 pub mod aliases;
 mod children;
@@ -42,4 +42,4 @@ mod strategy;
 mod test;
 mod vtable;
 
-pub type LayoutContext = Context;
+pub type LayoutContext = Interner;

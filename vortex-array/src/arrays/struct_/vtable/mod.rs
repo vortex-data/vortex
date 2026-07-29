@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -18,9 +17,8 @@ use crate::array::EmptyArrayData;
 use crate::array::VTable;
 use crate::array::child_to_validity;
 use crate::array::with_empty_buffers;
-use crate::arrays::struct_::array::FIELDS_OFFSET;
-use crate::arrays::struct_::array::VALIDITY_SLOT;
-use crate::arrays::struct_::array::make_struct_slots;
+use crate::arrays::struct_::array::StructSlots;
+use crate::arrays::struct_::array::struct_slots_with_capacity;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -77,7 +75,7 @@ impl VTable for Struct {
             );
         }
 
-        let validity = child_to_validity(slots[VALIDITY_SLOT].as_ref(), *nullability);
+        let validity = child_to_validity(slots[StructSlots::VALIDITY].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len()
             && validity_len != len
         {
@@ -88,7 +86,7 @@ impl VTable for Struct {
             );
         }
 
-        let field_slots = &slots[FIELDS_OFFSET..];
+        let field_slots = &slots[StructSlots::FIELDS_OFFSET..];
         if field_slots.is_empty() {
             return Ok(());
         }
@@ -174,24 +172,26 @@ impl VTable for Struct {
             );
         };
 
-        let field_children: Vec<_> = (0..struct_dtype.nfields())
-            .map(|i| {
-                let child_dtype = struct_dtype
-                    .field_by_index(i)
-                    .vortex_expect("no out of bounds");
-                children.get(non_data_children + i, &child_dtype, len)
-            })
-            .try_collect()?;
+        let mut slots = struct_slots_with_capacity(&validity, len, struct_dtype.nfields());
+        for i in 0..struct_dtype.nfields() {
+            let child_dtype = struct_dtype
+                .field_by_index(i)
+                .vortex_expect("no out of bounds");
+            slots.push(Some(children.get(
+                non_data_children + i,
+                &child_dtype,
+                len,
+            )?));
+        }
 
-        let slots = make_struct_slots(&field_children, &validity, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        if idx == VALIDITY_SLOT {
+        if idx == StructSlots::VALIDITY {
             "validity".to_string()
         } else {
-            array.dtype().as_struct_fields().names()[idx - FIELDS_OFFSET].to_string()
+            array.dtype().as_struct_fields().names()[idx - StructSlots::FIELDS_OFFSET].to_string()
         }
     }
 

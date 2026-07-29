@@ -18,6 +18,7 @@ pub mod for_decompress;
 #[array_slots(crate::FoR)]
 pub struct FoRSlots {
     /// The encoded array with the frame-of-reference (minimum value) subtracted.
+    #[slot(0)]
     pub encoded: ArrayRef,
 }
 

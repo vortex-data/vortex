@@ -94,8 +94,8 @@ impl ScalarFnVTable for GeoIntersects {
         union_child_validities(expression)
     }
 
-    fn is_null_sensitive(&self, _: &Self::Options) -> bool {
-        false
+    fn is_strict(&self, _: &Self::Options) -> bool {
+        true
     }
 }
 

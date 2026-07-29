@@ -4,7 +4,7 @@
 //! The [`VortexSession`] container.
 //!
 //! A [`VortexSession`] is a type-map of [`VortexSessionVar`]s keyed by [`TypeId`]. It is backed by
-//! an [`ArcSwap`], giving lock-free reads and copy-on-write writes:
+//! an [`ArcSwapMap`], giving lock-free reads and copy-on-write writes:
 //!
 //! * **Reads** ([`SessionExt::get`], [`SessionExt::get_opt`]) load the current snapshot
 //!   without taking any lock and hand back a [`SessionGuard`] that derefs to the variable. Because a
@@ -13,11 +13,11 @@
 //!
 //! * **Writes** ([`VortexSession::with_some`], [`SessionExt::get`] on a missing default) are
 //!   copy-on-write: the map is cloned, the change applied to the private copy, and the new map
-//!   atomically published via [`ArcSwap::rcu`]. The closure passed to `rcu` only clones the map and
-//!   inserts an already-constructed value, so no user code (in particular, no `Default::default`
-//!   implementation) ever runs while a lock is held. This is the key difference from the previous
-//!   `DashMap`-backed session, where `entry().or_insert_with(f)` ran `f` while holding the shard's
-//!   write lock and could deadlock if `f` re-entered the session.
+//!   atomically published. The value is constructed *before* the map is updated, so no user code
+//!   (in particular, no `Default::default` implementation) ever runs while a lock is held. This is
+//!   the key difference from the previous `DashMap`-backed session, where
+//!   `entry().or_insert_with(f)` ran `f` while holding the shard's write lock and could deadlock if
+//!   `f` re-entered the session.
 //!
 //! A modified session is produced by mutating it **in place**: [`VortexSession::with_some`] — and
 //! the configuration `with_*` helpers built on it — apply their change copy-on-write to the shared
@@ -39,12 +39,12 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
 use arc_swap::Guard;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::ArcSwapMap;
 use crate::IdHasher;
 use crate::SessionExt;
 use crate::SessionVar;
@@ -63,8 +63,14 @@ pub trait VortexSessionVar: SessionVar {}
 
 impl<V: SessionVar + Clone> VortexSessionVar for V {}
 
+/// The hasher for the session type-map; [`TypeId`]s are already hashes.
+type IdHashBuilder = BuildHasherDefault<IdHasher>;
+
 /// The immutable type-map backing a published [`VortexSession`] snapshot.
-type SessionVars = HashMap<TypeId, Arc<dyn VortexSessionVar>, BuildHasherDefault<IdHasher>>;
+type SessionVars = HashMap<TypeId, Arc<dyn VortexSessionVar>, IdHashBuilder>;
+
+/// The shared, copy-on-write store that publishes [`SessionVars`] snapshots.
+type SharedSessionVars = ArcSwapMap<TypeId, Arc<dyn VortexSessionVar>, IdHashBuilder>;
 
 /// A reference to a session variable of type `V`, returned by [`SessionExt::get`] and
 /// [`SessionExt::get_opt`].
@@ -155,38 +161,30 @@ impl<V: VortexSessionVar> Debug for SessionMut<'_, V> {
 /// clone (via [`VortexSession::with_some`] or one of the `with_*` helpers) is observed by all
 /// clones. To build an *independent* session, start from [`VortexSession::empty`].
 #[derive(Clone)]
-pub struct VortexSession(Arc<ArcSwap<SessionVars>>);
+pub struct VortexSession(SharedSessionVars);
 
 impl Debug for VortexSession {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("VortexSession")
-            .field(&self.0.load().as_ref())
-            .finish()
+        self.0
+            .read(|vars| f.debug_tuple("VortexSession").field(vars).finish())
     }
 }
 
 impl VortexSession {
     /// Create a new [`VortexSession`] with no session state.
     pub fn empty() -> Self {
-        Self(Arc::new(ArcSwap::from_pointee(SessionVars::default())))
+        Self(SharedSessionVars::default())
     }
 
     /// Inserts `V::default()` if no variable of type `V` is present yet, copy-on-write.
     ///
-    /// The default is constructed *outside* the [`ArcSwap::rcu`] closure, so `V::default()` never
-    /// runs under a lock and is never run more than once — it may therefore freely re-enter the
-    /// session (read or even register other variables) without risk of deadlock. The closure only
-    /// clones the map and inserts the already-built value, so if a concurrent writer published a
-    /// value (or the closure is retried under contention) the first-published value is kept and the
-    /// prebuilt default is simply dropped.
+    /// The default is constructed *before* the map is updated, so `V::default()` never runs under a
+    /// lock and is never run more than once — it may therefore freely re-enter the session (read or
+    /// even register other variables) without risk of deadlock. If a concurrent writer published a
+    /// value first, that value is kept and the prebuilt default is simply dropped.
     fn insert_default<V: VortexSessionVar + Default>(&self) {
         let default: Arc<dyn VortexSessionVar> = Arc::new(V::default());
-        self.0.rcu(|current| {
-            let mut next = SessionVars::clone(current);
-            next.entry(TypeId::of::<V>())
-                .or_insert_with(|| Arc::clone(&default));
-            next
-        });
+        self.0.insert_if_absent(TypeId::of::<V>(), default);
     }
 
     /// Inserts a session variable of type `V`, replacing any existing variable of that type.
@@ -196,12 +194,7 @@ impl VortexSession {
     /// through those (or through a default inserted by [`get`](SessionExt::get)). The mutation is
     /// applied in place to the shared backing store, so it is visible through every clone.
     pub fn register<V: VortexSessionVar>(&self, var: V) {
-        let var: Arc<dyn VortexSessionVar> = Arc::new(var);
-        self.0.rcu(|current| {
-            let mut next = SessionVars::clone(current);
-            next.insert(TypeId::of::<V>(), Arc::clone(&var));
-            next
-        });
+        self.0.insert(TypeId::of::<V>(), Arc::new(var));
     }
 
     /// Inserts a new session variable of type `V` with its default value, mutating this session in

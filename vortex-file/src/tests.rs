@@ -93,6 +93,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&session);
+    crate::enable_all_registered_array_encodings(&session);
 
     session
 });
@@ -412,15 +413,14 @@ async fn unequal_batches() {
 async fn write_chunked() {
     let strings = VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array();
     let string_dtype = strings.dtype().clone();
-    let strings_chunked = ChunkedArray::try_new(iter::repeat_n(strings, 4).collect(), string_dtype)
+    let strings_chunked = ChunkedArray::try_new(iter::repeat_n(strings, 4), string_dtype)
         .unwrap()
         .into_array();
     let numbers = buffer![1u32, 2, 3, 4].into_array();
     let numbers_dtype = numbers.dtype().clone();
-    let numbers_chunked =
-        ChunkedArray::try_new(iter::repeat_n(numbers, 4).collect(), numbers_dtype)
-            .unwrap()
-            .into_array();
+    let numbers_chunked = ChunkedArray::try_new(iter::repeat_n(numbers, 4), numbers_dtype)
+        .unwrap()
+        .into_array();
     let st = StructArray::try_new(
         ["strings", "numbers"].into(),
         vec![strings_chunked, numbers_chunked],
@@ -431,7 +431,7 @@ async fn write_chunked() {
     .into_array();
     let st_dtype = st.dtype().clone();
 
-    let chunked_st = ChunkedArray::try_new(iter::repeat_n(st, 3).collect(), st_dtype)
+    let chunked_st = ChunkedArray::try_new(iter::repeat_n(st, 3), st_dtype)
         .unwrap()
         .into_array();
     let mut buf = ByteBufferMut::empty();
@@ -2241,9 +2241,9 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
         if layout.encoding_id().as_ref() == "vortex.dict" {
             // child 0 = values, child 1 = codes
             let values_offsets =
-                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(0).unwrap().unwrap().as_ref(), segment_specs);
             let codes_offsets =
-                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(1).unwrap().unwrap().as_ref(), segment_specs);
 
             assert_offsets_ordered(
                 &codes_offsets,
@@ -2363,9 +2363,9 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             let data_offsets =
-                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(0).unwrap().unwrap().as_ref(), segment_specs);
             let zones_offsets =
-                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(1).unwrap().unwrap().as_ref(), segment_specs);
 
             assert_offsets_ordered(
                 &data_offsets,
@@ -2395,11 +2395,11 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             all_data.extend(collect_segment_offsets(
-                layout.child(0).unwrap().as_ref(),
+                layout.slot(0).unwrap().unwrap().as_ref(),
                 segment_specs,
             ));
             all_zones.extend(collect_segment_offsets(
-                layout.child(1).unwrap().as_ref(),
+                layout.slot(1).unwrap().unwrap().as_ref(),
                 segment_specs,
             ));
             return;

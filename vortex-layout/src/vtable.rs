@@ -78,11 +78,32 @@ pub trait VTable: 'static + Clone + Send + Sync + Debug {
         .into_typed())
     }
 
-    /// Returns the expected dtype of child `idx`.
-    fn child_dtype(layout: &Layout<Self>, idx: usize) -> VortexResult<DType>;
+    /// Returns the number of logical child *slots* of this layout.
+    ///
+    /// Slots are fixed logical positions: a given child always occupies the same slot index
+    /// regardless of which optional siblings are present. A slot may be absent (see
+    /// [`slot_to_child`](VTable::slot_to_child)), in which case it has no corresponding serialized
+    /// child. The default implementation reports one slot per serialized child, i.e. every slot is
+    /// always present.
+    fn nslots(layout: &Layout<Self>) -> usize {
+        layout.nchildren()
+    }
 
-    /// Returns the relationship between child `idx` and its parent.
-    fn child_type(layout: &Layout<Self>, idx: usize) -> LayoutChildType;
+    /// Maps a logical `slot` to the index of its serialized (dense) child, or `None` if the slot
+    /// is absent for this layout instance.
+    ///
+    /// Serialized children are stored densely (present-only), so an absent slot shifts the dense
+    /// indices of the slots that follow it. This mapping centralizes that arithmetic; the default
+    /// implementation is the identity, treating slot indices and dense child indices as equal.
+    fn slot_to_child(layout: &Layout<Self>, slot: usize) -> Option<usize> {
+        (slot < Self::nslots(layout)).then_some(slot)
+    }
+
+    /// Returns the expected dtype of the child in logical `slot`.
+    fn child_dtype(layout: &Layout<Self>, slot: usize) -> VortexResult<DType>;
+
+    /// Returns the relationship between the child in logical `slot` and its parent.
+    fn child_type(layout: &Layout<Self>, slot: usize) -> LayoutChildType;
 
     /// Construct a reader for this layout.
     fn new_reader(

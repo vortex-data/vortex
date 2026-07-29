@@ -5,7 +5,7 @@ name: PR SQL Benchmarks
 
 concurrency:
   group: >-
-    ${{ github.workflow }}-${{ inputs.benchmark_profile || 'base' }}-${{
+    ${{ github.workflow }}-${{ inputs.matrix_preset || 'pr' }}-${{
       github.head_ref || github.run_id
     }}
   cancel-in-progress: true
@@ -13,20 +13,20 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      benchmark_profile:
+      matrix_preset:
         required: false
         type: string
-        default: "base"
+        default: "pr"
   workflow_dispatch:
     inputs:
-      benchmark_profile:
-        description: "SQL benchmark profile to run"
+      matrix_preset:
+        description: "SQL benchmark matrix to run"
         required: false
         type: choice
-        default: "base"
+        default: "pr"
         options:
-          - "base"
-          - "full"
+          - "pr"
+          - "pr-full"
 
 permissions:
   contents: read
@@ -39,4 +39,4 @@ jobs:
     secrets: inherit
     with:
       mode: "pr"
-      benchmark_profile: ${{ inputs.benchmark_profile || 'base' }}
+      matrix_preset: ${{ inputs.matrix_preset }}

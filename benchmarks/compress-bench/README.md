@@ -14,3 +14,14 @@ See [`src/main.rs`](./src/main.rs) for the dataset list and CLI flags (`--format
 ```bash
 cargo run -p compress-bench --profile release_debug
 ```
+
+GPU decompression is opt-in and runs only the existing benchmark names allow-listed in
+`src/main.rs`:
+
+```bash
+cargo run -p compress-bench --profile release_debug \
+  --features cuda,unstable_encodings -- --gpu-decompress
+```
+
+On Linux, GPU files are read with direct IO (`O_DIRECT`) so repeated iterations measure
+storage bandwidth rather than page-cache hits.

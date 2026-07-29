@@ -228,7 +228,7 @@ impl Canonical {
                     struct_dtype
                         .fields()
                         .map(|f| Canonical::empty(&f).into_array())
-                        .collect::<Arc<[_]>>(),
+                        .collect::<Vec<_>>(),
                     struct_dtype.clone(),
                     0,
                     Validity::from(n),
@@ -687,7 +687,7 @@ impl Executable for CanonicalValidity {
                 let type_ids = type_ids.execute::<CanonicalValidity>(ctx)?.0.into_array();
 
                 Ok(CanonicalValidity(Canonical::Union(unsafe {
-                    UnionArray::new_unchecked(type_ids, variants, children)
+                    UnionArray::new_unchecked(type_ids, variants, children.iter().cloned())
                 })))
             }
             Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension(
@@ -854,9 +854,9 @@ impl Executable for RecursiveCanonical {
                     validity,
                 } = st.into_data_parts();
                 let executed_fields = fields
-                    .iter()
-                    .map(|f| Ok(f.clone().execute::<RecursiveCanonical>(ctx)?.0.into_array()))
-                    .collect::<VortexResult<Arc<[_]>>>()?;
+                    .into_iter()
+                    .map(|f| Ok(f.execute::<RecursiveCanonical>(ctx)?.0.into_array()))
+                    .collect::<VortexResult<Vec<_>>>()?;
 
                 Ok(RecursiveCanonical(Canonical::Struct(unsafe {
                     StructArray::new_unchecked(
@@ -882,7 +882,7 @@ impl Executable for RecursiveCanonical {
                             .execute::<RecursiveCanonical>(ctx)
                             .map(|canonical| canonical.0.into_array())
                     })
-                    .collect::<VortexResult<Arc<[_]>>>()?;
+                    .collect::<VortexResult<Vec<_>>>()?;
 
                 Ok(RecursiveCanonical(Canonical::Union(unsafe {
                     UnionArray::new_unchecked(type_ids, variants, children)

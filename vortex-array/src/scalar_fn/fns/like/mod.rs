@@ -164,8 +164,8 @@ impl ScalarFnVTable for Like {
         Ok(Some(and(child_validity, pattern_validity)))
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
-        false
+    fn is_strict(&self, _instance: &Self::Options) -> bool {
+        true
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
@@ -723,7 +723,7 @@ mod tests {
     #[test]
     fn signature() {
         let like_expr = like(root(), lit("%test%"));
-        assert!(!like_expr.signature().is_null_sensitive());
+        assert!(like_expr.signature().is_strict());
         assert!(!like_expr.signature().is_fallible());
     }
 

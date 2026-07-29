@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+{%- if not embedded and docstitle %}
+  {%- set titlesuffix = " — "|safe + docstitle|e %}
+{%- else %}
+  {%- set titlesuffix = "" %}
+{%- endif %}
+<html lang="{{ language }}" data-content_root="{{ content_root }}">
+<head>
+  <meta charset="{{ encoding }}" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  {{- metatags }}
+  {%- block htmltitle %}
+  <title>{{ title|striptags|e }}{{ titlesuffix }}</title>
+  {%- endblock %}
+  <meta property="og:title" content="{{ title|striptags|e }}" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="{{ project|e }}" />
+  {%- if pageurl %}
+  <meta property="og:url" content="{{ pageurl|e }}" />
+  {%- endif %}
+  <meta property="og:image" content="https://docs.vortex.dev/_static/vortex_logo.svg" />
+  {%- for css in css_files %}
+  {{ css_tag(css) }}
+  {%- endfor %}
+  {%- block scripts %}
+  {%- for js in script_files %}
+  {{ js_tag(js) }}
+  {%- endfor %}
+  {%- endblock %}
+  {%- if favicon_url %}
+  <link rel="icon" href="{{ favicon_url|e }}" />
+  {%- endif %}
+  {%- if pageurl %}
+  <link rel="canonical" href="{{ pageurl|e }}" />
+  {%- endif %}
+  {%- if hasdoc('genindex') %}
+  <link rel="index" title="{{ _('Index') }}" href="{{ pathto('genindex') }}" />
+  {%- endif %}
+  {%- if hasdoc('search') %}
+  <link rel="search" title="{{ _('Search') }}" href="{{ pathto('search') }}" />
+  {%- endif %}
+  {%- block extrahead %}{% endblock %}
+</head>
+<body class="page-{{ pagename|replace('/', '-')|e }}">
+<a class="skip-link" href="#main">{{ _('Skip to content') }}</a>
+<input type="checkbox" id="nav-toggle" class="visually-hidden" />
+<header class="header">
+  <label for="nav-toggle" class="nav-toggle" aria-label="{{ _('Toggle navigation') }}">
+    <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path stroke="currentColor" stroke-width="1.5" d="M1 3.5h14M1 8h14M1 12.5h14"/></svg>
+  </label>
+  <a class="logo" href="{{ pathto(root_doc)|e }}">
+    <img class="only-light" src="{{ pathto('_static/vortex_logo.svg', 1) }}" alt="" width="24" height="24" />
+    <img class="only-dark" src="{{ pathto('_static/vortex_logo_dark_theme.svg', 1) }}" alt="" width="24" height="24" />
+    <span>Vortex</span>
+  </a>
+  <form class="search" role="search" action="{{ pathto('search') }}" method="get">
+    <input type="search" name="q" placeholder="{{ _('Search') }}" aria-label="{{ _('Search the docs') }}" />
+  </form>
+  <nav class="extlinks" aria-label="{{ _('External links') }}">
+    <a href="https://github.com/vortex-data/vortex">GitHub</a>
+    <a href="https://pypi.org/project/vortex-data">PyPI</a>
+    <a href="https://crates.io/crates/vortex">crates.io</a>
+  </nav>
+</header>
+<div class="layout">
+  <nav class="sidebar" id="nav" aria-label="{{ _('Site navigation') }}">
+    {{ vortex_globaltoc }}
+  </nav>
+  <main id="main" class="content">
+    {%- block body %}{% endblock %}
+    <footer class="footer">
+      {%- if page_source_suffix %}
+      <a href="https://github.com/vortex-data/vortex/edit/develop/docs/{{ pagename }}{{ page_source_suffix }}">{{ _('Edit this page') }}</a> ·
+      {%- endif %}
+      © {{ copyright|e }}.
+      {%- if show_sphinx %} {% trans sphinx_version=sphinx_version|e %}Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> {{ sphinx_version }}.{% endtrans %}{% endif %}
+    </footer>
+  </main>
+  {%- if display_toc %}
+  <aside class="pagetoc">
+    <nav aria-label="{{ _('On this page') }}">
+      <p>{{ _('On this page') }}</p>
+      {{ toc }}
+    </nav>
+  </aside>
+  {%- endif %}
+</div>
+</body>
+</html>

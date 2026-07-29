@@ -162,16 +162,16 @@ where
     O: NativePType + DeviceRepr + Send + Sync + 'static,
     S: NativePType + DeviceRepr + Send + Sync + 'static,
 {
-    let status = new_list_view_status(ctx).await?;
+    let mut status = new_list_view_status(ctx)?;
     let scan_len = list_len + 1;
 
-    let scan_input = init_list_view_rebuild_scan::<S>(&sizes, &status, list_len, ctx)?;
+    let scan_input = init_list_view_rebuild_scan::<S>(&sizes, &mut status, list_len, ctx)?;
     let output_offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
         exclusive_sum_i32(&scan_input, scan_len, ctx)?,
     )));
 
-    validate_list_view_rebuild_offsets::<S>(&sizes, &output_offsets, &status, list_len, ctx)?;
-    check_list_view_rebuild_status(&status).await?;
+    validate_list_view_rebuild_offsets::<S>(&sizes, &output_offsets, &mut status, list_len, ctx)?;
+    check_list_view_rebuild_status(&status, ctx)?;
 
     let total_values = total_values_from_offsets(&output_offsets, list_len).await?;
     let value_width = values_ptype.byte_width();
@@ -188,10 +188,10 @@ where
         elements_len,
         list_len,
         value_width,
-        &status,
+        &mut status,
         ctx,
     )?;
-    check_list_view_rebuild_status(&status).await?;
+    check_list_view_rebuild_status(&status, ctx)?;
 
     let values = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(output_values)))
         .slice(0..output_values_bytes);
@@ -199,16 +199,24 @@ where
 }
 
 /// Allocate the device status word used by list-view rebuild kernels.
-async fn new_list_view_status(ctx: &mut CudaExecutionCtx) -> VortexResult<BufferHandle> {
-    ctx.ensure_on_device(BufferHandle::new_host(
-        Buffer::from(vec![0u32]).into_byte_buffer(),
-    ))
-    .await
+fn new_list_view_status(ctx: &mut CudaExecutionCtx) -> VortexResult<CudaSlice<u32>> {
+    let mut status = ctx.device_alloc::<u32>(1)?;
+    ctx.stream()
+        .memset_zeros(&mut status)
+        .map_err(|err| vortex_err!("Failed to zero list-view rebuild status buffer: {err}"))?;
+    Ok(status)
 }
 
 /// Convert the list-view rebuild status word into a Vortex error.
-async fn check_list_view_rebuild_status(status: &BufferHandle) -> VortexResult<()> {
-    match Buffer::<u32>::from_byte_buffer(status.try_to_host()?.await?)[0] {
+fn check_list_view_rebuild_status(
+    status: &CudaSlice<u32>,
+    ctx: &CudaExecutionCtx,
+) -> VortexResult<()> {
+    let status = ctx
+        .stream()
+        .clone_dtoh(status)
+        .map_err(|err| vortex_err!("Failed to copy list-view rebuild status to host: {err}"))?[0];
+    match status {
         0 => Ok(()),
         1 => vortex_bail!(
             "cannot export device-resident ListViewArray as Arrow List: offsets/sizes are invalid for the child elements"
@@ -223,7 +231,7 @@ async fn check_list_view_rebuild_status(status: &BufferHandle) -> VortexResult<(
 /// Initialize the exclusive-scan input for rebuilt Arrow List offsets.
 fn init_list_view_rebuild_scan<S>(
     sizes: &BufferHandle,
-    status: &BufferHandle,
+    status: &mut CudaSlice<u32>,
     list_len: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<CudaSlice<i32>>
@@ -232,17 +240,16 @@ where
 {
     let scan_len = list_len + 1;
     let sizes_view = sizes.cuda_view::<S>()?;
-    let status_view = status.cuda_view::<u32>()?;
     let list_len_u64 = list_len as u64;
     let scan_len_u64 = scan_len as u64;
-    let scan_input = ctx.device_alloc::<i32>(scan_len)?;
+    let mut scan_input = ctx.device_alloc::<i32>(scan_len)?;
     let init_kernel = ctx
         .load_function_with_suffixes("list_view", &["rebuild_init_scan", &S::PTYPE.to_string()])?;
 
     ctx.launch_kernel(&init_kernel, scan_len, |args| {
         args.arg(&sizes_view)
-            .arg(&scan_input)
-            .arg(&status_view)
+            .arg(&mut scan_input)
+            .arg(&mut *status)
             .arg(&list_len_u64)
             .arg(&scan_len_u64);
     })?;
@@ -254,7 +261,7 @@ where
 fn validate_list_view_rebuild_offsets<S>(
     sizes: &BufferHandle,
     output_offsets: &BufferHandle,
-    status: &BufferHandle,
+    status: &mut CudaSlice<u32>,
     list_len: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<()>
@@ -263,7 +270,6 @@ where
 {
     let sizes_view = sizes.cuda_view::<S>()?;
     let output_offsets_view = output_offsets.cuda_view::<i32>()?;
-    let status_view = status.cuda_view::<u32>()?;
     let list_len_u64 = list_len as u64;
     let validate_kernel = ctx.load_function_with_suffixes(
         "list_view",
@@ -273,7 +279,7 @@ where
     ctx.launch_kernel(&validate_kernel, list_len, |args| {
         args.arg(&sizes_view)
             .arg(&output_offsets_view)
-            .arg(&status_view)
+            .arg(&mut *status)
             .arg(&list_len_u64);
     })
 }
@@ -304,7 +310,7 @@ fn gather_rebuilt_primitive_values<O, S>(
     elements_len: usize,
     list_len: usize,
     value_width: usize,
-    status: &BufferHandle,
+    status: &mut CudaSlice<u32>,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<CudaSlice<u8>>
 where
@@ -315,8 +321,7 @@ where
     let sizes_view = sizes.cuda_view::<S>()?;
     let values_view = values.cuda_view::<u8>()?;
     let output_offsets_view = output_offsets.cuda_view::<i32>()?;
-    let output_values = ctx.device_alloc::<u8>(output_values_bytes.max(1))?;
-    let status_view = status.cuda_view::<u32>()?;
+    let mut output_values = ctx.device_alloc::<u8>(output_values_bytes.max(1))?;
     let list_len_u64 = list_len as u64;
     let elements_len_u64 = elements_len as u64;
     let value_width_u64 = value_width as u64;
@@ -334,8 +339,8 @@ where
             .arg(&sizes_view)
             .arg(&output_offsets_view)
             .arg(&values_view)
-            .arg(&output_values)
-            .arg(&status_view)
+            .arg(&mut output_values)
+            .arg(&mut *status)
             .arg(&list_len_u64)
             .arg(&elements_len_u64)
             .arg(&value_width_u64);
@@ -512,17 +517,11 @@ where
     S: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let output_len = len + 1;
-    let output = ctx.device_alloc::<i32>(output_len)?;
-
-    let status = ctx
-        .ensure_on_device(BufferHandle::new_host(
-            Buffer::from(vec![0u32]).into_byte_buffer(),
-        ))
-        .await?;
+    let mut output = ctx.device_alloc::<i32>(output_len)?;
+    let mut status = new_list_view_status(ctx)?;
 
     let offsets_view = offsets.cuda_view::<O>()?;
     let sizes_view = sizes.cuda_view::<S>()?;
-    let status_view = status.cuda_view::<u32>()?;
     let list_len_u64 = len as u64;
 
     let kernel = ctx.load_function_with_suffixes(
@@ -532,12 +531,16 @@ where
     ctx.launch_kernel(&kernel, len, |args| {
         args.arg(&offsets_view)
             .arg(&sizes_view)
-            .arg(&output)
-            .arg(&status_view)
+            .arg(&mut output)
+            .arg(&mut status)
             .arg(&list_len_u64);
     })?;
 
-    match Buffer::<u32>::from_byte_buffer(status.try_to_host()?.await?)[0] {
+    let status = ctx
+        .stream()
+        .clone_dtoh(&status)
+        .map_err(|err| vortex_err!("Failed to copy list-view offsets status to host: {err}"))?[0];
+    match status {
         0 => Ok(DeviceListViewOffsets::Contiguous(BufferHandle::new_device(
             Arc::new(CudaDeviceBuffer::new(output)),
         ))),

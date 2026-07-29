@@ -34,10 +34,12 @@ use crate::dtype::DType;
 #[array_slots(Variant)]
 pub struct VariantSlots {
     /// The logical variant storage that preserves the full value for every row.
+    #[slot(0)]
     pub core_storage: ArrayRef,
     /// The optional row-aligned typed shredded tree for selected variant paths.
     /// This slot is `Some` only if the array was canonicalized and the shredded data
     /// was pulled out of the underlying variant storage.
+    #[slot(1)]
     pub shredded: Option<ArrayRef>,
 }
 
@@ -108,18 +110,17 @@ mod tests {
     }
 
     fn row_storage(values: impl IntoIterator<Item = i32>) -> VortexResult<ArrayRef> {
-        let chunks = values
-            .into_iter()
-            .map(|value| {
+        Ok(ChunkedArray::try_new(
+            values.into_iter().map(|value| {
                 ConstantArray::new(
                     Scalar::variant(Scalar::primitive(value, Nullability::NonNullable)),
                     1,
                 )
                 .into_array()
-            })
-            .collect();
-
-        Ok(ChunkedArray::try_new(chunks, DType::Variant(Nullability::NonNullable))?.into_array())
+            }),
+            DType::Variant(Nullability::NonNullable),
+        )?
+        .into_array())
     }
 
     fn variant_with_shredded(

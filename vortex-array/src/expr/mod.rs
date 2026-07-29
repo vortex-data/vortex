@@ -12,7 +12,7 @@
 //!
 //! Each node references a scalar function defined by a
 //! [`ScalarFnVTable`](crate::scalar_fn::ScalarFnVTable). The vtable declares the function signature,
-//! properties such as null-sensitivity, and the logic that executes it over input arrays. Built-in
+//! properties such as strictness, and the logic that executes it over input arrays. Built-in
 //! functions live in [`crate::scalar_fn`]; integration and plugin crates supply additional,
 //! use-case-specific functions.
 //!

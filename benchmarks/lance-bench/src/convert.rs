@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use arrow_cast::cast;
+use glob::Pattern;
 use lance::dataset::Dataset as LanceDataset;
 use lance::dataset::WriteParams;
 use lance::deps::arrow_array::RecordBatch;
@@ -101,15 +102,19 @@ pub async fn convert_parquet_to_lance<'p>(
     parquet_dir: &'p Path,
     lance_dir: &'p Path,
     dataset_name: &str,
-    file_prefix: Option<&str>,
+    file_pattern: Option<&str>,
     convert_utf8view: bool,
 ) -> anyhow::Result<()> {
     // let lance_dir = lance_dir.to_path_buf();
     // let parquet_dir = parquet_dir.to_path_buf();
-    // let file_prefix = file_prefix.to_owned();
+    // let file_pattern = file_pattern.to_owned();
     // let dataset_name = dataset_name.to_string();
 
     let dataset_path = lance_dir.join(format!("{}.lance", dataset_name));
+    let file_pattern = file_pattern
+        .map(Pattern::new)
+        .transpose()
+        .map_err(|e| anyhow!("Invalid Parquet file pattern: {e}"))?;
 
     // Use idempotent pattern to avoid reprocessing
     idempotent_async(
@@ -123,14 +128,12 @@ pub async fn convert_parquet_to_lance<'p>(
                 .filter(|entry| {
                     let path = entry.path();
                     if path.extension().is_some_and(|e| e == "parquet") {
-                        if let Some(prefix) = file_prefix {
-                            // Check if file starts with the prefix
-                            path.file_stem()
+                        if let Some(pattern) = &file_pattern {
+                            path.file_name()
                                 .and_then(|s| s.to_str())
-                                .map(|s| s.starts_with(prefix))
+                                .map(|s| pattern.matches(s))
                                 .unwrap_or(false)
                         } else {
-                            // No prefix filter, accept all parquet files
                             true
                         }
                     } else {
@@ -142,11 +145,11 @@ pub async fn convert_parquet_to_lance<'p>(
 
             if parquet_files.is_empty() {
                 anyhow::bail!(
-                    "No Parquet files found{}in {}",
-                    if let Some(p) = file_prefix {
-                        format!(" with prefix '{}' ", p)
+                    "No Parquet files found{} in {}",
+                    if let Some(p) = file_pattern.as_ref() {
+                        format!(" matching '{}' ", p.as_str())
                     } else {
-                        " ".to_string()
+                        String::new()
                     },
                     parquet_dir.display()
                 );

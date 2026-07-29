@@ -586,10 +586,7 @@ impl Validity {
         Some(Validity::Array(
             unsafe {
                 ChunkedArray::new_unchecked(
-                    validities
-                        .into_iter()
-                        .map(|(v, len)| v.to_array(len))
-                        .collect(),
+                    validities.into_iter().map(|(v, len)| v.to_array(len)),
                     DType::Bool(Nullability::NonNullable),
                 )
             }

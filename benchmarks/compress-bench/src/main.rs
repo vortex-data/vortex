@@ -7,6 +7,8 @@ use std::time::Duration;
 use clap::Parser;
 #[cfg(feature = "lance")]
 use compress_bench::LanceCompressor;
+#[cfg(feature = "cuda")]
+use compress_bench::gpu_vortex::GpuVortexCompressor;
 use compress_bench::parquet::ParquetCompressor;
 use compress_bench::vortex::VortexCompressor;
 use indicatif::ProgressBar;
@@ -65,14 +67,18 @@ struct Args {
     ops: Vec<CompressOp>,
     #[arg(long)]
     datasets: Option<String>,
+    /// Run GPU decompression for the allow-listed benchmarks.
+    ///
+    /// This filters the suite to GPU-supported dataset names and runs only Vortex decompression.
+    #[arg(long)]
+    gpu_decompress: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
     #[arg(short, long)]
     output_path: Option<PathBuf>,
-    /// Additionally write v3 JSONL records to this path. See
-    /// `benchmarks-website/planning/02-contracts.md`.
-    #[arg(long)]
-    gh_json_v3: Option<PathBuf>,
+    /// Additionally write benchmark ingest JSONL records to this path.
+    #[arg(long = "ingest-jsonl")]
+    ingest_output: Option<PathBuf>,
     #[arg(long)]
     tracing: bool,
     /// Format for the primary stderr log sink. `text` is the default human-readable format;
@@ -87,20 +93,40 @@ async fn main() -> anyhow::Result<()> {
 
     setup_logging_and_tracing_with_format(args.verbose, args.tracing, args.log_format)?;
 
+    if args.gpu_decompress && !cfg!(feature = "cuda") {
+        anyhow::bail!("--gpu-decompress requires building compress-bench with --features cuda");
+    }
+
+    let (formats, ops) = if args.gpu_decompress {
+        (vec![Format::OnDiskVortex], vec![CompressOp::Decompress])
+    } else {
+        (args.formats, args.ops)
+    };
+
     run_compress(
         args.iterations,
         args.datasets.map(|d| Regex::new(&d)).transpose()?,
-        args.formats,
-        args.ops,
+        formats,
+        ops,
+        args.gpu_decompress,
         args.display_format,
         args.output_path,
-        args.gh_json_v3,
+        args.ingest_output,
     )
     .await
 }
 
 /// Get a compressor for the given format.
-fn get_compressor(format: Format) -> Box<dyn Compressor> {
+fn get_compressor(format: Format, gpu_decompress: bool) -> Box<dyn Compressor> {
+    if gpu_decompress {
+        #[cfg(feature = "cuda")]
+        {
+            return Box::new(GpuVortexCompressor);
+        }
+        #[cfg(not(feature = "cuda"))]
+        unreachable!("GPU feature validation happens before selecting compressors");
+    }
+
     match format {
         Format::OnDiskVortex => Box::new(VortexCompressor),
         Format::Parquet => Box::new(ParquetCompressor::new()),
@@ -116,14 +142,19 @@ const BENCHMARK_ID: &str = "compress";
 /// Repo-relative path of the suite explainer linked from CI benchmark PR comments.
 const DOC_PATH: &str = "benchmarks/compress-bench/README.md";
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "benchmark CLI options are forwarded one-to-one"
+)]
 async fn run_compress(
     iterations: usize,
     datasets_filter: Option<Regex>,
     formats: Vec<Format>,
     ops: Vec<CompressOp>,
+    gpu_decompress: bool,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
-    gh_json_v3: Option<PathBuf>,
+    ingest_output: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let targets = formats
         .iter()
@@ -147,6 +178,14 @@ async fn run_compress(
         // ),
     ];
 
+    // Add an existing benchmark name here only after its CUDA-compatible compression and
+    // decompression kernels have been verified end to end.
+    #[expect(
+        clippy::useless_vec,
+        reason = "this is an intentionally incremental allow-list of benchmark names"
+    )]
+    let gpu_decompress_benchmarks = vec!["TPC-H l_comment canonical"];
+
     let datasets: Vec<&dyn Dataset> = [
         &TaxiData as &dyn Dataset,
         PBI_DATASETS.get(Arade),
@@ -168,6 +207,9 @@ async fn run_compress(
     .into_iter()
     .chain(structlistofints.iter().map(|d| d as &dyn Dataset))
     .filter(|d| {
+        if gpu_decompress && !gpu_decompress_benchmarks.contains(&d.name()) {
+            return false;
+        }
         if let Some(filter) = datasets_filter.as_ref() {
             filter.is_match(d.name())
         } else {
@@ -184,9 +226,15 @@ async fn run_compress(
     let mut v3_records: Vec<v3::V3Record> = Vec::new();
 
     for dataset_handle in datasets.into_iter() {
-        let (m, mut records) =
-            run_benchmark_for_dataset(&progress, &formats, &ops, iterations, dataset_handle)
-                .await?;
+        let (m, mut records) = run_benchmark_for_dataset(
+            &progress,
+            &formats,
+            &ops,
+            iterations,
+            dataset_handle,
+            gpu_decompress,
+        )
+        .await?;
         measurements.push(m);
         v3_records.append(&mut records);
     }
@@ -195,7 +243,7 @@ async fn run_compress(
 
     progress.finish();
 
-    if let Some(path) = gh_json_v3 {
+    if let Some(path) = ingest_output {
         v3::write_jsonl_to_path(&path, &v3_records)?;
     }
 
@@ -227,6 +275,7 @@ async fn run_benchmark_for_dataset(
     ops: &[CompressOp],
     iterations: usize,
     dataset_handle: &dyn Dataset,
+    gpu_decompress: bool,
 ) -> anyhow::Result<(CompressMeasurements, Vec<v3::V3Record>)> {
     let bench_name = dataset_handle.name();
     let (v3_dataset, v3_variant) = dataset_handle.v3_dataset_dims();
@@ -242,7 +291,7 @@ async fn run_benchmark_for_dataset(
     let mut v3_records: Vec<v3::V3Record> = Vec::new();
 
     for format in formats {
-        let compressor = get_compressor(*format);
+        let compressor = get_compressor(*format, gpu_decompress);
 
         for op in ops {
             let time = match op {
@@ -293,7 +342,11 @@ async fn run_benchmark_for_dataset(
                     v3_records.push(v3::compression_time_record(
                         &result.timing,
                         v3_dataset,
-                        v3_variant,
+                        if gpu_decompress {
+                            Some("gpu")
+                        } else {
+                            v3_variant
+                        },
                         CompressOp::Decompress,
                         all_runs_ns,
                     ));

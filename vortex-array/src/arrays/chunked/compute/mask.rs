@@ -21,7 +21,7 @@ impl MaskKernel for Chunked {
         mask: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let chunk_offsets = array.chunk_offsets();
+        let chunk_offsets = array.chunk_offset_values();
         let new_chunks: Vec<ArrayRef> = array
             .iter_chunks()
             .enumerate()
@@ -78,7 +78,7 @@ mod test {
         DType::Primitive(PType::U8, Nullability::NonNullable),
     ).unwrap())]
     #[case(ChunkedArray::try_new(
-        (0..20).map(|i| buffer![i as f32, i as f32 + 0.5].into_array()).collect(),
+        (0..20).map(|i| buffer![i as f32, i as f32 + 0.5].into_array()),
         DType::Primitive(PType::F32, Nullability::NonNullable),
     ).unwrap())]
     fn test_mask_chunked_conformance(#[case] chunked: ChunkedArray) {

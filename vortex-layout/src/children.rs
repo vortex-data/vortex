@@ -226,7 +226,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                 .ok_or_else(|| {
                     vortex_err!("Unknown layout encoding index: {}", fb_child.encoding())
                 })?;
-            let Some(encoding) = self.layouts.find(&encoding_id) else {
+            let Some(encoding) = self.layouts.get(&encoding_id) else {
                 if self.allow_unknown {
                     return viewed_children.foreign_layout_from_fb(fb_child, dtype);
                 }

@@ -434,9 +434,9 @@ fn build_left_parts_dictionary<T: ALPRDFloat>(
         .map(|v| <T as ALPRDFloat>::to_u16(T::to_bits(v).shr(right_bw as _)))
         .for_each(|item| *counts.entry(item).or_default() += 1);
 
-    // Sorted counts: sort by negative count so that heavy hitters sort first.
+    // Sort heavy hitters first, breaking ties by bit pattern for deterministic dictionary codes.
     let mut sorted_bit_counts: Vec<(u16, usize)> = counts.into_iter().collect_vec();
-    sorted_bit_counts.sort_by_key(|(_, count)| count.wrapping_neg());
+    sort_bit_counts(&mut sorted_bit_counts);
 
     // Assign the most-frequently occurring left-bits as dictionary codes, up to `dict_size`...
     let mut dictionary = HashMap::with_capacity_and_hasher(max_dict_size as _, FxBuildHasher);
@@ -468,6 +468,14 @@ fn build_left_parts_dictionary<T: ALPRDFloat>(
     )
 }
 
+fn sort_bit_counts(bit_counts: &mut [(u16, usize)]) {
+    bit_counts.sort_unstable_by(|(left_bits, left_count), (right_bits, right_count)| {
+        right_count
+            .cmp(left_count)
+            .then_with(|| left_bits.cmp(right_bits))
+    });
+}
+
 /// Estimate the bits-per-value when using these compression settings.
 fn estimate_compression_size(
     right_bw: u8,
@@ -491,4 +499,38 @@ struct ALPRDDictionary {
     left_bit_width: u8,
     /// The right bit width. This is the bit-packed width of each of the "real double" values.
     right_bit_width: u8,
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::arrays::PrimitiveArray;
+
+    use super::ALPRDArrayExt;
+    use super::RDEncoder;
+    use super::sort_bit_counts;
+
+    #[test]
+    fn bit_counts_use_bit_pattern_as_tiebreaker() {
+        let mut bit_counts = [(1536, 23), (513, 91), (512, 23), (515, 158)];
+
+        sort_bit_counts(&mut bit_counts);
+
+        assert_eq!(bit_counts, [(515, 158), (513, 91), (512, 23), (1536, 23)]);
+    }
+
+    #[test]
+    fn rd_encoder_uses_deterministic_codes_for_tied_prefixes() {
+        let values: Vec<_> = (1_000_i64..2_000)
+            .map(|row_id| ((row_id * 53) % 36_000) as f64 / 100.0 - 180.0)
+            .collect();
+        let array = PrimitiveArray::from_iter(values.iter().copied());
+
+        let encoded = RDEncoder::new(&values).encode(array.as_view());
+
+        assert_eq!(encoded.right_bit_width(), 53);
+        assert_eq!(
+            encoded.left_parts_dictionary().as_slice(),
+            &[514, 1538, 515, 1539, 513, 1537, 512, 1536]
+        );
+    }
 }

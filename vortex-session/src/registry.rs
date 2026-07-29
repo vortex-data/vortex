@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Many session types use a registry of objects that can be looked up by name to construct
-//! contexts. This module provides a generic registry type for that purpose.
-
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Debug;
@@ -20,7 +17,6 @@ use lasso::ThreadedRodeo;
 use parking_lot::RwLock;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::DefaultHashBuilder;
-use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 /// Global string interner for [`Id`] values.
@@ -147,56 +143,6 @@ impl Deref for CachedId {
     }
 }
 
-/// A registry of items that are keyed by a string identifier.
-#[derive(Clone, Debug)]
-pub struct Registry<T>(Arc<DashMap<Id, T>>);
-
-impl<T> Default for Registry<T> {
-    fn default() -> Self {
-        Self(Default::default())
-    }
-}
-
-impl<T: Clone> Registry<T> {
-    pub fn empty() -> Self {
-        Self(Default::default())
-    }
-
-    /// List the IDs in the registry.
-    pub fn ids(&self) -> impl Iterator<Item = Id> + '_ {
-        self.0.iter().map(|i| *i.key())
-    }
-
-    /// List the items in the registry.
-    pub fn items(&self) -> impl Iterator<Item = T> + '_ {
-        self.0.iter().map(|i| i.value().clone())
-    }
-
-    /// Return the items with the given IDs.
-    pub fn find_many<'a>(
-        &self,
-        ids: impl IntoIterator<Item = &'a Id>,
-    ) -> impl Iterator<Item = Option<impl Deref<Target = T>>> {
-        ids.into_iter().map(|id| self.0.get(id))
-    }
-
-    /// Find the item with the given ID.
-    pub fn find(&self, id: &Id) -> Option<T> {
-        self.0.get(id).as_deref().cloned()
-    }
-
-    /// Register a new item, replacing any existing item with the same ID.
-    pub fn register(&self, id: impl Into<Id>, item: impl Into<T>) {
-        self.0.insert(id.into(), item.into());
-    }
-
-    /// Register a new item, replacing any existing item with the same ID, and return self for
-    pub fn with(self, id: impl Into<Id>, item: impl Into<T>) -> Self {
-        self.register(id, item.into());
-        self
-    }
-}
-
 /// A [`ReadContext`] holds a set of interned IDs for use during deserialization, mapping
 /// u16 indices to IDs.
 #[derive(Clone, Debug)]
@@ -220,60 +166,53 @@ impl ReadContext {
     }
 }
 
-/// A [`Context`] holds a set of interned IDs for use during serialization/deserialization, mapping
-/// IDs to u16 indices.
+/// An [`Interner`] holds a set of interned IDs for use during serialization/deserialization,
+/// mapping IDs to u16 indices.
 ///
 /// ## Upcoming Changes
 ///
-/// 1. This object holds an Arc of RwLock internally because we need concurrent access from the
-///    layout writer code path. We should update SegmentSink to take an Array rather than
-///    ByteBuffer such that serializing arrays is done sequentially.
-/// 2. The name is terrible. `Interner` is better, but I want to minimize breakage for now.
-#[derive(Clone, Debug)]
-pub struct Context {
+/// This object holds an Arc of RwLock internally because we need concurrent access from the
+/// layout writer code path. We should update SegmentSink to take an Array rather than
+/// ByteBuffer such that serializing arrays is done sequentially.
+#[derive(Clone, Debug, Default)]
+pub struct Interner {
     // TODO(ngates): it's a long story, but if we make SegmentSink and SegmentSource take an
     //  enum of Segment { Array, DType, Buffer } then we don't actually need a mutable context
     //  in the LayoutWriter, therefore we don't need a RwLock here and everyone is happier.
     ids: Arc<RwLock<Vec<Id>>>,
-    // Optional set used to filter the permissible interned IDs.
-    valid_ids: Option<Arc<HashSet<Id>>>,
+    // Optional set of permissible IDs; when present, only these may be interned.
+    allowed: Option<Arc<HashSet<Id>>>,
 }
 
-impl Default for Context {
-    fn default() -> Self {
-        Self {
-            ids: Arc::new(RwLock::new(Vec::new())),
-            valid_ids: None,
-        }
-    }
-}
-
-impl Context {
-    /// Create a context with the given initial IDs.
+impl Interner {
+    /// Create an interner with the given initial IDs.
     pub fn new(ids: Vec<Id>) -> Self {
         Self {
             ids: Arc::new(RwLock::new(ids)),
-            valid_ids: None,
+            allowed: None,
         }
     }
 
-    /// Create an empty context.
+    /// Create an empty interner.
     pub fn empty() -> Self {
         Self::default()
     }
 
-    /// Restrict the permissible set of interned IDs.
-    pub fn with_valid_ids(mut self, ids: impl IntoIterator<Item = Id>) -> Self {
-        self.valid_ids = Some(Arc::new(ids.into_iter().collect()));
+    /// Restrict the permissible set of interned IDs to `allowed`.
+    ///
+    /// The set is snapshotted at this call: IDs registered elsewhere afterwards are not
+    /// permitted.
+    pub fn with_allowed_ids(mut self, allowed: HashSet<Id>) -> Self {
+        self.allowed = Some(Arc::new(allowed));
         self
     }
 
     /// Intern an ID, returning its index.
     pub fn intern(&self, id: &Id) -> Option<u16> {
-        if let Some(valid_ids) = &self.valid_ids
-            && !valid_ids.contains(id)
+        if let Some(allowed) = &self.allowed
+            && !allowed.contains(id)
         {
-            // ID is not valid, cannot intern.
+            // ID not permitted, cannot intern.
             return None;
         }
 
@@ -299,8 +238,10 @@ impl Context {
 
 #[cfg(test)]
 mod tests {
+    use vortex_utils::aliases::hash_set::HashSet;
+
     use super::CachedId;
-    use super::Context;
+    use super::Interner;
 
     static VALID: CachedId = CachedId::new("vortex.test.valid");
     static INVALID: CachedId = CachedId::new("vortex.test.invalid");
@@ -309,7 +250,7 @@ mod tests {
     fn context_filters_interned_ids() {
         let valid = *VALID;
         let invalid = *INVALID;
-        let context = Context::empty().with_valid_ids([valid]);
+        let context = Interner::empty().with_allowed_ids(HashSet::from([valid]));
 
         assert_eq!(context.intern(&valid), Some(0));
         assert_eq!(context.intern(&valid), Some(0));

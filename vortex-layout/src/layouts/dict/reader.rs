@@ -67,8 +67,12 @@ impl DictReader {
         session: VortexSession,
         ctx: crate::LayoutReaderContext,
     ) -> VortexResult<Self> {
-        let values_layout = layout.child(0)?;
-        let codes_layout = layout.child(1)?;
+        let values_layout = layout
+            .slot(0)?
+            .vortex_expect("DictLayout always has a values child");
+        let codes_layout = layout
+            .slot(1)?
+            .vortex_expect("DictLayout always has a codes child");
         let values_len = usize::try_from(values_layout.row_count())?;
         let values = values_layout.new_reader(
             format!("{name}.values").into(),
@@ -171,8 +175,8 @@ const PUSHDOWN_ANNOTATION: &str = "";
 /// right is the optional inner part that we want to apply to array before
 /// canonicalizing.
 ///
-/// We want to push to array only if expression has a negative cost, is
-/// infallible and null-insensitive.
+/// We want to push to the array only if the expression has a negative cost, is infallible, and is
+/// strict. Strictness ensures dictionary null codes still force a null result after pushdown.
 fn split_expression_for_pushdown(
     expr: Expression,
     dtype: &DType,
@@ -181,7 +185,7 @@ fn split_expression_for_pushdown(
     let annotations = direct_annotations(&expr, |expr| {
         let signature = expr.signature();
         if !signature.is_fallible()
-            && !signature.is_null_sensitive()
+            && signature.is_strict()
             && is_negative_cost(expr.id())
             && references_root.get(&expr).copied().unwrap_or(true)
         {
@@ -240,7 +244,7 @@ impl LayoutReader for DictReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        // TODO(joe): fix up expr partitioning with fallible & null sensitive annotations
+        // TODO(joe): fix up expr partitioning with fallibility and strictness annotations
         let values_eval = self.values_eval(expr.clone());
 
         // We register interest on the entire codes row_range for now, there
@@ -272,7 +276,7 @@ impl LayoutReader for DictReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
-        // TODO: fix up expr partitioning with fallible & null sensitive annotations
+        // TODO: fix up expr partitioning with fallibility and strictness annotations
         let codes_eval = self
             .codes
             .projection_evaluation(row_range, &root(), mask)

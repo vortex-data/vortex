@@ -82,6 +82,7 @@ async fn execute_zstd_kernel(
         .record(stream)
         .map_err(|e| vortex_err!("Failed to record start event: {:?}", e))?;
 
+    let (_device_output_ptr, record_device_output) = exec.device_output.device_ptr_mut(stream);
     let (device_actual_sizes_ptr, record_actual_sizes) =
         exec.device_actual_sizes.device_ptr_mut(stream);
     let (nvcomp_temp_buffer_ptr, record_temp) = exec.nvcomp_temp_buffer.device_ptr_mut(stream);
@@ -103,7 +104,12 @@ async fn execute_zstd_kernel(
         )
         .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
     }
-    drop((record_actual_sizes, record_temp, record_statuses));
+    drop((
+        record_device_output,
+        record_actual_sizes,
+        record_temp,
+        record_statuses,
+    ));
 
     let end_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))

@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::array::ArrayView;
 use crate::array::ValidityVTable;
 use crate::arrays::Union;
-use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::UnionArraySlotsExt;
 use crate::validity::Validity;
 
 impl ValidityVTable<Union> for Union {

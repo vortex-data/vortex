@@ -99,6 +99,8 @@ impl Ref {
 
 impl BinaryView {
     /// Maximum size of an inlined binary value.
+    ///
+    /// cbindgen:ignore
     pub const MAX_INLINED_SIZE: usize = 12;
 
     /// Create a view from a value, block and offset

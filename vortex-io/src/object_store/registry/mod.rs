@@ -20,7 +20,6 @@ use std::sync::Arc;
 use object_store::ObjectStore;
 use object_store::parse_url_opts;
 use object_store::path::Path;
-use object_store::path::PathPart;
 use object_store::registry::ObjectStoreRegistry;
 use parking_lot::RwLock;
 use url::Url;
@@ -162,9 +161,12 @@ impl ObjectStoreRegistry for Registry {
         // 2. Build the store and the path *within* that store. `build_store` reports the path
         //    the way `parse_url_opts` does — i.e. the path is what the store will see as the
         //    key — which is what keeps every scheme on the one caching rule in
-        //    `cache_and_resolve`. The depth is then just the difference in segment counts.
+        //    `cache_and_resolve`. The depth is then the difference in segment counts.
         let (store, path) = self.build_store(to_resolve)?;
-        let depth = num_segments(to_resolve.path()) - num_segments(path.as_ref());
+        // The raw URL path counts a percent-encoded segment (e.g. `refs%2Fconvert%2Fparquet`)
+        // as one segment while `path` is percent-decoded and may count more, so saturate to
+        // mount the store at the URL root rather than underflowing.
+        let depth = num_segments(to_resolve.path()).saturating_sub(num_segments(path.as_ref()));
 
         // 3. Cache the store and return it alongside the path that lives inside the store.
         self.cache_and_resolve(to_resolve, store, depth)
@@ -257,15 +259,16 @@ fn num_segments(s: &str) -> usize {
 
 /// Returns the path of `url` skipping the first `depth` segments
 fn path_suffix(url: &Url, depth: usize) -> Result<Path, object_store::Error> {
-    let segments = path_segments(url.path()).skip(depth);
-    let path = segments
-        .map(PathPart::parse)
-        .collect::<Result<_, _>>()
-        .map_err(|e| object_store::Error::Generic {
-            store: "ObjectStoreRegistry",
-            source: Box::new(e),
-        })?;
-    Ok(path)
+    // The segments come from a URL, so percent-decode them (one raw segment may decode to
+    // several path parts, e.g. `refs%2Fconvert%2Fparquet`).
+    let suffix = path_segments(url.path())
+        .skip(depth)
+        .collect::<Vec<_>>()
+        .join("/");
+    Path::from_url_path(suffix).map_err(|e| object_store::Error::Generic {
+        store: "ObjectStoreRegistry",
+        source: Box::new(e),
+    })
 }
 
 /// Walks to the [`PathEntry`] for `key` sitting `depth` segments into `path`, creating the

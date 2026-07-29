@@ -325,7 +325,7 @@ impl SerializedArray {
         let encoding_id = ctx
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
-        let Some(plugin) = session.arrays().registry().find(&encoding_id) else {
+        let Some(plugin) = session.arrays().registry().get(&encoding_id) else {
             if session.allows_unknown() {
                 return self.decode_foreign(encoding_id, dtype, len, ctx);
             }

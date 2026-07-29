@@ -23,7 +23,7 @@ PATTERNS = ["correlated", "uniform"]
 OPEN_MODES = ["cached", "reopen"]
 
 
-def run_combinations(emit_v3: bool) -> None:
+def run_combinations(emit_ingest_records: bool) -> None:
     PARTS_DIR.mkdir(parents=True, exist_ok=True)
     i = 0
     for dataset in DATASETS:
@@ -47,8 +47,8 @@ def run_combinations(emit_v3: bool) -> None:
                         "-o",
                         str(PARTS_DIR / f"{i}.gh.json"),
                     ]
-                    if emit_v3:
-                        args += ["--gh-json-v3", str(PARTS_DIR / f"{i}.v3.jsonl")]
+                    if emit_ingest_records:
+                        args += ["--ingest-jsonl", str(PARTS_DIR / f"{i}.ingest.jsonl")]
                     print("+", " ".join(args), flush=True)
                     subprocess.run(args, check=True)
                     i += 1
@@ -82,19 +82,19 @@ def merge(pattern: str, key: Callable[[dict], object], out_path: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--v3",
+        "--emit-ingest-records",
         action="store_true",
-        help="merge --gh-json-v3 records into results.v3.jsonl",
+        help="merge --ingest-jsonl records into results.ingest.jsonl",
     )
     args = parser.parse_args()
 
-    run_combinations(args.v3)
+    run_combinations(args.emit_ingest_records)
     merge(f"{PARTS_DIR}/*.gh.json", lambda record: record["name"], "results.json")
-    if args.v3:
+    if args.emit_ingest_records:
         merge(
-            f"{PARTS_DIR}/*.v3.jsonl",
+            f"{PARTS_DIR}/*.ingest.jsonl",
             lambda record: (record["kind"], record["dataset"], record["format"]),
-            "results.v3.jsonl",
+            "results.ingest.jsonl",
         )
 
 

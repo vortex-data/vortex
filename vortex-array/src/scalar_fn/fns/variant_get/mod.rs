@@ -154,6 +154,10 @@ impl ScalarFnVTable for VariantGet {
         let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
         VariantArray::try_new(array, None).map(|array| array.into_array())
     }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        true
+    }
 }
 
 fn variant_get_scalar(
@@ -448,9 +452,8 @@ mod tests {
         let dtype = DType::Variant(Nullability::Nullable);
         let chunks = rows
             .into_iter()
-            .map(|row| ConstantArray::new(row.cast(&dtype).unwrap(), 1).into_array())
-            .collect();
-        ChunkedArray::try_new(chunks, dtype).map(|array| array.into_array())
+            .map(|row| ConstantArray::new(row.cast(&dtype).unwrap(), 1).into_array());
+        ChunkedArray::try_new(chunks, dtype.clone()).map(|array| array.into_array())
     }
 
     /// Test-only syntax for keeping `variant_get` cases compact without committing

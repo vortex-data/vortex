@@ -1,157 +1,110 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Shared checked-lane execution helpers for numeric kernels.
+//! Checked-lane execution for numeric kernels, driven by the shared
+//! `vortex-compute` lane kernels.
 
-use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_compute::lane_kernels::IndexedSource;
+use vortex_compute::lane_kernels::IndexedSourceExt;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
-/// The values produced by a checked lane loop, plus whether any lane failed.
-pub(super) struct CheckedValues<T> {
-    pub(super) values: Buffer<T>,
-    pub(super) failed: bool,
-}
-
-impl<T> CheckedValues<T> {
-    pub(super) fn zeroed(len: usize) -> Self {
-        Self {
-            values: Buffer::<T>::zeroed(len),
-            failed: false,
-        }
-    }
-
-    fn failed(len: usize) -> Self {
-        Self {
-            values: Buffer::<T>::zeroed(len),
-            failed: true,
-        }
-    }
-}
-
-// Checked one-pass ops delay early exit until the end of a small block. This
-// keeps the loop generic while avoiding a branch-driven exit decision on every
-// lane; it is deliberately independent of mask density or input length.
-const CHECKED_BLOCK_LANES: usize = 16;
-
-pub(super) fn checked_all_lanes<T, F>(len: usize, mut checked_at: F) -> CheckedValues<T>
+/// Apply the fallible `f` over every lane of `source`, failing only when `f` returns `None`
+/// on a valid lane.
+///
+/// `f` is also invoked on invalid lanes (their failures are masked out and their values are
+/// unspecified), so it must be total: no panics or side effects on any stored lane value.
+///
+/// This drives the one-pass early-exit kernels: failures abort at the end of the enclosing
+/// 64-lane chunk. Use it when per-lane failure handling is cheap relative to the operation
+/// (integer division, decimal ops with per-lane casts). For operations whose failure check
+/// auto-vectorizes, prefer [`checked_apply_lanes`].
+///
+/// On failure returns `Err(first_failing_valid_lane)`.
+///
+/// `#[inline(always)]`: this wrapper and its kernel calls must inline into the caller that
+/// constructs the closure, so the closure environment (e.g. a captured constant operand)
+/// flattens into registers. Left to its own devices under `codegen-units > 1`, the compiler
+/// keeps the environment behind a pointer, and reloading a captured constant on every lane
+/// blocks vectorization of the whole loop.
+#[inline(always)]
+pub(super) fn checked_lanes<S, T, F>(source: S, valid_rows: &Mask, f: F) -> Result<Buffer<T>, usize>
 where
-    T: Default,
-    F: FnMut(usize) -> Option<T>,
+    S: IndexedSource,
+    T: Copy + Default,
+    F: FnMut(S::Item) -> Option<T>,
 {
+    let len = source.len();
+    debug_assert_eq!(len, valid_rows.len());
+
+    let valid_bits = match valid_rows.bit_buffer() {
+        AllOr::All => None,
+        AllOr::None => return Ok(Buffer::zeroed(len)),
+        AllOr::Some(valid_bits) => Some(valid_bits),
+    };
+
     let mut values = BufferMut::<T>::with_capacity(len);
-    let mut base = 0;
-
-    while base + CHECKED_BLOCK_LANES <= len {
-        let mut block_failed = false;
-        for idx in base..base + CHECKED_BLOCK_LANES {
-            match checked_at(idx) {
-                Some(value) => {
-                    // SAFETY: the buffer is allocated with capacity `len`, and
-                    // this loop pushes at most one value for each `idx`.
-                    unsafe { values.push_unchecked(value) };
-                }
-                None => {
-                    block_failed = true;
-                    // SAFETY: the buffer is allocated with capacity `len`, and
-                    // this loop pushes at most one value for each `idx`.
-                    unsafe { values.push_unchecked(T::default()) };
-                }
-            }
-        }
-
-        if block_failed {
-            return CheckedValues::failed(len);
-        }
-        base += CHECKED_BLOCK_LANES;
+    let out = &mut values.spare_capacity_mut()[..len];
+    match valid_bits {
+        None => source.try_map_into(out, f)?,
+        Some(valid_bits) => source.try_map_masked_into(valid_bits, out, f)?,
     }
+    // SAFETY: the kernels initialize every lane in `out`.
+    unsafe { values.set_len(len) };
+    Ok(values.freeze())
+}
 
-    for idx in base..len {
-        let Some(value) = checked_at(idx) else {
-            return CheckedValues::failed(len);
+/// Apply the split value/error `f` over every lane of `source`, failing only when `f` flags
+/// an error on a valid lane.
+///
+/// The hot pass writes every lane's value unconditionally and OR-reduces a single failure
+/// flag, which keeps the loop free of per-lane selects and per-chunk exit branches — the
+/// shape the auto-vectorizer handles best. Only if some lane flagged an error does a cold
+/// second pass re-run `f` through the early-exit kernels to filter null-lane failures and
+/// attribute the first valid one.
+///
+/// Like [`checked_lanes`], `f` is invoked on invalid lanes and must be total.
+///
+/// On failure returns `Err(first_failing_valid_lane)`.
+///
+/// `#[inline(always)]`: see [`checked_lanes`] — required so captured operands flatten out of
+/// the closure environment and the hot loop vectorizes regardless of codegen-unit count.
+#[inline(always)]
+pub(super) fn checked_apply_lanes<S, T, F>(
+    source: S,
+    valid_rows: &Mask,
+    mut f: F,
+) -> Result<Buffer<T>, usize>
+where
+    S: IndexedSource + Copy,
+    T: Copy + Default,
+    F: FnMut(S::Item) -> (T, bool),
+{
+    let len = source.len();
+    debug_assert_eq!(len, valid_rows.len());
+
+    let valid_bits = match valid_rows.bit_buffer() {
+        AllOr::All => None,
+        AllOr::None => return Ok(Buffer::zeroed(len)),
+        AllOr::Some(valid_bits) => Some(valid_bits),
+    };
+
+    let mut values = BufferMut::<T>::with_capacity(len);
+    let out = &mut values.spare_capacity_mut()[..len];
+
+    if source.map_checked_into(out, &mut f) {
+        let mut checked = |item: S::Item| {
+            let (value, error) = f(item);
+            (!error).then_some(value)
         };
-        // SAFETY: the buffer is allocated with capacity `len`, and this loop
-        // pushes at most one value for each `idx`.
-        unsafe { values.push_unchecked(value) };
-    }
-
-    CheckedValues {
-        values: values.freeze(),
-        failed: false,
-    }
-}
-
-pub(super) fn checked_valid_lanes<T, F>(
-    len: usize,
-    valid_bits: &BitBuffer,
-    mut checked_at: F,
-) -> CheckedValues<T>
-where
-    T: Default,
-    F: FnMut(usize) -> Option<T>,
-{
-    let mut values = BufferMut::<T>::zeroed(len);
-    let mut failed = false;
-    {
-        let values = values.as_mut_slice();
-        for_each_valid_idx(len, valid_bits, |idx| {
-            let Some(value) = checked_at(idx) else {
-                failed = true;
-                return false;
-            };
-            values[idx] = value;
-            true
-        });
-    }
-
-    CheckedValues {
-        values: values.freeze(),
-        failed,
-    }
-}
-
-pub(super) fn any_valid_error<F>(len: usize, valid_bits: &BitBuffer, is_error: F) -> bool
-where
-    F: Fn(usize) -> bool,
-{
-    !for_each_valid_idx(len, valid_bits, |idx| !is_error(idx))
-}
-
-fn for_each_valid_idx<F>(len: usize, valid_bits: &BitBuffer, mut f: F) -> bool
-where
-    F: FnMut(usize) -> bool,
-{
-    debug_assert_eq!(len, valid_bits.len());
-
-    for (word_idx, valid_word) in valid_bits.chunks().iter_padded().enumerate() {
-        if valid_word == 0 {
-            continue;
-        }
-
-        let offset = word_idx * 64;
-        let lanes = len.saturating_sub(offset).min(64);
-        if lanes == 64 && valid_word == u64::MAX {
-            for bit_idx in 0..64 {
-                if !f(offset + bit_idx) {
-                    return false;
-                }
-            }
-            continue;
-        }
-
-        let mut valid_word = if lanes == 64 {
-            valid_word
-        } else {
-            valid_word & ((1u64 << lanes) - 1)
-        };
-        while valid_word != 0 {
-            let bit_idx = valid_word.trailing_zeros() as usize;
-            if !f(offset + bit_idx) {
-                return false;
-            }
-            valid_word &= valid_word - 1;
+        match valid_bits {
+            None => source.try_map_into(out, &mut checked)?,
+            Some(valid_bits) => source.try_map_masked_into(valid_bits, out, &mut checked)?,
         }
     }
-
-    true
+    // SAFETY: the kernels initialize every lane in `out`.
+    unsafe { values.set_len(len) };
+    Ok(values.freeze())
 }

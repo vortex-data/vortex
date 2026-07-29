@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
@@ -40,25 +41,33 @@ struct Inner {
     inclusions: BTreeMap<Id, EditionInclusion>,
 }
 
+/// Registry of enabled editions, keyed by interned edition family.
+type EditionsByFamily = ArcSwapMap<Id, EditionId>;
+
 /// The editions enabled for writing in a session.
 ///
 /// At most one edition is enabled per family. Enabling a newer or older edition from the
 /// same family replaces the previous selection. This is separate from [`EditionSession`]:
 /// registration describes what a session knows how to reason about, while enabling is the
 /// explicit writer policy.
+///
+/// Backed by an [`ArcSwapMap`] keyed by edition family, so clones observe the same selection
+/// and enabling an edition replaces the family's previous entry.
 #[derive(Clone, Debug, Default)]
 pub struct EnabledEditions {
-    inner: Arc<RwLock<BTreeMap<&'static str, EditionId>>>,
+    inner: EditionsByFamily,
 }
 
 impl EnabledEditions {
-    /// Return the enabled editions, sorted by family.
+    /// Return the enabled editions.
     pub fn editions(&self) -> Vec<EditionId> {
-        self.inner.read().values().copied().collect()
+        self.inner.read(|map| map.values().copied().collect())
     }
 
     fn enable(&self, edition: EditionId) {
-        self.inner.write().insert(edition.family, edition);
+        // The family is a `&'static str`; `Into<Id>` interns it once at enable time (a rare
+        // config-time write, never on the read path).
+        self.inner.insert(Id::from(edition.family), edition);
     }
 }
 

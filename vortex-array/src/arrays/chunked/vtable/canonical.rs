@@ -102,11 +102,13 @@ fn pack_variant_chunks(
         .try_collect()?;
 
     let outer_dtype = variant_chunks[0].dtype().clone();
-    let core_chunks = variant_chunks
-        .iter()
-        .map(|chunk| chunk.core_storage().clone())
-        .collect();
-    let core_storage = ChunkedArray::try_new(core_chunks, outer_dtype)?.into_array();
+    let core_storage = ChunkedArray::try_new(
+        variant_chunks
+            .iter()
+            .map(|chunk| chunk.core_storage().clone()),
+        outer_dtype,
+    )?
+    .into_array();
 
     let shredded = match variant_chunks[0].shredded() {
         None => {
@@ -347,12 +349,13 @@ mod tests {
     }
 
     fn variant_core(values: impl IntoIterator<Item = i32>) -> VortexResult<ArrayRef> {
-        let chunks = values
-            .into_iter()
-            .map(|value| ConstantArray::new(variant_scalar(value), 1).into_array())
-            .collect();
-
-        Ok(ChunkedArray::try_new(chunks, VariantDType(NonNullable))?.into_array())
+        Ok(ChunkedArray::try_new(
+            values
+                .into_iter()
+                .map(|value| ConstantArray::new(variant_scalar(value), 1).into_array()),
+            VariantDType(NonNullable),
+        )?
+        .into_array())
     }
 
     fn variant_chunk(values: impl IntoIterator<Item = i32>) -> VortexResult<VariantArray> {

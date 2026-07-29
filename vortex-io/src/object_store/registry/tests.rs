@@ -5,6 +5,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use object_store::ObjectStore;
+use object_store::path::Path;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 
@@ -14,6 +15,27 @@ use super::Registry;
 /// so these tests neither read nor mutate global state.
 fn registry() -> Registry {
     Registry::with_env([("AWS_REGION".to_string(), "us-east-3".to_string())])
+}
+
+/// A percent-encoded segment (as HuggingFace dataset URLs use for `refs/convert/parquet`) decodes
+/// to more path parts than the raw URL has segments. Both the build-and-cache branch and the
+/// cached-store branch must decode it rather than underflowing the segment-count subtraction.
+#[test]
+fn test_resolve_percent_encoded_path() -> Result<(), Box<dyn std::error::Error>> {
+    let registry = registry();
+    let url = Url::parse(
+        "https://example.com/datasets/org/name/resolve/refs%2Fconvert%2Fparquet/dir/file.vortex",
+    )?;
+    let expected = Path::from("datasets/org/name/resolve/refs/convert/parquet/dir/file.vortex");
+
+    // First resolution parses and registers the store; it must decode the path, not panic.
+    let (_store, path) = registry.resolve(&url)?;
+    assert_eq!(path, expected);
+
+    // Second resolution takes the cached-store branch and must agree.
+    let (_store, path) = registry.resolve(&url)?;
+    assert_eq!(path, expected);
+    Ok(())
 }
 
 #[test]

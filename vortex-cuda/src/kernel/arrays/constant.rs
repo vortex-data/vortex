@@ -106,8 +106,7 @@ where
         .ok_or_else(|| vortex_err!("Expected non-null primitive scalar value"))?;
 
     // Allocate output buffer on device
-    let output_buffer = ctx.device_alloc::<P>(array_len)?;
-    let output_view = output_buffer.as_view();
+    let mut output_buffer = ctx.device_alloc::<P>(array_len)?;
     let array_len_u64 = array_len as u64;
 
     // Load kernel function
@@ -115,7 +114,7 @@ where
     let cuda_function = ctx.load_function("constant_numeric", &kernel_ptypes)?;
 
     ctx.launch_kernel(&cuda_function, array_len, |args| {
-        args.arg(&output_view);
+        args.arg(&mut output_buffer);
         args.arg(&value);
         args.arg(&array_len_u64);
     })?;
@@ -163,8 +162,7 @@ where
         .ok_or_else(|| vortex_err!("Failed to cast decimal value to native type"))?;
 
     // Allocate output buffer on device
-    let output_buffer = ctx.device_alloc::<D>(array_len)?;
-    let output_view = output_buffer.as_view();
+    let mut output_buffer = ctx.device_alloc::<D>(array_len)?;
     let array_len_u64 = array_len as u64;
 
     // Load kernel function
@@ -172,7 +170,7 @@ where
         ctx.load_function_with_suffixes("constant_numeric", &[&D::DECIMAL_TYPE.to_string()])?;
 
     ctx.launch_kernel(&cuda_function, array_len, |args| {
-        args.arg(&output_view);
+        args.arg(&mut output_buffer);
         args.arg(&value);
         args.arg(&array_len_u64);
     })?;

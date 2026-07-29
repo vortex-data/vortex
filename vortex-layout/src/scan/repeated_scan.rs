@@ -26,10 +26,10 @@ use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
-use crate::scan::filter::FilterExpr;
+use crate::scan::plan;
+use crate::scan::plan_v2;
+use crate::scan::plan_v2::ScanPlanRef;
 use crate::scan::splits::Splits;
-use crate::scan::tasks::TaskContext;
-use crate::scan::tasks::split_exec;
 
 /// A projected subset (by indices, range, and filter) of rows from a Vortex data source.
 ///
@@ -37,9 +37,7 @@ use crate::scan::tasks::split_exec;
 /// data source.
 pub struct RepeatedScan<A: 'static + Send> {
     session: VortexSession,
-    layout_reader: LayoutReaderRef,
-    projection: Expression,
-    filter: Option<Expression>,
+    execution: ExecutionPlan,
     ordered: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
@@ -55,6 +53,16 @@ pub struct RepeatedScan<A: 'static + Send> {
     limit: Option<u64>,
     /// The dtype of the projected arrays.
     dtype: DType,
+}
+
+enum ExecutionPlan {
+    Plan(plan::Plan),
+    PlanV2(plan_v2::PlanV2),
+}
+
+enum ExecutionTaskContext<A> {
+    Plan(Arc<plan::TaskContext<A>>),
+    PlanV2(Arc<plan_v2::TaskContext<A>>),
 }
 
 impl RepeatedScan<ArrayRef> {
@@ -89,7 +97,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         clippy::too_many_arguments,
         reason = "all arguments are needed for scan construction"
     )]
-    pub fn new(
+    pub fn new_plan(
         session: VortexSession,
         layout_reader: LayoutReaderRef,
         projection: Expression,
@@ -105,9 +113,40 @@ impl<A: 'static + Send> RepeatedScan<A> {
     ) -> Self {
         Self {
             session,
-            layout_reader,
-            projection,
-            filter,
+            execution: ExecutionPlan::Plan(plan::Plan::new(layout_reader, projection, filter)),
+            ordered,
+            row_range,
+            selection,
+            splits,
+            concurrency,
+            map_fn,
+            limit,
+            dtype,
+        }
+    }
+
+    /// Construct a repeated scan from a prepared heap-allocated physical plan.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "all arguments are needed for scan construction"
+    )]
+    pub fn new_plan_v2(
+        session: VortexSession,
+        projection: ScanPlanRef,
+        predicates: Vec<ScanPlanRef>,
+        filter: Option<Expression>,
+        ordered: bool,
+        row_range: Option<Range<u64>>,
+        selection: Selection,
+        splits: Splits,
+        concurrency: usize,
+        map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+        limit: Option<u64>,
+        dtype: DType,
+    ) -> Self {
+        Self {
+            session,
+            execution: ExecutionPlan::PlanV2(plan_v2::PlanV2::new(projection, predicates, filter)),
             ordered,
             row_range,
             selection,
@@ -173,12 +212,14 @@ impl<A: 'static + Send> RepeatedScan<A> {
 
         let mut limit = self.limit;
         let mut tasks = Vec::new();
-        let ctx = Arc::new(TaskContext {
-            filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
-            reader: Arc::clone(&self.layout_reader),
-            projection: self.projection.clone(),
-            mapper: Arc::clone(&self.map_fn),
-        });
+        let ctx = match &self.execution {
+            ExecutionPlan::Plan(plan) => {
+                ExecutionTaskContext::Plan(plan.task_context(Arc::clone(&self.map_fn)))
+            }
+            ExecutionPlan::PlanV2(plan_v2) => {
+                ExecutionTaskContext::PlanV2(plan_v2.task_context(Arc::clone(&self.map_fn)))
+            }
+        };
 
         for range in ranges {
             let row_mask = self.selection.row_mask(&range);
@@ -186,7 +227,14 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 continue;
             }
 
-            tasks.push(split_exec(Arc::clone(&ctx), row_mask, limit.as_mut())?);
+            tasks.push(match &ctx {
+                ExecutionTaskContext::Plan(ctx) => {
+                    plan::split_exec(Arc::clone(ctx), row_mask, limit.as_mut())?
+                }
+                ExecutionTaskContext::PlanV2(ctx) => {
+                    plan_v2::split_exec(Arc::clone(ctx), row_mask, limit.as_mut())?
+                }
+            });
             if limit.is_some_and(|l| l == 0) {
                 break;
             }

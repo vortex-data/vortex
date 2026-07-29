@@ -306,7 +306,7 @@ impl ScalarFnVTable for Between {
         Ok(Some(and(and(arr, lower), upper)))
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+    fn is_strict(&self, _options: &Self::Options) -> bool {
         false
     }
 
@@ -342,6 +342,21 @@ mod tests {
     use crate::validity::Validity;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(crate::array_session);
+
+    #[test]
+    fn is_not_strict() {
+        let expr = between(
+            root(),
+            lit(0),
+            lit(100),
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        );
+
+        assert!(!expr.signature().is_strict());
+    }
 
     #[test]
     fn test_display() {

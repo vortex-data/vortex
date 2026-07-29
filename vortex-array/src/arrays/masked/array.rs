@@ -23,8 +23,10 @@ use crate::validity::Validity;
 #[array_slots(Masked)]
 pub struct MaskedSlots {
     /// The underlying child array being masked.
+    #[slot(0)]
     pub child: ArrayRef,
     /// The validity bitmap defining which elements are non-null.
+    #[slot(1)]
     pub validity: Option<ArrayRef>,
 }
 

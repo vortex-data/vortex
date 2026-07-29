@@ -212,6 +212,8 @@ Benchmarks run automatically on all commits to `develop` and can be run on-deman
   `develop`, with results uploaded for historical tracking.
 - **PR benchmarks** -- triggered by the `action/benchmark` label. Results are compared against
   the latest `develop` run and posted as a PR comment.
+- **GPU compression benchmarks** -- triggered by the `action/benchmark-gpu-compress` label. Runs
+  the allow-listed Vortex decompression cases on a GPU runner and posts the timings as a PR comment.
 - **SQL benchmarks** -- triggered by the `action/benchmark-sql` label. Runs the base SQL matrix,
   which excludes Appian, TPC-H SF=10 on S3, `vortex-compact`, and `duckdb:duckdb`.
 - **Full SQL benchmarks** -- triggered by the `action/benchmark-sql-full` label. Runs the full

@@ -184,8 +184,10 @@ impl VTable for RunEnd {
 #[array_slots(RunEnd)]
 pub struct RunEndSlots {
     /// The run-end positions marking where each run terminates.
+    #[slot(0)]
     pub ends: ArrayRef,
     /// The values for each run.
+    #[slot(1)]
     pub values: ArrayRef,
 }
 

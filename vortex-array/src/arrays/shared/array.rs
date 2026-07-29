@@ -23,6 +23,7 @@ use crate::arrays::Shared;
 #[array_slots(Shared)]
 pub struct SharedSlots {
     /// The source array that is shared and lazily computed.
+    #[slot(0)]
     pub source: ArrayRef,
 }
 

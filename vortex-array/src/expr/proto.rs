@@ -47,7 +47,7 @@ impl Expression {
             .map(|e| Expression::from_proto(e, session))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let scalar_fn = if let Some(vtable) = session.scalar_fns().registry().find(&expr_id) {
+        let scalar_fn = if let Some(vtable) = session.scalar_fns().registry().get(&expr_id) {
             vtable.deserialize(expr.metadata(), session)?
         } else if session.allows_unknown() {
             ForeignScalarFnVTable::make_scalar_fn(expr_id, expr.metadata().to_vec(), children.len())

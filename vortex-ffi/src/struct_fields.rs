@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Deref;
 use std::ptr;
 use std::sync::Arc;
 
@@ -23,9 +22,9 @@ box_wrapper!(
 
 /// Return the number of fields in the struct dtype.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(dtype: *const vx_struct_fields) -> u64 {
+pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(fields: *const vx_struct_fields) -> u64 {
     // TODO(joe): propagate this error up instead of expecting
-    unsafe { dtype.as_ref() }
+    unsafe { fields.as_ref() }
         .vortex_expect("null ptr")
         .0
         .nfields() as u64
@@ -37,11 +36,11 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(dtype: *const vx_struct
 /// Returned view is valid as long as "dtype" is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
-    dtype: *const vx_struct_fields,
+    fields: *const vx_struct_fields,
     idx: usize,
 ) -> vx_view {
     // TODO(joe): propagate this error up instead of expecting
-    let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
+    let ptr = unsafe { fields.as_ref() }.vortex_expect("null ptr");
     let struct_dtype = &ptr.0;
     if idx >= struct_dtype.nfields() {
         return vx_view::null();
@@ -53,11 +52,11 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
 /// Returns NULL if index is out of bounds or if dtype cannot be parsed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
-    dtype: *const vx_struct_fields,
+    fields: *const vx_struct_fields,
     idx: usize,
 ) -> *const vx_dtype {
     // TODO(joe): propagate this error up instead of expecting
-    let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
+    let ptr = unsafe { fields.as_ref() }.vortex_expect("null ptr");
     let struct_dtype = &ptr.0;
 
     if idx >= struct_dtype.nfields() {
@@ -65,7 +64,7 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
     }
 
     match struct_dtype.field_by_index(idx) {
-        Some(field_dtype) => vx_dtype::new(Arc::new(field_dtype)),
+        Some(field_dtype) => vx_dtype::new(field_dtype),
         None => ptr::null(),
     }
 }
@@ -103,7 +102,7 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_builder_add_field(
 ) {
     try_or_default(error_out, || {
         let builder = vx_struct_fields_builder::as_mut(builder);
-        let field = vx_dtype::into_arc(dtype).deref().clone();
+        let field = *vx_dtype::into_box(dtype.cast_mut());
         let name = Arc::from(unsafe { name.as_str() }?);
         builder.fields.push(field);
         builder.names.push(name);
@@ -111,9 +110,9 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_builder_add_field(
     })
 }
 
-/// Finalize the struct dtype builder, returning a new `vx_struct_fields`.
+/// Finalize the struct dtype builder, returning vx_struct_fields.
 ///
-/// Takes ownership of the `builder`.
+/// Takes ownership of "builder".
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_builder_finalize(
     builder: *mut vx_struct_fields_builder,

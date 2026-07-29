@@ -19,8 +19,10 @@ pub mod delta_decompress;
 #[array_slots(crate::Delta)]
 pub struct DeltaSlots {
     /// The base values for each block of deltas.
+    #[slot(0)]
     pub bases: ArrayRef,
     /// The delta-encoded values relative to the base values.
+    #[slot(1)]
     pub deltas: ArrayRef,
 }
 

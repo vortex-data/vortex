@@ -150,9 +150,9 @@ impl ScalarFnVTable for Pack {
             .execute(ctx)
     }
 
-    // This applies a nullability
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
-        true
+    fn is_strict(&self, _instance: &Self::Options) -> bool {
+        // A null field value does not force the packed struct row to be null.
+        false
     }
 
     fn is_fallible(&self, _instance: &Self::Options) -> bool {

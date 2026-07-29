@@ -9,6 +9,7 @@ use crate::array::ArrayView;
 use crate::arrays::Union;
 use crate::arrays::UnionArray;
 use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::UnionArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::mask::MaskReduce;
 
@@ -17,7 +18,7 @@ impl MaskReduce for Union {
         UnionArray::try_new(
             array.type_ids().clone().mask(mask.clone())?,
             array.variants().clone(),
-            array.children(),
+            array.iter_children().cloned(),
         )
         .map(|a| Some(a.into_array()))
     }

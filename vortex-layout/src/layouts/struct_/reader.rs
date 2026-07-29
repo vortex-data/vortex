@@ -137,20 +137,20 @@ impl StructReader {
 
     /// Return the child reader for the field, by index.
     fn field_reader_by_index(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
-        let child_index = if self.dtype().is_nullable() {
-            idx + 1
-        } else {
-            idx
-        };
-
+        // Field `idx` always occupies slot `idx + 1`; the layout maps that to a dense child index,
+        // accounting for the validity slot when the struct is nullable.
+        let child_index = self
+            .layout
+            .slot_to_child(idx + 1)
+            .vortex_expect("struct field slot is always present");
         self.lazy_children.get(child_index)
     }
 
     /// Return the reader for the struct validity, if present
     fn validity(&self) -> VortexResult<Option<&LayoutReaderRef>> {
-        self.dtype()
-            .is_nullable()
-            .then(|| self.lazy_children.get(0))
+        self.layout
+            .slot_to_child(0)
+            .map(|child_index| self.lazy_children.get(child_index))
             .transpose()
     }
 
@@ -765,19 +765,20 @@ mod tests {
         // Project out the nested struct field.
         // The projection should preserve the nulls of the `b` struct when we select out the
         // child column `c`.
-        let reader = layout
-            .new_reader("".into(), segments, &SESSION, &Default::default())
-            .unwrap();
         let expr = select(
             vec![FieldName::from("c")],
             get_item("b", get_item("a", root())),
         );
-
-        let project = reader
-            .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
-            .unwrap();
-
-        let result = block_on(move |_| project).unwrap();
+        let result = block_on(move |handle| {
+            let session = new_session().with_handle(handle);
+            async move {
+                layout
+                    .new_reader("".into(), segments, &session, &Default::default())?
+                    .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
+                    .await
+            }
+        })
+        .unwrap();
 
         // The result is a nullable struct (because root.a.b is nullable) with a non-nullable
         // field "c" (because the original field was non-nullable).

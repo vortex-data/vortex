@@ -46,18 +46,22 @@ use crate::validity::Validity;
 pub struct ListViewSlots {
     /// The `elements` data array, where each list scalar is a _slice_ of the `elements` array,
     /// and each inner list element is a _scalar_ of the `elements` array.
+    #[slot(0)]
     pub elements: ArrayRef,
     /// The `offsets` array indicating the start position of each list in elements.
     ///
     /// Since we also store `sizes`, this `offsets` field is allowed to be stored out-of-order
     /// (which is different from [`ListArray`](crate::arrays::ListArray)).
+    #[slot(1)]
     pub offsets: ArrayRef,
     /// The `sizes` array indicating the length of each list.
     ///
     /// This field is intended to be paired with a corresponding offset to determine the list
     /// scalar we want to access.
+    #[slot(2)]
     pub sizes: ArrayRef,
     /// The validity bitmap indicating which list elements are non-null.
+    #[slot(3)]
     pub validity: Option<ArrayRef>,
 }
 

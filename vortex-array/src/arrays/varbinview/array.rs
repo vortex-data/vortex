@@ -39,6 +39,7 @@ use crate::validity::Validity;
 #[array_slots(VarBinView)]
 pub struct VarBinViewSlots {
     /// The validity bitmap indicating which elements are non-null.
+    #[slot(0)]
     pub validity: Option<ArrayRef>,
 }
 

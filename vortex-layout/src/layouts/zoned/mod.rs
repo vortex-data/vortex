@@ -248,7 +248,8 @@ impl LegacyStatsLayout {
     ) -> VortexResult<LayoutReaderRef> {
         if self.zone_len == 0 {
             return self
-                .child(0)?
+                .slot(0)?
+                .vortex_expect("ZonedLayout always has a data child")
                 .new_reader(name, segment_source, session, ctx);
         }
 
@@ -335,7 +336,8 @@ impl ZonedLayout {
     ) -> VortexResult<LayoutReaderRef> {
         if self.zone_len == 0 {
             return self
-                .child(0)?
+                .slot(0)?
+                .vortex_expect("ZonedLayout always has a data child")
                 .new_reader(name, segment_source, session, ctx);
         }
 

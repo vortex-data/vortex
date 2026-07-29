@@ -241,7 +241,7 @@ impl ScalarFnVTable for Merge {
         Ok(Some(lit(true)))
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+    fn is_strict(&self, _options: &Self::Options) -> bool {
         true
     }
 
