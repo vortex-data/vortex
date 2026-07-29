@@ -30,9 +30,9 @@ use crate::builders::FixedSizeListBuilder;
 use crate::builders::ListViewBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
-use crate::dtype::ListOffsetPType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
+use crate::dtype::OffsetBuilderPType;
 use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::Scalar;
@@ -257,8 +257,8 @@ fn random_list(
     }
 }
 
-/// Creates a random list array with the given [`ListOffsetPType`] for the internal offsets child.
-fn random_list_with_offset_type<O: ListOffsetPType>(
+/// Creates a random list array with the given [`OffsetBuilderPType`] for the internal offsets child.
+fn random_list_with_offset_type<O: OffsetBuilderPType>(
     u: &mut Unstructured,
     elem_dtype: &Arc<DType>,
     null: Nullability,

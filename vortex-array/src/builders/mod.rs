@@ -197,14 +197,14 @@ pub trait ArrayBuilder: Send {
 
 /// Matches a `&mut dyn ArrayBuilder` against every concrete list builder type, i.e. every
 /// [`ListBuilder`]`<O>` and [`ListViewBuilder`]`<O, S>` instantiation over the
-/// [`ListOffsetPType`](crate::dtype::ListOffsetPType) offset/size types (`u32`, `u64`, `i32`,
+/// [`OffsetBuilderPType`](crate::dtype::OffsetBuilderPType) offset/size types (`u32`, `u64`, `i32`,
 /// `i64`).
 ///
 /// Binds the downcast builder as `$builder` and evaluates `$body` with it, yielding
 /// `Some($body)`; yields `None` when the builder is not a list builder. List encodings dispatch
 /// through this matcher because the concrete list builders are generic over their offset/size
 /// integer types, which cannot be named through a `dyn ArrayBuilder`. The matcher is exhaustive
-/// because `ListOffsetPType` is sealed, so no other instantiations can be constructed.
+/// because `OffsetBuilderPType` is sealed, so no other instantiations can be constructed.
 #[macro_export]
 macro_rules! match_each_list_builder {
     ($dyn_builder:expr, | $builder:ident | $body:expr) => {{

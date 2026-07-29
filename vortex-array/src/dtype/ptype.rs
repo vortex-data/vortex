@@ -98,22 +98,22 @@ impl<T> UnsignedPType for T where T: IntegerPType + Unsigned {}
 /// widths keeps the concrete [`ListBuilder`](crate::builders::ListBuilder) and
 /// [`ListViewBuilder`](crate::builders::ListViewBuilder) instantiations small enough for
 /// [`match_each_list_builder!`](crate::match_each_list_builder) to enumerate them.
-pub trait ListOffsetPType: IntegerPType + list_offset_sealed::Sealed {}
+pub trait OffsetBuilderPType: IntegerPType + offset_builder_sealed::Sealed {}
 
-mod list_offset_sealed {
+mod offset_builder_sealed {
     pub trait Sealed {}
 }
 
-macro_rules! impl_list_offset_ptype {
+macro_rules! impl_offset_builder_ptype {
     ($($T:ty),*) => {
         $(
-            impl list_offset_sealed::Sealed for $T {}
-            impl ListOffsetPType for $T {}
+            impl offset_builder_sealed::Sealed for $T {}
+            impl OffsetBuilderPType for $T {}
         )*
     };
 }
 
-impl_list_offset_ptype!(u32, i32, u64, i64);
+impl_offset_builder_ptype!(u32, i32, u64, i64);
 
 /// A trait for native Rust types that correspond 1:1 to a PType.
 ///
@@ -715,7 +715,7 @@ macro_rules! match_smallest_offset_type {
     }};
 }
 
-/// Macro to match the smallest [`ListOffsetPType`] able to index a given number of elements.
+/// Macro to match the smallest [`OffsetBuilderPType`] able to index a given number of elements.
 ///
 /// Like [`match_smallest_offset_type!`](crate::match_smallest_offset_type), but restricted to the
 /// unsigned types valid as list builder offsets (`u32` and `u64`).

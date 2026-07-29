@@ -39,22 +39,22 @@ use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
-use crate::dtype::ListOffsetPType;
 use crate::dtype::Nullability;
+use crate::dtype::OffsetBuilderPType;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 
-/// A builder for creating [`ListViewArray`] instances, parameterized by the [`ListOffsetPType`]
+/// A builder for creating [`ListViewArray`] instances, parameterized by the [`OffsetBuilderPType`]
 /// of the `offsets` and the `sizes` builders.
 ///
 /// This builder tracks both offsets and sizes using potentially different integer types for memory
 /// efficiency. For example, you might use `u64` for offsets but only `u8` for sizes if your lists
 /// are small.
 ///
-/// Any combination of [`ListOffsetPType`] types is valid, as long as the type of `sizes` can fit
+/// Any combination of [`OffsetBuilderPType`] types is valid, as long as the type of `sizes` can fit
 /// into the type of `offsets`.
-pub struct ListViewBuilder<O: ListOffsetPType, S: ListOffsetPType> {
+pub struct ListViewBuilder<O: OffsetBuilderPType, S: OffsetBuilderPType> {
     /// The [`DType`] of the [`ListViewArray`]. This **must** be a [`DType::List`].
     dtype: DType,
 
@@ -71,7 +71,7 @@ pub struct ListViewBuilder<O: ListOffsetPType, S: ListOffsetPType> {
     nulls: LazyBitBufferBuilder,
 }
 
-impl<O: ListOffsetPType, S: ListOffsetPType> ListViewBuilder<O, S> {
+impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     /// Creates a new `ListViewBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self::with_capacity(
@@ -326,7 +326,7 @@ impl<O: ListOffsetPType, S: ListOffsetPType> ListViewBuilder<O, S> {
     }
 }
 
-impl<O: ListOffsetPType, S: ListOffsetPType> ArrayBuilder for ListViewBuilder<O, S> {
+impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuilder<O, S> {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -425,8 +425,8 @@ fn extend_from_list<O, S, OffsetType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()>
 where
-    O: ListOffsetPType,
-    S: ListOffsetPType,
+    O: OffsetBuilderPType,
+    S: OffsetBuilderPType,
     OffsetType: IntegerPType,
 {
     let num_lists = offsets.len() - 1;

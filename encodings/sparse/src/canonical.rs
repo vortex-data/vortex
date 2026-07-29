@@ -36,10 +36,10 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::DecimalType;
 use vortex_array::dtype::IntegerPType;
-use vortex_array::dtype::ListOffsetPType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::dtype::StructFields;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_integer_ptype;
@@ -202,7 +202,7 @@ fn execute_sparse_lists(
 }
 
 #[expect(clippy::too_many_arguments)]
-fn execute_sparse_lists_inner<I: IntegerPType, O: ListOffsetPType>(
+fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
     patch_indices: &[I],
     patch_values: ListViewArray,
     fill_scalar: ListScalar,
@@ -372,7 +372,7 @@ fn list_scalar_elements_array(list: ListScalar) -> Option<ArrayRef> {
     })
 }
 
-fn append_list_fill<O: ListOffsetPType, S: ListOffsetPType>(
+fn append_list_fill<O: OffsetBuilderPType, S: OffsetBuilderPType>(
     builder: &mut ListViewBuilder<O, S>,
     fill_elements: Option<&ArrayRef>,
     count: usize,

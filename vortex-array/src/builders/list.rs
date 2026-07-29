@@ -31,16 +31,16 @@ use crate::builders::PrimitiveBuilder;
 use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
-use crate::dtype::ListOffsetPType;
 use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
+use crate::dtype::OffsetBuilderPType;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 
-/// The builder for building a [`ListArray`], parametrized by the [`ListOffsetPType`] of the
+/// The builder for building a [`ListArray`], parametrized by the [`OffsetBuilderPType`] of the
 /// `offsets` builder.
-pub struct ListBuilder<O: ListOffsetPType> {
+pub struct ListBuilder<O: OffsetBuilderPType> {
     /// The [`DType`] of the [`ListArray`]. This **must** be a [`DType::List`].
     dtype: DType,
 
@@ -54,7 +54,7 @@ pub struct ListBuilder<O: ListOffsetPType> {
     nulls: LazyBitBufferBuilder,
 }
 
-impl<O: ListOffsetPType> ListBuilder<O> {
+impl<O: OffsetBuilderPType> ListBuilder<O> {
     /// Creates a new `ListBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(value_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self::with_capacity(
@@ -232,7 +232,7 @@ impl<O: ListOffsetPType> ListBuilder<O> {
     /// Appends the values of a [`ListView`]-encoded `array` to this builder.
     ///
     /// See [`append_list_array`](Self::append_list_array); this is the same hook for the canonical
-    /// [`ListViewArray`](crate::arrays::ListViewArray) encoding.
+    /// [`ListViewArray`] encoding.
     pub fn append_listview_array(
         &mut self,
         array: ArrayView<'_, ListView>,
@@ -275,7 +275,7 @@ fn extend_from_listview<O, OffsetType, SizeType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()>
 where
-    O: ListOffsetPType,
+    O: OffsetBuilderPType,
     OffsetType: IntegerPType,
     SizeType: IntegerPType,
 {
@@ -314,7 +314,7 @@ where
     Ok(())
 }
 
-impl<O: ListOffsetPType> ArrayBuilder for ListBuilder<O> {
+impl<O: OffsetBuilderPType> ArrayBuilder for ListBuilder<O> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -412,8 +412,8 @@ mod tests {
     use crate::builders::list::ListArray;
     use crate::builders::list::ListBuilder;
     use crate::dtype::DType;
-    use crate::dtype::ListOffsetPType;
     use crate::dtype::Nullability;
+    use crate::dtype::OffsetBuilderPType;
     use crate::dtype::PType::I32;
     use crate::executor::VortexSessionExecute;
     use crate::scalar::Scalar;
@@ -519,7 +519,7 @@ mod tests {
         assert_eq!(list_array.list_elements_at(2).unwrap().len(), 3);
     }
 
-    fn test_extend_builder_gen<O: ListOffsetPType>() {
+    fn test_extend_builder_gen<O: OffsetBuilderPType>() {
         let list = ListArray::from_iter_opt_slow::<O, _, _>(
             [Some(vec![0, 1, 2]), None, Some(vec![4, 5])],
             Arc::new(I32.into()),
