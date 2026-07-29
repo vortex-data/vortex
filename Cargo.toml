@@ -12,7 +12,7 @@ members = [
     "vortex-flatbuffers",
     "vortex-metrics",
     "vortex-io",
-    "vortex-object-store-opendal",
+    "vortex-cloud",
     "vortex-proto",
     "vortex-array",
     "vortex-arrow",
@@ -294,6 +294,7 @@ vortex-arrow = { version = "0.1.0", path = "./vortex-arrow", default-features = 
 vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-features = false }
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
+vortex-cloud = { version = "0.1.0", path = "./vortex-cloud", default-features = false }
 vortex-compressor = { version = "0.1.0", path = "./vortex-compressor", default-features = false }
 vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
@@ -312,7 +313,6 @@ vortex-json = { version = "0.1.0", path = "./vortex-json", default-features = fa
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
-vortex-object-store-opendal = { version = "0.1.0", path = "./vortex-object-store-opendal", default-features = false }
 vortex-onpair = { version = "0.1.0", path = "./encodings/onpair", default-features = false }
 vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant" }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }

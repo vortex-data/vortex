@@ -9311,6 +9311,7 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
+ "vortex-cloud",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-edition",
@@ -9569,6 +9570,19 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-session",
+]
+
+[[package]]
+name = "vortex-cloud"
+version = "0.1.0"
+dependencies = [
+ "object_store",
+ "object_store_opendal",
+ "opendal",
+ "parking_lot",
+ "tracing",
+ "url",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -10013,12 +10027,10 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "url",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
  "vortex-metrics",
- "vortex-object-store-opendal",
  "vortex-session",
  "vortex-utils",
  "wasm-bindgen-futures",
@@ -10061,8 +10073,8 @@ dependencies = [
  "url",
  "vortex",
  "vortex-arrow",
+ "vortex-cloud",
  "vortex-geo",
- "vortex-object-store-opendal",
  "vortex-parquet-variant",
 ]
 
@@ -10158,18 +10170,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-object-store-opendal"
-version = "0.1.0"
-dependencies = [
- "object_store",
- "object_store_opendal",
- "opendal",
- "tracing",
- "url",
- "vortex-utils",
-]
-
-[[package]]
 name = "vortex-onpair"
 version = "0.1.0"
 dependencies = [
@@ -10257,7 +10257,7 @@ dependencies = [
  "vortex",
  "vortex-array",
  "vortex-arrow",
- "vortex-object-store-opendal",
+ "vortex-cloud",
  "vortex-python-abi",
  "vortex-tui",
 ]

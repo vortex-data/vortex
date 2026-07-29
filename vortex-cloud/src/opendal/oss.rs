@@ -5,16 +5,16 @@
 
 use std::sync::Arc;
 
+use ::opendal::services;
 use object_store::ObjectStore;
 use object_store_opendal::OpendalStore;
-use opendal::services;
 use url::Url;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::OpenDALStoreError;
-use crate::build_operator;
-use crate::property_or_env;
-use crate::warn_on_unknown_properties;
+use crate::opendal::OpenDALStoreError;
+use crate::opendal::build_operator;
+use crate::opendal::property_or_env;
+use crate::opendal::warn_on_unknown_properties;
 
 /// The URL scheme served by Alibaba Cloud OSS.
 pub const OSS_SCHEME: &str = "oss";
@@ -32,7 +32,7 @@ const KNOWN_PROPERTIES: &[&str] = &[
 
 /// Strongly-typed configuration for building an OpenDAL store against Alibaba Cloud OSS.
 ///
-/// This mirrors [`crate::CosConfig`], but OSS names its credentials `access_key_id` /
+/// This mirrors [`crate::opendal::CosConfig`], but OSS names its credentials `access_key_id` /
 /// `access_key_secret` and has no equivalent of COS's `disable_config_load`; the closest knob is
 /// [`OssConfig::skip_signature`], which sends unsigned requests for public buckets.
 #[derive(Debug, Clone, Default)]

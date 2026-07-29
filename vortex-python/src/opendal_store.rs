@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use vortex_object_store_opendal::CosConfig;
+use vortex_cloud::opendal::CosConfig;
 
 /// A Tencent Cloud COS object store, backed by OpenDAL.
 ///
@@ -62,7 +62,7 @@ impl CosStore {
             root,
             disable_config_load,
         };
-        let store = vortex_object_store_opendal::make_cos_store(config)
+        let store = vortex_cloud::opendal::make_cos_store(config)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self { store })
     }
@@ -76,7 +76,7 @@ pub(crate) fn init(_py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_object_store_opendal::CosConfig;
+    use vortex_cloud::opendal::CosConfig;
 
     use super::*;
 
@@ -92,8 +92,7 @@ mod tests {
             root: Some("nested/prefix".to_string()),
             disable_config_load: true,
         };
-        let store =
-            vortex_object_store_opendal::make_cos_store(config).expect("cos store should build");
+        let store = vortex_cloud::opendal::make_cos_store(config).expect("cos store should build");
         // Sanity-check the result is a non-null `Arc<dyn ObjectStore>`.
         assert!(Arc::strong_count(&store) >= 1);
     }
@@ -102,14 +101,16 @@ mod tests {
     /// rather than silently building an invalid store.
     #[test]
     fn cos_config_rejects_empty_bucket() {
-        let result = vortex_object_store_opendal::make_cos_store(CosConfig {
+        let result = vortex_cloud::opendal::make_cos_store(CosConfig {
             bucket: String::new(),
             endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
             ..CosConfig::default()
         });
         assert!(matches!(
             result,
-            Err(vortex_object_store_opendal::OpenDALStoreError::MissingConfig("bucket"))
+            Err(vortex_cloud::opendal::OpenDALStoreError::MissingConfig(
+                "bucket"
+            ))
         ));
     }
 }

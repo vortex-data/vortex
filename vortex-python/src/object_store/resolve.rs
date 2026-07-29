@@ -9,10 +9,10 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
+use vortex::cloud::Registry;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::compat::Compat;
-use vortex::io::object_store::Registry;
 
 static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::default);
 

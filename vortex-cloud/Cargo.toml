@@ -1,0 +1,56 @@
+[package]
+name = "vortex-cloud"
+description = "Cloud object store integration for Vortex: URL resolution and OpenDAL-backed services"
+version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+readme = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+object_store = { workspace = true, features = ["fs"] }
+object_store_opendal = { workspace = true, optional = true }
+opendal = { workspace = true, optional = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+vortex-utils = { workspace = true }
+
+[features]
+default = []
+# The URL -> ObjectStore registry, plus the cloud backends it resolves URLs to. Kept optional so
+# that a consumer needing only an OpenDAL store does not pull in the native cloud backends.
+registry = [
+    "object_store/aws",
+    "object_store/azure",
+    "object_store/gcp",
+    "object_store/http",
+]
+# Tencent Cloud COS, the `cos://` scheme.
+cos = [
+    "dep:opendal",
+    "dep:object_store_opendal",
+    "object_store/cloud",
+    "opendal/services-cos",
+]
+# Alibaba Cloud OSS, the `oss://` scheme.
+oss = [
+    "dep:opendal",
+    "dep:object_store_opendal",
+    "object_store/cloud",
+    "opendal/services-oss",
+]
+# Every OpenDAL-backed service.
+opendal = ["cos", "oss"]
+
+[lints]
+workspace = true

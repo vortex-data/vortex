@@ -178,6 +178,12 @@ pub mod io {
     pub use vortex_io::*;
 }
 
+/// Cloud object store integration: URL resolution and OpenDAL-backed services.
+#[cfg(feature = "object_store_registry")]
+pub mod cloud {
+    pub use vortex_cloud::*;
+}
+
 /// IPC serialization helpers for Vortex arrays.
 pub mod ipc {
     pub use vortex_ipc::*;

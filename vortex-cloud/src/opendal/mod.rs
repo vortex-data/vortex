@@ -15,11 +15,11 @@
 //!
 //! # Cargo features
 //!
-//! * `cos` (default) — Tencent Cloud COS, the `cos://` scheme.
-//! * `oss` (default) — Alibaba Cloud OSS, the `oss://` scheme.
+//! * `cos` — Tencent Cloud COS, the `cos://` scheme.
+//! * `oss` — Alibaba Cloud OSS, the `oss://` scheme.
 //!
-//! With both features disabled the crate still compiles: [`supports_scheme`] returns `false` for
-//! every scheme and [`make_opendal_store`] always reports
+//! With a single service enabled the module still compiles: [`supports_scheme`] returns `false`
+//! for every scheme it does not serve and [`make_opendal_store`] reports
 //! [`OpenDALStoreError::UnsupportedScheme`].
 //!
 //! # Limitations
@@ -37,26 +37,26 @@ mod oss;
 
 use std::sync::Arc;
 
-use object_store::ObjectStore;
 #[cfg(any(feature = "cos", feature = "oss"))]
-use opendal::Operator;
+use ::opendal::Operator;
+use object_store::ObjectStore;
 #[cfg(any(feature = "cos", feature = "oss"))]
 use tracing::warn;
 use url::Url;
 use vortex_utils::aliases::hash_map::HashMap;
 
 #[cfg(feature = "cos")]
-pub use crate::cos::COS_SCHEME;
+pub use crate::opendal::cos::COS_SCHEME;
 #[cfg(feature = "cos")]
-pub use crate::cos::CosConfig;
+pub use crate::opendal::cos::CosConfig;
 #[cfg(feature = "cos")]
-pub use crate::cos::make_cos_store;
+pub use crate::opendal::cos::make_cos_store;
 #[cfg(feature = "oss")]
-pub use crate::oss::OSS_SCHEME;
+pub use crate::opendal::oss::OSS_SCHEME;
 #[cfg(feature = "oss")]
-pub use crate::oss::OssConfig;
+pub use crate::opendal::oss::OssConfig;
 #[cfg(feature = "oss")]
-pub use crate::oss::make_oss_store;
+pub use crate::opendal::oss::make_oss_store;
 
 /// Error type for building an OpenDAL-backed object store.
 #[derive(Debug)]
@@ -67,7 +67,7 @@ pub enum OpenDALStoreError {
     /// A required configuration value (bucket and/or endpoint) was missing.
     MissingConfig(&'static str),
     /// The OpenDAL builder rejected the provided configuration.
-    Build(opendal::Error),
+    Build(::opendal::Error),
 }
 
 impl std::fmt::Display for OpenDALStoreError {
@@ -109,7 +109,7 @@ pub const SUPPORTED_SCHEMES: &[&str] = &[
 /// so a consumer that adds a service feature picks it up without changing its own scheme matching.
 ///
 /// ```
-/// # use vortex_object_store_opendal::supports_scheme;
+/// # use vortex_cloud::opendal::supports_scheme;
 /// assert!(!supports_scheme("s3"));
 /// ```
 pub fn supports_scheme(scheme: &str) -> bool {
@@ -201,7 +201,7 @@ pub(crate) fn warn_on_unknown_properties(properties: &HashMap<String, String>, k
 #[cfg(any(feature = "cos", feature = "oss"))]
 pub(crate) fn build_operator<B>(builder: B) -> Result<Operator, OpenDALStoreError>
 where
-    B: opendal::Builder,
+    B: ::opendal::Builder,
 {
     let operator: Operator = Operator::new(builder)
         .map_err(OpenDALStoreError::Build)?

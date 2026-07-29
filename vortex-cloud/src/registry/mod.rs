@@ -10,10 +10,7 @@
 //!    various `Store::from_env` builders behave (see
 //!    <https://github.com/apache/arrow-rs-object-store/issues/529>);
 //! 2. schemes that `object_store` does not recognize natively — the OpenDAL-backed `cos://` and
-//!    `oss://` — are served under the `opendal` feature.
-//!
-//! Every Vortex language binding resolves URLs through this one type, so a scheme added here is
-//! reachable from Python, Java and DuckDB alike.
+//!    `oss://` — are served by [`crate::opendal`] under the matching service feature.
 
 use std::sync::Arc;
 
@@ -59,7 +56,7 @@ impl PathEntry {
 }
 
 /// An [`ObjectStoreRegistry`] that normalizes environment variables before doing lookups, and
-/// resolves OpenDAL-backed schemes under the `opendal` feature.
+/// resolves OpenDAL-backed schemes under the enabled service features.
 ///
 /// Stores are cached per URL authority, so repeated resolves against the same bucket share one
 /// client. A store can also be registered explicitly at a path prefix with
@@ -67,7 +64,7 @@ impl PathEntry {
 ///
 /// ```
 /// # use object_store::registry::ObjectStoreRegistry;
-/// # use vortex_io::object_store::Registry;
+/// # use vortex_cloud::Registry;
 /// # use url::Url;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let registry = Registry::default();
@@ -104,7 +101,7 @@ enum EnvSource {
 
 impl EnvSource {
     /// Case-insensitive lookup of a single configuration variable.
-    #[cfg(feature = "opendal")]
+    #[cfg(any(feature = "cos", feature = "oss"))]
     fn lookup(&self, key: &str) -> Option<String> {
         match self {
             EnvSource::Process => std::env::var(key).ok(),
@@ -225,13 +222,12 @@ impl Registry {
         // so build them from OpenDAL's own environment-variable configuration (e.g.
         // `TENCENTCLOUD_SECRET_ID`). The operator is rooted at the bucket, which lives in the URL
         // authority, so — exactly as for `s3://bucket/path` — the whole URL path is the object key.
-        #[cfg(feature = "opendal")]
-        if vortex_object_store_opendal::supports_scheme(to_resolve.scheme()) {
-            let store = vortex_object_store_opendal::make_opendal_store_with_env(
-                to_resolve,
-                &HashMap::new(),
-                |key| self.env.lookup(key),
-            )?;
+        #[cfg(any(feature = "cos", feature = "oss"))]
+        if crate::opendal::supports_scheme(to_resolve.scheme()) {
+            let store =
+                crate::opendal::make_opendal_store_with_env(to_resolve, &HashMap::new(), |key| {
+                    self.env.lookup(key)
+                })?;
             return Ok((store, Path::from_url_path(to_resolve.path())?));
         }
 

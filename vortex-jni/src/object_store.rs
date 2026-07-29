@@ -67,8 +67,8 @@ pub(crate) fn make_object_store(
     // subsequent calls for the same URL share a single client. Asking `supports_scheme` rather
     // than matching scheme strings here keeps this call site correct as services are added.
     #[cfg(feature = "opendal")]
-    if vortex_object_store_opendal::supports_scheme(url.scheme()) {
-        let store = vortex_object_store_opendal::make_opendal_store(url, properties)
+    if vortex_cloud::opendal::supports_scheme(url.scheme()) {
+        let store = vortex_cloud::opendal::make_opendal_store(url, properties)
             .map_err(|e| VortexError::from(object_store::Error::from(e)))?;
         return cache_and_return(store, url, properties, &start);
     }

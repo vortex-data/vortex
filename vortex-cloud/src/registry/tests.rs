@@ -150,10 +150,10 @@ fn test_registered_store_wins_over_build() -> Result<(), Box<dyn std::error::Err
 /// `parse_url_opts`, which does not recognize them. Without an endpoint the build fails, but the
 /// error must come from the OpenDAL builder ("missing required OpenDAL store configuration"), not
 /// from `object_store`'s unrecognized-scheme path.
-#[cfg(feature = "opendal")]
+#[cfg(any(feature = "cos", feature = "oss"))]
 #[test]
 fn test_opendal_schemes_reach_the_opendal_builder() -> Result<(), Box<dyn std::error::Error>> {
-    for scheme in vortex_object_store_opendal::SUPPORTED_SCHEMES {
+    for scheme in crate::opendal::SUPPORTED_SCHEMES {
         let url = Url::parse(&format!("{scheme}://bucket/key.vortex"))?;
         let err = registry()
             .resolve(&url)

@@ -5,16 +5,16 @@
 
 use std::sync::Arc;
 
+use ::opendal::services;
 use object_store::ObjectStore;
 use object_store_opendal::OpendalStore;
-use opendal::services;
 use url::Url;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::OpenDALStoreError;
-use crate::build_operator;
-use crate::property_or_env;
-use crate::warn_on_unknown_properties;
+use crate::opendal::OpenDALStoreError;
+use crate::opendal::build_operator;
+use crate::opendal::property_or_env;
+use crate::opendal::warn_on_unknown_properties;
 
 /// The URL scheme served by Tencent Cloud COS.
 pub const COS_SCHEME: &str = "cos";
@@ -32,7 +32,7 @@ const KNOWN_PROPERTIES: &[&str] = &[
 /// Strongly-typed configuration for building an OpenDAL store against Tencent Cloud COS.
 ///
 /// The fields mirror the keyword arguments of the `CosStore` Python class. Building from a
-/// `CosConfig` avoids the URL-round-trip that the [`crate::make_opendal_store`] entry point uses,
+/// `CosConfig` avoids the URL-round-trip that the [`crate::opendal::make_opendal_store`] entry point uses,
 /// and is the preferred way to construct a COS store.
 #[derive(Debug, Clone, Default)]
 pub struct CosConfig {
