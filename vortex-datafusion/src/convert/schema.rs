@@ -45,7 +45,7 @@ pub fn calculate_physical_schema(
                         arrow_session,
                     )?;
                     Ok(
-                        Field::new(name.to_string(), arrow_type, field_dtype.is_nullable())
+                        Field::new(name.as_ref(), arrow_type, field_dtype.is_nullable())
                             .with_metadata(logical_field.metadata().clone()),
                     )
                 }
@@ -108,12 +108,14 @@ fn calculate_physical_field_type(
                                     logical_field.data_type(),
                                     arrow_session,
                                 )?;
-                                Ok(Field::new(
-                                    name.to_string(),
-                                    arrow_type,
-                                    field_dtype.is_nullable(),
+                                Ok(
+                                    Field::new(
+                                        name.as_ref(),
+                                        arrow_type,
+                                        field_dtype.is_nullable(),
+                                    )
+                                    .with_metadata(logical_field.metadata().clone()),
                                 )
-                                .with_metadata(logical_field.metadata().clone()))
                             }
                             None => arrow_session
                                 .to_arrow_field(name.as_ref(), &field_dtype)
@@ -453,5 +455,88 @@ mod tests {
                 .to_string()
                 .contains("Expected struct dtype")
         );
+    }
+
+    /// Names carrying raw control bytes must reach Arrow byte-for-byte.
+    /// `FieldName`'s `Display` escapes via `escape_debug`, so building the
+    /// field with `to_string` renames `\x08` to the literal five characters
+    /// `\u{8}`. The scanned batch then disagrees with the table schema the
+    /// scan was planned against, and the query fails with "column types must
+    /// match schema types".
+    #[test]
+    fn test_control_byte_column_names_are_not_escaped() {
+        let column_names = ["plain", "\u{8}", "check_id\u{10}"];
+        let logical_schema = Schema::new(
+            column_names
+                .iter()
+                .map(|n| Field::new(*n, DataType::Utf8, true))
+                .collect::<Fields>(),
+        );
+
+        let dtype = DType::Struct(
+            StructFields::from_iter(
+                column_names
+                    .iter()
+                    .map(|n| (*n, DType::Utf8(Nullability::Nullable))),
+            ),
+            Nullability::NonNullable,
+        );
+
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+
+        let names: Vec<&str> = physical_schema
+            .fields()
+            .iter()
+            .map(|f| f.name().as_str())
+            .collect();
+        assert_eq!(names, column_names);
+    }
+
+    /// Same, one level down: struct children are built at a separate call
+    /// site in `calculate_physical_field_type`. The children here are
+    /// run-end-encoded dictionaries, so this also covers the branches that
+    /// take the type from the reference schema instead of the `DType`.
+    #[test]
+    fn test_control_byte_struct_field_names_are_not_escaped() {
+        let label_names = ["app", "\u{8}", "check_id\u{10}"];
+        let ree = DataType::RunEndEncoded(
+            Arc::new(Field::new("run_ends", DataType::Int32, false)),
+            Arc::new(Field::new(
+                "values",
+                DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
+                true,
+            )),
+        );
+        let logical_schema = Schema::new(vec![Field::new_struct(
+            "labels",
+            label_names
+                .iter()
+                .map(|n| Field::new(*n, ree.clone(), true))
+                .collect::<Fields>(),
+            false,
+        )]);
+
+        let labels_dtype = DType::Struct(
+            StructFields::from_iter(
+                label_names
+                    .iter()
+                    .map(|n| (*n, DType::Utf8(Nullability::Nullable))),
+            ),
+            Nullability::NonNullable,
+        );
+        let dtype = DType::Struct(
+            StructFields::from_iter([("labels", labels_dtype)]),
+            Nullability::NonNullable,
+        );
+
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+
+        let DataType::Struct(labels) = physical_schema.field(0).data_type() else {
+            panic!("expected labels to be a struct");
+        };
+        let names: Vec<&str> = labels.iter().map(|f| f.name().as_str()).collect();
+        assert_eq!(names, label_names);
     }
 }
