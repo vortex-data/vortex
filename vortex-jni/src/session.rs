@@ -21,10 +21,6 @@ use crate::RUNTIME;
 /// an opaque pointer that Java must pass to [`Java_dev_vortex_jni_NativeSession_free`].
 pub(crate) fn new_session() -> Box<VortexSession> {
     let session = VortexSession::default().with_handle(RUNTIME.handle());
-    session
-        .enable_edition(DEFAULT_UNSTABLE_EDITION)
-        .map_err(|error| vortex_err!("{error}"))
-        .vortex_expect("default unstable edition is registered");
     vortex_parquet_variant::initialize(&session);
     vortex_geo::initialize(&session);
     Box::new(session)
