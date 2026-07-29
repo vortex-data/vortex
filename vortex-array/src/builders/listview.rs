@@ -69,6 +69,14 @@ pub struct ListViewBuilder<O: OffsetBuilderPType, S: OffsetBuilderPType> {
 
     /// The null map builder of the [`ListViewArray`].
     nulls: LazyBitBufferBuilder,
+
+    /// Whether the appends so far leave the result zero-copyable to a [`ListArray`].
+    ///
+    /// Only [`append_listview_array`](ArrayBuilder::append_listview_array) can clear this; every
+    /// other append writes its lists back to back.
+    ///
+    /// [`ListArray`]: crate::arrays::ListArray
+    zero_copy_to_list: bool,
 }
 
 impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
@@ -112,6 +120,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
             offsets_builder,
             sizes_builder,
             nulls,
+            zero_copy_to_list: true,
         }
     }
 
@@ -207,6 +216,8 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         let sizes = self.sizes_builder.finish();
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
+        let zero_copy_to_list = std::mem::replace(&mut self.zero_copy_to_list, true);
+
         // SAFETY:
         // - Both the offsets and the sizes are non-nullable.
         // - The offsets, sizes, and validity have the same length since we always appended the same
@@ -215,11 +226,11 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         // - In every method that adds values to this builder (`append_value`, `append_scalar`,
         //   `append_list_array`, and `append_listview_array`), we checked that `offset + size`
         //   does not overflow.
-        // - We constructed everything in a way that builds the `ListViewArray` similar to the shape
-        //   of a `ListArray`, so we know the resulting array is zero-copyable to a `ListArray`.
+        // - Every append writes its lists back to back, so the result is zero-copyable to a
+        //   `ListArray` unless `zero_copy_to_list` recorded an appended layout we left alone.
         unsafe {
             ListViewArray::new_unchecked(elements, offsets, sizes, validity)
-                .with_zero_copy_to_list(true)
+                .with_zero_copy_to_list(zero_copy_to_list)
         }
     }
 
@@ -525,6 +536,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::ConstantArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::listview::ListViewArrayExt;
@@ -845,6 +857,39 @@ mod tests {
         Ok(())
     }
 
+    /// A constant list array points every view at a single copy of the value. Flattening it in the
+    /// builder would materialize a copy per row, undoing the reason to append the array at all
+    /// instead of the same list in a loop.
+    #[test]
+    fn test_constant_list_append_keeps_one_copy_of_the_value() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let element_dtype: Arc<DType> = Arc::new(I32.into());
+
+        const ROWS: usize = 10_000;
+        let fill = Scalar::list(
+            Arc::clone(&element_dtype),
+            vec![1i32.into(), 2i32.into(), 3i32.into()],
+            NonNullable,
+        );
+        let constant = ConstantArray::new(fill, ROWS).into_array();
+
+        let mut builder =
+            ListViewBuilder::<u64, u64>::with_capacity(element_dtype, NonNullable, 0, 0);
+        constant.append_to_builder(&mut builder, &mut ctx)?;
+        let listview = builder.finish_into_listview();
+
+        assert_eq!(listview.len(), ROWS);
+        assert_eq!(
+            listview.elements().len(),
+            3,
+            "the fill value should be stored once, not once per row",
+        );
+        assert!(!listview.is_zero_copy_to_list());
+        assert_arrays_eq!(&listview.into_array(), &constant, &mut ctx);
+
+        Ok(())
+    }
+
     #[test]
     fn test_extend_from_array_overlapping_listview() {
         let mut ctx = array_session().create_execution_ctx();
@@ -872,7 +917,8 @@ mod tests {
 
         let listview = builder.finish_into_listview();
         assert_eq!(listview.len(), 3);
-        assert!(listview.is_zero_copy_to_list());
+        // The builder kept the source's overlapping layout, so the result is not zero-copyable.
+        assert!(!listview.is_zero_copy_to_list());
 
         assert_arrays_eq!(
             listview.list_elements_at(0).unwrap(),
@@ -886,7 +932,8 @@ mod tests {
                 .execute_is_valid(1, &mut ctx)
                 .unwrap()
         );
-        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
+        // List 1 is null, so its size is meaningless; the builder no longer rewrites it to zero.
+        assert_eq!(listview.size_at(1), source.size_at(1));
         assert_arrays_eq!(
             listview.list_elements_at(2).unwrap(),
             PrimitiveArray::from_iter([10i32]),
