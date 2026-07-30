@@ -26,12 +26,14 @@ use vortex_array::IntoArray;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
-use vortex_array::builders::DynVarBinBuilder;
+use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_varbin_builder;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -553,23 +555,10 @@ impl VTable for OnPair {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
-            let (bytes, lengths) = onpair_decode_bytes(array, ctx)?;
-            let validity = array
-                .array()
-                .validity()?
-                .execute_mask(array.array().len(), ctx)?;
-            match_each_integer_ptype!(lengths.ptype(), |P| {
-                builder.append_values(
-                    bytes.as_slice(),
-                    lengths.as_slice::<P>().iter().scan(0usize, |end, length| {
-                        *end += AsPrimitive::<usize>::as_(*length);
-                        Some(*end)
-                    }),
-                    &validity,
-                )
-            })?;
-            return Ok(());
+        if let Some(result) =
+            match_each_varbin_builder!(builder, |builder| append_to_varbin(array, builder, ctx))
+        {
+            return result;
         }
 
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
@@ -601,6 +590,32 @@ impl VTable for OnPair {
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
     }
+}
+
+/// Decodes the values and appends them to `builder`.
+fn append_to_varbin<O: OffsetBuilderPType>(
+    array: ArrayView<'_, OnPair>,
+    builder: &mut VarBinBuilder<O>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()>
+where
+    usize: AsPrimitive<O>,
+{
+    let (bytes, lengths) = onpair_decode_bytes(array, ctx)?;
+    let validity = array
+        .array()
+        .validity()?
+        .execute_mask(array.array().len(), ctx)?;
+    match_each_integer_ptype!(lengths.ptype(), |P| {
+        builder.append_values(
+            bytes.as_slice(),
+            lengths.as_slice::<P>().iter().scan(0usize, |end, length| {
+                *end += AsPrimitive::<usize>::as_(*length);
+                Some(*end)
+            }),
+            &validity,
+        )
+    })
 }
 
 impl ValidityVTable<OnPair> for OnPair {

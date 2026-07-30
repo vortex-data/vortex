@@ -71,7 +71,7 @@ pub use primitive::*;
 pub use struct_::*;
 pub use varbinview::*;
 
-pub use crate::arrays::varbin::builder::DynVarBinBuilder;
+pub use crate::arrays::varbin::builder::VarBinBuilder;
 
 #[cfg(test)]
 mod tests;

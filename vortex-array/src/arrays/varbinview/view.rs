@@ -246,6 +246,26 @@ impl BinaryView {
         unsafe { &mut self._ref }
     }
 
+    /// Returns the bytes of this value, reading out of `buffers` when it is not inlined.
+    ///
+    /// Unlike [`VarBinViewData::bytes_at`](crate::arrays::varbinview::VarBinViewData::bytes_at)
+    /// this borrows
+    /// from slices the caller has already resolved instead of cloning a buffer handle, so it is
+    /// safe to call once per row in a loop.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the view references a buffer or range not covered by `buffers`.
+    #[inline]
+    pub fn bytes<'a>(&'a self, buffers: &[&'a [u8]]) -> &'a [u8] {
+        if self.is_inlined() {
+            self.as_inlined().value()
+        } else {
+            let view = self.as_view();
+            &buffers[view.buffer_index as usize][view.as_range()]
+        }
+    }
+
     /// Returns the binary view as u128 representation.
     pub fn as_u128(&self) -> u128 {
         // SAFETY: binary view always safe to read as u128 LE bytes

@@ -506,7 +506,7 @@ mod tests {
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::builders::DynVarBinBuilder;
+    use vortex_array::builders::VarBinBuilder;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -564,7 +564,7 @@ mod tests {
             Some("c"),
         ])
         .into_array();
-        let mut builder = DynVarBinBuilder::with_capacity(arr.dtype().clone(), false, arr.len());
+        let mut builder = VarBinBuilder::<i32>::with_capacity(arr.dtype().clone(), arr.len());
         arr.append_to_builder(&mut builder, &mut ctx).unwrap();
         assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
         assert_arrays_eq!(arr.into_array(), expected, &mut ctx);

@@ -91,13 +91,15 @@ pub trait UnsignedPType: IntegerPType + Unsigned {}
 /// Implements [`UnsignedPType`] for all possible `T` that have the correct bounds.
 impl<T> UnsignedPType for T where T: IntegerPType + Unsigned {}
 
-/// Trait for the integer types that can back a list builder's `offsets` and `sizes`: `u32`,
-/// `i32`, `u64`, and `i64`.
+/// Trait for the integer types that can back a builder's `offsets` and `sizes`: `u32`, `i32`,
+/// `u64`, and `i64`.
 ///
 /// This trait is sealed and cannot be implemented for any other type. Restricting the set of
-/// widths keeps the concrete [`ListBuilder`](crate::builders::ListBuilder) and
-/// [`ListViewBuilder`](crate::builders::ListViewBuilder) instantiations small enough for
-/// [`match_each_list_builder!`](crate::match_each_list_builder) to enumerate them.
+/// widths keeps the concrete [`ListBuilder`](crate::builders::ListBuilder),
+/// [`ListViewBuilder`](crate::builders::ListViewBuilder), and
+/// [`VarBinBuilder`](crate::builders::VarBinBuilder) instantiations small enough for
+/// [`match_each_list_builder!`](crate::match_each_list_builder) and
+/// [`match_each_any_varbin_builder!`](crate::match_each_any_varbin_builder) to enumerate them.
 pub trait OffsetBuilderPType: IntegerPType + offset_builder_sealed::Sealed {}
 
 mod offset_builder_sealed {
@@ -718,7 +720,7 @@ macro_rules! match_smallest_offset_type {
 /// Macro to match the smallest [`OffsetBuilderPType`] able to index a given number of elements.
 ///
 /// Like [`match_smallest_offset_type!`](crate::match_smallest_offset_type), but restricted to the
-/// unsigned types valid as list builder offsets (`u32` and `u64`).
+/// unsigned types valid as builder offsets (`u32` and `u64`).
 #[macro_export]
 macro_rules! match_smallest_list_offset_type {
     ($n_elements:expr, | $offset_type:ident | $body:block) => {{

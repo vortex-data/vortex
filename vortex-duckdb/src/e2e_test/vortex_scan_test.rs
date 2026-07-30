@@ -983,11 +983,12 @@ fn test_geometry() {
         let mut wkb_binary: Vec<u8> = Vec::new();
         wkb::writer::write_polygon(&mut wkb_binary, &rect10, &WriteOptions::default())
             .expect("serializing WKB");
-        let mut geometry = VarBinBuilder::<u32>::with_capacity(10);
+        let mut geometry =
+            VarBinBuilder::<u32>::with_capacity(DType::Binary(Nullability::NonNullable), 10);
         for _ in 0..10 {
             geometry.append_value(wkb_binary.as_slice());
         }
-        let geometry = geometry.finish(DType::Binary(Nullability::NonNullable));
+        let geometry = geometry.finish_into_varbin();
 
         let geometry = ExtensionArray::new(
             ExtDType::<WellKnownBinary>::try_new(
