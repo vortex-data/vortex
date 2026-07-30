@@ -68,6 +68,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_edition::EditionSession;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_flatbuffers::footer as fb;
@@ -1654,6 +1655,7 @@ async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
 async fn test_encoding_registered_after_write_options() -> VortexResult<()> {
     // A session that does not know about ZigZag yet.
     let session = array_session()
+        .with::<EditionSession>()
         .with::<LayoutSession>()
         .with::<RuntimeSession>();
 
@@ -1663,6 +1665,7 @@ async fn test_encoding_registered_after_write_options() -> VortexResult<()> {
         .write_options()
         .with_strategy(Arc::new(FlatLayoutStrategy::default()));
     vortex_zigzag::initialize(&session);
+    crate::enable_all_registered_array_encodings(&session);
 
     let array = ZigZag::try_new(buffer![1u32, 2, 3, 4].into_array())?.into_array();
     let dtype = array.dtype().clone();
