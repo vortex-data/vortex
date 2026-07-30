@@ -16,6 +16,9 @@ mod iter;
 mod kernel;
 pub mod ops;
 mod rules;
+#[cfg(test)]
+#[cfg(not(codspeed))]
+mod trace_tests;
 
 #[doc(hidden)]
 pub mod _benchmarking {

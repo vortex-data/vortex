@@ -611,7 +611,7 @@ fn finalize_done(
 }
 
 fn execute_parent_for_child(
-    phase: &'static str,
+    _phase: &'static str,
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
@@ -634,7 +634,7 @@ fn execute_parent_for_child(
                     );
                 }
                 trace_op!(record_session_execute_parent_applied(
-                    phase,
+                    _phase,
                     parent,
                     child,
                     slot_idx,
@@ -644,7 +644,7 @@ fn execute_parent_for_child(
                 return Ok(Some(result));
             }
             trace_op!(record_session_execute_parent_declined(
-                phase,
+                _phase,
                 parent,
                 child,
                 slot_idx,
@@ -664,14 +664,9 @@ fn try_execute_parent(
 ) -> VortexResult<Option<ArrayRef>> {
     for (slot_idx, slot) in array.slots().iter().enumerate() {
         let Some(child) = slot else { continue };
-        if let Some(executed_parent) = execute_parent_for_child(
-            "child_execute_parent",
-            array,
-            child,
-            slot_idx,
-            kernels,
-            ctx,
-        )? {
+        if let Some(executed_parent) =
+            execute_parent_for_child("child_execute_parent", array, child, slot_idx, kernels, ctx)?
+        {
             ctx.log(format_args!(
                 "execute_parent: slot[{}]({}) rewrote {} -> {}",
                 slot_idx,

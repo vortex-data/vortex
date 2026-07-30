@@ -9515,6 +9515,7 @@ dependencies = [
 name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
+ "arrow-array 58.4.0",
  "codspeed-divan-compat",
  "insta",
  "itertools 0.14.0",
@@ -9522,8 +9523,11 @@ dependencies = [
  "rand 0.10.2",
  "rstest",
  "test-with",
+ "tpchgen",
+ "tpchgen-arrow",
  "vortex-alp",
  "vortex-array",
+ "vortex-arrow",
  "vortex-buffer",
  "vortex-compressor",
  "vortex-datetime-parts",
@@ -9531,6 +9535,7 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-fsst",
+ "vortex-mask",
  "vortex-onpair",
  "vortex-pco",
  "vortex-runend",
@@ -10303,6 +10308,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "codspeed-divan-compat",
+ "insta",
  "itertools 0.14.0",
  "mimalloc",
  "num-traits",
