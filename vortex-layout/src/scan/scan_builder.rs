@@ -425,9 +425,8 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
-                    let task = handle.spawn_blocking(move || {
-                        builder.prepare().and_then(|scan| scan.execute(None))
-                    });
+                    let task = handle
+                        .spawn_cpu(move || builder.prepare().and_then(|scan| scan.execute(None)));
                     self.state = LazyScanState::Preparing(PreparingScan {
                         ordered,
                         concurrency,
