@@ -25,7 +25,10 @@ if [[ -z "${BENCH_CPUS:-}" ]]; then
 fi
 
 if command -v numactl >/dev/null 2>&1; then
-    exec numactl --physcpubind="$BENCH_CPUS" --membind=0 "$@"
+    # --all is required: setup-benchmark.sh pins every running process (including the
+    # CI runner this shell descends from) to the housekeeping CPUs, and libnuma parses
+    # cpu lists relative to the inherited affinity mask unless told to consider all.
+    exec numactl --all --physcpubind="$BENCH_CPUS" --membind=0 "$@"
 fi
 
 exec taskset -c "$BENCH_CPUS" "$@"
