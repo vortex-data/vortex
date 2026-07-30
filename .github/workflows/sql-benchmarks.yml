@@ -99,6 +99,7 @@ jobs:
       - name: Pre-upload SQL benchmark debuginfo to Polar Signals
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: ./.github/actions/upload-parca-debuginfo
+        continue-on-error: true
         with:
           paths: |
             target/release_debug/datafusion-bench

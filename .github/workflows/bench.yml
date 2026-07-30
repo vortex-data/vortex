@@ -77,6 +77,7 @@ jobs:
 
       - name: Pre-upload benchmark debuginfo to Polar Signals
         uses: ./.github/actions/upload-parca-debuginfo
+        continue-on-error: true
         with:
           paths: |
             target/release_debug/${{ matrix.benchmark.id }}

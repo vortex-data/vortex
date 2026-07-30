@@ -14,7 +14,7 @@ inputs:
   store-address:
     description: "Parca-compatible debuginfo gRPC endpoint"
     required: false
-    default: "grpc.polarsignals.com:443"
+    default: "api.polarsignals.com:443"
   version:
     description: "parca-debuginfo version to install"
     required: false
