@@ -12,6 +12,7 @@ use rand::rngs::StdRng;
 use vortex_alp::ALPFloat;
 use vortex_alp::ALPRDFloat;
 use vortex_alp::RDEncoder;
+use vortex_alp::RDEncoderExt;
 use vortex_alp::alp_encode;
 use vortex_alp::decompress_into_array;
 use vortex_array::Canonical;

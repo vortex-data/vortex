@@ -25,6 +25,7 @@ use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
@@ -313,7 +314,10 @@ impl ALPData {
     }
 
     /// Validate that any patches provided are valid for the ALPArray.
-    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &ArrayRef) -> VortexResult<()> {
+    fn validate_patches<T: ALPFloat + NativePType>(
+        patches: &Patches,
+        encoded: &ArrayRef,
+    ) -> VortexResult<()> {
         vortex_ensure!(
             patches.array_len() == encoded.len(),
             "patches array_len != encoded len: {} != {}",

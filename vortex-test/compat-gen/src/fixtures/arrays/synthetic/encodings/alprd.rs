@@ -11,6 +11,7 @@ use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::alp::ALPRD;
 use vortex::encodings::alp::RDEncoder;
+use vortex::encodings::alp::RDEncoderExt;
 use vortex::error::VortexResult;
 use vortex_array::ExecutionCtx;
 

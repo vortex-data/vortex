@@ -68,11 +68,13 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::dtype::NativePType;
     use vortex_session::VortexSession;
 
     use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
+    use crate::RDEncoderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = array_session();
@@ -83,7 +85,7 @@ mod test {
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
-    fn test_take<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
+    fn test_take<T: ALPRDFloat + NativePType>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
         use vortex_array::IntoArray as _;
         use vortex_buffer::buffer;
 
@@ -112,7 +114,11 @@ mod test {
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
-    fn take_with_nulls<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
+    fn take_with_nulls<T: ALPRDFloat + NativePType>(
+        #[case] a: T,
+        #[case] b: T,
+        #[case] outlier: T,
+    ) {
         let mut ctx = SESSION.create_execution_ctx();
         let array = PrimitiveArray::from_iter([a, b, outlier]);
         let encoded = RDEncoder::new(&[a, b]).encode(array.as_view());
@@ -142,7 +148,11 @@ mod test {
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]
     #[case(0.1f64, 0.2f64, 3e100f64)]
-    fn test_take_conformance_alprd<T: ALPRDFloat>(#[case] a: T, #[case] b: T, #[case] outlier: T) {
+    fn test_take_conformance_alprd<T: ALPRDFloat + NativePType>(
+        #[case] a: T,
+        #[case] b: T,
+        #[case] outlier: T,
+    ) {
         let mut ctx = SESSION.create_execution_ctx();
         test_take_conformance(
             &RDEncoder::new(&[a, b])
@@ -155,7 +165,10 @@ mod test {
     #[rstest]
     #[case(0.1f32, 3e25f32)]
     #[case(0.5f64, 1e100f64)]
-    fn test_take_with_nulls_conformance<T: ALPRDFloat>(#[case] a: T, #[case] outlier: T) {
+    fn test_take_with_nulls_conformance<T: ALPRDFloat + NativePType>(
+        #[case] a: T,
+        #[case] outlier: T,
+    ) {
         let mut ctx = SESSION.create_execution_ctx();
         test_take_conformance(
             &RDEncoder::new(&[a])
