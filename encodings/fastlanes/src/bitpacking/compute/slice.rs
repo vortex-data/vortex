@@ -88,11 +88,11 @@ mod tests {
         let values = PrimitiveArray::from_iter(0u32..2048);
         let bitpacked = bitpack_encode(&values, 11, None, &mut ctx)?;
 
-        let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500).into_array();
+        let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);
 
         let bitpacked_ref = bitpacked.into_array();
         let reduced = bitpacked_ref
-            .reduce_parent(&ParentRef::from_array_ref(&slice_array), 0)?
+            .reduce_parent(&ParentRef::from_array(&slice_array), 0)?
             .expect("expected slice kernel to execute");
 
         assert!(reduced.is::<BitPacked>());
