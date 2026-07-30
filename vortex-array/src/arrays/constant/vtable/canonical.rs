@@ -20,6 +20,7 @@ use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
+use crate::arrays::MapArray;
 use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
@@ -126,7 +127,16 @@ pub(crate) fn constant_canonicalize(
             ))
         }
         DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
-        DType::Map(..) => vortex_error::vortex_bail!("canonical map arrays are not yet supported"),
+        DType::Map(map_dtype, nullability) => {
+            let entries_scalar = Scalar::try_new(
+                DType::List(Arc::new(map_dtype.entries_dtype()), *nullability),
+                scalar.value().cloned(),
+            )?;
+            Canonical::Map(MapArray::try_new(
+                map_dtype.clone(),
+                constant_canonical_list_array(&entries_scalar, array.len()),
+            )?)
+        }
         DType::FixedSizeList(element_dtype, list_size, _) => {
             let value = scalar.as_list();
 

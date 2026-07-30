@@ -55,6 +55,7 @@ mod extension;
 mod fixed_size_list;
 mod list;
 mod listview;
+mod map;
 mod null;
 mod primitive;
 mod struct_;
@@ -66,6 +67,7 @@ pub use extension::*;
 pub use fixed_size_list::*;
 pub use list::*;
 pub use listview::*;
+pub use map::*;
 pub use null::*;
 pub use primitive::*;
 pub use struct_::*;
@@ -289,6 +291,63 @@ macro_rules! __match_each_listview_builder_size {
     };
 }
 
+/// Matches a `&mut dyn ArrayBuilder` against every concrete map builder type.
+///
+/// Binds the downcast builder as `$builder` and evaluates `$body` with it, yielding
+/// `Some($body)`; yields `None` when the builder is not a map builder.
+#[macro_export]
+macro_rules! match_each_map_builder {
+    ($dyn_builder:expr, | $builder:ident | $body:expr) => {{
+        let __dyn_builder: &mut dyn $crate::builders::ArrayBuilder = $dyn_builder;
+        $crate::__match_each_map_builder!(__dyn_builder, $builder, $body, [u32, u64, i32, i64])
+    }};
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __match_each_map_builder {
+    ($target:ident, $builder:ident, $body:expr, []) => {
+        ::core::option::Option::None
+    };
+    ($target:ident, $builder:ident, $body:expr, [$offset:ty $(, $rest:ty)*]) => {
+        match $crate::__match_each_map_builder_size!(
+            $target,
+            $builder,
+            $body,
+            $offset,
+            [u32, u64, i32, i64]
+        ) {
+            ::core::option::Option::Some(__result) => ::core::option::Option::Some(__result),
+            ::core::option::Option::None => $crate::__match_each_map_builder!(
+                $target,
+                $builder,
+                $body,
+                [$($rest),*]
+            ),
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __match_each_map_builder_size {
+    ($target:ident, $builder:ident, $body:expr, $offset:ty, []) => {
+        ::core::option::Option::None
+    };
+    ($target:ident, $builder:ident, $body:expr, $offset:ty, [$size:ty $(, $rest:ty)*]) => {
+        if let ::core::option::Option::Some($builder) =
+            $crate::builders::ArrayBuilder::as_any_mut($target)
+                .downcast_mut::<$crate::builders::MapBuilder<$offset, $size>>()
+        {
+            ::core::option::Option::Some($body)
+        } else {
+            $crate::__match_each_map_builder_size!(
+                $target, $builder, $body, $offset, [$($rest),*]
+            )
+        }
+    };
+}
+
 /// Construct a new canonical builder for the given [`DType`].
 ///
 ///
@@ -347,9 +406,11 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             2 * capacity, // Arbitrarily choose 2 times the `offsets` capacity here.
             capacity,
         )),
-        DType::Map(..) => {
-            vortex_error::vortex_panic!(InvalidArgument: "map builders are not yet supported")
-        }
+        DType::Map(map_dtype, nullability) => Box::new(MapBuilder::<u64, u64>::with_capacity(
+            map_dtype.clone(),
+            *nullability,
+            capacity,
+        )),
         DType::FixedSizeList(elem_dtype, list_size, null) => {
             Box::new(FixedSizeListBuilder::with_capacity(
                 Arc::clone(elem_dtype),

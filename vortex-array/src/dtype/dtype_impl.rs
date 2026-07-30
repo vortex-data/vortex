@@ -643,16 +643,16 @@ mod tests {
     }
 
     #[test]
-    fn test_map_dtype_hash_ignores_value_nullability() -> VortexResult<()> {
+    fn test_map_dtype_hash_ignores_entry_nullability() -> VortexResult<()> {
         let lhs = DType::map(
             DType::Primitive(PType::I32, NonNullable),
-            DType::Utf8(Nullable),
+            DType::Utf8(NonNullable),
             true,
             NonNullable,
         )?;
         let rhs = DType::map(
             DType::Primitive(PType::I32, NonNullable),
-            DType::Utf8(NonNullable),
+            DType::Utf8(Nullable),
             true,
             Nullable,
         )?;

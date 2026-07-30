@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
@@ -95,6 +96,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
         Canonical::Decimal(a) => Canonical::Decimal(decimal::filter_decimal(&a, mask)),
         Canonical::VarBinView(a) => Canonical::VarBinView(varbinview::filter_varbinview(&a, mask)),
         Canonical::List(a) => Canonical::List(listview::filter_listview(&a, mask)),
+        Canonical::Map(_) => vortex_panic!("Map arrays don't support filter"),
         Canonical::FixedSizeList(a) => {
             Canonical::FixedSizeList(fixed_size_list::filter_fixed_size_list(&a, mask))
         }
