@@ -97,19 +97,21 @@ impl BinaryCombined for Mean {
             vortex_bail!("grouped mean over decimals is not yet supported");
         }
         let target = DType::Primitive(PType::F64, Nullability::Nullable);
-        let sum_cast = sum.cast(target.clone())?;
-        let count_cast = count.cast(target.clone())?;
-        let mean = sum_cast.binary(count_cast.clone(), Operator::Div)?;
+        let sum = sum.cast(target.clone())?;
+        let count = count.cast(target.clone())?;
 
-        // Nulls (and nans if skip_nan is enabled) are skipped so group with
-        // zero values has a count of 0, 0 / 0 = nan, and we need null.
-        let non_empty = count_cast
+        let non_zero = count
             .binary(
-                ConstantArray::new(Scalar::zero_value(&target), count_cast.len()).into_array(),
+                ConstantArray::new(Scalar::zero_value(&target), count.len()).into_array(),
                 Operator::NotEq,
             )?
             .fill_null(false)?;
-        mean.mask(non_empty)
+        // if count is 0, dividing by 0 below produces NaN, and we need Null.
+        // mask values to skip 0 so on 0 count turnes into Null, dividing by
+        // Null is always Null
+        let count = count.mask(non_zero)?;
+
+        sum.binary(count, Operator::Div)
     }
 
     fn finalize_scalar(&self, left_scalar: Scalar, right_scalar: Scalar) -> VortexResult<Scalar> {
