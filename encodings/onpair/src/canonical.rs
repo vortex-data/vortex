@@ -6,9 +6,11 @@
 //!
 //! [`OnPairArray`]: crate::OnPairArray
 
+use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use onpair::CompactDictionaryView;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -44,45 +46,30 @@ pub(super) fn canonicalize_onpair(
     })
 }
 
-pub(crate) fn onpair_decode_bytes(
-    array: ArrayView<'_, OnPair>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
-    let lengths = array
-        .uncompressed_lengths()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
+/// Everything needed to decode an OnPair array's values in one bulk `try_decode_into` call.
+pub(crate) struct OnPairDecodePlan<'a> {
+    codes: Buffer<u16>,
+    dict: CompactDictionaryView<'a>,
+    /// Per-row uncompressed lengths, zero for null rows.
+    pub(crate) lengths: PrimitiveArray,
+    /// Total decoded size, i.e. the sum of `lengths`.
+    pub(crate) total_size: usize,
+}
 
-    let total_size: usize = match_each_integer_ptype!(lengths.ptype(), |P| {
-        lengths
-            .as_slice::<P>()
-            .iter()
-            .map(|&l| AsPrimitive::<usize>::as_(l))
-            .sum()
-    });
+impl<'a> OnPairDecodePlan<'a> {
+    pub(crate) fn new(array: ArrayView<'a, OnPair>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let lengths = array
+            .uncompressed_lengths()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
 
-    // `codes_offsets` holds the per-row code boundaries and may itself be a
-    // sliced or filtered view of the original. Its first and last entries
-    // bound the contiguous run of `codes` belonging to the rows present in
-    // this array: `slice` keeps the full `codes` child and only narrows
-    // `codes_offsets` (so `code_start > 0` and/or `code_end < codes.len()`),
-    // while `filter` rebuilds both children so the window is the whole stream.
-    // OnPair has no `TakeExecute`, so a reordering take is served from the
-    // canonical `VarBinView` and never reaches this path. We only need those
-    // two boundaries, so point-look them up rather than decoding every offset.
-    let codes_offsets = array.codes_offsets();
-    let code_start = code_boundary_at(codes_offsets, 0, ctx)?;
-    let code_end = code_boundary_at(codes_offsets, array.len(), ctx)?;
-    vortex_ensure!(
-        code_start <= code_end,
-        "OnPair codes_offsets must be nondecreasing"
-    );
-    vortex_ensure!(
-        code_end <= array.codes().len(),
-        "OnPair codes_offsets end {} exceeds codes len {}",
-        code_end,
-        array.codes().len()
-    );
+        let total_size: usize = match_each_integer_ptype!(lengths.ptype(), |P| {
+            lengths
+                .as_slice::<P>()
+                .iter()
+                .map(|&l| AsPrimitive::<usize>::as_(l))
+                .sum()
+        });
 
     // Slice the `codes` child to that window *before* unpacking it, so a sliced
     // array materialises only its own codes rather than the whole column's. The

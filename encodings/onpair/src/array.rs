@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
+use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -21,11 +22,9 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::Canonical;
 use vortex_array::EqMode;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
-use vortex_array::IntoArray;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
@@ -53,8 +52,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::canonical::OnPairDecodePlan;
 use crate::canonical::canonicalize_onpair;
-use crate::canonical::onpair_decode_bytes;
 use crate::canonical::onpair_decode_views;
 use crate::decode::collect_widened;
 use crate::rules::RULES;
@@ -598,13 +597,12 @@ impl VTable for OnPair {
             return result;
         }
 
+        // The two arms here are every builder a `Utf8`/`Binary` dtype has: all four
+        // `VarBinBuilder` widths above, and `VarBinViewBuilder` below. There is deliberately no
+        // canonicalize-then-append fallback — it would decode to a `VarBinView` only for
+        // `VarBinView::append_to_builder` to reject the same remainder.
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            return array
-                .array()
-                .clone()
-                .execute::<Canonical>(ctx)?
-                .into_array()
-                .append_to_builder(builder, ctx);
+            vortex_bail!("append_to_builder for OnPair requires a variable-binary builder")
         };
 
         let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
@@ -629,7 +627,10 @@ impl VTable for OnPair {
     }
 }
 
-/// Decodes the values and appends them to `builder`.
+/// Decodes the code stream straight into `builder`'s byte storage.
+///
+/// The offsets are the running sum of the uncompressed lengths the array already stores, so the
+/// only work beyond the bulk `try_decode_into` is one prefix sum over them.
 fn append_to_varbin<O: OffsetBuilderPType>(
     array: ArrayView<'_, OnPair>,
     builder: &mut VarBinBuilder<O>,
@@ -638,20 +639,26 @@ fn append_to_varbin<O: OffsetBuilderPType>(
 where
     usize: AsPrimitive<O>,
 {
-    let (bytes, lengths) = onpair_decode_bytes(array, ctx)?;
+    let plan = OnPairDecodePlan::new(array, ctx)?;
     let validity = array
         .array()
         .validity()?
         .execute_mask(array.array().len(), ctx)?;
-    match_each_integer_ptype!(lengths.ptype(), |P| {
-        builder.append_values(
-            bytes.as_slice(),
-            lengths.as_slice::<P>().iter().scan(0usize, |end, length| {
-                *end += AsPrimitive::<usize>::as_(*length);
-                Some(*end)
-            }),
-            &validity,
-        )
+    // Built once, outside the ptype match: `append_decoded` takes it as `&mut dyn FnMut`, so
+    // creating the closure inside each arm would stamp out a shim per length type for no gain.
+    let mut decode = |out: &mut [MaybeUninit<u8>]| plan.decode_into(out);
+    match_each_integer_ptype!(plan.lengths.ptype(), |P| {
+        // SAFETY: `decode_into` initializes exactly the prefix whose length it returns. It needs
+        // no slack: it derives its bound from the slice it is handed and writes each value exactly.
+        unsafe {
+            builder.append_decoded(
+                plan.total_size,
+                0,
+                plan.lengths.as_slice::<P>(),
+                &validity,
+                &mut decode,
+            )
+        }
     })
 }
 

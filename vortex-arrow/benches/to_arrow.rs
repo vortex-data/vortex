@@ -42,6 +42,8 @@ use vortex_arrow::dtype::ToArrowType as _;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_mask::Mask;
+use vortex_onpair::DEFAULT_DICT12_CONFIG;
+use vortex_onpair::onpair_compress;
 use vortex_session::VortexSession;
 use vortex_zstd::Zstd;
 
@@ -53,6 +55,7 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = array_session();
     vortex_fsst::initialize(&session);
+    vortex_onpair::initialize(&session);
     session.arrays().register(Zstd);
     session
 });
@@ -122,6 +125,7 @@ fn ArrowExportVTable_to_arrow_field(bencher: Bencher) {
 enum StringEncoding {
     View,
     Fsst,
+    OnPair,
     Zstd,
     Dict,
     DictFsst,
@@ -140,6 +144,7 @@ enum StringEncoding {
 const STRING_ENCODINGS: &[StringEncoding] = &[
     StringEncoding::View,
     StringEncoding::Fsst,
+    StringEncoding::OnPair,
     StringEncoding::Zstd,
     StringEncoding::Dict,
     StringEncoding::DictFsst,
@@ -156,12 +161,13 @@ const STRING_ENCODINGS: &[StringEncoding] = &[
 /// Encodings whose `append_to_builder` the builder benchmarks reach directly.
 ///
 /// The Arrow export cannot stand in for these: `execute_until` stops at the first canonical array,
-/// so a bare FSST/Zstd root is canonicalized to `VarBinView` before any builder sees it.
+/// so a bare FSST/OnPair/Zstd root is canonicalized to `VarBinView` before any builder sees it.
 /// Only `Chunked`, `Constant` and `VarBin` roots reach an encoding's own `append_to_builder` that
 /// way, whereas the scan machinery appends encoded arrays into a builder directly.
 const BUILDER_STRING_ENCODINGS: &[StringEncoding] = &[
     StringEncoding::View,
     StringEncoding::Fsst,
+    StringEncoding::OnPair,
     StringEncoding::Zstd,
     StringEncoding::Dict,
     StringEncoding::ChunkedFsst,
@@ -250,6 +256,12 @@ fn string_array(encoding: StringEncoding) -> ArrayRef {
             structured_strings(OFFSET_STRING_ROWS).into_array(),
             &mut ctx,
         ),
+        StringEncoding::OnPair => onpair_compress(
+            &structured_strings(OFFSET_STRING_ROWS).into_array(),
+            DEFAULT_DICT12_CONFIG,
+            &mut ctx,
+        )
+        .unwrap(),
         StringEncoding::Zstd => {
             let source = structured_strings(OFFSET_STRING_ROWS);
             Zstd::from_var_bin_view_without_dict(&source, 3, 8_192, &mut ctx)
