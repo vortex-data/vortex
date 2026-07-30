@@ -107,7 +107,7 @@ impl BinaryCombined for Mean {
             )?
             .fill_null(false)?;
         // if count is 0, dividing by 0 below produces NaN, and we need Null.
-        // mask values to skip 0 so on 0 count turnes into Null, dividing by
+        // mask values to skip 0 so on 0 count turns into Null, dividing by
         // Null is always Null
         let count = count.mask(non_zero)?;
 
