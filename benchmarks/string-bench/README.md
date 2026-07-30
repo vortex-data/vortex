@@ -20,6 +20,10 @@ median of `--iterations` runs. The Vortex suite excludes physical storage I/O.
 Its full file size includes encoded children, metadata, padding, and file
 markers.
 
+The `gh-json` output reports median phase durations in milliseconds instead of
+throughput, along with the same size percentages. Lower values are better for
+all emitted metrics.
+
 The codec suite trains one dictionary or symbol table for the entire column.
 Vortex writes data in chunks, so its encoders may train independently per
 chunk. The two suites therefore answer different questions and their size

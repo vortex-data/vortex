@@ -107,7 +107,7 @@ def normalize_format_name(value: Any) -> str | None:
 
 
 def comparison_target(name: Any, target: Any = None) -> tuple[str, str, int | None]:
-    """Return canonical engine, format, and optional SQL query number."""
+    """Return the engine, display format, and optional SQL query number."""
 
     target_engine = None
     target_format = None
@@ -126,14 +126,14 @@ def comparison_target(name: Any, target: Any = None) -> tuple[str, str, int | No
 
 
 def extract_target_fields(name: str, target: Any = None) -> pd.Series:
-    """Extract target metadata, retaining name parsing for legacy rows and SQL queries."""
+    """Extract target metadata, using the benchmark name when needed."""
 
     engine, file_format, query = comparison_target(name, target)
     return pd.Series({"engine": engine, "file_format": file_format, "query": query})
 
 
 def benchmark_identity(row: Any) -> tuple[Any, Any, Any, str, str, Any] | None:
-    """Return the timing-row identity used to find a matching baseline."""
+    """Return the measurement identity used to find a matching baseline."""
 
     if row.get("metric") == FILE_SIZE_METRIC or isinstance(row.get("file_size"), dict):
         return None
@@ -530,7 +530,7 @@ def format_performance(
 
 
 def format_measurement_value(value: float) -> str:
-    """Render integral and fractional measurements without losing information."""
+    """Render integral and fractional measurements for a Markdown table."""
 
     if pd.isna(value):
         return "—"
@@ -892,7 +892,7 @@ UNIT_ORDER = {
 
 
 def group_sort_key(group_key: tuple[str, str, str]) -> tuple[int, int, int, str, str, str]:
-    """Keep output ordering stable and grouped by likely reader interest."""
+    """Keep output ordering stable."""
 
     engine, file_format, unit = group_key
     return (

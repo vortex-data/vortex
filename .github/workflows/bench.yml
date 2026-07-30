@@ -136,8 +136,9 @@ jobs:
           bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
-      # benchmarks website for suites represented by its wire contract; a failure here
-      # fails the job. string-bench's custom metrics still use the legacy S3 stream.
+      # benchmarks website for suites that emit v4 records; a failure here fails the job.
+      # All suites also upload S3 results above. string-bench does not emit
+      # results.ingest.jsonl, so these steps are disabled for it.
       # Also gated on the ingest-role ARN var (the assume-role input that MUST exist for
       # OIDC to succeed). post-ingest.py mints the RDS IAM token internally (boto3) from
       # the assumed GitHubBenchmarkIngestRole; sslmode=verify-full validates the cert.

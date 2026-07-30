@@ -144,9 +144,8 @@ impl ColumnResult {
     /// Emit lower-is-better timings and size percentages as Vortex custom-unit
     /// metrics.
     ///
-    /// These are in-RAM metrics; they carry `Format::OnDiskVortex` so the legacy
-    /// reporter labels the row with the Vortex format (`Format` has no in-memory
-    /// Vortex variant).
+    /// `Format` has no in-memory Vortex variant, so these measurements use
+    /// `Format::OnDiskVortex` as their reporting target.
     pub fn measurements(&self) -> Vec<CustomUnitMeasurement> {
         let suffix = format!("{} {}", self.name, self.encoder);
         vec![
