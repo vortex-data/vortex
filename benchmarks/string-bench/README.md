@@ -64,3 +64,8 @@ filters and tuning options.
 
 Before timing, the benchmark checks that each requested encoding was produced
 and, unless `--no-verify` is set, compares decoded output with the input.
+
+## CI
+
+The develop benchmark workflow runs both suites after each merge to `develop`
+and publishes the results to the shared benchmark history.

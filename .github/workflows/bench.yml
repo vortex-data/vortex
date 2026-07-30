@@ -44,11 +44,16 @@ jobs:
           - id: random-access-bench
             name: Random Access
             build_args: "--features lance"
-            formats: "parquet,lance,vortex"
+            v4_ingest: true
           - id: compress-bench
             name: Compression
             build_args: "--features lance"
-            formats: "parquet,lance,vortex"
+            run_args: "--formats parquet,lance,vortex --ingest-jsonl results.ingest.jsonl"
+            v4_ingest: true
+          - id: string-bench
+            name: String Encoding
+            run_args: "--suite both"
+            v4_ingest: false
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -116,7 +121,8 @@ jobs:
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json --ingest-jsonl results.ingest.jsonl
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} \
+            ${{ matrix.benchmark.run_args }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
@@ -130,28 +136,29 @@ jobs:
           bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
-      # benchmarks website; a failure here fails the job. Gated on the ingest-role ARN var
-      # (the assume-role input that MUST exist for OIDC to succeed). post-ingest.py mints
-      # the RDS IAM token internally (boto3) from the assumed GitHubBenchmarkIngestRole;
-      # sslmode=verify-full validates the cert.
+      # benchmarks website for suites represented by its wire contract; a failure here
+      # fails the job. string-bench's custom metrics still use the legacy S3 stream.
+      # Also gated on the ingest-role ARN var (the assume-role input that MUST exist for
+      # OIDC to succeed). post-ingest.py mints the RDS IAM token internally (boto3) from
+      # the assumed GitHubBenchmarkIngestRole; sslmode=verify-full validates the cert.
       #
       # `sync: false` -- the ingest runs `uv run --no-project --with`, which needs only
       # the uv binary, never the synced workspace. A full sync would rebuild
       # vortex-python via sccache->S3, which fails under the ingest-role creds
       # (rds-db:connect only) and is pure waste here.
       - name: Install uv for v4 ingest
-        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
+        if: vars.GH_BENCH_INGEST_ROLE_ARN != '' && matrix.benchmark.v4_ingest
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
         with:
           sync: false
       - name: Configure AWS credentials for v4 ingest (OIDC)
-        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
+        if: vars.GH_BENCH_INGEST_ROLE_ARN != '' && matrix.benchmark.v4_ingest
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
         with:
           role-to-assume: ${{ vars.GH_BENCH_INGEST_ROLE_ARN }}
           aws-region: ${{ vars.RDS_BENCH_REGION }}
       - name: Ingest results to v4 Postgres
-        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
+        if: vars.GH_BENCH_INGEST_ROLE_ARN != '' && matrix.benchmark.v4_ingest
         shell: bash
         env:
           RDS_BENCH_INSTANCE_ENDPOINT: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
