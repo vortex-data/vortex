@@ -6,6 +6,7 @@
 #include "vortex/dtype.hpp"
 #include "vortex/error.hpp"
 #include "vortex/expression.hpp"
+#include "vortex/scalar.hpp"
 #include "vortex/session.hpp"
 
 #include <vortex.h>
@@ -210,6 +211,8 @@ public:
 
     // Bulk view over Binary values.
     BytesView bytes(const Session &session) const;
+
+    Scalar scalar_at(const Session &session, size_t index) const;
 
 private:
     friend struct detail::Access;

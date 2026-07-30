@@ -49,21 +49,21 @@ public:
 
 private:
     friend struct detail::Access;
-    explicit Scalar(vx_scalar *owned) : handle_(owned) {
+    explicit Scalar(const vx_scalar *owned) : handle_(owned) {
     }
-    vx_scalar *release() && {
+    const vx_scalar *release() && {
         return handle_.release();
     }
 
     struct Deleter {
-        void operator()(vx_scalar *ptr) const noexcept;
+        void operator()(const vx_scalar *ptr) const noexcept;
     };
-    std::unique_ptr<vx_scalar, Deleter> handle_;
+    std::unique_ptr<const vx_scalar, Deleter> handle_;
 };
 
 template <element_type T>
 T Scalar::get() const {
-    vx_scalar *h = handle_.get();
+    const vx_scalar *h = handle_.get();
     if constexpr (std::is_same_v<T, bool>) {
         return vx_scalar_get_bool(h);
     } else if constexpr (std::is_same_v<T, std::string_view>) {
@@ -99,7 +99,7 @@ T Scalar::get() const {
 
 template <primitive_type T>
 T Scalar::get_decimal() const {
-    vx_scalar *h = handle_.get();
+    const vx_scalar *h = handle_.get();
     if constexpr (std::is_same_v<T, int8_t>) {
         return vx_scalar_get_decimal_i8(h);
     } else if constexpr (std::is_same_v<T, int16_t>) {

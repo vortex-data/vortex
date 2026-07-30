@@ -5,6 +5,8 @@
 #include "vortex/common.hpp"
 #include "vortex/dtype.hpp"
 #include "vortex/error.hpp"
+#include "vortex/scalar.hpp"
+#include "vortex/session.hpp"
 
 #include <vortex.h>
 
@@ -322,6 +324,13 @@ BytesView Array::bytes(const Session &session) const {
     detail::ValidityBits validity(session, raw);
     const size_t len = vx_array_len(raw);
     return BytesView(std::move(canonical), std::move(validity), len);
+}
+
+Scalar Array::scalar_at(const Session &session, size_t index) const {
+    vx_error *error = nullptr;
+    const vx_scalar *scalar = vx_array_get_scalar(Access::c_ptr(session), handle_.get(), index, &error);
+    throw_on_error(error);
+    return Access::adopt<Scalar>(scalar);
 }
 
 bool PrimitiveView<bool>::value(size_t i) const {

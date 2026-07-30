@@ -825,6 +825,49 @@ mod tests {
             vx_session_free(session);
         }
     }
+    #[test]
+    // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
+    #[cfg_attr(miri, ignore)]
+    fn test_utf8_binary_at() {
+        unsafe {
+            let long = "a string that is longer than twelve bytes";
+            let utf8_array =
+                VarBinViewArray::from_iter_nullable_str([Some("hello"), None, Some(long)]);
+            let ffi_array = vx_array::new(utf8_array.into_array());
+
+            let mut error = ptr::null_mut();
+            let inlined = vx_array_utf8_at(ffi_array, 0, &raw mut error);
+            assert!(error.is_null());
+            assert_eq!(inlined.as_str().unwrap(), "hello");
+
+            vx_array_utf8_at(ffi_array, 1, &raw mut error);
+            assert!(error.is_null());
+
+            let buffered = vx_array_utf8_at(ffi_array, 2, &raw mut error);
+            assert!(error.is_null());
+            assert_eq!(buffered.as_str().unwrap(), long);
+
+            vx_array_utf8_at(ffi_array, 3, &raw mut error);
+            assert_error(error);
+
+            vx_array_free(ffi_array);
+
+            let numbers =
+                PrimitiveArray::new(buffer![1i32, 2i32], Validity::NonNullable).into_array();
+            let ffi_array = vx_array::new(numbers);
+            let value = vx_array_utf8_at(ffi_array, 0, &raw mut error);
+            assert!(value.ptr.is_null());
+            assert_error(error);
+            vx_array_free(ffi_array);
+
+            let binary_array = VarBinViewArray::from_iter_bin(vec![vec![0x01, 0x02, 0x03]]);
+            let ffi_array = vx_array::new(binary_array.into_array());
+            let bin = vx_array_binary_at(ffi_array, 0, &raw mut error);
+            assert!(error.is_null());
+            assert_eq!(bin.as_bytes().unwrap(), &[0x01, 0x02, 0x03]);
+            vx_array_free(ffi_array);
+        }
+    }
 
     #[test]
     #[cfg_attr(miri, ignore)]
@@ -1102,6 +1145,19 @@ mod tests {
             assert!(bits.is_null());
             assert_error(error);
 
+            vx_array_free(array);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_get_bool() {
+        let bools = BoolArray::from_iter([true, false, true]);
+        unsafe {
+            let array = vx_array::new(bools.into_array());
+            assert!(vx_array_get_bool(array, 0));
+            assert!(!vx_array_get_bool(array, 1));
+            assert!(vx_array_get_bool(array, 2));
             vx_array_free(array);
         }
     }
