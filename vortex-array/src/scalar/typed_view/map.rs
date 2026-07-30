@@ -54,7 +54,7 @@ impl Eq for MapScalar<'_> {}
 
 impl Hash for MapScalar<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.dtype.as_nonnullable().hash(state);
+        self.dtype.hash_ignore_nullability(state);
         self.entries.hash(state);
     }
 }
@@ -141,7 +141,9 @@ impl<'a> MapScalar<'a> {
     /// # Errors
     ///
     /// Returns an error when `dtype` is not a map, its key/value dtypes cannot be cast, or the
-    /// target claims sorted keys when this scalar's dtype does not make that assertion.
+    /// target claims sorted keys when this scalar's dtype does not make that assertion. Also
+    /// returns an error for direct null-map casts; callers should use [`Scalar::cast`] so null
+    /// handling and sortedness checks stay centralized.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let target = dtype
             .as_map_opt()
@@ -155,7 +157,10 @@ impl<'a> MapScalar<'a> {
         }
 
         let Some(entries) = self.entries else {
-            return Ok(Scalar::null(dtype.clone()));
+            vortex_bail!(
+                "Cannot cast null map {} to {dtype}: Scalar::cast should handle nulls first",
+                self.dtype
+            );
         };
 
         let target_key = target.key_dtype();
@@ -194,7 +199,12 @@ impl<'a> MapScalar<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hash;
+    use std::hash::Hasher;
+
     use vortex_error::VortexResult;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -328,6 +338,68 @@ mod tests {
         )?;
 
         assert!(scalar.cast(&target_dtype).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn equal_maps_with_different_nested_nullability_hash_equal() -> VortexResult<()> {
+        let key_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let nullable_dtype = DType::map(
+            key_dtype.clone(),
+            DType::Utf8(Nullability::Nullable),
+            false,
+            Nullability::Nullable,
+        )?;
+        let nonnullable_dtype = DType::map(
+            key_dtype,
+            DType::Utf8(Nullability::NonNullable),
+            false,
+            Nullability::NonNullable,
+        )?;
+        let nullable_scalar = Scalar::try_map(
+            nullable_dtype,
+            [(
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::utf8("one", Nullability::Nullable),
+            )],
+        )?;
+        let nonnullable_scalar = Scalar::try_map(
+            nonnullable_dtype,
+            [(
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::utf8("one", Nullability::NonNullable),
+            )],
+        )?;
+        let nullable_map = nullable_scalar.as_map();
+        let nonnullable_map = nonnullable_scalar.as_map();
+
+        assert_eq!(nullable_map, nonnullable_map);
+
+        let mut nullable_hash = DefaultHasher::new();
+        nullable_map.hash(&mut nullable_hash);
+        let mut nonnullable_hash = DefaultHasher::new();
+        nonnullable_map.hash(&mut nonnullable_hash);
+        assert_eq!(nullable_hash.finish(), nonnullable_hash.finish());
+
+        let mut set = HashSet::new();
+        set.insert(nullable_map);
+        assert!(set.contains(&nonnullable_map));
+
+        Ok(())
+    }
+
+    #[test]
+    fn direct_null_map_cast_returns_error() -> VortexResult<()> {
+        let target_dtype = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            false,
+            Nullability::NonNullable,
+        )?;
+        let scalar = Scalar::null(dtype()?);
+
+        assert!(scalar.as_map().cast(&target_dtype).is_err());
 
         Ok(())
     }

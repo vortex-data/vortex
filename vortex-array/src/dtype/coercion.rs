@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::dtype::StructFields;
 use crate::dtype::decimal::DecimalDType;
 
 impl PType {
@@ -101,17 +102,30 @@ impl DType {
         }
 
         if let (DType::Map(lhs, _), DType::Map(rhs, _)) = (self, other) {
-            if lhs.key_dtype() != rhs.key_dtype() || lhs.value_dtype() != rhs.value_dtype() {
-                return None;
-            }
-
+            let key_dtype = lhs.key_dtype().least_supertype(&rhs.key_dtype())?;
+            let value_dtype = lhs.value_dtype().least_supertype(&rhs.value_dtype())?;
             return DType::map(
-                lhs.key_dtype(),
-                lhs.value_dtype(),
+                key_dtype,
+                value_dtype,
                 lhs.keys_sorted() && rhs.keys_sorted(),
                 union_null,
             )
             .ok();
+        }
+
+        if let (DType::Struct(lhs, _), DType::Struct(rhs, _)) = (self, other) {
+            if lhs.nfields() != rhs.nfields() || lhs.names() != rhs.names() {
+                return None;
+            }
+            let fields = lhs
+                .fields()
+                .zip(rhs.fields())
+                .map(|(lhs, rhs)| lhs.least_supertype(&rhs))
+                .collect::<Option<Vec<_>>>()?;
+            return Some(DType::Struct(
+                StructFields::new(lhs.names().clone(), fields),
+                union_null,
+            ));
         }
 
         // Identity (ignoring nullability): return self with union nullability
@@ -204,8 +218,18 @@ impl DType {
         if let (DType::Map(target, _), DType::Map(source, _)) = (self, other) {
             return (self.is_nullable() || !other.is_nullable())
                 && (!target.keys_sorted() || source.keys_sorted())
-                && target.key_dtype() == source.key_dtype()
-                && target.value_dtype() == source.value_dtype();
+                && target.key_dtype().can_coerce_from(&source.key_dtype())
+                && target.value_dtype().can_coerce_from(&source.value_dtype());
+        }
+
+        if let (DType::Struct(target, _), DType::Struct(source, _)) = (self, other) {
+            return (self.is_nullable() || !other.is_nullable())
+                && target.nfields() == source.nfields()
+                && target.names() == source.names()
+                && target
+                    .fields()
+                    .zip(source.fields())
+                    .all(|(target, source)| target.can_coerce_from(&source));
         }
 
         // Same type (ignoring nullability): check nullability compatibility
@@ -332,7 +356,9 @@ mod tests {
     use std::sync::Arc;
 
     use crate::dtype::DType;
+    use crate::dtype::FieldNames;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::dtype::UnionVariants;
     use crate::dtype::decimal::DecimalDType;
     use crate::dtype::nullability::Nullability::NonNullable;
@@ -827,48 +853,195 @@ mod tests {
     }
 
     #[test]
-    fn map_least_supertype_unions_outer_nullability_and_intersects_sortedness() {
+    fn map_least_supertype_recursively_widens_key_and_value_dtypes() {
         let key = DType::Primitive(PType::I32, NonNullable);
-        let value = DType::Utf8(Nullable);
-        let sorted = DType::map(key.clone(), value.clone(), true, NonNullable).unwrap();
-        let unsorted = DType::map(key.clone(), value.clone(), false, Nullable).unwrap();
+        let wide_key = DType::Primitive(PType::I64, NonNullable);
+        let value = DType::Utf8(NonNullable);
+        let nullable_value = DType::Utf8(Nullable);
+        let sorted = DType::map(key, value, true, NonNullable).unwrap();
+        let unsorted =
+            DType::map(wide_key.clone(), nullable_value.clone(), false, Nullable).unwrap();
 
         assert_eq!(
             sorted.least_supertype(&unsorted),
-            Some(DType::map(key, value, false, Nullable).unwrap())
+            Some(DType::map(wide_key, nullable_value, false, Nullable).unwrap())
         );
     }
 
     #[test]
-    fn map_least_supertype_requires_identical_key_and_value_dtypes() {
-        let i32_map = DType::map(
+    fn map_least_supertype_widens_child_nullability() {
+        let key = DType::Primitive(PType::I32, NonNullable);
+        let lhs = DType::map(key.clone(), DType::Utf8(NonNullable), true, NonNullable).unwrap();
+        let rhs = DType::map(key.clone(), DType::Utf8(Nullable), true, NonNullable).unwrap();
+        let expected = DType::map(key, DType::Utf8(Nullable), true, NonNullable).unwrap();
+
+        assert_eq!(lhs.least_supertype(&rhs), Some(expected));
+    }
+
+    #[test]
+    fn map_least_supertype_rejects_incompatible_child_dtypes() {
+        let primitive_key_map = DType::map(
             DType::Primitive(PType::I32, NonNullable),
             DType::Utf8(Nullable),
             false,
             NonNullable,
         )
         .unwrap();
-        let i64_map = DType::map(
-            DType::Primitive(PType::I64, NonNullable),
+        let utf8_key_map = DType::map(
+            DType::Utf8(NonNullable),
             DType::Utf8(Nullable),
             false,
             NonNullable,
         )
         .unwrap();
 
-        assert_eq!(i32_map.least_supertype(&i64_map), None);
+        assert_eq!(primitive_key_map.least_supertype(&utf8_key_map), None);
     }
 
     #[test]
-    fn map_coercion_does_not_create_a_sortedness_assertion() {
-        let key = DType::Primitive(PType::I32, NonNullable);
-        let value = DType::Utf8(Nullable);
-        let sorted = DType::map(key.clone(), value.clone(), true, Nullable).unwrap();
-        let unsorted = DType::map(key.clone(), value, false, Nullable).unwrap();
-        let different_value = DType::map(key, DType::Utf8(NonNullable), false, Nullable).unwrap();
+    fn map_coercion_recursively_widens_children_and_preserves_sortedness_rules() {
+        let sorted_source = DType::map(
+            DType::Primitive(PType::I32, NonNullable),
+            DType::Utf8(NonNullable),
+            true,
+            NonNullable,
+        )
+        .unwrap();
+        let unsorted_source = DType::map(
+            DType::Primitive(PType::I32, NonNullable),
+            DType::Utf8(NonNullable),
+            false,
+            NonNullable,
+        )
+        .unwrap();
+        let unsorted_target = DType::map(
+            DType::Primitive(PType::I64, NonNullable),
+            DType::Utf8(Nullable),
+            false,
+            Nullable,
+        )
+        .unwrap();
+        let sorted_target = DType::map(
+            DType::Primitive(PType::I64, NonNullable),
+            DType::Utf8(Nullable),
+            true,
+            Nullable,
+        )
+        .unwrap();
+        let incompatible_target = DType::map(
+            DType::Utf8(NonNullable),
+            DType::Utf8(Nullable),
+            false,
+            Nullable,
+        )
+        .unwrap();
 
-        assert!(!sorted.can_coerce_from(&unsorted));
-        assert!(unsorted.can_coerce_from(&sorted));
-        assert!(!unsorted.can_coerce_from(&different_value));
+        assert!(unsorted_target.can_coerce_from(&sorted_source));
+        assert!(!sorted_target.can_coerce_from(&unsorted_source));
+        assert!(!incompatible_target.can_coerce_from(&sorted_source));
+    }
+
+    #[test]
+    fn map_struct_least_supertype_is_symmetric_over_field_nullability() {
+        let key_dtype = DType::Primitive(PType::I32, NonNullable);
+        let nonnullable_struct = DType::Struct(
+            StructFields::new(FieldNames::from(["a"]), vec![DType::Utf8(NonNullable)]),
+            NonNullable,
+        );
+        let nullable_field_struct = DType::Struct(
+            StructFields::new(FieldNames::from(["a"]), vec![DType::Utf8(Nullable)]),
+            NonNullable,
+        );
+        let lhs = DType::map(key_dtype.clone(), nonnullable_struct, false, NonNullable).unwrap();
+        let rhs = DType::map(key_dtype, nullable_field_struct, false, NonNullable).unwrap();
+        let expected = DType::map(
+            DType::Primitive(PType::I32, NonNullable),
+            DType::Struct(
+                StructFields::new(FieldNames::from(["a"]), vec![DType::Utf8(Nullable)]),
+                NonNullable,
+            ),
+            false,
+            NonNullable,
+        )
+        .unwrap();
+
+        assert_eq!(lhs.least_supertype(&rhs), Some(expected.clone()));
+        assert_eq!(rhs.least_supertype(&lhs), Some(expected));
+    }
+
+    #[test]
+    fn map_struct_can_coerce_from_respects_field_nullability() {
+        let key_dtype = DType::Primitive(PType::I32, NonNullable);
+        let source = DType::map(
+            key_dtype.clone(),
+            DType::Struct(
+                StructFields::new(FieldNames::from(["a"]), vec![DType::Utf8(NonNullable)]),
+                NonNullable,
+            ),
+            false,
+            NonNullable,
+        )
+        .unwrap();
+        let nullable_field_target = DType::map(
+            key_dtype.clone(),
+            DType::Struct(
+                StructFields::new(FieldNames::from(["a"]), vec![DType::Utf8(Nullable)]),
+                NonNullable,
+            ),
+            false,
+            NonNullable,
+        )
+        .unwrap();
+        let nullable_field_source = DType::map(
+            key_dtype.clone(),
+            DType::Struct(
+                StructFields::new(FieldNames::from(["a"]), vec![DType::Utf8(Nullable)]),
+                NonNullable,
+            ),
+            false,
+            NonNullable,
+        )
+        .unwrap();
+        let nonnullable_field_target = DType::map(
+            key_dtype,
+            DType::Struct(
+                StructFields::new(FieldNames::from(["a"]), vec![DType::Utf8(NonNullable)]),
+                NonNullable,
+            ),
+            false,
+            NonNullable,
+        )
+        .unwrap();
+
+        assert!(nullable_field_target.can_coerce_from(&source));
+        assert!(!nonnullable_field_target.can_coerce_from(&nullable_field_source));
+    }
+
+    #[test]
+    fn map_struct_coercion_rejects_different_field_names() {
+        let lhs = DType::map(
+            DType::Primitive(PType::I32, NonNullable),
+            DType::Struct(
+                StructFields::new(FieldNames::from(["a"]), vec![DType::Utf8(Nullable)]),
+                NonNullable,
+            ),
+            false,
+            NonNullable,
+        )
+        .unwrap();
+        let rhs = DType::map(
+            DType::Primitive(PType::I32, NonNullable),
+            DType::Struct(
+                StructFields::new(FieldNames::from(["b"]), vec![DType::Utf8(Nullable)]),
+                NonNullable,
+            ),
+            false,
+            NonNullable,
+        )
+        .unwrap();
+
+        assert_eq!(lhs.least_supertype(&rhs), None);
+        assert!(!lhs.can_coerce_from(&rhs));
+        assert!(!rhs.can_coerce_from(&lhs));
     }
 }

@@ -9,13 +9,16 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::MapArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use super::ROOT_SCHEME_ID;
 use crate::CascadingCompressor;
@@ -104,6 +107,23 @@ impl CascadingCompressor {
             list_view.validity()?,
         )?
         .into_array())
+    }
+
+    /// Compresses a [`MapArray`] by recursively compressing its entries [`ListViewArray`].
+    pub(super) fn compress_map_array(
+        &self,
+        map_array: MapArray,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let data_parts = map_array.into_data_parts();
+        let entries = self.compress_list_view_array(data_parts.entries, compress_ctx, exec_ctx)?;
+        let entries = entries
+            .as_opt::<ListView>()
+            .ok_or_else(|| vortex_err!("Compressed map entries became {}", entries.encoding_id()))?
+            .into_owned();
+
+        Ok(MapArray::try_new(data_parts.map_dtype, entries)?.into_array())
     }
 
     /// Compress very child slot of the array, then re-build it from them.

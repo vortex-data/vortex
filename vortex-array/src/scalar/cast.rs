@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::dtype::DType;
 use crate::scalar::Scalar;
@@ -29,6 +30,16 @@ impl Scalar {
             // Cast from non-nullable to nullable or vice versa.
             // The `try_new` will handle nullability checks.
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
+        }
+
+        if let (Some(source), Some(target)) = (self.dtype().as_map_opt(), target_dtype.as_map_opt())
+            && target.keys_sorted()
+            && !source.keys_sorted()
+        {
+            return Err(vortex_err!(
+                "Cannot cast {} to {target_dtype}: source does not assert sorted map keys",
+                self.dtype()
+            ));
         }
 
         // Null can be cast into any nullable type as null.

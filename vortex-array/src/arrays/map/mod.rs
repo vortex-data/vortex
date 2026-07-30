@@ -8,9 +8,15 @@ pub use array::MapArrayExt;
 pub use array::MapData;
 pub use array::MapDataParts;
 
+pub(crate) mod compute;
+
 mod vtable;
 pub use vtable::Map;
 pub use vtable::MapArray;
+
+pub(crate) fn initialize(session: &vortex_session::VortexSession) {
+    vtable::initialize(session);
+}
 
 #[cfg(test)]
 mod tests;

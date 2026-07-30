@@ -7,6 +7,7 @@ mod extension;
 mod filter;
 mod fixed_size_list;
 mod list;
+mod map;
 mod primitive;
 mod struct_;
 #[cfg(test)]
@@ -27,6 +28,7 @@ use self::extension::check_extension_identical;
 use self::filter::shared_validity_mask;
 use self::fixed_size_list::check_fixed_size_list_identical;
 use self::list::check_list_identical;
+use self::map::check_map_identical;
 use self::primitive::check_primitive_identical;
 use self::struct_::check_struct_identical;
 use self::varbin::check_varbinview_identical;
@@ -262,6 +264,7 @@ fn check_canonical_identical(
         }
         (Canonical::Struct(lhs), Canonical::Struct(rhs)) => check_struct_identical(lhs, rhs, ctx),
         (Canonical::List(lhs), Canonical::List(rhs)) => check_list_identical(lhs, rhs, ctx),
+        (Canonical::Map(lhs), Canonical::Map(rhs)) => check_map_identical(lhs, rhs, ctx),
         (Canonical::FixedSizeList(lhs), Canonical::FixedSizeList(rhs)) => {
             check_fixed_size_list_identical(lhs, rhs, ctx)
         }

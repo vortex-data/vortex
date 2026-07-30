@@ -26,6 +26,7 @@ use crate::arrays::Decimal;
 use crate::arrays::Extension;
 use crate::arrays::FixedSizeList;
 use crate::arrays::ListView;
+use crate::arrays::Map;
 use crate::arrays::Null;
 use crate::arrays::Primitive;
 use crate::arrays::VarBinView;
@@ -197,7 +198,7 @@ fn cast_canonical(
         CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::VarBinView(a) => <VarBinView as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Map(_) => vortex_bail!("Map arrays don't support casting"),
+        CanonicalView::Map(a) => <Map as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Struct(a) => struct_cast(a, dtype, ctx),
         CanonicalView::Union(_) => {

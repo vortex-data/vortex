@@ -3,7 +3,9 @@
 
 use smallvec::smallvec;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_session::registry::ReadContext;
 
 use crate::Array;
@@ -14,8 +16,10 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
 use crate::array_session;
+use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::FilterArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::Map;
 use crate::arrays::MapArray;
@@ -23,8 +27,10 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::map::MapArrayExt;
 use crate::arrays::map::MapData;
 use crate::arrays::map::MapDataParts;
+use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::MapBuilder;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::MapDType;
 use crate::dtype::Nullability;
@@ -65,14 +71,41 @@ fn sample_scalar(dtype: DType) -> VortexResult<Scalar> {
     )
 }
 
+fn map_array_from_rows(
+    map_dtype: MapDType,
+    nullability: Nullability,
+    rows: impl IntoIterator<Item = Option<Vec<(Scalar, Scalar)>>>,
+) -> VortexResult<MapArray> {
+    let rows = rows.into_iter().collect::<Vec<_>>();
+    let dtype = DType::Map(map_dtype.clone(), nullability);
+    let mut builder = MapBuilder::<u64, u64>::with_capacity(map_dtype, nullability, rows.len());
+
+    for row in rows {
+        let scalar = match row {
+            Some(entries) => Scalar::try_map(dtype.clone(), entries)?,
+            None => Scalar::null(dtype.clone()),
+        };
+        builder.append_scalar(&scalar)?;
+    }
+
+    Ok(builder.finish_into_map())
+}
+
 fn sample_array() -> VortexResult<MapArray> {
     let map_dtype = map_dtype()?;
-    let dtype = DType::Map(map_dtype.clone(), Nullability::Nullable);
-    let mut builder = MapBuilder::<u64, u64>::with_capacity(map_dtype, Nullability::Nullable, 3);
-    builder.append_scalar(&sample_scalar(dtype.clone())?)?;
-    builder.append_scalar(&Scalar::try_map(dtype.clone(), [])?)?;
-    builder.append_scalar(&Scalar::null(dtype))?;
-    Ok(builder.finish_into_map())
+    map_array_from_rows(
+        map_dtype,
+        Nullability::Nullable,
+        [
+            Some(vec![
+                (key(2), value(Some("two"))),
+                (key(1), value(None)),
+                (key(2), value(Some("duplicate"))),
+            ]),
+            Some(vec![]),
+            None,
+        ],
+    )
 }
 
 #[test]
@@ -237,6 +270,359 @@ fn scalar_access_preserves_variable_entry_counts_and_utf8_pairs() -> VortexResul
     for (index, expected) in expected.into_iter().enumerate() {
         assert_eq!(array.execute_scalar(index, &mut ctx)?, expected);
     }
+
+    Ok(())
+}
+
+#[test]
+fn slice_preserves_map_rows() -> VortexResult<()> {
+    let source = sample_array()?.into_array();
+    let expected = map_array_from_rows(
+        map_dtype()?,
+        Nullability::Nullable,
+        [
+            Some(vec![
+                (key(2), value(Some("two"))),
+                (key(1), value(None)),
+                (key(2), value(Some("duplicate"))),
+            ]),
+            Some(vec![]),
+        ],
+    )?;
+    let sliced = source.slice(0..2)?;
+    let mut ctx = array_session().create_execution_ctx();
+
+    assert!(sliced.is::<Map>());
+    assert_arrays_eq!(sliced, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn filter_handles_all_none_and_mixed_maps() -> VortexResult<()> {
+    let source = sample_array()?.into_array();
+    let map_dtype = map_dtype()?;
+    let mut ctx = array_session().create_execution_ctx();
+
+    let all = source.filter(Mask::from_iter([true, true, true]))?;
+    assert!(all.is::<Map>());
+    assert_arrays_eq!(all, sample_array()?, &mut ctx);
+
+    let none = source.filter(Mask::from_iter([false, false, false]))?;
+    let expected_none = map_array_from_rows(
+        map_dtype.clone(),
+        Nullability::Nullable,
+        Vec::<Option<Vec<(Scalar, Scalar)>>>::new(),
+    )?;
+    assert!(none.is::<Map>());
+    assert_arrays_eq!(none, expected_none, &mut ctx);
+
+    let mixed = source.filter(Mask::from_iter([true, false, true]))?;
+    let expected_mixed = map_array_from_rows(
+        map_dtype,
+        Nullability::Nullable,
+        [
+            Some(vec![
+                (key(2), value(Some("two"))),
+                (key(1), value(None)),
+                (key(2), value(Some("duplicate"))),
+            ]),
+            None,
+        ],
+    )?;
+    assert!(mixed.is::<Map>());
+    assert_arrays_eq!(mixed, expected_mixed, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn filter_dropping_nonempty_middle_row_clears_zero_copy_flag() -> VortexResult<()> {
+    let source = map_array_from_rows(
+        map_dtype()?,
+        Nullability::Nullable,
+        [
+            Some(vec![
+                (key(1), value(Some("one"))),
+                (key(2), value(Some("two"))),
+            ]),
+            Some(vec![(key(3), value(Some("three")))]),
+            Some(vec![(key(4), value(Some("four")))]),
+        ],
+    )?
+    .into_array();
+    let expected = map_array_from_rows(
+        map_dtype()?,
+        Nullability::Nullable,
+        [
+            Some(vec![
+                (key(1), value(Some("one"))),
+                (key(2), value(Some("two"))),
+            ]),
+            Some(vec![(key(4), value(Some("four")))]),
+        ],
+    )?;
+    let mask = Mask::from_iter([true, false, true]);
+    let mut ctx = array_session().create_execution_ctx();
+
+    let reduced = source.filter(mask.clone())?;
+    assert!(reduced.is::<Map>());
+    // The dropped middle row leaves a gap in the referenced entry elements, so the filtered
+    // entries must not claim zero-copy-to-list convertibility.
+    assert!(
+        !reduced
+            .as_::<Map>()
+            .entries()
+            .into_owned()
+            .is_zero_copy_to_list()
+    );
+    assert_arrays_eq!(reduced, expected, &mut ctx);
+
+    let executed = FilterArray::new(source, mask)
+        .into_array()
+        .execute::<MapArray>(&mut ctx)?;
+    assert!(!executed.entries().into_owned().is_zero_copy_to_list());
+    assert_arrays_eq!(executed, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn take_supports_reordered_duplicate_and_nullable_indices() -> VortexResult<()> {
+    let source = sample_array()?.into_array();
+    let map_dtype = map_dtype()?;
+    let mut ctx = array_session().create_execution_ctx();
+
+    let taken = source.take(PrimitiveArray::from_iter([2u64, 0, 0]).into_array())?;
+    let expected_taken = map_array_from_rows(
+        map_dtype.clone(),
+        Nullability::Nullable,
+        [
+            None,
+            Some(vec![
+                (key(2), value(Some("two"))),
+                (key(1), value(None)),
+                (key(2), value(Some("duplicate"))),
+            ]),
+            Some(vec![
+                (key(2), value(Some("two"))),
+                (key(1), value(None)),
+                (key(2), value(Some("duplicate"))),
+            ]),
+        ],
+    )?;
+    assert!(taken.is::<Map>());
+    assert_arrays_eq!(taken, expected_taken, &mut ctx);
+
+    let nonnullable_source = map_array_from_rows(
+        map_dtype.clone(),
+        Nullability::NonNullable,
+        [
+            Some(vec![(key(1), value(Some("one")))]),
+            Some(vec![]),
+            Some(vec![(key(3), value(None))]),
+        ],
+    )?
+    .into_array();
+    let nullable_taken = nonnullable_source
+        .take(PrimitiveArray::from_option_iter([Some(1u64), None, Some(0)]).into_array())?;
+    let expected_nullable_taken = map_array_from_rows(
+        map_dtype,
+        Nullability::Nullable,
+        [Some(vec![]), None, Some(vec![(key(1), value(Some("one")))])],
+    )?;
+    assert!(nullable_taken.is::<Map>());
+    assert_eq!(nullable_taken.dtype().nullability(), Nullability::Nullable);
+    assert_arrays_eq!(nullable_taken, expected_nullable_taken, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn mask_combines_with_existing_map_validity() -> VortexResult<()> {
+    let source = sample_array()?.into_array();
+    let mask = BoolArray::from_iter([true, false, true]).into_array();
+    let masked = source.mask(mask)?;
+    let expected = map_array_from_rows(
+        map_dtype()?,
+        Nullability::Nullable,
+        [
+            Some(vec![
+                (key(2), value(Some("two"))),
+                (key(1), value(None)),
+                (key(2), value(Some("duplicate"))),
+            ]),
+            None,
+            None,
+        ],
+    )?;
+    let mut ctx = array_session().create_execution_ctx();
+
+    assert!(masked.is::<Map>());
+    assert_arrays_eq!(masked, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn cast_widens_map_key_value_and_outer_nullability() -> VortexResult<()> {
+    let source_map_dtype = MapDType::try_new(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DType::Utf8(Nullability::NonNullable),
+        true,
+    )?;
+    let source = map_array_from_rows(
+        source_map_dtype,
+        Nullability::NonNullable,
+        [
+            Some(vec![
+                (
+                    Scalar::primitive(1i32, Nullability::NonNullable),
+                    Scalar::utf8("one", Nullability::NonNullable),
+                ),
+                (
+                    Scalar::primitive(2i32, Nullability::NonNullable),
+                    Scalar::utf8("two", Nullability::NonNullable),
+                ),
+            ]),
+            Some(vec![]),
+        ],
+    )?
+    .into_array();
+    let target_dtype = DType::map(
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+        DType::Utf8(Nullability::Nullable),
+        true,
+        Nullability::Nullable,
+    )?;
+    let target_map_dtype = target_dtype
+        .as_map_opt()
+        .vortex_expect("target dtype is map")
+        .clone();
+    let cast = source.cast(target_dtype)?;
+    let expected = map_array_from_rows(
+        target_map_dtype,
+        Nullability::Nullable,
+        [
+            Some(vec![
+                (
+                    Scalar::primitive(1i64, Nullability::NonNullable),
+                    Scalar::utf8("one", Nullability::Nullable),
+                ),
+                (
+                    Scalar::primitive(2i64, Nullability::NonNullable),
+                    Scalar::utf8("two", Nullability::Nullable),
+                ),
+            ]),
+            Some(vec![]),
+        ],
+    )?;
+    let mut ctx = array_session().create_execution_ctx();
+
+    assert!(cast.is::<Map>());
+    assert_arrays_eq!(cast, expected, &mut ctx);
+
+    Ok(())
+}
+
+#[test]
+fn cast_can_drop_but_not_create_sortedness_assertion() -> VortexResult<()> {
+    let sorted_source = sample_array()?.into_array();
+    let unsorted_target = DType::map(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DType::Utf8(Nullability::Nullable),
+        false,
+        Nullability::Nullable,
+    )?;
+    let cast = sorted_source.cast(unsorted_target)?;
+    let expected = map_array_from_rows(
+        MapDType::try_new(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Utf8(Nullability::Nullable),
+            false,
+        )?,
+        Nullability::Nullable,
+        [
+            Some(vec![
+                (key(2), value(Some("two"))),
+                (key(1), value(None)),
+                (key(2), value(Some("duplicate"))),
+            ]),
+            Some(vec![]),
+            None,
+        ],
+    )?;
+    let mut ctx = array_session().create_execution_ctx();
+    assert_arrays_eq!(cast, expected, &mut ctx);
+
+    let unsorted_map_dtype = MapDType::try_new(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DType::Utf8(Nullability::Nullable),
+        false,
+    )?;
+    let unsorted_source = map_array_from_rows(
+        unsorted_map_dtype,
+        Nullability::Nullable,
+        [Some(vec![(key(1), value(Some("one")))])],
+    )?
+    .into_array();
+    let sorted_target = DType::map(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DType::Utf8(Nullability::Nullable),
+        true,
+        Nullability::Nullable,
+    )?;
+    assert!(unsorted_source.cast(sorted_target).is_err());
+
+    Ok(())
+}
+
+#[test]
+fn null_map_cast_cannot_create_sortedness_assertion() -> VortexResult<()> {
+    let unsorted_map_dtype = MapDType::try_new(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DType::Utf8(Nullability::Nullable),
+        false,
+    )?;
+    let unsorted_dtype = DType::Map(unsorted_map_dtype.clone(), Nullability::Nullable);
+    let sorted_dtype = DType::map(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        DType::Utf8(Nullability::Nullable),
+        true,
+        Nullability::Nullable,
+    )?;
+    let scalar = Scalar::null(unsorted_dtype);
+
+    assert!(scalar.cast(&sorted_dtype).is_err());
+    let constant_cast = ConstantArray::new(scalar, 2)
+        .into_array()
+        .cast(sorted_dtype.clone())?;
+    let mut ctx = array_session().create_execution_ctx();
+    assert!(constant_cast.execute::<Canonical>(&mut ctx).is_err());
+
+    let all_null =
+        map_array_from_rows(unsorted_map_dtype, Nullability::Nullable, [None, None])?.into_array();
+    assert!(all_null.cast(sorted_dtype).is_err());
+
+    Ok(())
+}
+
+#[test]
+fn filter_preserves_duplicate_map_keys() -> VortexResult<()> {
+    let source = sample_array()?.into_array();
+    let filtered = source.filter(Mask::from_iter([true, false, false]))?;
+    let expected = map_array_from_rows(
+        map_dtype()?,
+        Nullability::Nullable,
+        [Some(vec![
+            (key(2), value(Some("two"))),
+            (key(1), value(None)),
+            (key(2), value(Some("duplicate"))),
+        ])],
+    )?;
+    let mut ctx = array_session().create_execution_ctx();
+
+    assert_arrays_eq!(filtered, expected, &mut ctx);
 
     Ok(())
 }

@@ -16,6 +16,7 @@ use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
@@ -125,11 +126,14 @@ pub fn slice_canonical_array(
             )
             .map(|a| a.into_array())
         }
-        d @ (DType::Null
-        | DType::Map(..)
-        | DType::Union(..)
-        | DType::Variant(_)
-        | DType::Extension(_)) => {
+        DType::Map(..) => {
+            let mut builder = builder_with_capacity(array.dtype(), stop - start);
+            for idx in start..stop {
+                builder.append_scalar(&array.execute_scalar(idx, ctx)?)?;
+            }
+            Ok(builder.finish())
+        }
+        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

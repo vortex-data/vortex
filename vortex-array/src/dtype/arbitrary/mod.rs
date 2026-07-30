@@ -36,7 +36,7 @@ impl<'a> Arbitrary<'a> for FieldName {
 
 fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
     const BASE_TYPE_COUNT: i32 = 5;
-    const CONTAINER_TYPE_COUNT: i32 = 3;
+    const CONTAINER_TYPE_COUNT: i32 = 4;
     let max_dtype_kind = if depth == 0 {
         BASE_TYPE_COUNT
     } else {
@@ -59,10 +59,21 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
             u.choose_index(3)?.try_into().vortex_expect("impossible"),
             u.arbitrary()?,
         ),
+        9 => random_map_dtype(u, depth - 1)?,
         // Null,
         // Extension(ExtDType, Nullability),
         _ => unreachable!("Number out of range"),
     })
+}
+
+fn random_map_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
+    Ok(DType::map(
+        random_dtype(u, depth)?.as_nonnullable(),
+        random_dtype(u, depth)?,
+        false,
+        u.arbitrary()?,
+    )
+    .vortex_expect("non-nullable generated map keys are always valid"))
 }
 
 impl<'a> Arbitrary<'a> for Nullability {
@@ -122,4 +133,24 @@ fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructFiel
         .map(|_| random_dtype(u, depth))
         .collect::<Result<Vec<_>>>()?;
     Ok(StructFields::new(names, dtypes))
+}
+
+#[cfg(test)]
+mod tests {
+    use arbitrary::Unstructured;
+
+    use super::random_map_dtype;
+    use crate::dtype::DType;
+
+    #[test]
+    fn random_map_dtype_never_asserts_sorted_keys() {
+        for byte in 0..=u8::MAX {
+            let bytes = [byte; 128];
+            let mut u = Unstructured::new(&bytes);
+            let Ok(DType::Map(map_dtype, _)) = random_map_dtype(&mut u, 0) else {
+                continue;
+            };
+            assert!(!map_dtype.keys_sorted());
+        }
+    }
 }

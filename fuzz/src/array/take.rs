@@ -148,11 +148,20 @@ pub fn take_canonical_array(
             )
             .map(|a| a.into_array())
         }
-        d @ (DType::Null
-        | DType::Map(..)
-        | DType::Union(..)
-        | DType::Variant(_)
-        | DType::Extension(_)) => {
+        DType::Map(..) => {
+            let result_dtype = array.dtype().union_nullability(nullable);
+            let mut builder = builder_with_capacity(&result_dtype, indices.len());
+            for idx in indices {
+                if let Some(idx) = idx {
+                    builder
+                        .append_scalar(&array.execute_scalar(*idx, ctx)?.cast(&result_dtype)?)?;
+                } else {
+                    builder.append_null();
+                }
+            }
+            Ok(builder.finish())
+        }
+        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

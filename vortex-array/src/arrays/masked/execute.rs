@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::IntoArray;
@@ -15,6 +14,7 @@ use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
+use crate::arrays::MapArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
@@ -26,6 +26,7 @@ use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::listview::ListViewArraySlotsExt;
+use crate::arrays::map::MapArrayExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::union::UnionArrayExt;
 use crate::arrays::union::UnionArraySlotsExt;
@@ -51,7 +52,7 @@ pub fn mask_validity_canonical(
         Canonical::Decimal(a) => Canonical::Decimal(mask_validity_decimal(a, validity)?),
         Canonical::VarBinView(a) => Canonical::VarBinView(mask_validity_varbinview(a, validity)?),
         Canonical::List(a) => Canonical::List(mask_validity_listview(a, validity)?),
-        Canonical::Map(_) => vortex_bail!("Map arrays don't support masking"),
+        Canonical::Map(a) => Canonical::Map(mask_validity_map(a, validity)?),
         Canonical::FixedSizeList(a) => {
             Canonical::FixedSizeList(mask_validity_fixed_size_list(a, validity)?)
         }
@@ -127,6 +128,11 @@ fn mask_validity_listview(array: ListViewArray, validity: Validity) -> VortexRes
         )
         .with_zero_copy_to_list(is_zctl)
     })
+}
+
+fn mask_validity_map(array: MapArray, validity: Validity) -> VortexResult<MapArray> {
+    let entries = mask_validity_listview(array.entries().into_owned(), validity)?;
+    MapArray::try_new(array.map_dtype().clone(), entries)
 }
 
 fn mask_validity_fixed_size_list(

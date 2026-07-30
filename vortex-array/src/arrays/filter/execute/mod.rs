@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
@@ -21,10 +20,13 @@ use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
+use crate::arrays::Map;
+use crate::arrays::MapArray;
 use crate::arrays::NullArray;
 use crate::arrays::VariantArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::filter::FilterArraySlotsExt;
+use crate::arrays::filter::FilterReduce;
 use crate::arrays::variant::VariantArraySlotsExt;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
@@ -96,7 +98,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
         Canonical::Decimal(a) => Canonical::Decimal(decimal::filter_decimal(&a, mask)),
         Canonical::VarBinView(a) => Canonical::VarBinView(varbinview::filter_varbinview(&a, mask)),
         Canonical::List(a) => Canonical::List(listview::filter_listview(&a, mask)),
-        Canonical::Map(_) => vortex_panic!("Map arrays don't support filter"),
+        Canonical::Map(a) => Canonical::Map(filter_map(&a, mask)),
         Canonical::FixedSizeList(a) => {
             Canonical::FixedSizeList(fixed_size_list::filter_fixed_size_list(&a, mask))
         }
@@ -126,4 +128,12 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
             )
         }
     }
+}
+
+fn filter_map(array: &MapArray, mask: &Arc<MaskValues>) -> MapArray {
+    let filter_mask = Mask::Values(Arc::clone(mask));
+    let filtered = <Map as FilterReduce>::filter(array.as_view(), &filter_mask)
+        .vortex_expect("MapArray somehow could not be filtered")
+        .vortex_expect("Map filter reduce always produces an array");
+    filtered.as_::<Map>().into_owned()
 }

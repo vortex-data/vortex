@@ -1092,6 +1092,26 @@ fn test_slice_aggregate_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
     }
 }
 
+fn widened_primitive_dtype(dtype: &DType) -> Option<DType> {
+    let DType::Primitive(ptype, nullability) = dtype else {
+        return None;
+    };
+    let widened = match ptype {
+        PType::U8 => PType::U16,
+        PType::U16 => PType::U32,
+        PType::U32 => PType::U64,
+        PType::U64 => return None,
+        PType::I8 => PType::I16,
+        PType::I16 => PType::I32,
+        PType::I32 => PType::I64,
+        PType::I64 => return None,
+        PType::F16 => PType::F32,
+        PType::F32 => PType::F64,
+        PType::F64 => return None,
+    };
+    Some(DType::Primitive(widened, *nullability))
+}
+
 /// Tests that cast operations preserve array properties when sliced.
 ///
 /// # Invariant
@@ -1227,7 +1247,45 @@ fn test_cast_slice_consistency(array: &ArrayRef, ctx: &mut ExecutionCtx) {
                 opposite,
             )]
         }
-        DType::Map(..) => vec![], /* Map arrays are not materializable until their layout is chosen. */
+        DType::Map(map_dtype, nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            let key_dtype = map_dtype.key_dtype();
+            let value_dtype = map_dtype.value_dtype();
+            let mut targets = vec![DType::Map(map_dtype.clone(), opposite)];
+
+            if let Some(widened_key) = widened_primitive_dtype(&key_dtype)
+                && let Ok(dtype) = DType::map(
+                    widened_key,
+                    value_dtype.clone(),
+                    map_dtype.keys_sorted(),
+                    *nullability,
+                )
+            {
+                targets.push(dtype);
+            }
+
+            if let Some(widened_value) = widened_primitive_dtype(&value_dtype)
+                && let Ok(dtype) = DType::map(
+                    key_dtype.clone(),
+                    widened_value,
+                    map_dtype.keys_sorted(),
+                    *nullability,
+                )
+            {
+                targets.push(dtype);
+            }
+
+            if map_dtype.keys_sorted()
+                && let Ok(dtype) = DType::map(key_dtype, value_dtype, false, *nullability)
+            {
+                targets.push(dtype);
+            }
+
+            targets
+        }
         DType::Struct(fields, nullability) => {
             let opposite = match nullability {
                 Nullability::NonNullable => Nullability::Nullable,
