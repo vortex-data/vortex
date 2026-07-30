@@ -13,7 +13,7 @@ on:
       machine_type:
         required: false
         type: string
-        default: c5d.metal
+        default: c6id.metal
 
 jobs:
   resolve-matrix:
@@ -166,7 +166,6 @@ jobs:
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
-            --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
@@ -187,7 +186,6 @@ jobs:
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
-            --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}

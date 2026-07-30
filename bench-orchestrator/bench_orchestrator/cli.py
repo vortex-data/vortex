@@ -4,6 +4,7 @@
 """CLI for benchmark orchestration."""
 
 import json
+import os
 import subprocess
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -85,6 +86,17 @@ def parse_queries(value: str | None) -> list[int] | None:
 
 def run_ref_auto_complete() -> list[str]:
     return list(map(lambda x: x.run_id, ResultStore().list_runs(limit=None)))
+
+
+def default_runner() -> str | None:
+    """Derive the runner ID from the machine actually provisioned.
+
+    runs-on exposes the real EC2 instance type in RUNS_ON_INSTANCE_TYPE, which can
+    differ from what the workflow requested, so records must never be labeled from
+    workflow inputs.
+    """
+    instance_type = os.environ.get("RUNS_ON_INSTANCE_TYPE")
+    return f"ec2_{instance_type}" if instance_type else None
 
 
 def targets_from_axes(
@@ -265,7 +277,10 @@ def run(
     ] = None,
     runner: Annotated[
         str | None,
-        typer.Option("--runner", help="Benchmark runner ID (e.g., ec2_c6id.8xlarge)"),
+        typer.Option(
+            "--runner",
+            help="Benchmark runner ID (e.g., ec2_c6id.metal); defaults to the actual EC2 instance type when available",
+        ),
     ] = None,
     output: Annotated[
         Path | None,
@@ -281,6 +296,7 @@ def run(
     query_list = parse_queries(queries)
     exclude_list = parse_queries(exclude_queries)
     strict_failures = targets_json is not None
+    runner = runner or default_runner()
 
     try:
         bench_opts = parse_options(options)
