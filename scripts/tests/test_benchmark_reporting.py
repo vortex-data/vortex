@@ -39,6 +39,8 @@ def stored_timing_row(
     value: int,
     storage: str | None = None,
     dataset: dict[str, object] | None = None,
+    engine: str = "datafusion",
+    file_format: str = "parquet",
 ) -> dict[str, object]:
     row: dict[str, object] = {
         "name": name,
@@ -46,12 +48,57 @@ def stored_timing_row(
         "value": value,
         "all_runtimes": [value, value, value],
         "commit_id": commit,
+        "target": {"engine": engine, "format": file_format},
     }
     if storage is not None:
         row["storage"] = storage
     if dataset is not None:
         row["dataset"] = dataset
     return row
+
+
+def stored_custom_row(
+    commit: str,
+    name: str,
+    unit: str,
+    value: float,
+    engine: str = "vortex",
+    file_format: str = "vortex",
+) -> dict[str, object]:
+    return {
+        "name": name,
+        "unit": unit,
+        "value": value,
+        "commit_id": commit,
+        "target": {"engine": engine, "format": file_format},
+    }
+
+
+def render_report(
+    tmp_path: Path,
+    base_rows: list[dict[str, object]],
+    pr_rows: list[dict[str, object]],
+    benchmark_name: str,
+) -> str:
+    base_path = tmp_path / "base.jsonl"
+    pr_path = tmp_path / "pr.jsonl"
+    base_path.write_text("".join(f"{json.dumps(row)}\n" for row in base_rows), encoding="utf-8")
+    pr_path.write_text("".join(f"{json.dumps(row)}\n" for row in pr_rows), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(COMPARE_SCRIPT), str(base_path), str(pr_path), benchmark_name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def markdown_row(report: str, name: str) -> list[str]:
+    line = next(line for line in report.splitlines() if line.startswith(f"| {name} "))
+    return [cell.strip() for cell in line.strip("|").split("|")]
 
 
 def test_select_latest_baseline_rows_uses_latest_matching_benchmark_commit() -> None:
@@ -115,6 +162,22 @@ def test_read_latest_baseline_rows_streams_latest_matching_benchmark_commit(tmp_
             {"scale_factor": "1.0"},
         ),
         file_size_record_for("base-current", 120, "tpch", "1.0", "vortex-file-compressed", "part-0.vortex"),
+        stored_timing_row(
+            "base-wrong-unit",
+            "tpch_q01/datafusion:parquet",
+            111,
+            "nvme",
+            {"scale_factor": "1.0"},
+        )
+        | {"unit": "ms"},
+        stored_timing_row(
+            "base-wrong-target",
+            "tpch_q01/datafusion:parquet",
+            112,
+            "nvme",
+            {"scale_factor": "1.0"},
+            file_format="vortex",
+        ),
         stored_timing_row("base-other", "clickbench_q01/datafusion:parquet", 200, "nvme"),
     ]
     history_path.write_text(
@@ -155,6 +218,65 @@ def test_within_engine_analysis_uses_each_engines_own_parquet_control() -> None:
     assert set(analyses) == {"datafusion", "duckdb"}
     assert compare.build_verdict(analyses["datafusion"])["impact"] == "-10.0%"
     assert compare.build_verdict(analyses["duckdb"])["impact"] == "+20.0%"
+
+
+def test_comparison_report_groups_by_target_and_unit(tmp_path: Path) -> None:
+    base_rows = [
+        stored_custom_row("base-sha", "timing/fixture", "ms", 12.5),
+        stored_custom_row("base-sha", "size/fixture", "%", 45.25),
+        stored_custom_row("base-sha", "ratio/fixture", "ratio", 0.75),
+        stored_custom_row("base-sha", "parquet timing/fixture", "ms", 20.0, file_format="parquet"),
+    ]
+    pr_rows = [
+        stored_custom_row("pr-sha", "timing/fixture", "ms", 11.75),
+        stored_custom_row("pr-sha", "new timing/fixture", "ms", 3.125),
+        stored_custom_row("pr-sha", "size/fixture", "%", 44.5),
+        stored_custom_row("pr-sha", "ratio/fixture", "ratio", 0.8),
+        stored_custom_row("pr-sha", "parquet timing/fixture", "ms", 21.0, file_format="parquet"),
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "Mixed metrics")
+
+    assert "unknown / unknown" not in report
+    assert "How to read Verdict and Engines" not in report
+    assert "<summary>vortex / vortex-file-compressed / ms " in report
+    assert "<summary>vortex / vortex-file-compressed / % " in report
+    assert "<summary>vortex / vortex-file-compressed / ratio " in report
+    assert "<summary>vortex / parquet / ms " in report
+    assert markdown_row(report, "timing/fixture") == ["timing/fixture", "11.75", "12.5", "0.94"]
+    assert markdown_row(report, "size/fixture") == ["size/fixture", "44.5", "45.25", "0.98"]
+    assert markdown_row(report, "ratio/fixture") == ["ratio/fixture", "0.8", "0.75", "1.07"]
+    assert markdown_row(report, "new timing/fixture") == [
+        "new timing/fixture",
+        "3.125",
+        "—",
+        "no baseline",
+    ]
+
+
+def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
+    targets = [
+        ("parquet", "parquet", 100, 105),
+        ("vortex-file-compressed", "vortex", 80, 70),
+    ]
+    base_rows = [
+        stored_timing_row("base-sha", f"tpch_q01/datafusion:{name}", base, file_format=target)
+        for name, target, base, _pr in targets
+    ]
+    pr_rows = [
+        stored_timing_row("pr-sha", f"tpch_q01/datafusion:{name}", pr, file_format=target)
+        for name, target, _base, pr in targets
+    ]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "TPC-H")
+
+    assert "**Verdict**:" in report
+    assert "**Vortex (geomean)**:" in report
+    assert "**Parquet (geomean)**:" in report
+    assert "How to read Verdict and Engines" in report
+    assert "<summary>datafusion / vortex-file-compressed / ns " in report
+    assert "<summary>datafusion / parquet / ns " in report
+    assert "unknown / unknown" not in report
 
 
 def file_size_record(commit: str, size: int) -> dict[str, object]:
