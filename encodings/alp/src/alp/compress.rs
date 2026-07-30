@@ -77,9 +77,13 @@ where
     // Encode straight into a Vortex buffer, so that the encoded array owns its values rather than
     // adopting a `Vec` allocated by the encoder.
     let mut encoded = BufferMut::<T::ALPInt>::with_capacity(values_slice.len());
-    let mut exceptional_positions = Vec::new();
-    let mut exceptional_values = Vec::new();
-    let mut chunk_offsets = Vec::new();
+
+    // Estimate capacity to be one patch per 32 values.
+    let mut exceptional_positions = Vec::with_capacity(values_slice.len() / 32);
+    let mut exceptional_values = Vec::with_capacity(values_slice.len() / 32);
+
+    // There's exactly one offset per chunk.
+    let mut chunk_offsets = Vec::with_capacity(values_slice.len().div_ceil(ENCODE_CHUNK_SIZE));
     let exponents = ::alp::encode_into(
         values_slice,
         exponents,
