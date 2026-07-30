@@ -257,7 +257,7 @@ pub async fn load_clickbench_url(shard: u32, ctx: &mut ExecutionCtx) -> Result<S
 }
 
 fn clickbench_column_name(shard: u32) -> String {
-    format!("URL/shard-{shard}")
+    format!("clickbench/URL/shard-{shard}")
 }
 
 async fn download_clickbench_shard(shard: u32) -> Result<PathBuf> {
@@ -293,7 +293,7 @@ pub async fn load_tpch_l_comment(ctx: &mut ExecutionCtx) -> Result<StringColumn>
     let struct_array = read_parquet_projected(path, "l_comment").await?;
     let array = to_utf8_column(struct_array, "l_comment", ctx)?;
     Ok(StringColumn {
-        name: "l_comment".to_string(),
+        name: "tpch/l_comment".to_string(),
         array,
     })
 }

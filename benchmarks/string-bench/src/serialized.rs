@@ -170,7 +170,7 @@ impl SerializedResult {
 
     /// Emit all serialized metrics as Vortex-format custom-unit metrics.
     pub fn measurements(&self) -> Vec<CustomUnitMeasurement> {
-        let suffix = format!("{} {}", self.name, self.encoder);
+        let suffix = format!("{}/{}", self.name, self.encoder);
         let ms = |name: String, runs: &[Duration]| CustomUnitMeasurement {
             name,
             format: Format::OnDiskVortex,
@@ -178,19 +178,16 @@ impl SerializedResult {
             value: Self::ms(runs),
         };
         vec![
-            ms(format!("serialized write/{suffix}"), &self.write_runs),
-            ms(format!("serialized read open/{suffix}"), &self.open_runs),
-            ms(format!("serialized read scan/{suffix}"), &self.scan_runs),
+            ms(format!("file/write/{suffix}"), &self.write_runs),
+            ms(format!("file/read/open/{suffix}"), &self.open_runs),
+            ms(format!("file/read/scan/{suffix}"), &self.scan_runs),
             ms(
-                format!("serialized read canonicalize/{suffix}"),
+                format!("file/read/canonicalize/{suffix}"),
                 &self.canonicalize_runs,
             ),
-            ms(
-                format!("serialized staged read/{suffix}"),
-                &self.staged_read_runs,
-            ),
+            ms(format!("file/read/staged/{suffix}"), &self.staged_read_runs),
             CustomUnitMeasurement {
-                name: format!("serialized file size (% of canonical)/{suffix}"),
+                name: format!("file/size/{suffix}"),
                 format: Format::OnDiskVortex,
                 unit: "%".into(),
                 value: self.file_size_pct(),
@@ -482,16 +479,12 @@ mod tests {
                 })
                 .collect::<Vec<_>>(),
             vec![
-                ("serialized write/fixture fsst", "ms", 1.0),
-                ("serialized read open/fixture fsst", "ms", 1.0),
-                ("serialized read scan/fixture fsst", "ms", 2.0),
-                ("serialized read canonicalize/fixture fsst", "ms", 3.0),
-                ("serialized staged read/fixture fsst", "ms", 6.0),
-                (
-                    "serialized file size (% of canonical)/fixture fsst",
-                    "%",
-                    50.0,
-                ),
+                ("file/write/fixture/fsst", "ms", 1.0),
+                ("file/read/open/fixture/fsst", "ms", 1.0),
+                ("file/read/scan/fixture/fsst", "ms", 2.0),
+                ("file/read/canonicalize/fixture/fsst", "ms", 3.0),
+                ("file/read/staged/fixture/fsst", "ms", 6.0),
+                ("file/size/fixture/fsst", "%", 50.0),
             ]
         );
     }

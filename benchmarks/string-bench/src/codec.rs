@@ -147,16 +147,16 @@ impl ColumnResult {
     /// `Format` has no in-memory Vortex variant, so these measurements use
     /// `Format::OnDiskVortex` as their reporting target.
     pub fn measurements(&self) -> Vec<CustomUnitMeasurement> {
-        let suffix = format!("{} {}", self.name, self.encoder);
+        let suffix = format!("{}/{}", self.name, self.encoder);
         vec![
             CustomUnitMeasurement {
-                name: format!("direct array compression time/{suffix}"),
+                name: format!("codec/compression/{suffix}"),
                 format: Format::OnDiskVortex,
                 unit: "ms".into(),
                 value: duration_ms(self.compression_median()),
             },
             CustomUnitMeasurement {
-                name: format!("direct encoded size (% of canonical)/{suffix}"),
+                name: format!("codec/encoded-size/{suffix}"),
                 format: Format::OnDiskVortex,
                 unit: "%".into(),
                 value: self.encoded_size_pct(),
@@ -284,12 +284,8 @@ mod tests {
                 })
                 .collect::<Vec<_>>(),
             vec![
-                ("direct array compression time/fixture fsst", "ms", 12.0),
-                (
-                    "direct encoded size (% of canonical)/fixture fsst",
-                    "%",
-                    50.0,
-                ),
+                ("codec/compression/fixture/fsst", "ms", 12.0),
+                ("codec/encoded-size/fixture/fsst", "%", 50.0),
             ]
         );
     }

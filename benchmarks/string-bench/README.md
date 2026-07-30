@@ -35,8 +35,8 @@ The current input catalog is:
 
 | Output name | Source |
 | --- | --- |
-| `URL/shard-N` | ClickBench `hits_N.parquet`, `URL` column |
-| `l_comment` | TPC-H SF1 `lineitem`, `l_comment` column |
+| `clickbench/URL/shard-N` | ClickBench `hits_N.parquet`, `URL` column |
+| `tpch/l_comment` | TPC-H SF1 `lineitem`, `l_comment` column |
 
 On first use, the selected ClickBench shard is downloaded through
 `vortex-bench`'s shared idempotent downloader. TPC-H SF1 is generated
@@ -73,3 +73,9 @@ and, unless `--no-verify` is set, compares decoded output with the input.
 
 The develop benchmark workflow runs both suites after each merge to `develop`
 and publishes the results to the shared benchmark history.
+
+Machine-readable metric names use the hierarchy
+`<scope>/<operation>/<input>/<encoder>`, for example
+`codec/compression/clickbench/URL/shard-0/fsst` and
+`file/read/canonicalize/tpch/l_comment/onpair-12`. The unit is reported
+separately in the JSON output and CI table.
