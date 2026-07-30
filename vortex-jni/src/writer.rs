@@ -42,7 +42,6 @@ use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::Field as DTypeField;
 use vortex::dtype::FieldPath;
-use vortex::editions::EditionSessionExt;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -50,7 +49,6 @@ use vortex::expr::stats::Stat;
 use vortex::expr::stats::StatsProvider;
 use vortex::file::CountingVortexWrite;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
 use vortex::file::multi::parse_uri_or_path;
 use vortex::io::VortexWrite;
@@ -60,7 +58,6 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::BufferedBytesTracker;
-use vortex::layout::LayoutStrategy;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_arrow::ArrowSessionExt;
@@ -99,20 +96,6 @@ fn resolve_store(
         let store = make_object_store(&url, properties)?;
         Ok(ResolvedStore::ObjectStore(store, path))
     }
-}
-
-fn write_strategy_for_schema(
-    session: &VortexSession,
-    write_schema: &DType,
-) -> Arc<dyn LayoutStrategy> {
-    let variant_paths = variant_field_paths(write_schema);
-    if variant_paths.is_empty() {
-        return WriteStrategyBuilder::default().build();
-    }
-
-    WriteStrategyBuilder::default()
-        .with_allow_encodings(session.enabled_encoding_ids().into_iter().collect())
-        .build()
 }
 
 fn variant_field_paths(dtype: &DType) -> Vec<FieldPath> {
@@ -422,11 +405,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         let resolved = resolve_store(&file_path, &properties)?;
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
-        let strategy = write_strategy_for_schema(session, &write_schema);
-        let write_options = session
-            .write_options()
-            .with_strategy(strategy)
-            .with_metadata_segments(metadata);
+        let write_options = session.write_options().with_metadata_segments(metadata);
         // The same check runs inside `write`, but only once the write task is under way, where
         // it would surface as an opaque send failure on the first batch.
         write_options.validate_metadata()?;
@@ -512,11 +491,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_createStream(
         let writable = Arc::new(env.new_global_ref(&writable)?);
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
-        let strategy = write_strategy_for_schema(session, &write_schema);
-        let write_options = session
-            .write_options()
-            .with_strategy(strategy)
-            .with_metadata_segments(metadata);
+        let write_options = session.write_options().with_metadata_segments(metadata);
         // See the note in `create`: validate before the write task can start.
         write_options.validate_metadata()?;
         let buffered_bytes = write_options.buffered_bytes_tracker();
