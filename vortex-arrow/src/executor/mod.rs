@@ -14,6 +14,7 @@ mod dictionary;
 mod fixed_size_list;
 mod list;
 mod list_view;
+mod map;
 pub mod null;
 pub mod primitive;
 mod run_end;
@@ -51,6 +52,7 @@ use crate::executor::dictionary::to_arrow_dictionary;
 use crate::executor::fixed_size_list::to_arrow_fixed_list;
 use crate::executor::list::to_arrow_list;
 use crate::executor::list_view::to_arrow_list_view;
+use crate::executor::map::to_arrow_map;
 use crate::executor::null::to_arrow_null;
 use crate::executor::primitive::to_arrow_primitive;
 use crate::executor::run_end::to_arrow_run_end;
@@ -191,7 +193,9 @@ pub(crate) fn execute_arrow_naive(
         dt @ (DataType::Date32 | DataType::Date64) => to_arrow_date(array, dt, ctx),
         dt @ (DataType::Time32(_) | DataType::Time64(_)) => to_arrow_time(array, dt, ctx),
         dt @ DataType::Timestamp(..) => to_arrow_timestamp(array, dt, ctx),
-        DataType::Map(..) => vortex_bail!("Arrow MapArray conversion is not yet supported"),
+        DataType::Map(entries_field, keys_sorted) => {
+            to_arrow_map(array, entries_field, *keys_sorted, ctx)
+        }
         DataType::FixedSizeBinary(_)
         | DataType::Duration(_)
         | DataType::Interval(_)

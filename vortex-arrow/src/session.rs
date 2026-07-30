@@ -63,6 +63,7 @@ use vortex_session::registry::Id;
 
 use crate::FromArrowArray;
 use crate::IntoVortexArray;
+use crate::convert::map_from_arrow_parts;
 use crate::convert::nulls;
 use crate::convert::remove_nulls;
 use crate::dtype::TryFromArrowType;
@@ -620,8 +621,17 @@ impl ArrowSession {
                 let validity = nulls(list.nulls(), field.is_nullable())?;
                 Ok(ListViewArray::try_new(elements, offsets, sizes, validity)?.into_array())
             }
-            DataType::Map(..) => {
-                vortex_bail!("Arrow MapArray conversion is not yet supported")
+            DataType::Map(entries_field, keys_sorted) => {
+                let map = array.as_map();
+                let entries_array: ArrowArrayRef = Arc::new(map.entries().clone());
+                let entries = self.from_arrow_array(entries_array, entries_field.as_ref())?;
+                map_from_arrow_parts(
+                    entries,
+                    map.offsets(),
+                    map.nulls(),
+                    *keys_sorted,
+                    field.is_nullable(),
+                )
             }
             _ => ArrayRef::from_arrow(array.as_ref(), field.is_nullable()),
         }

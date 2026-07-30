@@ -13,6 +13,7 @@ use arrow_array::GenericByteArray;
 use arrow_array::GenericByteViewArray;
 use arrow_array::GenericListArray;
 use arrow_array::GenericListViewArray;
+use arrow_array::MapArray as ArrowMapArray;
 use arrow_array::NullArray as ArrowNullArray;
 use arrow_array::OffsetSizeTrait;
 use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
@@ -65,16 +66,22 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::MapArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::IntegerPType;
+use vortex_array::dtype::MapDType;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::TimeUnit;
@@ -477,6 +484,77 @@ impl FromArrowArray<&ArrowFixedSizeListArray> for ArrayRef {
     }
 }
 
+pub(crate) fn map_from_arrow_parts(
+    entries: ArrayRef,
+    offsets: &OffsetBuffer<i32>,
+    arrow_nulls: Option<&NullBuffer>,
+    keys_sorted: bool,
+    nullable: bool,
+) -> VortexResult<ArrayRef> {
+    let DType::Struct(struct_dtype, Nullability::NonNullable) = entries.dtype() else {
+        vortex_bail!(
+            "Arrow map entries must import as non-nullable struct, got {}",
+            entries.dtype()
+        );
+    };
+    vortex_ensure!(
+        struct_dtype.nfields() == 2,
+        "Arrow map entries struct must contain exactly two fields"
+    );
+
+    let key_dtype = struct_dtype
+        .field_by_index(0)
+        .ok_or_else(|| vortex_err!("Arrow map entries struct missing key field"))?;
+    vortex_ensure!(
+        !key_dtype.is_nullable(),
+        "Arrow map key field must be non-nullable"
+    );
+    let value_dtype = struct_dtype
+        .field_by_index(1)
+        .ok_or_else(|| vortex_err!("Arrow map entries struct missing value field"))?;
+    let map_dtype = MapDType::try_new(key_dtype, value_dtype, keys_sorted)?;
+    let entries_struct = entries.as_::<Struct>();
+    let entries = StructArray::try_new(
+        FieldNames::from(["key", "value"]),
+        vec![
+            entries_struct.unmasked_field(0).clone(),
+            entries_struct.unmasked_field(1).clone(),
+        ],
+        entries.len(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+
+    let len = offsets.len() - 1;
+    let sizes = Buffer::<i32>::from_iter(offsets.windows(2).map(|window| window[1] - window[0]))
+        .into_array();
+    let offsets = offsets.inner().slice(0, len).into_array();
+    let validity = nulls(arrow_nulls, nullable)?;
+    let entries = ListViewArray::try_new(entries, offsets, sizes, validity)?;
+    // SAFETY: Arrow Map offsets are sorted list offsets. Vortex sizes are adjacent offset
+    // differences, so every view's end equals the next view's start. Sliced Arrow arrays may
+    // leave leading or trailing entries unreferenced, which zero-copy-to-list permits.
+    let entries = unsafe { entries.with_zero_copy_to_list(true) };
+
+    Ok(MapArray::try_new(map_dtype, entries)?.into_array())
+}
+
+impl FromArrowArray<&ArrowMapArray> for ArrayRef {
+    fn from_arrow(array: &ArrowMapArray, nullable: bool) -> VortexResult<Self> {
+        let DataType::Map(_, keys_sorted) = array.data_type() else {
+            vortex_panic!("Invalid data type for MapArray: {}", array.data_type());
+        };
+        let entries = Self::from_arrow(array.entries(), false)?;
+        map_from_arrow_parts(
+            entries,
+            array.offsets(),
+            array.nulls(),
+            *keys_sorted,
+            nullable,
+        )
+    }
+}
+
 impl FromArrowArray<&ArrowNullArray> for ArrayRef {
     fn from_arrow(value: &ArrowNullArray, nullable: bool) -> VortexResult<Self> {
         vortex_ensure!(
@@ -546,9 +624,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::ListView(_) => Self::from_arrow(array.as_list_view::<i32>(), nullable),
             DataType::LargeListView(_) => Self::from_arrow(array.as_list_view::<i64>(), nullable),
             DataType::FixedSizeList(..) => Self::from_arrow(array.as_fixed_size_list(), nullable),
-            DataType::Map(..) => {
-                vortex_bail!("Arrow MapArray conversion is not yet supported")
-            }
+            DataType::Map(..) => Self::from_arrow(array.as_map(), nullable),
             DataType::Null => Self::from_arrow(as_null_array(array), nullable),
             DataType::Timestamp(u, _) => match u {
                 ArrowTimeUnit::Second => {

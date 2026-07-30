@@ -13,13 +13,13 @@ use arrow_schema::Field;
 use arrow_schema::Fields;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::i256;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::scalar::BinaryScalar;
 use vortex_array::scalar::BoolScalar;
 use vortex_array::scalar::DecimalScalar;
-use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::ExtScalar;
 use vortex_array::scalar::MapScalar;
 use vortex_array::scalar::PrimitiveScalar;
@@ -75,12 +75,14 @@ impl ToArrowDatum for Scalar {
             DType::Decimal(..) => decimal_to_arrow(value.as_decimal()),
             DType::Utf8(_) => utf8_to_arrow(value.as_utf8()),
             DType::Binary(_) => binary_to_arrow(value.as_binary()),
-            DType::List(..) => unimplemented!("list scalar conversion"),
-            DType::FixedSizeList(..) => unimplemented!("fixed-size list scalar conversion"),
+            DType::List(..) => vortex_bail!("list scalar conversion is not supported"),
+            DType::FixedSizeList(..) => {
+                vortex_bail!("fixed-size list scalar conversion is not supported")
+            }
             DType::Map(..) => map_to_arrow(value.as_map()),
-            DType::Struct(..) => unimplemented!("struct scalar conversion"),
-            DType::Union(..) => unimplemented!("union scalar conversion"),
-            DType::Variant(_) => unimplemented!("Variant scalar conversion"),
+            DType::Struct(..) => vortex_bail!("struct scalar conversion is not supported"),
+            DType::Union(..) => vortex_bail!("union scalar conversion is not supported"),
+            DType::Variant(_) => vortex_bail!("Variant scalar conversion is not supported"),
             DType::Extension(..) => extension_to_arrow(value.as_extension()),
         }
     }
@@ -110,18 +112,48 @@ fn primitive_to_arrow(scalar: PrimitiveScalar<'_>) -> Result<Arc<dyn Datum>, Vor
 
 /// Convert a [`DecimalScalar`] to an Arrow [`Datum`].
 fn decimal_to_arrow(scalar: DecimalScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
+    let DType::Decimal(decimal_dtype, _) = scalar.dtype() else {
+        vortex_bail!("Expected decimal scalar, got {}", scalar.dtype());
+    };
+    let precision = decimal_dtype.precision();
+    let scale = decimal_dtype.scale();
     // TODO(joe): Replace with decimal32, etc. once Arrow supports them.
     match scalar.decimal_value() {
-        Some(DecimalValue::I8(v)) => Ok(Arc::new(Decimal128Array::new_scalar(v as i128))),
-        Some(DecimalValue::I16(v)) => Ok(Arc::new(Decimal128Array::new_scalar(v as i128))),
-        Some(DecimalValue::I32(v)) => Ok(Arc::new(Decimal128Array::new_scalar(v as i128))),
-        Some(DecimalValue::I64(v)) => Ok(Arc::new(Decimal128Array::new_scalar(v as i128))),
-        Some(DecimalValue::I128(v128)) => Ok(Arc::new(Decimal128Array::new_scalar(v128))),
-        Some(DecimalValue::I256(v256)) => Ok(Arc::new(Decimal256Array::new_scalar(v256.into()))),
-        None => Ok(Arc::new(arrow_array::Scalar::new(
-            Decimal128Array::new_null(SCALAR_ARRAY_LEN),
-        ))),
+        Some(value) => {
+            let value = value.as_i256();
+            if precision <= 38 {
+                let value = value.maybe_i128().ok_or_else(|| {
+                    vortex_err!(
+                        "Decimal value {value} cannot fit in Arrow Decimal128 for precision {precision}"
+                    )
+                })?;
+                decimal128_scalar(value, precision, scale)
+            } else {
+                decimal256_scalar(value, precision, scale)
+            }
+        }
+        None => {
+            let data_type = to_data_type_naive(scalar.dtype())?;
+            Ok(Arc::new(ArrowScalar::new(new_null_array(
+                &data_type,
+                SCALAR_ARRAY_LEN,
+            ))))
+        }
     }
+}
+
+fn decimal128_scalar(value: i128, precision: u8, scale: i8) -> Result<Arc<dyn Datum>, VortexError> {
+    let array = Decimal128Array::new_scalar(value)
+        .into_inner()
+        .with_precision_and_scale(precision, scale)?;
+    Ok(Arc::new(ArrowScalar::new(array)))
+}
+
+fn decimal256_scalar(value: i256, precision: u8, scale: i8) -> Result<Arc<dyn Datum>, VortexError> {
+    let array = Decimal256Array::new_scalar(value.into())
+        .into_inner()
+        .with_precision_and_scale(precision, scale)?;
+    Ok(Arc::new(ArrowScalar::new(array)))
 }
 
 /// Convert a [`Utf8Scalar`] to an Arrow [`Datum`].
@@ -159,7 +191,12 @@ fn map_to_arrow(scalar: MapScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
 
     let key_array = concat_scalar_arrays(&keys, &key_dtype)?;
     let value_array = concat_scalar_arrays(&values, &value_dtype)?;
-    let entries = StructArray::new(fields.clone(), vec![key_array, value_array], None);
+    let entries = StructArray::try_new_with_length(
+        fields.clone(),
+        vec![key_array, value_array],
+        None,
+        entries.len(),
+    )?;
 
     let entries_len = entries.len();
     let entries_len = i32::try_from(entries_len).map_err(|_| {
@@ -271,9 +308,11 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_array::Array;
+    use arrow_array::Decimal128Array;
     use arrow_array::Int32Array;
     use arrow_array::MapArray;
     use arrow_array::StringViewArray;
+    use arrow_schema::DataType;
     use rstest::rstest;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
@@ -435,8 +474,16 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    fn assert_arrow_scalar_data_type(scalar: &Scalar, expected: DataType) -> VortexResult<()> {
+        let datum = scalar.to_arrow_datum()?;
+        let (array, is_scalar) = datum.get();
+        assert!(is_scalar);
+        assert_eq!(array.data_type(), &expected);
+        Ok(())
+    }
+
     #[test]
-    fn test_decimal_scalars_to_arrow() {
+    fn test_decimal_scalars_to_arrow() -> VortexResult<()> {
         // Test various decimal value types
         let decimal_dtype = DecimalDType::new(5, 2);
 
@@ -445,37 +492,35 @@ mod tests {
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(scalar_i8.to_arrow_datum().is_ok());
+        assert_arrow_scalar_data_type(&scalar_i8, DataType::Decimal128(5, 2))?;
 
         let scalar_i16 = Scalar::decimal(
             DecimalValue::I16(10000),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(scalar_i16.to_arrow_datum().is_ok());
+        assert_arrow_scalar_data_type(&scalar_i16, DataType::Decimal128(5, 2))?;
 
         let scalar_i32 = Scalar::decimal(
             DecimalValue::I32(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(scalar_i32.to_arrow_datum().is_ok());
+        assert_arrow_scalar_data_type(&scalar_i32, DataType::Decimal128(5, 2))?;
 
         let scalar_i64 = Scalar::decimal(
             DecimalValue::I64(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(scalar_i64.to_arrow_datum().is_ok());
+        assert_arrow_scalar_data_type(&scalar_i64, DataType::Decimal128(5, 2))?;
 
         let scalar_i128 = Scalar::decimal(
             DecimalValue::I128(99999),
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(scalar_i128.to_arrow_datum().is_ok());
-
-        // Test i256
+        assert_arrow_scalar_data_type(&scalar_i128, DataType::Decimal128(5, 2))?;
 
         let value_i256 = i256::from_i128(99999);
         let scalar_i256 = Scalar::decimal(
@@ -483,15 +528,64 @@ mod tests {
             decimal_dtype,
             Nullability::NonNullable,
         );
-        assert!(scalar_i256.to_arrow_datum().is_ok());
+        assert_arrow_scalar_data_type(&scalar_i256, DataType::Decimal128(5, 2))?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_null_decimal_to_arrow() {
+    fn decimal_i64_with_wide_precision_exports_decimal256() -> VortexResult<()> {
+        let scalar = Scalar::decimal(
+            DecimalValue::I64(1),
+            DecimalDType::new(39, 0),
+            Nullability::NonNullable,
+        );
+
+        assert_arrow_scalar_data_type(&scalar, DataType::Decimal256(39, 0))
+    }
+
+    #[test]
+    fn decimal_i256_with_narrow_precision_exports_decimal128() -> VortexResult<()> {
+        let scalar = Scalar::decimal(
+            DecimalValue::I256(i256::from_i128(1234)),
+            DecimalDType::new(4, 2),
+            Nullability::NonNullable,
+        );
+
+        assert_arrow_scalar_data_type(&scalar, DataType::Decimal128(4, 2))
+    }
+
+    #[test]
+    fn test_null_decimal_to_arrow() -> VortexResult<()> {
         let decimal_dtype = DecimalDType::new(10, 2);
         let scalar = Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable));
-        let result = scalar.to_arrow_datum();
-        assert!(result.is_ok());
+        assert_arrow_scalar_data_type(&scalar, DataType::Decimal128(10, 2))?;
+
+        let decimal_dtype = DecimalDType::new(39, 2);
+        let scalar = Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable));
+        assert_arrow_scalar_data_type(&scalar, DataType::Decimal256(39, 2))
+    }
+
+    #[test]
+    fn decimal_scalar_to_arrow_preserves_precision_and_scale() -> VortexResult<()> {
+        let decimal_dtype = DecimalDType::new(12, 3);
+        let scalar = Scalar::decimal(
+            DecimalValue::I128(12345),
+            decimal_dtype,
+            Nullability::NonNullable,
+        );
+
+        let datum = scalar.to_arrow_datum()?;
+        let (array, is_scalar) = datum.get();
+        assert!(is_scalar);
+        let decimal = array
+            .as_any()
+            .downcast_ref::<Decimal128Array>()
+            .expect("decimal scalar should convert to Decimal128");
+        assert_eq!(decimal.precision(), 12);
+        assert_eq!(decimal.scale(), 3);
+
+        Ok(())
     }
 
     #[test]
@@ -546,7 +640,102 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "struct scalar conversion")]
+    fn map_decimal_scalar_to_arrow_preserves_decimal_type() -> VortexResult<()> {
+        let decimal_dtype = DecimalDType::new(9, 2);
+        let dtype = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Decimal(decimal_dtype, Nullability::Nullable),
+            false,
+            Nullability::NonNullable,
+        )?;
+        let scalar = Scalar::try_map(
+            dtype,
+            [(
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::decimal(
+                    DecimalValue::I256(i256::from_i128(12345)),
+                    decimal_dtype,
+                    Nullability::Nullable,
+                ),
+            )],
+        )?;
+
+        let datum = scalar.to_arrow_datum()?;
+        let (array, is_scalar) = datum.get();
+        assert!(is_scalar);
+        let map = array
+            .as_any()
+            .downcast_ref::<MapArray>()
+            .expect("map scalar should convert to MapArray");
+        assert_eq!(map.values().data_type(), &DataType::Decimal128(9, 2));
+
+        let wide_decimal_dtype = DecimalDType::new(39, 2);
+        let dtype = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            DType::Decimal(wide_decimal_dtype, Nullability::Nullable),
+            false,
+            Nullability::NonNullable,
+        )?;
+        let scalar = Scalar::try_map(
+            dtype,
+            [(
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::decimal(
+                    DecimalValue::I64(12345),
+                    wide_decimal_dtype,
+                    Nullability::Nullable,
+                ),
+            )],
+        )?;
+
+        let datum = scalar.to_arrow_datum()?;
+        let (array, is_scalar) = datum.get();
+        assert!(is_scalar);
+        let map = array
+            .as_any()
+            .downcast_ref::<MapArray>()
+            .expect("map scalar should convert to MapArray");
+        assert_eq!(map.values().data_type(), &DataType::Decimal256(39, 2));
+
+        Ok(())
+    }
+
+    #[test]
+    fn map_scalar_with_unsupported_nested_value_errors_without_panic() -> VortexResult<()> {
+        let struct_dtype = DType::Struct(
+            StructFields::from_iter([(
+                "field1",
+                FieldDType::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            )]),
+            Nullability::NonNullable,
+        );
+        let dtype = DType::map(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            struct_dtype.clone(),
+            false,
+            Nullability::NonNullable,
+        )?;
+        let scalar = Scalar::try_map(
+            dtype,
+            [(
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::struct_(
+                    struct_dtype,
+                    vec![Scalar::primitive(42i32, Nullability::NonNullable)],
+                ),
+            )],
+        )?;
+
+        let error = scalar
+            .to_arrow_datum()
+            .err()
+            .expect("unsupported nested map value should error");
+        assert!(error.to_string().contains("struct scalar conversion"));
+
+        Ok(())
+    }
+
+    #[test]
     fn test_struct_scalar_to_arrow_todo() {
         let struct_dtype = DType::Struct(
             StructFields::from_iter([(
@@ -560,11 +749,14 @@ mod tests {
             struct_dtype,
             vec![Scalar::primitive(42i32, Nullability::NonNullable)],
         );
-        struct_scalar.to_arrow_datum().unwrap();
+        let error = struct_scalar
+            .to_arrow_datum()
+            .err()
+            .expect("struct scalar should error");
+        assert!(error.to_string().contains("struct scalar conversion"));
     }
 
     #[test]
-    #[should_panic(expected = "list scalar conversion")]
     fn test_list_scalar_to_arrow_todo() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let list_scalar = Scalar::list(
@@ -576,11 +768,14 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        list_scalar.to_arrow_datum().unwrap();
+        let error = list_scalar
+            .to_arrow_datum()
+            .err()
+            .expect("list scalar should error");
+        assert!(error.to_string().contains("list scalar conversion"));
     }
 
     #[test]
-    #[should_panic(expected = "Cannot convert extension scalar")]
     fn test_non_temporal_extension_to_arrow_todo() {
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct SomeExt;
@@ -618,7 +813,15 @@ mod tests {
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
 
-        scalar.to_arrow_datum().unwrap();
+        let error = scalar
+            .to_arrow_datum()
+            .err()
+            .expect("non-temporal extension scalar should error");
+        assert!(
+            error
+                .to_string()
+                .contains("Cannot convert extension scalar")
+        );
     }
 
     #[rstest]

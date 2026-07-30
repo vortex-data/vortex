@@ -30,8 +30,10 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
+use vortex_array::builders::MapBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
+use vortex_array::dtype::MapDType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
@@ -1825,15 +1827,29 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
 /// Write `array` with list decomposition forced on (through the full compress/zone pipeline) and
 /// read the whole thing back.
 async fn write_read_roundtrip(array: ArrayRef) -> VortexResult<ArrayRef> {
+    write_read_roundtrip_with_layout(array, true).await
+}
+
+async fn write_read_roundtrip_with_layout(
+    array: ArrayRef,
+    use_list_layout: bool,
+) -> VortexResult<ArrayRef> {
     let strategy = crate::strategy::WriteStrategyBuilder::default()
         .with_list_layout()
         .build();
     let mut buf = ByteBufferMut::empty();
-    SESSION
-        .write_options()
-        .with_strategy(strategy)
-        .write(&mut buf, array.to_array_stream())
-        .await?;
+    if use_list_layout {
+        SESSION
+            .write_options()
+            .with_strategy(strategy)
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+    } else {
+        SESSION
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await?;
+    }
     SESSION
         .open_options()
         .open_buffer(buf)?
@@ -1864,6 +1880,71 @@ async fn nested_list_of_list_roundtrip() -> VortexResult<()> {
 
     let result = write_read_roundtrip(st.clone()).await?;
     assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
+    Ok(())
+}
+
+type MapEntryFixture<'a> = (i32, Option<&'a str>);
+type MapRowFixture<'a> = Option<Vec<MapEntryFixture<'a>>>;
+
+fn map_array_from_rows(rows: &[MapRowFixture<'_>], keys_sorted: bool) -> VortexResult<ArrayRef> {
+    let map_dtype = MapDType::try_new(
+        DType::Primitive(I32, Nullability::NonNullable),
+        DType::Utf8(Nullability::Nullable),
+        keys_sorted,
+    )?;
+    let dtype = DType::Map(map_dtype.clone(), Nullability::Nullable);
+    let mut builder =
+        MapBuilder::<u64, u64>::with_capacity(map_dtype, Nullability::Nullable, rows.len());
+
+    for row in rows {
+        let scalar = match row {
+            Some(entries) => {
+                let entries = entries
+                    .iter()
+                    .map(|(key, value)| {
+                        let key = Scalar::primitive(*key, Nullability::NonNullable);
+                        let value = value.map_or_else(
+                            || Scalar::null(DType::Utf8(Nullability::Nullable)),
+                            |value| Scalar::utf8(value, Nullability::Nullable),
+                        );
+                        (key, value)
+                    })
+                    .collect::<Vec<_>>();
+                Scalar::try_map(dtype.clone(), entries)?
+            }
+            None => Scalar::null(dtype.clone()),
+        };
+        builder.append_value(scalar.as_map())?;
+    }
+
+    Ok(builder.finish_into_map().into_array())
+}
+
+/// A struct containing a Map column crosses both the default flat writer and the list layout
+/// strategy without changing map nullability, empty rows, duplicate keys, or scalar values.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn struct_with_map_column_roundtrip() -> VortexResult<()> {
+    for use_list_layout in [false, true] {
+        let maps = map_array_from_rows(
+            &[
+                Some(vec![(1, Some("one")), (2, None)]),
+                None,
+                Some(vec![]),
+                Some(vec![(1, Some("dup-old")), (1, Some("dup-new"))]),
+            ],
+            false,
+        )?;
+        let st = StructArray::from_fields(&[
+            ("id", buffer![10i32, 20, 30, 40].into_array()),
+            ("attrs", maps),
+        ])?
+        .into_array();
+
+        let result = write_read_roundtrip_with_layout(st.clone(), use_list_layout).await?;
+        assert_arrays_eq!(result, st, &mut SESSION.create_execution_ctx());
+    }
+
     Ok(())
 }
 
