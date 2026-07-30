@@ -215,6 +215,9 @@ impl Canonical {
                 // An empty list view is trivially copyable to a list.
                 .with_zero_copy_to_list(true)
             }),
+            DType::Map(..) => {
+                vortex_panic!(InvalidArgument: "canonical map arrays are not yet supported")
+            }
             DType::FixedSizeList(elem_dtype, list_size, null) => Canonical::FixedSizeList(unsafe {
                 FixedSizeListArray::new_unchecked(
                     Canonical::empty(elem_dtype).into_array(),

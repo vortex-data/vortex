@@ -126,10 +126,10 @@ impl ::flatbuffers::SimpleToVerifyInSlice for PType {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_TYPE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_TYPE: u8 = 12;
+pub const ENUM_MAX_TYPE: u8 = 13;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_TYPE: [Type; 13] = [
+pub const ENUM_VALUES_TYPE: [Type; 14] = [
   Type::NONE,
   Type::Null,
   Type::Bool,
@@ -143,6 +143,7 @@ pub const ENUM_VALUES_TYPE: [Type; 13] = [
   Type::FixedSizeList,
   Type::Variant,
   Type::Union,
+  Type::Map,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -163,9 +164,10 @@ impl Type {
   pub const FixedSizeList: Self = Self(10);
   pub const Variant: Self = Self(11);
   pub const Union: Self = Self(12);
+  pub const Map: Self = Self(13);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 12;
+  pub const ENUM_MAX: u8 = 13;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::Null,
@@ -180,6 +182,7 @@ impl Type {
     Self::FixedSizeList,
     Self::Variant,
     Self::Union,
+    Self::Map,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -197,6 +200,7 @@ impl Type {
       Self::FixedSizeList => Some("FixedSizeList"),
       Self::Variant => Some("Variant"),
       Self::Union => Some("Union"),
+      Self::Map => Some("Map"),
       _ => None,
     }
   }
@@ -1608,6 +1612,153 @@ impl ::core::fmt::Debug for Union<'_> {
       ds.finish()
   }
 }
+pub enum MapOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct Map<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for Map<'a> {
+  type Inner = Map<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> Map<'a> {
+  pub const VT_KEY_TYPE: ::flatbuffers::VOffsetT = 4;
+  pub const VT_VALUE_TYPE: ::flatbuffers::VOffsetT = 6;
+  pub const VT_KEYS_SORTED: ::flatbuffers::VOffsetT = 8;
+  pub const VT_NULLABLE: ::flatbuffers::VOffsetT = 10;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    Map { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args MapArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<Map<'bldr>> {
+    let mut builder = MapBuilder::new(_fbb);
+    if let Some(x) = args.value_type { builder.add_value_type(x); }
+    if let Some(x) = args.key_type { builder.add_key_type(x); }
+    builder.add_nullable(args.nullable);
+    builder.add_keys_sorted(args.keys_sorted);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn key_type(&self) -> Option<DType<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<DType>>(Map::VT_KEY_TYPE, None)}
+  }
+  #[inline]
+  pub fn value_type(&self) -> Option<DType<'a>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<DType>>(Map::VT_VALUE_TYPE, None)}
+  }
+  #[inline]
+  pub fn keys_sorted(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Map::VT_KEYS_SORTED, Some(false)).unwrap()}
+  }
+  #[inline]
+  pub fn nullable(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Map::VT_NULLABLE, Some(false)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for Map<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<DType>>("key_type", Self::VT_KEY_TYPE, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<DType>>("value_type", Self::VT_VALUE_TYPE, false)?
+     .visit_field::<bool>("keys_sorted", Self::VT_KEYS_SORTED, false)?
+     .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct MapArgs<'a> {
+    pub key_type: Option<::flatbuffers::WIPOffset<DType<'a>>>,
+    pub value_type: Option<::flatbuffers::WIPOffset<DType<'a>>>,
+    pub keys_sorted: bool,
+    pub nullable: bool,
+}
+impl<'a> Default for MapArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    MapArgs {
+      key_type: None,
+      value_type: None,
+      keys_sorted: false,
+      nullable: false,
+    }
+  }
+}
+
+pub struct MapBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> MapBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_key_type(&mut self, key_type: ::flatbuffers::WIPOffset<DType<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<DType>>(Map::VT_KEY_TYPE, key_type);
+  }
+  #[inline]
+  pub fn add_value_type(&mut self, value_type: ::flatbuffers::WIPOffset<DType<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<DType>>(Map::VT_VALUE_TYPE, value_type);
+  }
+  #[inline]
+  pub fn add_keys_sorted(&mut self, keys_sorted: bool) {
+    self.fbb_.push_slot::<bool>(Map::VT_KEYS_SORTED, keys_sorted, false);
+  }
+  #[inline]
+  pub fn add_nullable(&mut self, nullable: bool) {
+    self.fbb_.push_slot::<bool>(Map::VT_NULLABLE, nullable, false);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> MapBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    MapBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<Map<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for Map<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("Map");
+      ds.field("key_type", &self.key_type());
+      ds.field("value_type", &self.value_type());
+      ds.field("keys_sorted", &self.keys_sorted());
+      ds.field("nullable", &self.nullable());
+      ds.finish()
+  }
+}
 pub enum DTypeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1837,6 +1988,21 @@ impl<'a> DType<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn type__as_map(&self) -> Option<Map<'a>> {
+    if self.type_type() == Type::Map {
+      self.type_().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { Map::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl ::flatbuffers::Verifiable for DType<'_> {
@@ -1859,6 +2025,7 @@ impl ::flatbuffers::Verifiable for DType<'_> {
           Type::FixedSizeList => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<FixedSizeList>>("Type::FixedSizeList", pos),
           Type::Variant => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Variant>>("Type::Variant", pos),
           Type::Union => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Union>>("Type::Union", pos),
+          Type::Map => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Map>>("Type::Map", pos),
           _ => Ok(()),
         }
      })?
@@ -1992,6 +2159,13 @@ impl ::core::fmt::Debug for DType<'_> {
         },
         Type::Union => {
           if let Some(x) = self.type__as_union() {
+            ds.field("type_", &x)
+          } else {
+            ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Type::Map => {
+          if let Some(x) = self.type__as_map() {
             ds.field("type_", &x)
           } else {
             ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")

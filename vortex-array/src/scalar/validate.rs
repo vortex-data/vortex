@@ -102,6 +102,37 @@ impl Scalar {
                     })?;
                 }
             }
+            DType::Map(map, _) => {
+                let ScalarValue::Tuple(entries) = value else {
+                    vortex_bail!("map dtype expected Tuple value, got {value}");
+                };
+                let key_dtype = map.key_dtype();
+                let value_dtype = map.value_dtype();
+
+                for (index, entry) in entries.iter().enumerate() {
+                    let entry = entry.as_ref().ok_or_else(|| {
+                        vortex_error::vortex_err!("map entry at index {index} cannot be null")
+                    })?;
+                    let ScalarValue::Tuple(values) = entry else {
+                        vortex_bail!(
+                            "map entry at index {index} expected Tuple value, got {entry}"
+                        );
+                    };
+                    vortex_ensure_eq!(
+                        values.len(),
+                        2,
+                        "map entry at index {index} expected 2 values, got {}",
+                        values.len(),
+                    );
+
+                    Self::validate(&key_dtype, values[0].as_ref()).map_err(|error| {
+                        vortex_error::vortex_err!("map key at entry {index}: {error}")
+                    })?;
+                    Self::validate(&value_dtype, values[1].as_ref()).map_err(|error| {
+                        vortex_error::vortex_err!("map value at entry {index}: {error}")
+                    })?;
+                }
+            }
             DType::Struct(fields, _) => {
                 let ScalarValue::Tuple(values) = value else {
                     vortex_bail!("struct dtype expected Tuple value, got {value}");

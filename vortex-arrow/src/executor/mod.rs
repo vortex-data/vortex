@@ -191,8 +191,8 @@ pub(crate) fn execute_arrow_naive(
         dt @ (DataType::Date32 | DataType::Date64) => to_arrow_date(array, dt, ctx),
         dt @ (DataType::Time32(_) | DataType::Time64(_)) => to_arrow_time(array, dt, ctx),
         dt @ DataType::Timestamp(..) => to_arrow_timestamp(array, dt, ctx),
+        DataType::Map(..) => vortex_bail!("Arrow MapArray conversion is not yet supported"),
         DataType::FixedSizeBinary(_)
-        | DataType::Map(..)
         | DataType::Duration(_)
         | DataType::Interval(_)
         | DataType::Union(..) => {

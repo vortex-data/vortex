@@ -14,6 +14,7 @@ use crate::scalar::DecimalScalar;
 use crate::scalar::DecimalValue;
 use crate::scalar::ExtScalar;
 use crate::scalar::ListScalar;
+use crate::scalar::MapScalar;
 use crate::scalar::PValue;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
@@ -135,6 +136,21 @@ impl Scalar {
     /// and [`FixedSizeList`](crate::dtype::DType::FixedSizeList).
     pub fn as_list_opt(&self) -> Option<ListScalar<'_>> {
         ListScalar::try_new(self.dtype(), self.value()).ok()
+    }
+
+    /// Returns a view of the scalar as a map scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar does not have a [`Map`](crate::dtype::DType::Map) type.
+    pub fn as_map(&self) -> MapScalar<'_> {
+        self.as_map_opt()
+            .vortex_expect("Failed to convert scalar to map")
+    }
+
+    /// Returns a view of the scalar as a map scalar if it has a map type.
+    pub fn as_map_opt(&self) -> Option<MapScalar<'_>> {
+        MapScalar::try_new(self.dtype(), self.value()).ok()
     }
 
     /// Returns a view of the scalar as an extension scalar.

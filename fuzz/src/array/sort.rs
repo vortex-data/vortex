@@ -102,7 +102,11 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices, ctx)
         }
-        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
+        d @ (DType::Null
+        | DType::Map(..)
+        | DType::Union(..)
+        | DType::Variant(_)
+        | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

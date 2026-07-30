@@ -19,6 +19,7 @@ impl Display for Scalar {
             DType::Utf8(_) => write!(f, "{}", self.as_utf8()),
             DType::Binary(_) => write!(f, "{}", self.as_binary()),
             DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
+            DType::Map(..) => write!(f, "{}", self.as_map()),
             DType::Struct(..) => write!(f, "{}", self.as_struct()),
             DType::Union(..) => write!(f, "{}", self.as_union()),
             DType::Variant(_) => write!(f, "{}", self.as_variant()),

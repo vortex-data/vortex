@@ -83,6 +83,9 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
             DType::List(..) | DType::FixedSizeList(..) => {
                 PyVortex(self.0.as_list()).into_pyobject(py)
             }
+            DType::Map(..) => Err(PyValueError::new_err(
+                "Map scalars are not supported in Python",
+            )),
             DType::Struct(..) => PyVortex(self.0.as_struct()).into_pyobject(py),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => Err(PyValueError::new_err(

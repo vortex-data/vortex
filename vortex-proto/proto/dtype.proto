@@ -81,6 +81,13 @@ message Union {
   bool nullable = 4;
 }
 
+message Map {
+  DType key_type = 1;
+  DType value_type = 2;
+  bool keys_sorted = 3;
+  bool nullable = 4;
+}
+
 message DType {
   oneof dtype_type {
     Null null = 1;
@@ -95,6 +102,7 @@ message DType {
     FixedSizeList fixed_size_list = 10; // This is after `Extension` for backwards compatibility.
     Variant variant = 11;
     Union union = 12;
+    Map map = 13;
   }
 }
 

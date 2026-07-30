@@ -158,6 +158,7 @@ fn random_array_chunk(
         DType::FixedSizeList(elem_dtype, list_size, null) => {
             random_fixed_size_list(u, elem_dtype, *list_size, *null, chunk_len)
         }
+        DType::Map(..) => Err(IncorrectFormat),
         DType::Struct(sdt, n) => {
             let first_array = sdt
                 .fields()

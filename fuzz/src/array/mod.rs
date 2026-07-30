@@ -518,6 +518,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
                     acc.intersection(&actions).copied().collect()
                 })
         }
+        DType::Map(..) => HashSet::new(),
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         // Currently, no support at all
         DType::Variant(_) => unreachable!("Variant dtype shouldn't be fuzzed"),

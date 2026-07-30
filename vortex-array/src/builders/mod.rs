@@ -347,6 +347,9 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             2 * capacity, // Arbitrarily choose 2 times the `offsets` capacity here.
             capacity,
         )),
+        DType::Map(..) => {
+            vortex_error::vortex_panic!(InvalidArgument: "map builders are not yet supported")
+        }
         DType::FixedSizeList(elem_dtype, list_size, null) => {
             Box::new(FixedSizeListBuilder::with_capacity(
                 Arc::clone(elem_dtype),

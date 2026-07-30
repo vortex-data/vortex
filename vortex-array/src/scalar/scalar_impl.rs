@@ -135,6 +135,7 @@ impl Scalar {
     /// - `Utf8`: `""`
     /// - `Binary`: An empty buffer
     /// - `List`: An empty list
+    /// - `Map`: An empty map
     /// - `FixedSizeList`: A list (with correct size) of zero values, which is determined by the
     ///   element [`DType`]
     /// - `Struct`: A struct where each field has a zero value, which is determined by the field
@@ -212,6 +213,7 @@ impl Scalar {
             DType::Utf8(_) => value.as_utf8().is_empty(),
             DType::Binary(_) => value.as_binary().is_empty(),
             DType::List(..) => value.as_list().is_empty(),
+            DType::Map(..) => self.as_map().is_empty(),
             // A fixed-size list is zero only if it has the expected number of elements and every
             // element is itself a non-null zero value.1
             DType::FixedSizeList(_, list_size, _) => {
@@ -298,6 +300,11 @@ impl Scalar {
                 .elements()
                 .map(|fields| fields.into_iter().map(|f| f.approx_nbytes()).sum::<usize>())
                 .unwrap_or_default(),
+            DType::Map(..) => self
+                .as_map()
+                .entries()
+                .map(|(key, value)| key.approx_nbytes() + value.approx_nbytes())
+                .sum(),
             DType::Struct(..) => self
                 .as_struct()
                 .fields_iter()
@@ -444,6 +451,7 @@ fn partial_cmp_tuple_values(
             partial_cmp_list_values(element_dtype, lhs, rhs)
         }
         DType::Struct(fields, _) => partial_cmp_struct_values(fields, lhs, rhs),
+        DType::Map(..) => None,
         DType::Extension(ext_dtype) => {
             partial_cmp_tuple_values(ext_dtype.storage_dtype(), lhs, rhs)
         }

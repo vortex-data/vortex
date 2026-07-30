@@ -186,7 +186,11 @@ pub fn compare_canonical_array(
             }))
             .into_array()
         }
-        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
+        d @ (DType::Null
+        | DType::Map(..)
+        | DType::Union(..)
+        | DType::Variant(_)
+        | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

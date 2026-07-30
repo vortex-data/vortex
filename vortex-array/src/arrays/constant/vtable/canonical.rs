@@ -126,6 +126,7 @@ pub(crate) fn constant_canonicalize(
             ))
         }
         DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
+        DType::Map(..) => vortex_error::vortex_bail!("canonical map arrays are not yet supported"),
         DType::FixedSizeList(element_dtype, list_size, _) => {
             let value = scalar.as_list();
 

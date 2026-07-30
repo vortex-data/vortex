@@ -134,6 +134,9 @@ impl PyDType {
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
+            DType::Map(..) => Err(PyValueError::new_err(
+                "Map dtypes are not supported in Python",
+            )),
             DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => Err(PyValueError::new_err(

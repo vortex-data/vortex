@@ -74,6 +74,7 @@ impl From<&DType> for vx_dtype_variant {
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
+            DType::Map(..) => vortex_panic!("Map is not supported in FFI yet"),
             DType::Union(..) => vortex_panic!("Union is not supported in FFI yet"),
             DType::Variant(_) => vortex_panic!("Variant is not supported in FFI yet"),
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,

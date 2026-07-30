@@ -236,6 +236,9 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
             let canonical = array.array().clone().execute::<Canonical>(ctx)?;
             return canonical_uncompressed_size_in_bytes(&canonical, ctx);
         }
+        DType::Map(..) => {
+            vortex_bail!("UncompressedSizeInBytes is not supported for map arrays yet")
+        }
         DType::Union(..) => {
             todo!(
                 "TODO(connor)[Union]: support constant Union size accounting after constant Union \
@@ -294,6 +297,7 @@ fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
         DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => {
             supports_uncompressed_size_in_bytes(element_dtype)
         }
+        DType::Map(..) => false,
         DType::Struct(fields, _) => fields
             .fields()
             .all(|field| supports_uncompressed_size_in_bytes(&field)),
