@@ -254,6 +254,39 @@ def test_comparison_report_groups_by_target_and_unit(tmp_path: Path) -> None:
     ]
 
 
+def test_comparison_report_handles_missing_benchmark_baseline(tmp_path: Path) -> None:
+    base_rows = [stored_custom_row("base-sha", "other timing/fixture", "ms", 12.5)]
+    pr_rows = [stored_custom_row("pr-sha", "new timing/fixture", "ms", 3.125)]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "New benchmark")
+
+    assert "No baseline is available for this benchmark yet" in report
+    assert "base none (ms)" in report
+    assert markdown_row(report, "new timing/fixture") == [
+        "new timing/fixture",
+        "3.125",
+        "—",
+        "no baseline",
+    ]
+
+
+def test_comparison_report_handles_mixed_query_types_in_baseline(tmp_path: Path) -> None:
+    base_rows = [
+        stored_custom_row("base-sha", "random-access/fixture", "ms", 12.5),
+        stored_timing_row("base-sha", "tpch_q01/datafusion:parquet", 100),
+    ]
+    pr_rows = [stored_custom_row("pr-sha", "random-access/fixture", "ms", 13.0)]
+
+    report = render_report(tmp_path, base_rows, pr_rows, "Random Access")
+
+    assert markdown_row(report, "random-access/fixture") == [
+        "random-access/fixture",
+        "13",
+        "12.5",
+        "1.04",
+    ]
+
+
 def test_comparison_report_retains_sql_analysis(tmp_path: Path) -> None:
     targets = [
         ("parquet", "parquet", 100, 105),

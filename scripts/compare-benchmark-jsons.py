@@ -184,7 +184,12 @@ def read_jsonl_rows_for_commit(path: str, commit_id: str) -> pd.DataFrame:
 
 
 def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
-    """Read rows from the latest history commit matching the PR benchmark."""
+    """Read rows from the latest history commit matching the PR benchmark.
+
+    A benchmark can be new to the PR workflow and therefore have no baseline
+    yet. Return an empty frame with the PR schema in that case so the report
+    can show the measurements without comparison.
+    """
 
     pr_identities = set(benchmark_identity_rows(pr)["benchmark_identity"])
     if not pr_identities:
@@ -202,7 +207,7 @@ def read_latest_baseline_rows(path: str, pr: pd.DataFrame) -> pd.DataFrame:
                     baseline_commit_id = commit_id
 
     if baseline_commit_id is None:
-        raise ValueError("No baseline rows found for the benchmark under test")
+        return pr.iloc[0:0].copy()
 
     return read_jsonl_rows_for_commit(path, baseline_commit_id)
 
@@ -230,7 +235,7 @@ def select_latest_baseline_rows(base: pd.DataFrame, pr: pd.DataFrame) -> pd.Data
     matches = base_identities[base_identities["benchmark_identity"].isin(pr_identities)]
     matches = matches[matches["commit_id"].notna()]
     if matches.empty:
-        raise ValueError("No baseline rows found for the benchmark under test")
+        return base.iloc[0:0].copy()
 
     baseline_commit_id = matches["commit_id"].iloc[-1]
     return base[base["commit_id"] == baseline_commit_id].copy()
@@ -256,6 +261,7 @@ def normalize_measurement_rows(df: pd.DataFrame) -> pd.DataFrame:
         columns=["engine", "file_format", "query"],
         index=df.index,
     )
+    df["query"] = pd.array(df["query"], dtype="Int64")
     return df
 
 
@@ -914,11 +920,11 @@ def main() -> None:
     title = format_title(benchmark_name, pr)
     base = read_latest_baseline_rows(sys.argv[1], pr)
 
-    base_commit_id = set(base["commit_id"].unique())
+    base_commit_ids = set(base["commit_id"].unique())
     pr_commit_id = set(pr["commit_id"].unique())
-    assert len(base_commit_id) == 1, base_commit_id
+    assert len(base_commit_ids) <= 1, base_commit_ids
     assert len(pr_commit_id) == 1, pr_commit_id
-    base_commit_id = next(iter(base_commit_id))
+    base_commit_id = next(iter(base_commit_ids), None)
     pr_commit_id = next(iter(pr_commit_id))
 
     base_file_sizes, base = split_file_size_rows(base)
@@ -990,6 +996,9 @@ def main() -> None:
     if summary_fields:
         print("<br>".join(summary_fields))
         print("")
+    if base_commit_id is None:
+        print("_No baseline is available for this benchmark yet; PR measurements are shown without comparison._")
+        print("")
     if verdict is not None or engine_summary is not None:
         print(format_report_help())
         print("")
@@ -997,6 +1006,7 @@ def main() -> None:
     print("")
 
     grouped_tables = df3.groupby(["engine", "file_format", "unit"], dropna=False, sort=False)
+    base_label = str(base_commit_id)[:8] if base_commit_id is not None else "none"
     for engine, file_format, unit in sorted(grouped_tables.groups.keys(), key=group_sort_key):
         group_df = grouped_tables.get_group((engine, file_format, unit)).sort_values("name")
         group_performance = format_performance(
@@ -1014,7 +1024,7 @@ def main() -> None:
                     for name, ratio in zip(group_df["name"], group_df["ratio"])
                 ],
                 f"PR {pr_commit_id[:8]} ({unit})": group_df["value_pr"].map(format_measurement_value),
-                f"base {base_commit_id[:8]} ({unit})": group_df["value_base"].map(format_measurement_value),
+                f"base {base_label} ({unit})": group_df["value_base"].map(format_measurement_value),
                 "ratio (PR/base)": group_df["ratio"].map(format_comparison_ratio),
             }
         )
