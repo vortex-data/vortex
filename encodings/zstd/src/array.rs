@@ -6,9 +6,12 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::mem::MaybeUninit;
+use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
+use num_traits::AsPrimitive;
 use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -31,6 +34,7 @@ use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinBuilder;
+use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::match_each_varbin_builder;
@@ -54,10 +58,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+use zstd::zstd_safe::WriteBuf;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
@@ -284,12 +288,14 @@ impl VTable for Zstd {
         {
             return result;
         }
-        array
-            .array()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_array()
-            .append_to_builder(builder, ctx)
+        // The two arms here are every builder a `Utf8`/`Binary` dtype has: all four
+        // `VarBinBuilder` widths above, and `VarBinViewBuilder` below. There is deliberately no
+        // canonicalize-then-append fallback — it would decompress to a `VarBinView` only for
+        // `VarBinView::append_to_builder` to reject the same remainder.
+        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
+            vortex_bail!("append_to_builder for Zstd requires a variable-binary builder")
+        };
+        append_to_varbinview(array, builder, ctx)
     }
 
     fn reduce_parent(
@@ -301,47 +307,97 @@ impl VTable for Zstd {
     }
 }
 
-/// Copies the decompressed values into `builder`.
+fn unsliced_validity(array: ArrayView<'_, Zstd>) -> Validity {
+    child_to_validity(
+        array.slots()[ZstdSlots::VALIDITY].as_ref(),
+        array.dtype().nullability(),
+    )
+}
+
+/// Copies the decompressed values straight into `builder`'s byte storage.
+///
+/// The decompressed frames interleave a length prefix with each value, so the bytes have to be
+/// compacted; sizing the offsets, byte storage and validity from the slice's own metadata keeps
+/// that down to one offset store plus one `memcpy` per value.
 fn append_to_varbin<O: OffsetBuilderPType>(
     array: ArrayView<'_, Zstd>,
     builder: &mut VarBinBuilder<O>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    let unsliced_validity = child_to_validity(
-        array.slots()[ZstdSlots::VALIDITY].as_ref(),
-        array.dtype().nullability(),
-    );
+) -> VortexResult<()>
+where
+    usize: AsPrimitive<O>,
+{
     let slice = array
         .data()
-        .decompress_slice(array.dtype(), &unsliced_validity, ctx)?;
-    let value_start = slice.value_idx_start - slice.n_skipped_values;
-    let value_count = slice.value_idx_stop - slice.value_idx_start;
-    let mut values = zstd_values(slice.bytes.as_slice())
-        .skip(value_start)
-        .take(value_count);
+        .decompress_slice(array.dtype(), &unsliced_validity(array), ctx)?;
     let mask = slice.validity.execute_mask(slice.n_rows, ctx)?;
-    match mask.indices() {
-        AllOr::All => {
-            for value in values {
-                builder.append_n_values(value, 1)?;
-            }
-        }
-        AllOr::None => builder.push_nulls(slice.n_rows),
-        AllOr::Some(valid_indices) => {
-            let mut row = 0;
-            for &valid_index in valid_indices {
-                builder.push_nulls(valid_index - row);
-                builder.append_n_values(
-                    values
-                        .next()
-                        .vortex_expect("Zstd value count must match validity"),
-                    1,
-                )?;
-                row = valid_index + 1;
-            }
-            builder.push_nulls(slice.n_rows - row);
-        }
+    let (values, num_bytes) = slice.value_bytes()?;
+    // Each value is length-prefixed, so the frames can only be walked in order — which is the
+    // order `append_valid_slices` visits the valid rows in. A stream that runs out early yields
+    // empty slices and so fails the builder's byte-count check.
+    let mut values = zstd_values(values);
+    builder.append_valid_slices(num_bytes, &mask, |_| values.next().unwrap_or_default())
+}
+
+/// Hands the decompressed frames to `builder` as data buffers with views built over them.
+///
+/// The frames already hold the values contiguously, so the views can reference them in place and
+/// the only per-row work is building one view; going through the canonical array instead would
+/// rewrite every view a second time to rebase its buffer index.
+fn append_to_varbinview(
+    array: ArrayView<'_, Zstd>,
+    builder: &mut VarBinViewBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let slice = array
+        .data()
+        .decompress_slice(array.dtype(), &unsliced_validity(array), ctx)?;
+    let mask = slice.validity.execute_mask(slice.n_rows, ctx)?;
+
+    // No values were stored, so there is nothing to reference and the frames can be dropped.
+    if mask.all_false() {
+        builder.append_nulls(slice.n_rows);
+        return Ok(());
     }
+
+    // Build the views against the index the pushed buffers will land at, so the builder does not
+    // have to rebase them afterwards.
+    let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
+    // The decompressed frames cover whole frames and so can extend past the requested values on
+    // either side. Reconstructing over just the requested region keeps the pushed buffers fully
+    // utilized, which is what `push_buffer_and_adjusted_views` requires: it hands them to the
+    // finished array as they are, without compacting them.
+    let value_bytes = slice.bytes.slice(slice.value_byte_range()?);
+    let (buffers, valid_views) =
+        try_reconstruct_views(&value_bytes, next_buffer_index, MAX_BUFFER_LEN)?;
+    vortex_ensure!(
+        valid_views.len() == mask.true_count(),
+        "Corrupt zstd metadata: the decompressed frames hold {} values for the {} valid rows of \
+         the slice",
+        valid_views.len(),
+        mask.true_count()
+    );
+
+    let views = match mask.bit_buffer() {
+        AllOr::All => valid_views,
+        AllOr::None => unreachable!("handled above"),
+        AllOr::Some(bits) => {
+            // Null rows carry an empty view, so scatter the stored values into their rows. Walking
+            // the set bits a word at a time avoids materializing the mask's indices, which the
+            // views are the only consumer of.
+            let mut views = BufferMut::<BinaryView>::zeroed(slice.n_rows);
+            let mut valid_row = 0;
+            bits.for_each_set_index(|index| {
+                // In bounds: `valid_views.len() == mask.true_count()` was checked above, and
+                // `index < slice.n_rows` because `bits` is the mask over those rows.
+                views[index] = valid_views[valid_row];
+                valid_row += 1;
+            });
+            views.freeze()
+        }
+    };
+
+    builder.push_buffer_and_adjusted_views(&buffers, &views, mask);
     Ok(())
 }
 
@@ -545,22 +601,48 @@ fn collect_valid_vbv(
 /// tests to exercise the splitting path without allocating >2 GiB.
 pub fn reconstruct_views(
     buffer: &ByteBuffer,
+    start_buf_index: u32,
     max_buffer_len: usize,
 ) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
+    let (buffers, views, _) = walk_views(buffer, start_buf_index, max_buffer_len);
+    (buffers, views)
+}
+
+/// [`reconstruct_views`], but rejecting a buffer that the length prefixes do not tile exactly.
+fn try_reconstruct_views(
+    buffer: &ByteBuffer,
+    start_buf_index: u32,
+    max_buffer_len: usize,
+) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
+    match walk_views(buffer, start_buf_index, max_buffer_len) {
+        (buffers, views, None) => Ok((buffers, views)),
+        (_, _, Some(error)) => Err(error),
+    }
+}
+
+/// Walks `buffer` until it is exhausted or a length prefix leaves it, returning what was decoded
+/// along with the error that stopped the walk.
+fn walk_views(
+    buffer: &ByteBuffer,
+    start_buf_index: u32,
+    max_buffer_len: usize,
+) -> (Vec<ByteBuffer>, Buffer<BinaryView>, Option<VortexError>) {
     let mut views = BufferMut::<BinaryView>::empty();
     let mut buffers = Vec::new();
     let mut segment_start: usize = 0;
     let mut offset = 0;
+    // Only a new segment changes the buffer index, so it is tracked instead of recomputed per view.
+    let mut buf_index = start_buf_index;
+    let mut error = None;
 
     while offset < buffer.len() {
-        let str_len = ViewLen::from_le_bytes(
-            buffer
-                .get(offset..offset + size_of::<ViewLen>())
-                .vortex_expect("corrupted zstd length")
-                .try_into()
-                .ok()
-                .vortex_expect("must fit ViewLen size"),
-        ) as usize;
+        let str_len = match zstd_value_len(buffer.as_slice(), offset) {
+            Ok(str_len) => str_len,
+            Err(err) => {
+                error = Some(err);
+                break;
+            }
+        };
 
         let value_data_offset = offset + size_of::<ViewLen>();
         let local_offset = value_data_offset - segment_start;
@@ -568,12 +650,28 @@ pub fn reconstruct_views(
         if local_offset + str_len > max_buffer_len && offset > segment_start {
             buffers.push(buffer.slice(segment_start..offset));
             segment_start = offset;
+            let Some(next_index) = buf_index.checked_add(1) else {
+                error = Some(vortex_err!("Zstd values need more than u32::MAX buffers"));
+                break;
+            };
+            buf_index = next_index;
         }
 
-        let local_offset = u32::try_from(value_data_offset - segment_start)
-            .vortex_expect("local offset within segment must fit in u32");
-        let buf_index = u32::try_from(buffers.len()).vortex_expect("buffer index must fit in u32");
-        let value = &buffer[value_data_offset..value_data_offset + str_len];
+        let Ok(local_offset) = u32::try_from(value_data_offset - segment_start) else {
+            error = Some(vortex_err!(
+                "Zstd value offset {} does not fit in u32; max_buffer_len {max_buffer_len} is too large",
+                value_data_offset - segment_start
+            ));
+            break;
+        };
+        let Some(value) = buffer.get(value_data_offset..value_data_offset + str_len) else {
+            error = Some(vortex_err!(
+                "Corrupt zstd value: {str_len} bytes at offset {value_data_offset} run past the \
+                 end of the {} byte frame buffer",
+                buffer.len()
+            ));
+            break;
+        };
         views.push(BinaryView::make_view(value, buf_index, local_offset));
         offset = value_data_offset + str_len;
     }
@@ -582,7 +680,63 @@ pub fn reconstruct_views(
         buffers.push(buffer.slice(segment_start..buffer.len()));
     }
 
-    (buffers, views.freeze())
+    (buffers, views.freeze(), error)
+}
+
+/// Narrows the views decoded from the frames down to the values a slice requests.
+fn slice_views(
+    views: &Buffer<BinaryView>,
+    range: Range<usize>,
+) -> VortexResult<Buffer<BinaryView>> {
+    vortex_ensure!(
+        range.end <= views.len(),
+        "Corrupt zstd metadata: values {}..{} are out of bounds of the {} values held by the \
+         decompressed frames",
+        range.start,
+        range.end,
+        views.len()
+    );
+    Ok(views.slice(range))
+}
+
+/// A zstd output buffer over uninitialized spare capacity.
+///
+/// `decompress_to_buffer` writes through a raw pointer and reports how many bytes it produced, so
+/// it never reads its destination — but handing it a `&mut [u8]` covering uninitialized memory
+/// would be undefined behaviour regardless of what it does with it. [`WriteBuf`] is the interface
+/// zstd provides for exactly this case, and it keeps the alternative (zeroing the whole buffer
+/// before every decompression) off the hot path.
+struct UninitDestination<'a> {
+    spare: &'a mut [MaybeUninit<u8>],
+    filled: usize,
+}
+
+impl<'a> UninitDestination<'a> {
+    fn new(spare: &'a mut [MaybeUninit<u8>]) -> Self {
+        Self { spare, filled: 0 }
+    }
+}
+
+// SAFETY: `as_mut_ptr` and `capacity` describe the whole spare region, so zstd only ever writes
+// within it, and `filled_until` merely records the count it reports. `as_slice` is bounded by that
+// count, so it never exposes a byte zstd did not write.
+unsafe impl WriteBuf for UninitDestination<'_> {
+    fn as_slice(&self) -> &[u8] {
+        // SAFETY: zstd reported writing `filled` bytes from the start of `spare`.
+        unsafe { std::slice::from_raw_parts(self.spare.as_ptr().cast::<u8>(), self.filled) }
+    }
+
+    fn capacity(&self) -> usize {
+        self.spare.len()
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.spare.as_mut_ptr().cast::<u8>()
+    }
+
+    unsafe fn filled_until(&mut self, n: usize) {
+        self.filled = n;
+    }
 }
 
 struct DecompressedSlice {
@@ -593,23 +747,145 @@ struct DecompressedSlice {
     value_idx_start: usize,
     value_idx_stop: usize,
     n_skipped_values: usize,
+    /// Number of stored values held by `bytes`, which covers whole frames and so may extend past
+    /// the requested slice on either side.
+    n_buffered_values: usize,
 }
 
+impl DecompressedSlice {
+    /// The range of stored values this slice requests, as an index into `bytes`.
+    ///
+    /// The frame metadata that drives `n_skipped_values` is untrusted, so a frame claiming to hold
+    /// values that precede the ones we decompressed is rejected instead of wrapping.
+    fn value_range(&self) -> VortexResult<Range<usize>> {
+        let start = self
+            .value_idx_start
+            .checked_sub(self.n_skipped_values)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Corrupt zstd metadata: skipped frames hold {} values, past the first \
+                     requested value {}",
+                    self.n_skipped_values,
+                    self.value_idx_start
+                )
+            })?;
+        let end = self
+            .value_idx_stop
+            .checked_sub(self.n_skipped_values)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Corrupt zstd metadata: skipped frames hold {} values, past the last \
+                     requested value {}",
+                    self.n_skipped_values,
+                    self.value_idx_stop
+                )
+            })?;
+        vortex_ensure!(
+            start <= end,
+            "Corrupt zstd metadata: value range {start}..{end} is not ascending"
+        );
+        Ok(start..end)
+    }
+
+    /// The bounds within `bytes` of the length-prefixed region holding exactly this slice's values.
+    ///
+    /// Walking the length prefixes is a dependent load chain, so both ends are derived from the
+    /// slice metadata where possible: an unsliced array skips both walks.
+    fn value_byte_range(&self) -> VortexResult<Range<usize>> {
+        let Range { start, end } = self.value_range()?;
+        let buffer = self.bytes.as_slice();
+        let from = zstd_value_offset(buffer, 0, start)?;
+        let to = if end == self.n_buffered_values {
+            buffer.len()
+        } else {
+            zstd_value_offset(buffer, from, end - start)?
+        };
+        vortex_ensure!(
+            from <= to && to <= buffer.len(),
+            "Corrupt zstd metadata: values {from}..{to} are out of bounds of the {} byte frame \
+             buffer",
+            buffer.len()
+        );
+        Ok(from..to)
+    }
+
+    /// The length-prefixed region of `bytes` holding exactly this slice's values, along with the
+    /// total size of those values once the length prefixes are dropped.
+    fn value_bytes(&self) -> VortexResult<(&[u8], usize)> {
+        let range = self.value_byte_range()?;
+        let n_values = self.value_range()?.len();
+        let buffer = self.bytes.as_slice();
+        let bytes = buffer.get(range.clone()).ok_or_else(|| {
+            vortex_err!(
+                "Corrupt zstd metadata: values {}..{} are out of bounds of the {} byte frame \
+                 buffer",
+                range.start,
+                range.end,
+                buffer.len()
+            )
+        })?;
+        // Every value carries a length prefix, so the region must be at least that large.
+        let prefix_bytes = n_values.checked_mul(size_of::<ViewLen>()).ok_or_else(|| {
+            vortex_err!("Corrupt zstd metadata: value count {n_values} overflows a byte count")
+        })?;
+        let num_bytes = bytes.len().checked_sub(prefix_bytes).ok_or_else(|| {
+            vortex_err!(
+                "Corrupt zstd metadata: {n_values} values do not fit in the {} bytes holding them",
+                bytes.len()
+            )
+        })?;
+        Ok((bytes, num_bytes))
+    }
+}
+
+/// Returns the byte offset `count` length-prefixed values past `offset`.
+///
+/// Each step is bounds-checked by the next prefix read, so only the offset the walk lands on needs
+/// a check of its own.
+fn zstd_value_offset(buffer: &[u8], mut offset: usize, count: usize) -> VortexResult<usize> {
+    for _ in 0..count {
+        offset += size_of::<ViewLen>() + zstd_value_len(buffer, offset)?;
+    }
+    vortex_ensure!(
+        offset <= buffer.len(),
+        "Corrupt zstd values: walking {count} values ended at offset {offset}, past the end of \
+         the {} byte frame buffer",
+        buffer.len()
+    );
+    Ok(offset)
+}
+
+/// Reads the length prefix of the value starting at `offset`.
+#[inline]
+fn zstd_value_len(buffer: &[u8], offset: usize) -> VortexResult<usize> {
+    let prefix = buffer
+        .get(offset..)
+        .and_then(|rest| rest.first_chunk::<{ size_of::<ViewLen>() }>())
+        .ok_or_else(|| {
+            vortex_err!(
+                "Corrupt zstd values: length prefix at offset {offset} runs past the end of the \
+                 {} byte frame buffer",
+                buffer.len()
+            )
+        })?;
+    Ok(ViewLen::from_le_bytes(*prefix) as usize)
+}
+
+/// Iterates the values of a length-prefixed region, stopping at the first prefix that leaves it.
+///
+/// Stopping short leaves the value count and byte total below what the caller declared, which the
+/// consuming builder rejects, so the walk does not need to report the error itself.
 fn zstd_values(buffer: &[u8]) -> impl Iterator<Item = &[u8]> {
     let mut offset = 0;
     std::iter::from_fn(move || {
-        if offset == buffer.len() {
+        if offset >= buffer.len() {
             return None;
         }
-        let len = ViewLen::from_le_bytes(
-            buffer[offset..offset + size_of::<ViewLen>()]
-                .try_into()
-                .ok()
-                .vortex_expect("must fit ViewLen size"),
-        ) as usize;
+        let len = zstd_value_len(buffer, offset).ok()?;
         let value_start = offset + size_of::<ViewLen>();
+        let value = buffer.get(value_start..value_start + len)?;
         offset = value_start + len;
-        Some(&buffer[value_start..offset])
+        Some(value)
     })
 }
 
@@ -1011,36 +1287,66 @@ impl ZstdData {
         // what row offset into the first such frame.
         let byte_width = Self::byte_width(dtype);
         let slice_n_rows = self.slice_stop - self.slice_start;
-        let slice_value_indices = unsliced_validity
-            .execute_mask(self.unsliced_n_rows, ctx)?
-            .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
+        let unsliced_mask = unsliced_validity.execute_mask(self.unsliced_n_rows, ctx)?;
+        let slice_value_indices =
+            unsliced_mask.valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
 
         let slice_value_idx_start = slice_value_indices[0];
         let slice_value_idx_stop = slice_value_indices[1];
 
         let mut frames_to_decompress = vec![];
         let mut value_idx_start = 0;
-        let mut uncompressed_size_to_decompress = 0;
+        let mut uncompressed_size_to_decompress = 0usize;
         let mut n_skipped_values = 0;
+        let mut n_buffered_values = 0;
         for (frame, frame_meta) in self.frames.iter().zip(&self.metadata.frames) {
             if value_idx_start >= slice_value_idx_stop {
                 break;
             }
 
-            let frame_uncompressed_size = usize::try_from(frame_meta.uncompressed_size)
-                .vortex_expect("Uncompressed size must fit in usize");
-            let frame_n_values = if frame_meta.n_values == 0 {
-                // possibly older primitive-only metadata that just didn't store this
+            let frame_uncompressed_size =
+                usize::try_from(frame_meta.uncompressed_size).map_err(|_| {
+                    vortex_err!(
+                        "Zstd frame uncompressed size {} does not fit in a usize",
+                        frame_meta.uncompressed_size
+                    )
+                })?;
+            let frame_n_values = if frame_meta.n_values != 0 {
+                usize::try_from(frame_meta.n_values).map_err(|_| {
+                    vortex_err!(
+                        "Zstd frame value count {} does not fit in a usize",
+                        frame_meta.n_values
+                    )
+                })?
+            } else if dtype.is_primitive() {
+                // Possibly older primitive-only metadata that just didn't store this. Fixed-width
+                // values make the byte count an exact value count.
                 frame_uncompressed_size / byte_width
             } else {
-                usize::try_from(frame_meta.n_values).vortex_expect("frame size must fit usize")
+                // The same fallback would read a byte count as a value count for variable-width
+                // values, which mis-attributes values to frames. A single frame holds every stored
+                // value, so that case is still recoverable; anything else is not.
+                vortex_ensure!(
+                    self.frames.len() == 1,
+                    "Zstd frame metadata for a variable-width array is missing its value count"
+                );
+                unsliced_mask.true_count()
             };
 
-            let value_idx_stop = value_idx_start + frame_n_values;
+            // Bounding the running total also bounds the two accumulators below, which partition
+            // it between the frames we keep and the ones we skip.
+            let value_idx_stop = value_idx_start.checked_add(frame_n_values).ok_or_else(|| {
+                vortex_err!("Corrupt zstd metadata: frame value counts overflow a usize")
+            })?;
             if value_idx_stop > slice_value_idx_start {
                 // we need this frame
                 frames_to_decompress.push(frame);
-                uncompressed_size_to_decompress += frame_uncompressed_size;
+                uncompressed_size_to_decompress = uncompressed_size_to_decompress
+                    .checked_add(frame_uncompressed_size)
+                    .ok_or_else(|| {
+                        vortex_err!("Corrupt zstd metadata: frame sizes overflow a usize")
+                    })?;
+                n_buffered_values += frame_n_values;
             } else {
                 n_skipped_values += frame_n_values;
             }
@@ -1057,24 +1363,28 @@ impl ZstdData {
             uncompressed_size_to_decompress,
             Alignment::new(byte_width),
         );
-        unsafe {
-            // safety: we immediately fill all bytes in the following loop,
-            // assuming our metadata's uncompressed size is correct
-            decompressed.set_len(uncompressed_size_to_decompress);
-        }
         let mut uncompressed_start = 0;
         for frame in frames_to_decompress {
-            let uncompressed_written = decompressor
-                .decompress_to_buffer(frame.as_slice(), &mut decompressed[uncompressed_start..])?;
-            uncompressed_start += uncompressed_written;
+            // Decompress straight into the spare capacity. Each frame gets only the region after
+            // the ones before it, bounded by the size the metadata declared, so a frame that
+            // expands further than advertised is refused by zstd rather than overrunning.
+            let mut destination = UninitDestination::new(
+                &mut decompressed.spare_capacity_mut()
+                    [uncompressed_start..uncompressed_size_to_decompress],
+            );
+            uncompressed_start +=
+                decompressor.decompress_to_buffer(frame.as_slice(), &mut destination)?;
         }
         if uncompressed_start != uncompressed_size_to_decompress {
-            vortex_panic!(
+            vortex_bail!(
                 "Zstd metadata or frames were corrupt; expected {} bytes but decompressed {}",
                 uncompressed_size_to_decompress,
                 uncompressed_start
             );
         }
+        // SAFETY: the loop above decompressed exactly `uncompressed_start` bytes into the front of
+        // the spare capacity, and the check above pins that to the requested length.
+        unsafe { decompressed.set_len(uncompressed_start) };
 
         let decompressed = decompressed.freeze();
         // Last, we slice the exact values requested out of the decompressed data.
@@ -1089,7 +1399,7 @@ impl ZstdData {
         // We ensure that the validity of the decompressed array ALWAYS matches the validity
         // implied by the DType.
         if !dtype.is_nullable() && !matches!(slice_validity, Validity::NonNullable) {
-            assert!(
+            vortex_ensure!(
                 matches!(slice_validity, Validity::AllValid),
                 "ZSTD array expects to be non-nullable but there are nulls after decompression"
             );
@@ -1109,6 +1419,7 @@ impl ZstdData {
             value_idx_start: slice_value_idx_start,
             value_idx_stop: slice_value_idx_stop,
             n_skipped_values,
+            n_buffered_values,
         })
     }
 
@@ -1121,10 +1432,21 @@ impl ZstdData {
         let slice = self.decompress_slice(dtype, unsliced_validity, ctx)?;
         match dtype {
             DType::Primitive(..) => {
-                let slice_values_buffer = slice.bytes.slice(
-                    (slice.value_idx_start - slice.n_skipped_values) * slice.byte_width
-                        ..(slice.value_idx_stop - slice.n_skipped_values) * slice.byte_width,
-                );
+                let Range { start, end } = slice.value_range()?;
+                let byte_range = start
+                    .checked_mul(slice.byte_width)
+                    .zip(end.checked_mul(slice.byte_width))
+                    .filter(|(_, byte_stop)| *byte_stop <= slice.bytes.len())
+                    .map(|(byte_start, byte_stop)| byte_start..byte_stop)
+                    .ok_or_else(|| {
+                        vortex_err!(
+                            "Corrupt zstd metadata: values {start}..{end} of {} bytes each are \
+                             out of bounds of the {} byte frame buffer",
+                            slice.byte_width,
+                            slice.bytes.len()
+                        )
+                    })?;
+                let slice_values_buffer = slice.bytes.slice(byte_range);
                 let primitive = PrimitiveArray::from_values_byte_buffer(
                     slice_values_buffer,
                     dtype.as_ptype(),
@@ -1138,11 +1460,9 @@ impl ZstdData {
             DType::Binary(_) | DType::Utf8(_) => {
                 match slice.validity.execute_mask(slice.n_rows, ctx)?.indices() {
                     AllOr::All => {
-                        let (buffers, all_views) = reconstruct_views(&slice.bytes, MAX_BUFFER_LEN);
-                        let valid_views = all_views.slice(
-                            slice.value_idx_start - slice.n_skipped_values
-                                ..slice.value_idx_stop - slice.n_skipped_values,
-                        );
+                        let (buffers, all_views) =
+                            try_reconstruct_views(&slice.bytes, 0, MAX_BUFFER_LEN)?;
+                        let valid_views = slice_views(&all_views, slice.value_range()?)?;
 
                         // SAFETY: we properly construct the views inside `reconstruct_views`
                         Ok(unsafe {
@@ -1161,11 +1481,9 @@ impl ZstdData {
                     )
                     .into_array()),
                     AllOr::Some(valid_indices) => {
-                        let (buffers, all_views) = reconstruct_views(&slice.bytes, MAX_BUFFER_LEN);
-                        let valid_views = all_views.slice(
-                            slice.value_idx_start - slice.n_skipped_values
-                                ..slice.value_idx_stop - slice.n_skipped_values,
-                        );
+                        let (buffers, all_views) =
+                            try_reconstruct_views(&slice.bytes, 0, MAX_BUFFER_LEN)?;
+                        let valid_views = slice_views(&all_views, slice.value_range()?)?;
 
                         let mut views = BufferMut::<BinaryView>::zeroed(slice.n_rows);
                         for (view, index) in valid_views.into_iter().zip_eq(valid_indices) {
@@ -1185,7 +1503,7 @@ impl ZstdData {
                     }
                 }
             }
-            _ => vortex_panic!("Unsupported dtype for Zstd array: {}", dtype),
+            _ => vortex_bail!("Unsupported dtype for Zstd array: {}", dtype),
         }
     }
 
@@ -1257,9 +1575,17 @@ impl OperationsVTable<Zstd> for Zstd {
 #[cfg(test)]
 #[expect(clippy::cast_possible_truncation)]
 mod tests {
+    use rstest::rstest;
+    use vortex_array::validity::Validity;
     use vortex_buffer::ByteBuffer;
+    use vortex_error::VortexResult;
 
+    use super::DecompressedSlice;
+    use super::ViewLen;
     use super::reconstruct_views;
+    use super::try_reconstruct_views;
+    use super::zstd_value_len;
+    use super::zstd_value_offset;
     use crate::array::BinaryView;
 
     /// Build a Zstd-style interleaved buffer: [u32-LE length][string bytes] repeated.
@@ -1273,11 +1599,31 @@ mod tests {
         ByteBuffer::copy_from(buf.as_slice())
     }
 
+    /// A slice over `bytes` that requests `value_idx_start..value_idx_stop`.
+    fn decompressed_slice(
+        bytes: ByteBuffer,
+        value_idx_start: usize,
+        value_idx_stop: usize,
+        n_skipped_values: usize,
+        n_buffered_values: usize,
+    ) -> DecompressedSlice {
+        DecompressedSlice {
+            bytes,
+            validity: Validity::NonNullable,
+            byte_width: 1,
+            n_rows: value_idx_stop - value_idx_start,
+            value_idx_start,
+            value_idx_stop,
+            n_skipped_values,
+            n_buffered_values,
+        }
+    }
+
     #[test]
     fn test_reconstruct_views_no_split() {
         let strings: &[&[u8]] = &[b"hello", b"world"];
         let buf = make_interleaved(strings);
-        let (buffers, views) = reconstruct_views(&buf, 1024);
+        let (buffers, views) = reconstruct_views(&buf, 0, 1024);
 
         assert_eq!(buffers.len(), 1);
         assert_eq!(views.len(), 2);
@@ -1294,12 +1640,92 @@ mod tests {
         // so it rolls into a second segment.
         let strings: &[&[u8]] = &[b"aaaaaaaaaaaaa", b"bbbbbbbbbbbbb"];
         let buf = make_interleaved(strings);
-        let (buffers, views) = reconstruct_views(&buf, 20);
+        let (buffers, views) = reconstruct_views(&buf, 0, 20);
 
         assert_eq!(buffers.len(), 2);
         assert_eq!(views.len(), 2);
         assert_eq!(views[0], BinaryView::make_view(b"aaaaaaaaaaaaa", 0, 4));
         // Second entry starts a new segment at byte 17 (the length prefix), so local offset = 4.
         assert_eq!(views[1], BinaryView::make_view(b"bbbbbbbbbbbbb", 1, 4));
+    }
+
+    /// A buffer whose last entry claims more bytes than remain, as corrupt frame data would.
+    fn make_overrunning() -> ByteBuffer {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&5u32.to_le_bytes());
+        buf.extend_from_slice(b"hello");
+        buf.extend_from_slice(&9u32.to_le_bytes());
+        buf.extend_from_slice(b"ab");
+        ByteBuffer::copy_from(buf.as_slice())
+    }
+
+    #[test]
+    fn test_reconstruct_views_rejects_overrunning_value() {
+        let buf = make_overrunning();
+        assert!(try_reconstruct_views(&buf, 0, 1024).is_err());
+
+        // The lenient walk keeps the decodable prefix instead of panicking.
+        let (buffers, views) = reconstruct_views(&buf, 0, 1024);
+        assert_eq!(buffers.len(), 1);
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0], BinaryView::make_view(b"hello", 0, 4));
+    }
+
+    #[test]
+    fn test_reconstruct_views_rejects_truncated_length_prefix() {
+        // A trailing partial length prefix cannot start a value.
+        let buf =
+            ByteBuffer::copy_from([5u8, 0, 0, 0, b'h', b'e', b'l', b'l', b'o', 1, 0].as_ref());
+        assert!(try_reconstruct_views(&buf, 0, 1024).is_err());
+        assert_eq!(reconstruct_views(&buf, 0, 1024).1.len(), 1);
+    }
+
+    #[rstest]
+    #[case::truncated_buffer(&[0u8, 0, 0], 0)]
+    #[case::truncated_tail(&[4u8, 0, 0, 0], 2)]
+    #[case::offset_at_end(&[4u8, 0, 0, 0], 4)]
+    #[case::offset_past_end(&[4u8, 0, 0, 0], 64)]
+    fn test_zstd_value_len_rejects_out_of_bounds(#[case] buffer: &[u8], #[case] offset: usize) {
+        assert!(zstd_value_len(buffer, offset).is_err());
+    }
+
+    #[test]
+    fn test_zstd_value_offset_rejects_walking_past_the_end() -> VortexResult<()> {
+        let buf = make_interleaved(&[b"hello", b"world"]);
+        assert_eq!(zstd_value_offset(buf.as_slice(), 0, 2)?, buf.len());
+        // Only two values are stored, so the third step leaves the buffer.
+        assert!(zstd_value_offset(buf.as_slice(), 0, 3).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_value_range_rejects_skipping_past_the_requested_values() {
+        // Frame metadata claiming more skipped values than the slice starts at would wrap.
+        let slice = decompressed_slice(make_interleaved(&[b"hello"]), 2, 3, 4, 1);
+        assert!(slice.value_range().is_err());
+        assert!(slice.value_bytes().is_err());
+    }
+
+    #[rstest]
+    // The buffered value count matches, so both ends come from the metadata.
+    #[case::exact_metadata(2)]
+    // It does not, so the far end is walked instead.
+    #[case::walked_end(9)]
+    fn test_value_bytes_totals_the_stored_values(
+        #[case] n_buffered_values: usize,
+    ) -> VortexResult<()> {
+        let buf = make_interleaved(&[b"hello", b"world"]);
+        let slice = decompressed_slice(buf.clone(), 0, 2, 0, n_buffered_values);
+        let (bytes, num_bytes) = slice.value_bytes()?;
+        assert_eq!(bytes, buf.as_slice());
+        assert_eq!(num_bytes, buf.len() - 2 * size_of::<ViewLen>());
+        Ok(())
+    }
+
+    #[test]
+    fn test_value_bytes_rejects_more_values_than_the_buffer_holds() {
+        // Frame metadata claims nine values but only two are stored.
+        let slice = decompressed_slice(make_interleaved(&[b"hello", b"world"]), 0, 5, 0, 9);
+        assert!(slice.value_bytes().is_err());
     }
 }
