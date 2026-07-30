@@ -191,15 +191,12 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
-        let encoding_idx = self
-            .ctx
-            .intern(&self.array.encoding_id())
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Array encoding {} not permitted by ctx",
-                    self.array.encoding_id()
-                )
-            })?;
+        let encoding_idx = self.ctx.intern(&self.array.encoding_id()).ok_or_else(|| {
+            vortex_err!(
+                "Array encoding {} not permitted by ctx",
+                self.array.encoding_id()
+            )
+        })?;
 
         let metadata_bytes = self.session.array_serialize(self.array)?.ok_or_else(|| {
             vortex_err!(
