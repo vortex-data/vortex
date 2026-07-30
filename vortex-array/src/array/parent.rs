@@ -21,6 +21,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::array::Array;
 use crate::array::ArrayData;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
@@ -109,6 +110,15 @@ impl<'a> ParentRef<'a> {
             },
             cache: OnceLock::new(),
         }
+    }
+
+    /// Build a [`ParentRef`] borrowing a typed [`Array<V>`] handle.
+    ///
+    /// Equivalent to [`ParentRef::from_array_ref`] on the handle's inner [`ArrayRef`],
+    /// so callers holding a typed array don't need to `into_array()` first.
+    #[inline]
+    pub fn from_array<V: VTable>(array: &'a Array<V>) -> Self {
+        Self::from_array_ref(array.as_ref())
     }
 
     /// Build a [`ParentRef`] borrowing construction parts before materialization.
