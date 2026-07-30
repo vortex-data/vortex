@@ -376,7 +376,13 @@ mod tests {
         let stream = array.to_array_stream().sequenced(ptr);
         let session = new_session().with_tokio();
         strategy
-            .write_stream(ArrayContext::empty().into(), segments, stream, eof, &session)
+            .write_stream(
+                ArrayContext::empty().into(),
+                segments,
+                stream,
+                eof,
+                &session,
+            )
             .await
     }
 
