@@ -40,8 +40,6 @@ use vortex::array::scalar::ScalarValue;
 use vortex::array::stats::StatsSet;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
-use vortex::dtype::Field as DTypeField;
-use vortex::dtype::FieldPath;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -95,28 +93,6 @@ fn resolve_store(
             .map_err(|_| vortex_err!("invalid object_store path: {}", url.path()))?;
         let store = make_object_store(&url, properties)?;
         Ok(ResolvedStore::ObjectStore(store, path))
-    }
-}
-
-fn variant_field_paths(dtype: &DType) -> Vec<FieldPath> {
-    let mut paths = Vec::new();
-    collect_variant_field_paths(dtype, FieldPath::root(), &mut paths);
-    paths
-}
-
-fn collect_variant_field_paths(dtype: &DType, path: FieldPath, paths: &mut Vec<FieldPath>) {
-    match dtype {
-        DType::Variant(_) => paths.push(path),
-        DType::Struct(fields, _) => {
-            for (name, field_dtype) in fields.names().iter().zip(fields.fields()) {
-                collect_variant_field_paths(
-                    &field_dtype,
-                    path.clone().push(DTypeField::from(name.clone())),
-                    paths,
-                );
-            }
-        }
-        _ => {}
     }
 }
 
