@@ -1,0 +1,20 @@
+# Runs the string encoding benchmark for a pull request.
+
+name: PR String Encoding Benchmark
+
+on:
+  workflow_call: { }
+  workflow_dispatch: { }
+
+permissions:
+  contents: read
+  pull-requests: write  # for commenting on PRs
+  id-token: write  # enables AWS-GitHub OIDC
+
+jobs:
+  bench:
+    uses: ./.github/workflows/pr-bench-runner.yml
+    secrets: inherit
+    with:
+      benchmark_id: string-bench
+      benchmark_name: String Encoding

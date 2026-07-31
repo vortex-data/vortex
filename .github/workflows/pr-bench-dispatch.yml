@@ -40,6 +40,11 @@ jobs:
     uses: ./.github/workflows/pr-bench-compress.yml
     secrets: inherit
 
+  all-string-bench:
+    needs: remove-all-label
+    uses: ./.github/workflows/pr-bench-string.yml
+    secrets: inherit
+
   all-sql-bench:
     needs: remove-all-label
     uses: ./.github/workflows/pr-bench-sql.yml
@@ -77,6 +82,22 @@ jobs:
   compression-bench:
     needs: remove-compress-label
     uses: ./.github/workflows/pr-bench-compress.yml
+    secrets: inherit
+
+  remove-string-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.label.name == 'action/bench-string'
+    steps:
+      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
+        if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+        with:
+          labels: action/bench-string
+          fail_on_error: true
+
+  string-bench:
+    needs: remove-string-label
+    uses: ./.github/workflows/pr-bench-string.yml
     secrets: inherit
 
   remove-gpu-compress-label:
