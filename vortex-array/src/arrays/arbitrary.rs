@@ -32,6 +32,7 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
+use crate::dtype::OffsetBuilderPType;
 use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::Scalar;
@@ -238,17 +239,11 @@ fn random_list(
     // Worst-case total elements: each list can have up to 20 elements.
     let max_total_elements = array_length as u64 * 20;
 
-    match u.int_in_range(0..=5)? {
-        0 if i16::max_value_as_u64() >= max_total_elements => {
-            random_list_with_offset_type::<i16>(u, elem_dtype, null, array_length)
-        }
-        1 if i32::max_value_as_u64() >= max_total_elements => {
+    match u.int_in_range(0..=3)? {
+        0 if i32::max_value_as_u64() >= max_total_elements => {
             random_list_with_offset_type::<i32>(u, elem_dtype, null, array_length)
         }
-        3 if u16::max_value_as_u64() >= max_total_elements => {
-            random_list_with_offset_type::<u16>(u, elem_dtype, null, array_length)
-        }
-        4 if u32::max_value_as_u64() >= max_total_elements => {
+        1 if u32::max_value_as_u64() >= max_total_elements => {
             random_list_with_offset_type::<u32>(u, elem_dtype, null, array_length)
         }
         // i64 and u64 always fit; also the fallback for when narrower types don't.
@@ -262,8 +257,8 @@ fn random_list(
     }
 }
 
-/// Creates a random list array with the given [`IntegerPType`] for the internal offsets child.
-fn random_list_with_offset_type<O: IntegerPType>(
+/// Creates a random list array with the given [`OffsetBuilderPType`] for the internal offsets child.
+fn random_list_with_offset_type<O: OffsetBuilderPType>(
     u: &mut Unstructured,
     elem_dtype: &Arc<DType>,
     null: Nullability,

@@ -6,7 +6,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 
 use crate::ArrayRef;
-use crate::arrays::union::array::CHILDREN_OFFSET;
+use crate::arrays::union::UnionSlots;
 use crate::arrays::union::union_type_ids_dtype;
 use crate::dtype::DType;
 
@@ -23,8 +23,8 @@ pub(super) fn validate_union_components(
         variant_arrays.len(),
         variants.len(),
         "UnionArray has {} slots but expected {}",
-        CHILDREN_OFFSET + variant_arrays.len(),
-        CHILDREN_OFFSET + variants.len()
+        UnionSlots::CHILDREN_OFFSET + variant_arrays.len(),
+        UnionSlots::CHILDREN_OFFSET + variants.len()
     );
 
     let expected_union_type_ids_dtype = union_type_ids_dtype(*nullability);

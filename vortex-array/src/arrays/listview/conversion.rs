@@ -16,8 +16,11 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::arrays::list::ListArrayExt;
+use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builders::PrimitiveBuilder;
@@ -247,11 +250,11 @@ pub fn recursive_list_from_list_view(
             }
         }
         Canonical::Struct(struct_array) => {
-            let fields = struct_array.unmasked_fields();
-            let mut converted_fields = Vec::with_capacity(fields.len());
+            let mut converted_fields =
+                Vec::with_capacity(struct_array.iter_unmasked_fields().len());
             let mut any_changed = false;
 
-            for field in fields.iter() {
+            for field in struct_array.iter_unmasked_fields() {
                 let converted_field = recursive_list_from_list_view(field.clone(), ctx)?;
                 // Avoid cloning if elements didn't change.
                 any_changed |= !ArrayRef::ptr_eq(&converted_field, field);
@@ -312,7 +315,8 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::list::ListArrayExt;
-    use crate::arrays::listview::ListViewArrayExt;
+    use crate::arrays::list::ListArraySlotsExt;
+    use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::arrays::listview::list_from_list_view;
     use crate::arrays::listview::list_view_from_list;
     use crate::assert_arrays_eq;

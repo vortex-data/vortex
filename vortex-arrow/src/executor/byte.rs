@@ -8,22 +8,44 @@ use arrow_array::GenericByteArray;
 use arrow_array::types::BinaryViewType;
 use arrow_array::types::ByteArrayType;
 use arrow_array::types::StringViewType;
+use arrow_schema::DataType;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Chunked;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::arrays::varbin::VarBinArraySlotsExt;
+use vortex_array::builders::DynVarBinBuilder;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::matcher::Matcher;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::byte_view::execute_varbinview_to_arrow;
 use crate::executor::validity::to_arrow_null_buffer;
+
+/// Matches the encodings [`to_arrow_byte_array`] requires for export.
+///
+/// `Chunked` and `Constant` are matched to stop execution before it destroys them: they have
+/// specialized `append_to_builder` impls (chunk-wise append, scalar repeat) that the builder
+/// fallback exploits.
+struct ArrowByteExportable;
+
+impl Matcher for ArrowByteExportable {
+    type Match<'a> = &'a ArrayRef;
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (array.is::<VarBin>() || array.is::<Chunked>() || array.is::<Constant>()).then_some(array)
+    }
+}
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
 pub(super) fn to_arrow_byte_array<T: ByteArrayType>(
@@ -33,20 +55,40 @@ pub(super) fn to_arrow_byte_array<T: ByteArrayType>(
 where
     T::Offset: NativePType,
 {
-    // If the Vortex array is already in VarBin format, we can directly convert it.
+    if !matches!(array.dtype(), DType::Utf8(_) | DType::Binary(_)) {
+        vortex_bail!(
+            "Cannot convert Vortex array with dtype {} to Arrow byte array type {}",
+            array.dtype(),
+            T::DATA_TYPE
+        );
+    }
+
+    let source_is_utf8 = matches!(array.dtype(), DType::Utf8(_));
+    let target_is_utf8 = matches!(T::DATA_TYPE, DataType::Utf8 | DataType::LargeUtf8);
+    if source_is_utf8 != target_is_utf8 {
+        let varbinview = array.execute::<VarBinViewArray>(ctx)?;
+        let binary_view = match varbinview.dtype() {
+            DType::Utf8(_) => execute_varbinview_to_arrow::<StringViewType>(&varbinview, ctx),
+            DType::Binary(_) => execute_varbinview_to_arrow::<BinaryViewType>(&varbinview, ctx),
+            _ => unreachable!("VarBinViewArray must have Utf8 or Binary dtype"),
+        }?;
+        return arrow_cast::cast(&binary_view, &T::DATA_TYPE).map_err(VortexError::from);
+    }
+
+    let array = array.execute_until::<ArrowByteExportable>(ctx)?;
+
+    // If the Vortex array is in VarBin format, we can directly convert it.
     if let Some(array) = array.as_opt::<VarBin>() {
         return varbin_to_byte_array::<T>(array, ctx);
     }
 
-    // Otherwise, we execute the array to a VarBinViewArray and convert to Arrow ByteView,
-    // then cast to the target byte array type.
-    let varbinview = array.execute::<VarBinViewArray>(ctx)?;
-    let binary_view = match varbinview.dtype() {
-        DType::Utf8(_) => execute_varbinview_to_arrow::<StringViewType>(&varbinview, ctx),
-        DType::Binary(_) => execute_varbinview_to_arrow::<BinaryViewType>(&varbinview, ctx),
-        _ => unreachable!("VarBinViewArray must have Utf8 or Binary dtype"),
-    }?;
-    arrow_cast::cast(&binary_view, &T::DATA_TYPE).map_err(VortexError::from)
+    let mut builder = DynVarBinBuilder::with_capacity(
+        array.dtype().clone(),
+        T::Offset::PTYPE == PType::I64,
+        array.len(),
+    );
+    array.append_to_builder(&mut builder, ctx)?;
+    varbin_to_byte_array::<T>(builder.finish_into_varbin().as_view(), ctx)
 }
 
 /// Convert a Vortex VarBinArray into an Arrow GenericBinaryArray.
@@ -84,13 +126,46 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::array_session;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::scalar_fn::EmptyOptions;
+    use vortex_array::scalar_fn::fns::mask::Mask as MaskFn;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::ArrowSessionExt;
-    use crate::executor::byte::VarBinViewArray;
+
+    #[test]
+    fn mask_wrapped_varbin_exports() -> VortexResult<()> {
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+
+        let varbin = VarBinArray::from_vec(
+            vec!["hello", "world", "vortex"],
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let mask = BoolArray::from_iter([true, false, true]);
+        let masked =
+            MaskFn.try_new_array(3, EmptyOptions, [varbin.into_array(), mask.into_array()])?;
+
+        let field = Field::new("s", DataType::Utf8, true);
+        let arrow = session
+            .arrow()
+            .execute_arrow(masked, Some(&field), &mut ctx)?;
+
+        let strings = arrow.as_string::<i32>();
+        assert_eq!(strings.len(), 3);
+        assert!(!strings.is_null(0));
+        assert!(strings.is_null(1));
+        assert_eq!(strings.value(0), "hello");
+        assert_eq!(strings.value(2), "vortex");
+        Ok(())
+    }
 
     fn make_utf8_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["hello", "world", "this is a longer string for testing"])
@@ -185,6 +260,24 @@ mod tests {
         assert!(!arrow.is_null(0));
         assert!(arrow.is_null(1));
         assert!(!arrow.is_null(2));
+    }
+
+    #[rstest]
+    #[case(DataType::Utf8)]
+    #[case(DataType::LargeUtf8)]
+    #[case(DataType::Binary)]
+    #[case(DataType::LargeBinary)]
+    fn incompatible_vortex_dtype_returns_error(#[case] target_dtype: DataType) {
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+        let field = Field::new("test_field", target_dtype, true);
+        let result = session.arrow().execute_arrow(
+            PrimitiveArray::from_iter([1i32, 2, 3]).into_array(),
+            Some(&field),
+            &mut ctx,
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]

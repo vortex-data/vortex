@@ -166,8 +166,8 @@ mod forever_constant {
 
 /// Register the default encodings use in Vortex files with the provided session.
 ///
-/// NOTE: this function will be changed in the future to encapsulate logic for using different
-/// Vortex "Editions" that may support different sets of encodings.
+/// Registration covers reading: a session can decode every encoding registered here. The
+/// writer is gated separately by the editions enabled on its session.
 pub fn register_default_encodings(session: &VortexSession) {
     vortex_bytebool::initialize(session);
     vortex_fsst::initialize(session);
@@ -199,6 +199,41 @@ pub fn register_default_encodings(session: &VortexSession) {
 }
 
 #[cfg(test)]
+pub(crate) fn enable_all_registered_array_encodings(session: &VortexSession) {
+    use vortex_edition::Edition;
+    use vortex_edition::EditionId;
+    use vortex_edition::EditionInclusion;
+    use vortex_edition::EditionSessionExt;
+    use vortex_error::VortexExpect;
+    use vortex_error::vortex_err;
+
+    const TEST_EDITION: EditionId = EditionId::new("test", 2026, 7, 0);
+
+    let editions = session.editions();
+    editions
+        .declare_edition(Edition {
+            id: TEST_EDITION,
+            min_vortex_version: None,
+        })
+        .map_err(|error| vortex_err!("{error}"))
+        .vortex_expect("test edition is valid");
+    let ids = session
+        .arrays()
+        .registry()
+        .read(|map| map.keys().copied().collect::<Vec<_>>());
+    for id in ids {
+        editions
+            .declare_inclusion(EditionInclusion::new(&id, TEST_EDITION))
+            .map_err(|error| vortex_err!("{error}"))
+            .vortex_expect("registered array encoding has one test-edition inclusion");
+    }
+    session
+        .enable_edition(TEST_EDITION)
+        .map_err(|error| vortex_err!("{error}"))
+        .vortex_expect("test edition is registered");
+}
+
+#[cfg(test)]
 mod default_encoding_tests {
     use vortex_array::VTable as _;
     use vortex_array::array_session;
@@ -214,24 +249,18 @@ mod default_encoding_tests {
     fn register_default_encodings_registers_external_execute_parent_kernels() {
         let session = array_session();
 
-        assert!(session.arrays().registry().find(&FSST.id()).is_none());
+        assert!(!session.arrays().registry().contains_key(&FSST.id()));
         assert!(!session.kernels().has_execute_parent(Filter.id(), FSST.id()));
 
         register_default_encodings(&session);
 
-        assert!(session.arrays().registry().find(&FSST.id()).is_some());
+        assert!(session.arrays().registry().contains_key(&FSST.id()));
         assert!(session.kernels().has_execute_parent(Filter.id(), FSST.id()));
-        assert!(session.arrays().registry().find(&OnPair.id()).is_some());
+        assert!(session.arrays().registry().contains_key(&OnPair.id()));
         assert!(
             session
                 .kernels()
                 .has_execute_parent(Filter.id(), OnPair.id())
         );
-    }
-
-    #[cfg(not(feature = "unstable_encodings"))]
-    #[test]
-    fn default_writer_does_not_allow_onpair() {
-        assert!(!crate::ALLOWED_ENCODINGS.contains(&OnPair.id()));
     }
 }

@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+query I
+COPY (
+    SELECT * FROM (VALUES
+        ('Another string that is meant to be smaller than the previous value, with extra padding'),
+        ('Long value used to verify that UTF-8 statistics do not replace the actual maximum value')
+    ) AS t(value)
+) TO '${WORK_DIR}/utf8_min_max_stats.vortex';
+----
+2
+
+query TT
+SELECT MIN(value), MAX(value)
+FROM '${WORK_DIR}/utf8_min_max_stats.vortex';
+----
+Another string that is meant to be smaller than the previous value, with extra padding Long value used to verify that UTF-8 statistics do not replace the actual maximum value

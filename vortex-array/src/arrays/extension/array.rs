@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -11,18 +10,21 @@ use crate::EmptyArrayData;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
+use crate::array_slots;
 use crate::arrays::Extension;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtVTable;
 
-/// The backing storage array for this extension array.
-pub(super) const STORAGE_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["storage"];
+#[array_slots(Extension)]
+pub struct ExtensionSlots {
+    /// The backing storage array for this extension array.
+    #[slot(0)]
+    pub storage: ArrayRef,
+}
 
-pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
+pub trait ExtensionArrayExt: TypedArrayRef<Extension> + ExtensionArraySlotsExt {
     fn ext_dtype(&self) -> &ExtDTypeRef {
         self.as_ref()
             .dtype()
@@ -30,10 +32,9 @@ pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
             .vortex_expect("extension array somehow did not have an extension dtype")
     }
 
+    /// Returns the backing storage array.
     fn storage_array(&self) -> &ArrayRef {
-        self.as_ref().slots()[STORAGE_SLOT]
-            .as_ref()
-            .vortex_expect("ExtensionArray storage slot")
+        self.storage()
     }
 }
 impl<T: TypedArrayRef<Extension>> ExtensionArrayExt for T {}
@@ -59,8 +60,12 @@ impl Array<Extension> {
         let dtype = DType::Extension(ext_dtype);
         let len = storage_array.len();
 
-        let parts = ArrayParts::new(Extension, dtype, len, EmptyArrayData)
-            .with_slots(smallvec![Some(storage_array)]);
+        let parts = ArrayParts::new(Extension, dtype, len, EmptyArrayData).with_slots(
+            ExtensionSlots {
+                storage: storage_array,
+            }
+            .into_slots(),
+        );
 
         Ok(unsafe { Array::from_parts_unchecked(parts) })
     }

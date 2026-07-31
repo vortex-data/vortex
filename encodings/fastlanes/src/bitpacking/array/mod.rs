@@ -36,12 +36,16 @@ use crate::unpack_iter::BitUnpackedChunks;
 #[array_slots(crate::BitPacked)]
 pub struct BitPackedSlots {
     /// The indices of exception values that don't fit in the bit-packed representation.
+    #[slot(0)]
     pub patch_indices: Option<ArrayRef>,
     /// The exception values that don't fit in the bit-packed representation.
+    #[slot(1)]
     pub patch_values: Option<ArrayRef>,
     /// Chunk offsets for the patch indices/values.
+    #[slot(2)]
     pub patch_chunk_offsets: Option<ArrayRef>,
     /// The validity bitmap indicating which elements are non-null.
+    #[slot(3)]
     pub validity_child: Option<ArrayRef>,
 }
 

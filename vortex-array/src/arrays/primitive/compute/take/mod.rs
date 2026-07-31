@@ -350,7 +350,6 @@ where
     Ok(values.freeze())
 }
 
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 #[cfg(test)]
 mod test {
     use rstest::rstest;

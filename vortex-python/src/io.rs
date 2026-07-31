@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use async_fs::File;
@@ -41,6 +43,8 @@ use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
+#[cfg(feature = "opendal")]
+use crate::opendal_store::CosStore;
 use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -62,7 +66,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ----------
 /// url : str
 ///     The URL to read from.
-/// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+/// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
 ///     Pre-configured object store with credentials and settings.
 ///     If provided, uses this store's configuration.
 ///     If None, checks session registry for matching URL pattern.
@@ -115,6 +119,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ...     secret_access_key="..."
 /// ... )
 /// >>> a = vx.io.read_url("s3://my-bucket/data.vortex", store=store)  # doctest: +SKIP
+
 #[pyfunction]
 #[pyo3(signature = (url, *, store = None, projection = None, row_filter = None, indices = None, row_range = None))]
 pub fn read_url<'py>(
@@ -127,7 +132,7 @@ pub fn read_url<'py>(
     row_range: Option<(u64, u64)>,
 ) -> PyVortexResult<PyArrayRef> {
     let store_arc = if let Some(store_obj) = store {
-        let py_store: PyObjectStore = store_obj.extract()?;
+        let py_store: AnyVortexStore = store_obj.extract()?;
         Some(py_store.into_inner())
     } else {
         None
@@ -135,6 +140,46 @@ pub fn read_url<'py>(
 
     let dataset = py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?;
     dataset.to_array_inner(py, projection, row_filter, indices, row_range)
+}
+
+/// A store object accepted by `read_url` / `write`.
+///
+/// This recognizes both the built-in `pyo3-object_store` classes (S3, Azure, GCS, HTTP,
+/// Local, Memory) and Vortex's own OpenDAL-backed classes (`CosStore`).
+pub(crate) enum AnyVortexStore {
+    /// A store extracted from one of the built-in `pyo3-object_store` classes.
+    Builtin(PyObjectStore),
+    /// Vortex's OpenDAL-backed COS store.
+    #[cfg(feature = "opendal")]
+    Cos(CosStore),
+}
+
+impl AnyVortexStore {
+    /// Consume self and return the underlying `Arc<dyn ObjectStore>`.
+    fn into_inner(self) -> Arc<dyn object_store::ObjectStore> {
+        match self {
+            AnyVortexStore::Builtin(s) => s.into_inner(),
+            #[cfg(feature = "opendal")]
+            AnyVortexStore::Cos(s) => s.to_arc(),
+        }
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for AnyVortexStore {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(builtin) = obj.extract::<PyObjectStore>() {
+            return Ok(AnyVortexStore::Builtin(builtin));
+        }
+        #[cfg(feature = "opendal")]
+        if let Ok(cos) = obj.extract::<CosStore>() {
+            return Ok(AnyVortexStore::Cos(cos));
+        }
+        Err(PyTypeError::new_err(
+            "Expected an object store instance (S3/Azure/GCS/HTTP/Local/Memory/COS/OSS store)",
+        ))
+    }
 }
 
 /// Write an array to a Vortex file.
@@ -148,7 +193,7 @@ pub fn read_url<'py>(
 /// path : str
 ///     The file path.
 ///
-/// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+/// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
 ///     An optional object store configuration to use for writing the output.
 ///
 /// Examples
@@ -190,7 +235,7 @@ pub fn write(
     py: Python,
     iter: PyIntoArrayIterator,
     path: &str,
-    store: Option<PyObjectStore>,
+    store: Option<AnyVortexStore>,
 ) -> PyVortexResult<()> {
     let session = session();
     py.detach(|| {
@@ -258,7 +303,7 @@ impl PyVortexWriteOptions {
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
-    /// 215940
+    /// 215900
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
     ///
@@ -268,7 +313,7 @@ impl PyVortexWriteOptions {
     ///
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
-    /// 55068
+    /// 55028
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]
@@ -290,7 +335,7 @@ impl PyVortexWriteOptions {
     /// path : str
     ///     The file path.
     ///
-    /// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+    /// store : vortex.store.AzureStore | vortex.store.CosStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
     ///     An optional object store configuration to use for writing the output.
     ///
     /// Examples
@@ -319,7 +364,7 @@ impl PyVortexWriteOptions {
         py: Python,
         iter: PyIntoArrayIterator,
         path: &str,
-        store: Option<PyObjectStore>,
+        store: Option<AnyVortexStore>,
     ) -> PyVortexResult<()> {
         let session = session();
         py.detach(|| {

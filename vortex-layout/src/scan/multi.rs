@@ -80,10 +80,11 @@ pub trait LayoutReaderFactory: 'static + Send + Sync {
 /// to `concurrency` file opens run in parallel as spawned tasks on the session runtime. Once
 /// opened, each reader yields a single partition covering its full row range; internal I/O
 /// pipelining and chunking are handled by [`ScanBuilder`].
+#[derive(Clone)]
 pub struct MultiLayoutDataSource {
     dtype: DType,
     session: VortexSession,
-    children: Vec<MultiLayoutChild>,
+    children: Arc<[MultiLayoutChild]>,
     concurrency: usize,
 }
 
@@ -154,7 +155,7 @@ impl MultiLayoutDataSource {
         Self {
             dtype,
             session: session.clone(),
-            children,
+            children: children.into(),
             concurrency,
         }
     }
@@ -196,7 +197,7 @@ impl MultiLayoutDataSource {
         }
     }
 
-    pub fn children(&self) -> &Vec<MultiLayoutChild> {
+    pub fn children(&self) -> &[MultiLayoutChild] {
         &self.children
     }
 
@@ -221,7 +222,7 @@ impl DataSource for MultiLayoutDataSource {
         let mut opened_count: u64 = 0;
         let mut deferred_count: u64 = 0;
 
-        for child in &self.children {
+        for child in self.children.iter() {
             match child {
                 MultiLayoutChild::Opened { reader, .. } => {
                     opened_count += 1;
@@ -257,7 +258,7 @@ impl DataSource for MultiLayoutDataSource {
 
         let mut sum: u64 = 0;
         let mut known_count: u64 = 0;
-        for child in &self.children {
+        for child in self.children.iter() {
             if let Some(size) = child.byte_size() {
                 sum = sum.saturating_add(size);
                 known_count += 1;
@@ -289,7 +290,7 @@ impl DataSource for MultiLayoutDataSource {
         let mut ready = VecDeque::new();
         let mut deferred = VecDeque::new();
 
-        for child in &self.children {
+        for child in self.children.iter() {
             match child {
                 MultiLayoutChild::Opened { reader, .. } => ready.push_back(Arc::clone(reader)),
                 MultiLayoutChild::Deferred { factory, .. } => {

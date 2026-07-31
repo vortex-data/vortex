@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 use std::ptr;
-use std::sync::Arc;
 
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
@@ -13,6 +12,7 @@ use vortex::error::vortex_ensure;
 
 use crate::array::vx_array;
 use crate::array::vx_validity;
+use crate::box_wrapper;
 use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::string::vx_view;
@@ -24,7 +24,7 @@ pub(crate) struct StructBuilder {
     validity: Validity,
 }
 
-crate::box_wrapper!(StructBuilder, vx_struct_column_builder);
+box_wrapper!(StructBuilder, vx_struct_column_builder);
 
 /// Create a new column-wise struct array builder with given validity and a
 /// capacity hint. validity can't be NULL.
@@ -120,7 +120,7 @@ pub extern "C-unwind" fn vx_struct_column_builder_finalize(
         };
         let array =
             StructArray::try_new(builder.names.into(), builder.fields, rows, builder.validity)?;
-        Ok(vx_array::new(Arc::new(array.into_array())))
+        Ok(vx_array::new(array.into_array()))
     })
 }
 
@@ -128,7 +128,6 @@ pub extern "C-unwind" fn vx_struct_column_builder_finalize(
 mod tests {
     use std::ffi::c_void;
     use std::ptr;
-    use std::sync::Arc;
 
     use vortex::array::IntoArray;
     use vortex::array::VortexSessionExecute;
@@ -224,7 +223,7 @@ mod tests {
             vx_array_free(ffi_null_field);
 
             // Can't create a string array from C API yet.
-            let ffi_name_field = vx_array::new(Arc::new(name_field.into_array()));
+            let ffi_name_field = vx_array::new(name_field.into_array());
             vx_struct_column_builder_add_field(
                 builder,
                 vx_view::from_str("name"),

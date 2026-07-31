@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (VALUES (1),(2),(CAST(NULL AS BIGINT))) AS t(x)) TO '${WORK_DIR}/i-some.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (CAST(NULL AS BIGINT)),(CAST(NULL AS BIGINT))) AS t(x))
+TO '${WORK_DIR}/i-null.vortex';
+
+query R
+SELECT avg(x) FROM '${WORK_DIR}/i-some.vortex';
+----
+1.5
+
+query IR
+SELECT count(x), avg(x) FROM '${WORK_DIR}/i-null.vortex';
+----
+0 NULL
+
+statement ok
+COPY (SELECT * FROM (VALUES (1.0),(3.0),(CAST(NULL AS DOUBLE))) AS t(x))
+TO '${WORK_DIR}/f-some.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (CAST(NULL AS DOUBLE)),(CAST(NULL AS DOUBLE))) AS t(x))
+TO '${WORK_DIR}/f-null.vortex';
+
+query R
+SELECT avg(x) FROM '${WORK_DIR}/f-some.vortex';
+----
+2
+
+query IR
+SELECT count(x), avg(x) FROM '${WORK_DIR}/f-null.vortex';
+----
+0 NULL
+
+query IR
+SELECT count(x), avg(x) FROM '${WORK_DIR}/i-some.vortex' WHERE x > 100;
+----
+0 NULL

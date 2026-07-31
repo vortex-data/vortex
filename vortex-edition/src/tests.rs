@@ -9,6 +9,7 @@ use crate::EditionId;
 use crate::EditionInclusion;
 use crate::EditionSession;
 use crate::EditionSessionExt;
+use crate::EnabledEditions;
 
 const FIRST: EditionId = EditionId::new("test", 2026, 1, 0);
 const SECOND: EditionId = EditionId::new("test", 2026, 7, 0);
@@ -124,6 +125,70 @@ fn session_exposes_edition_registry() {
         session.editions().declare(declaration).unwrap();
     }
     assert!(session.editions().find(&FIRST).is_some());
+}
+
+#[test]
+fn registered_and_enabled_editions_are_separate() -> Result<(), crate::EditionError> {
+    let session = VortexSession::empty().with::<EditionSession>();
+    for declaration in DECLARATIONS {
+        session.register_edition(declaration)?;
+    }
+
+    assert!(session.enabled_encoding_ids().is_empty());
+    session.enable_edition(FIRST)?;
+    assert_eq!(session.enabled_editions().editions(), [FIRST]);
+    assert_eq!(
+        session
+            .enabled_encoding_ids()
+            .iter()
+            .map(|id| id.as_str())
+            .collect::<Vec<_>>(),
+        ["test.alpha", "test.beta"]
+    );
+
+    session.enable_edition(SECOND)?;
+    assert_eq!(session.enabled_editions().editions(), [SECOND]);
+    assert_eq!(session.enabled_encoding_ids().len(), 3);
+
+    // Selecting an older edition in the same family replaces the newer one and removes
+    // encodings that joined after it.
+    session.enable_edition(FIRST)?;
+    assert_eq!(session.enabled_editions().editions(), [FIRST]);
+    let enabled = session.enabled_encoding_ids();
+    assert_eq!(enabled.len(), 2);
+    assert!(enabled.iter().all(|id| id.as_str() != "test.gamma"));
+    Ok(())
+}
+
+#[test]
+fn enabling_requires_registration() {
+    let session = VortexSession::empty().with::<EnabledEditions>();
+    assert!(session.enable_edition(FIRST).is_err());
+    assert!(session.enabled_editions().editions().is_empty());
+}
+
+#[test]
+fn enabled_editions_are_independent_across_families() -> Result<(), crate::EditionError> {
+    const OTHER: EditionId = EditionId::new("other", 2026, 4, 0);
+    static OTHER_DECLARATION: EditionDeclaration = EditionDeclaration {
+        edition: Edition {
+            id: OTHER,
+            min_vortex_version: None,
+        },
+        added: &[&"other.delta"],
+    };
+
+    let session = VortexSession::empty().with::<EditionSession>();
+    session.register_edition(&DECLARATIONS[0])?;
+    session.register_edition(&OTHER_DECLARATION)?;
+    session.enable_edition(FIRST)?;
+    session.enable_edition(OTHER)?;
+
+    let mut enabled = session.enabled_editions().editions();
+    enabled.sort_unstable();
+    assert_eq!(enabled, [OTHER, FIRST]);
+    assert_eq!(session.enabled_encoding_ids().len(), 3);
+    Ok(())
 }
 
 #[test]

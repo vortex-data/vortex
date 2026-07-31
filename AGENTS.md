@@ -26,6 +26,10 @@ documentation in `docs/`, and benchmark tooling in `vortex-bench/` and `benchmar
   Apache Arrow-style encodings.
 - `encodings/*` contains more specialized compressed encodings.
 - `vortex-file` implements file IO. It uses `LayoutReader` from `vortex-layout`.
+- `vortex-io` holds the core async and blocking IO traits, plus the generic `object_store`
+  adapters that implement them.
+- `vortex-cloud` holds the cloud object store integration: the URL-to-`ObjectStore` registry
+  and the OpenDAL-backed services (`cos://`, `oss://`). Every binding resolves URLs through it.
 - `vortex-scan`, `vortex-session`, `vortex-datafusion`, and `vortex-duckdb` contain scan
   and execution integrations.
 - `vortex-python` contains Python bindings. RST-flavored project docs live in `docs/`.

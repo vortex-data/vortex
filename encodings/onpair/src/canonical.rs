@@ -44,11 +44,10 @@ pub(super) fn canonicalize_onpair(
     })
 }
 
-pub(crate) fn onpair_decode_views(
+pub(crate) fn onpair_decode_bytes(
     array: ArrayView<'_, OnPair>,
-    start_buf_index: u32,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
+) -> VortexResult<(ByteBufferMut, PrimitiveArray)> {
     let lengths = array
         .uncompressed_lengths()
         .clone()
@@ -91,7 +90,6 @@ pub(crate) fn onpair_decode_views(
     // boundaries, so an empty boundary slice is sound.
     let codes = collect_widened::<u16>(&array.codes().slice(code_start..code_end)?, ctx)?;
     let dict = dict_view(array, ctx)?;
-
     let mut out_bytes = ByteBufferMut::with_capacity(total_size);
     let written =
         match onpair::try_decode_into(codes.as_slice(), dict, out_bytes.spare_capacity_mut()) {
@@ -107,7 +105,15 @@ pub(crate) fn onpair_decode_views(
     }
     // SAFETY: `try_decode_into` initialised exactly `written` bytes.
     unsafe { out_bytes.set_len(written) };
+    Ok((out_bytes, lengths))
+}
 
+pub(crate) fn onpair_decode_views(
+    array: ArrayView<'_, OnPair>,
+    start_buf_index: u32,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
+    let (out_bytes, lengths) = onpair_decode_bytes(array, ctx)?;
     match_each_integer_ptype!(lengths.ptype(), |P| {
         Ok(build_views(
             start_buf_index,

@@ -26,7 +26,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolArrayExt;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
@@ -121,9 +121,9 @@ impl ScalarFnVTable for ListContains {
         compute_list_contains(&list_array, &value_array, ctx)
     }
 
-    // Nullability matters for contains([], x) where x is false.
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
-        true
+    // An empty list can produce false even when the needle is null.
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        false
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {

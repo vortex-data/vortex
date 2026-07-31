@@ -55,9 +55,7 @@ fn create_fsl(list_size: usize, num_lists: usize) -> FixedSizeListArray {
 fn create_chunked_fsl(list_size: usize, num_chunks: usize) -> ChunkedArray {
     let chunk = create_fsl(list_size, LISTS_PER_CHUNK);
     let dtype = chunk.dtype().clone();
-    let chunks = (0..num_chunks)
-        .map(|_| chunk.clone().into_array())
-        .collect();
+    let chunks = (0..num_chunks).map(|_| chunk.clone().into_array());
     ChunkedArray::try_new(chunks, dtype).unwrap()
 }
 

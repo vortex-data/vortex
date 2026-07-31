@@ -9,7 +9,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use parking_lot::Mutex;
-use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -34,9 +33,9 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
-use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::layouts::zoned::AggregateStatsAccumulator;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::aggregate_partials;
@@ -100,7 +99,7 @@ impl ZonedStrategy {
 impl LayoutStrategy for ZonedStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -189,10 +188,6 @@ impl LayoutStrategy for ZonedStrategy {
             ZonedLayout::try_new(data_layout, zones_layout, block_size, aggregate_fns)?
                 .into_layout(),
         )
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        self.child.buffered_bytes() + self.stats.buffered_bytes()
     }
 }
 

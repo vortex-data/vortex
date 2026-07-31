@@ -192,24 +192,48 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(None)
     }
 
-    /// Returns whether this expression itself is null-sensitive. Conservatively default to *true*.
+    /// Returns whether this scalar function is strict.
     ///
-    /// An expression is null-sensitive if it directly operates on null values,
-    /// such as `is_null`. Most expressions are not null-sensitive.
+    /// A strict function propagates nulls: at each row, a null in any argument always produces a
+    /// null result:
     ///
-    /// The property we are interested in is if the expression (e) distributes over `mask`.
-    /// Define a `mask(a, m)` expression that applies the boolean array `m` to the validity of the
-    /// array `a`.
+    /// ```text
+    /// vj = NULL for some j  =>  f(v1, .., vk) = NULL
+    /// ```
     ///
-    /// A unary expression `e` is not null-sensitive iff forall arrays `a` and masks `m`,
-    /// `e(mask(a, m)) == mask(e(a), m)`.
+    /// Strictness does not guarantee that non-null inputs produce a non-null result. For example,
+    /// `list_sum` returns null for a valid but empty list. Therefore, strictness only bounds the
+    /// output validity:
     ///
-    /// This can be extended to an n-ary expression.
+    /// ```text
+    /// valid(f(a1, .., ak)) ⊆ valid(a1) ∧ .. ∧ valid(ak)
+    /// ```
     ///
-    /// This method only checks the expression itself, not its children.
-    fn is_null_sensitive(&self, options: &Self::Options) -> bool {
+    /// Many strict functions satisfy the stronger equality, where output validity is exactly the
+    /// intersection of the input validities. They can advertise that through
+    /// [`ScalarFnVTable::validity`], but callers must not infer it from strictness alone.
+    ///
+    /// Optimizations use strictness to move a mask through the function:
+    ///
+    /// ```text
+    /// f(a1, .., mask(aj', m), .., ak) == mask(f(a1, .., aj', .., ak), m)
+    /// ```
+    ///
+    /// The per-argument requirement matters when, for example, pushing a function through
+    /// dictionary codes while leaving its other arguments unmasked. Kleene `AND` and `OR` are not
+    /// strict even though a mask can be moved when applied to all arguments together:
+    /// `false AND null = false`.
+    ///
+    /// Returning `true` also requires [`ScalarFnVTable::return_dtype`] to propagate nullability:
+    /// if any input dtype is nullable, the output dtype must be nullable. For example, `cast` is
+    /// value-strict but can pin a non-nullable output dtype through its options, so it must return
+    /// `false`.
+    ///
+    /// This method describes only the scalar function, not its child expressions. Nullary
+    /// functions are vacuously strict. The default is conservatively `false`.
+    fn is_strict(&self, options: &Self::Options) -> bool {
         _ = options;
-        true
+        false
     }
 
     /// Returns whether this expression is semantically fallible. Conservatively defaults to

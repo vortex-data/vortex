@@ -3,9 +3,9 @@
 
 use std::borrow::Borrow;
 use std::iter::once;
-use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex_array_macros::array_slots;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -30,10 +30,16 @@ use crate::dtype::StructFields;
 use crate::validity::Validity;
 
 // StructArray has a variable number of slots: [validity?, field_0, ..., field_N]
-/// The validity bitmap indicating which struct elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 0;
-/// The offset at which the struct field arrays begin in the slots vector.
-pub(super) const FIELDS_OFFSET: usize = 1;
+/// Slot layout of a [`Struct`] array: `[validity?, fields...]`.
+#[array_slots(Struct)]
+pub struct StructSlots {
+    /// The optional row-level validity child.
+    #[slot(0)]
+    pub validity: Option<ArrayRef>,
+    /// The field arrays, one per struct field, all sharing the outer length.
+    #[slot(1..)]
+    pub fields: Vec<ArrayRef>,
+}
 
 /// A struct array that stores multiple named fields as columns, similar to a database row.
 ///
@@ -159,21 +165,43 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 /// ```
 pub struct StructDataParts {
     pub struct_fields: StructFields,
-    pub fields: Arc<[ArrayRef]>,
+    pub fields: Vec<ArrayRef>,
     pub validity: Validity,
 }
 
+/// Allocate the slots of a [`Struct`] array holding only its validity, with room for `nfields`
+/// field slots to be pushed.
+///
+/// Callers that build their field arrays fallibly use this directly, so they don't have to stage
+/// them in a `Vec` just to hand them over as an infallible iterator.
+pub(super) fn struct_slots_with_capacity(
+    validity: &Validity,
+    length: usize,
+    nfields: usize,
+) -> ArraySlots {
+    let mut slots = ArraySlots::with_capacity(StructSlots::FIELDS_OFFSET + nfields);
+    slots.push(validity_to_child(validity, length));
+    slots
+}
+
 pub(super) fn make_struct_slots(
-    fields: &[ArrayRef],
+    fields: impl IntoIterator<Item = ArrayRef>,
     validity: &Validity,
     length: usize,
 ) -> ArraySlots {
-    once(validity_to_child(validity, length))
-        .chain(fields.iter().cloned().map(Some))
-        .collect()
+    // Take the fields by value so callers that already own them move their `ArrayRef`s straight
+    // into the `SmallVec` instead of paying a refcount bump per field.
+    let fields = fields.into_iter();
+    let mut slots = struct_slots_with_capacity(validity, length, fields.size_hint().0);
+    slots.extend(fields.map(Some));
+    slots
 }
 
-pub trait StructArrayExt: TypedArrayRef<Struct> {
+/// Struct-specific accessors.
+///
+/// Slot accessors (`validity`, `fields`, `slots_view`) live on the generated
+/// [`StructArraySlotsExt`] supertrait; this trait layers struct-specific lookups on top.
+pub trait StructArrayExt: StructArraySlotsExt {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.as_ref().dtype() {
             DType::Struct(_, nullability) => *nullability,
@@ -186,25 +214,29 @@ pub trait StructArrayExt: TypedArrayRef<Struct> {
     }
 
     fn struct_validity(&self) -> Validity {
-        child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
-            self.nullability(),
-        )
+        child_to_validity(self.validity(), self.nullability())
     }
 
-    fn iter_unmasked_fields(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        self.as_ref().slots()[FIELDS_OFFSET..]
-            .iter()
-            .map(|s| s.as_ref().vortex_expect("StructArray field slot"))
+    /// Iterate over the field arrays in declaration order.
+    fn iter_unmasked_fields(&self) -> impl ExactSizeIterator<Item = &ArrayRef> + '_ {
+        self.fields().iter()
     }
 
-    fn unmasked_fields(&self) -> Arc<[ArrayRef]> {
-        self.iter_unmasked_fields().cloned().collect()
+    /// The field array at `idx`, or `None` if `idx` is out of bounds.
+    ///
+    /// Use this over [`unmasked_field`](Self::unmasked_field) when the index comes from outside
+    /// the library and an out-of-bounds value is an error to report rather than a bug to panic on.
+    fn unmasked_field_opt(&self, idx: usize) -> Option<&ArrayRef> {
+        self.fields().get(idx)
     }
 
+    /// The field array at `idx`.
+    ///
+    /// # Panics
+    ///
+    /// If `idx` is out of bounds.
     fn unmasked_field(&self, idx: usize) -> &ArrayRef {
-        self.as_ref().slots()[FIELDS_OFFSET + idx]
-            .as_ref()
+        self.unmasked_field_opt(idx)
             .vortex_expect("StructArray field slot")
     }
 
@@ -235,7 +267,7 @@ impl Array<Struct> {
     /// Creates a new `StructArray`.
     pub fn new(
         names: FieldNames,
-        fields: impl Into<Arc<[ArrayRef]>>,
+        fields: impl IntoIterator<Item = ArrayRef>,
         length: usize,
         validity: Validity,
     ) -> Self {
@@ -246,14 +278,20 @@ impl Array<Struct> {
     /// Constructs a new `StructArray`.
     pub fn try_new(
         names: FieldNames,
-        fields: impl Into<Arc<[ArrayRef]>>,
+        fields: impl IntoIterator<Item = ArrayRef>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        let fields = fields.into();
-        let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype().clone()).collect();
+        let fields = fields.into_iter();
+        let (lower, _) = fields.size_hint();
+        let mut field_dtypes = Vec::with_capacity(lower);
+        let mut slots = ArraySlots::with_capacity(StructSlots::FIELDS_OFFSET + lower);
+        slots.push(validity_to_child(&validity, length));
+        for field in fields {
+            field_dtypes.push(field.dtype().clone());
+            slots.push(Some(field));
+        }
         let dtype = StructFields::new(names, field_dtypes);
-        let slots = make_struct_slots(&fields, &validity, length);
         Array::try_from_parts(
             ArrayParts::new(
                 Struct,
@@ -271,14 +309,13 @@ impl Array<Struct> {
     ///
     /// Caller must ensure the field arrays match the supplied dtype, length, and validity.
     pub unsafe fn new_unchecked(
-        fields: impl Into<Arc<[ArrayRef]>>,
+        fields: impl IntoIterator<Item = ArrayRef>,
         dtype: StructFields,
         length: usize,
         validity: Validity,
     ) -> Self {
-        let fields = fields.into();
         let outer_dtype = DType::Struct(dtype, validity.nullability());
-        let slots = make_struct_slots(&fields, &validity, length);
+        let slots = make_struct_slots(fields, &validity, length);
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
@@ -288,14 +325,13 @@ impl Array<Struct> {
 
     /// Constructs a new `StructArray` with an explicit dtype.
     pub fn try_new_with_dtype(
-        fields: impl Into<Arc<[ArrayRef]>>,
+        fields: impl IntoIterator<Item = ArrayRef>,
         dtype: StructFields,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        let fields = fields.into();
         let outer_dtype = DType::Struct(dtype, validity.nullability());
-        let slots = make_struct_slots(&fields, &validity, length);
+        let slots = make_struct_slots(fields, &validity, length);
         Array::try_from_parts(
             ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
         )
@@ -383,7 +419,7 @@ impl Array<Struct> {
             StructFields::new(FieldNames::default(), Vec::new()),
             crate::dtype::Nullability::NonNullable,
         );
-        let slots = make_struct_slots(&[], &Validity::NonNullable, len);
+        let slots = make_struct_slots([], &Validity::NonNullable, len);
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Struct, dtype, len, EmptyArrayData).with_slots(slots),
@@ -393,10 +429,7 @@ impl Array<Struct> {
 
     // TODO(ngates): remove this... it doesn't help to consume self.
     pub fn into_data_parts(self) -> StructDataParts {
-        let fields: Arc<[ArrayRef]> = self.slots()[FIELDS_OFFSET..]
-            .iter()
-            .map(|s| s.as_ref().vortex_expect("StructArray field slot").clone())
-            .collect();
+        let fields = self.fields().to_vec();
         let validity = self.validity().vortex_expect("StructArray validity");
         StructDataParts {
             struct_fields: self.struct_fields().clone(),
@@ -412,18 +445,14 @@ impl Array<Struct> {
 
         let position = struct_dtype.find(name.as_ref())?;
 
-        let slot_position = FIELDS_OFFSET + position;
-        let field = self.slots()[slot_position]
-            .as_ref()
-            .vortex_expect("StructArray field slot")
-            .clone();
-        let new_slots: ArraySlots = self
-            .slots()
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != slot_position)
-            .map(|(_, s)| s.clone())
-            .collect();
+        let slot_position = StructSlots::FIELDS_OFFSET + position;
+        let field = self.unmasked_field(position).clone();
+        // `Filter` has a zero lower bound, so build the slots with an exact capacity instead of
+        // letting `collect` grow them.
+        let slots = self.slots();
+        let mut new_slots = ArraySlots::with_capacity(slots.len() - 1);
+        new_slots.extend(slots[..slot_position].iter().cloned());
+        new_slots.extend(slots[slot_position + 1..].iter().cloned());
 
         let new_dtype = struct_dtype.without_field(position).ok()?;
         let new_array = unsafe {
@@ -448,11 +477,7 @@ impl Array<Struct> {
         let types = struct_dtype.fields().chain(once(array.dtype().clone()));
         let new_fields = StructFields::new(names.collect(), types.collect());
 
-        let children: Arc<[ArrayRef]> = self.slots()[FIELDS_OFFSET..]
-            .iter()
-            .map(|s| s.as_ref().vortex_expect("StructArray field slot").clone())
-            .chain(once(array))
-            .collect();
+        let children = self.iter_unmasked_fields().cloned().chain(once(array));
 
         Self::try_new_with_dtype(children, new_fields, self.len(), self.validity()?)
     }
@@ -505,10 +530,7 @@ impl Array<Struct> {
             .enumerate()
             .map(|(i, dtype)| {
                 // SAFETY: We establish above that every array has the same type.
-                let chunks = field_arrays_per_chunk
-                    .iter()
-                    .map(|x| x[i].clone())
-                    .collect();
+                let chunks = field_arrays_per_chunk.iter().map(|x| x[i].clone());
                 unsafe { ChunkedArray::new_unchecked(chunks, dtype) }.into_array()
             })
             .collect::<Vec<_>>();
@@ -541,11 +563,12 @@ impl Array<Struct> {
             struct_validity.clone()
         };
 
-        // Nothing to push down.
+        // Nothing to push down. The fields are unchanged, so reuse the existing `StructFields`
+        // rather than re-deriving it field by field.
         if struct_validity.definitely_no_nulls() {
-            return Self::try_new(
-                self.names().clone(),
-                self.unmasked_fields(),
+            return Self::try_new_with_dtype(
+                self.iter_unmasked_fields().cloned(),
+                self.struct_fields().clone(),
                 self.len(),
                 new_validity,
             );

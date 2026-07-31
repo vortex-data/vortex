@@ -23,10 +23,12 @@ use crate::arrays::VariantArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::union::UnionArrayExt;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::union::UnionArraySlotsExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
@@ -141,10 +143,15 @@ fn mask_validity_fixed_size_list(
 fn mask_validity_struct(array: StructArray, validity: Validity) -> VortexResult<StructArray> {
     let len = array.len();
     let new_validity = Validity::and(array.validity()?, validity)?;
-    let fields = array.unmasked_fields();
-    let struct_fields = array.struct_fields();
     // SAFETY: We're only changing validity, not the data structure.
-    Ok(unsafe { StructArray::new_unchecked(fields, struct_fields.clone(), len, new_validity) })
+    Ok(unsafe {
+        StructArray::new_unchecked(
+            array.iter_unmasked_fields().cloned(),
+            array.struct_fields().clone(),
+            len,
+            new_validity,
+        )
+    })
 }
 
 fn mask_validity_union(array: UnionArray, validity: Validity) -> VortexResult<UnionArray> {
@@ -153,10 +160,9 @@ fn mask_validity_union(array: UnionArray, validity: Validity) -> VortexResult<Un
         .clone()
         .mask(validity.to_array(array.len()))?;
     let variants = array.variants().clone();
-    let children = array.children();
 
     // SAFETY: We're only changing validity, not the data structure.
-    Ok(unsafe { UnionArray::new_unchecked(type_ids, variants, children) })
+    Ok(unsafe { UnionArray::new_unchecked(type_ids, variants, array.iter_children().cloned()) })
 }
 
 fn mask_validity_extension(

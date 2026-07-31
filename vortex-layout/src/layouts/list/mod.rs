@@ -1,18 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! An experimental structural layout for list-typed columns. Note that this is expected to change.
-//!
-//! [`ListLayout`] decomposes a list column into independently configurable child layouts:
-//! `elements`, `offsets`, and, for nullable lists, `validity`. Keeping the children independent allows
-//! each child to use its own configurable layout and lets nested list elements (e.g. with `List<List>`) be decomposed recursively.
-//!
-//! This provides benefits such as:
-//! * Reading only the children needed to evaluate an expression. For example, `ListLength` does
-//!   not need to read list elements.
-//! * Restricting element reads to the range covered by the selected outer rows, avoiding elements
-//!   belonging exclusively to unselected leading or trailing lists.
-//! * Allowing each child to use its own compression, chunking, and pruning strategy.
+//! An experimental structural layout for list-typed columns.
 
 mod expr;
 mod reader;
@@ -21,7 +10,6 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::ListReader;
-use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -35,89 +23,131 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::LayoutBuildContext;
+use crate::Layout;
 use crate::LayoutChildType;
-use crate::LayoutEncodingRef;
+use crate::LayoutDeserializeArgs;
 use crate::LayoutId;
+use crate::LayoutParts;
 use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
-use crate::children::LayoutChildren;
-use crate::segments::SegmentId;
+use crate::children::OwnedLayoutChildren;
 use crate::segments::SegmentSource;
-use crate::vtable;
 
-/// Child index of the `elements` layout.
+/// Child index of the elements layout.
 pub const ELEMENTS_CHILD_INDEX: usize = 0;
-/// Child index of the `offsets` layout.
+/// Child index of the offsets layout.
 pub const OFFSETS_CHILD_INDEX: usize = 1;
-/// Child index of the `validity` layout (only present when the list dtype is nullable).
+/// Child index of the optional validity layout.
 pub const VALIDITY_CHILD_INDEX: usize = 2;
-
-/// Number of children when the list dtype is non-nullable.
+/// Number of children for a non-nullable list.
 pub const NUM_CHILDREN_NON_NULLABLE: usize = 2;
 
-vtable!(List);
+/// List layout vtable.
+#[derive(Clone, Debug)]
+pub struct List;
+
+/// Backwards-compatible name for the list layout plugin.
+pub use List as ListLayoutEncoding;
+
+/// List-layout-specific data.
+#[derive(Clone, Debug)]
+pub struct ListData {
+    offsets_ptype: PType,
+}
+
+/// A list layout shredded into elements, offsets, and optional validity children.
+pub type ListLayout = Layout<List>;
 
 impl VTable for List {
-    type Layout = ListLayout;
-    type Encoding = ListLayoutEncoding;
+    type LayoutData = ListData;
     type Metadata = ProstMetadata<ListLayoutMetadata>;
 
-    fn id(_encoding: &Self::Encoding) -> LayoutId {
+    fn id(&self) -> LayoutId {
         static ID: CachedId = CachedId::new("vortex.list");
         *ID
     }
 
-    fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(ListLayoutEncoding.as_ref())
+    fn metadata(layout: &Layout<Self>) -> Self::Metadata {
+        ProstMetadata(ListLayoutMetadata::new(layout.offsets_ptype))
     }
 
-    fn row_count(layout: &Self::Layout) -> u64 {
-        layout.row_count()
+    fn deserialize(
+        &self,
+        args: &LayoutDeserializeArgs<'_>,
+        metadata: &ListLayoutMetadata,
+    ) -> VortexResult<Self::LayoutData> {
+        ListLayout::validate_children(args.dtype, args.children.nchildren())?;
+        let elements_dtype = args
+            .dtype
+            .as_list_element_opt()
+            .ok_or_else(|| vortex_err!("ListLayout requires a List dtype, got {}", args.dtype))?;
+        args.children.child(ELEMENTS_CHILD_INDEX, elements_dtype)?;
+        let offsets_dtype = DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable);
+        let offsets = args.children.child(OFFSETS_CHILD_INDEX, &offsets_dtype)?;
+        vortex_error::vortex_ensure!(
+            offsets.row_count().saturating_sub(1) == args.row_count,
+            "List offsets row count does not match parent"
+        );
+        if args.dtype.is_nullable() {
+            let validity = args
+                .children
+                .child(VALIDITY_CHILD_INDEX, &DType::Bool(Nullability::NonNullable))?;
+            vortex_error::vortex_ensure!(
+                validity.row_count() == args.row_count,
+                "List validity row count does not match parent"
+            );
+        }
+        Ok(ListData {
+            offsets_ptype: metadata.offsets_ptype(),
+        })
     }
 
-    fn dtype(layout: &Self::Layout) -> &DType {
-        &layout.dtype
+    fn nslots(_layout: &Layout<Self>) -> usize {
+        // Elements, offsets, and an always-slotted (optionally present) validity child.
+        VALIDITY_CHILD_INDEX + 1
     }
 
-    fn metadata(layout: &Self::Layout) -> Self::Metadata {
-        ProstMetadata(ListLayoutMetadata::new(layout.offsets_ptype()))
-    }
-
-    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![]
-    }
-
-    fn nchildren(layout: &Self::Layout) -> usize {
-        if layout.dtype.is_nullable() {
-            NUM_CHILDREN_NON_NULLABLE + 1
-        } else {
-            NUM_CHILDREN_NON_NULLABLE
+    fn slot_to_child(layout: &Layout<Self>, slot: usize) -> Option<usize> {
+        match slot {
+            ELEMENTS_CHILD_INDEX | OFFSETS_CHILD_INDEX => Some(slot),
+            VALIDITY_CHILD_INDEX => layout.dtype().is_nullable().then_some(VALIDITY_CHILD_INDEX),
+            _ => None,
         }
     }
 
-    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
-        match (idx, layout.validity.as_ref()) {
-            (ELEMENTS_CHILD_INDEX, _) => Ok(Arc::clone(&layout.elements)),
-            (OFFSETS_CHILD_INDEX, _) => Ok(Arc::clone(&layout.offsets)),
-            (VALIDITY_CHILD_INDEX, Some(validity)) => Ok(Arc::clone(validity)),
+    fn child_dtype(layout: &Layout<Self>, idx: usize) -> VortexResult<DType> {
+        match idx {
+            ELEMENTS_CHILD_INDEX => layout
+                .dtype()
+                .as_list_element_opt()
+                .map(|dtype| dtype.as_ref().clone())
+                .ok_or_else(|| vortex_err!("ListLayout requires a List dtype")),
+            OFFSETS_CHILD_INDEX => Ok(DType::Primitive(
+                layout.offsets_ptype,
+                Nullability::NonNullable,
+            )),
+            VALIDITY_CHILD_INDEX if layout.dtype().is_nullable() => {
+                Ok(DType::Bool(Nullability::NonNullable))
+            }
             _ => vortex_bail!("Invalid child index {idx} for ListLayout"),
         }
     }
 
-    fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType {
-        match (idx, layout.validity.is_some()) {
-            (ELEMENTS_CHILD_INDEX, _) => LayoutChildType::Auxiliary("elements".into()),
-            (OFFSETS_CHILD_INDEX, _) => LayoutChildType::Auxiliary("offsets".into()),
-            (VALIDITY_CHILD_INDEX, true) => LayoutChildType::Auxiliary("validity".into()),
+    fn child_type(layout: &Layout<Self>, idx: usize) -> LayoutChildType {
+        match idx {
+            ELEMENTS_CHILD_INDEX => LayoutChildType::Auxiliary("elements".into()),
+            OFFSETS_CHILD_INDEX => LayoutChildType::Auxiliary("offsets".into()),
+            VALIDITY_CHILD_INDEX if layout.dtype().is_nullable() => {
+                LayoutChildType::Auxiliary("validity".into())
+            }
             _ => vortex_panic!("Invalid child index {idx} for ListLayout"),
         }
     }
 
     fn new_reader(
-        layout: &Self::Layout,
+        layout: &Layout<Self>,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
@@ -131,141 +161,65 @@ impl VTable for List {
             ctx,
         )?))
     }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        dtype: &DType,
-        _row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        _segment_ids: Vec<SegmentId>,
-        children: &dyn LayoutChildren,
-        _ctx: &LayoutBuildContext<'_>,
-    ) -> VortexResult<Self::Layout> {
-        validate_children(dtype, children.nchildren())?;
-
-        let elements_dtype = dtype
-            .as_list_element_opt()
-            .ok_or_else(|| vortex_err!("ListLayout requires a List dtype, got {dtype}"))?;
-        let elements = children.child(ELEMENTS_CHILD_INDEX, elements_dtype.as_ref())?;
-
-        let offsets_dtype = DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable);
-        let offsets = children.child(OFFSETS_CHILD_INDEX, &offsets_dtype)?;
-
-        let validity = dtype
-            .is_nullable()
-            .then(|| children.child(VALIDITY_CHILD_INDEX, &DType::Bool(Nullability::NonNullable)))
-            .transpose()?;
-
-        Ok(ListLayout {
-            dtype: dtype.clone(),
-            elements,
-            offsets,
-            validity,
-        })
-    }
-
-    fn with_children(layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
-        validate_children(layout.dtype(), children.len())?;
-
-        let mut iter = children.into_iter();
-        layout.elements = iter
-            .next()
-            .ok_or_else(|| vortex_err!("missing elements child"))?;
-        layout.offsets = iter
-            .next()
-            .ok_or_else(|| vortex_err!("missing offsets child"))?;
-        layout.validity = layout
-            .dtype
-            .is_nullable()
-            .then(|| {
-                iter.next()
-                    .ok_or_else(|| vortex_err!("missing validity child"))
-            })
-            .transpose()?;
-        Ok(())
-    }
 }
 
-/// Validates expected number of children based on `dtype`
-fn validate_children(dtype: &DType, n_children: usize) -> VortexResult<()> {
-    let expected = if dtype.is_nullable() {
-        NUM_CHILDREN_NON_NULLABLE + 1
-    } else {
-        NUM_CHILDREN_NON_NULLABLE
-    };
-
-    vortex_ensure_eq!(n_children, expected);
-    Ok(())
-}
-
-#[derive(Debug)]
-pub struct ListLayoutEncoding;
-
-/// Stores a list-typed array by shredding `elements`, `offsets`, and optional `validity` children.
-#[derive(Clone, Debug)]
-pub struct ListLayout {
-    dtype: DType,
-    elements: LayoutRef,
-    offsets: LayoutRef,
-    validity: Option<LayoutRef>,
-}
-
-impl ListLayout {
-    /// Construct a new `ListLayout` from its components.
-    ///
-    /// # Invariants
-    ///
-    /// - `dtype` must be a [`DType::List`].
-    /// - `validity` must be `Some` iff `dtype.is_nullable()`.
-    /// - `offsets.dtype()` must be a non-nullable integer.
-    /// - `offsets.row_count()` is the Arrow-canonical `n+1` for `n` lists (or `0` for empty).
-    /// - When present, `validity.row_count() == offsets.row_count().saturating_sub(1)`.
+impl Layout<List> {
+    /// Construct a list layout from its children.
     pub fn new(
         dtype: DType,
         elements: LayoutRef,
         offsets: LayoutRef,
         validity: Option<LayoutRef>,
     ) -> Self {
-        Self {
+        let row_count = offsets.row_count().saturating_sub(1);
+        let offsets_ptype = offsets.dtype().as_ptype();
+        let mut children = vec![elements, offsets];
+        children.extend(validity);
+        Self::validate_children(&dtype, children.len()).vortex_expect("invalid list children");
+        LayoutParts::new(
+            List,
             dtype,
-            elements,
-            offsets,
-            validity,
-        }
+            row_count,
+            Vec::new(),
+            OwnedLayoutChildren::layout_children(children),
+            ListData { offsets_ptype },
+        )
+        .into_typed()
     }
 
-    /// Number of lists in this layout.
-    #[inline]
-    pub fn row_count(&self) -> u64 {
-        self.offsets.row_count().saturating_sub(1)
+    /// Returns the elements child.
+    pub fn elements(&self) -> VortexResult<LayoutRef> {
+        self.slot(ELEMENTS_CHILD_INDEX)?
+            .ok_or_else(|| vortex_err!("ListLayout elements slot is absent"))
     }
 
-    #[inline]
-    pub fn elements(&self) -> &LayoutRef {
-        &self.elements
+    /// Returns the offsets child.
+    pub fn offsets(&self) -> VortexResult<LayoutRef> {
+        self.slot(OFFSETS_CHILD_INDEX)?
+            .ok_or_else(|| vortex_err!("ListLayout offsets slot is absent"))
     }
 
-    #[inline]
-    pub fn offsets(&self) -> &LayoutRef {
-        &self.offsets
+    /// Returns the optional validity child.
+    pub fn validity(&self) -> VortexResult<Option<LayoutRef>> {
+        self.slot(VALIDITY_CHILD_INDEX)
     }
 
-    #[inline]
-    pub fn validity(&self) -> Option<&LayoutRef> {
-        self.validity.as_ref()
-    }
-
-    /// The integer type used for the `offsets` child layout.
-    #[inline]
+    /// Returns the integer ptype used by offsets.
     pub fn offsets_ptype(&self) -> PType {
-        self.offsets.dtype().as_ptype()
+        self.offsets_ptype
     }
 
-    /// The dtype of the inner elements column.
+    /// Returns the list element dtype.
     pub fn elements_dtype(&self) -> &DType {
-        self.dtype
+        self.dtype()
             .as_list_element_opt()
             .vortex_expect("ListLayout dtype must be a List")
+    }
+
+    fn validate_children(dtype: &DType, nchildren: usize) -> VortexResult<()> {
+        let expected = NUM_CHILDREN_NON_NULLABLE + usize::from(dtype.is_nullable());
+        vortex_ensure_eq!(nchildren, expected);
+        Ok(())
     }
 }
 

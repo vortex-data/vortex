@@ -73,6 +73,11 @@ impl OwnedLayoutChildren {
     }
 }
 
+/// Create an in-memory child adapter from owned layout references.
+pub fn layout_children(children: Vec<LayoutRef>) -> Arc<dyn LayoutChildren> {
+    OwnedLayoutChildren::layout_children(children)
+}
+
 /// In-memory implementation of [`LayoutChildren`].
 impl LayoutChildren for OwnedLayoutChildren {
     fn to_arc(&self) -> Arc<dyn LayoutChildren> {
@@ -221,7 +226,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                 .ok_or_else(|| {
                     vortex_err!("Unknown layout encoding index: {}", fb_child.encoding())
                 })?;
-            let Some(encoding) = self.layouts.find(&encoding_id) else {
+            let Some(encoding) = self.layouts.get(&encoding_id) else {
                 if self.allow_unknown {
                     return viewed_children.foreign_layout_from_fb(fb_child, dtype);
                 }

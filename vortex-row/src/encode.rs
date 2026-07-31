@@ -90,8 +90,8 @@ impl ScalarFnVTable for RowEncode {
         execute_row_encode(options, args, ctx)
     }
 
-    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
-        true
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        false
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {

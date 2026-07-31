@@ -18,7 +18,8 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
-use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_decimal_value_type;
@@ -130,7 +131,7 @@ pub fn mask_canonical_array(
         Canonical::Struct(array) => {
             let new_validity = mask_validity(&array.validity()?, mask, ctx);
             StructArray::try_new_with_dtype(
-                array.unmasked_fields(),
+                array.iter_unmasked_fields().cloned(),
                 array.struct_fields().clone(),
                 array.len(),
                 new_validity,

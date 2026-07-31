@@ -8,6 +8,7 @@ use super::uncompressed_size_in_bytes_u64;
 use crate::ExecutionCtx;
 use crate::arrays::UnionArray;
 use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::UnionArraySlotsExt;
 
 pub(super) fn union_uncompressed_size_in_bytes(
     array: &UnionArray,

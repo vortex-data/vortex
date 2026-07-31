@@ -9,7 +9,9 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::null_buffer::to_null_buffer;
 
@@ -33,6 +35,11 @@ pub(super) fn to_arrow_bool(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    vortex_ensure!(
+        matches!(array.dtype(), DType::Bool(_)),
+        "Cannot convert Vortex array with dtype {} to an Arrow Boolean array",
+        array.dtype()
+    );
     let bool_array = array.execute::<BoolArray>(ctx)?;
     canonical_bool_to_arrow(&bool_array, ctx)
 }

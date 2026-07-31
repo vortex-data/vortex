@@ -6,7 +6,6 @@ use vortex::dtype::PType;
 /// Variant enum for Vortex primitive types.
 #[non_exhaustive]
 #[repr(C)]
-#[expect(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum vx_ptype {
     /// Unsigned 8-bit integer

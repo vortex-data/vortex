@@ -13,10 +13,8 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
-use vortex::array::ArrayContext;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
-use vortex::array::DeserializeMetadata;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
@@ -36,26 +34,27 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_panic;
-use vortex::layout::IntoLayout;
-use vortex::layout::LayoutBuildContext;
+use vortex::layout::Layout;
 use vortex::layout::LayoutChildType;
-use vortex::layout::LayoutChildren;
+use vortex::layout::LayoutDeserializeArgs;
 use vortex::layout::LayoutEncodingRef;
 use vortex::layout::LayoutId;
+use vortex::layout::LayoutParts;
 use vortex::layout::LayoutReader;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::LayoutRef;
 use vortex::layout::LayoutStrategy;
+use vortex::layout::LayoutWriterContext;
 use vortex::layout::RowSplits;
 use vortex::layout::SplitRange;
 use vortex::layout::VTable;
+use vortex::layout::layout_children;
 use vortex::layout::layouts::SharedArrayFuture;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSinkRef;
 use vortex::layout::segments::SegmentSource;
 use vortex::layout::sequence::SendableSequentialStream;
 use vortex::layout::sequence::SequencePointer;
-use vortex::layout::vtable;
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarTruncation;
@@ -84,15 +83,16 @@ pub struct CudaFlatLayoutMetadata {
     pub host_buffers: Vec<InlinedBuffer>,
 }
 
-vtable!(CudaFlat);
-
-#[derive(Debug)]
-pub struct CudaFlatLayoutEncoding;
-
+/// CUDA flat layout vtable.
 #[derive(Clone, Debug)]
-pub struct CudaFlatLayout {
-    row_count: u64,
-    dtype: DType,
+pub struct CudaFlat;
+
+/// Backwards-compatible plugin name.
+pub use CudaFlat as CudaFlatLayoutEncoding;
+
+/// CUDA-flat-specific data.
+#[derive(Clone, Debug)]
+pub struct CudaFlatData {
     segment_id: SegmentId,
     ctx: ReadContext,
     array_tree: ByteBuffer,
@@ -100,7 +100,10 @@ pub struct CudaFlatLayout {
     host_buffers: Arc<HashMap<u32, ByteBuffer>>,
 }
 
-impl CudaFlatLayout {
+/// A CUDA-optimized terminal layout.
+pub type CudaFlatLayout = Layout<CudaFlat>;
+
+impl CudaFlatData {
     #[inline]
     pub fn segment_id(&self) -> SegmentId {
         self.segment_id
@@ -123,28 +126,15 @@ impl CudaFlatLayout {
 }
 
 impl VTable for CudaFlat {
-    type Layout = CudaFlatLayout;
-    type Encoding = CudaFlatLayoutEncoding;
+    type LayoutData = CudaFlatData;
     type Metadata = ProstMetadata<CudaFlatLayoutMetadata>;
 
-    fn id(_encoding: &Self::Encoding) -> LayoutId {
+    fn id(&self) -> LayoutId {
         static ID: CachedId = CachedId::new("vortex.cuda_flat");
         *ID
     }
 
-    fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(CudaFlatLayoutEncoding.as_ref())
-    }
-
-    fn row_count(layout: &Self::Layout) -> u64 {
-        layout.row_count
-    }
-
-    fn dtype(layout: &Self::Layout) -> &DType {
-        &layout.dtype
-    }
-
-    fn metadata(layout: &Self::Layout) -> Self::Metadata {
+    fn metadata(layout: &Layout<Self>) -> Self::Metadata {
         ProstMetadata(CudaFlatLayoutMetadata {
             array_encoding_tree: layout.array_tree.to_vec(),
             host_buffers: layout
@@ -158,24 +148,40 @@ impl VTable for CudaFlat {
         })
     }
 
-    fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![layout.segment_id]
+    fn deserialize(
+        &self,
+        args: &LayoutDeserializeArgs<'_>,
+        metadata: &CudaFlatLayoutMetadata,
+    ) -> VortexResult<Self::LayoutData> {
+        if args.segment_ids.len() != 1 {
+            vortex_bail!("CudaFlatLayout must have exactly one segment ID");
+        }
+        if args.children.nchildren() != 0 {
+            vortex_bail!("CudaFlatLayout must not have children");
+        }
+        let host_buffers = metadata
+            .host_buffers
+            .iter()
+            .map(|hb| (hb.buffer_index, ByteBuffer::from(hb.data.clone())))
+            .collect();
+        Ok(CudaFlatData {
+            segment_id: args.segment_ids[0],
+            ctx: args.array_read_ctx.clone(),
+            array_tree: ByteBuffer::from(metadata.array_encoding_tree.clone()),
+            host_buffers: Arc::new(host_buffers),
+        })
     }
 
-    fn nchildren(_layout: &Self::Layout) -> usize {
-        0
+    fn child_dtype(_layout: &Layout<Self>, idx: usize) -> VortexResult<DType> {
+        vortex_bail!("CudaFlatLayout has no child {idx}");
     }
 
-    fn child(_layout: &Self::Layout, _idx: usize) -> VortexResult<LayoutRef> {
-        vortex_bail!("CudaFlatLayout has no children");
-    }
-
-    fn child_type(_layout: &Self::Layout, _idx: usize) -> LayoutChildType {
+    fn child_type(_layout: &Layout<Self>, _idx: usize) -> LayoutChildType {
         vortex_panic!("CudaFlatLayout has no children");
     }
 
     fn new_reader(
-        layout: &Self::Layout,
+        layout: &Layout<Self>,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
@@ -188,40 +194,6 @@ impl VTable for CudaFlat {
             session: session.clone(),
             array: Default::default(),
         }))
-    }
-
-    fn build(
-        _encoding: &Self::Encoding,
-        dtype: &DType,
-        row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        segment_ids: Vec<SegmentId>,
-        _children: &dyn LayoutChildren,
-        build_ctx: &LayoutBuildContext<'_>,
-    ) -> VortexResult<Self::Layout> {
-        if segment_ids.len() != 1 {
-            vortex_bail!("CudaFlatLayout must have exactly one segment ID");
-        }
-        let host_buffers: HashMap<u32, ByteBuffer> = metadata
-            .host_buffers
-            .iter()
-            .map(|hb| (hb.buffer_index, ByteBuffer::from(hb.data.clone())))
-            .collect();
-        Ok(CudaFlatLayout {
-            row_count,
-            dtype: dtype.clone(),
-            segment_id: segment_ids[0],
-            ctx: build_ctx.array_read_ctx.clone(),
-            array_tree: ByteBuffer::from(metadata.array_encoding_tree.clone()),
-            host_buffers: Arc::new(host_buffers),
-        })
-    }
-
-    fn with_children(_layout: &mut Self::Layout, children: Vec<LayoutRef>) -> VortexResult<()> {
-        if !children.is_empty() {
-            vortex_bail!("CudaFlatLayout has no children, got {}", children.len());
-        }
-        Ok(())
     }
 }
 
@@ -240,14 +212,14 @@ impl CudaFlatReader {
     fn array_future(&self) -> SharedArrayFuture {
         self.array
             .get_or_init(|| {
-                let row_count = usize::try_from(self.layout.row_count)
+                let row_count = usize::try_from(self.layout.row_count())
                     .vortex_expect("row count must fit in usize");
 
                 let segment_fut = self.segment_source.request(self.layout.segment_id);
 
                 let ctx = self.layout.ctx.clone();
                 let session = self.session.clone();
-                let dtype = self.layout.dtype.clone();
+                let dtype = self.layout.dtype().clone();
                 let array_tree = self.layout.array_tree.clone();
                 let host_buffers = Arc::clone(&self.layout.host_buffers);
 
@@ -275,11 +247,11 @@ impl LayoutReader for CudaFlatReader {
     }
 
     fn dtype(&self) -> &DType {
-        &self.layout.dtype
+        self.layout.dtype()
     }
 
     fn row_count(&self) -> u64 {
-        self.layout.row_count
+        self.layout.row_count()
     }
 
     fn register_splits(
@@ -288,7 +260,7 @@ impl LayoutReader for CudaFlatReader {
         split_range: &SplitRange,
         splits: &mut RowSplits,
     ) -> VortexResult<()> {
-        split_range.check_bounds(self.layout.row_count)?;
+        split_range.check_bounds(self.layout.row_count())?;
         splits.push(split_range.root_row_range().end);
         Ok(())
     }
@@ -442,13 +414,12 @@ fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
 impl LayoutStrategy for CudaFlatLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
-        let ctx = ctx.clone();
         let options = self.clone();
         let Some(chunk) = stream.next().await else {
             vortex_bail!("CudaFlatLayoutStrategy needs a single chunk");
@@ -500,7 +471,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         let host_buffers = extract_constant_buffers(&chunk);
 
         let buffers = chunk.serialize(
-            &ctx,
+            ctx.array_ctx(),
             session,
             &SerializeOptions {
                 offset: 0,
@@ -523,14 +494,19 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
             .map(|hb| (hb.buffer_index, ByteBuffer::from(hb.data.clone())))
             .collect();
 
-        Ok(CudaFlatLayout {
+        Ok(LayoutParts::new(
+            CudaFlat,
+            stream.dtype().clone(),
             row_count,
-            dtype: stream.dtype().clone(),
-            segment_id,
-            ctx: ReadContext::new(ctx.to_ids()),
-            array_tree,
-            host_buffers: Arc::new(host_buffer_map),
-        }
+            vec![segment_id],
+            layout_children(Vec::new()),
+            CudaFlatData {
+                segment_id,
+                ctx: ReadContext::new(ctx.array_ctx().to_ids()),
+                array_tree,
+                host_buffers: Arc::new(host_buffer_map),
+            },
+        )
         .into_layout())
     }
 }
@@ -565,5 +541,5 @@ pub fn register_cuda_layout(session: &VortexSession) {
     use vortex::layout::session::LayoutSessionExt;
     session
         .layouts()
-        .register(LayoutEncodingRef::new_ref(CudaFlatLayoutEncoding.as_ref()));
+        .register(LayoutEncodingRef::new_ref(&CudaFlat));
 }

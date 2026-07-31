@@ -34,7 +34,7 @@ use vortex_session::registry::CachedId;
 
 use crate::EqMode;
 use crate::array::ArrayId;
-use crate::arrays::primitive::array::SLOT_NAMES;
+use crate::arrays::primitive::array::PrimitiveSlots;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
@@ -128,7 +128,8 @@ impl VTable for Primitive {
             data.len(),
             len
         );
-        let validity = crate::array::child_to_validity(slots[0].as_ref(), *nullability);
+        let validity =
+            crate::array::child_to_validity(slots[PrimitiveSlots::VALIDITY].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == len,
@@ -202,7 +203,7 @@ impl VTable for Primitive {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        PrimitiveSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use async_trait::async_trait;
-use vortex_array::ArrayContext;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
@@ -28,6 +27,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
 use crate::segments::SegmentSinkRef;
@@ -38,7 +38,7 @@ use crate::sequence::SequencePointer;
 /// default. Disabled unless the environment variable `VORTEX_EXPERIMENTAL_LIST_LAYOUT`
 /// is set to `1`.
 ///
-/// [`ListLayoutStrategy`]: crate::layouts::list::writer::ListLayoutStrategy
+/// [`ListLayoutStrategy`]: ListLayoutStrategy
 pub fn use_experimental_list_layout() -> bool {
     static USE_EXPERIMENTAL_LIST_LAYOUT: LazyLock<bool> =
         LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_LIST_LAYOUT").is_ok_and(|v| v == "1"));
@@ -72,7 +72,7 @@ pub struct TableStrategy {
     /// Optional factory applied to each dynamically constructed [`ListLayoutStrategy`].
     /// Its presence also enables list decomposition.
     ///
-    /// [`ListLayoutStrategy`]: crate::layouts::list::writer::ListLayoutStrategy
+    /// [`ListLayoutStrategy`]: ListLayoutStrategy
     list_layout_factory: Option<ListLayoutFactory>,
 }
 
@@ -295,7 +295,7 @@ impl TableStrategy {
 impl LayoutStrategy for TableStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -349,7 +349,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutRef;
@@ -369,13 +368,21 @@ mod tests {
     use crate::sequence::SequentialStreamAdapter;
     use crate::sequence::SequentialStreamExt;
     use crate::test::SESSION;
+    use crate::test::new_session;
 
     async fn write<S: LayoutStrategy>(strategy: &S, array: ArrayRef) -> VortexResult<LayoutRef> {
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let stream = array.to_array_stream().sequenced(ptr);
+        let session = new_session().with_tokio();
         strategy
-            .write_stream(ArrayContext::empty(), segments, stream, eof, &SESSION)
+            .write_stream(
+                ArrayContext::empty().into(),
+                segments,
+                stream,
+                eof,
+                &session,
+            )
             .await
     }
 
@@ -549,7 +556,9 @@ mod tests {
         assert_eq!(zoned.zone_len(), 4);
         assert_eq!(zoned.nzones(), 3);
 
-        let data = layout.child(0)?;
+        let data = layout
+            .slot(0)?
+            .vortex_expect("ZonedLayout always has a data child");
         assert!(data.is::<List>());
         assert_eq!(data.row_count(), 9);
         Ok(())
@@ -658,9 +667,9 @@ mod tests {
         .with_field_writer(FieldPath::root(), flat);
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "panic while transposing table stream")]
-    fn table_fanout_panic_propagates() {
+    async fn table_fanout_panic_propagates() {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (_, eof) = SequenceId::root().split();
@@ -680,18 +689,15 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
         );
 
-        block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
-            strategy
-                .write_stream(
-                    ctx,
-                    segments,
-                    SequentialStreamAdapter::new(dtype, stream).sendable(),
-                    eof,
-                    &session,
-                )
-                .await
-                .unwrap();
-        });
+        strategy
+            .write_stream(
+                ctx.into(),
+                segments,
+                SequentialStreamAdapter::new(dtype, stream).sendable(),
+                eof,
+                &SESSION,
+            )
+            .await
+            .unwrap();
     }
 }

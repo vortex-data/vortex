@@ -18,7 +18,7 @@ use vortex_flatbuffers::layout;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 
-use crate::Layout;
+use crate::DynLayout;
 use crate::LayoutBuildContext;
 use crate::LayoutContext;
 use crate::LayoutRef;
@@ -70,7 +70,7 @@ pub fn layout_from_flatbuffer_with_options(
     let encoding_id = layout_ctx
         .resolve(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
-    let encoding = layouts.find(&encoding_id);
+    let encoding = layouts.get(&encoding_id);
 
     if encoding.is_none() && allow_unknown {
         return foreign_layout_from_fb(fb_layout, dtype, layout_ctx);
@@ -149,7 +149,7 @@ fn foreign_layout_from_fb(
     ))
 }
 
-impl dyn Layout + '_ {
+impl dyn DynLayout + '_ {
     /// Serialize the layout into a [`FlatBufferBuilder`].
     pub fn flatbuffer_writer<'a>(
         &'a self,
@@ -161,7 +161,7 @@ impl dyn Layout + '_ {
 
 /// An adapter struct for writing a layout to a FlatBuffer.
 struct LayoutFlatBufferWriter<'a> {
-    layout: &'a dyn Layout,
+    layout: &'a dyn DynLayout,
     ctx: &'a LayoutContext,
 }
 
@@ -224,6 +224,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
 #[cfg(test)]
 mod tests {
     use flatbuffers::FlatBufferBuilder;
+    use vortex_array::array_session;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_flatbuffers::layout as fbl;
@@ -274,7 +275,7 @@ mod tests {
             LayoutEncodingId::new("vortex.test.foreign_child_layout"),
         ]);
         let array_ctx = ReadContext::new([]);
-        let session = vortex_array::array_session().with::<LayoutSession>();
+        let session = array_session().with::<LayoutSession>();
 
         let layout = layout_from_flatbuffer_with_options(
             layout_buffer,
@@ -293,7 +294,7 @@ mod tests {
         assert_eq!(*layout.segment_ids()[0], 7);
         assert_eq!(layout.nchildren(), 1);
 
-        let child = layout.child(0).unwrap();
+        let child = layout.slot(0).unwrap().unwrap();
         assert_eq!(
             child.encoding_id().as_ref(),
             "vortex.test.foreign_child_layout"

@@ -32,6 +32,7 @@ mod write;
 use jni::Env;
 use jni::JavaVM;
 pub(crate) use read_at::JavaFileSystem;
+pub(crate) use read_at::java_readable;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 pub(crate) use write::JavaWrite;

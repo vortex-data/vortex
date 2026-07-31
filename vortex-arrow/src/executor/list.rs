@@ -17,14 +17,15 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::chunked::ChunkedArrayExt;
-use vortex_array::arrays::list::ListArrayExt;
-use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::list::ListArraySlotsExt;
+use vortex_array::arrays::listview::ListViewArraySlotsExt;
 use vortex_array::arrays::listview::ListViewDataParts;
 use vortex_array::arrays::listview::ListViewRebuildMode;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::matcher::Matcher;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -33,6 +34,17 @@ use vortex_error::vortex_ensure;
 use crate::executor::validity::to_arrow_null_buffer;
 use crate::session::ArrowSessionExt;
 
+/// Matches the encodings [`to_arrow_list`] requires for export.
+struct ArrowListExportable;
+
+impl Matcher for ArrowListExportable {
+    type Match<'a> = &'a ArrayRef;
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
+        (array.is::<List>() || array.is::<Chunked>() || array.is::<ListView>()).then_some(array)
+    }
+}
+
 #[allow(rustdoc::broken_intra_doc_links)]
 /// Convert a Vortex VarBinArray into an Arrow [`GenericListArray`](arrow_array:array::GenericListArray).
 pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
@@ -40,9 +52,17 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    vortex_ensure!(
+        matches!(array.dtype(), DType::List(..)),
+        "Cannot convert Vortex array with dtype {} to an Arrow list array",
+        array.dtype()
+    );
+
+    let array = array.execute_until::<ArrowListExportable>(ctx)?;
+
     // If the Vortex array is already in List format, we can directly convert it.
-    if let Some(array) = array.as_opt::<List>() {
-        return list_to_list::<O>(&array.into_owned(), elements_field, ctx);
+    if let Some(list) = array.as_opt::<List>() {
+        return list_to_list::<O>(&list.into_owned(), elements_field, ctx);
     }
 
     // Converting each chunk individually, then using the fast concat logic from arrow
@@ -56,24 +76,15 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
         return Ok(arrow_select::concat::concat(&refs)?);
     }
 
-    // If the Vortex array is a ListViewArray, rebuild to ZCTL if needed and convert.
-    let array = match array.try_downcast::<ListView>() {
-        Ok(array) => {
-            let zctl = if array.is_zero_copy_to_list() {
-                array
-            } else {
-                array.rebuild(ListViewRebuildMode::MakeZeroCopyToList, ctx)?
-            };
-            return list_view_zctl::<O>(zctl, elements_field, ctx);
-        }
-        Err(a) => a,
-    };
-
-    // Otherwise, we execute the array to become a ListViewArray, then rebuild to ZCTL.
+    // Otherwise the array is canonical: a ListViewArray, which we rebuild to ZCTL if needed.
     // Note: arrow_cast::cast supports ListView → List (apache/arrow-rs#8735), but it
     // unconditionally uses take. Our rebuild uses a heuristic that picks list-by-list
     // for large lists, which avoids materializing a large index buffer.
-    let list_view = array.execute::<ListViewArray>(ctx)?;
+    let list_view = array
+        .as_opt::<ListView>()
+        .vortex_expect("Must be ListView from Matcher")
+        .into_owned();
+
     let zctl = if list_view.is_zero_copy_to_list() {
         list_view
     } else {
@@ -213,15 +224,21 @@ mod tests {
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::SliceArray;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::scalar_fn::EmptyOptions;
+    use vortex_array::scalar_fn::fns::mask::Mask;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::ArrowArrayExecutor;
+    use crate::executor::list::ListArray;
     use crate::executor::list::ListViewArray;
 
     /// A shared session for these list-executor tests, used to create execution contexts.
@@ -361,6 +378,92 @@ mod tests {
         assert_eq!(second.len(), 3);
         let second_vals = second.as_any().downcast_ref::<Int32Array>().unwrap();
         assert_eq!(second_vals.values(), &[2, 3, 4]);
+        Ok(())
+    }
+
+    #[test]
+    fn slice_wrapped_list_exports() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Lists [[1, 2], [3], [4, 5, 6]] behind a lazy Slice wrapper selecting rows 1..3.
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6], Validity::NonNullable);
+        let elements_ptr = elements.as_slice::<i32>().as_ptr();
+        let offsets = PrimitiveArray::new(buffer![0i32, 2, 3, 6], Validity::NonNullable);
+        let list = ListArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            Validity::NonNullable,
+        )?;
+        let sliced = SliceArray::new(list.into_array(), 1..3).into_array();
+
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::List(field.into());
+        let arrow_array = sliced.execute_arrow(Some(&arrow_dt), &mut ctx)?;
+
+        let arrow_list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+        assert_eq!(arrow_list.len(), 2);
+        let first = arrow_list.value(0);
+        let first_vals = first.as_any().downcast_ref::<Int32Array>().unwrap();
+        assert_eq!(first_vals.values(), &[3]);
+        let second = arrow_list.value(1);
+        let second_vals = second.as_any().downcast_ref::<Int32Array>().unwrap();
+        assert_eq!(second_vals.values(), &[4, 5, 6]);
+
+        // The conversion shares the elements buffer regardless of which path resolves the
+        // Slice (revealed List or zero-copy-to-list ListView).
+        let values = arrow_list
+            .values()
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap();
+        assert_eq!(values.values().as_ptr(), elements_ptr);
+        Ok(())
+    }
+
+    #[test]
+    fn mask_wrapped_list_exports() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        // Lists [[1, 2], [3], [4, 5, 6]] behind a lazy `mask` scalar-fn nulling out row 1 —
+        // the shape a scan produces when a row mask is applied to a List-encoded column.
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5, 6], Validity::NonNullable);
+        let elements_ptr = elements.as_slice::<i32>().as_ptr();
+        let offsets = PrimitiveArray::new(buffer![0i32, 2, 3, 6], Validity::NonNullable);
+        let list = ListArray::try_new(
+            elements.into_array(),
+            offsets.into_array(),
+            Validity::NonNullable,
+        )?;
+        let mask = BoolArray::from_iter([true, false, true]);
+        let masked = Mask.try_new_array(3, EmptyOptions, [list.into_array(), mask.into_array()])?;
+
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::List(field.into());
+        let arrow_array = masked.execute_arrow(Some(&arrow_dt), &mut ctx)?;
+
+        let arrow_list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+        assert_eq!(arrow_list.len(), 3);
+        assert!(!arrow_list.is_null(0));
+        assert!(arrow_list.is_null(1));
+        assert!(!arrow_list.is_null(2));
+        let first = arrow_list.value(0);
+        let first_vals = first.as_any().downcast_ref::<Int32Array>().unwrap();
+        assert_eq!(first_vals.values(), &[1, 2]);
+        let third = arrow_list.value(2);
+        let third_vals = third.as_any().downcast_ref::<Int32Array>().unwrap();
+        assert_eq!(third_vals.values(), &[4, 5, 6]);
+
+        // Masking only touches validity, so the conversion still shares the elements buffer.
+        let values = arrow_list
+            .values()
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap();
+        assert_eq!(values.values().as_ptr(), elements_ptr);
         Ok(())
     }
 

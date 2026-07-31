@@ -290,7 +290,7 @@ mod tests {
 
         // Allocate output buffer for 3 u32 values
         // SAFETY: Allocating uninitialized memory that will be written by kernel
-        let output = unsafe {
+        let mut output = unsafe {
             stream
                 .alloc::<u32>(3)
                 .expect("failed to allocate output buffer")
@@ -309,7 +309,7 @@ mod tests {
         };
 
         let mut launch_args = stream.launch_builder(&function);
-        launch_args.arg(&output);
+        launch_args.arg(&mut output);
 
         // SAFETY: kernel only writes to output buffer
         unsafe {

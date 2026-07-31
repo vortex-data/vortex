@@ -9,6 +9,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Bool;
+use crate::arrays::Constant;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
@@ -70,15 +71,17 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        // The mask child (child 1) is a non-nullable BoolArray where true=keep.
-        // If it's not yet a BoolArray, we can't reduce without execution.
+        // Reduce only when the mask (child 1) is readable from metadata: a concrete `Bool` or a
+        // `Constant`. `Mask::return_dtype` guarantees the mask is `Bool(NonNullable)`, so a
+        // `Constant` here is a non-nullable Boolean. Other encodings may need execution, so leave
+        // them to the kernel.
         let parent_ref: ArrayRef = (*parent).clone();
         let mask_child = parent_ref
             .nth_child(1)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
-        if mask_child.as_opt::<Bool>().is_none() {
+        if mask_child.as_opt::<Bool>().is_none() && mask_child.as_opt::<Constant>().is_none() {
             return Ok(None);
-        };
+        }
         <V as MaskReduce>::mask(array, &mask_child)
     }
 }
@@ -108,5 +111,70 @@ where
             .nth_child(1)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
         <V as MaskKernel>::mask(array, &mask_child, ctx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use crate::IntoArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::Primitive;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::ScalarFn;
+    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
+    use crate::assert_arrays_eq;
+    use crate::dtype::Nullability;
+    use crate::executor::VortexSessionExecute;
+    use crate::optimizer::ArrayOptimizer;
+    use crate::scalar::Scalar;
+    use crate::scalar_fn::EmptyOptions;
+    use crate::scalar_fn::fns::mask::Mask as MaskExpr;
+
+    /// A constant Boolean mask child must take the metadata-only reduction path (pushing into the
+    /// input encoding) rather than surviving as a `ScalarFn` wrapper that falls through to
+    /// execution. Asserting the optimized encoding makes this fail before the adaptor accepts
+    /// `Constant` masks, not just verifying values that could pass through the execution fallback.
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    fn constant_mask_reduces_into_input(#[case] mask_value: bool) -> VortexResult<()> {
+        let input = buffer![1i32, 2, 3, 4, 5].into_array();
+        let mask = ConstantArray::new(
+            Scalar::bool(mask_value, Nullability::NonNullable),
+            input.len(),
+        )
+        .into_array();
+
+        let masked = MaskExpr.try_new_array(input.len(), EmptyOptions, [input, mask])?;
+        assert!(
+            masked.is::<ScalarFn>(),
+            "expected an un-optimized ScalarFn wrapper before optimization"
+        );
+
+        let optimized = masked.optimize()?;
+        assert!(
+            !optimized.is::<ScalarFn>(),
+            "constant mask should not fall through to execution, got {}",
+            optimized.encoding_id()
+        );
+        assert!(
+            optimized.is::<Primitive>(),
+            "constant mask should reduce into the Primitive input, got {}",
+            optimized.encoding_id()
+        );
+
+        let mut ctx = crate::array_session().create_execution_ctx();
+        let expected = if mask_value {
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4), Some(5)])
+        } else {
+            PrimitiveArray::from_option_iter([None::<i32>, None, None, None, None])
+        };
+        assert_arrays_eq!(optimized, expected, &mut ctx);
+
+        Ok(())
     }
 }

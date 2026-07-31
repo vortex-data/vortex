@@ -8,6 +8,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use num_traits::AsPrimitive;
 use onpair::CompactDictionaryView;
 use prost::Message as _;
 use vortex_array::Array;
@@ -25,10 +26,12 @@ use vortex_array::IntoArray;
 use vortex_array::array_slots;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::DynVarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
@@ -46,6 +49,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::canonical::canonicalize_onpair;
+use crate::canonical::onpair_decode_bytes;
 use crate::canonical::onpair_decode_views;
 use crate::decode::collect_widened;
 use crate::rules::RULES;
@@ -101,17 +105,22 @@ impl OnPairMetadata {
 pub struct OnPairSlots {
     /// Primitive integer dictionary offsets, length `dict_size + 1`. The
     /// cascading compressor may re-encode this child independently.
+    #[slot(0)]
     pub dict_offsets: ArrayRef,
     /// Primitive integer token codes. Downstream integer compression may
     /// narrow or bit-pack this child independently of the OnPair metadata.
+    #[slot(1)]
     pub codes: ArrayRef,
     /// Primitive integer row offsets into `codes`, length `num_rows + 1`. The
     /// cascading compressor may re-encode this child independently.
+    #[slot(2)]
     pub codes_offsets: ArrayRef,
     /// Integer decoded-length child, length `num_rows`. Used to size the
     /// canonical output buffer.
+    #[slot(3)]
     pub uncompressed_lengths: ArrayRef,
     /// Optional validity child for the outer string column.
+    #[slot(4)]
     pub validity: Option<ArrayRef>,
 }
 
@@ -544,6 +553,25 @@ impl VTable for OnPair {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
+            let (bytes, lengths) = onpair_decode_bytes(array, ctx)?;
+            let validity = array
+                .array()
+                .validity()?
+                .execute_mask(array.array().len(), ctx)?;
+            match_each_integer_ptype!(lengths.ptype(), |P| {
+                builder.append_values(
+                    bytes.as_slice(),
+                    lengths.as_slice::<P>().iter().scan(0usize, |end, length| {
+                        *end += AsPrimitive::<usize>::as_(*length);
+                        Some(*end)
+                    }),
+                    &validity,
+                )
+            })?;
+            return Ok(());
+        }
+
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
             return array
                 .array()

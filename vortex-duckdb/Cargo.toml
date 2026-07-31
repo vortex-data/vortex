@@ -38,9 +38,17 @@ static_assertions = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
-vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
+vortex = { workspace = true, features = [
+    "files",
+    "tokio",
+    "object_store",
+    "object_store_registry",
+] }
 vortex-geo = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
+
+[features]
+opendal = ["vortex/opendal"]
 
 [dev-dependencies]
 anyhow = { workspace = true }

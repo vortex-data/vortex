@@ -107,9 +107,9 @@ def test_run_writes_compatibility_results_output(tmp_path, monkeypatch) -> None:
     assert metadata["binaries"] == {"datafusion": str(binary_path)}
 
 
-def test_run_combines_gh_json_v3_output_per_backend(tmp_path, monkeypatch) -> None:
+def test_run_combines_ingest_output_per_backend(tmp_path, monkeypatch) -> None:
     run_store = ResultStore(base_dir=tmp_path / "runs")
-    output_path = tmp_path / "artifacts" / "results.v3.jsonl"
+    output_path = tmp_path / "artifacts" / "results.ingest.jsonl"
     binary_paths = {
         cli_module.Engine.DATAFUSION: tmp_path / "datafusion-bench",
         cli_module.Engine.DUCKDB: tmp_path / "duckdb-bench",
@@ -123,10 +123,10 @@ def test_run_combines_gh_json_v3_output_per_backend(tmp_path, monkeypatch) -> No
     seen_backend_paths = []
 
     def fake_run(self, **kwargs):
-        backend_output = kwargs["gh_json_v3"]
+        backend_output = kwargs["ingest_output"]
         assert backend_output is not None
         assert backend_output != output_path
-        backend_output.write_text(f"{self.backend.value}-v3\n", encoding="utf-8")
+        backend_output.write_text(f"{self.backend.value}-ingest\n", encoding="utf-8")
         seen_backend_paths.append(backend_output)
         return []
 
@@ -140,12 +140,12 @@ def test_run_combines_gh_json_v3_output_per_backend(tmp_path, monkeypatch) -> No
             "--targets-json",
             '[{"engine":"datafusion","format":"parquet"},{"engine":"duckdb","format":"parquet"}]',
             "--no-build",
-            "--gh-json-v3",
+            "--ingest-jsonl",
             str(output_path),
         ],
     )
 
     assert result.exit_code == 0
-    assert output_path.read_text(encoding="utf-8") == "datafusion-v3\nduckdb-v3\n"
+    assert output_path.read_text(encoding="utf-8") == "datafusion-ingest\nduckdb-ingest\n"
     assert len(seen_backend_paths) == 2
     assert seen_backend_paths[0] != seen_backend_paths[1]

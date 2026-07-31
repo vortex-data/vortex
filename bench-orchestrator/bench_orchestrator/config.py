@@ -20,7 +20,16 @@ class Engine(Enum):
 
     @property
     def binary_name(self) -> str:
-        """Return the cargo binary name for this engine when used to execute benchmarks."""
+        """Return the benchmark executable name for this engine."""
+        return {
+            Engine.DUCKDB: "duckdb-bench",
+            Engine.DATAFUSION: "datafusion-bench",
+            Engine.LANCE: "lance-bench",
+        }[self]
+
+    @property
+    def package_name(self) -> str:
+        """Return the Cargo package name that provides this engine's benchmark binary."""
         return {
             Engine.DUCKDB: "duckdb-bench",
             Engine.DATAFUSION: "datafusion-bench",
@@ -31,7 +40,6 @@ class Engine(Enum):
 class Format(Enum):
     """Data formats for benchmarks."""
 
-    ARROW = "arrow"
     PARQUET = "parquet"
     VORTEX = "vortex"
     VORTEX_COMPACT = "vortex-compact"
@@ -60,7 +68,6 @@ class Benchmark(Enum):
 # Engine to supported formats mapping.
 ENGINE_FORMATS: dict[Engine, list[Format]] = {
     Engine.DATAFUSION: [
-        Format.ARROW,
         Format.PARQUET,
         Format.VORTEX,
         Format.VORTEX_COMPACT,

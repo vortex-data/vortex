@@ -38,19 +38,21 @@ pub(crate) fn object_store_fs(
     Ok(Arc::new(ObjectStoreFileSystem::new(object_store, handle)))
 }
 
+/// Process-wide cache of constructed object stores, keyed by URL + properties so that repeated
+/// requests against the same bucket/configuration share a single client.
+static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 #[expect(clippy::cognitive_complexity)]
 pub(crate) fn make_object_store(
     url: &Url,
     properties: &HashMap<String, String>,
 ) -> VortexResult<Arc<dyn ObjectStore>> {
-    static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
-        LazyLock::new(|| Mutex::new(HashMap::new()));
-
     let start = std::time::Instant::now();
 
-    let (scheme, _) = ObjectStoreScheme::parse(url)
-        .map_err(|error| VortexError::from(object_store::Error::from(error)))?;
-
+    // The cache key depends only on the URL authority + sorted properties, so we can hoist it
+    // above the scheme dispatch. This lets every store (including OpenDAL-backed ones) share
+    // a single client across repeated requests against the same bucket/configuration.
     let cache_key = url_cache_key(url, properties);
 
     {
@@ -59,6 +61,20 @@ pub(crate) fn make_object_store(
         }
         // guard dropped at close of scope
     }
+
+    // OpenDAL-backed stores (Tencent COS, Alibaba OSS) use schemes that `object_store` does not
+    // recognize natively. Resolve them via the optional `opendal` feature, and cache the result so
+    // subsequent calls for the same URL share a single client. Asking `supports_scheme` rather
+    // than matching scheme strings here keeps this call site correct as services are added.
+    #[cfg(feature = "opendal")]
+    if vortex_cloud::opendal::supports_scheme(url.scheme()) {
+        let store = vortex_cloud::opendal::make_opendal_store(url, properties)
+            .map_err(|e| VortexError::from(object_store::Error::from(e)))?;
+        return cache_and_return(store, url, properties, &start);
+    }
+
+    let (scheme, _) = ObjectStoreScheme::parse(url)
+        .map_err(|error| VortexError::from(object_store::Error::from(error)))?;
 
     // Configure extra properties on that scheme instead.
     let store: Arc<dyn ObjectStore> = match scheme {
@@ -143,6 +159,18 @@ pub(crate) fn make_object_store(
         }
     };
 
+    cache_and_return(store, url, properties, &start)
+}
+
+/// Insert the built store into the process-wide cache (keyed by URL + properties) and return it,
+/// logging the construction latency.
+fn cache_and_return(
+    store: Arc<dyn ObjectStore>,
+    url: &Url,
+    properties: &HashMap<String, String>,
+    start: &std::time::Instant,
+) -> VortexResult<Arc<dyn ObjectStore>> {
+    let cache_key = url_cache_key(url, properties);
     OBJECT_STORES.lock().insert(cache_key, Arc::clone(&store));
 
     let duration = start.elapsed();

@@ -53,6 +53,63 @@ use crate::hash::ArrayHash;
 /// heap allocation in the common case.
 pub type ArraySlots = SmallVec<[Option<ArrayRef>; 4]>;
 
+/// A borrowed run of required slots, e.g. the variadic tail of a slot layout.
+///
+/// Wraps a `&[Option<ArrayRef>]` whose entries are guaranteed present by encoding
+/// validation, exposing them as `&ArrayRef` without per-call-site unwrapping.
+#[derive(Clone, Copy, Debug)]
+pub struct SlotSlice<'a> {
+    slots: &'a [Option<ArrayRef>],
+    expect: &'static str,
+}
+
+impl<'a> SlotSlice<'a> {
+    /// Wrap a slice of slots that validation guarantees are all present.
+    ///
+    /// `expect` names the slot run in the panic message if a slot is unexpectedly absent.
+    pub fn new(slots: &'a [Option<ArrayRef>], expect: &'static str) -> Self {
+        Self { slots, expect }
+    }
+
+    /// The number of slots in the run.
+    pub fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Returns `true` if the run contains no slots.
+    pub fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
+
+    /// Returns the slot at `idx`, or `None` if out of bounds.
+    pub fn get(&self, idx: usize) -> Option<&'a ArrayRef> {
+        self.slots
+            .get(idx)
+            .map(|slot| slot.as_ref().vortex_expect(self.expect))
+    }
+
+    /// Iterate the slots in order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a ArrayRef> + use<'a> {
+        let expect = self.expect;
+        self.slots
+            .iter()
+            .map(move |slot| slot.as_ref().vortex_expect(expect))
+    }
+
+    /// Clone every slot into an owned `Vec`.
+    pub fn to_vec(&self) -> Vec<ArrayRef> {
+        self.iter().cloned().collect()
+    }
+}
+
+impl std::ops::Index<usize> for SlotSlice<'_> {
+    type Output = ArrayRef;
+
+    fn index(&self, idx: usize) -> &Self::Output {
+        self.slots[idx].as_ref().vortex_expect(self.expect)
+    }
+}
+
 /// The public API trait for all Vortex arrays.
 ///
 /// This trait is sealed and cannot be implemented outside of `vortex-array`.

@@ -57,10 +57,12 @@ where
     let scan_len = len
         .checked_add(1)
         .ok_or_else(|| vortex_err!("Arrow offset count overflow"))?;
-    let status = ctx.copy_to_device(vec![0u32])?.await?;
+    let mut status = ctx.device_alloc::<u32>(1)?;
+    ctx.stream()
+        .memset_zeros(&mut status)
+        .map_err(|err| vortex_err!("Failed to zero Arrow offset status buffer: {err}"))?;
     let lengths_view = lengths.cuda_view::<L>()?;
-    let status_view = status.cuda_view::<u32>()?;
-    let scan_input = ctx.device_alloc::<i32>(scan_len)?;
+    let mut scan_input = ctx.device_alloc::<i32>(scan_len)?;
     let ptype = L::PTYPE.to_string();
     let scan_kernel =
         ctx.load_function_with_suffixes("arrow_offsets", &["from", "lengths", &ptype])?;
@@ -68,23 +70,20 @@ where
 
     ctx.launch_kernel(&scan_kernel, scan_len, |args| {
         args.arg(&lengths_view)
-            .arg(&scan_input)
-            .arg(&status_view)
+            .arg(&mut scan_input)
+            .arg(&mut status)
             .arg(&len_u64);
     })?;
 
-    let offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(exclusive_sum_i32(
-        &scan_input,
-        scan_len,
-        ctx,
-    )?)));
-    let offsets_view = offsets.cuda_view::<i32>()?;
+    let offsets = exclusive_sum_i32(&scan_input, scan_len, ctx)?;
     let scan_len_u64 = u64::try_from(scan_len)?;
     let validate_kernel = ctx.load_function_with_suffixes("arrow_offsets", &["validate"])?;
     ctx.launch_kernel(&validate_kernel, scan_len, |args| {
-        args.arg(&offsets_view).arg(&status_view).arg(&scan_len_u64);
+        args.arg(&offsets).arg(&mut status).arg(&scan_len_u64);
     })?;
 
+    let offsets = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offsets)));
+    let status = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(status)));
     let status_copy = status.try_to_host()?;
     let total_copy = offsets.slice_typed::<i32>(len..scan_len).try_to_host()?;
     let (status_bytes, total_bytes) = futures::try_join!(status_copy, total_copy)?;

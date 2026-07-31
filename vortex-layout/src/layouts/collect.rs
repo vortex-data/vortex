@@ -7,7 +7,6 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::pin_mut;
-use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexResult;
@@ -15,6 +14,7 @@ use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -39,7 +39,7 @@ impl CollectStrategy {
 impl LayoutStrategy for CollectStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -74,9 +74,5 @@ impl LayoutStrategy for CollectStrategy {
         self.child
             .write_stream(ctx, segment_sink, adapted, eof, session)
             .await
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        todo!()
     }
 }

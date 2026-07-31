@@ -16,7 +16,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::ParquetVariant;
-use crate::ParquetVariantArrayExt;
+use crate::ParquetVariantArraySlotsExt;
 
 /// Lets `AllNonDistinct` compare two `ParquetVariant` arrays without canonicalizing them.
 ///
@@ -51,7 +51,7 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
             return Ok(None);
         };
 
-        let typed_identical = match (lhs.typed_value_array(), rhs.typed_value_array()) {
+        let typed_identical = match (lhs.typed_value(), rhs.typed_value()) {
             (Some(lhs_typed), Some(rhs_typed)) => {
                 if lhs_typed.dtype().eq_ignore_nullability(rhs_typed.dtype()) {
                     all_non_distinct(lhs_typed, rhs_typed, ctx)?
@@ -63,7 +63,7 @@ impl DynAggregateKernel for AllNonDistinctParquetVariant {
         };
 
         if typed_identical {
-            let values_identical = match (lhs.value_array(), rhs.value_array()) {
+            let values_identical = match (lhs.value(), rhs.value()) {
                 (Some(lhs_value), Some(rhs_value)) => all_non_distinct(lhs_value, rhs_value, ctx)?,
                 (None, None) => true,
                 // Mixed shredding layouts: let the generic canonical path handle it.

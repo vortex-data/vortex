@@ -13,6 +13,7 @@ use vortex_error::vortex_err;
 
 use crate::FSST;
 use crate::FSSTArrayExt;
+use crate::FSSTArraySlotsExt;
 
 impl SliceReduce for FSST {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

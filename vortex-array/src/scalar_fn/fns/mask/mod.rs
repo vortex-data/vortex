@@ -133,6 +133,10 @@ impl ScalarFnVTable for Mask {
             expression.child(1).clone(),
         )))
     }
+
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        true
+    }
 }
 
 /// Try to handle masking when at least one of the input or mask is a constant array.

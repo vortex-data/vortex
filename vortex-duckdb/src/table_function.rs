@@ -671,6 +671,19 @@ pub fn pushdown_projection_aggregates(
             debug!(%expr, %i, "failed to push down projection aggregate");
             return Ok(false);
         };
+
+        // TODO(myrrc): DuckDB treats NaN as a normal value ordered greater than
+        // everything which is substandard. vortex aggregations just skip nan.
+        // don't push aggregations on floats until resolved
+        // See slt/duckdb/nan_aggregates.slt.
+        let projection_id_usize: usize = projection_id.as_();
+        if bind_data.column_fields[projection_id_usize]
+            .dtype
+            .is_float()
+        {
+            return Ok(false);
+        }
+
         debug!(%expr, %projection_id, %i, "pushed down projection aggregate");
         aggregates.push(ColumnAggregate::Real {
             projection_id,

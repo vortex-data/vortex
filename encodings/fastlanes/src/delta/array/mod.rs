@@ -7,21 +7,24 @@ use std::fmt::Formatter;
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 pub mod delta_compress;
 pub mod delta_decompress;
 
-/// The base values for each block of deltas.
-pub(super) const BASES_SLOT: usize = 0;
-/// The delta-encoded values relative to the base values.
-pub(super) const DELTAS_SLOT: usize = 1;
-pub(super) const NUM_SLOTS: usize = 2;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
+#[array_slots(crate::Delta)]
+pub struct DeltaSlots {
+    /// The base values for each block of deltas.
+    #[slot(0)]
+    pub bases: ArrayRef,
+    /// The delta-encoded values relative to the base values.
+    #[slot(1)]
+    pub deltas: ArrayRef,
+}
 
 /// A FastLanes-style delta-encoded array of primitive values.
 ///
@@ -88,19 +91,7 @@ impl Display for DeltaData {
     }
 }
 
-pub trait DeltaArrayExt: TypedArrayRef<crate::Delta> {
-    fn bases(&self) -> &ArrayRef {
-        self.as_ref().slots()[BASES_SLOT]
-            .as_ref()
-            .vortex_expect("DeltaArray bases slot")
-    }
-
-    fn deltas(&self) -> &ArrayRef {
-        self.as_ref().slots()[DELTAS_SLOT]
-            .as_ref()
-            .vortex_expect("DeltaArray deltas slot")
-    }
-
+pub trait DeltaArrayExt: DeltaArraySlotsExt {
     fn offset(&self) -> usize {
         self.offset
     }

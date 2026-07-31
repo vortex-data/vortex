@@ -10,7 +10,7 @@ use crate::arrays::struct_::StructArrayExt;
 
 /// Check if a struct array is constant by checking each field independently.
 pub(super) fn check_struct_constant(s: &StructArray, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    for field in s.unmasked_fields().iter() {
+    for field in s.iter_unmasked_fields() {
         if !is_constant(field, ctx)? {
             return Ok(false);
         }

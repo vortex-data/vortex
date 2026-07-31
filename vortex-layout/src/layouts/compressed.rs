@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
@@ -18,6 +17,7 @@ use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -89,7 +89,7 @@ impl CompressingStrategy {
 impl LayoutStrategy for CompressingStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -126,9 +126,5 @@ impl LayoutStrategy for CompressingStrategy {
                 &session,
             )
             .await
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        self.child.buffered_bytes()
     }
 }

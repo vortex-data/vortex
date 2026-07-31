@@ -10,7 +10,7 @@ use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
-use vortex::encodings::decimal_byte_parts::DecimalBytePartsArrayExt;
+use vortex::encodings::decimal_byte_parts::DecimalBytePartsArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;

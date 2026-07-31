@@ -14,7 +14,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex::file::VortexFile;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::file::WriteSummary;
@@ -24,7 +23,6 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutStrategy;
 
 use crate::RUNTIME;
-use crate::arc_wrapper;
 use crate::array::vx_array;
 use crate::dtype::vx_dtype;
 use crate::error::try_or_default;
@@ -32,13 +30,6 @@ use crate::error::vx_error;
 use crate::session::vx_session;
 use crate::string::vx_view;
 
-arc_wrapper!(
-    /// A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
-    VortexFile,
-    vx_file
-);
-
-#[expect(non_camel_case_types)]
 /// The `sink` interface is used to collect array chunks and place them into a resource
 /// (e.g. an array stream or file (`vx_array_sink_open_file`)).
 ///
@@ -185,7 +176,6 @@ pub unsafe extern "C-unwind" fn vx_array_sink_abort(sink: *mut vx_array_sink) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use tempfile::NamedTempFile;
     use vortex::array::IntoArray;
@@ -215,7 +205,7 @@ mod tests {
             let path = vx_view::from_str(temp_file.path().to_str().unwrap());
 
             let dtype = DType::Primitive(vortex::dtype::PType::I32, false.into());
-            let vx_dtype_ptr = vx_dtype::new(Arc::new(dtype));
+            let vx_dtype_ptr = vx_dtype::new(dtype);
 
             let mut error = std::ptr::null_mut();
             let sink = vx_array_sink_open_file(session, path, vx_dtype_ptr, &raw mut error);
@@ -224,7 +214,7 @@ mod tests {
 
             // Create and push an array
             let array = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-            let vx_array_ptr = vx_array::new(Arc::new(array.into_array()));
+            let vx_array_ptr = vx_array::new(array.into_array());
 
             vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
             assert!(error.is_null());
@@ -250,7 +240,7 @@ mod tests {
             let path = vx_view::from_str(temp_file.path().to_str().unwrap());
 
             let dtype = DType::Primitive(vortex::dtype::PType::U64, false.into());
-            let vx_dtype_ptr = vx_dtype::new(Arc::new(dtype));
+            let vx_dtype_ptr = vx_dtype::new(dtype);
 
             let mut error = std::ptr::null_mut();
             let sink = vx_array_sink_open_file(session, path, vx_dtype_ptr, &raw mut error);
@@ -263,7 +253,7 @@ mod tests {
                     buffer![start as u64, (start + 1) as u64, (start + 2) as u64],
                     Validity::NonNullable,
                 );
-                let vx_array_ptr = vx_array::new(Arc::new(array.into_array()));
+                let vx_array_ptr = vx_array::new(array.into_array());
 
                 vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
                 assert!(error.is_null());
@@ -288,7 +278,7 @@ mod tests {
             // Use a path that will fail during file creation (read-only directory on most systems)
             let invalid_path = vx_view::from_str("/dev/null/invalid.vortex");
             let dtype = DType::Primitive(vortex::dtype::PType::I32, false.into());
-            let vx_dtype_ptr = vx_dtype::new(Arc::new(dtype));
+            let vx_dtype_ptr = vx_dtype::new(dtype);
 
             let mut error = std::ptr::null_mut();
             let sink = vx_array_sink_open_file(session, invalid_path, vx_dtype_ptr, &raw mut error);
@@ -297,7 +287,7 @@ mod tests {
             if !sink.is_null() {
                 // Push an array
                 let array = PrimitiveArray::new(buffer![1i32], Validity::NonNullable);
-                let vx_array_ptr = vx_array::new(Arc::new(array.into_array()));
+                let vx_array_ptr = vx_array::new(array.into_array());
                 vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
                 vx_array_free(vx_array_ptr);
 
@@ -330,13 +320,13 @@ mod tests {
 
         unsafe {
             let session = vx_session_new();
-            let dtype = vx_dtype::new(Arc::new(dtype));
+            let dtype = vx_dtype::new(dtype);
 
             let mut error = std::ptr::null_mut();
             let sink = vx_array_sink_open_file(session, path, dtype, &raw mut error);
             assert!(error.is_null());
 
-            let array = vx_array::new(Arc::new(array.into_array()));
+            let array = vx_array::new(array.into_array());
             vx_array_sink_push(sink, array, &raw mut error);
             assert!(error.is_null());
             vx_array_free(array);
@@ -364,7 +354,7 @@ mod tests {
             let session = vx_session_new();
 
             let dtype = DType::Primitive(vortex::dtype::PType::I32, false.into());
-            let vx_dtype_ptr = vx_dtype::new(Arc::new(dtype));
+            let vx_dtype_ptr = vx_dtype::new(dtype);
 
             let mut error = std::ptr::null_mut();
             // This should return null and set error due to null path

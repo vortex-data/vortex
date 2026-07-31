@@ -12,6 +12,7 @@ members = [
     "vortex-flatbuffers",
     "vortex-metrics",
     "vortex-io",
+    "vortex-cloud",
     "vortex-proto",
     "vortex-array",
     "vortex-arrow",
@@ -67,6 +68,7 @@ members = [
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
+    "benchmarks/string-bench",
     "vortex-geo",
 ]
 exclude = ["java/testfiles", "wasm-test"]
@@ -94,7 +96,7 @@ rust-version = "1.91.0"
 version = "0.1.0"
 
 [workspace.dependencies]
-anyhow = "1.0.97"
+anyhow = "1.0.100"
 arbitrary = "1.3.2"
 arc-swap = "1.9"
 arcref = "0.2.0"
@@ -172,7 +174,7 @@ indicatif = "0.18.0"
 insta = "1.43"
 inventory = "0.3.20"
 itertools = "0.14.0"
-jiff = "0.2.0"
+jiff = "0.2.17"
 jni = { version = "0.22.0" }
 kanal = "0.1.1"
 lasso = { version = "0.7", features = ["multi-threaded", "inline-more"] }
@@ -190,9 +192,11 @@ noodles-vcf = { version = "0.88.0", features = ["async"] }
 num-traits = "0.2.19"
 num_enum = { version = "0.7.3", default-features = false }
 object_store = { version = "0.13.2", default-features = false }
+object_store_opendal = "0.57.0"
 once_cell = "1.21"
 oneshot = { version = "0.2.0", features = ["async"] }
 onpair = "0.1.1"
+opendal = { version = "0.57.0", default-features = false }
 opentelemetry = "0.32.0"
 opentelemetry-otlp = "0.32.0"
 opentelemetry_sdk = "0.32.0"
@@ -230,7 +234,8 @@ roaring = "0.11.0"
 rstest = "0.26.1"
 rstest_reuse = "0.7.0"
 rustc-hash = "2.1.1"
-serde = "1.0.220"
+rustix = { version = "1.1", features = ["fs"] }
+serde = "1.0.221"
 serde_json = "1.0.138"
 serde_test = "1.0.176"
 sha2 = "0.11.0"
@@ -249,7 +254,7 @@ spatialbench-parquet = { package = "parquet", version = "56", features = [
 ] }
 static_assertions = "1.1"
 strum = "0.28"
-syn = { version = "2.0.117", features = ["full"] }
+syn = { version = "3.0.0", features = ["full"] }
 sysinfo = "0.38.0"
 tabled = { version = "0.21.0", default-features = false }
 taffy = "0.12"
@@ -273,7 +278,7 @@ tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"
 url = "2.5.7"
 uuid = { version = "1.23", features = ["js"] }
-wasm-bindgen-futures = "0.4.54"
+wasm-bindgen-futures = "0.4.58"
 wkb = "0.9.2"
 xshell = "0.2.6"
 zigzag = "0.1.0"
@@ -290,6 +295,7 @@ vortex-arrow = { version = "0.1.0", path = "./vortex-arrow", default-features = 
 vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-features = false }
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
+vortex-cloud = { version = "0.1.0", path = "./vortex-cloud", default-features = false }
 vortex-compressor = { version = "0.1.0", path = "./vortex-compressor", default-features = false }
 vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }

@@ -14,7 +14,6 @@ import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import org.apache.arrow.c.ArrowArray;
@@ -86,7 +85,8 @@ public final class TestMinimal {
                 Field.notNullable("Salary", ArrowType.Decimal.createDecimal(9, 2, 128)),
                 Field.nullable("State", ArrowType.Utf8View.INSTANCE)));
         Session session = Session.create();
-        try (VortexWriter writer = VortexWriter.create(session, writePath, schema, new HashMap<>(), allocator);
+        try (VortexWriter writer = VortexWriter.builder(session, writePath, schema, allocator)
+                        .build();
                 VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
             ViewVarCharVector nameVec = (ViewVarCharVector) root.getVector("Name");
             DecimalVector salaryVec = (DecimalVector) root.getVector("Salary");

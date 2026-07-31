@@ -21,10 +21,10 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VariantArray;
 use crate::arrays::chunked::ChunkedArrayExt;
-use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrays::variant::VariantArrayExt;
+use crate::arrays::variant::VariantArraySlotsExt;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -102,11 +102,13 @@ fn pack_variant_chunks(
         .try_collect()?;
 
     let outer_dtype = variant_chunks[0].dtype().clone();
-    let core_chunks = variant_chunks
-        .iter()
-        .map(|chunk| chunk.core_storage().clone())
-        .collect();
-    let core_storage = ChunkedArray::try_new(core_chunks, outer_dtype)?.into_array();
+    let core_storage = ChunkedArray::try_new(
+        variant_chunks
+            .iter()
+            .map(|chunk| chunk.core_storage().clone()),
+        outer_dtype,
+    )?
+    .into_array();
 
     let shredded = match variant_chunks[0].shredded() {
         None => {
@@ -309,7 +311,7 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::arrays::VariantArray;
     use crate::arrays::struct_::StructArrayExt;
-    use crate::arrays::variant::VariantArrayExt;
+    use crate::arrays::variant::VariantArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType::List;
     use crate::dtype::DType::Primitive;
@@ -347,12 +349,13 @@ mod tests {
     }
 
     fn variant_core(values: impl IntoIterator<Item = i32>) -> VortexResult<ArrayRef> {
-        let chunks = values
-            .into_iter()
-            .map(|value| ConstantArray::new(variant_scalar(value), 1).into_array())
-            .collect();
-
-        Ok(ChunkedArray::try_new(chunks, VariantDType(NonNullable))?.into_array())
+        Ok(ChunkedArray::try_new(
+            values
+                .into_iter()
+                .map(|value| ConstantArray::new(variant_scalar(value), 1).into_array()),
+            VariantDType(NonNullable),
+        )?
+        .into_array())
     }
 
     fn variant_chunk(values: impl IntoIterator<Item = i32>) -> VortexResult<VariantArray> {

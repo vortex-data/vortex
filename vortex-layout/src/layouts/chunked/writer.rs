@@ -8,15 +8,14 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
-use vortex_array::ArrayContext;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
-use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentSinkRef;
@@ -43,7 +42,7 @@ impl ChunkedLayoutStrategy {
 impl LayoutStrategy for ChunkedLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -99,9 +98,5 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
             )
             .into_layout())
         }
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        self.chunk_strategy.buffered_bytes()
     }
 }

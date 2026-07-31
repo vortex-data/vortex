@@ -22,6 +22,7 @@ use vortex::dtype::PType;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::runend::RunEndArrayExt;
+use vortex::encodings::runend::RunEndArraySlotsExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -122,23 +123,24 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     let ends_device = ctx.ensure_on_device(ends_buffer).await?;
     let values_device = ctx.ensure_on_device(values_buffer).await?;
 
-    let output_slice = ctx.device_alloc::<V>(output_len)?;
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let mut output_slice = ctx.device_alloc::<V>(output_len)?;
 
     let ends_view = ends_device.cuda_view::<E>()?;
     let values_view = values_device.cuda_view::<V>()?;
-    let output_view = output_device.as_view::<V>();
 
     // Load kernel function
     let cuda_function = ctx.load_function("runend", &[value_ptype, E::PTYPE])?;
 
+    let num_runs_u64 = num_runs as u64;
+    let offset_u64 = offset as u64;
+    let output_len_u64 = output_len as u64;
     ctx.launch_kernel(&cuda_function, output_len, |args| {
         args.arg(&ends_view)
-            .arg(&num_runs)
+            .arg(&num_runs_u64)
             .arg(&values_view)
-            .arg(&offset)
-            .arg(&output_len)
-            .arg(&output_view);
+            .arg(&offset_u64)
+            .arg(&output_len_u64)
+            .arg(&mut output_slice);
     })?;
 
     let output_validity = match values_validity {
@@ -154,6 +156,7 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
         }
     };
 
+    let output_device = CudaDeviceBuffer::new(output_slice);
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         value_ptype,

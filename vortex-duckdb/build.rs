@@ -26,6 +26,9 @@ const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive
 const DEFAULT_DUCKDB_VERSION: &str = "1.5.5";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
+const BUILD_MARKER: &str = ".vx-build-complete";
+const DUCKDB_CACHE_DIR: &str = "vortex-duckdb-cache";
+const EXTRACT_MARKER: &str = ".vx-extract-complete";
 
 const SOURCE_FILES: [&str; 11] = [
     "cpp/vortex_duckdb.cpp",
@@ -315,6 +318,29 @@ fn download_url(url: &str, path: &Path) {
     }
 }
 
+fn env_true(key: &str) -> bool {
+    env::var(key).is_ok_and(|v| matches!(v.as_str(), "1" | "true"))
+}
+
+fn duckdb_cache_root(out_dir: &Path) -> PathBuf {
+    out_dir
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(DUCKDB_CACHE_DIR)
+}
+
+fn clear_dir(dir: &Path) {
+    if let Err(err) = fs::remove_dir_all(dir)
+        && err.kind() != io::ErrorKind::NotFound
+    {
+        println!("cargo:error=Failed to clear {}: {err}", dir.display());
+        exit(1);
+    }
+    fs::create_dir_all(dir).unwrap();
+}
+
 fn extract(archive: &Path, dest: &Path) {
     println!(
         "cargo:info=Extracting {} to {}",
@@ -327,9 +353,8 @@ fn extract(archive: &Path, dest: &Path) {
 
 /// Download DuckDB library archive from R2 and extract it.
 /// Return false if archive is not available or download failed
-fn download(version: &DuckDBVersion, library_dir: &Path) -> bool {
-    let target = env::var("TARGET").unwrap();
-    let (platform, arch) = match target.as_str() {
+fn download_prebuilt(version: &DuckDBVersion, library_dir: &Path, target: &str) -> bool {
+    let (platform, arch) = match target {
         "aarch64-apple-darwin" | "x86_64-apple-darwin" => ("osx", "universal"),
         "x86_64-unknown-linux-gnu" => ("linux", "amd64"),
         "aarch64-unknown-linux-gnu" => ("linux", "arm64"),
@@ -342,19 +367,21 @@ fn download(version: &DuckDBVersion, library_dir: &Path) -> bool {
     let archive_name = format!("libduckdb-{platform}-{arch}.zip");
     let url = format!("{DUCKDB_RELEASES_URL}/{version}/{archive_name}");
     let archive_path = library_dir.join(&archive_name);
+    let extract_marker = library_dir.join(EXTRACT_MARKER);
 
-    fs::create_dir_all(library_dir).unwrap();
+    if extract_marker.exists() {
+        drop(fs::remove_file(&archive_path));
+        return true;
+    }
+
+    clear_dir(library_dir);
     if !try_download_url(&url, &archive_path) {
         return false;
     }
 
-    let duckdb_lib_dir = archive_path.parent().unwrap().to_path_buf();
-    for artifact in BUILD_ARTIFACTS {
-        if duckdb_lib_dir.join(artifact).exists() {
-            return true;
-        }
-    }
-    extract(&archive_path, &duckdb_lib_dir);
+    extract(&archive_path, library_dir);
+    fs::remove_file(&archive_path).unwrap();
+    fs::write(&extract_marker, format!("{version}\n{target}\n")).unwrap();
     true
 }
 
@@ -369,12 +396,11 @@ fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
     }
 
     println!("cargo:info=Building DuckDB from source (this may take a while)...");
-    let (asan_option, tsan_option) =
-        if env::var("VX_DUCKDB_SAN").is_ok_and(|v| matches!(v.as_str(), "1" | "true")) {
-            ("0", "1") // DISABLE_SANITIZER=0 enables ASAN, THREADSAN=1 enables TSAN
-        } else {
-            ("1", "0")
-        };
+    let (asan_option, tsan_option) = if env_true("VX_DUCKDB_SAN") {
+        ("0", "1") // DISABLE_SANITIZER=0 enables ASAN, THREADSAN=1 enables TSAN
+    } else {
+        ("1", "0")
+    };
 
     // If we're building from a commit we need to build benchmark
     // extensions statically, otherwise DuckDB tries to load them from an http
@@ -415,34 +441,16 @@ fn try_build_duckdb(
     version: &DuckDBVersion,
     build_type: &str,
 ) {
-    let inner_dir_name = version.archive_inner_dir_name();
-    let repo_dir = source_dir.join(&inner_dir_name);
-    let build_dir = repo_dir.join("build").join(build_type);
-    let build_src_dir = build_dir.join("src");
-
-    let mut build = true;
-    for artifact in BUILD_ARTIFACTS {
-        let path = build_src_dir.join(artifact);
-        if path.exists() {
-            println!("cargo:info=Found {artifact} in {}", path.display());
-            build = false;
-            break;
-        }
+    let repo_dir = source_dir.join(version.archive_inner_dir_name());
+    let library_marker = library_dir.join(BUILD_MARKER);
+    if library_marker.exists() {
+        return;
     }
 
-    if build {
-        build_duckdb(version, &repo_dir);
-    }
+    build_duckdb(version, &repo_dir);
+    clear_dir(library_dir);
 
-    let library_dir_str = library_dir.display();
-    if let Err(err) = fs::remove_dir_all(library_dir)
-        && err.kind() != io::ErrorKind::NotFound
-    {
-        println!("cargo:error=Failed to remove {library_dir_str}: {err}");
-        exit(1);
-    };
-    fs::create_dir_all(library_dir).unwrap();
-
+    let build_src_dir = repo_dir.join("build").join(build_type).join("src");
     let mut found_artifact = false;
     for artifact in BUILD_ARTIFACTS {
         let src = build_src_dir.join(artifact);
@@ -459,6 +467,7 @@ fn try_build_duckdb(
         println!("cargo:error=Failed to find any of {artifacts} after build");
         exit(1);
     }
+    fs::write(&library_marker, format!("{version}\n{build_type}\n")).unwrap();
 }
 
 /// Generate rust functions with bindgen from C sources.
@@ -615,7 +624,71 @@ fn main() {
 
     let duckdb_dir = crate_dir.join("duckdb");
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let library_dir = out_dir.join(format!("duckdb-lib-{version}"));
+    let target = env::var("TARGET").unwrap();
+    let cache_root = duckdb_cache_root(&out_dir);
+    fs::create_dir_all(&cache_root).unwrap();
+
+    let debug_duckdb = env_true("VX_DUCKDB_DEBUG");
+    let build_type = if debug_duckdb { "debug" } else { "release" };
+    let sanitizer_suffix = if env_true("VX_DUCKDB_SAN") {
+        "-san"
+    } else {
+        ""
+    };
+
+    let source_dir = cache_root.join(format!("duckdb-source-{version}"));
+    let source_archive_url = match &version {
+        DuckDBVersion::Release(v) => format!("{DUCKDB_SOURCE_RELEASE_URL}/v{v}.zip"),
+        DuckDBVersion::Commit(c) => format!("{DUCKDB_SOURCE_COMMIT_URL}/{c}.zip"),
+    };
+
+    let inner_dir = source_dir.join(version.archive_inner_dir_name());
+    let extract_marker = source_dir.join(EXTRACT_MARKER);
+    let source_archive_path = cache_root.join(format!("duckdb-source-{version}.zip"));
+    if extract_marker.exists() {
+        drop(fs::remove_file(&source_archive_path));
+    } else {
+        download_url(&source_archive_url, &source_archive_path);
+        clear_dir(&source_dir);
+        extract(&source_archive_path, &source_dir);
+        fs::remove_file(&source_archive_path).unwrap();
+        fs::write(&extract_marker, version.to_string()).unwrap();
+    }
+
+    drop(fs::remove_file(&duckdb_dir));
+    drop(fs::remove_dir_all(&duckdb_dir));
+    symlink(&source_dir, &duckdb_dir).unwrap();
+
+    println!("cargo:info=building DuckDB in {build_type} mode");
+
+    let prebuilt_library_dir = cache_root.join(format!("duckdb-lib-{version}-{target}-prebuilt"));
+    let source_library_dir = cache_root.join(format!(
+        "duckdb-lib-{version}-{target}-{build_type}{sanitizer_suffix}"
+    ));
+
+    let library_dir = if debug_duckdb {
+        try_build_duckdb(&source_dir, &source_library_dir, &version, build_type);
+        source_library_dir
+    } else {
+        match &version {
+            DuckDBVersion::Release(_) => {
+                if !download_prebuilt(&version, &prebuilt_library_dir, &target) {
+                    println!("cargo:error=DuckDB release {version} not available in R2");
+                    exit(1);
+                }
+                prebuilt_library_dir
+            }
+            DuckDBVersion::Commit(_) => {
+                if download_prebuilt(&version, &prebuilt_library_dir, &target) {
+                    prebuilt_library_dir
+                } else {
+                    println!("cargo:info=DuckDB commit {version} not in R2, building from source");
+                    try_build_duckdb(&source_dir, &source_library_dir, &version, build_type);
+                    source_library_dir
+                }
+            }
+        }
+    };
 
     let library_dir_str = library_dir.display();
     println!("cargo:rustc-link-search=native={library_dir_str}");
@@ -635,63 +708,6 @@ fn main() {
     //
     // Alternatively, set LD_LIBRARY_PATH (Linux) or DYLD_LIBRARY_PATH (macOS) at runtime.
     println!("cargo:lib_dir={library_dir_str}");
-
-    let source_dir = out_dir.join(format!("duckdb-source-{version}"));
-    let source_archive_url = match &version {
-        DuckDBVersion::Release(v) => format!("{DUCKDB_SOURCE_RELEASE_URL}/v{v}.zip"),
-        DuckDBVersion::Commit(c) => format!("{DUCKDB_SOURCE_COMMIT_URL}/{c}.zip"),
-    };
-
-    let source_archive_path = out_dir.join(format!("duckdb-source-{version}.zip"));
-    download_url(&source_archive_url, &source_archive_path);
-
-    let inner_dir = source_dir.join(version.archive_inner_dir_name());
-    let extract_marker = source_dir.join(".vx-extract-complete");
-    if !extract_marker.exists() || !inner_dir.exists() {
-        if let Err(err) = fs::remove_dir_all(&source_dir)
-            && err.kind() != io::ErrorKind::NotFound
-        {
-            println!(
-                "cargo:error=Failed to clear {}: {err}",
-                source_dir.display()
-            );
-            exit(1);
-        }
-        fs::create_dir_all(&source_dir).unwrap();
-        extract(&source_archive_path, &source_dir);
-        fs::write(&extract_marker, version.to_string()).unwrap();
-    }
-
-    drop(fs::remove_file(&duckdb_dir));
-    drop(fs::remove_dir_all(&duckdb_dir));
-    symlink(&source_dir, &duckdb_dir).unwrap();
-
-    let has_debug_env =
-        env::var("VX_DUCKDB_DEBUG").is_ok_and(|v| matches!(v.as_str(), "1" | "true"));
-    let build_type = match has_debug_env {
-        true => "debug",
-        false => "release",
-    };
-    println!("cargo:info=building DuckDB in {build_type} mode");
-
-    if has_debug_env {
-        try_build_duckdb(&source_dir, &library_dir, &version, build_type);
-    } else {
-        match &version {
-            DuckDBVersion::Release(_) => {
-                if !download(&version, &library_dir) {
-                    println!("cargo:error=DuckDB release {version} not available in R2");
-                    exit(1);
-                }
-            }
-            DuckDBVersion::Commit(_) => {
-                if !download(&version, &library_dir) {
-                    println!("cargo:info=DuckDB commit {version} not in R2, building from source");
-                    try_build_duckdb(&source_dir, &library_dir, &version, build_type);
-                }
-            }
-        }
-    };
 
     let duckdb_include_dir = inner_dir.join("src").join("include");
     bindgen_c2rust(&crate_dir, &duckdb_include_dir);

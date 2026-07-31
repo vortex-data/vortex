@@ -8,7 +8,6 @@ maxdepth: 2
 ---
 
 extending/index
-embedding/index
 language-bindings
 benchmarking
 ```
@@ -37,6 +36,5 @@ caption: Integrations
 ---
 
 integrations/datafusion
-integrations/duckdb
 integrations/spark
 ```

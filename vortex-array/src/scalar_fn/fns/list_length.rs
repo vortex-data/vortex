@@ -17,7 +17,9 @@ use crate::arrays::List;
 use crate::arrays::ListView;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::list::ListArrayExt;
+use crate::arrays::list::ListArraySlotsExt;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -106,8 +108,10 @@ impl ScalarFnVTable for ListLength {
         Ok(Some(expression.child(0).validity()?))
     }
 
-    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
-        false
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        // A null list has a null length, and the length of a valid list is a non-null value
+        // determined by that list alone, with `return_dtype` carrying over the input nullability.
+        true
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {

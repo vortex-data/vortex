@@ -213,8 +213,8 @@ impl ScalarFnVTable for GeoEnvelope {
         Ok(None)
     }
 
-    fn is_null_sensitive(&self, _: &Self::Options) -> bool {
-        false
+    fn is_strict(&self, _: &Self::Options) -> bool {
+        true
     }
 }
 

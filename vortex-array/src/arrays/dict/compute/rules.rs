@@ -149,17 +149,18 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             return Ok(None);
         }
 
-        // If the scalar function is null-sensitive, then we cannot push it down to values if
-        // we have any nulls in the codes.
+        // Before this rewrite, a null code supplies null for this argument while the constant
+        // arguments retain their values. After the rewrite, the null code masks the function's
+        // result. Those are equivalent only for a strict function.
         if array.codes().dtype().is_nullable()
             && !matches!(
                 array.codes().validity()?,
                 Validity::NonNullable | Validity::AllValid
             )
-            && sig.is_null_sensitive()
+            && !sig.is_strict()
         {
             tracing::trace!(
-                "Not pushing down null-sensitive scalar function {} over dictionary with null codes {}",
+                "Not pushing down non-strict scalar function {} over dictionary with null codes {}",
                 parent.scalar_fn(),
                 Dict.id(),
             );
@@ -182,11 +183,10 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             .into_array()
             .optimize()?;
 
-        // We can only push down null-sensitive functions when we have all-valid codes.
-        // In these cases, we cannot have the codes influence the nullability of the output DType.
-        // Therefore, we cast the codes to be non-nullable and then cast the dictionary output
-        // back to nullable if needed.
-        if sig.is_null_sensitive() && array.codes().dtype().is_nullable() {
+        // A non-strict function reaches this point only when the codes are all valid, but their
+        // dtype may still be nullable. Remove that declared nullability while rebuilding the
+        // dictionary, then cast its output to the function's declared dtype.
+        if !sig.is_strict() && array.codes().dtype().is_nullable() {
             let new_codes = array.codes().cast(array.codes().dtype().as_nonnullable())?;
             let new_dict = unsafe {
                 DictArray::new_unchecked(new_codes, new_values)

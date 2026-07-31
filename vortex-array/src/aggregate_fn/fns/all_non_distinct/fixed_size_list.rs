@@ -8,7 +8,7 @@ use super::filter::filter_valid_rows_if_needed;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 
 pub(super) fn check_fixed_size_list_identical(
     lhs: &FixedSizeListArray,

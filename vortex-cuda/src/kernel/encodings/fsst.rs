@@ -18,7 +18,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
-use vortex::array::arrays::varbin::VarBinArrayExt;
+use vortex::array::arrays::varbin::VarBinArraySlotsExt;
 use vortex::array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex::array::arrays::varbinview::build_views::build_views;
 use vortex::array::buffer::BufferHandle;
@@ -33,6 +33,7 @@ use vortex::dtype::NativePType;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::FSSTArray;
 use vortex::encodings::fsst::FSSTArrayExt;
+use vortex::encodings::fsst::FSSTArraySlotsExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -234,7 +235,7 @@ where
 
     // The kernel gates store widths on `out_pos % N` relative to the base, so the base must
     // satisfy the widest store (u128 → 16).
-    let output = ctx.device_alloc::<u8>(total_size)?;
+    let mut output = ctx.device_alloc::<u8>(total_size)?;
     let (output_base_ptr, _) = output.device_ptr(ctx.stream());
     assert_eq!(
         output_base_ptr % 16,
@@ -259,7 +260,7 @@ where
             .arg(&output_offsets_view)
             .arg(&validity_view)
             .arg(&validity_bit_offset)
-            .arg(&output)
+            .arg(&mut output)
             .arg(&len_u64);
     })?;
 
@@ -321,8 +322,8 @@ where
 
     // The kernel checks store alignment relative to the base via
     // `out_pos % N`, so the base must satisfy the widest store (u128 → 16).
-    let device_output = ctx.device_alloc::<u8>(total_size)?;
-    let device_views = (total_size <= MAX_BUFFER_LEN)
+    let mut device_output = ctx.device_alloc::<u8>(total_size)?;
+    let mut device_views = (total_size <= MAX_BUFFER_LEN)
         .then(|| ctx.device_alloc::<i128>(num_strings))
         .transpose()?;
     let (output_base_ptr, _) = device_output.device_ptr(ctx.stream());
@@ -349,8 +350,8 @@ where
             .arg(&output_offsets_view)
             .arg(&validity_view)
             .arg(&validity_bit_offset)
-            .arg(&device_output);
-        if let Some(device_views) = device_views.as_ref() {
+            .arg(&mut device_output);
+        if let Some(device_views) = device_views.as_mut() {
             args.arg(device_views);
         } else {
             args.arg(&null_views);

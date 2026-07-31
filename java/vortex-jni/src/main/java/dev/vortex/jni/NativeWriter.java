@@ -14,15 +14,26 @@ public final class NativeWriter {
 
     private NativeWriter() {}
 
-    /** Open a writer at {@code uri} that accepts batches matching the Arrow schema at {@code arrowSchemaAddress}. */
+    /**
+     * Open a writer at {@code uri} that accepts batches matching the Arrow schema at {@code arrowSchemaAddress}.
+     *
+     * @param metadata user-defined metadata segments to store in the file footer (may be null)
+     */
     public static native long create(
-            long sessionPointer, String uri, long arrowSchemaAddress, Map<String, String> options);
+            long sessionPointer,
+            String uri,
+            long arrowSchemaAddress,
+            Map<String, String> options,
+            Map<String, byte[]> metadata);
 
     /**
      * Open a writer that streams the file into a caller-provided {@link dev.vortex.io.NativeWritable}. The native side
      * writes and flushes but never closes the writable; the caller must close it after {@link #close}.
+     *
+     * @param metadata user-defined metadata segments to store in the file footer (may be null)
      */
-    public static native long createStream(long sessionPointer, Object writable, long arrowSchemaAddress);
+    public static native long createStream(
+            long sessionPointer, Object writable, long arrowSchemaAddress, Map<String, byte[]> metadata);
 
     /**
      * Write a batch directly from Arrow C Data Interface addresses.
@@ -36,6 +47,9 @@ public final class NativeWriter {
 
     /** Number of bytes successfully written to the underlying sink so far. */
     public static native long bytesWritten(long writerPointer);
+
+    /** Number of uncompressed bytes buffered by the native writer that have not yet reached the sink. */
+    public static native long bufferedBytes(long writerPointer);
 
     /** Flush and close the writer. Must be called exactly once. */
     public static native void close(long writerPointer);

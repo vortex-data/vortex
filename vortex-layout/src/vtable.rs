@@ -2,181 +2,115 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::ops::Deref;
 use std::sync::Arc;
 
-use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
-use vortex_session::registry::ReadContext;
 
-use crate::IntoLayout;
+use crate::DynLayout;
 use crate::Layout;
+use crate::LayoutBuildContext;
 use crate::LayoutChildType;
-use crate::LayoutEncoding;
-use crate::LayoutEncodingRef;
+use crate::LayoutChildren;
+use crate::LayoutDeserializeArgs;
 use crate::LayoutId;
+use crate::LayoutParts;
 use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
-use crate::LayoutRef;
-use crate::children::LayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
-/// Context available while constructing a layout from serialized metadata.
-pub struct LayoutBuildContext<'a> {
-    /// The session used to resolve plugin-owned metadata such as aggregate function options.
-    pub session: &'a VortexSession,
-    /// The array read context referenced by serialized array metadata in descendant layouts.
-    pub array_read_ctx: &'a ReadContext,
-}
+/// Shared, erased handle to a layout tree node.
+pub type LayoutRef = Arc<dyn DynLayout>;
 
-/// Typed implementation contract for a layout encoding.
+/// Layout-specific behavior for a typed [`Layout`].
 ///
-/// A layout vtable connects a concrete layout node type, its registered encoding object, and the
-/// metadata representation used for serialization. The object-safe [`Layout`] and
-/// [`LayoutEncoding`] APIs delegate to this trait through adapters.
-pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    /// Concrete layout node type for this encoding.
-    type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
-    /// Concrete encoding object registered in the session.
-    type Encoding: 'static + Send + Sync + Deref<Target = dyn LayoutEncoding>;
-    /// Serialized layout metadata type.
-    type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
+/// Common serialized fields are stored by [`Layout`]. Implementations own only their
+/// layout-specific data, metadata codec, child typing, and reader construction.
+pub trait VTable: 'static + Clone + Send + Sync + Debug {
+    /// Layout-specific data.
+    type LayoutData: 'static + Clone + Send + Sync + Debug;
+    /// Serialized metadata type.
+    type Metadata: SerializeMetadata + vortex_array::DeserializeMetadata + Debug;
 
-    /// Returns the ID of the layout encoding.
-    fn id(encoding: &Self::Encoding) -> LayoutId;
+    /// Returns the globally unique layout ID.
+    fn id(&self) -> LayoutId;
 
-    /// Returns the encoding for the layout.
-    fn encoding(layout: &Self::Layout) -> LayoutEncodingRef;
+    /// Returns the serializable metadata for a layout.
+    fn metadata(layout: &Layout<Self>) -> Self::Metadata;
 
-    /// Returns the row count for the layout.
-    fn row_count(layout: &Self::Layout) -> u64;
+    /// Deserialize and validate layout-specific data.
+    fn deserialize(
+        &self,
+        args: &LayoutDeserializeArgs<'_>,
+        metadata: &<Self::Metadata as vortex_array::DeserializeMetadata>::Output,
+    ) -> VortexResult<Self::LayoutData>;
 
-    /// Returns the dtype for the layout reader.
-    fn dtype(layout: &Self::Layout) -> &DType;
+    /// Construct a typed layout from deserialized common fields.
+    fn build(
+        vtable: &Self,
+        dtype: &DType,
+        row_count: u64,
+        metadata: &<Self::Metadata as vortex_array::DeserializeMetadata>::Output,
+        segment_ids: Vec<SegmentId>,
+        children: &dyn LayoutChildren,
+        build_ctx: &LayoutBuildContext<'_>,
+    ) -> VortexResult<Layout<Self>> {
+        let args = LayoutDeserializeArgs {
+            session: build_ctx.session,
+            array_read_ctx: build_ctx.array_read_ctx,
+            dtype,
+            row_count,
+            segment_ids,
+            children,
+        };
+        let data = vtable.deserialize(&args, metadata)?;
+        Ok(LayoutParts::new(
+            vtable.clone(),
+            dtype.clone(),
+            row_count,
+            args.segment_ids,
+            children.to_arc(),
+            data,
+        )
+        .into_typed())
+    }
 
-    /// Returns the metadata for the layout.
-    fn metadata(layout: &Self::Layout) -> Self::Metadata;
-
-    /// Returns the segment IDs for the layout.
-    fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId>;
-
-    /// Returns the number of children for the layout.
-    fn nchildren(layout: &Self::Layout) -> usize;
-
-    /// Return the child at the given index.
-    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef>;
-
-    /// Return the type of the child at the given index.
-    fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType;
-
-    /// Create a new reader for the layout.
+    /// Returns the number of logical child *slots* of this layout.
     ///
-    /// **Layouts with children MUST propagate `ctx` to descendants** by passing it
-    /// through `Layout::new_reader` (or `LazyReaderChildren::new`) when constructing
-    /// child readers. If `ctx` is dropped at any link in the chain, ancestor-published
-    /// values won't reach affected descendants — a silent runtime regression for any
-    /// descendant that looked up an ancestor-published value via `ctx.get::<T>()`.
-    /// There is no compile-time check that catches this; reviewer discipline + the
-    /// integration tests in `vortex-layout` are the only safety net.
+    /// Slots are fixed logical positions: a given child always occupies the same slot index
+    /// regardless of which optional siblings are present. A slot may be absent (see
+    /// [`slot_to_child`](VTable::slot_to_child)), in which case it has no corresponding serialized
+    /// child. The default implementation reports one slot per serialized child, i.e. every slot is
+    /// always present.
+    fn nslots(layout: &Layout<Self>) -> usize {
+        layout.nchildren()
+    }
+
+    /// Maps a logical `slot` to the index of its serialized (dense) child, or `None` if the slot
+    /// is absent for this layout instance.
+    ///
+    /// Serialized children are stored densely (present-only), so an absent slot shifts the dense
+    /// indices of the slots that follow it. This mapping centralizes that arithmetic; the default
+    /// implementation is the identity, treating slot indices and dense child indices as equal.
+    fn slot_to_child(layout: &Layout<Self>, slot: usize) -> Option<usize> {
+        (slot < Self::nslots(layout)).then_some(slot)
+    }
+
+    /// Returns the expected dtype of the child in logical `slot`.
+    fn child_dtype(layout: &Layout<Self>, slot: usize) -> VortexResult<DType>;
+
+    /// Returns the relationship between the child in logical `slot` and its parent.
+    fn child_type(layout: &Layout<Self>, slot: usize) -> LayoutChildType;
+
+    /// Construct a reader for this layout.
     fn new_reader(
-        layout: &Self::Layout,
+        layout: &Layout<Self>,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
-
-    /// Construct a new [`Layout`] from deserialized parts.
-    ///
-    /// Implementations should validate child count, child types, row counts, segment references,
-    /// and dtype consistency for their encoding. The generic adapter checks the returned layout's
-    /// top-level dtype and row count, but encoding-specific invariants belong here.
-    fn build(
-        encoding: &Self::Encoding,
-        dtype: &DType,
-        row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        segment_ids: Vec<SegmentId>,
-        children: &dyn LayoutChildren,
-        build_ctx: &LayoutBuildContext<'_>,
-    ) -> VortexResult<Self::Layout>;
-
-    /// Replaces the children of the layout with the given layout references.
-    ///
-    /// The count and types of children must match the layout's requirements.
-    /// This method is used for transforming layout trees by replacing child layouts.
-    fn with_children(_layout: &mut Self::Layout, _children: Vec<LayoutRef>) -> VortexResult<()> {
-        vortex_bail!("with_children not implemented for this layout")
-    }
-}
-
-#[macro_export]
-macro_rules! vtable {
-    ($V:ident) => {
-        $crate::aliases::paste::paste! {
-            #[derive(Debug)]
-            pub struct $V;
-
-            impl AsRef<dyn $crate::Layout> for [<$V Layout>] {
-                fn as_ref(&self) -> &dyn $crate::Layout {
-                    // SAFETY: LayoutAdapter is #[repr(transparent)] over the Layout type,
-                    // which guarantees identical memory layout. This cast is safe because
-                    // we're only changing the type metadata, not the actual data.
-                    unsafe { &*(self as *const [<$V Layout>] as *const $crate::LayoutAdapter<$V>) }
-                }
-            }
-
-            impl std::ops::Deref for [<$V Layout>] {
-                type Target = dyn $crate::Layout;
-
-                fn deref(&self) -> &Self::Target {
-                    // SAFETY: LayoutAdapter is #[repr(transparent)] over the Layout type,
-                    // which guarantees identical memory layout. This cast is safe because
-                    // we're only changing the type metadata, not the actual data.
-                    unsafe { &*(self as *const [<$V Layout>] as *const $crate::LayoutAdapter<$V>) }
-                }
-            }
-
-            impl $crate::IntoLayout for [<$V Layout>] {
-                fn into_layout(self) -> $crate::LayoutRef {
-                    // SAFETY: LayoutAdapter is #[repr(transparent)] over the Layout type,
-                    // guaranteeing identical memory layout and alignment. The transmute is safe
-                    // because both types have the same size and representation.
-                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Layout>], $crate::LayoutAdapter::<$V>>(self) })
-                }
-            }
-
-            impl From<[<$V Layout>]> for $crate::LayoutRef {
-                fn from(value: [<$V Layout>]) -> $crate::LayoutRef {
-                    use $crate::IntoLayout;
-                    value.into_layout()
-                }
-            }
-
-            impl AsRef<dyn $crate::LayoutEncoding> for [<$V LayoutEncoding>] {
-                fn as_ref(&self) -> &dyn $crate::LayoutEncoding {
-                    // SAFETY: LayoutEncodingAdapter is #[repr(transparent)] over the LayoutEncoding type,
-                    // which guarantees identical memory layout. This cast is safe because
-                    // we're only changing the type metadata, not the actual data.
-                    unsafe { &*(self as *const [<$V LayoutEncoding>] as *const $crate::LayoutEncodingAdapter<$V>) }
-                }
-            }
-
-            impl std::ops::Deref for [<$V LayoutEncoding>] {
-                type Target = dyn $crate::LayoutEncoding;
-
-                fn deref(&self) -> &Self::Target {
-                    // SAFETY: LayoutEncodingAdapter is #[repr(transparent)] over the LayoutEncoding type,
-                    // which guarantees identical memory layout. This cast is safe because
-                    // we're only changing the type metadata, not the actual data.
-                    unsafe { &*(self as *const [<$V LayoutEncoding>] as *const $crate::LayoutEncodingAdapter<$V>) }
-                }
-            }
-        }
-    };
 }

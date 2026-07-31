@@ -12,32 +12,29 @@ use vortex::dtype::DecimalDType;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_panic;
-use vortex::extension::datetime::AnyTemporal;
-use vortex::extension::datetime::Date;
-use vortex::extension::datetime::Time;
-use vortex::extension::datetime::Timestamp;
 use vortex_arrow::FromArrowType;
 use vortex_arrow::ToArrowType;
 
-use crate::arc_wrapper;
+use crate::box_wrapper;
 use crate::error::try_or;
 use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::ptype::vx_ptype;
-use crate::string::vx_view;
 use crate::struct_fields::vx_struct_fields;
 
-arc_wrapper!(
-    /// A Vortex data type.
+// DType has Arc fields inside for some enum items
+box_wrapper!(
+    /// A reference-counted Vortex data type.
     ///
-    /// Data types in Vortex are purely logical, meaning they confer no information about how the data
-    /// is physically stored.
+    /// Dtypes in Vortex are purely logical meaning they tell you what the data
+    /// is but but not the encoding in which it's stored physically.
+    ///
+    /// Copying a dtype with vx_dtype_clone is a cheap operation.
     DType,
     vx_dtype
 );
 
 /// The variant tag for a Vortex data type.
-#[expect(non_camel_case_types)]
 #[non_exhaustive]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,7 +61,7 @@ pub enum vx_dtype_variant {
     DTYPE_FIXED_SIZE_LIST = 9,
 }
 
-// TODO(connor)[Union]: Do we need to add union and variant here?
+// TODO(connor)[Union]
 impl From<&DType> for vx_dtype_variant {
     fn from(value: &DType) -> Self {
         match value {
@@ -77,23 +74,29 @@ impl From<&DType> for vx_dtype_variant {
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Variant(_) => vortex_panic!("Variant DType is not supported in FFI yet"),
+            DType::Union(..) => vortex_panic!("Union is not supported in FFI yet"),
+            DType::Variant(_) => vortex_panic!("Variant is not supported in FFI yet"),
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
         }
     }
 }
 
+/// Increase reference count on vx_dtype
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_dtype_clone(ptr: *const vx_dtype) -> *const vx_dtype {
+    vx_dtype::new(vx_dtype::as_ref(ptr).clone())
+}
+
 /// Create a new null data type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_null() -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Null))
+    vx_dtype::new(DType::Null)
 }
 
 /// Create a new boolean data type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_bool(is_nullable: bool) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Bool(is_nullable.into())))
+    vx_dtype::new(DType::Bool(is_nullable.into()))
 }
 
 /// Create a new primitive data type.
@@ -102,31 +105,31 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_primitive(
     ptype: vx_ptype,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Primitive(ptype.into(), is_nullable.into())))
+    vx_dtype::new(DType::Primitive(ptype.into(), is_nullable.into()))
 }
 
 /// Create a new variable length UTF-8 data type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_utf8(is_nullable: bool) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Utf8(is_nullable.into())))
+    vx_dtype::new(DType::Utf8(is_nullable.into()))
 }
 
 /// Create a new variable length binary data type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_binary(is_nullable: bool) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Binary(is_nullable.into())))
+    vx_dtype::new(DType::Binary(is_nullable.into()))
 }
 
 /// Create a new list data type.
 ///
-/// Takes ownership of the `element` pointer.
+/// Takes ownership of "element".
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_list(
     element: *const vx_dtype,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    let element = vx_dtype::into_arc(element);
-    vx_dtype::new(Arc::new(DType::List(element, is_nullable.into())))
+    let element = *vx_dtype::into_box(element.cast_mut());
+    vx_dtype::new(DType::List(Arc::new(element), is_nullable.into()))
 }
 
 /// Create a new fixed-size list data type.
@@ -138,12 +141,12 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_fixed_size_list(
     size: u32,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    let element = vx_dtype::into_arc(element);
-    vx_dtype::new(Arc::new(DType::FixedSizeList(
-        element,
+    let element = *vx_dtype::into_box(element.cast_mut());
+    vx_dtype::new(DType::FixedSizeList(
+        Arc::new(element),
         size,
         is_nullable.into(),
-    )))
+    ))
 }
 
 /// Create a new struct data type.
@@ -155,7 +158,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_struct(
     is_nullable: bool,
 ) -> *const vx_dtype {
     let struct_dtype = vx_struct_fields::into_box(struct_dtype);
-    vx_dtype::new(Arc::new(DType::Struct(*struct_dtype, is_nullable.into())))
+    vx_dtype::new(DType::Struct(*struct_dtype, is_nullable.into()))
 }
 
 /// Create a new decimal data type.
@@ -165,10 +168,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_decimal(
     scale: i8,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    vx_dtype::new(Arc::new(DType::Decimal(
+    vx_dtype::new(DType::Decimal(
         DecimalDType::new(precision, scale),
         is_nullable.into(),
-    )))
+    ))
 }
 
 /// Get the variant of a [`vx_dtype`].
@@ -222,18 +225,17 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     vx_struct_fields::new(struct_dtype.clone())
 }
 
-/// If "dtype" is DTYPE_LIST, return its owned element dtype, return NULL
-/// otherwise. Returned dtype must be released with vx_dtype_free.
+/// If "dtype" is DTYPE_LIST, return its element dtype, return NULL otherwise.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) -> *const vx_dtype {
     let Some(element_dtype) = vx_dtype::as_ref(dtype).as_list_element_opt() else {
         return ptr::null();
     };
-    vx_dtype::new(Arc::clone(element_dtype))
+    vx_dtype::new(element_dtype.as_ref().clone())
 }
 
-/// If "dtype" is DTYPE_FIXED_SIZE_LIST, return its owned element dtype, return
-/// NULL otherwise. Returned dtype must be released with vx_dtype_free.
+/// If "dtype" is DTYPE_FIXED_SIZE_LIST, return its element dtype, return NULL
+/// otherwise.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_element(
     dtype: *const vx_dtype,
@@ -241,7 +243,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_element(
     let Some(element_dtype) = vx_dtype::as_ref(dtype).as_fixed_size_list_element_opt() else {
         return ptr::null();
     };
-    vx_dtype::new(Arc::clone(element_dtype))
+    vx_dtype::new(element_dtype.as_ref().clone())
 }
 
 /// Returns the size of a fixed-size list.
@@ -251,83 +253,6 @@ pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_size(dtype: *const vx_d
     match dtype_ref {
         DType::FixedSizeList(_, size, _) => *size,
         _ => vortex_panic!("not a fixed-size list dtype"),
-    }
-}
-
-/// Checks if the type is time.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_is_time(dtype: *const DType) -> bool {
-    // TODO(joe): propagate this error up instead of expecting
-    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-
-    match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.is::<Time>(),
-        _ => false,
-    }
-}
-
-/// Checks if the type is a date.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_is_date(dtype: *const DType) -> bool {
-    // TODO(joe): propagate this error up instead of expecting
-    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-
-    match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.is::<Date>(),
-        _ => false,
-    }
-}
-
-/// Checks if the type is a timestamp.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_is_timestamp(dtype: *const DType) -> bool {
-    // TODO(joe): propagate this error up instead of expecting
-    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-
-    match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.is::<Timestamp>(),
-        _ => false,
-    }
-}
-
-/// Returns the time unit, assuming the type is time.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
-    // TODO(joe): propagate this error up instead of expecting
-    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-
-    let DType::Extension(ext_dtype) = dtype else {
-        vortex_panic!("DType_time_unit: not a time dtype")
-    };
-
-    let Some(opts) = ext_dtype.metadata_opt::<AnyTemporal>() else {
-        // TODO(ngates): propagate this error up instead of expecting
-        vortex_panic!("DType_time_unit: not a temporal metadata: {ext_dtype:?}")
-    };
-    opts.time_unit().into()
-}
-
-/// Return time zone assuming "dtype" is time.
-/// Returns {NULL, 0} when timestamp has no time zone.
-///
-/// Returned view is valid as long as "dtype" is valid.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> vx_view {
-    // TODO(joe): propagate this error up instead of expecting
-    let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
-
-    let DType::Extension(ext_dtype) = dtype else {
-        vortex_panic!("vx_dtype_time_unit: not a time dtype")
-    };
-
-    let Some(opts) = ext_dtype.metadata_opt::<Timestamp>() else {
-        // TODO(joe): propagate this error up instead of expecting
-        vortex_panic!("DType_time_zone: not a timestamp: {ext_dtype:?}")
-    };
-
-    match opts.tz.as_ref() {
-        Some(zone) => vx_view::from_str(zone),
-        None => vx_view::null(),
     }
 }
 
@@ -367,7 +292,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_from_arrow_schema(
         let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
         let arrow_schema = Schema::try_from(&ffi_schema)?;
         drop(ffi_schema);
-        Ok(vx_dtype::new(Arc::new(DType::from_arrow(&arrow_schema))))
+        Ok(vx_dtype::new(DType::from_arrow(&arrow_schema)))
     })
 }
 
@@ -695,7 +620,7 @@ mod tests {
     #[test]
     fn test_struct_introspection_simple() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(Arc::new(array));
+        let vx_arr = vx_array::new(array);
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
@@ -714,7 +639,7 @@ mod tests {
     #[test]
     fn test_field_name_access() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(Arc::new(array));
+        let vx_arr = vx_array::new(array);
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
@@ -736,7 +661,7 @@ mod tests {
     #[test]
     fn test_comprehensive_struct_introspection() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(Arc::new(array));
+        let vx_arr = vx_array::new(array);
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };

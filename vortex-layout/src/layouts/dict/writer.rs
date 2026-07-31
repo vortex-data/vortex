@@ -18,7 +18,6 @@ use futures::pin_mut;
 use futures::stream::BoxStream;
 use futures::stream::once;
 use futures::try_join;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -38,9 +37,9 @@ use vortex_io::kanal_ext::KanalExt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 
-use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::compressed::CompressorPlugin;
@@ -133,7 +132,7 @@ impl DictStrategy {
 impl LayoutStrategy for DictStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -251,10 +250,6 @@ impl LayoutStrategy for DictStrategy {
             OwnedLayoutChildren::layout_children(child_layouts),
         )
         .into_layout())
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        self.codes.buffered_bytes() + self.values.buffered_bytes() + self.fallback.buffered_bytes()
     }
 }
 

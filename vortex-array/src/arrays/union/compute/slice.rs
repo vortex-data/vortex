@@ -13,6 +13,7 @@ use crate::arrays::Union;
 use crate::arrays::UnionArray;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::union::UnionArrayExt;
+use crate::arrays::union::UnionArraySlotsExt;
 
 impl SliceReduce for Union {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

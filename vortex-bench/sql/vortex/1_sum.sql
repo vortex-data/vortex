@@ -1,3 +1,3 @@
--- When Footer changes land, vortex-duckdb should populate statistics from
--- Footer without loading and decoding the data.
+-- All zone maps are included since we don't have a filter. Vortex doesn't load
+-- data but instead populates Sum() stat from zone maps
 SELECT sum(col) FROM test;

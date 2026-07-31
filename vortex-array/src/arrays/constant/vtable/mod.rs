@@ -33,6 +33,7 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::BoolBuilder;
 use crate::builders::DecimalBuilder;
+use crate::builders::DynVarBinBuilder;
 use crate::builders::NullBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::VarBinViewBuilder;
@@ -222,22 +223,30 @@ impl VTable for Constant {
                 });
             }
             DType::Utf8(_) => {
-                append_value_or_nulls::<VarBinViewBuilder>(builder, scalar.is_null(), n, |b| {
-                    let typed = scalar.as_utf8();
-                    let value = typed
-                        .value()
-                        .vortex_expect("non-null utf8 scalar must have a value");
-                    b.append_n_values(value.as_bytes(), n);
-                });
+                if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
+                    builder.append_scalar_repeated(scalar, n)?;
+                } else {
+                    append_value_or_nulls::<VarBinViewBuilder>(builder, scalar.is_null(), n, |b| {
+                        let value = scalar
+                            .as_utf8()
+                            .value()
+                            .vortex_expect("non-null utf8 scalar must have a value");
+                        b.append_n_values(value.as_bytes(), n);
+                    });
+                }
             }
             DType::Binary(_) => {
-                append_value_or_nulls::<VarBinViewBuilder>(builder, scalar.is_null(), n, |b| {
-                    let typed = scalar.as_binary();
-                    let value = typed
-                        .value()
-                        .vortex_expect("non-null binary scalar must have a value");
-                    b.append_n_values(value, n);
-                });
+                if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
+                    builder.append_scalar_repeated(scalar, n)?;
+                } else {
+                    append_value_or_nulls::<VarBinViewBuilder>(builder, scalar.is_null(), n, |b| {
+                        let value = scalar
+                            .as_binary()
+                            .value()
+                            .vortex_expect("non-null binary scalar must have a value");
+                        b.append_n_values(value, n);
+                    });
+                }
             }
             // TODO: add fast paths for DType::Struct, DType::List, DType::FixedSizeList, DType::Extension.
             _ => {

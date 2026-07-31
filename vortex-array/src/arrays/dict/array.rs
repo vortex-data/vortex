@@ -45,8 +45,10 @@ pub struct DictMetadata {
 #[array_slots(Dict)]
 pub struct DictSlots {
     /// The codes array mapping each element to a dictionary entry.
+    #[slot(0)]
     pub codes: ArrayRef,
     /// The dictionary values array containing the unique values.
+    #[slot(1)]
     pub values: ArrayRef,
 }
 
@@ -294,7 +296,9 @@ mod test {
     use crate::arrays::ChunkedArray;
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
+    use crate::builders::DynVarBinBuilder;
     use crate::builders::builder_with_capacity;
     use crate::dtype::DType;
     use crate::dtype::NativePType;
@@ -438,6 +442,21 @@ mod test {
             })
             .collect::<ChunkedArray>()
             .into_array()
+    }
+
+    #[test]
+    fn test_dict_utf8_append_to_dyn_varbin_builder() -> VortexResult<()> {
+        let values = VarBinViewArray::from_iter_str(["zero", "one", "two"]);
+        let dict = DictArray::try_new(buffer![2u8, 0, 2, 1].into_array(), values.into_array())?;
+        let expected = VarBinViewArray::from_iter_str(["two", "zero", "two", "one"]);
+        let mut builder = DynVarBinBuilder::with_capacity(dict.dtype().clone(), false, dict.len());
+        let mut ctx = array_session().create_execution_ctx();
+
+        dict.into_array()
+            .append_to_builder(&mut builder, &mut ctx)?;
+
+        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
+        Ok(())
     }
 
     #[test]

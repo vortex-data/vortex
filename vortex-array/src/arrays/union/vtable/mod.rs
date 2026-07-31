@@ -21,8 +21,7 @@ use crate::array::EmptyArrayData;
 use crate::array::VTable;
 use crate::array::with_empty_buffers;
 use crate::arrays::union::UnionArrayExt;
-use crate::arrays::union::array::CHILDREN_OFFSET;
-use crate::arrays::union::array::TYPE_IDS_SLOT;
+use crate::arrays::union::UnionSlots;
 use crate::arrays::union::array::make_union_parts;
 use crate::arrays::union::compute::rules::PARENT_RULES;
 use crate::arrays::union::union_type_ids_dtype;
@@ -64,11 +63,11 @@ impl VTable for Union {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let type_ids = slots
-            .get(TYPE_IDS_SLOT)
+            .get(UnionSlots::TYPE_IDS)
             .and_then(Option::as_ref)
             .ok_or_else(|| vortex_err!("UnionArray is missing its type_ids slot"))?;
         let variant_arrays = slots
-            .get(CHILDREN_OFFSET..)
+            .get(UnionSlots::CHILDREN_OFFSET..)
             .unwrap_or_default()
             .iter()
             .enumerate()
@@ -124,31 +123,35 @@ impl VTable for Union {
         };
         vortex_ensure_eq!(
             children.len(),
-            CHILDREN_OFFSET + variants.len(),
+            UnionSlots::CHILDREN_OFFSET + variants.len(),
             "UnionArray expected {} children, found {}",
-            CHILDREN_OFFSET + variants.len(),
+            UnionSlots::CHILDREN_OFFSET + variants.len(),
             children.len()
         );
 
-        let type_ids = children.get(TYPE_IDS_SLOT, &union_type_ids_dtype(*nullability), len)?;
+        let type_ids = children.get(
+            UnionSlots::TYPE_IDS,
+            &union_type_ids_dtype(*nullability),
+            len,
+        )?;
         let sparse_children = variants
             .variants()
             .enumerate()
-            .map(|(index, dtype)| children.get(CHILDREN_OFFSET + index, &dtype, len))
+            .map(|(index, dtype)| children.get(UnionSlots::CHILDREN_OFFSET + index, &dtype, len))
             .collect::<VortexResult<Vec<_>>>()?;
 
         Ok(make_union_parts(
             type_ids,
             variants.clone(),
-            &sparse_children,
+            sparse_children,
         ))
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        if idx == TYPE_IDS_SLOT {
+        if idx == UnionSlots::TYPE_IDS {
             "type_ids".to_string()
         } else {
-            array.variants().names()[idx - CHILDREN_OFFSET].to_string()
+            array.variants().names()[idx - UnionSlots::CHILDREN_OFFSET].to_string()
         }
     }
 

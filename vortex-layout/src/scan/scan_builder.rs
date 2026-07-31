@@ -18,6 +18,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::analysis::referenced_field_paths;
+use vortex_array::expr::forms::conjuncts;
 use vortex_array::expr::root;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
@@ -40,6 +41,9 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::row_idx::RowIdxLayoutReader;
+use crate::scan::plan_v2::LayoutReaderScanPlanV2;
+use crate::scan::plan_v2::ScanPlanRef;
+use crate::scan::plan_v2::plan_v2_enabled;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
@@ -309,7 +313,34 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 )?)
             };
 
-        Ok(RepeatedScan::new(
+        if plan_v2_enabled()? {
+            let source: ScanPlanRef =
+                Arc::new(LayoutReaderScanPlanV2::new(Arc::clone(&layout_reader)));
+            let projection_plan = Arc::clone(&source).apply_expr(projection)?.optimize()?;
+            let predicate_plans = filter
+                .as_ref()
+                .map(conjuncts)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|expr| Arc::clone(&source).apply_expr(expr)?.optimize())
+                .collect::<VortexResult<Vec<_>>>()?;
+            return Ok(RepeatedScan::new_plan_v2(
+                self.session.clone(),
+                projection_plan,
+                predicate_plans,
+                filter,
+                self.ordered,
+                self.row_range,
+                self.selection,
+                splits,
+                self.concurrency,
+                self.map_fn,
+                self.limit,
+                dtype,
+            ));
+        }
+
+        Ok(RepeatedScan::new_plan(
             self.session.clone(),
             layout_reader,
             projection,
@@ -394,9 +425,8 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                     let num_workers = get_available_parallelism().unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
-                    let task = handle.spawn_blocking(move || {
-                        builder.prepare().and_then(|scan| scan.execute(None))
-                    });
+                    let task = handle
+                        .spawn_cpu(move || builder.prepare().and_then(|scan| scan.execute(None)));
                     self.state = LazyScanState::Preparing(PreparingScan {
                         ordered,
                         concurrency,

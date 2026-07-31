@@ -23,6 +23,7 @@ use vortex_mask::Mask;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
+use crate::array::RunEndArraySlotsExt;
 use crate::compute::take::take_indices_unchecked;
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 

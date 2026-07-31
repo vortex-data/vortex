@@ -191,16 +191,12 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
-        let encoding_idx = self
-            .ctx
-            .intern(&self.array.encoding_id())
-            // TODO(ngates): write_flatbuffer should return a result if this can fail.
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Array encoding {} not permitted by ctx",
-                    self.array.encoding_id()
-                )
-            })?;
+        let encoding_idx = self.ctx.intern(&self.array.encoding_id()).ok_or_else(|| {
+            vortex_err!(
+                "Array encoding {} not permitted by ctx",
+                self.array.encoding_id()
+            )
+        })?;
 
         let metadata_bytes = self.session.array_serialize(self.array)?.ok_or_else(|| {
             vortex_err!(
@@ -325,7 +321,7 @@ impl SerializedArray {
         let encoding_id = ctx
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
-        let Some(plugin) = session.arrays().registry().find(&encoding_id) else {
+        let Some(plugin) = session.arrays().registry().get(&encoding_id) else {
             if session.allows_unknown() {
                 return self.decode_foreign(encoding_id, dtype, len, ctx);
             }

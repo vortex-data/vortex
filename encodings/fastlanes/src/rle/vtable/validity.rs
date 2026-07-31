@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::rle::RLE;
 use crate::rle::RLEArrayExt;
+use crate::rle::RLEArraySlotsExt;
 
 impl ValidityVTable<RLE> for RLE {
     fn validity(array: ArrayView<'_, RLE>) -> VortexResult<vortex_array::validity::Validity> {

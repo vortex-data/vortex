@@ -3,10 +3,12 @@
 
 //! Pco (pcodec) float compression.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::VTable;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_error::VortexResult;
@@ -27,6 +29,10 @@ impl Scheme for PcoScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         canonical.dtype().is_float()
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![vortex_pco::Pco.id()]
     }
 
     fn expected_compression_ratio(

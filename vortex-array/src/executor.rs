@@ -796,7 +796,12 @@ macro_rules! require_opt_child {
 /// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
 ///
 /// ```ignore
-/// require_patches!(array, PATCH_INDICES_SLOT, PATCH_VALUES_SLOT, PATCH_CHUNK_OFFSETS_SLOT);
+/// require_patches!(
+///     array,
+///     MySlots::PATCH_INDICES,
+///     MySlots::PATCH_VALUES,
+///     MySlots::PATCH_CHUNK_OFFSETS
+/// );
 /// ```
 #[macro_export]
 macro_rules! require_patches {
@@ -826,7 +831,7 @@ macro_rules! require_patches {
 /// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
 ///
 /// ```ignore
-/// require_validity!(array, VALIDITY_SLOT);
+/// require_validity!(array, MySlots::VALIDITY);
 /// ```
 #[macro_export]
 macro_rules! require_validity {

@@ -43,7 +43,8 @@ use crate::validity::Validity;
 /// operand without falling back to ordinary execution.
 ///
 /// Vortex's boolean [`Operator::And`] and [`Operator::Or`] variants use Kleene semantics; there is
-/// no separate two-valued boolean operator path to dispatch here.
+/// no separate two-valued boolean operator path to dispatch here. Consequently, they are not
+/// strict: `false AND null` is `false`, and `true OR null` is `true`.
 pub trait BooleanKernel: VTable {
     /// Execute `lhs <operator> rhs` using Kleene boolean semantics.
     fn boolean(

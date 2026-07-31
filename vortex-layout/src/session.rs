@@ -3,21 +3,24 @@
 
 use std::any::Any;
 
+use vortex_session::ArcSwapMap;
 use vortex_session::SessionExt;
 use vortex_session::SessionGuard;
 use vortex_session::SessionVar;
-use vortex_session::registry::Registry;
+use vortex_session::registry::Id;
 
+use crate::LayoutEncoding;
 use crate::LayoutEncodingRef;
-use crate::layouts::chunked::ChunkedLayoutEncoding;
-use crate::layouts::dict::DictLayoutEncoding;
-use crate::layouts::flat::FlatLayoutEncoding;
-use crate::layouts::list::ListLayoutEncoding;
-use crate::layouts::struct_::StructLayoutEncoding;
-use crate::layouts::zoned::LegacyStatsLayoutEncoding;
-use crate::layouts::zoned::ZonedLayoutEncoding;
+use crate::layouts::chunked::Chunked;
+use crate::layouts::dict::Dict;
+use crate::layouts::flat::Flat;
+use crate::layouts::list::List;
+use crate::layouts::struct_::Struct;
+use crate::layouts::zoned::LegacyStats;
+use crate::layouts::zoned::Zoned;
 
-pub type LayoutRegistry = Registry<LayoutEncodingRef>;
+/// Registry of layout encodings.
+pub type LayoutRegistry = ArcSwapMap<Id, LayoutEncodingRef>;
 
 /// Session state for layout encodings.
 #[derive(Clone, Debug)]
@@ -27,14 +30,15 @@ pub struct LayoutSession {
 
 impl LayoutSession {
     /// Register a layout encoding in the session, replacing any existing encoding with the same ID.
-    pub fn register(&self, layout: LayoutEncodingRef) {
-        self.registry.register(layout.id(), layout);
+    pub fn register(&self, layout_ref: impl Into<LayoutEncodingRef>) {
+        let layout = layout_ref.into();
+        self.registry.insert(layout.id(), layout);
     }
 
     /// Register layout encodings in the session, replacing any existing encodings with the same IDs.
     pub fn register_many(&self, layouts: impl IntoIterator<Item = LayoutEncodingRef>) {
         for layout in layouts {
-            self.registry.register(layout.id(), layout);
+            self.registry.insert(layout.id(), layout);
         }
     }
 
@@ -46,21 +50,19 @@ impl LayoutSession {
 
 impl Default for LayoutSession {
     fn default() -> Self {
-        let layouts = LayoutRegistry::default();
+        let this = Self {
+            registry: LayoutRegistry::default(),
+        };
 
         // Register the built-in layout encodings.
-        layouts.register(ChunkedLayoutEncoding.id(), ChunkedLayoutEncoding.as_ref());
-        layouts.register(FlatLayoutEncoding.id(), FlatLayoutEncoding.as_ref());
-        layouts.register(StructLayoutEncoding.id(), StructLayoutEncoding.as_ref());
-        layouts.register(ZonedLayoutEncoding.id(), ZonedLayoutEncoding.as_ref());
-        layouts.register(
-            LegacyStatsLayoutEncoding.id(),
-            LegacyStatsLayoutEncoding.as_ref(),
-        );
-        layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
-        layouts.register(ListLayoutEncoding.id(), ListLayoutEncoding.as_ref());
-
-        Self { registry: layouts }
+        this.register(&Chunked as &dyn LayoutEncoding);
+        this.register(&Flat as &dyn LayoutEncoding);
+        this.register(&Struct as &dyn LayoutEncoding);
+        this.register(&Zoned as &dyn LayoutEncoding);
+        this.register(&LegacyStats as &dyn LayoutEncoding);
+        this.register(&Dict as &dyn LayoutEncoding);
+        this.register(&List as &dyn LayoutEncoding);
+        this
     }
 }
 

@@ -16,7 +16,6 @@ use crate::string::vx_view;
 /// Error category for vx_error.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[expect(non_camel_case_types)]
 pub enum vx_error_code {
     /// All other errors
     VX_ERROR_CODE_OTHER = 0,

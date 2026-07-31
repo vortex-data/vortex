@@ -27,8 +27,8 @@ use crate::arrays::List;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::list::ListArrayExt;
-use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::list::ListArraySlotsExt;
+use crate::arrays::listview::ListViewArraySlotsExt;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -40,20 +40,21 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::dtype::OffsetBuilderPType;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 
-/// A builder for creating [`ListViewArray`] instances, parameterized by the [`IntegerPType`] of
-/// the `offsets` and the `sizes` builders.
+/// A builder for creating [`ListViewArray`] instances, parameterized by the [`OffsetBuilderPType`]
+/// of the `offsets` and the `sizes` builders.
 ///
 /// This builder tracks both offsets and sizes using potentially different integer types for memory
 /// efficiency. For example, you might use `u64` for offsets but only `u8` for sizes if your lists
 /// are small.
 ///
-/// Any combination of [`IntegerPType`] types are valid, as long as the type of `sizes` can fit into
-/// the type of `offsets`.
-pub struct ListViewBuilder<O: IntegerPType, S: IntegerPType> {
+/// Any combination of [`OffsetBuilderPType`] types is valid, as long as the type of `sizes` can fit
+/// into the type of `offsets`.
+pub struct ListViewBuilder<O: OffsetBuilderPType, S: OffsetBuilderPType> {
     /// The [`DType`] of the [`ListViewArray`]. This **must** be a [`DType::List`].
     dtype: DType,
 
@@ -70,7 +71,7 @@ pub struct ListViewBuilder<O: IntegerPType, S: IntegerPType> {
     nulls: LazyBitBufferBuilder,
 }
 
-impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
+impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     /// Creates a new `ListViewBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self::with_capacity(
@@ -231,9 +232,101 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
 
         element_dtype
     }
+
+    /// Appends the values of a [`List`]-encoded `array` to this builder.
+    ///
+    /// List encodings dispatch here through
+    /// [`match_each_list_builder!`](crate::match_each_list_builder) because the concrete list
+    /// builders are generic over their offset/size integer types, which cannot be named through a
+    /// `dyn ArrayBuilder`.
+    pub fn append_list_array(
+        &mut self,
+        array: ArrayView<'_, List>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if array.is_empty() {
+            return Ok(());
+        }
+
+        self.nulls
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+
+        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
+            extend_from_list(
+                self,
+                array.elements(),
+                offsets.as_slice::<OffsetType>(),
+                ctx,
+            )?
+        });
+        Ok(())
+    }
+
+    /// Appends the values of a [`ListView`]-encoded `array` to this builder.
+    ///
+    /// See [`append_list_array`](Self::append_list_array); this is the same hook for the canonical
+    /// [`ListViewArray`] encoding.
+    pub fn append_listview_array(
+        &mut self,
+        array: ArrayView<'_, ListView>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if array.is_empty() {
+            return Ok(());
+        }
+
+        // Normalize to an exact zero-copy-to-list layout and then bulk append. This avoids the
+        // very expensive scalar_at-per-list path for overlapping / out-of-order list views.
+        let listview = array
+            .into_owned()
+            .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
+        debug_assert!(listview.is_zero_copy_to_list());
+
+        self.nulls
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+
+        // Bulk append the new elements (which should have no gaps or overlaps).
+        let old_elements_len = self.elements_builder.len();
+        self.elements_builder
+            .reserve_exact(listview.elements().len());
+        listview
+            .elements()
+            .append_to_builder(self.elements_builder.as_mut(), ctx)?;
+        let new_elements_len = self.elements_builder.len();
+
+        // Reserve enough space for the new views.
+        let extend_length = listview.len();
+        self.sizes_builder.reserve_exact(extend_length);
+        self.offsets_builder.reserve_exact(extend_length);
+
+        // The incoming sizes might have a different type than the builder, so we need to cast.
+        let cast_sizes = listview
+            .sizes()
+            .clone()
+            .cast(self.sizes_builder.dtype().clone())?;
+        cast_sizes.append_to_builder(&mut self.sizes_builder, ctx)?;
+
+        // Now we need to adjust all of the offsets by adding the current number of elements in the
+        // builder.
+        let uninit_range = self.offsets_builder.uninit_range(extend_length);
+
+        // This should be cheap because we didn't compress after rebuilding.
+        let new_offsets = listview.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+
+        match_each_integer_ptype!(new_offsets.ptype(), |A| {
+            adjust_and_extend_offsets::<O, A>(
+                uninit_range,
+                new_offsets,
+                old_elements_len,
+                new_elements_len,
+            );
+        });
+        Ok(())
+    }
 }
 
-impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
+impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuilder<O, S> {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -318,88 +411,6 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
         Canonical::List(self.finish_into_listview())
     }
-
-    fn append_list_array(
-        &mut self,
-        array: ArrayView<'_, List>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        if array.is_empty() {
-            return Ok(());
-        }
-
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
-
-        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-        match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
-            extend_from_list(
-                self,
-                array.elements(),
-                offsets.as_slice::<OffsetType>(),
-                ctx,
-            )?
-        });
-        Ok(())
-    }
-
-    fn append_listview_array(
-        &mut self,
-        array: ArrayView<'_, ListView>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        if array.is_empty() {
-            return Ok(());
-        }
-
-        // Normalize to an exact zero-copy-to-list layout and then bulk append. This avoids the
-        // very expensive scalar_at-per-list path for overlapping / out-of-order list views.
-        let listview = array
-            .into_owned()
-            .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
-        debug_assert!(listview.is_zero_copy_to_list());
-
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
-
-        // Bulk append the new elements (which should have no gaps or overlaps).
-        let old_elements_len = self.elements_builder.len();
-        self.elements_builder
-            .reserve_exact(listview.elements().len());
-        listview
-            .elements()
-            .append_to_builder(self.elements_builder.as_mut(), ctx)?;
-        let new_elements_len = self.elements_builder.len();
-
-        // Reserve enough space for the new views.
-        let extend_length = listview.len();
-        self.sizes_builder.reserve_exact(extend_length);
-        self.offsets_builder.reserve_exact(extend_length);
-
-        // The incoming sizes might have a different type than the builder, so we need to cast.
-        let cast_sizes = listview
-            .sizes()
-            .clone()
-            .cast(self.sizes_builder.dtype().clone())?;
-        cast_sizes.append_to_builder(&mut self.sizes_builder, ctx)?;
-
-        // Now we need to adjust all of the offsets by adding the current number of elements in the
-        // builder.
-        let uninit_range = self.offsets_builder.uninit_range(extend_length);
-
-        // This should be cheap because we didn't compress after rebuilding.
-        let new_offsets = listview.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-
-        match_each_integer_ptype!(new_offsets.ptype(), |A| {
-            adjust_and_extend_offsets::<O, A>(
-                uninit_range,
-                new_offsets,
-                old_elements_len,
-                new_elements_len,
-            );
-        });
-        Ok(())
-    }
 }
 
 /// Appends `ListArray`-layout lists (`n + 1` cumulative offsets) into a [`ListViewBuilder`].
@@ -414,8 +425,8 @@ fn extend_from_list<O, S, OffsetType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()>
 where
-    O: IntegerPType,
-    S: IntegerPType,
+    O: OffsetBuilderPType,
+    S: OffsetBuilderPType,
     OffsetType: IntegerPType,
 {
     let num_lists = offsets.len() - 1;
@@ -517,6 +528,7 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::listview::ListViewArrayExt;
+    use crate::arrays::listview::ListViewArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::listview::PrimitiveArray;
@@ -603,10 +615,10 @@ mod tests {
     #[test]
     fn test_different_offset_size_types() {
         let mut ctx = array_session().create_execution_ctx();
-        // Test u32 offsets with u8 sizes.
+        // Test u64 offsets with u32 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
-            ListViewBuilder::<u32, u8>::with_capacity(Arc::clone(&dtype), NonNullable, 0, 0);
+            ListViewBuilder::<u64, u32>::with_capacity(Arc::clone(&dtype), NonNullable, 0, 0);
 
         builder
             .append_value(
@@ -647,10 +659,10 @@ mod tests {
             &mut ctx
         );
 
-        // Test u64 offsets with u16 sizes.
+        // Test i64 offsets with i32 sizes.
         let dtype2: Arc<DType> = Arc::new(I32.into());
         let mut builder2 =
-            ListViewBuilder::<u64, u16>::with_capacity(Arc::clone(&dtype2), NonNullable, 0, 0);
+            ListViewBuilder::<i64, i32>::with_capacity(Arc::clone(&dtype2), NonNullable, 0, 0);
 
         for i in 0..5 {
             builder2
@@ -853,7 +865,7 @@ mod tests {
         assert!(!source.is_zero_copy_to_list());
 
         let mut builder =
-            ListViewBuilder::<u32, u8>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
         builder
             .append_listview_array(source.as_view(), &mut ctx)
             .unwrap();

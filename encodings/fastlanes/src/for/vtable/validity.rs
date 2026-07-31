@@ -6,7 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::vtable::ValidityChild;
 
 use super::FoR;
-use crate::r#for::array::FoRArrayExt;
+use crate::r#for::array::FoRArraySlotsExt;
 
 impl ValidityChild<FoR> for FoR {
     fn validity_child(array: ArrayView<'_, FoR>) -> ArrayRef {

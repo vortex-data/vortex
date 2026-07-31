@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import importlib
 import importlib.metadata
 import importlib.util
 
@@ -116,6 +117,17 @@ def cuda_extension_installed() -> bool:
     is usable at runtime.
     """
     return importlib.util.find_spec("vortex_cuda") is not None
+
+
+def __getattr__(name: str):
+    # `datasets` is exposed lazily and deliberately kept out of __all__: importing it pulls in the
+    # optional `vortex-data[hf]` dependencies, so it must not be imported by `from vortex import *`
+    # or by merely importing `vortex`.
+    if name == "datasets":
+        module = importlib.import_module(".datasets", __name__)
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

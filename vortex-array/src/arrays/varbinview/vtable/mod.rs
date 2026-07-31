@@ -25,11 +25,11 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewData;
-use crate::arrays::varbinview::array::NUM_SLOTS;
-use crate::arrays::varbinview::array::SLOT_NAMES;
+use crate::arrays::varbinview::array::VarBinViewSlots;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
+use crate::builders::DynVarBinBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
@@ -93,8 +93,9 @@ impl VTable for VarBinView {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VarBinViewArray expected {NUM_SLOTS} slots, found {}",
+            slots.len() == VarBinViewSlots::COUNT,
+            "VarBinViewArray expected {} slots, found {}",
+            VarBinViewSlots::COUNT,
             slots.len()
         );
         vortex_ensure!(
@@ -229,7 +230,7 @@ impl VTable for VarBinView {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        VarBinViewSlots::NAMES[idx].to_string()
     }
 
     fn reduce_parent(
@@ -245,10 +246,13 @@ impl VTable for VarBinView {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            vortex_bail!("append_to_builder for VarBinView requires a VarBinViewBuilder");
-        };
-        builder.append_varbinview_array(&array.into_owned(), ctx)
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
+            return builder.append_varbinview_array(&array.into_owned(), ctx);
+        }
+        if let Some(builder) = builder.as_any_mut().downcast_mut::<DynVarBinBuilder>() {
+            return builder.append_varbinview(array, ctx);
+        }
+        vortex_bail!("append_to_builder for VarBinView requires a variable-binary builder")
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

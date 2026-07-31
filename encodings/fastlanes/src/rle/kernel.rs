@@ -18,6 +18,7 @@ use vortex_session::VortexSession;
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
 use crate::rle::RLEArrayExt;
+use crate::rle::RLEArraySlotsExt;
 
 pub(crate) fn initialize(session: &VortexSession) {
     let kernels = session.kernels();

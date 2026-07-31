@@ -1,0 +1,117 @@
+name: "Pre-upload benchmark debuginfo to Polar Signals"
+description: "Install parca-debuginfo and upload built benchmark binaries to Polar Signals Cloud"
+
+inputs:
+  paths:
+    description: "Newline-delimited paths to binaries whose debuginfo should be uploaded"
+    required: true
+  polarsignals-cloud-token:
+    description: "Polar Signals service account token"
+    required: true
+  project-id:
+    description: "Polar Signals Cloud project ID"
+    required: true
+  store-address:
+    description: "Parca-compatible debuginfo gRPC endpoint"
+    required: false
+    default: "grpc.polarsignals.com:443"
+  version:
+    description: "parca-debuginfo version to install"
+    required: false
+    default: "0.13.0"
+  force:
+    description: "Replace existing debuginfo for the same build ID"
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download and verify parca-debuginfo CLI
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -Eeu -o pipefail
+
+        base_url="https://github.com/parca-dev/parca-debuginfo/releases/download/v${VERSION}"
+        asset="parca-debuginfo_${VERSION}_$(uname -s)_$(uname -m)"
+        checksums="$(mktemp)"
+        curl -fsSL "${base_url}/checksums.txt" -o "$checksums"
+
+        mkdir -p "$RUNNER_TEMP/parca-debuginfo"
+        cd "$RUNNER_TEMP/parca-debuginfo"
+
+        if curl -fsSLO "${base_url}/${asset}"; then
+          shasum --ignore-missing -a 256 --check "$checksums"
+          chmod +x "$asset"
+          mv "$asset" parca-debuginfo
+        else
+          archive="${asset}.tar.gz"
+          curl -fsSLO "${base_url}/${archive}"
+          shasum --ignore-missing -a 256 --check "$checksums"
+          tar -xzf "$archive" parca-debuginfo
+          chmod +x parca-debuginfo
+        fi
+
+        echo "$PWD" >> "$GITHUB_PATH"
+
+    - name: Upload benchmark binary debuginfo to Polar Signals
+      shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+        POLARSIGNALS_CLOUD_TOKEN: ${{ inputs.polarsignals-cloud-token }}
+        PROJECT_ID: ${{ inputs.project-id }}
+        STORE_ADDRESS: ${{ inputs.store-address }}
+        FORCE: ${{ inputs.force }}
+      run: |
+        set -Eeu -o pipefail
+
+        token_file="$(mktemp)"
+        upload_log="$(mktemp)"
+        trap 'rm -f "$token_file" "$upload_log"' EXIT
+        printf "%s" "$POLARSIGNALS_CLOUD_TOKEN" > "$token_file"
+
+        uploaded=0
+        while IFS= read -r binary; do
+          binary="${binary#"${binary%%[![:space:]]*}"}"
+          binary="${binary%"${binary##*[![:space:]]}"}"
+          [[ -z "$binary" ]] && continue
+
+          if [[ ! -f "$binary" ]]; then
+            echo "::error::Debuginfo upload target does not exist: $binary"
+            exit 1
+          fi
+
+          cmd=(
+            parca-debuginfo
+            upload
+            "--store-address=$STORE_ADDRESS"
+            "--bearer-token-file=$token_file"
+            "--grpc-headers=projectID=$PROJECT_ID"
+            "$binary"
+          )
+          if [[ "$FORCE" == "true" ]]; then
+            cmd+=(--force)
+          fi
+
+          set +e
+          "${cmd[@]}" > "$upload_log" 2>&1
+          status=$?
+          set -e
+          cat "$upload_log"
+
+          if [[ "$status" -ne 0 ]]; then
+            if grep -Eiq "upload id mismatch|already exists|AlreadyExists|previous upload is still in-progress|not stale yet|only stale uploads can be retried" "$upload_log"; then
+              echo "::notice::Debuginfo upload already exists or is in progress for $binary; continuing"
+            else
+              exit "$status"
+            fi
+          fi
+          uploaded=$((uploaded + 1))
+        done <<< "$PATHS"
+
+        if [[ "$uploaded" -eq 0 ]]; then
+          echo "::error::No debuginfo upload targets were provided"
+          exit 1
+        fi

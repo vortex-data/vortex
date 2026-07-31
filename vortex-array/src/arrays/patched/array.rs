@@ -54,12 +54,16 @@ pub struct PatchedData {
 #[array_slots(Patched)]
 pub struct PatchedSlots {
     /// The inner array containing the base unpatched values.
+    #[slot(0)]
     pub inner: ArrayRef,
     /// The lane offsets array for locating patches within lanes.
+    #[slot(1)]
     pub lane_offsets: ArrayRef,
     /// The indices of patched (exception) values.
+    #[slot(2)]
     pub patch_indices: ArrayRef,
     /// The patched (exception) values at the corresponding indices.
+    #[slot(3)]
     pub patch_values: ArrayRef,
 }
 
@@ -369,14 +373,40 @@ mod tests {
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::array_slots;
+    use crate::arrays::Chunked;
     use crate::arrays::Null;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::Union;
     use crate::validity::Validity;
 
     #[array_slots(Null)]
     struct OptionalPatchedSlots {
+        #[slot(0)]
         required: ArrayRef,
+        #[slot(1)]
         maybe: Option<ArrayRef>,
+    }
+
+    #[array_slots(Chunked)]
+    struct VariadicSlots {
+        #[slot(0)]
+        offsets: ArrayRef,
+        #[slot(1)]
+        maybe_validity: Option<ArrayRef>,
+        #[slot(2..)]
+        chunks: Vec<ArrayRef>,
+    }
+
+    /// The same layout as [`VariadicSlots`], but with every field declaration moved. The
+    /// `#[slot(..)]` annotations must keep the storage layout identical.
+    #[array_slots(Union)]
+    struct ShuffledVariadicSlots {
+        #[slot(2..)]
+        chunks: Vec<ArrayRef>,
+        #[slot(1)]
+        maybe_validity: Option<ArrayRef>,
+        #[slot(0)]
+        offsets: ArrayRef,
     }
 
     #[test]
@@ -404,5 +434,129 @@ mod tests {
         );
         assert_eq!(rebuilt.inner.len(), required.len());
         assert_eq!(rebuilt.patch_values.len(), optional.len());
+    }
+
+    #[test]
+    fn variadic_slots_round_trip() {
+        let offsets = PrimitiveArray::new(buffer![0u64, 3, 5], Validity::NonNullable).into_array();
+        let chunk0 = PrimitiveArray::new(buffer![1u8, 2, 3], Validity::NonNullable).into_array();
+        let chunk1 = PrimitiveArray::new(buffer![4u8, 5], Validity::NonNullable).into_array();
+
+        assert_eq!(VariadicSlots::OFFSETS, 0);
+        assert_eq!(VariadicSlots::MAYBE_VALIDITY, 1);
+        assert_eq!(VariadicSlots::CHUNKS_OFFSET, 2);
+        assert_eq!(VariadicSlots::FIXED_COUNT, 2);
+        assert_eq!(VariadicSlots::slot_name(0), "offsets");
+        assert_eq!(VariadicSlots::slot_name(3), "chunks[1]");
+
+        let slot_vec = vec![Some(offsets.clone()), None, Some(chunk0), Some(chunk1)];
+
+        let view = VariadicSlotsView::from_slots(&slot_vec);
+        assert_eq!(view.offsets.len(), 3);
+        assert!(view.maybe_validity.is_none());
+        assert_eq!(view.chunks.len(), 2);
+        assert_eq!(view.chunks[0].len(), 3);
+        assert_eq!(view.chunks.get(1).map(|c| c.len()), Some(2));
+        assert!(view.chunks.get(2).is_none());
+        assert_eq!(
+            view.chunks.iter().map(|c| c.len()).collect::<Vec<_>>(),
+            vec![3, 2]
+        );
+
+        let owned = view.to_owned();
+        assert_eq!(owned.chunks.len(), 2);
+
+        let owned = VariadicSlots::from_slots(slot_vec.into());
+        assert_eq!(owned.offsets.len(), offsets.len());
+        assert!(owned.maybe_validity.is_none());
+        assert_eq!(owned.chunks.len(), 2);
+
+        let slots = owned.into_slots();
+        assert_eq!(slots.len(), 4);
+        assert!(slots[1].is_none());
+        assert_eq!(
+            slots[VariadicSlots::CHUNKS_OFFSET]
+                .as_ref()
+                .map(|c| c.len()),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn variadic_slots_empty_tail() {
+        let offsets = PrimitiveArray::new(buffer![0u64], Validity::NonNullable).into_array();
+        let slot_vec = vec![Some(offsets), None];
+
+        let view = VariadicSlotsView::from_slots(&slot_vec);
+        assert!(view.chunks.is_empty());
+
+        let owned = VariadicSlots::from_slots(slot_vec.into());
+        assert!(owned.chunks.is_empty());
+        assert_eq!(owned.into_slots().len(), 2);
+    }
+
+    #[test]
+    fn slot_indices_follow_annotations_not_declaration_order() {
+        assert_eq!(
+            ShuffledVariadicSlots::OFFSETS,
+            VariadicSlots::OFFSETS,
+            "field declaration order must not move a slot"
+        );
+        assert_eq!(
+            ShuffledVariadicSlots::MAYBE_VALIDITY,
+            VariadicSlots::MAYBE_VALIDITY
+        );
+        assert_eq!(
+            ShuffledVariadicSlots::CHUNKS_OFFSET,
+            VariadicSlots::CHUNKS_OFFSET
+        );
+        assert_eq!(
+            ShuffledVariadicSlots::FIXED_COUNT,
+            VariadicSlots::FIXED_COUNT
+        );
+        assert_eq!(ShuffledVariadicSlots::slot_name(0), "offsets");
+        assert_eq!(ShuffledVariadicSlots::slot_name(1), "maybe_validity");
+        assert_eq!(ShuffledVariadicSlots::slot_name(3), "chunks[1]");
+    }
+
+    #[test]
+    fn shuffled_declaration_order_round_trips_through_storage() {
+        let offsets = PrimitiveArray::new(buffer![0u64, 3], Validity::NonNullable).into_array();
+        let validity = PrimitiveArray::new(buffer![1u8, 1], Validity::NonNullable).into_array();
+        let chunk = PrimitiveArray::new(buffer![1u8, 2, 3], Validity::NonNullable).into_array();
+
+        let slot_vec = vec![
+            Some(offsets.clone()),
+            Some(validity.clone()),
+            Some(chunk.clone()),
+        ];
+
+        let view = ShuffledVariadicSlotsView::from_slots(&slot_vec);
+        assert_eq!(view.offsets.len(), offsets.len());
+        assert_eq!(view.maybe_validity.map(|v| v.len()), Some(validity.len()));
+        assert_eq!(view.chunks.len(), 1);
+        assert_eq!(view.chunks[0].len(), chunk.len());
+
+        // `into_slots` must emit annotation order, not the shuffled declaration order.
+        let round_tripped = ShuffledVariadicSlots::from_slots(slot_vec.into()).into_slots();
+        assert_eq!(round_tripped.len(), 3);
+        assert_eq!(
+            round_tripped[ShuffledVariadicSlots::OFFSETS]
+                .as_ref()
+                .map(|s| s.len()),
+            Some(offsets.len())
+        );
+        assert_eq!(
+            round_tripped[ShuffledVariadicSlots::MAYBE_VALIDITY]
+                .as_ref()
+                .map(|s| s.len()),
+            Some(validity.len())
+        );
+        assert_eq!(
+            round_tripped[ShuffledVariadicSlots::CHUNKS_OFFSET]
+                .as_ref()
+                .map(|s| s.len()),
+            Some(chunk.len())
+        );
     }
 }

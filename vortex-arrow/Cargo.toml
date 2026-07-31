@@ -40,6 +40,8 @@ vortex-session = { workspace = true }
 divan = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-fsst = { workspace = true }
+vortex-zstd = { workspace = true }
 
 [[bench]]
 name = "to_arrow"

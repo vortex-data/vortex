@@ -57,6 +57,7 @@ impl<T: Copy> IndexedSource for &mut [T] {
 ///
 /// Use this to drive a binary kernel from two columns. Length equality is enforced
 /// at construction.
+#[derive(Clone, Copy)]
 pub struct LaneZip<A, B>(pub A, pub B);
 
 impl<A: IndexedSource, B: IndexedSource> LaneZip<A, B> {

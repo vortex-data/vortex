@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Vortex aggregate pushdown must match DuckDB's NaN semantics
+
+include ../setup.slt.no
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES
+        ('nan'::DOUBLE),
+        (1.0),
+        (2.0),
+        (CAST(NULL AS DOUBLE))
+    ) AS t(x)
+) TO '${WORK_DIR}/nan-agg.vortex';
+
+query TT
+EXPLAIN
+SELECT count(*), count(x), sum(x), min(x), max(x), avg(x)
+FROM '${WORK_DIR}/nan-agg.vortex';
+----
+<REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query II
+SELECT count(*), count(x) FROM '${WORK_DIR}/nan-agg.vortex';
+----
+4 3
+
+query RR
+SELECT sum(x), avg(x) FROM '${WORK_DIR}/nan-agg.vortex';
+----
+NaN NaN
+
+query RR
+SELECT min(x), max(x) FROM '${WORK_DIR}/nan-agg.vortex';
+----
+1 NaN

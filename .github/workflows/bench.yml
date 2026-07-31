@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
         with:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
+          && format('runs-on={0}/runner=bench-dedicated/family=c6id.metal/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
           || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
@@ -44,19 +44,23 @@ jobs:
           - id: random-access-bench
             name: Random Access
             build_args: "--features lance"
-            formats: "parquet,lance,vortex"
+            v4_ingest: true
           - id: compress-bench
             name: Compression
             build_args: "--features lance"
-            formats: "parquet,lance,vortex"
+            run_args: "--formats parquet,lance,vortex --ingest-jsonl results.ingest.jsonl"
+            v4_ingest: true
+          # No run_args: the default suite emits the three tracked metrics
+          # (size, write, read). The codec microbenchmark is a local diagnostic.
+          - id: string-bench
+            name: String Encoding
+            v4_ingest: false
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7
-      - name: Setup benchmark environment
-        run: sudo bash scripts/setup-benchmark.sh
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -66,25 +70,39 @@ jobs:
         run: |
           wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip | funzip > duckdb
           chmod +x duckdb
-          echo "$PWD" >> $GITHUB_PATH
+          echo "$PWD" >> "$GITHUB_PATH"
 
       - uses: ./.github/actions/system-info
 
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native"
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
           cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
+
+      - name: Pre-upload benchmark debuginfo to Polar Signals
+        uses: ./.github/actions/upload-parca-debuginfo
+        continue-on-error: true
+        with:
+          paths: |
+            target/release_debug/${{ matrix.benchmark.id }}
+          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
+          labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};commit_sha=${{ github.sha }};benchmark=${{ matrix.benchmark.id }}"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          job_name: "${{ matrix.benchmark.id }}"
           profiling_frequency: 199
-          extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
+          extra_args: "--debuginfo-strip=false"
+          parca_agent_version: "0.49.0"
+
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
 
       - name: Run ${{ matrix.benchmark.name }} benchmark (per-combination)
         if: matrix.benchmark.id == 'random-access-bench'
@@ -94,7 +112,7 @@ jobs:
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          python3 scripts/random-access-split.py --v3
+          python3 scripts/random-access-split.py --emit-ingest-records
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         if: matrix.benchmark.id != 'random-access-bench'
@@ -104,10 +122,11 @@ jobs:
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json --gh-json-v3 results.v3.jsonl
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} \
+            ${{ matrix.benchmark.run_args }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
         with:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
@@ -118,28 +137,30 @@ jobs:
           bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
       # v4 (Postgres) ingest -- the REQUIRED benchmark-results pipeline feeding the live
-      # benchmarks website; a failure here fails the job. Gated on the ingest-role ARN var
-      # (the assume-role input that MUST exist for OIDC to succeed). post-ingest.py mints
-      # the RDS IAM token internally (boto3) from the assumed GitHubBenchmarkIngestRole;
-      # sslmode=verify-full validates the cert.
+      # benchmarks website for suites that emit v4 records; a failure here fails the job.
+      # All suites also upload S3 results above. string-bench does not emit
+      # results.ingest.jsonl, so these steps are disabled for it.
+      # Also gated on the ingest-role ARN var (the assume-role input that MUST exist for
+      # OIDC to succeed). post-ingest.py mints the RDS IAM token internally (boto3) from
+      # the assumed GitHubBenchmarkIngestRole; sslmode=verify-full validates the cert.
       #
       # `sync: false` -- the ingest runs `uv run --no-project --with`, which needs only
       # the uv binary, never the synced workspace. A full sync would rebuild
       # vortex-python via sccache->S3, which fails under the ingest-role creds
       # (rds-db:connect only) and is pure waste here.
       - name: Install uv for v4 ingest
-        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
+        if: vars.GH_BENCH_INGEST_ROLE_ARN != '' && matrix.benchmark.v4_ingest
         uses: spiraldb/actions/.github/actions/setup-uv@a746510eafaa926484c354541cfc49b2ec06cc63  # 0.18.6
         with:
           sync: false
       - name: Configure AWS credentials for v4 ingest (OIDC)
-        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
-        uses: aws-actions/configure-aws-credentials@e7f100cf4c008499ea8adda475de1042d6975c7b  # v6
+        if: vars.GH_BENCH_INGEST_ROLE_ARN != '' && matrix.benchmark.v4_ingest
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c  # v6
         with:
           role-to-assume: ${{ vars.GH_BENCH_INGEST_ROLE_ARN }}
           aws-region: ${{ vars.RDS_BENCH_REGION }}
       - name: Ingest results to v4 Postgres
-        if: vars.GH_BENCH_INGEST_ROLE_ARN != ''
+        if: vars.GH_BENCH_INGEST_ROLE_ARN != '' && matrix.benchmark.v4_ingest
         shell: bash
         env:
           RDS_BENCH_INSTANCE_ENDPOINT: ${{ vars.RDS_BENCH_INSTANCE_ENDPOINT }}
@@ -153,7 +174,7 @@ jobs:
             -o "${RUNNER_TEMP}/rds-global-bundle.pem"
           DSN="postgresql://bench_ingest@${RDS_BENCH_INSTANCE_ENDPOINT}:5432/${RDS_BENCH_DB_NAME}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/rds-global-bundle.pem"
           uv run --no-project --with 'psycopg[binary]' --with boto3 --with xxhash \
-            scripts/post-ingest.py results.v3.jsonl \
+            scripts/post-ingest.py results.ingest.jsonl \
             --postgres "${DSN}" \
             --commit-sha "${{ github.sha }}" \
             --region "${AWS_REGION}"
@@ -171,3 +192,4 @@ jobs:
     secrets: inherit
     with:
       mode: "develop"
+      matrix_preset: "develop"

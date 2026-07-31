@@ -25,6 +25,7 @@ use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::array_slots;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
@@ -42,10 +43,12 @@ use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 use crate::validity::Validity;
 
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 0;
-pub(super) const NUM_SLOTS: usize = 1;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
+#[array_slots(Decimal)]
+pub struct DecimalSlots {
+    /// The validity bitmap indicating which elements are non-null.
+    #[slot(0)]
+    pub validity: Option<ArrayRef>,
+}
 
 /// A decimal array that stores fixed-precision decimal numbers with configurable scale.
 ///
@@ -144,12 +147,12 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> {
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
+        self.as_ref().slots()[DecimalSlots::VALIDITY].as_ref()
     }
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.as_ref().slots()[DecimalSlots::VALIDITY].as_ref(),
             self.nullability(),
         )
     }

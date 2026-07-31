@@ -120,8 +120,11 @@ impl ScalarFnVTable for ListSum {
         }
     }
 
-    fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
-        false
+    fn is_strict(&self, _options: &Self::Options) -> bool {
+        // A null list sums to null, which is all that strictness requires. Element nulls are part
+        // of the list value rather than row-level nulls, and a valid list may still sum to null
+        // (empty, all-null, or overflow) since strictness is only one-directional.
+        true
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {

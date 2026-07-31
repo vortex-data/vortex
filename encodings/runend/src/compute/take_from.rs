@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::array::RunEndArrayExt;
+use crate::array::RunEndArraySlotsExt;
 
 #[derive(Debug)]
 pub(crate) struct RunEndTakeFrom;
@@ -68,7 +69,7 @@ mod tests {
 
     use crate::RunEnd;
     use crate::RunEndArray;
-    use crate::array::RunEndArrayExt;
+    use crate::array::RunEndArraySlotsExt;
     use crate::compute::take_from::RunEndTakeFrom;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {

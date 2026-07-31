@@ -11,7 +11,7 @@ use vortex::error::vortex_bail;
 use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::layout::Layout;
+use vortex::layout::DynLayout;
 use vortex::layout::layouts::zoned::LegacyStats;
 use vortex::layout::layouts::zoned::Zoned;
 use vortex::layout::segments::SegmentFuture;
@@ -20,6 +20,7 @@ use vortex::layout::segments::SegmentSource;
 
 use crate::CudaSessionExt;
 use crate::PooledFileReadAt;
+use crate::PooledFileReadAtOptions;
 use crate::layout::register_cuda_layout;
 
 /// Extension trait for opening CUDA-readable files from [`VortexOpenOptions`].
@@ -31,7 +32,10 @@ pub trait CudaOpenOptionsExt {
 
 impl CudaOpenOptionsExt for VortexOpenOptions {
     fn with_cuda(self) -> CudaOpenOptions {
-        CudaOpenOptions { inner: self }
+        CudaOpenOptions {
+            inner: self,
+            read_at_options: PooledFileReadAtOptions::default(),
+        }
     }
 }
 
@@ -41,9 +45,18 @@ impl CudaOpenOptionsExt for VortexOpenOptions {
 /// configured before calling `with_cuda`.
 pub struct CudaOpenOptions {
     inner: VortexOpenOptions,
+    read_at_options: PooledFileReadAtOptions,
 }
 
 impl CudaOpenOptions {
+    /// Configure how the pooled data-plane reader opens and reads the local file.
+    ///
+    /// Footer and zone-map reads continue to use the standard buffered host reader.
+    pub fn with_read_at_options(mut self, options: PooledFileReadAtOptions) -> Self {
+        self.read_at_options = options;
+        self
+    }
+
     /// Open a local Vortex file for CUDA execution.
     ///
     /// The footer and zone-map segments are read through the ordinary host path. All other file
@@ -65,11 +78,12 @@ impl CudaOpenOptions {
         let pool = Arc::clone(cuda_session.pinned_buffer_pool());
         drop(cuda_session);
 
-        let reader = Arc::new(PooledFileReadAt::open(
+        let reader = Arc::new(PooledFileReadAt::open_with_options(
             &path,
             session.handle(),
             pool,
             stream,
+            self.read_at_options,
         )?);
         let data_file = data_options
             .with_footer(footer.clone())
@@ -107,16 +121,22 @@ impl SegmentSource for RoutingSegmentSource {
     }
 }
 
-fn control_plane_segments(layout: &dyn Layout, segment_count: usize) -> VortexResult<Vec<bool>> {
+fn control_plane_segments(layout: &dyn DynLayout, segment_count: usize) -> VortexResult<Vec<bool>> {
     let mut control_segments = vec![false; segment_count];
     mark_zone_map_segments(layout, &mut control_segments)?;
     Ok(control_segments)
 }
 
-fn mark_zone_map_segments(layout: &dyn Layout, control_segments: &mut [bool]) -> VortexResult<()> {
+fn mark_zone_map_segments(
+    layout: &dyn DynLayout,
+    control_segments: &mut [bool],
+) -> VortexResult<()> {
     if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
-        mark_layout_segments(layout.child(1)?.as_ref(), control_segments)?;
-        mark_zone_map_segments(layout.child(0)?.as_ref(), control_segments)?;
+        let (Some(data), Some(zones)) = (layout.slot(0)?, layout.slot(1)?) else {
+            vortex_bail!("zone map layout is missing its data or zones child");
+        };
+        mark_layout_segments(zones.as_ref(), control_segments)?;
+        mark_zone_map_segments(data.as_ref(), control_segments)?;
         return Ok(());
     }
 
@@ -126,7 +146,7 @@ fn mark_zone_map_segments(layout: &dyn Layout, control_segments: &mut [bool]) ->
     Ok(())
 }
 
-fn mark_layout_segments(layout: &dyn Layout, control_segments: &mut [bool]) -> VortexResult<()> {
+fn mark_layout_segments(layout: &dyn DynLayout, control_segments: &mut [bool]) -> VortexResult<()> {
     for id in layout.segment_ids() {
         let idx = usize::try_from(*id)?;
         let Some(is_control) = control_segments.get_mut(idx) else {
@@ -153,7 +173,6 @@ mod tests {
     use vortex::array::dtype::PType;
     use vortex::array::dtype::StructFields;
     use vortex::buffer::ByteBuffer;
-    use vortex::layout::IntoLayout;
     use vortex::layout::layouts::flat::FlatLayout;
     use vortex::layout::layouts::zoned::ZonedLayout;
     use vortex::session::registry::ReadContext;

@@ -3,15 +3,18 @@
 
 //! Run-length float encoding.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::VTable;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::CompressionEstimate;
 use vortex_compressor::scheme::DeferredEstimate;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_compressor::scheme::EstimateVerdict;
 use vortex_error::VortexResult;
+use vortex_fastlanes::RLE;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -33,6 +36,10 @@ impl Scheme for FloatRLEScheme {
 
     fn matches(&self, canonical: &Canonical) -> bool {
         canonical.dtype().is_float()
+    }
+
+    fn produced_encodings(&self) -> Vec<ArrayId> {
+        vec![RLE.id()]
     }
 
     /// Children: values=0, indices=1, offsets=2.

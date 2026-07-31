@@ -10,6 +10,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
+use vortex_array::builders::DynVarBinBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
@@ -203,6 +204,35 @@ fn test_zstd_var_bin_view() {
     assert_nth_scalar!(sliced, 0, "bar", &mut ctx);
     assert_nth_scalar!(sliced, 1, None::<String>, &mut ctx);
     assert_nth_scalar!(sliced, 2, "Lorem ipsum dolor sit amet", &mut ctx);
+}
+
+#[test]
+fn test_zstd_append_to_offset_builder() {
+    let mut ctx = array_session().create_execution_ctx();
+    let array = VarBinViewArray::from_iter(
+        [
+            Some(b"foo".as_slice()),
+            Some(b"bar".as_slice()),
+            None,
+            Some(b"Lorem ipsum dolor sit amet".as_slice()),
+            Some(b"baz".as_slice()),
+        ],
+        DType::Utf8(Nullability::Nullable),
+    );
+    let compressed = Zstd::from_var_bin_view(&array, 0, 3, &mut ctx)
+        .unwrap()
+        .slice(1..4)
+        .unwrap();
+    let mut builder =
+        DynVarBinBuilder::with_capacity(compressed.dtype().clone(), false, compressed.len());
+    compressed
+        .append_to_builder(&mut builder, &mut ctx)
+        .unwrap();
+    assert_arrays_eq!(
+        builder.finish_into_varbin(),
+        array.into_array().slice(1..4).unwrap(),
+        &mut ctx
+    );
 }
 
 #[test]

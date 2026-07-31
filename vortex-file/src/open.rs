@@ -528,6 +528,7 @@ mod tests {
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
         session
     }
 
@@ -586,6 +587,7 @@ mod tests {
             .with::<RuntimeSession>();
 
         crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
 
         // Create a large file (> 1MB)
         let mut buf = ByteBufferMut::empty();
@@ -646,6 +648,7 @@ mod tests {
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
 
         let metadata = ByteBuffer::copy_from(vec![0x5a; INITIAL_READ_SIZE * 2]);
         let mut output = ByteBufferMut::empty();
@@ -719,6 +722,7 @@ mod tests {
             .with::<LayoutSession>()
             .with::<RuntimeSession>();
         crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
 
         let value = ByteBuffer::copy_from(b"supplied-footer metadata");
         let mut output = ByteBufferMut::empty();
@@ -760,6 +764,7 @@ mod tests {
             .with::<RuntimeSession>();
 
         crate::register_default_encodings(&session);
+        crate::enable_all_registered_array_encodings(&session);
 
         let mut buf = ByteBufferMut::empty();
         let array = Buffer::from((0i32..16_384).collect::<Vec<i32>>()).into_array();

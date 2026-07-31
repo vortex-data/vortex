@@ -315,16 +315,21 @@ impl ReduceCtx for ExpressionReduceCtx {
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::expr::cast;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::lit;
+    use crate::expr::lt_eq;
     use crate::expr::or;
     use crate::expr::root;
+    use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::literal::Literal;
 
     #[test]
     fn optimize_or_chain_correctness() -> VortexResult<()> {
@@ -345,6 +350,34 @@ mod tests {
         assert!(s.contains("$.x"), "expected $.x in {s}");
         assert!(s.contains("1i32") || s.contains('1'), "expected 1 in {s}");
         assert!(s.contains("2i32") || s.contains('2'), "expected 2 in {s}");
+        Ok(())
+    }
+
+    #[test]
+    fn optimize_folds_cast_of_literal_in_comparison() -> VortexResult<()> {
+        let expr = lt_eq(
+            get_item("x", root()),
+            cast(
+                lit(3i32),
+                DType::Primitive(PType::F64, Nullability::NonNullable),
+            ),
+        );
+        let scope = DType::Struct(
+            StructFields::new(
+                ["x"].into(),
+                vec![DType::Primitive(PType::F64, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
+        let optimized = expr.optimize_recursive(&scope)?;
+
+        // Prune rules pattern-match a bare Literal on the comparison RHS; a cast wrapper
+        // silently disables pruning.
+        let rhs = optimized
+            .child(1)
+            .as_opt::<Literal>()
+            .ok_or_else(|| vortex_err!("expected a bare literal RHS, got {optimized}"))?;
+        assert_eq!(rhs, &Scalar::primitive(3.0f64, Nullability::NonNullable));
         Ok(())
     }
 }

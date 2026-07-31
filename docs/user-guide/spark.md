@@ -44,13 +44,14 @@ format name `vortex` — no session configuration is required.
 
 To depend on the connector from a JVM project, add the `all` classifier to the dependency:
 
-````{tab} Gradle (Kotlin)
+Gradle (Kotlin):
+
 ```kotlin
 implementation("dev.vortex:vortex-spark_2.13:0.78.0:all")
 ```
-````
 
-````{tab} Maven
+Maven:
+
 ```xml
 <dependency>
     <groupId>dev.vortex</groupId>
@@ -59,7 +60,6 @@ implementation("dev.vortex:vortex-spark_2.13:0.78.0:all")
     <classifier>all</classifier>
 </dependency>
 ```
-````
 
 ## Reading Vortex Files
 

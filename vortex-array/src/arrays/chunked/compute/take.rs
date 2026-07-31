@@ -51,7 +51,7 @@ fn take_chunked(
     // 2. Fused pass: walk sorted pairs against chunk boundaries.
     //    - Dedup inline → build per-chunk filter masks
     //    - Scatter final_take[orig_pos] = dedup_idx for every pair
-    let chunk_offsets = array.chunk_offsets();
+    let chunk_offsets = array.chunk_offset_values();
     let nchunks = array.nchunks();
     let mut chunks = Vec::with_capacity(nchunks);
     let mut final_take = BufferMut::<u64>::with_capacity(n);

@@ -23,13 +23,13 @@ use vortex_array::dtype::FieldPath;
 use vortex_array::expr::stats::Stat;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorExt;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::ByteBuffer;
+use vortex_edition::EditionSessionExt;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -40,7 +40,9 @@ use vortex_io::VortexWrite;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_layout::BufferedBytesTracker;
 use vortex_layout::LayoutStrategy;
+use vortex_layout::LayoutWriterContext;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::sequence::SequenceId;
 use vortex_layout::sequence::SequentialStreamAdapter;
@@ -50,7 +52,6 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::ALLOWED_ENCODINGS;
 use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::WriteStrategyBuilder;
@@ -63,14 +64,14 @@ use crate::segments::writer::BufferedSegmentSink;
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
 /// that implements [`VortexWrite`].
 ///
-/// Unless overridden, the default [write strategy][crate::WriteStrategyBuilder] will be used with no
-/// additional configuration.
+/// All write strategies are restricted to the encodings in the session's enabled editions.
 ///
 /// Construct with [`WriteOptionsSessionExt::write_options`] for normal use so the writer inherits
 /// the session's runtime, array registry, and memory configuration.
 pub struct VortexWriteOptions {
     session: VortexSession,
     strategy: Arc<dyn LayoutStrategy>,
+    buffered_bytes: BufferedBytesTracker,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
@@ -81,15 +82,7 @@ pub struct VortexWriteOptions {
 pub trait WriteOptionsSessionExt: SessionExt {
     /// Create [`VortexWriteOptions`] for writing to a Vortex file.
     fn write_options(&self) -> VortexWriteOptions {
-        let session = self.session();
-        VortexWriteOptions {
-            strategy: WriteStrategyBuilder::default().build(),
-            session,
-            exclude_dtype: false,
-            file_statistics: PRUNING_STATS.to_vec(),
-            max_variable_length_statistics_size: 64,
-            metadata: HashMap::default(),
-        }
+        VortexWriteOptions::new(self.session())
     }
 }
 impl<S: SessionExt> WriteOptionsSessionExt for S {}
@@ -97,8 +90,12 @@ impl<S: SessionExt> WriteOptionsSessionExt for S {}
 impl VortexWriteOptions {
     /// Create a new [`VortexWriteOptions`] with the given session.
     pub fn new(session: VortexSession) -> Self {
+        let strategy = WriteStrategyBuilder::default()
+            .with_allow_encodings(session.enabled_encoding_ids().into_iter().collect())
+            .build();
         VortexWriteOptions {
-            strategy: WriteStrategyBuilder::default().build(),
+            strategy,
+            buffered_bytes: BufferedBytesTracker::new(),
             session,
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
@@ -111,10 +108,20 @@ impl VortexWriteOptions {
     ///
     /// The strategy controls repartitioning, statistics layout, compression, and leaf segment
     /// emission. Use [`WriteStrategyBuilder`] when only a small part of the default strategy needs
-    /// customization.
+    /// customization. Replacing the strategy does not change the enabled-edition encoding policy.
     pub fn with_strategy(mut self, strategy: Arc<dyn LayoutStrategy>) -> Self {
         self.strategy = strategy;
         self
+    }
+
+    /// Returns the tracker accounting for bytes that layout strategies are holding but have not
+    /// yet emitted.
+    ///
+    /// The tracker is shared with the write these options start, so it can be captured before
+    /// calling [`Self::write`] and polled while the write runs. [`Writer::buffered_bytes`] exposes
+    /// the same counter for the push-based API.
+    pub fn buffered_bytes_tracker(&self) -> BufferedBytesTracker {
+        self.buffered_bytes.clone()
     }
 
     /// Exclude the DType from the Vortex file. You must provide the DType to the reader.
@@ -160,6 +167,15 @@ impl VortexWriteOptions {
         }
         self
     }
+
+    /// Check the configured metadata segments against the `MAX_METADATA_*` limits.
+    ///
+    /// [`Self::write`] performs the same check, but only once the sink is already being written
+    /// to. Callers that accept metadata from elsewhere (FFI bindings, for example) can use this to
+    /// reject an invalid set before any bytes are produced.
+    pub fn validate_metadata(&self) -> VortexResult<()> {
+        validate_metadata_segments(&self.metadata)
+    }
 }
 
 impl VortexWriteOptions {
@@ -178,6 +194,9 @@ impl VortexWriteOptions {
     ///
     /// Note that buffers are flushed as soon as they are available with no buffering, the caller
     /// is responsible for deciding how to configure buffering on the underlying `Write` sink.
+    ///
+    /// The set of encodings permitted in the file is snapshotted from the session's array registry
+    /// here, so encodings registered after this call are not written.
     pub async fn write<W: VortexWrite + Unpin, S: ArrayStream + Send + 'static>(
         self,
         write: W,
@@ -194,14 +213,10 @@ impl VortexWriteOptions {
     ) -> VortexResult<WriteSummary> {
         validate_metadata_segments(&self.metadata)?;
 
-        // NOTE(os): Setup an array context that already has all known encodings pre-populated.
-        // This is preferred for now over having an empty context here, because only the
-        // serialised array order is deterministic. The serialisation of arrays are done
-        // parallel and with an empty context they can register their encodings to the context
-        // in different order, changing the written bytes from run to run.
-        let ctx = ArrayContext::new(ALLOWED_ENCODINGS.iter().cloned().sorted().collect())
-            // Only permit encodings known to the session.
-            .with_valid_ids(self.session.arrays().registry().ids());
+        // The array context is built here, rather than when the options were constructed, so that
+        // encodings registered on the session in between are still eligible for the file.
+        let ctx = LayoutWriterContext::new(new_array_context(&self.session))
+            .with_buffered_bytes_tracker(self.buffered_bytes.clone());
         let dtype = stream.dtype().clone();
 
         let (mut ptr, eof) = SequenceId::root().split();
@@ -274,7 +289,7 @@ impl VortexWriteOptions {
             Arc::clone(&layout),
             segment_specs,
             statistics,
-            ReadContext::new(ctx.to_ids()),
+            ReadContext::new(ctx.array_ctx().to_ids()),
         );
 
         // Emit the footer buffers and EOF.
@@ -315,16 +330,28 @@ impl VortexWriteOptions {
 
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
-        let strategy = Arc::clone(&self.strategy);
+        let buffered_bytes = self.buffered_bytes.clone();
         let future = self.write(write, arrays).boxed_local().fuse();
 
         Writer {
             arrays: Some(arrays_send),
             future,
             bytes_written,
-            strategy,
+            buffered_bytes,
         }
     }
+}
+
+fn new_array_context(session: &VortexSession) -> ArrayContext {
+    // NOTE(os): Setup an array context that already has all known encodings pre-populated.
+    // This is preferred for now over having an empty context here, because only the
+    // serialised array order is deterministic. The serialisation of arrays are done
+    // parallel and with an empty context they can register their encodings to the context
+    // in different order, changing the written bytes from run to run.
+    let enabled_encoding_ids = session.enabled_encoding_ids();
+    ArrayContext::new(enabled_encoding_ids.iter().cloned().sorted().collect())
+        // Only permit encodings known to the session.
+        .with_allowed_ids(enabled_encoding_ids.into_iter().collect())
 }
 
 fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexResult<()> {
@@ -367,8 +394,8 @@ pub struct Writer<'w> {
     future: Fuse<LocalBoxFuture<'w, VortexResult<WriteSummary>>>,
     // The bytes written so far.
     bytes_written: Arc<AtomicU64>,
-    // The layout strategy that is being used for the write.
-    strategy: Arc<dyn LayoutStrategy>,
+    // The buffered bytes accounting shared with the layout strategies for this write.
+    buffered_bytes: BufferedBytesTracker,
 }
 
 impl Writer<'_> {
@@ -447,7 +474,7 @@ impl Writer<'_> {
 
     /// Returns the number of bytes currently buffered by the layout writers.
     pub fn buffered_bytes(&self) -> u64 {
-        self.strategy.buffered_bytes()
+        self.buffered_bytes.buffered_bytes()
     }
 
     /// Finish writing the Vortex file, flushing any remaining buffers and returning the
@@ -599,5 +626,89 @@ impl WriteSummary {
                     .unwrap_or_default()
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::ArrayContext;
+    use vortex_array::VTable;
+    use vortex_array::array_session;
+    use vortex_array::arrays::Bool;
+    use vortex_array::arrays::Primitive;
+    use vortex_buffer::ByteBuffer;
+    use vortex_edition::Edition;
+    use vortex_edition::EditionDeclaration;
+    use vortex_edition::EditionId;
+    use vortex_edition::EditionSession;
+    use vortex_edition::EditionSessionExt;
+
+    use super::*;
+
+    #[test]
+    fn array_context_only_permits_enabled_encodings() -> Result<(), vortex_edition::EditionError> {
+        const EDITION: EditionId = EditionId::new("test", 2026, 7, 0);
+        static DECLARATION: EditionDeclaration = EditionDeclaration {
+            edition: Edition {
+                id: EDITION,
+                min_vortex_version: None,
+            },
+            added: &[&"vortex.primitive"],
+        };
+
+        let session = array_session().with::<EditionSession>();
+        session.register_edition(&DECLARATION)?;
+        session.enable_edition(EDITION)?;
+
+        let enabled_encoding_ids = session.enabled_encoding_ids();
+        let ctx = ArrayContext::new(enabled_encoding_ids.clone())
+            .with_allowed_ids(enabled_encoding_ids.into_iter().collect());
+        assert_eq!(ctx.to_ids(), [Primitive.id()]);
+        assert!(ctx.intern(&Bool.id()).is_none());
+        Ok(())
+    }
+
+    fn write_options_with_keys(keys: &[String]) -> VortexWriteOptions {
+        array_session().write_options().with_metadata_segments(
+            keys.iter()
+                .map(|key| (key.clone(), ByteBuffer::copy_from(b"value"))),
+        )
+    }
+
+    #[rstest]
+    #[case::empty_key(vec![String::new()], "non-empty")]
+    #[case::oversized_key(vec!["k".repeat(MAX_METADATA_KEY_BYTES + 1)], "keys must be at most")]
+    // The cap is on bytes, not characters.
+    #[case::oversized_multibyte_key(
+        vec!["é".repeat(MAX_METADATA_KEY_BYTES / "é".len() + 1)],
+        "keys must be at most"
+        )]
+    #[case::too_many_segments(
+        (0..=MAX_METADATA_SEGMENTS).map(|idx| format!("key-{idx}")).collect(),
+        "at most 16 metadata segments"
+        )]
+    fn validate_metadata_rejects(#[case] keys: Vec<String>, #[case] expected: &str) {
+        let Err(error) = write_options_with_keys(&keys).validate_metadata() else {
+            panic!("metadata must be rejected for {keys:?}");
+        };
+        assert!(
+            error.to_string().contains(expected),
+            "error should mention {expected:?}, got: {error}"
+        );
+    }
+
+    #[test]
+    fn validate_metadata_accepts_the_limits() -> VortexResult<()> {
+        // Distinct keys, each exactly at the key-length cap.
+        let keys = (0..MAX_METADATA_SEGMENTS)
+            .map(|idx| format!("{idx:0>width$}", width = MAX_METADATA_KEY_BYTES))
+            .collect::<Vec<_>>();
+        write_options_with_keys(&keys).validate_metadata()
+    }
+
+    #[test]
+    fn validate_metadata_accepts_no_metadata() -> VortexResult<()> {
+        write_options_with_keys(&[]).validate_metadata()
     }
 }

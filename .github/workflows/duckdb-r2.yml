@@ -31,7 +31,7 @@ jobs:
       matrix: ${{ steps.resolve.outputs.matrix }}
       any_missing: ${{ steps.resolve.outputs.any_missing }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: Resolve version and check R2
         id: resolve
         run: sh scripts/duckdb-r2-resolve.sh
@@ -50,7 +50,7 @@ jobs:
       matrix: ${{ fromJSON(needs.check.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Install build dependencies (Linux)
         if: needs.check.outputs.release != 'true' && runner.os == 'Linux'

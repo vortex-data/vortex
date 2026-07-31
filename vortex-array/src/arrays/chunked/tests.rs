@@ -213,7 +213,7 @@ fn with_slot_rewrites_chunk_and_offsets() {
     let array = array.as_::<Chunked>();
 
     assert_eq!(array.nchunks(), 3);
-    assert_eq!(array.chunk_offsets(), [0, 3, 6, 9]);
+    assert_eq!(array.chunk_offset_values(), [0, 3, 6, 9]);
     assert_arrays_eq!(
         array.chunk(0).clone(),
         PrimitiveArray::from_iter([1u64, 2, 3]),
@@ -376,10 +376,12 @@ pub fn pack_nested_structs() -> VortexResult<()> {
     )?
     .into_array();
     let canonical_struct = chunked.execute::<StructArray>(&mut ctx)?;
-    let canonical_varbin = canonical_struct.unmasked_fields()[0]
+    let canonical_varbin = canonical_struct
+        .unmasked_field(0)
         .clone()
         .execute::<VarBinViewArray>(&mut ctx)?;
-    let original_varbin = struct_array.unmasked_fields()[0]
+    let original_varbin = struct_array
+        .unmasked_field(0)
         .clone()
         .execute::<VarBinViewArray>(&mut ctx)?;
     assert_arrays_eq!(original_varbin, canonical_varbin, &mut ctx);

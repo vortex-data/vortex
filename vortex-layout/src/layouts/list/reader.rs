@@ -69,20 +69,20 @@ impl ListReader {
         session: VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<Self> {
-        let elements = layout.elements().new_reader(
+        let elements = layout.elements()?.new_reader(
             format!("{name}.elements").into(),
             Arc::clone(&segment_source),
             &session,
             ctx,
         )?;
-        let offsets = layout.offsets().new_reader(
+        let offsets = layout.offsets()?.new_reader(
             format!("{name}.offsets").into(),
             Arc::clone(&segment_source),
             &session,
             ctx,
         )?;
         let validity = layout
-            .validity()
+            .validity()?
             .map(|v| {
                 v.new_reader(
                     format!("{name}.validity").into(),
@@ -841,7 +841,13 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let stream = array.to_array_stream().sequenced(ptr);
         let layout = strategy
-            .write_stream(ArrayContext::empty(), segments, stream, eof, &session)
+            .write_stream(
+                ArrayContext::empty().into(),
+                segments,
+                stream,
+                eof,
+                &session,
+            )
             .await?;
         Ok((segments_ref, layout, session))
     }

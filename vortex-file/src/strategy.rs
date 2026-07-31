@@ -5,43 +5,13 @@
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
-use vortex_alp::ALP;
-use vortex_alp::ALPRD;
 use vortex_array::ArrayId;
-use vortex_array::VTable;
-use vortex_array::arrays::Bool;
-use vortex_array::arrays::Chunked;
-use vortex_array::arrays::Constant;
-use vortex_array::arrays::Decimal;
-use vortex_array::arrays::Dict;
-use vortex_array::arrays::Extension;
-use vortex_array::arrays::FixedSizeList;
-use vortex_array::arrays::List;
-use vortex_array::arrays::ListView;
-use vortex_array::arrays::Masked;
-use vortex_array::arrays::Null;
-use vortex_array::arrays::Patched;
-use vortex_array::arrays::Primitive;
-use vortex_array::arrays::Struct;
-use vortex_array::arrays::VarBin;
-use vortex_array::arrays::VarBinView;
-use vortex_array::arrays::Variant;
-use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
-use vortex_bytebool::ByteBool;
-use vortex_datetime_parts::DateTimeParts;
-use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_error::VortexExpect;
-use vortex_fastlanes::BitPacked;
-use vortex_fastlanes::Delta;
-use vortex_fastlanes::FoR;
-use vortex_fastlanes::RLE;
-use vortex_fsst::FSST;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::LayoutStrategyEncodingValidator;
 use vortex_layout::layouts::buffered::BufferedStrategy;
@@ -58,79 +28,10 @@ use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::table::use_experimental_list_layout;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
-#[cfg(feature = "unstable_encodings")]
-use vortex_onpair::OnPair;
-use vortex_pco::Pco;
-use vortex_runend::RunEnd;
-use vortex_sequence::Sequence;
-use vortex_sparse::Sparse;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
-use vortex_zigzag::ZigZag;
-#[cfg(feature = "zstd")]
-use vortex_zstd::Zstd;
-#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-use vortex_zstd::ZstdBuffers;
 
 const ONE_MEG: u64 = 1 << 20;
-
-/// Static registry of all allowed array encodings for file writing.
-///
-/// This includes all canonical encodings from vortex-array plus all compressed
-/// encodings from the various encoding crates.
-pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
-    let mut allowed = HashSet::new();
-
-    // Canonical encodings from vortex-array
-    allowed.insert(Null.id());
-    allowed.insert(Bool.id());
-    allowed.insert(Primitive.id());
-    allowed.insert(Decimal.id());
-    allowed.insert(VarBin.id());
-    allowed.insert(VarBinView.id());
-    allowed.insert(List.id());
-    allowed.insert(ListView.id());
-    allowed.insert(FixedSizeList.id());
-    allowed.insert(Struct.id());
-    allowed.insert(Extension.id());
-    allowed.insert(Chunked.id());
-    allowed.insert(Constant.id());
-    allowed.insert(Masked.id());
-    allowed.insert(Dict.id());
-    allowed.insert(Variant.id());
-
-    // Compressed encodings from encoding crates
-    allowed.insert(ALP.id());
-    allowed.insert(ALPRD.id());
-    allowed.insert(BitPacked.id());
-    allowed.insert(ByteBool.id());
-    allowed.insert(DateTimeParts.id());
-    allowed.insert(DecimalByteParts.id());
-    allowed.insert(Delta.id());
-    allowed.insert(FoR.id());
-    allowed.insert(FSST.id());
-    #[cfg(feature = "unstable_encodings")]
-    allowed.insert(OnPair.id());
-    allowed.insert(Pco.id());
-    allowed.insert(RLE.id());
-    allowed.insert(RunEnd.id());
-    allowed.insert(Sequence.id());
-    allowed.insert(Sparse.id());
-    allowed.insert(ZigZag.id());
-
-    // Experimental encodings
-
-    if use_experimental_patches() {
-        allowed.insert(Patched.id());
-    }
-
-    #[cfg(feature = "zstd")]
-    allowed.insert(Zstd.id());
-    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-    allowed.insert(ZstdBuffers.id());
-
-    allowed
-});
 
 /// How the compressor was configured on [`WriteStrategyBuilder`].
 enum CompressorConfig {
@@ -176,7 +77,7 @@ impl Default for WriteStrategyBuilder {
             row_block_size: 8192,
             data_block_target_bytes: Some(ONE_MEG),
             field_writers: HashMap::new(),
-            allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
+            allow_encodings: None,
             flat_strategy: None,
             probe_compressor: None,
             use_list_layout: use_experimental_list_layout(),
@@ -227,10 +128,12 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Override the allowed array encodings for normalization.
+    /// Override the allowed array encodings for file writing.
     ///
     /// The configured flat leaf strategy is wrapped in a [`LayoutStrategyEncodingValidator`]
-    /// that recursively checks every chunk before passing it to the leaf writer.
+    /// that recursively checks every chunk before passing it to the leaf writer. [`build`](Self::build)
+    /// also restricts any [`BtrBlocksCompressorBuilder`] to these encodings, independent of the
+    /// order in which the builder and this policy were configured.
     pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
         self.allow_encodings = Some(allow_encodings);
         self
@@ -248,7 +151,8 @@ impl WriteStrategyBuilder {
     /// Override the default [`BtrBlocksCompressorBuilder`] used for compression.
     ///
     /// The builder is finalized during [`build`](Self::build), producing two compressors: one for
-    /// data (with `IntDictScheme` excluded) and one for stats.
+    /// data (with `IntDictScheme` excluded) and one for stats. Both are restricted to the
+    /// configured allowed encodings at build time.
     pub fn with_btrblocks_builder(mut self, builder: BtrBlocksCompressorBuilder) -> Self {
         self.compressor = CompressorConfig::BtrBlocks(builder);
         self
@@ -277,6 +181,20 @@ impl WriteStrategyBuilder {
         } else {
             Arc::new(FlatLayoutStrategy::default())
         };
+
+        // Restrict the compressor to the allowed encodings so no compressor derived below (data,
+        // stats, and the defaulted probe compressor) can produce an encoding outside the policy,
+        // regardless of the order in which the builder and the policy were configured.
+        let compressor = match self.compressor {
+            CompressorConfig::BtrBlocks(builder) => {
+                CompressorConfig::BtrBlocks(match &self.allow_encodings {
+                    Some(allow_encodings) => builder.retain_allowed_encodings(allow_encodings),
+                    None => builder,
+                })
+            }
+            opaque => opaque,
+        };
+
         let flat: Arc<dyn LayoutStrategy> = if let Some(allow_encodings) = self.allow_encodings {
             Arc::new(LayoutStrategyEncodingValidator::new(flat, allow_encodings))
         } else {
@@ -292,7 +210,7 @@ impl WriteStrategyBuilder {
         // Exclude IntDictScheme from the data compressor because DictStrategy (step 3) already
         // dictionary-encodes columns. Allowing IntDictScheme here would redundantly
         // dictionary-encode the integer codes produced by that earlier step.
-        let data_compressor: Arc<dyn CompressorPlugin> = match &self.compressor {
+        let data_compressor: Arc<dyn CompressorPlugin> = match &compressor {
             CompressorConfig::BtrBlocks(builder) => Arc::new(
                 builder
                     .clone()
@@ -321,7 +239,7 @@ impl WriteStrategyBuilder {
         );
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let stats_compressor: Arc<dyn CompressorPlugin> = match self.compressor {
+        let stats_compressor: Arc<dyn CompressorPlugin> = match compressor {
             CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
             CompressorConfig::Opaque(compressor) => compressor,
         };

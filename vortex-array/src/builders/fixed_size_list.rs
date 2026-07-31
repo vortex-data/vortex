@@ -15,7 +15,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
@@ -289,6 +289,7 @@ mod tests {
     use crate::array_session;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
     use crate::builders::ArrayBuilder;
     use crate::builders::fixed_size_list::FixedSizeListArray;
     use crate::dtype::DType;

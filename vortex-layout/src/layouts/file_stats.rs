@@ -145,30 +145,35 @@ impl StatsAccumulator {
     /// Returns an aggregated stats set for the table.
     fn as_stats_set(&mut self, stats: &[Stat], ctx: &mut ExecutionCtx) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
-        let Some(array) = self.as_array(ctx)? else {
+        let Some(stats_table) = self.as_array(ctx)? else {
             return Ok(stats_set);
         };
 
         for &stat in stats {
-            let Some(array) = array.unmasked_field_by_name_opt(stat.name()) else {
+            let Some(values) = stats_table.unmasked_field_by_name_opt(stat.name()) else {
                 continue;
             };
 
             match stat {
-                Stat::Max if is_varlen_dtype(array.dtype()) && !array.all_valid(ctx)? => {
+                Stat::Max if is_varlen_dtype(values.dtype()) && !values.all_valid(ctx)? => {
                     // A null truncated varlen max can mean either an empty chunk or no finite
                     // upper bound, so aggregating by skipping nulls would be unsound.
                     continue;
                 }
                 Stat::Min | Stat::Max | Stat::Sum => {
-                    if let Some(s) = array.statistics().compute_stat(stat, ctx)?
+                    if let Some(s) = values.statistics().compute_stat(stat, ctx)?
                         && let Some(v) = s.into_value()
                     {
-                        stats_set.set(stat, Precision::exact(v))
+                        let precision = if stat_was_truncated(&stats_table, stat, ctx)? {
+                            Precision::inexact(v)
+                        } else {
+                            Precision::exact(v)
+                        };
+                        stats_set.set(stat, precision)
                     }
                 }
                 Stat::NullCount | Stat::NaNCount | Stat::UncompressedSizeInBytes => {
-                    if let Some(sum_value) = sum(array, ctx)?
+                    if let Some(sum_value) = sum(values, ctx)?
                         .cast(&DType::Primitive(PType::U64, Nullability::Nullable))?
                         .into_value()
                     {
@@ -180,6 +185,26 @@ impl StatsAccumulator {
         }
         Ok(stats_set)
     }
+}
+
+fn stat_was_truncated(
+    stats_table: &StructArray,
+    stat: Stat,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    let field_name = match stat {
+        Stat::Min => MIN_IS_TRUNCATED,
+        Stat::Max => MAX_IS_TRUNCATED,
+        _ => return Ok(false),
+    };
+    let Some(is_truncated) = stats_table.unmasked_field_by_name_opt(field_name) else {
+        return Ok(false);
+    };
+
+    Ok(is_truncated
+        .statistics()
+        .compute_stat(Stat::Max, ctx)?
+        .is_some_and(|max| max.as_bool().value() == Some(true)))
 }
 
 fn supports_file_stats(dtype: &DType) -> bool {
@@ -554,6 +579,26 @@ mod tests {
             field3_bool.to_bit_buffer(),
             BitBuffer::from(vec![true, false])
         );
+    }
+
+    #[rstest]
+    #[case(DType::Utf8(Nullability::NonNullable))]
+    #[case(DType::Binary(Nullability::NonNullable))]
+    fn truncated_accumulated_stats_are_inexact(#[case] dtype: DType) {
+        let mut ctx = array_session().create_execution_ctx();
+        let mut builder = VarBinViewBuilder::with_capacity(dtype, 2);
+        builder.append_value("Value to be truncated");
+        builder.append_value("Another truncated value");
+        let mut acc = StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min], 12);
+        acc.push_chunk(&builder.finish(), &mut ctx)
+            .vortex_expect("push_chunk should succeed for test data");
+
+        let stats = acc
+            .as_stats_set(&[Stat::Max, Stat::Min], &mut ctx)
+            .vortex_expect("as_stats_set should succeed for test data");
+
+        assert!(matches!(stats.get(Stat::Min), Precision::Inexact(_)));
+        assert!(matches!(stats.get(Stat::Max), Precision::Inexact(_)));
     }
 
     #[test]

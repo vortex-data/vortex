@@ -138,12 +138,10 @@ async fn execute_dict_bool_typed<I: DeviceRepr + NativePType>(
     // Each CUDA thread owns complete output bytes, avoiding races between threads writing
     // different bits in the same byte. The kernel handles the final partial byte explicitly.
     let output_bytes = codes_len.div_ceil(8);
-    let output_slice = ctx.device_alloc::<u8>(output_bytes)?;
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let mut output_slice = ctx.device_alloc::<u8>(output_bytes)?;
 
     let values_view = values_device.cuda_view::<u8>()?;
     let codes_view = codes_device.cuda_view::<I>()?;
-    let output_view = output_device.as_view::<u8>();
     let codes_len_u64 = codes_len as u64;
     let values_offset_u64 = values_meta.offset() as u64;
 
@@ -154,9 +152,10 @@ async fn execute_dict_bool_typed<I: DeviceRepr + NativePType>(
             .arg(&codes_len_u64)
             .arg(&values_view)
             .arg(&values_offset_u64)
-            .arg(&output_view);
+            .arg(&mut output_slice);
     })?;
 
+    let output_device = CudaDeviceBuffer::new(output_slice);
     Ok(Canonical::Bool(BoolArray::new_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         0,
@@ -190,13 +189,11 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output buffer on device
-    let output_slice = ctx.device_alloc::<V>(codes_len)?;
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let mut output_slice = ctx.device_alloc::<V>(codes_len)?;
 
     // Get views for kernel launch
     let values_view = values_device.cuda_view::<V>()?;
     let codes_view = codes_device.cuda_view::<I>()?;
-    let output_view = output_device.as_view::<V>();
 
     let codes_len_u64 = codes_len as u64;
 
@@ -205,9 +202,10 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
         args.arg(&codes_view)
             .arg(&codes_len_u64)
             .arg(&values_view)
-            .arg(&output_view);
+            .arg(&mut output_slice);
     })?;
 
+    let output_device = CudaDeviceBuffer::new(output_slice);
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         value_ptype,
@@ -273,13 +271,11 @@ async fn execute_dict_decimal_typed<
     let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output buffer on device (codes_len * value_byte_width bytes)
-    let output_slice = ctx.device_alloc::<V>(codes_len)?;
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let mut output_slice = ctx.device_alloc::<V>(codes_len)?;
 
     // Get views for kernel launch
     let values_view = values_device.cuda_view::<V>()?;
     let codes_view = codes_device.cuda_view::<C>()?;
-    let output_view = output_device.as_view::<V>();
 
     // Load kernel function using string suffixes
     let cuda_function = ctx.load_function_with_suffixes(
@@ -291,9 +287,10 @@ async fn execute_dict_decimal_typed<
         args.arg(&codes_view)
             .arg(&codes_len_u64)
             .arg(&values_view)
-            .arg(&output_view);
+            .arg(&mut output_slice);
     })?;
 
+    let output_device = CudaDeviceBuffer::new(output_slice);
     Ok(Canonical::Decimal(DecimalArray::new_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         V::DECIMAL_TYPE,
@@ -338,15 +335,13 @@ async fn execute_dict_varbinview(
     let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output: one i128 per code.
-    let output_slice = ctx.device_alloc::<i128>(codes_len)?;
-    let output_device = CudaDeviceBuffer::new(output_slice);
+    let mut output_slice = ctx.device_alloc::<i128>(codes_len)?;
 
     // Dispatch by code type, reusing the existing dict_i128_<code_type> kernel.
     // BinaryView is repr(C, align(16)) and 16 bytes — identical layout to i128.
     match_each_integer_ptype!(codes_ptype, |C| {
         let values_view = values_device.cuda_view::<i128>()?;
         let codes_view = codes_device.cuda_view::<C>()?;
-        let output_view = output_device.as_view::<i128>();
 
         let codes_ptype_str = C::PTYPE.to_string();
         let cuda_function = ctx.load_function_with_suffixes("dict", &["i128", &codes_ptype_str])?;
@@ -357,9 +352,11 @@ async fn execute_dict_varbinview(
             args.arg(&codes_view);
             args.arg(&codes_len_u64);
             args.arg(&values_view);
-            args.arg(&output_view);
+            args.arg(&mut output_slice);
         })?;
     });
+
+    let output_device = CudaDeviceBuffer::new(output_slice);
 
     // Output views gathered by the kernel share the values' data buffers.
     // Outlined views reference into these buffers via buffer_index + offset,

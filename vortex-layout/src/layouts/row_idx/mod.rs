@@ -347,12 +347,12 @@ mod tests {
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
+    use crate::test::new_session;
 
     #[test]
     fn flat_expr_no_row_id() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -360,7 +360,7 @@ mod tests {
             let array = buffer![1..=5].into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn flat_expr_row_id() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -405,7 +405,7 @@ mod tests {
             let array = buffer![1..=5].into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -442,7 +442,7 @@ mod tests {
     #[test]
     fn flat_expr_or() {
         block_on(|handle| async {
-            let session = SESSION.clone().with_handle(handle);
+            let session = new_session().with_handle(handle);
             let mut ctx = session.create_execution_ctx();
             let array_ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -450,7 +450,7 @@ mod tests {
             let array = buffer![1..=5].into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,

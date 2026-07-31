@@ -52,6 +52,7 @@ use vortex_array::expr::select;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
+use vortex_array::field_path;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
@@ -67,18 +68,25 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_edition::EditionSession;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_flatbuffers::footer as fb;
 use vortex_io::session::RuntimeSession;
-use vortex_layout::Layout;
+use vortex_layout::DynLayout;
+use vortex_layout::LayoutStrategy;
+use vortex_layout::layouts::buffered::BufferedStrategy;
+use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::struct_::StructStrategy;
+use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::LegacyStats;
 use vortex_layout::layouts::zoned::Zoned;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::scan::split_by::SplitBy;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
+use vortex_zigzag::ZigZag;
 
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
@@ -93,6 +101,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&session);
+    crate::enable_all_registered_array_encodings(&session);
 
     session
 });
@@ -242,13 +251,13 @@ async fn test_read_simple_with_spawn() {
     .into_array();
 
     let lists = ChunkedArray::from_iter([
-        ListArray::from_iter_slow::<i16, _>(
+        ListArray::from_iter_slow::<i32, _>(
             vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
             Arc::new(I32.into()),
         )
         .unwrap()
         .into_array(),
-        ListArray::from_iter_slow::<i8, _>(
+        ListArray::from_iter_slow::<i64, _>(
             vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
             Arc::new(I32.into()),
         )
@@ -412,15 +421,14 @@ async fn unequal_batches() {
 async fn write_chunked() {
     let strings = VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array();
     let string_dtype = strings.dtype().clone();
-    let strings_chunked = ChunkedArray::try_new(iter::repeat_n(strings, 4).collect(), string_dtype)
+    let strings_chunked = ChunkedArray::try_new(iter::repeat_n(strings, 4), string_dtype)
         .unwrap()
         .into_array();
     let numbers = buffer![1u32, 2, 3, 4].into_array();
     let numbers_dtype = numbers.dtype().clone();
-    let numbers_chunked =
-        ChunkedArray::try_new(iter::repeat_n(numbers, 4).collect(), numbers_dtype)
-            .unwrap()
-            .into_array();
+    let numbers_chunked = ChunkedArray::try_new(iter::repeat_n(numbers, 4), numbers_dtype)
+        .unwrap()
+        .into_array();
     let st = StructArray::try_new(
         ["strings", "numbers"].into(),
         vec![strings_chunked, numbers_chunked],
@@ -431,7 +439,7 @@ async fn write_chunked() {
     .into_array();
     let st_dtype = st.dtype().clone();
 
-    let chunked_st = ChunkedArray::try_new(iter::repeat_n(st, 3).collect(), st_dtype)
+    let chunked_st = ChunkedArray::try_new(iter::repeat_n(st, 3), st_dtype)
         .unwrap()
         .into_array();
     let mut buf = ByteBufferMut::empty();
@@ -1377,7 +1385,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
     ])
     .into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?;
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
@@ -1542,6 +1550,143 @@ async fn test_writer_bytes_written() -> VortexResult<()> {
     Ok(())
 }
 
+#[rstest]
+#[case::table_one_leaf(true, 1, false, 32)]
+#[case::table_two_shared_leaves(true, 2, false, 64)]
+#[case::table_field_override(true, 2, true, 64)]
+#[case::struct_default(false, 1, false, 32)]
+#[tokio::test]
+async fn test_writer_buffered_bytes(
+    #[case] use_table_strategy: bool,
+    #[case] leaf_count: usize,
+    #[case] field_override: bool,
+    #[case] expected_buffered_bytes: u64,
+) -> VortexResult<()> {
+    const BUFFER_SIZE: u64 = 16;
+
+    let fields = [
+        ("a", buffer![1u32, 2, 3, 4].into_array()),
+        ("b", buffer![5u32, 6, 7, 8].into_array()),
+    ];
+    let array = StructArray::from_fields(&fields[..leaf_count])?.into_array();
+
+    let new_leaf = || -> Arc<dyn LayoutStrategy> {
+        Arc::new(BufferedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            BUFFER_SIZE,
+        ))
+    };
+    let validity: Arc<dyn LayoutStrategy> = Arc::new(FlatLayoutStrategy::default());
+    let strategy: Arc<dyn LayoutStrategy> = if use_table_strategy {
+        let mut table = TableStrategy::new(validity, new_leaf());
+        if field_override {
+            table = table.with_field_writer(field_path!(b), new_leaf());
+        }
+        Arc::new(table)
+    } else {
+        Arc::new(StructStrategy::new(validity, new_leaf()))
+    };
+
+    let mut buf = ByteBufferMut::empty();
+    let options = SESSION.write_options().with_strategy(Arc::clone(&strategy));
+    let buffered_bytes = options.buffered_bytes_tracker();
+    let mut writer = options.writer(&mut buf, array.dtype().clone());
+
+    assert_eq!(writer.buffered_bytes(), 0);
+
+    // The third push forces two chunks through the capacity-one input channel while keeping the
+    // writer open. Each physical leaf retains two BUFFER_SIZE chunks while peeking for more input.
+    writer.push(array.clone()).await?;
+    writer.push(array.clone()).await?;
+    writer.push(array).await?;
+
+    assert_eq!(writer.buffered_bytes(), expected_buffered_bytes);
+
+    let summary = writer.finish().await?;
+    assert_eq!(summary.row_count(), 12);
+    assert_eq!(buffered_bytes.buffered_bytes(), 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_buffered_bytes_are_writer_scoped() -> VortexResult<()> {
+    const BUFFER_SIZE: u64 = 16;
+
+    let array =
+        StructArray::from_fields(&[("a", buffer![1u32, 2, 3, 4].into_array())])?.into_array();
+    let leaf = Arc::new(BufferedStrategy::new(
+        ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+        BUFFER_SIZE,
+    ));
+    let strategy: Arc<dyn LayoutStrategy> = Arc::new(TableStrategy::new(
+        Arc::new(FlatLayoutStrategy::default()),
+        leaf,
+    ));
+
+    let mut first_buf = ByteBufferMut::empty();
+    let mut first = SESSION
+        .write_options()
+        .with_strategy(Arc::clone(&strategy))
+        .writer(&mut first_buf, array.dtype().clone());
+    let mut second_buf = ByteBufferMut::empty();
+    let mut second = SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .writer(&mut second_buf, array.dtype().clone());
+
+    first.push(array.clone()).await?;
+    first.push(array.clone()).await?;
+    first.push(array.clone()).await?;
+    second.push(array.clone()).await?;
+    second.push(array.clone()).await?;
+    second.push(array).await?;
+
+    assert_eq!(first.buffered_bytes(), 2 * BUFFER_SIZE);
+    assert_eq!(second.buffered_bytes(), 2 * BUFFER_SIZE);
+
+    first.finish().await?;
+    second.finish().await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_encoding_registered_after_write_options() -> VortexResult<()> {
+    // A session that does not know about ZigZag yet.
+    let session = array_session()
+        .with::<EditionSession>()
+        .with::<LayoutSession>()
+        .with::<RuntimeSession>();
+
+    // Configure the options before the encoding is registered; `write` is what snapshots the
+    // session's encodings, so registering in between must still be honoured.
+    let options = session
+        .write_options()
+        .with_strategy(Arc::new(FlatLayoutStrategy::default()));
+    vortex_zigzag::initialize(&session);
+    crate::enable_all_registered_array_encodings(&session);
+
+    let array = ZigZag::try_new(buffer![1u32, 2, 3, 4].into_array())?.into_array();
+    let dtype = array.dtype().clone();
+
+    let mut buf = ByteBufferMut::empty();
+    options.write(&mut buf, array.to_array_stream()).await?;
+
+    let chunks: Vec<_> = session
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .into_array_stream()?
+        .try_collect()
+        .await?;
+    let read = ChunkedArray::try_new(chunks, dtype)?.into_array();
+    let mut ctx = session.create_execution_ctx();
+    assert_arrays_eq!(read, buffer![-1i32, 1, -2, 2].into_array(), &mut ctx);
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_writer_empty_chunks() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
@@ -1623,7 +1768,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let strings = VarBinArray::from(vec!["hello", "world", "test"]).into_array();
     let numbers = buffer![100i32, 200, 300].into_array();
-    let lists = ListArray::from_iter_slow::<i16, _>(
+    let lists = ListArray::from_iter_slow::<i32, _>(
         vec![vec![1, 2], vec![3, 4, 5], vec![6]],
         Arc::new(I32.into()),
     )?;
@@ -2029,21 +2174,21 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
         "Expected error from timestamp unit mismatch (ms vs s), but got {} results. \
          This indicates the scanner silently applied the filter incorrectly when \
          DateTimePartsArray children use ConstantArray encoding.",
-        results.unwrap().len()
+        results?.len()
     );
 
     Ok(())
 }
 
 /// Collect all segment byte offsets reachable from a layout node.
-fn collect_segment_offsets(layout: &dyn Layout, segment_specs: &[SegmentSpec]) -> Vec<u64> {
+fn collect_segment_offsets(layout: &dyn DynLayout, segment_specs: &[SegmentSpec]) -> Vec<u64> {
     let mut result = Vec::new();
     collect_segment_offsets_inner(layout, segment_specs, &mut result);
     result
 }
 
 fn collect_segment_offsets_inner(
-    layout: &dyn Layout,
+    layout: &dyn DynLayout,
     segment_specs: &[SegmentSpec],
     result: &mut Vec<u64>,
 ) {
@@ -2067,7 +2212,7 @@ fn assert_offsets_ordered(before: &[u64], after: &[u64], context: &str) {
 }
 
 /// Whether any node in the layout tree is a dict layout.
-fn layout_has_dict(layout: &dyn Layout) -> bool {
+fn layout_has_dict(layout: &dyn DynLayout) -> bool {
     layout.encoding_id().as_ref() == "vortex.dict"
         || layout
             .children()
@@ -2223,7 +2368,7 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
     let strings = VarBinArray::from(values).into_array();
     let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
 
-    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?;
 
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
@@ -2237,13 +2382,13 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
 
     // Walk the layout tree and find all dict layouts.
     // Verify codes segments come before values segments in byte order within each run.
-    fn check_dict_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
+    fn check_dict_ordering(layout: &dyn DynLayout, segment_specs: &[SegmentSpec]) {
         if layout.encoding_id().as_ref() == "vortex.dict" {
             // child 0 = values, child 1 = codes
             let values_offsets =
-                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(0).unwrap().unwrap().as_ref(), segment_specs);
             let codes_offsets =
-                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(1).unwrap().unwrap().as_ref(), segment_specs);
 
             assert_offsets_ordered(
                 &codes_offsets,
@@ -2345,8 +2490,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         ("strings", strings),
         ("numbers", numbers),
         ("floats", floats),
-    ])
-    .unwrap();
+    ])?;
 
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
@@ -2359,13 +2503,13 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
     let root = footer.layout();
 
     // Find all zoned layouts and verify data segments come before zone map segments.
-    fn check_zoned_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
+    fn check_zoned_ordering(layout: &dyn DynLayout, segment_specs: &[SegmentSpec]) {
         if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             let data_offsets =
-                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(0).unwrap().unwrap().as_ref(), segment_specs);
             let zones_offsets =
-                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+                collect_segment_offsets(layout.slot(1).unwrap().unwrap().as_ref(), segment_specs);
 
             assert_offsets_ordered(
                 &data_offsets,
@@ -2387,7 +2531,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
     let mut all_zones_offsets = Vec::new();
 
     fn collect_all_zoned(
-        layout: &dyn Layout,
+        layout: &dyn DynLayout,
         segment_specs: &[SegmentSpec],
         all_data: &mut Vec<u64>,
         all_zones: &mut Vec<u64>,
@@ -2395,11 +2539,11 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         if layout.is::<Zoned>() || layout.is::<LegacyStats>() {
             // child 0 = data, child 1 = zones
             all_data.extend(collect_segment_offsets(
-                layout.child(0).unwrap().as_ref(),
+                layout.slot(0).unwrap().unwrap().as_ref(),
                 segment_specs,
             ));
             all_zones.extend(collect_segment_offsets(
-                layout.child(1).unwrap().as_ref(),
+                layout.slot(1).unwrap().unwrap().as_ref(),
                 segment_specs,
             ));
             return;

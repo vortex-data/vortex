@@ -14,6 +14,7 @@ use vortex_array::EmptyArrayData;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
@@ -22,15 +23,15 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::list::ListArrayExt;
+use vortex_array::arrays::list::ListArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
-use vortex_array::arrays::variant::VariantArrayExt;
+use vortex_array::arrays::variant::VariantArraySlotsExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
-use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
@@ -49,16 +50,21 @@ use vortex_error::vortex_err;
 use crate::ParquetVariant;
 use crate::ParquetVariantArray;
 
-/// The validity bitmap indicating which elements are non-null.
-pub(crate) const VALIDITY_SLOT: usize = 0;
-/// The metadata array for the Parquet variant values.
-pub(crate) const METADATA_SLOT: usize = 1;
-/// The value array containing the Parquet variant data.
-pub(crate) const VALUE_SLOT: usize = 2;
-/// The typed value array for strongly-typed Parquet variant data.
-pub(crate) const TYPED_VALUE_SLOT: usize = 3;
-pub(crate) const NUM_SLOTS: usize = 4;
-pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity", "metadata", "value", "typed_value"];
+#[array_slots(ParquetVariant)]
+pub struct ParquetVariantSlots {
+    /// The validity bitmap indicating which elements are non-null.
+    #[slot(0)]
+    pub validity: Option<ArrayRef>,
+    /// The metadata array for the Parquet variant values.
+    #[slot(1)]
+    pub metadata: ArrayRef,
+    /// The value array containing the Parquet variant data.
+    #[slot(2)]
+    pub value: Option<ArrayRef>,
+    /// The typed value array for strongly-typed Parquet variant data.
+    #[slot(3)]
+    pub typed_value: Option<ArrayRef>,
+}
 
 impl ParquetVariant {
     /// Creates a Parquet Variant array from canonical extension storage slots.
@@ -73,12 +79,13 @@ impl ParquetVariant {
     ) -> VortexResult<Array<Self>> {
         let len = metadata.len();
         let dtype = DType::Variant(validity.nullability());
-        let slots = smallvec![
-            validity_to_child(&validity, len),
-            Some(metadata),
+        let slots = ParquetVariantSlots {
+            validity: validity_to_child(&validity, len),
+            metadata,
             value,
             typed_value,
-        ];
+        }
+        .into_slots();
         Array::try_from_parts(
             ArrayParts::new(ParquetVariant, dtype, len, EmptyArrayData).with_slots(slots),
         )
@@ -147,8 +154,8 @@ pub(crate) fn core_storage_without_typed_value(
     // the outer `VariantArray::shredded` slot and the original had no `value`, synthesize an
     // all-null `value` so the remaining `ParquetVariant` still satisfies that invariant and
     // can round-trip back through `to_arrow`.
-    let value = array.value_array().cloned().or_else(|| {
-        array.typed_value_array().map(|_| {
+    let value = array.value().cloned().or_else(|| {
+        array.typed_value().map(|_| {
             ConstantArray::new(
                 Scalar::null(DType::Binary(Nullability::Nullable)),
                 array.len(),
@@ -157,13 +164,8 @@ pub(crate) fn core_storage_without_typed_value(
         })
     });
 
-    ParquetVariant::try_new(
-        array.validity()?,
-        array.metadata_array().clone(),
-        value,
-        None,
-    )
-    .map(IntoArray::into_array)
+    ParquetVariant::try_new(array.validity()?, array.metadata().clone(), value, None)
+        .map(IntoArray::into_array)
 }
 
 /// Converts a Parquet `typed_value` tree into the storage-agnostic canonical shredded tree.
@@ -274,7 +276,7 @@ fn logical_shredded_from_parquet_field(
         let parquet_field =
             ParquetVariant::try_new(validity, metadata.clone(), Some(value), Some(typed_value))?;
         let shredded = parquet_field
-            .typed_value_array()
+            .typed_value()
             .cloned()
             .map(|typed_value| {
                 logical_shredded_from_parquet_typed_value(metadata, typed_value, ctx)
@@ -380,7 +382,7 @@ fn parquet_shredded_field_from_logical(
                     "cannot rebuild Parquet shredded field: nested Variant lacks Parquet Variant core storage"
                 )
             })?;
-        let value = core.value_array().cloned().ok_or_else(|| {
+        let value = core.value().cloned().ok_or_else(|| {
             vortex_err!("cannot rebuild Parquet shredded field: partially shredded Variant has no residual value")
         })?;
         let typed_value = variant
@@ -415,31 +417,16 @@ fn parquet_shredded_field_from_logical(
     .into_array())
 }
 
-/// Accessors and Arrow conversion for Parquet Variant storage arrays.
-pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
-    /// Returns the non-nullable Parquet Variant metadata child.
-    fn metadata_array(&self) -> &ArrayRef {
-        self.as_ref().slots()[METADATA_SLOT]
-            .as_ref()
-            .vortex_expect("ParquetVariantArray metadata slot")
-    }
-
+/// Non-slot accessors and Arrow conversion for Parquet Variant storage arrays.
+pub trait ParquetVariantArrayExt:
+    TypedArrayRef<ParquetVariant> + ParquetVariantArraySlotsExt
+{
     /// Returns the outer row validity for the Variant values.
-    fn validity(&self) -> Validity {
+    fn parquet_variant_validity(&self) -> Validity {
         child_to_validity(
-            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.as_ref().slots()[ParquetVariantSlots::VALIDITY].as_ref(),
             self.as_ref().dtype().nullability(),
         )
-    }
-
-    /// Returns the optional raw Parquet Variant `value` child.
-    fn value_array(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[VALUE_SLOT].as_ref()
-    }
-
-    /// Returns the optional shredded Parquet Variant `typed_value` child.
-    fn typed_value_array(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[TYPED_VALUE_SLOT].as_ref()
     }
 
     /// Converts this storage array to Arrow's canonical Parquet Variant extension storage.
@@ -448,9 +435,9 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
         reason = "TODO(aduffy): figure out what to do with Parquet Variant"
     )]
     fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
-        let metadata = self.metadata_array();
+        let metadata = self.metadata();
         let len = metadata.len();
-        let nulls = to_arrow_null_buffer(self.validity(), len, ctx)?;
+        let nulls = to_arrow_null_buffer(self.parquet_variant_validity(), len, ctx)?;
 
         let mut fields = Vec::with_capacity(3);
         let mut arrays: Vec<ArrowArrayRef> = Vec::with_capacity(3);
@@ -463,7 +450,7 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
         )));
         arrays.push(metadata_arrow);
 
-        if let Some(value) = self.value_array() {
+        if let Some(value) = self.value() {
             let value_arrow = value.clone().execute_arrow(None, ctx)?;
             fields.push(Arc::new(Field::new(
                 "value",
@@ -473,7 +460,7 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
             arrays.push(value_arrow);
         }
 
-        if let Some(typed_value) = self.typed_value_array() {
+        if let Some(typed_value) = self.typed_value() {
             let tv_arrow = typed_value.clone().execute_arrow(None, ctx)?;
             fields.push(Arc::new(Field::new(
                 "typed_value",
@@ -516,7 +503,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrays::variant::VariantArrayExt;
+    use vortex_array::arrays::variant::VariantArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -528,6 +515,7 @@ mod tests {
 
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArrayExt;
+    use crate::array::ParquetVariantArraySlotsExt;
     use crate::array::parquet_typed_value_from_logical_shredded;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -632,7 +620,7 @@ mod tests {
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
         let typed_value = parquet_array
-            .typed_value_array()
+            .typed_value()
             .ok_or_else(|| vortex_err!("expected typed_value child"))?
             .clone()
             .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
@@ -716,10 +704,10 @@ mod tests {
         let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
-        assert!(parquet_array.value_array().is_none());
+        assert!(parquet_array.value().is_none());
 
         let typed_value = parquet_array
-            .typed_value_array()
+            .typed_value()
             .ok_or_else(|| vortex_err!("expected typed_value child"))?
             .clone()
             .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
@@ -753,8 +741,8 @@ mod tests {
         let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
-        assert!(parquet_array.value_array().is_some());
-        assert!(parquet_array.typed_value_array().is_some());
+        assert!(parquet_array.value().is_some());
+        assert!(parquet_array.typed_value().is_some());
 
         let mut ctx = SESSION.create_execution_ctx();
         let roundtripped = parquet_array.to_arrow(&mut ctx)?;
@@ -826,7 +814,7 @@ mod tests {
             original
                 .as_opt::<ParquetVariant>()
                 .ok_or_else(|| vortex_err!("expected parquet variant"))?
-                .typed_value_array()
+                .typed_value()
                 .is_some(),
             "fixture must be shredded"
         );
@@ -848,9 +836,9 @@ mod tests {
         // Inverse transform: rebuild a Parquet `typed_value` and reattach it.
         let rebuilt_typed_value = parquet_typed_value_from_logical_shredded(logical, &mut ctx)?;
         let rebuilt = ParquetVariant::try_new(
-            ParquetVariantArrayExt::validity(&core),
-            core.metadata_array().clone(),
-            core.value_array().cloned(),
+            ParquetVariantArrayExt::parquet_variant_validity(&core),
+            core.metadata().clone(),
+            core.value().cloned(),
             Some(rebuilt_typed_value),
         )?
         .into_array();
