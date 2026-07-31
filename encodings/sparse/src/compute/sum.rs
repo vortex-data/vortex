@@ -100,6 +100,7 @@ mod tests {
             kernel_result, canonical_result,
             "kernel and canonical sum paths disagree"
         );
+
         Ok(kernel_result)
     }
 

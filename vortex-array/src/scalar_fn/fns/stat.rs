@@ -57,7 +57,7 @@ impl Display for StatOptions {
     }
 }
 
-/// Scalar function that broadcasts a stored aggregate partial over the input rows.
+/// Scalar function that broadcasts a stored aggregate result over the input rows.
 ///
 /// The only current consumer is **row-wise pruning**: substituting `stat(col, agg)` into a
 /// predicate produces a cheap, row-aligned approximation whose constant runs let downstream
@@ -130,7 +130,7 @@ impl ScalarFnVTable for StatFn {
 }
 
 fn stat_dtype(aggregate_fn: &AggregateFnRef, input_dtype: &DType) -> VortexResult<DType> {
-    let Some(dtype) = aggregate_fn.state_dtype(input_dtype) else {
+    let Some(dtype) = aggregate_fn.return_dtype(input_dtype) else {
         vortex_bail!(
             "Aggregate function {} does not support input dtype {}",
             aggregate_fn,

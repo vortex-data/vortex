@@ -16,6 +16,8 @@ use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
 use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
+use vortex_array::aggregate_fn::fns::sum::Sum;
+use vortex_array::aggregate_fn::fns::sum::normalize_partial_array;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -24,8 +26,12 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_array::expr::eq;
+use vortex_array::expr::fill_null;
 use vortex_array::expr::get_item;
 use vortex_array::expr::lit;
+use vortex_array::expr::mask;
+use vortex_array::expr::not;
+use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar_fn::EmptyOptions;
@@ -165,6 +171,26 @@ impl ZoneMap {
     }
 }
 
+pub(super) fn normalize_sum_partial_fields(
+    array: StructArray,
+    aggregate_fns: &[AggregateFnRef],
+) -> VortexResult<StructArray> {
+    let names = array.names().clone();
+    let mut fields = array.iter_unmasked_fields().cloned().collect::<Vec<_>>();
+
+    for aggregate_fn in aggregate_fns {
+        if !aggregate_fn.is::<Sum>() {
+            continue;
+        }
+        let Some(index) = names.find(aggregate_fn.to_string()) else {
+            continue;
+        };
+        fields[index] = normalize_partial_array(fields[index].clone())?;
+    }
+
+    StructArray::try_new(names, fields, array.len(), array.struct_validity())
+}
+
 struct ZoneMapStatsBinder<'a> {
     zone_map: &'a ZoneMap,
 }
@@ -293,6 +319,15 @@ impl ZoneMap {
 fn aggregate_result_expr(stored: &AggregateFnRef, state_expr: Expression) -> Expression {
     if stored.is::<BoundedMax>() {
         get_item(BOUNDED_MAX_BOUND, state_expr)
+    } else if stored.is::<Sum>() {
+        let is_invalid = fill_null(
+            or(
+                get_item("is_overflow", state_expr.clone()),
+                get_item("is_empty", state_expr.clone()),
+            ),
+            lit(true),
+        );
+        mask(get_item("sum", state_expr), not(is_invalid))
     } else {
         state_expr
     }
@@ -356,6 +391,7 @@ mod tests {
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::nan_count::NanCount;
     use vortex_array::aggregate_fn::fns::null_count::NullCount;
+    use vortex_array::aggregate_fn::fns::sum::Sum;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -387,6 +423,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::layouts::zoned::zone_map::ZoneMap;
+    use crate::layouts::zoned::zone_map::normalize_sum_partial_fields;
     use crate::test::SESSION;
 
     fn falsify(expr: &Expression, dtype: DType) -> BoundExpression {
@@ -404,6 +441,26 @@ mod tests {
     fn default_bounded_stat_max_bytes() -> NonZeroUsize {
         // SAFETY: 64 is non-zero.
         unsafe { NonZeroUsize::new_unchecked(64) }
+    }
+
+    #[test]
+    fn legacy_scalar_sum_field_is_normalized_once() -> VortexResult<()> {
+        let sum = Sum.bind(NumericalAggregateOpts::default());
+        let legacy_partials =
+            PrimitiveArray::from_option_iter([Some(0i64), Some(5i64), None]).into_array();
+        let legacy_table = StructArray::from_fields(&[(sum.to_string(), legacy_partials)])?;
+        let normalized = normalize_sum_partial_fields(legacy_table, std::slice::from_ref(&sum))?;
+        let zone_map =
+            ZoneMap::try_new(PType::I32.into(), normalized, Arc::new([sum.clone()]), 1, 3)?;
+
+        let result_expr = zone_map
+            .aggregate_field_expr(&sum)
+            .expect("normalized Sum field");
+        let result = zone_map.array.into_array().apply(&result_expr)?;
+        let expected =
+            PrimitiveArray::from_option_iter([Some(0i64), Some(5i64), None]).into_array();
+        assert_arrays_eq!(&result, &expected, &mut SESSION.create_execution_ctx());
+        Ok(())
     }
 
     #[test]

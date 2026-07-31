@@ -13,7 +13,7 @@ use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
-pub(super) fn accumulate_bool(
+pub(crate) fn accumulate_bool(
     inner: &mut SumState,
     b: &BoolArray,
     ctx: &mut ExecutionCtx,
@@ -101,16 +101,16 @@ mod tests {
             &arr.into_array(),
             &mut array_session().create_execution_ctx(),
         )?;
-        assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
+        assert!(result.is_null());
         Ok(())
     }
 
     #[test]
-    fn sum_bool_empty_produces_zero() -> VortexResult<()> {
+    fn sum_bool_empty_produces_null() -> VortexResult<()> {
         let dtype = DType::Bool(Nullability::NonNullable);
         let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
         let result = acc.finish()?;
-        assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
+        assert!(result.is_null());
         Ok(())
     }
 

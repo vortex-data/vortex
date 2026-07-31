@@ -15,7 +15,7 @@ use crate::scalar::Scalar;
 ///
 /// Returns `Ok(None)` if the scalar is null (no contribution to the sum).
 /// Returns a null scalar on overflow (saturation).
-pub(super) fn multiply_constant(
+pub(crate) fn multiply_constant(
     scalar: &Scalar,
     len: usize,
     return_dtype: &DType,
@@ -127,7 +127,7 @@ mod tests {
         let array = ConstantArray::new(Scalar::null(DType::Primitive(PType::U32, Nullable)), 10)
             .into_array();
         let result = sum(&array, &mut array_session().create_execution_ctx())?;
-        assert_eq!(result, Scalar::primitive(0u64, Nullable));
+        assert_eq!(result, Scalar::null(DType::Primitive(PType::U64, Nullable)));
         Ok(())
     }
 
@@ -151,7 +151,7 @@ mod tests {
     fn sum_constant_bool_null() -> VortexResult<()> {
         let array = ConstantArray::new(Scalar::null(DType::Bool(Nullable)), 10).into_array();
         let result = sum(&array, &mut array_session().create_execution_ctx())?;
-        assert_eq!(result, Scalar::primitive(0u64, Nullable));
+        assert_eq!(result, Scalar::null(DType::Primitive(PType::U64, Nullable)));
         Ok(())
     }
 
@@ -187,11 +187,7 @@ mod tests {
         let result = sum(&array, &mut array_session().create_execution_ctx())?;
         assert_eq!(
             result,
-            Scalar::decimal(
-                DecimalValue::I256(i256::ZERO),
-                DecimalDType::new(20, 2),
-                Nullable
-            )
+            Scalar::null(DType::Decimal(DecimalDType::new(20, 2), Nullable))
         );
         Ok(())
     }

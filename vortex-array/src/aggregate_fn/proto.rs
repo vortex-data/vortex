@@ -183,7 +183,6 @@ mod tests {
     ) -> VortexResult<()> {
         let session = crate::array_session();
         let agg_fn = Sum.bind(options);
-
         let proto = agg_fn.serialize_proto()?;
         let buf = proto.encode_to_vec();
         let decoded = pb::AggregateFn::decode(buf.as_slice())?;

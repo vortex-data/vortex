@@ -188,8 +188,8 @@ impl Stat {
             }
             Self::Sum => {
                 // Statistics follow NaN-skipping semantics; request it explicitly.
-                return aggregate_fn::fns::sum::Sum
-                    .return_dtype(&NumericalAggregateOpts::skip_nans(), data_type);
+                let options = NumericalAggregateOpts::skip_nans();
+                return aggregate_fn::fns::sum::Sum.return_dtype(&options, data_type);
             }
         })
     }
