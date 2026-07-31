@@ -22,6 +22,8 @@ use vortex_array::expr::forms::conjuncts;
 use vortex_array::expr::root;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::iter::ArrayIteratorAdapter;
+use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_array::scalar_fn::fns::stat::StatFn;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStream;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -44,10 +46,30 @@ use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::plan_v2::LayoutReaderScanPlanV2;
 use crate::scan::plan_v2::ScanPlanRef;
 use crate::scan::plan_v2::plan_v2_enabled;
+use crate::scan::IDEAL_SPLIT_SIZE;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
 use crate::scan::splits::attempt_split_ranges;
+
+/// Minimum split size for an aggregate scan where every aggregate reads from
+/// zone maps only, e.g. SELECT min(col), max(col) from 'file.vortex'.
+/// IDEAL_SPLIT_SIZE is good for a decoded split, but aggregate scans which read
+/// from zone maps only don't decode columns, so per-row work is cheaper, and
+/// small splits create unnecessary overhead.
+const PURE_AGGREGATE_MIN_SPLIT_SIZE: u64 = IDEAL_SPLIT_SIZE * 16;
+
+/// True if "projection" consists only of aggregate stat expressions
+fn is_pure_aggregate_projection(projection: &Expression) -> bool {
+    if projection.is::<StatFn>() {
+        return true;
+    }
+    if projection.is::<Pack>() {
+        let field_count = projection.as_::<Pack>().names.len();
+        return field_count > 0 && (0..field_count).all(|i| projection.child(i).is::<StatFn>());
+    }
+    false
+}
 
 /// Builder for scanning a [`LayoutReader`] into arrays, streams, iterators, or mapped outputs.
 ///
@@ -298,20 +320,33 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let field_mask =
             referenced_field_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
 
-        let splits =
-            if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
-                Splits::Ranges(ranges)
-            } else {
-                let split_range = self
-                    .row_range
-                    .clone()
-                    .unwrap_or_else(|| 0..layout_reader.row_count());
-                Splits::Natural(self.split_by.splits(
-                    layout_reader.as_ref(),
-                    &split_range,
-                    &field_mask,
-                )?)
-            };
+        // Projection of aggregate-only projections doesn't decode columns so
+        // small splits are creating a lot of overhead.
+        let split_by = if is_pure_aggregate_projection(&projection) {
+            let target_splits = get_available_parallelism().unwrap_or(1).max(1) * 4;
+            let scan_rows = self
+                .row_range
+                .clone()
+                .map_or_else(|| layout_reader.row_count(), |r| r.end - r.start);
+            let coarse = scan_rows
+                .div_ceil(target_splits as u64)
+                .max(PURE_AGGREGATE_MIN_SPLIT_SIZE);
+            SplitBy::RowCount(usize::try_from(coarse).unwrap_or(usize::MAX))
+        } else {
+            self.split_by
+        };
+
+        let splits = if let Some(ranges) =
+            attempt_split_ranges(&self.selection, self.row_range.as_ref())
+        {
+            Splits::Ranges(ranges)
+        } else {
+            let split_range = self
+                .row_range
+                .clone()
+                .unwrap_or_else(|| 0..layout_reader.row_count());
+            Splits::Natural(split_by.splits(layout_reader.as_ref(), &split_range, &field_mask)?)
+        };
 
         if plan_v2_enabled()? {
             let source: ScanPlanRef =
