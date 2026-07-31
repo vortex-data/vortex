@@ -239,12 +239,14 @@ mod tests {
                 .await
                 .unwrap();
 
-            let result = layout
+            let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expr = root().bind(reader.dtype()).unwrap();
+            let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &expr,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()
@@ -290,12 +292,14 @@ mod tests {
                 .await
                 .unwrap();
 
-            let result = layout
+            let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expr = root().bind(reader.dtype()).unwrap();
+            let result = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &expr,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()
@@ -363,12 +367,14 @@ mod tests {
             };
 
             // We should be able to read the array we just wrote.
-            let result: ArrayRef = layout
+            let reader = layout
                 .new_reader("".into(), segments, &SESSION, &Default::default())
-                .unwrap()
+                .unwrap();
+            let expr = root().bind(reader.dtype()).unwrap();
+            let result: ArrayRef = reader
                 .projection_evaluation(
                     &(0..layout.row_count()),
-                    &root(),
+                    &expr,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
                 )
                 .unwrap()

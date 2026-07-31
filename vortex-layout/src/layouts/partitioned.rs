@@ -89,8 +89,9 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             .into_array();
 
             let mut ctx = session.create_execution_ctx();
+            let root = self.root.bind(root_scope.dtype())?;
             let root_mask = root_scope
-                .apply(&self.root)?
+                .apply_bound(&root)?
                 .null_as_false()
                 .execute(&mut ctx)?;
 
@@ -126,7 +127,8 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             )?
             .into_array();
 
-            root_scope.apply(&self.root)
+            let root = self.root.bind(root_scope.dtype())?;
+            root_scope.apply_bound(&root)
         }))
     }
 }

@@ -14,6 +14,7 @@ use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
@@ -41,7 +42,7 @@ pub struct FileStatsLayoutReader {
     file_stats: FileStatistics,
     struct_fields: StructFields,
     session: VortexSession,
-    prune_cache: DashMap<Expression, bool>,
+    prune_cache: DashMap<BoundExpression, bool>,
 }
 
 impl FileStatsLayoutReader {
@@ -113,7 +114,7 @@ impl LayoutReader for FileStatsLayoutReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Check cache first with read-only lock.
@@ -125,7 +126,8 @@ impl LayoutReader for FileStatsLayoutReader {
         }
 
         // Evaluate and cache.
-        let pruned = self.evaluate_file_stats(expr)?;
+        let expression = expr.unbind();
+        let pruned = self.evaluate_file_stats(&expression)?;
         self.prune_cache.insert(expr.clone(), pruned);
 
         if pruned {
@@ -138,7 +140,7 @@ impl LayoutReader for FileStatsLayoutReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         self.child.filter_evaluation(row_range, expr, mask)
@@ -147,7 +149,7 @@ impl LayoutReader for FileStatsLayoutReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         self.child.projection_evaluation(row_range, expr, mask)
@@ -260,7 +262,7 @@ mod tests {
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
 
             // col > 200 should be prunable since max is 100.
-            let expr = gt(get_item("col", root()), lit(200i32));
+            let expr = gt(get_item("col", root()), lit(200i32)).bind(reader.dtype())?;
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             assert_eq!(result, Mask::new_false(5));
@@ -299,7 +301,7 @@ mod tests {
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
 
             // col > 50 should NOT be prunable since max is 100 (some rows could match).
-            let expr = gt(get_item("col", root()), lit(50i32));
+            let expr = gt(get_item("col", root()), lit(50i32)).bind(reader.dtype())?;
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             // Should delegate to child, which returns the mask unchanged (struct reader doesn't prune).
@@ -336,7 +338,8 @@ mod tests {
             let reader =
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
 
-            let expr = gt(checked_add(get_item("col", root()), lit(5i32)), lit(102i32));
+            let expr = gt(checked_add(get_item("col", root()), lit(5i32)), lit(102i32))
+                .bind(reader.dtype())?;
             let mask = Mask::new_true(2);
             let result = reader.pruning_evaluation(&(0..2), &expr, mask)?.await?;
 
@@ -391,7 +394,7 @@ mod tests {
             let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
 
             // `is_null(deleted_at)` — should NOT panic or error due to dtype mismatch.
-            let expr = is_null(get_item("deleted_at", root()));
+            let expr = is_null(get_item("deleted_at", root())).bind(reader.dtype())?;
             let mask = Mask::new_true(3);
             let result = reader.pruning_evaluation(&(0..3), &expr, mask)?.await?;
             // null_count is 1 (non-zero), so is_null is not falsified => not pruned.
@@ -435,7 +438,7 @@ mod tests {
             let reader =
                 FileStatsLayoutReader::new(child, test_file_null_count_stats(5), SESSION.clone());
 
-            let expr = is_not_null(get_item("col", root()));
+            let expr = is_not_null(get_item("col", root())).bind(reader.dtype())?;
             let mask = Mask::new_true(5);
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             assert_eq!(result, Mask::new_false(5));

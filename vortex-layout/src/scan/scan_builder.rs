@@ -309,6 +309,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 )?)
             };
 
+        let projection = projection.bind(layout_reader.dtype())?;
+        let filter = filter
+            .map(|expr| expr.bind(layout_reader.dtype()))
+            .transpose()?;
+
         Ok(RepeatedScan::new(
             self.session.clone(),
             layout_reader,
@@ -476,7 +481,7 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::expr::Expression;
+    use vortex_array::expr::BoundExpression;
     use vortex_array::expr::eq;
     use vortex_array::expr::get_item;
     use vortex_array::expr::is_not_null;
@@ -597,7 +602,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -606,7 +611,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -615,7 +620,7 @@ mod test {
         fn projection_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             Ok(Box::pin(async move {
@@ -688,7 +693,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             mask: Mask,
         ) -> VortexResult<MaskFuture> {
             Ok(MaskFuture::ready(mask))
@@ -697,7 +702,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             Ok(mask)
@@ -706,7 +711,7 @@ mod test {
         fn projection_evaluation(
             &self,
             row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             let start = usize::try_from(row_range.start)
@@ -800,7 +805,7 @@ mod test {
         fn pruning_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: Mask,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -809,7 +814,7 @@ mod test {
         fn filter_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
@@ -818,7 +823,7 @@ mod test {
         fn projection_evaluation(
             &self,
             _row_range: &Range<u64>,
-            _expr: &Expression,
+            _expr: &BoundExpression,
             _mask: MaskFuture,
         ) -> VortexResult<ArrayFuture> {
             Ok(Box::pin(async move {

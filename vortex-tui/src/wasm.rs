@@ -85,10 +85,13 @@ async fn load_flat_array(
             &Default::default(),
         )
         .vortex_expect("Failed to create reader");
+    let expr = root()
+        .bind(reader.dtype())
+        .vortex_expect("root must bind against the layout dtype");
     reader
         .projection_evaluation(
             &(0..row_count),
-            &root(),
+            &expr,
             MaskFuture::new_true(
                 usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
             ),

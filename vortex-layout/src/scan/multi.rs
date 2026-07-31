@@ -446,7 +446,8 @@ fn reader_partition(
     if let Some(filter) = &request.filter {
         let mask_len = usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX);
         let mask = Mask::new_true(mask_len);
-        if let Ok(pruning_future) = reader.pruning_evaluation(&row_range, filter, mask)
+        if let Ok(filter) = filter.bind(reader.dtype())
+            && let Ok(pruning_future) = reader.pruning_evaluation(&row_range, &filter, mask)
             && let Some(Ok(result_mask)) = pruning_future.now_or_never()
             && result_mask.all_false()
         {

@@ -135,7 +135,7 @@ impl ZoneMap {
     /// `true` means the zone cannot contain matching rows and can be skipped.
     ///
     /// If the predicate contains [`row_count`][vortex_array::scalar_fn::internal::row_count]
-    /// placeholders, they are replaced after [`ArrayRef::apply`] with per-zone
+    /// placeholders, they are replaced after [`ArrayRef::apply_bound`] with per-zone
     /// counts derived from `zone_len` and `row_count`. Uniform zones use a
     /// [`ConstantArray`]; a short final zone uses a run-end encoded array.
     /// `row_count` is a layout property rather than a stored stats field, and the
@@ -146,7 +146,8 @@ impl ZoneMap {
         let num_zones = self.array.len();
         let predicate = self.lower_stats(predicate.clone())?;
 
-        let applied = self.array.clone().into_array().apply(&predicate)?;
+        let array = self.array.clone().into_array();
+        let applied = array.apply(&predicate)?;
 
         if !contains_row_count(&applied) {
             return applied.null_as_false().execute(&mut ctx);

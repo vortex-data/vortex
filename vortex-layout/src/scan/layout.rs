@@ -140,12 +140,13 @@ impl DataSource for LayoutReaderDataSource {
         // Check file-level pruning: if the filter can be proven false for the entire row range
         // using file-level statistics (e.g. via FileStatsLayoutReader), skip the scan entirely.
         if let Some(filter) = &scan_request.filter {
+            let filter = filter.bind(self.reader.dtype())?;
             let mask = Mask::new_true(
                 usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX),
             );
             let pruning_result = self
                 .reader
-                .pruning_evaluation(&row_range, filter, mask)?
+                .pruning_evaluation(&row_range, &filter, mask)?
                 .now_or_never();
             if let Some(Ok(result_mask)) = pruning_result
                 && result_mask.all_false()

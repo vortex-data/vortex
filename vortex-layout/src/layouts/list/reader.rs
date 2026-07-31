@@ -19,7 +19,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::expr::Expression;
+use vortex_array::expr::BoundExpression;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::validity::Validity;
@@ -36,7 +36,7 @@ use crate::RowSplits;
 use crate::SplitRange;
 use crate::layouts::list::ListLayout;
 use crate::layouts::list::expr::ListChildrenNeeded;
-use crate::layouts::list::expr::get_necessary_list_children;
+use crate::layouts::list::expr::get_necessary_bound_list_children;
 use crate::layouts::list::expr::rewrite_offsets_expr;
 use crate::layouts::list::expr::rewrite_validity_expr;
 use crate::segments::SegmentSource;
@@ -108,7 +108,7 @@ impl ListReader {
     fn project_validity(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let validity_reader = self.validity.clone();
@@ -127,16 +127,19 @@ impl ListReader {
             };
 
             let validity_array = match validity_reader.as_ref() {
-                Some(v) => Some(
-                    v.projection_evaluation(&row_range, &root(), MaskFuture::ready(mask))?
-                        .await?,
-                ),
+                Some(v) => {
+                    let root = root().bind(v.dtype())?;
+                    Some(
+                        v.projection_evaluation(&row_range, &root, MaskFuture::ready(mask))?
+                            .await?,
+                    )
+                }
                 None => None,
             };
 
             let validity = create_validity(validity_array, nullability).to_array(out_len);
 
-            validity.apply(&rewritten)
+            validity.apply_bound(&rewritten)
         }
         .boxed())
     }
@@ -148,7 +151,7 @@ impl ListReader {
     fn project_all(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let is_full_range = row_range.start == 0 && row_range.end == self.layout.row_count();
@@ -167,7 +170,7 @@ impl ListReader {
     }
 
     /// Fetch the complete `elements`, `offsets`, and `validity` children concurrently.
-    fn project_all_full(&self, expr: &Expression) -> VortexResult<ArrayFuture> {
+    fn project_all_full(&self, expr: &BoundExpression) -> VortexResult<ArrayFuture> {
         let row_count = self.layout.row_count();
         let elements_row_count = self.elements.row_count();
         let nullability = self.layout.dtype().nullability();
@@ -189,7 +192,7 @@ impl ListReader {
                 ListArray::new_unchecked(elements, offsets, create_validity(validity, nullability))
             }
             .into_array();
-            list.apply(&expr)
+            list.apply_bound(&expr)
         }
         .boxed())
     }
@@ -202,14 +205,13 @@ impl ListReader {
     fn project_all_bounded(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<ArrayFuture> {
         // Crop to the smallest contiguous row range containing every selected list.
         let Some(selected_rows) = selected_row_range(&mask) else {
-            let empty = Canonical::empty(self.layout.dtype()).into_array();
-            let expr = expr.clone();
-            return Ok(async move { empty.apply(&expr) }.boxed());
+            let empty = Canonical::empty(expr.dtype()).into_array();
+            return Ok(async move { Ok(empty) }.boxed());
         };
 
         let selected_mask = mask.slice(selected_rows.clone());
@@ -246,7 +248,7 @@ impl ListReader {
             } else {
                 list.filter(selected_mask)?
             };
-            list.apply(&expr)
+            list.apply_bound(&expr)
         }
         .boxed())
     }
@@ -255,13 +257,14 @@ impl ListReader {
     fn project_offsets_validity(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let offsets = self.fetch_raw_offsets(row_range)?;
         let reader = self.clone();
         let row_range = row_range.clone();
-        let rewritten = rewrite_offsets_expr(expr)?;
+        let lengths_dtype = DType::Primitive(PType::U64, self.layout.dtype().nullability());
+        let rewritten = rewrite_offsets_expr(expr, &lengths_dtype)?;
 
         Ok(async move {
             let mask = mask.await?;
@@ -285,7 +288,7 @@ impl ListReader {
             let validity = validity_fut.await?;
             let lengths = apply_lengths_validity(lengths, validity, nullability)?;
 
-            lengths.apply(&rewritten)
+            lengths.apply_bound(&rewritten)
         }
         .boxed())
     }
@@ -297,9 +300,10 @@ impl ListReader {
     fn fetch_raw_offsets(&self, row_range: &Range<u64>) -> VortexResult<ArrayFuture> {
         let offsets_range = row_range.start..(row_range.end + 1);
         let offsets_count = usize::try_from(offsets_range.end - offsets_range.start)?;
+        let root = root().bind(self.offsets.dtype())?;
         self.offsets.projection_evaluation(
             &offsets_range,
-            &root(),
+            &root,
             MaskFuture::new_true(offsets_count),
         )
     }
@@ -309,8 +313,9 @@ impl ListReader {
     /// No mask or expression is applied.
     fn fetch_raw_elements(&self, row_range: &Range<u64>) -> VortexResult<ArrayFuture> {
         let row_count = usize::try_from(row_range.end - row_range.start)?;
+        let root = root().bind(self.elements.dtype())?;
         self.elements
-            .projection_evaluation(row_range, &root(), MaskFuture::new_true(row_count))
+            .projection_evaluation(row_range, &root, MaskFuture::new_true(row_count))
     }
 }
 
@@ -407,7 +412,7 @@ impl LayoutReader for ListReader {
     fn pruning_evaluation(
         &self,
         _row_range: &Range<u64>,
-        _expr: &Expression,
+        _expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         Ok(MaskFuture::ready(mask))
@@ -416,7 +421,7 @@ impl LayoutReader for ListReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let len = mask.len();
@@ -455,11 +460,11 @@ impl LayoutReader for ListReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         // Read as little as possible based on which list children the expression needs.
-        match get_necessary_list_children(expr) {
+        match get_necessary_bound_list_children(expr) {
             ListChildrenNeeded::Validity => self.project_validity(row_range, expr, mask),
             ListChildrenNeeded::OffsetsAndValidity => {
                 self.project_offsets_validity(row_range, expr, mask)
@@ -523,7 +528,10 @@ fn fetch_validity(
     mask: MaskFuture,
 ) -> VortexResult<OptionalArrayFuture> {
     let fut = validity
-        .map(|v| v.projection_evaluation(row_range, &root(), mask))
+        .map(|v| {
+            let root = root().bind(v.dtype())?;
+            v.projection_evaluation(row_range, &root, mask)
+        })
         .transpose()?;
     Ok(async move {
         match fut {
@@ -608,6 +616,7 @@ mod tests {
     use vortex_array::arrays::ListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::Expression;
     use vortex_array::expr::cast;
     use vortex_array::expr::gt;
     use vortex_array::expr::is_not_null;
@@ -651,14 +660,16 @@ mod tests {
         let (segments, layout, session) = write_layout(&flat_list_strategy(), list).await?;
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
+        let not_null_expr = is_not_null(root()).bind(reader.dtype())?;
         let not_null = reader
-            .projection_evaluation(&(0..3), &is_not_null(root()), MaskFuture::new_true(3))?
+            .projection_evaluation(&(0..3), &not_null_expr, MaskFuture::new_true(3))?
             .await?;
         let mut exec_ctx = session.create_execution_ctx();
         assert_arrays_eq!(not_null, BoolArray::from_iter(valid.clone()), &mut exec_ctx);
 
+        let is_null_expr = is_null(root()).bind(reader.dtype())?;
         let is_null_res = reader
-            .projection_evaluation(&(0..3), &is_null(root()), MaskFuture::new_true(3))?
+            .projection_evaluation(&(0..3), &is_null_expr, MaskFuture::new_true(3))?
             .await?;
         assert_arrays_eq!(
             is_null_res,
@@ -676,8 +687,9 @@ mod tests {
         let (segments, layout, session) = write_layout(&flat_list_strategy(), list).await?;
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
+        let expr = list_length(root()).bind(reader.dtype())?;
         let result = reader
-            .projection_evaluation(&(0..3), &list_length(root()), MaskFuture::new_true(3))?
+            .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
             .await?;
 
         let mut exec_ctx = session.create_execution_ctx();
@@ -692,8 +704,9 @@ mod tests {
         let (segments, layout, session) = write_layout(&flat_list_strategy(), list).await?;
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
+        let expr = list_length(root()).bind(reader.dtype())?;
         let result = reader
-            .projection_evaluation(&(0..3), &list_length(root()), MaskFuture::new_true(3))?
+            .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
             .await?;
 
         let expected =
@@ -711,8 +724,9 @@ mod tests {
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
         let mask = Mask::from_iter([false, true, true]);
+        let expr = list_length(root()).bind(reader.dtype())?;
         let result = reader
-            .projection_evaluation(&(0..3), &list_length(root()), MaskFuture::ready(mask))?
+            .projection_evaluation(&(0..3), &expr, MaskFuture::ready(mask))?
             .await?;
 
         let expected = PrimitiveArray::from_option_iter::<u64, _>([None, Some(1)]).into_array();
@@ -731,7 +745,8 @@ mod tests {
         let expr = cast(
             list_length(root()),
             DType::Primitive(PType::I64, Nullability::Nullable),
-        );
+        )
+        .bind(reader.dtype())?;
         let result = reader
             .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
             .await?;
@@ -750,12 +765,9 @@ mod tests {
         let (segments, layout, session) = write_layout(&flat_list_strategy(), list).await?;
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
+        let expr = gt(list_length(root()), lit(1u64)).bind(reader.dtype())?;
         let result = reader
-            .filter_evaluation(
-                &(0..3),
-                &gt(list_length(root()), lit(1u64)),
-                MaskFuture::new_true(3),
-            )?
+            .filter_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
             .await?;
 
         assert_eq!(result, Mask::from_iter([true, false, false]));
@@ -778,6 +790,7 @@ mod tests {
         let (segments, layout, session) = write_layout(&flat_list_strategy(), list).await?;
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
+        let expr = expr.bind(reader.dtype())?;
         let result = reader
             .filter_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
             .await?;
@@ -794,8 +807,9 @@ mod tests {
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
         let input_mask = Mask::from_iter([true, true, false]);
+        let expr = is_not_null(root()).bind(reader.dtype())?;
         let result = reader
-            .filter_evaluation(&(0..3), &is_not_null(root()), MaskFuture::ready(input_mask))?
+            .filter_evaluation(&(0..3), &expr, MaskFuture::ready(input_mask))?
             .await?;
 
         assert_eq!(result, Mask::from_iter([true, false, false]));
@@ -810,8 +824,9 @@ mod tests {
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
         let input_mask = Mask::from_iter([false, false, false, false, true, false]);
+        let expr = is_not_null(root()).bind(reader.dtype())?;
         let result = reader
-            .filter_evaluation(&(0..6), &is_not_null(root()), MaskFuture::ready(input_mask))?
+            .filter_evaluation(&(0..6), &expr, MaskFuture::ready(input_mask))?
             .await?;
 
         assert_eq!(
@@ -928,8 +943,9 @@ mod tests {
         let (segments, layout, session) = write_layout(&flat_list_strategy(), list.clone()).await?;
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
+        let expr = root().bind(reader.dtype())?;
         let result = reader
-            .projection_evaluation(&row_range, &root(), MaskFuture::new_true(len))?
+            .projection_evaluation(&row_range, &expr, MaskFuture::new_true(len))?
             .await?;
 
         let expected =
@@ -947,8 +963,9 @@ mod tests {
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
         let mask = Mask::from_iter([true, false, true]);
+        let expr = root().bind(reader.dtype())?;
         let result = reader
-            .projection_evaluation(&(0..3), &root(), MaskFuture::ready(mask.clone()))?
+            .projection_evaluation(&(0..3), &expr, MaskFuture::ready(mask.clone()))?
             .await?;
 
         let expected = list.filter(mask)?;
@@ -992,8 +1009,9 @@ mod tests {
         let (segments, layout, session) = write_layout(&flat_list_strategy(), list.clone()).await?;
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
+        let expr = root().bind(reader.dtype())?;
         let result = reader
-            .projection_evaluation(&(0..5), &root(), MaskFuture::ready(mask.clone()))?
+            .projection_evaluation(&(0..5), &expr, MaskFuture::ready(mask.clone()))?
             .await?;
 
         let expected = list.filter(mask)?;
@@ -1012,8 +1030,9 @@ mod tests {
         let (segments, layout, session) = write_layout(&flat_list_strategy(), list.clone()).await?;
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
+        let expr = root().bind(reader.dtype())?;
         let result = reader
-            .projection_evaluation(&(1..4), &root(), MaskFuture::new_true(3))?
+            .projection_evaluation(&(1..4), &expr, MaskFuture::new_true(3))?
             .await?;
 
         let expected = list.slice(1..4)?;
@@ -1133,8 +1152,9 @@ mod tests {
         let reader = layout.new_reader("".into(), source, &session, &ctx)?;
 
         let mask = Mask::from_iter([true, false, false, false, false]);
+        let expr = root().bind(reader.dtype())?;
         let result = reader
-            .projection_evaluation(&(0..5), &root(), MaskFuture::ready(mask.clone()))?
+            .projection_evaluation(&(0..5), &expr, MaskFuture::ready(mask.clone()))?
             .await?;
 
         let expected = list.filter(mask)?;
@@ -1172,8 +1192,9 @@ mod tests {
             write_layout(&chunked_elements_list_strategy(), list.clone()).await?;
         let reader = layout.new_reader("".into(), segments, &session, &ctx)?;
 
+        let expr = root().bind(reader.dtype())?;
         let result = reader
-            .projection_evaluation(&row_range, &root(), MaskFuture::ready(mask.clone()))?
+            .projection_evaluation(&row_range, &expr, MaskFuture::ready(mask.clone()))?
             .await?;
 
         let sliced =

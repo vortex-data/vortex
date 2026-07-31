@@ -19,7 +19,8 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::ExactExpr;
+use vortex_array::expr::BoundExpression;
+use vortex_array::expr::ExactBoundExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::col;
 use vortex_array::expr::make_free_field_annotator;
@@ -59,7 +60,7 @@ pub struct StructReader {
     expanded_root_expr: Expression,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: DashMap<ExactExpr, Arc<OnceLock<Partitioned>>>,
+    partitioned_expr_cache: DashMap<ExactBoundExpr, Arc<OnceLock<Partitioned>>>,
 }
 
 impl StructReader {
@@ -155,8 +156,8 @@ impl StructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: Expression) -> VortexResult<Partitioned> {
-        let key = ExactExpr(expr.clone());
+    fn partition_expr(&self, expr: &BoundExpression) -> VortexResult<Partitioned> {
+        let key = ExactBoundExpr(expr.clone());
 
         // Look up the cell under a shared shard lock; only a miss takes the write lock, and
         // only for as long as it takes to insert an empty cell.
@@ -175,7 +176,7 @@ impl StructReader {
         if let Some(value) = cell.get() {
             return Ok(value.clone());
         }
-        let result = self.compute_partitioned_expr(expr)?;
+        let result = self.compute_partitioned_expr(expr.unbind())?;
         Ok(cell.get_or_init(|| result).clone())
     }
 
@@ -266,17 +267,22 @@ impl LayoutReader for StructReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr.clone())? {
-            Partitioned::Single(name, partition) => self
-                .field_reader(name)?
-                .pruning_evaluation(row_range, partition, mask)
-                .map_err(|err| {
-                    err.with_context(format!("While evaluating pruning filter partition {name}"))
-                }),
+        match &self.partition_expr(expr)? {
+            Partitioned::Single(name, partition) => {
+                let reader = self.field_reader(name)?;
+                let partition = partition.bind(reader.dtype())?;
+                reader
+                    .pruning_evaluation(row_range, &partition, mask)
+                    .map_err(|err| {
+                        err.with_context(format!(
+                            "While evaluating pruning filter partition {name}"
+                        ))
+                    })
+            }
             Partitioned::Multi(_) => {
                 // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
                 //  there's not much we can do? Maybe... it's complicated...
@@ -288,29 +294,36 @@ impl LayoutReader for StructReader {
     fn filter_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr.clone())? {
-            Partitioned::Single(name, partition) => self
-                .field_reader(name)?
-                .filter_evaluation(row_range, partition, mask)
-                .map_err(|err| {
-                    err.with_context(format!("While evaluating filter partition {name}"))
-                }),
+        match &self.partition_expr(expr)? {
+            Partitioned::Single(name, partition) => {
+                let reader = self.field_reader(name)?;
+                let partition = partition.bind(reader.dtype())?;
+                reader
+                    .filter_evaluation(row_range, &partition, mask)
+                    .map_err(|err| {
+                        err.with_context(format!("While evaluating filter partition {name}"))
+                    })
+            }
             Partitioned::Multi(partitioned) => Arc::clone(partitioned).into_mask_future(
                 mask,
                 |name, expr, mask| {
-                    self.field_reader(name)?
-                        .filter_evaluation(row_range, expr, mask)
+                    let reader = self.field_reader(name)?;
+                    let expr = expr.bind(reader.dtype())?;
+                    reader
+                        .filter_evaluation(row_range, &expr, mask)
                         .map_err(|err| {
                             err.with_context(format!("While evaluating filter partition {name}"))
                         })
                 },
                 |name, expr, mask| {
-                    self.field_reader(name)?
-                        .projection_evaluation(row_range, expr, mask)
+                    let reader = self.field_reader(name)?;
+                    let expr = expr.bind(reader.dtype())?;
+                    reader
+                        .projection_evaluation(row_range, &expr, mask)
                         .map_err(|err| {
                             err.with_context(format!(
                                 "While evaluating projection partition {name}"
@@ -325,29 +338,40 @@ impl LayoutReader for StructReader {
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
-        expr: &Expression,
+        expr: &BoundExpression,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
         let validity_fut = self
             .validity()?
-            .map(|reader| reader.projection_evaluation(row_range, &root(), mask_fut.clone()))
+            .map(|reader| {
+                let root = root().bind(reader.dtype())?;
+                reader.projection_evaluation(row_range, &root, mask_fut.clone())
+            })
             .transpose()?;
 
         // Partition the expression into expressions that can be evaluated over individual fields
-        let (projected, is_pack_merge) = match &self.partition_expr(expr.clone())? {
-            Partitioned::Single(name, partition) => (
-                self.field_reader(name)?
-                    .projection_evaluation(row_range, partition, mask_fut)
-                    .map_err(|err| {
-                        err.with_context(format!("While evaluating projection partition {name}"))
-                    })?,
-                partition.is::<Pack>() || partition.is::<Merge>(),
-            ),
+        let (projected, is_pack_merge) = match &self.partition_expr(expr)? {
+            Partitioned::Single(name, partition) => {
+                let reader = self.field_reader(name)?;
+                let bound_partition = partition.bind(reader.dtype())?;
+                (
+                    reader
+                        .projection_evaluation(row_range, &bound_partition, mask_fut)
+                        .map_err(|err| {
+                            err.with_context(format!(
+                                "While evaluating projection partition {name}"
+                            ))
+                        })?,
+                    partition.is::<Pack>() || partition.is::<Merge>(),
+                )
+            }
 
             Partitioned::Multi(partitioned) => (
                 Arc::clone(partitioned).into_array_future(mask_fut, |name, expr, mask| {
-                    self.field_reader(name)?
-                        .projection_evaluation(row_range, expr, mask)
+                    let reader = self.field_reader(name)?;
+                    let expr = expr.bind(reader.dtype())?;
+                    reader
+                        .projection_evaluation(row_range, &expr, mask)
                         .map_err(|err| {
                             err.with_context(format!(
                                 "While evaluating projection partition {name}"
@@ -630,7 +654,9 @@ mod tests {
         let filt = or(
             eq(col("a"), lit(7)),
             or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
-        );
+        )
+        .bind(reader.dtype())
+        .unwrap();
         let result = block_on(|_| {
             reader
                 .filter_evaluation(&(0..3), &filt, MaskFuture::new_true(3))
@@ -648,7 +674,9 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = gt(get_item("a", root()), get_item("b", root()));
+        let expr = gt(get_item("a", root()), get_item("b", root()))
+            .bind(reader.dtype())
+            .unwrap();
         let result = block_on(|_| {
             reader
                 .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
@@ -667,7 +695,9 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = gt(get_item("a", root()), get_item("b", root()));
+        let expr = gt(get_item("a", root()), get_item("b", root()))
+            .bind(reader.dtype())
+            .unwrap();
         let result = block_on(|_| {
             reader
                 .projection_evaluation(
@@ -694,7 +724,9 @@ mod tests {
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             Nullability::NonNullable,
-        );
+        )
+        .bind(reader.dtype())
+        .unwrap();
         let result = block_on(|_| {
             reader
                 .projection_evaluation(
@@ -735,7 +767,7 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = get_item("a", root());
+        let expr = get_item("a", root()).bind(reader.dtype()).unwrap();
         let project = reader
             .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
             .unwrap();
@@ -772,8 +804,10 @@ mod tests {
         let result = block_on(move |handle| {
             let session = new_session().with_handle(handle);
             async move {
-                layout
-                    .new_reader("".into(), segments, &session, &Default::default())?
+                let reader =
+                    layout.new_reader("".into(), segments, &session, &Default::default())?;
+                let expr = expr.bind(reader.dtype())?;
+                reader
                     .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))?
                     .await
             }
@@ -832,7 +866,9 @@ mod tests {
         let reader = layout
             .new_reader("".into(), segments, &SESSION, &Default::default())
             .unwrap();
-        let expr = pack(Vec::<(String, Expression)>::new(), Nullability::Nullable);
+        let expr = pack(Vec::<(String, Expression)>::new(), Nullability::Nullable)
+            .bind(reader.dtype())
+            .unwrap();
 
         let project = reader
             .projection_evaluation(&(0..5), &expr, MaskFuture::new_true(5))
@@ -849,7 +885,7 @@ mod tests {
     /// A filter expression whose DType is incompatible with the scanned schema
     /// (e.g. comparing a u8 column to an i32 literal) must return an error, not panic.
     #[test]
-    fn test_struct_filter_dtype_mismatch_returns_error() {
+    fn test_struct_filter_dtype_mismatch_fails_binding() {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -889,7 +925,7 @@ mod tests {
         // DType mismatch: "age" is u8 but literal is i32
         let filt = eq(col("age"), lit(67i32));
 
-        let result = reader.filter_evaluation(&(0..3), &filt, MaskFuture::new_true(3));
+        let result = filt.bind(reader.dtype());
         assert!(result.is_err());
         let err = result.err().unwrap().to_string();
         assert!(err.contains("Cannot compare different DTypes"), "{err}");
