@@ -279,7 +279,11 @@ fn append_constant_list_run(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
     let scalar = array.scalar();
-    match match_each_list_builder!(builder, |b| b.append_constant_list(scalar.as_list(), n)) {
+    match match_each_list_builder!(builder, |b| b.append_constant_list(
+        scalar.as_list(),
+        n,
+        ctx
+    )) {
         Some(result) => result,
         None => append_via_canonical(array, builder, ctx),
     }

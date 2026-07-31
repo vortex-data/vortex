@@ -157,7 +157,12 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
     /// What this does save is the array machinery: canonicalizing the run and appending it back
     /// costs a `ListViewArray` construction, a rebuild and two offset casts that the values
     /// themselves do not need.
-    pub fn append_constant_list(&mut self, value: ListScalar, n: usize) -> VortexResult<()> {
+    pub fn append_constant_list(
+        &mut self,
+        value: ListScalar,
+        n: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         if n == 0 {
             return Ok(());
         }
