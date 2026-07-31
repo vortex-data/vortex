@@ -13,6 +13,7 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
@@ -79,6 +80,57 @@ impl StructBuilder {
             self.nulls.append_non_null();
         } else {
             self.append_null()
+        }
+
+        Ok(())
+    }
+
+    /// Appends the same struct `value` `n` times.
+    ///
+    /// Each field takes a constant array of its own field value as a single chunk, so a run of
+    /// identical structs costs one chunk per field rather than any work per row. The fields stay
+    /// constant-encoded, which is all [`Canonical`] asks of them.
+    pub(crate) fn append_constant(
+        &mut self,
+        value: StructScalar,
+        n: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if !self.dtype.is_nullable() && value.is_null() {
+            vortex_bail!("Tried to append a null `StructScalar` to a non-nullable struct builder",);
+        }
+
+        if value.struct_fields() != self.struct_fields() {
+            vortex_bail!(
+                "Tried to append a `StructScalar` with fields {} to a \
+                    struct builder with fields {}",
+                value.struct_fields(),
+                self.struct_fields()
+            );
+        }
+
+        if n == 0 {
+            return Ok(());
+        }
+
+        match value.fields_iter() {
+            Some(fields) => {
+                for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
+                    builder.append_array(&ConstantArray::new(field, n).into_array(), ctx)?;
+                }
+                self.nulls.append_n_non_nulls(n);
+            }
+            None => {
+                // The struct is null, so the fields only need placeholder values of the right
+                // dtype. `default_value` gives a zero for a non-nullable field and a null for a
+                // nullable one, preserving each field's nullability.
+                let field_dtypes: Vec<_> = self.struct_fields().fields().collect();
+                for (builder, field_dtype) in self.builders.iter_mut().zip_eq(field_dtypes) {
+                    let placeholder = Scalar::default_value(&field_dtype);
+                    builder.append_array(&ConstantArray::new(placeholder, n).into_array(), ctx)?;
+                }
+                self.nulls.append_n_nulls(n);
+            }
         }
 
         Ok(())

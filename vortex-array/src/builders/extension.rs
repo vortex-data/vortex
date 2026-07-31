@@ -9,6 +9,7 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::builders::ArrayBuilder;
@@ -53,6 +54,24 @@ impl ExtensionBuilder {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         self.storage.append_array(array.storage_array(), ctx)
+    }
+
+    /// Appends the same extension `value` `n` times.
+    ///
+    /// An extension array is its storage array wearing a dtype, so a run of identical values is a
+    /// constant storage array, which goes in as a single chunk and stays constant-encoded.
+    pub(crate) fn append_constant(
+        &mut self,
+        value: ExtScalar,
+        n: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if n == 0 {
+            return Ok(());
+        }
+
+        let storage = ConstantArray::new(value.to_storage_scalar(), n).into_array();
+        self.storage.append_array(&storage, ctx)
     }
 
     /// Finishes the builder directly into a [`ExtensionArray`].

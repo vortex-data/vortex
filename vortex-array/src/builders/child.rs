@@ -85,6 +85,29 @@ impl ChildBuilder {
         Ok(())
     }
 
+    /// Appends the *values* of `array` to the child, copying them instead of keeping the array as a
+    /// chunk of its own.
+    ///
+    /// [`append_array`](Self::append_array) is the right choice almost always: it references the
+    /// array rather than decoding it. This is for the caller that would otherwise append the same
+    /// tiny array over and over - the elements of one fixed-size list, repeated for a run of rows -
+    /// where a chunk per append costs more in indirection than copying the values costs outright.
+    /// Only the caller can see that, which is why the builder does not guess at it.
+    pub fn append_array_values(
+        &mut self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            array.dtype() == &self.dtype,
+            "Cannot append an array of dtype {} to a child builder of dtype {}",
+            array.dtype(),
+            self.dtype,
+        );
+
+        array.append_to_builder(self.pending.as_mut(), ctx)
+    }
+
     /// Appends a single [`Scalar`] to the child.
     pub fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         self.pending.append_scalar(scalar)

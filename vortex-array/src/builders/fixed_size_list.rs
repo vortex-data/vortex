@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use itertools::Itertools as _;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -13,12 +14,14 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::ChildBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::ValidityBuilder;
+use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -99,6 +102,70 @@ impl FixedSizeListBuilder {
 
         self.elements_builder.append_array(array, ctx)?;
         self.nulls.append_non_null();
+
+        Ok(())
+    }
+
+    /// Appends the same fixed-size list `value` `n` times.
+    ///
+    /// A fixed-size list array holds its elements back to back, so a run of `n` identical lists is
+    /// the value's elements tiled `n` times - there is no layout that lets the rows share one copy
+    /// the way a list view's can. Two cases avoid paying for the tiling anyway:
+    ///
+    /// - a null value needs no elements at all, only placeholders, which
+    ///   [`append_nulls`](ArrayBuilder::append_nulls) writes in bulk;
+    /// - a value whose elements are all the same scalar tiles to a constant array, which goes in as
+    ///   a single chunk.
+    ///
+    /// Otherwise the tile is copied in per row. That is one copy of each element, where
+    /// canonicalizing the run first would build the whole tiled array and then copy it again.
+    pub(crate) fn append_constant(
+        &mut self,
+        value: ListScalar,
+        n: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if n == 0 {
+            return Ok(());
+        }
+
+        let Some(elements) = value.elements() else {
+            vortex_ensure!(
+                self.dtype.is_nullable(),
+                "Cannot append a null fixed-size list to a non-nullable builder"
+            );
+            self.append_nulls(n);
+            return Ok(());
+        };
+
+        vortex_ensure!(
+            elements.len() == self.list_size() as usize,
+            "Scalar list length {} does not match fixed list size {}",
+            elements.len(),
+            self.list_size()
+        );
+
+        let tiled_len = n * elements.len();
+        if let Ok(uniform) = elements.iter().all_equal_value() {
+            let tile = ConstantArray::new(uniform.clone(), tiled_len).into_array();
+            self.elements_builder.append_array(&tile, ctx)?;
+            self.nulls.append_n_non_nulls(n);
+            return Ok(());
+        }
+
+        let tile = {
+            let mut tile_builder = builder_with_capacity(self.element_dtype(), elements.len());
+            for element in &elements {
+                tile_builder.append_scalar(element)?;
+            }
+            tile_builder.finish()
+        };
+
+        self.elements_builder.reserve_exact(tiled_len);
+        for _ in 0..n {
+            self.elements_builder.append_array_values(&tile, ctx)?;
+        }
+        self.nulls.append_n_non_nulls(n);
 
         Ok(())
     }
