@@ -19,7 +19,6 @@ use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::DynAccumulator;
 use vortex_array::aggregate_fn::DynGroupedAccumulator;
 use vortex_array::aggregate_fn::GroupedAccumulator;
-use vortex_array::aggregate_fn::NumericalAggregateOpts;
 use vortex_array::aggregate_fn::fns::count::Count;
 use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::fns::sum::SumAggregateOpts;
@@ -159,12 +158,14 @@ fn list_element_dtype(list_view: &ArrayRef) -> DType {
     }
 }
 
-fn grouped_accumulator<V>(list_view: &ArrayRef, vtable: V, options: V::Options) -> ArrayRef
+fn grouped_accumulator<V>(list_view: &ArrayRef, vtable: V) -> ArrayRef
 where
     V: AggregateFnVTable + Clone,
+    V::Options: Default,
 {
     let mut acc =
-        GroupedAccumulator::try_new(vtable, options, list_element_dtype(list_view)).unwrap();
+        GroupedAccumulator::try_new(vtable, V::Options::default(), list_element_dtype(list_view))
+            .unwrap();
     acc.accumulate_list(list_view, &mut SESSION.create_execution_ctx())
         .unwrap();
     divan::black_box(acc.finish().unwrap())
@@ -212,7 +213,7 @@ fn sum_i32_nullable_all_valid(bencher: Bencher) {
     let input = i32_nullable_all_valid_input();
     bencher
         .with_inputs(|| &input)
-        .bench_refs(|input| grouped_accumulator(input, Sum, SumAggregateOpts::default()));
+        .bench_refs(|input| grouped_accumulator(input, Sum));
 }
 
 #[divan::bench]
@@ -220,7 +221,7 @@ fn sum_i32_clustered_nulls(bencher: Bencher) {
     let input = i32_clustered_nulls_input();
     bencher
         .with_inputs(|| &input)
-        .bench_refs(|input| grouped_accumulator(input, Sum, SumAggregateOpts::default()));
+        .bench_refs(|input| grouped_accumulator(input, Sum));
 }
 
 #[divan::bench]
@@ -228,7 +229,7 @@ fn sum_f64_all_valid(bencher: Bencher) {
     let input = f64_all_valid_input();
     bencher
         .with_inputs(|| &input)
-        .bench_refs(|input| grouped_accumulator(input, Sum, SumAggregateOpts::default()));
+        .bench_refs(|input| grouped_accumulator(input, Sum));
 }
 
 #[divan::bench]
@@ -236,21 +237,19 @@ fn sum_f64_clustered_nulls(bencher: Bencher) {
     let input = f64_clustered_nulls_input();
     bencher
         .with_inputs(|| &input)
-        .bench_refs(|input| grouped_accumulator(input, Sum, SumAggregateOpts::default()));
+        .bench_refs(|input| grouped_accumulator(input, Sum));
 }
 
 /// Like [`grouped_accumulator`], but executes the lazy finalize result to canonical so the
 /// bench measures the full cost of producing usable sums.
-fn grouped_accumulator_canonical<V>(
-    list_view: &ArrayRef,
-    vtable: V,
-    options: V::Options,
-) -> ArrayRef
+fn grouped_accumulator_canonical<V>(list_view: &ArrayRef, vtable: V) -> ArrayRef
 where
     V: AggregateFnVTable + Clone,
+    V::Options: Default,
 {
     let mut acc =
-        GroupedAccumulator::try_new(vtable, options, list_element_dtype(list_view)).unwrap();
+        GroupedAccumulator::try_new(vtable, V::Options::default(), list_element_dtype(list_view))
+            .unwrap();
     let mut ctx = SESSION.create_execution_ctx();
     acc.accumulate_list(list_view, &mut ctx).unwrap();
     let result = acc
@@ -267,7 +266,7 @@ fn canonical_sum_i32_nullable_all_valid(bencher: Bencher) {
     let input = i32_nullable_all_valid_input();
     bencher
         .with_inputs(|| &input)
-        .bench_refs(|input| grouped_accumulator_canonical(input, Sum, SumAggregateOpts::default()));
+        .bench_refs(|input| grouped_accumulator_canonical(input, Sum));
 }
 
 #[divan::bench]
@@ -275,7 +274,7 @@ fn canonical_sum_i32_clustered_nulls(bencher: Bencher) {
     let input = i32_clustered_nulls_input();
     bencher
         .with_inputs(|| &input)
-        .bench_refs(|input| grouped_accumulator_canonical(input, Sum, SumAggregateOpts::default()));
+        .bench_refs(|input| grouped_accumulator_canonical(input, Sum));
 }
 
 #[divan::bench]
@@ -283,7 +282,7 @@ fn canonical_sum_f64_all_valid(bencher: Bencher) {
     let input = f64_all_valid_input();
     bencher
         .with_inputs(|| &input)
-        .bench_refs(|input| grouped_accumulator_canonical(input, Sum, SumAggregateOpts::default()));
+        .bench_refs(|input| grouped_accumulator_canonical(input, Sum));
 }
 
 #[divan::bench]
@@ -291,7 +290,7 @@ fn canonical_sum_f64_clustered_nulls(bencher: Bencher) {
     let input = f64_clustered_nulls_input();
     bencher
         .with_inputs(|| &input)
-        .bench_refs(|input| grouped_accumulator_canonical(input, Sum, SumAggregateOpts::default()));
+        .bench_refs(|input| grouped_accumulator_canonical(input, Sum));
 }
 
 #[divan::bench]
@@ -299,7 +298,7 @@ fn count_i32_clustered_nulls(bencher: Bencher) {
     let input = i32_clustered_nulls_input();
     bencher
         .with_inputs(|| &input)
-        .bench_refs(|input| grouped_accumulator(input, Count, NumericalAggregateOpts::default()));
+        .bench_refs(|input| grouped_accumulator(input, Count));
 }
 
 #[divan::bench]
@@ -307,5 +306,5 @@ fn count_varbinview(bencher: Bencher) {
     let input = varbinview_input();
     bencher
         .with_inputs(|| &input)
-        .bench_refs(|input| grouped_accumulator(input, Count, NumericalAggregateOpts::default()));
+        .bench_refs(|input| grouped_accumulator(input, Count));
 }
