@@ -6,13 +6,23 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use futures::future::try_join_all;
 use itertools::Itertools;
 use tracing::trace;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
+use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
+use vortex_array::expr::is_root;
+use vortex_array::expr::root;
+use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_array::scalar_fn::fns::stat::StatFn;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -30,6 +40,18 @@ use crate::layouts::zoned::ZonedData;
 use crate::layouts::zoned::pruning::PruningState;
 use crate::segments::SegmentSource;
 
+/// Slice of projection's "row_range" covered by a single zone
+struct ZoneSegment {
+    zone_idx: u64,
+    /// Range within "row_range", i.e. local_range.start is offset from
+    /// row_range.start
+    offset: Range<usize>,
+    /// Absolute row range in file
+    absolute: Range<u64>,
+    /// True if zone is contained inside "row_range"
+    fully_covered: bool,
+}
+
 pub struct ZonedReader {
     dtype: DType,
     row_count: u64,
@@ -37,6 +59,7 @@ pub struct ZonedReader {
     name: Arc<str>,
     lazy_children: Arc<LazyReaderChildren>,
     pruning: PruningState,
+    session: VortexSession,
 }
 
 impl ZonedReader {
@@ -72,13 +95,14 @@ impl ZonedReader {
                 zone_count,
                 aggregate_fns,
                 Arc::clone(&lazy_children),
-                session,
+                session.clone(),
             ),
             dtype,
             row_count,
             zone_len,
             name,
             lazy_children,
+            session,
         })
     }
 
@@ -221,10 +245,160 @@ impl LayoutReader for ZonedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
-        // TODO(ngates): there are some projection expressions that we may also be able to
-        //  short-circuit with statistics.
+        if self.zone_len > 0 {
+            if is_zone_stat(expr) {
+                let aggregate_fn = expr.as_::<StatFn>().aggregate_fn().clone();
+                let dtype = expr.return_dtype(&self.dtype)?;
+                return self.aggregate_projection(row_range, aggregate_fn, dtype, mask);
+            }
+
+            // Multiple aggregations over a column are packed together per aggregate.
+            if expr.is::<Pack>()
+                && (0..expr.as_::<Pack>().names.len()).any(|i| is_zone_stat(expr.child(i)))
+            {
+                return self.aggregate_pack_projection(row_range, expr, mask);
+            }
+        }
+
         self.data_child()?
             .projection_evaluation(row_range, expr, mask)
+    }
+}
+
+/// True if "expr" is an aggregate stat of form "stat(root(), agg)"
+fn is_zone_stat(expr: &Expression) -> bool {
+    expr.is::<StatFn>() && is_root(expr.child(0))
+}
+
+impl ZonedReader {
+    fn aggregate_pack_projection(
+        &self,
+        row_range: &Range<u64>,
+        expr: &Expression,
+        mask: MaskFuture,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+        let options = expr.as_::<Pack>();
+        let names = options.names.clone();
+        let validity = options.nullability.into();
+
+        let futures = (0..names.len())
+            .map(|i| {
+                let field = expr.child(i);
+                if is_zone_stat(field) {
+                    let aggregate_fn = field.as_::<StatFn>().aggregate_fn().clone();
+                    let dtype = field.return_dtype(&self.dtype)?;
+                    self.aggregate_projection(row_range, aggregate_fn, dtype, mask.clone())
+                } else {
+                    self.data_child()?
+                        .projection_evaluation(row_range, field, mask.clone())
+                }
+            })
+            .try_collect::<_, Vec<_>, _>()?;
+
+        Ok(Box::pin(async move {
+            let fields = try_join_all(futures).await?;
+            let len = fields.first().map(|f| f.len()).unwrap_or(0);
+            Ok(StructArray::new(names, fields, len, validity).into_array())
+        }))
+    }
+
+    fn aggregate_projection(
+        &self,
+        row_range: &Range<u64>,
+        aggregate_fn: AggregateFnRef,
+        out_dtype: DType,
+        mask: MaskFuture,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+        let zone_len = self.zone_len as u64;
+        let row_count = self.row_count;
+        let zone_range = self.zone_range(row_range);
+
+        // For every zone, slice of "row_range" this zone covers.
+        let segments: Vec<ZoneSegment> = zone_range
+            .map(|zone_idx| {
+                let zone_start = zone_idx.saturating_mul(zone_len).min(row_count);
+                let zone_end = zone_idx
+                    .saturating_add(1)
+                    .saturating_mul(zone_len)
+                    .min(row_count);
+
+                let absolute_start = zone_start.max(row_range.start);
+                let absolute_end = zone_end.min(row_range.end);
+                let absolute = absolute_start..absolute_end;
+
+                let offset_start: usize = usize::try_from(absolute_start - row_range.start)?;
+                let offset_end: usize = usize::try_from(absolute_end - row_range.start)?;
+                let offset = offset_start..offset_end;
+
+                let fully_covered = zone_start >= row_range.start && zone_end <= row_range.end;
+
+                Ok::<_, VortexError>(ZoneSegment {
+                    zone_idx,
+                    offset,
+                    absolute,
+                    fully_covered,
+                })
+            })
+            .try_collect()?;
+
+        let data_child = Arc::clone(self.data_child()?);
+        let zone_map = self.pruning.shared_zone_map();
+        let column_dtype = self.dtype.clone();
+        let session = self.session.clone();
+
+        Ok(Box::pin(async move {
+            let mask = mask.await?;
+            let true_count = mask.true_count();
+            let mut ctx = session.create_execution_ctx();
+            let mut accumulator = aggregate_fn.accumulator(&column_dtype)?;
+
+            let zone_map = match zone_map.await {
+                Ok(zone_map) if zone_map.supports_zone_partial(&aggregate_fn) => Some(zone_map),
+                Ok(_) | Err(_) => None,
+            };
+
+            let covered = |segment: &ZoneSegment| {
+                zone_map.is_some()
+                    && segment.fully_covered
+                    && mask.slice(segment.offset.clone()).all_true()
+            };
+            let mut i = 0;
+            while i < segments.len() {
+                let start_covered = covered(&segments[i]);
+                let mut j = i + 1;
+                while j < segments.len() && covered(&segments[j]) == start_covered {
+                    j += 1;
+                }
+
+                if start_covered && let Some(zone_map) = zone_map.as_ref() {
+                    let range = segments[i].zone_idx..segments[j - 1].zone_idx + 1;
+                    let range = usize::try_from(range.start)?..usize::try_from(range.end)?;
+                    zone_map.fold_zone_partials(
+                        &aggregate_fn,
+                        range,
+                        &mut accumulator,
+                        &session,
+                    )?;
+                } else {
+                    let sub_mask = mask.slice(segments[i].offset.start..segments[j - 1].offset.end);
+                    if !sub_mask.all_false() {
+                        let sub_range = segments[i].absolute.start..segments[j - 1].absolute.end;
+                        let array = data_child
+                            .projection_evaluation(
+                                &sub_range,
+                                &root(),
+                                MaskFuture::ready(sub_mask),
+                            )?
+                            .await?;
+                        accumulator.accumulate(&array, &mut ctx)?;
+                    }
+                }
+                i = j;
+            }
+
+            let partial = accumulator.partial_scalar()?.cast(&out_dtype)?;
+            Ok(ConstantArray::new(partial, true_count).into_array())
+        }))
     }
 }
 
@@ -247,6 +421,9 @@ mod test {
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::stats::expr::stat;
+    use vortex_array::stats::expr::sum;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -339,6 +516,89 @@ mod test {
 
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
             assert_arrays_eq!(result, expected, &mut ctx);
+        })
+    }
+
+    /// Test aggregate projection answers from zone maps
+    #[rstest]
+    fn test_aggregate_projection(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let rows = layout.row_count();
+        let range = &(0..rows);
+        let mask = MaskFuture::new_true(rows.try_into()?);
+
+        block_on(|handle| async {
+            let session = session_with_handle(handle);
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+
+            let sum = reader
+                .projection_evaluation(range, &sum(root()), mask.clone())?
+                .await?;
+            assert_eq!(sum.len(), usize::try_from(rows)?);
+            assert_eq!(
+                sum.execute_scalar(0, &mut ctx)?
+                    .as_primitive()
+                    .typed_value::<i64>(),
+                Some(45)
+            );
+
+            let min_expr = &stat(root(), Stat::Min.aggregate_fn().unwrap());
+            let min = reader
+                .projection_evaluation(range, min_expr, mask.clone())?
+                .await?;
+            assert_eq!(
+                min.execute_scalar(0, &mut ctx)?
+                    .as_primitive()
+                    .typed_value::<i32>(),
+                Some(1)
+            );
+
+            let max_expr = &stat(root(), Stat::Max.aggregate_fn().unwrap());
+            let max = reader.projection_evaluation(range, max_expr, mask)?.await?;
+            assert_eq!(
+                max.execute_scalar(0, &mut ctx)?
+                    .as_primitive()
+                    .typed_value::<i32>(),
+                Some(9)
+            );
+            Ok(())
+        })
+    }
+
+    /// Test aggregate projection with filter decodes columns for zone maps
+    /// which are partially taken
+    #[rstest]
+    fn test_aggregate_projection_hybrid(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let rows = layout.row_count();
+
+        // zones: [1,2,3][4,5,6][7,8,9]. Cover zone 0 and 2 fully but select
+        // only row 3 (=4) of zone 1. We must count every selected row exactly
+        // once: 1+2+3 + 4 + 7+8+9 = 34.
+        let mask: Mask = [true, true, true, true, false, false, true, true, true]
+            .into_iter()
+            .collect();
+        assert_eq!(mask.len(), usize::try_from(rows)?);
+
+        block_on(|handle| async {
+            let session = session_with_handle(handle);
+            let reader = layout.new_reader("".into(), segments, &session, &Default::default())?;
+            let sum = reader
+                .projection_evaluation(&(0..rows), &sum(root()), MaskFuture::ready(mask))?
+                .await?;
+
+            assert_eq!(sum.len(), 7);
+            assert_eq!(
+                sum.execute_scalar(0, &mut ctx)?
+                    .as_primitive()
+                    .typed_value::<i64>(),
+                Some(34)
+            );
+            Ok(())
         })
     }
 

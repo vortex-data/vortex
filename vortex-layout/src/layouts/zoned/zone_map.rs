@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::AccumulatorRef;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::AggregateFnSatisfaction;
 use vortex_array::aggregate_fn::fns::all_nan::AllNan;
@@ -16,7 +18,10 @@ use vortex_array::aggregate_fn::fns::all_non_null::AllNonNull;
 use vortex_array::aggregate_fn::fns::all_null::AllNull;
 use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
+use vortex_array::aggregate_fn::fns::max::Max;
+use vortex_array::aggregate_fn::fns::min::Min;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
+use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -47,6 +52,7 @@ use vortex_mask::Mask;
 use vortex_runend::RunEnd;
 use vortex_session::VortexSession;
 
+use crate::layouts::zoned::schema::aggregate_state_dtype;
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
 
@@ -194,6 +200,66 @@ impl ZoneMap {
             })
             .map(Transformed::into_inner)
     }
+
+    /// If this aggregate is self mergeable, zone map has a stat field for
+    /// "aggregate_fn", and column is a primitive with dtype equal to aggregate
+    /// function's partial dtype, return the per-zone partial column.
+    fn zone_partial_field(&self, aggregate_fn: &AggregateFnRef) -> Option<&ArrayRef> {
+        if !is_self_mergeable(aggregate_fn) {
+            return None;
+        }
+        let dtype = aggregate_state_dtype(&self.column_dtype, aggregate_fn)?;
+        let field = self
+            .array
+            .unmasked_field_by_name_opt(aggregate_fn.to_string())?;
+        // eq_ignore_nullability returns false for bounded min/max which is
+        // approximate and thus we can't use it
+        field.dtype().eq_ignore_nullability(&dtype).then_some(field)
+    }
+
+    pub(super) fn supports_zone_partial(&self, aggregate_fn: &AggregateFnRef) -> bool {
+        self.zone_partial_field(aggregate_fn).is_some()
+    }
+
+    /// Fold per-zone partials for "range" into "accumulator".
+    ///
+    /// If zone map can't answer aggregate_fn with Exact precision, returns
+    /// Ok(false) and doesn't change accumulator.
+    ///
+    /// Invariant: "accumulator" must be built for "aggregate_fn" and zone
+    /// map's column dtype.
+    pub(super) fn fold_zone_partials(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        range: Range<usize>,
+        accumulator: &mut AccumulatorRef,
+        session: &VortexSession,
+    ) -> VortexResult<bool> {
+        let Some(field) = self.zone_partial_field(aggregate_fn) else {
+            return Ok(false);
+        };
+
+        let start = range.start;
+        let end = range.end.min(self.array.len());
+        if start >= end {
+            return Ok(true);
+        }
+
+        let mut ctx = session.create_execution_ctx();
+        let mut reducer = aggregate_fn.accumulator(field.dtype())?;
+        reducer.accumulate(&field.slice(start..end)?, &mut ctx)?;
+        accumulator.combine_partials(reducer.partial_scalar()?)?;
+        Ok(true)
+    }
+}
+
+/// Let P_1 ... P_n be aggregate_fn's per-zone partials, and
+/// C be aggregate_fn's per-zone partial column.
+/// This predicate is true iff aggregate_fn([P_1....P_N]) == aggregate_fn(C)
+///
+/// As an example, this predicate is true for min/max/sum but not for count().
+fn is_self_mergeable(aggregate_fn: &AggregateFnRef) -> bool {
+    aggregate_fn.is::<Sum>() || aggregate_fn.is::<Min>() || aggregate_fn.is::<Max>()
 }
 
 struct ZoneMapStatsBinder<'a> {

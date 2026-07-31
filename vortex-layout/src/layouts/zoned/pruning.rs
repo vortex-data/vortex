@@ -34,7 +34,7 @@ use crate::VTable;
 use crate::layouts::zoned::ZonedData;
 use crate::layouts::zoned::zone_map::ZoneMap;
 
-type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
+pub(super) type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 pub(super) type SharedPruningResult =
     Shared<BoxFuture<'static, SharedVortexResult<Arc<PruningResult>>>>;
 type PredicateCache = Arc<OnceLock<Option<Expression>>>;
@@ -133,6 +133,11 @@ impl PruningState {
                 }
             })
             .clone()
+    }
+
+    /// Shared future resolving to this layout's ZoneMap
+    pub(super) fn shared_zone_map(&self) -> SharedZoneMap {
+        self.zone_map()
     }
 
     fn zone_map(&self) -> SharedZoneMap {
