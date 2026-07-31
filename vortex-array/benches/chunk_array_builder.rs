@@ -17,6 +17,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::VarBinBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
@@ -133,6 +134,52 @@ fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (
         .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
 }
 
+/// `VarBin` chunks into a `VarBinViewBuilder`: the views are built straight over each chunk's
+/// value bytes and numbered against the builder's buffers, rather than canonicalizing each chunk
+/// into a `VarBinViewArray` whose views then get rewritten to rebase their buffer index.
+#[divan::bench(args = BENCH_ARGS)]
+fn chunked_varbin_to_varbinview_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunks = make_varbin_chunks(false, len, chunk_count);
+
+    bencher
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder =
+                VarBinViewBuilder::with_capacity(chunk.dtype().clone(), len * chunk_count);
+            chunk
+                .append_to_builder(&mut builder, ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn chunked_varbin_opt_to_varbinview_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunks = make_varbin_chunks(true, len, chunk_count);
+
+    bencher
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| {
+            let mut builder =
+                VarBinViewBuilder::with_capacity(chunk.dtype().clone(), len * chunk_count);
+            chunk
+                .append_to_builder(&mut builder, ctx)
+                .vortex_expect("append failed");
+            builder.finish()
+        })
+}
+
+/// The same chunks routed through `execute::<Canonical>`, which is what the builder append used to
+/// do per chunk before pushing the result.
+#[divan::bench(args = BENCH_ARGS)]
+fn chunked_varbin_into_canonical(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunks = make_varbin_chunks(false, len, chunk_count);
+
+    bencher
+        .with_inputs(|| (&chunks, SESSION.create_execution_ctx()))
+        .bench_refs(|(chunk, ctx)| (**chunk).clone().execute::<Canonical>(ctx))
+}
+
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_constant_i32_append_to_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_constant_i32_chunks(len, chunk_count);
@@ -222,6 +269,32 @@ fn make_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
 
     (0..chunk_count)
         .map(|_| BoolArray::from_iter((0..len).map(|_| rng.random_bool(0.5))).into_array())
+        .collect::<ChunkedArray>()
+        .into_array()
+}
+
+/// Chunks of `VarBin`, with a mix of inlinable (≤12 byte) and buffer-referencing values so both
+/// halves of the view construction are exercised.
+fn make_varbin_chunks(nullable: bool, len: usize, chunk_count: usize) -> ArrayRef {
+    let mut rng = StdRng::seed_from_u64(123);
+    let dtype = DType::Utf8(nullable.into());
+
+    (0..chunk_count)
+        .map(|_| {
+            let mut builder = VarBinBuilder::<i32>::with_capacity(dtype.clone(), len);
+            (0..len).for_each(|_| {
+                if nullable && rng.random_bool(0.2) {
+                    builder.push_null()
+                } else {
+                    builder.append_value(
+                        (0..rng.random_range(0..=20))
+                            .map(|_| rng.random_range(b'a'..=b'z'))
+                            .collect::<Vec<u8>>(),
+                    )
+                }
+            });
+            builder.finish()
+        })
         .collect::<ChunkedArray>()
         .into_array()
 }

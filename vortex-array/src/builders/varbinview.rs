@@ -194,6 +194,16 @@ impl VarBinViewBuilder {
         self.in_progress.is_some()
     }
 
+    /// Whether this builder compacts the data buffers it is handed.
+    ///
+    /// [`push_buffer_and_adjusted_views`](Self::push_buffer_and_adjusted_views) takes buffers
+    /// exactly as they are, so an encoding that would push a buffer only partly covered by its
+    /// views should check this first and fall back to a route that measures utilization —
+    /// otherwise it silently opts the builder out of the compaction it was configured for.
+    pub fn compacts_buffers(&self) -> bool {
+        self.compaction_threshold > 0.0
+    }
+
     /// Pushes buffers and pre-adjusted views into the builder.
     ///
     /// The provided `buffers` contain sections of data from a `VarBinViewArray`, and the

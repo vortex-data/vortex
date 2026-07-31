@@ -20,11 +20,14 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinArraySlotsExt;
 use crate::arrays::varbin::VarBinData;
 use crate::arrays::varbin::VarBinSlots;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
+use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -36,6 +39,7 @@ mod kernel;
 mod operations;
 mod validity;
 
+use canonical::varbin_decode_views;
 use canonical::varbin_to_canonical;
 use vortex_session::VortexSession;
 
@@ -214,9 +218,27 @@ impl VTable for VarBin {
         {
             return result;
         }
-        varbin_to_canonical(array, ctx)?
-            .into_array()
-            .append_to_builder(builder, ctx)
+
+        // The two arms here are every builder a `Utf8`/`Binary` dtype has: all four
+        // `VarBinBuilder` widths above, and `VarBinViewBuilder` below.
+        let Some(view_builder) = builder.as_any().downcast_ref::<VarBinViewBuilder>() else {
+            vortex_bail!("append_to_builder for VarBin requires a variable-binary builder")
+        };
+
+        if view_builder.compacts_buffers() {
+            // A compacting builder decides per buffer whether to keep, slice or rewrite it, which
+            // it can only do by measuring the finished views against the buffer. Go through the
+            // canonical array so that policy still applies.
+            return varbin_to_canonical(array, ctx)?
+                .into_array()
+                .append_to_builder(builder, ctx);
+        }
+
+        let builder = builder
+            .as_any_mut()
+            .downcast_mut::<VarBinViewBuilder>()
+            .vortex_expect("builder type checked above");
+        append_to_varbinview(array, builder, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -224,6 +246,33 @@ impl VTable for VarBin {
             varbin_to_canonical(array.as_view(), ctx)?.into_array(),
         ))
     }
+}
+
+/// Hands the value bytes to `builder` as a data buffer with views built over them.
+///
+/// Canonicalizing first would build the same views, then pay for them twice more: once to wrap
+/// them in a `VarBinViewArray` the builder immediately unwraps, and once for
+/// `append_varbinview_array` to rewrite every view so its buffer index is rebased onto the
+/// builder's. Numbering the buffer up front instead makes the whole append one view per row plus
+/// pushing the byte buffer.
+fn append_to_varbinview(
+    array: ArrayView<'_, VarBin>,
+    builder: &mut VarBinViewBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let len = array.as_ref().len();
+    let validity = array.varbin_validity().execute_mask(len, ctx)?;
+
+    // Build the views against the index the pushed buffer will land at, so the builder does not
+    // have to rebase them afterwards.
+    let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
+
+    let parts = array.into_owned().into_data_parts();
+    let offsets = parts.offsets.execute::<PrimitiveArray>(ctx)?;
+    let (buffers, views) = varbin_decode_views(&offsets, parts.bytes, next_buffer_index);
+
+    builder.push_buffer_and_adjusted_views(&buffers, &views, validity);
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
