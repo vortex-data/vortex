@@ -49,7 +49,6 @@ use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
-use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::RUNTIME;
@@ -443,28 +442,20 @@ fn convert_result(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Struc
     })
 }
 
+pub(crate) fn all_aggregates_read_zone_maps(aggregates: &[ColumnAggregate]) -> bool {
+    aggregates.iter().all(|aggregate| match aggregate {
+        ColumnAggregate::Real { aggregate, .. } => aggregate.zone_map_supply_fn().is_some(),
+        ColumnAggregate::CountStar => true,
+    })
+}
+
 fn scan_aggregate(
     local_state: &mut TableFunctionLocal,
     global_state: &TableFunctionGlobal,
     chunk: &mut DataChunkRef,
 ) -> VortexResult<()> {
-    let aggregates_len = global_state.aggregates.len();
-    // seen[k] = output column for requested column k.
-    // If min(x), max(x), avg(y) are requested, seen = { 0: 0, 1: 1}
-    let mut seen: HashMap<u64, usize> = HashMap::with_capacity(aggregates_len);
-    // positions[k] = column id for accumulator k
-    // If min(x), max(x), avg(y) are requested, positions = [0, 0, 1]
-    let mut positions: Vec<usize> = Vec::with_capacity(aggregates_len);
-
-    for aggregate in &global_state.aggregates {
-        let ColumnAggregate::Real { projection_id, .. } = aggregate else {
-            continue;
-        };
-        let len = seen.len();
-        let pos = seen.entry_ref(projection_id).or_insert(len);
-        positions.push(*pos);
-    }
-    let has_count_star = local_state.partials.len() < aggregates_len;
+    let all_aggregates_read_zone_maps = all_aggregates_read_zone_maps(&global_state.aggregates);
+    let has_count_star = local_state.partials.len() < global_state.aggregates.len();
 
     let mut ctx = SESSION.create_execution_ctx();
     loop {
@@ -497,8 +488,29 @@ fn scan_aggregate(
         };
         let array = convert_result(result?.0, &mut ctx)?;
 
-        for (i, partial) in positions.iter().zip(local_state.partials.iter_mut()) {
-            partial.accumulate(array.unmasked_field(*i), &mut ctx)?;
+        for (i, partial) in local_state.partials.iter_mut().enumerate() {
+            let field = array.unmasked_field(i);
+            // If any aggregate can't read from zone map, all columns are
+            // decoded, so accumulating decoded fields is faster than
+            // combining partial scalars
+            if !all_aggregates_read_zone_maps {
+                partial.accumulate(field, &mut ctx)?;
+                continue;
+            }
+            if field.len() == 0 {
+                // filtered splits where all rows fail the filter
+                continue;
+            }
+            let field_scalar = field.execute_scalar(0, &mut ctx)?;
+            let target = partial.partial_scalar()?;
+            // field_scalar may be non-nullable, partial_scalar always returns
+            // nullable dtype.
+            let scalar = if field_scalar.dtype() == target.dtype() {
+                field_scalar
+            } else {
+                field_scalar.cast(target.dtype())?
+            };
+            partial.combine_partials(scalar)?;
         }
 
         {

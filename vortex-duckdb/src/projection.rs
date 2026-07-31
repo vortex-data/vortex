@@ -3,6 +3,7 @@
 use std::ops::Range;
 
 use num_traits::AsPrimitive as _;
+use vortex::array::stats::expr::stat;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -17,7 +18,6 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::layout::layouts::row_idx::row_idx;
 use vortex::scan::selection::Selection;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
@@ -25,6 +25,7 @@ use crate::duckdb::LogicalType;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
 use crate::table_function::ColumnAggregate;
+use crate::table_function::all_aggregates_read_zone_maps;
 
 // See MultiFileReader for constants
 
@@ -192,21 +193,32 @@ impl Projection {
 
     // Create a projection for aggregate scan
     pub fn new_aggregate(aggregates: &[ColumnAggregate], fields: &[DuckdbField]) -> Self {
-        let mut names = Vec::with_capacity(aggregates.len());
-        let mut seen: HashSet<u64> = HashSet::with_capacity(aggregates.len());
-        for aggregate in aggregates {
-            let ColumnAggregate::Real { projection_id, .. } = aggregate else {
-                continue;
-            };
-            if seen.contains(projection_id) {
-                continue;
-            }
-            seen.insert(*projection_id);
-            let projection_id: usize = projection_id.as_();
-            names.push(fields[projection_id].name.as_str());
-        }
+        let all_aggregates_read_zone_maps = all_aggregates_read_zone_maps(aggregates);
+        let fields: Vec<(String, Expression)> = aggregates
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, aggregate)| {
+                let ColumnAggregate::Real {
+                    projection_id,
+                    aggregate,
+                } = aggregate
+                else {
+                    return None;
+                };
+                let projection_id: usize = (*projection_id).as_();
+                let column = get_item(fields[projection_id].name.as_str(), root());
+                let field_expr = match aggregate.zone_map_supply_fn() {
+                    Some(aggregate_fn) if all_aggregates_read_zone_maps => {
+                        stat(column, aggregate_fn)
+                    }
+                    _ => column,
+                };
+                Some((idx.to_string(), field_expr))
+            })
+            .collect();
+
         Projection {
-            projection: select(names, root()),
+            projection: pack(fields, false.into()),
             file_index_column_pos: None,
             file_row_number_column_pos: None,
         }

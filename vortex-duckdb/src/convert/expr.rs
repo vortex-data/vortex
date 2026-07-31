@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 use tracing::debug;
 use vortex::aggregate_fn::Accumulator;
+use vortex::aggregate_fn::AggregateFnRef;
+use vortex::aggregate_fn::AggregateFnVTableExt;
 use vortex::aggregate_fn::DynAccumulator;
 use vortex::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
 use vortex::aggregate_fn::NumericalAggregateOpts;
@@ -536,6 +538,20 @@ impl PushedAggregate {
             )?),
             Self::First => Box::new(Accumulator::try_new(First, AggregateEmptyOptions, dtype)?),
             Self::Count => Box::new(Accumulator::try_new(Count, opts, dtype)?),
+        })
+    }
+
+    /// If zone maps store information for this aggregate function, this
+    /// aggregate function, None otherwise.
+    ///
+    /// Example: Mean isn't stored in zone maps
+    pub fn zone_map_supply_fn(self) -> Option<AggregateFnRef> {
+        let opts = NumericalAggregateOpts::default();
+        Some(match self {
+            Self::Min => Min.bind(opts),
+            Self::Max => Max.bind(opts),
+            Self::Sum => Sum.bind(opts),
+            Self::Mean | Self::First | Self::Count => return None,
         })
     }
 }
