@@ -369,6 +369,12 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         nullability,
         array_len,
     );
+    // The fill's elements become an array once, up front, so that a gap does not rebuild them.
+    // They are tiled per row rather than shared - a fixed-size list holds its elements back to
+    // back - unless they are all the same scalar, in which case the tile stays constant-encoded
+    // and the tiling costs nothing.
+    let fill_elements = fixed_size_list_fill_tile(fill_value.as_list(), list_size);
+
     // One mask for the whole patch array rather than a validity lookup per patch.
     let patch_validity = values
         .validity()
@@ -385,7 +391,12 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         let sparse_idx = sparse_idx
             .to_usize()
             .vortex_expect("patch index must fit in usize");
-        append_fill(&mut builder, fill_value, sparse_idx - next_index, ctx);
+        append_fixed_size_list_fill(
+            &mut builder,
+            fill_elements.as_ref(),
+            sparse_idx - next_index,
+            ctx,
+        );
 
         // Take each patch's elements rather than slicing the patch array itself: slicing a
         // `FixedSizeList` slices its elements and its validity, and every one of those slices pays
@@ -405,20 +416,42 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
     }
 
     // Fill remaining positions after last patch.
-    append_fill(&mut builder, fill_value, array_len - next_index, ctx);
+    append_fixed_size_list_fill(
+        &mut builder,
+        fill_elements.as_ref(),
+        array_len - next_index,
+        ctx,
+    );
 
     builder.finish_into_fixed_size_list()
 }
 
-/// Appends the run of `count` fill values that covers the gap before the next patch.
+/// Materializes the elements a fixed-size-list fill value covers each of its rows with, or `None`
+/// if the fill is null.
 ///
-/// The run goes in as a single [`ConstantArray`] rather than one appended value per row. For a
-/// list dtype that is the difference between storing the fill value once per gap and once per row:
-/// canonicalizing a constant list array points every view at one copy of the value, and the
-/// builder keeps that layout.
-fn append_fill(
-    builder: &mut dyn ArrayBuilder,
-    fill_value: &Scalar,
+/// Elements that are all the same scalar stay a constant array, so tiling them over a gap costs
+/// nothing however many rows it covers.
+fn fixed_size_list_fill_tile(fill: ListScalar, list_size: u32) -> Option<ArrayRef> {
+    let elements = fill.elements()?;
+
+    Some(match elements.iter().all_equal_value() {
+        Ok(uniform) => ConstantArray::new(uniform.clone(), list_size as usize).into_array(),
+        Err(_) => {
+            let mut builder = builder_with_capacity(fill.element_dtype(), elements.len());
+            for element in &elements {
+                builder
+                    .append_scalar(element)
+                    .vortex_expect("fixed-size-list element scalar was invalid");
+            }
+            builder.finish()
+        }
+    })
+}
+
+/// Appends the run of `count` fill lists that covers the gap before the next patch.
+fn append_fixed_size_list_fill(
+    builder: &mut FixedSizeListBuilder,
+    fill_elements: Option<&ArrayRef>,
     count: usize,
     ctx: &mut ExecutionCtx,
 ) {
@@ -426,17 +459,13 @@ fn append_fill(
         return;
     }
 
-    if fill_value.is_null() {
-        // A null fill has no elements to share, and the builder can record the nulls without
-        // going through an array at all.
-        builder.append_nulls(count);
-        return;
+    match fill_elements {
+        Some(fill_elements) => builder
+            .append_array_as_repeated_list(fill_elements, count, ctx)
+            .vortex_expect("Failed to append sparse fixed-size-list fill value"),
+        // A null fill has no elements of its own, only the placeholders the builder writes.
+        None => builder.append_nulls(count),
     }
-
-    ConstantArray::new(fill_value.clone(), count)
-        .into_array()
-        .append_to_builder(builder, ctx)
-        .vortex_expect("Failed to append sparse fill value");
 }
 
 fn execute_sparse_bools(

@@ -14,6 +14,7 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
@@ -106,19 +107,69 @@ impl FixedSizeListBuilder {
         Ok(())
     }
 
+    /// Appends `array` as `n` identical non-null lists.
+    ///
+    /// A fixed-size list array holds its elements back to back, so `n` identical lists are the
+    /// array's elements tiled `n` times - there is no layout that lets the rows share one range of
+    /// elements the way a list view's can. The tiling costs nothing to build even so: the elements
+    /// go in as a [`ChunkedArray`] of `n` clones of the same array, so the tile's values are stored
+    /// once however many rows reference them, and the child holds the whole run as one chunk. A
+    /// constant tile does better still, collapsing to a single constant chunk.
+    ///
+    /// A caller with a run of appends to make should hand over the same `array` each time rather
+    /// than rebuild it, which is the whole reason this takes an array instead of a scalar.
+    pub fn append_array_as_repeated_list(
+        &mut self,
+        array: &ArrayRef,
+        n: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            array.dtype() == self.element_dtype(),
+            "Array dtype {:?} does not match list element dtype {:?}",
+            array.dtype(),
+            self.element_dtype()
+        );
+        vortex_ensure!(
+            array.len() == self.list_size() as usize,
+            "Array length {} does not match fixed list size {}",
+            array.len(),
+            self.list_size()
+        );
+
+        if n == 0 {
+            return Ok(());
+        }
+
+        let tiled_len = n * array.len();
+        match array.as_constant() {
+            Some(element) => {
+                let tiled = ConstantArray::new(element, tiled_len).into_array();
+                self.elements_builder.append_array(&tiled, ctx)?;
+            }
+            None => {
+                // SAFETY: every chunk is `array` itself, so they share its dtype and none is empty.
+                let tiled = unsafe {
+                    ChunkedArray::new_unchecked(
+                        std::iter::repeat_n(array.clone(), n).collect::<Vec<_>>(),
+                        self.element_dtype().clone(),
+                    )
+                };
+                self.elements_builder
+                    .append_array(&tiled.into_array(), ctx)?;
+            }
+        }
+        self.nulls.append_n_non_nulls(n);
+
+        Ok(())
+    }
+
     /// Appends the same fixed-size list `value` `n` times.
     ///
-    /// A fixed-size list array holds its elements back to back, so a run of `n` identical lists is
-    /// the value's elements tiled `n` times - there is no layout that lets the rows share one copy
-    /// the way a list view's can. Two cases avoid paying for the tiling anyway:
-    ///
-    /// - a null value needs no elements at all, only placeholders, which
-    ///   [`append_nulls`](ArrayBuilder::append_nulls) writes in bulk;
-    /// - a value whose elements are all the same scalar tiles to a constant array, which goes in as
-    ///   a single chunk.
-    ///
-    /// Otherwise the tile is copied in per row. That is one copy of each element, where
-    /// canonicalizing the run first would build the whole tiled array and then copy it again.
+    /// This materializes the value's elements and hands them to
+    /// [`append_array_as_repeated_list`](Self::append_array_as_repeated_list) - as a constant array
+    /// when they are all the same scalar, so that the tiling costs nothing. A caller with a run of
+    /// appends to make should materialize the elements once itself and call that directly.
     pub(crate) fn append_constant(
         &mut self,
         value: ListScalar,
@@ -138,36 +189,26 @@ impl FixedSizeListBuilder {
             return Ok(());
         };
 
+        let list_size = self.list_size() as usize;
         vortex_ensure!(
-            elements.len() == self.list_size() as usize,
+            elements.len() == list_size,
             "Scalar list length {} does not match fixed list size {}",
             elements.len(),
-            self.list_size()
+            list_size
         );
 
-        let tiled_len = n * elements.len();
-        if let Ok(uniform) = elements.iter().all_equal_value() {
-            let tile = ConstantArray::new(uniform.clone(), tiled_len).into_array();
-            self.elements_builder.append_array(&tile, ctx)?;
-            self.nulls.append_n_non_nulls(n);
-            return Ok(());
-        }
-
-        let tile = {
-            let mut tile_builder = builder_with_capacity(self.element_dtype(), elements.len());
-            for element in &elements {
-                tile_builder.append_scalar(element)?;
+        let tile = match elements.iter().all_equal_value() {
+            Ok(uniform) => ConstantArray::new(uniform.clone(), list_size).into_array(),
+            Err(_) => {
+                let mut tile_builder = builder_with_capacity(self.element_dtype(), list_size);
+                for element in &elements {
+                    tile_builder.append_scalar(element)?;
+                }
+                tile_builder.finish()
             }
-            tile_builder.finish()
         };
 
-        self.elements_builder.reserve_exact(tiled_len);
-        for _ in 0..n {
-            self.elements_builder.append_array_values(&tile, ctx)?;
-        }
-        self.nulls.append_n_non_nulls(n);
-
-        Ok(())
+        self.append_array_as_repeated_list(&tile, n, ctx)
     }
 
     /// Appends the values of a canonical [`FixedSizeListArray`] to the builder, recursing into the
