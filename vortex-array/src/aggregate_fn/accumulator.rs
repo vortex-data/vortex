@@ -119,13 +119,33 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch.dtype()
         );
 
+        // Sum's legacy Stat slot stores a scalar, while its canonical partial is a struct. Let
+        // Sum normalize either shape before the generic legacy-stat cast path.
+        if Stat::from_aggregate_fn(&self.aggregate_fn) == Some(Stat::Sum)
+            && let Precision::Exact(partial) = batch.statistics().get(Stat::Sum)
+        {
+            self.vtable.combine_partials(&mut self.partial, partial)?;
+            return Ok(());
+        }
+
         // 0. Legacy stats bridge: if this aggregate is still cached under a legacy Stat slot,
         //    consume that exact stat before kernel dispatch or decode.
         if let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn)
             && let Precision::Exact(partial) = batch.statistics().get(stat)
         {
-            // Legacy stat slots can use an older partial shape. The aggregate vtable owns that
-            // compatibility logic (for example, Sum accepts both scalar and struct partials).
+            let partial = if partial.dtype() == &self.partial_dtype {
+                partial
+            } else {
+                vortex_ensure!(
+                    partial.dtype().eq_ignore_nullability(&self.partial_dtype),
+                    "Aggregate {} read legacy stat {} with dtype {}, expected {}",
+                    self.aggregate_fn,
+                    stat,
+                    partial.dtype(),
+                    self.partial_dtype,
+                );
+                partial.cast(&self.partial_dtype)?
+            };
             self.vtable.combine_partials(&mut self.partial, partial)?;
             return Ok(());
         }
