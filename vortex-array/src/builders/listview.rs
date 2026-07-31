@@ -72,8 +72,8 @@ pub struct ListViewBuilder<O: OffsetBuilderPType, S: OffsetBuilderPType> {
 
     /// Whether the appends so far leave the result zero-copyable to a [`ListArray`].
     ///
-    /// Only [`append_listview_array`](ArrayBuilder::append_listview_array) can clear this; every
-    /// other append writes its lists back to back.
+    /// Only [`append_listview_array`](Self::append_listview_array) can clear this; every other
+    /// append writes its lists back to back.
     ///
     /// [`ListArray`]: crate::arrays::ListArray
     zero_copy_to_list: bool,
@@ -225,7 +225,8 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         // - We checked on construction that the sizes type fits into the offsets.
         // - In every method that adds values to this builder (`append_value`, `append_scalar`,
         //   `append_list_array`, and `append_listview_array`), we checked that `offset + size`
-        //   does not overflow.
+        //   does not overflow. `append_listview_array` rebases the offsets it was handed onto
+        //   exactly the elements it appended, so the source's bound carries over.
         // - Every append writes its lists back to back, so the result is zero-copyable to a
         //   `ListArray` unless `zero_copy_to_list` recorded an appended layout we left alone.
         unsafe {
@@ -278,6 +279,12 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     ///
     /// See [`append_list_array`](Self::append_list_array); this is the same hook for the canonical
     /// [`ListViewArray`] encoding.
+    ///
+    /// The views keep the layout they arrived in, so overlapping sources keep sharing their
+    /// elements and the finished array reports [`is_zero_copy_to_list`] as `false`. Callers that
+    /// need an exact layout should [`rebuild`](ListViewArray::rebuild) it.
+    ///
+    /// [`is_zero_copy_to_list`]: crate::arrays::listview::ListViewData::is_zero_copy_to_list
     pub fn append_listview_array(
         &mut self,
         array: ArrayView<'_, ListView>,
@@ -287,17 +294,21 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
             return Ok(());
         }
 
-        // Normalize to an exact zero-copy-to-list layout and then bulk append. This avoids the
-        // very expensive scalar_at-per-list path for overlapping / out-of-order list views.
+        // Drop leading and trailing unreferenced elements so we do not copy them in, but keep the
+        // layout otherwise: rebasing the offsets is correct whatever it is, and flattening would
+        // throw away the source's sharing - a constant list array points every view at one copy.
         let listview = array
             .into_owned()
-            .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
-        debug_assert!(listview.is_zero_copy_to_list());
+            .rebuild(ListViewRebuildMode::TrimElements, ctx)?;
+
+        // A trimmed zero-copy-to-list source references every element it carries, back to back, so
+        // it lands flush against the elements already in the builder. Any other layout does not.
+        self.zero_copy_to_list &= listview.is_zero_copy_to_list();
 
         self.nulls
             .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
 
-        // Bulk append the new elements (which should have no gaps or overlaps).
+        // Bulk append the trimmed elements; the offsets are rebased onto them below.
         let old_elements_len = self.elements_builder.len();
         self.elements_builder
             .reserve_exact(listview.elements().len());
@@ -322,7 +333,7 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         // builder.
         let uninit_range = self.offsets_builder.uninit_range(extend_length);
 
-        // This should be cheap because we didn't compress after rebuilding.
+        // This should be cheap because trimming rebases the offsets, it does not compress them.
         let new_offsets = listview.offsets().clone().execute::<PrimitiveArray>(ctx)?;
 
         match_each_integer_ptype!(new_offsets.ptype(), |A| {
@@ -857,9 +868,8 @@ mod tests {
         Ok(())
     }
 
-    /// A constant list array points every view at a single copy of the value. Flattening it in the
-    /// builder would materialize a copy per row, undoing the reason to append the array at all
-    /// instead of the same list in a loop.
+    /// A constant list array points every view at a single copy of the value; flattening it in the
+    /// builder would materialize a copy per row.
     #[test]
     fn test_constant_list_append_keeps_one_copy_of_the_value() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
@@ -917,7 +927,7 @@ mod tests {
 
         let listview = builder.finish_into_listview();
         assert_eq!(listview.len(), 3);
-        // The builder kept the source's overlapping layout, so the result is not zero-copyable.
+        // The builder kept the source's overlapping layout.
         assert!(!listview.is_zero_copy_to_list());
 
         assert_arrays_eq!(
@@ -932,7 +942,7 @@ mod tests {
                 .execute_is_valid(1, &mut ctx)
                 .unwrap()
         );
-        // List 1 is null, so its size is meaningless; the builder no longer rewrites it to zero.
+        // List 1 is null, so the builder no longer rewrites its size to zero.
         assert_eq!(listview.size_at(1), source.size_at(1));
         assert_arrays_eq!(
             listview.list_elements_at(2).unwrap(),

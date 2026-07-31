@@ -507,11 +507,9 @@ mod tests {
         let array =
             ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
-        // These lists are out of order and leave element 1 unreferenced. `ListViewBuilder` keeps
-        // the layout it is handed, so the builder round-trip inside
-        // `materialized_uncompressed_size_in_bytes` retains that element and no longer stands in
-        // for the logical size. Rebuild to the exact layout, which is what "materialized" means
-        // here.
+        // These lists are out of order and leave element 1 unreferenced, which the builder
+        // round-trip inside `materialized_uncompressed_size_in_bytes` now keeps. Compare against
+        // the exact layout instead, which is what "materialized" means here.
         let mut ctx = array_session().create_execution_ctx();
         let exact = array
             .clone()
