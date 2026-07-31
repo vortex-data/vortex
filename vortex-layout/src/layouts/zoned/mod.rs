@@ -58,7 +58,6 @@ use crate::layouts::zoned::schema::AggregateSpecProto;
 use crate::layouts::zoned::schema::aggregate_specs_from_fns;
 use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::legacy_stats_table_dtype;
-use crate::layouts::zoned::schema::legacy_sum_aggregate_stats_table_dtype;
 use crate::layouts::zoned::schema::try_aggregate_fns_from_specs;
 use crate::segments::SegmentSource;
 
@@ -80,7 +79,6 @@ pub struct ZonedData {
     zone_len: usize,
     zone_map_schema: ZoneMapSchema,
     stats_table_dtype: DType,
-    legacy_sum_partials: bool,
 }
 
 /// A layout annotating a data child with per-zone statistics.
@@ -110,7 +108,6 @@ impl VTable for Zoned {
                     vortex_panic!("Cannot serialize legacy stats schema as vortex.zoned")
                 }
             },
-            legacy_sum_partials: layout.legacy_sum_partials,
         }
     }
 
@@ -133,22 +130,16 @@ impl VTable for Zoned {
                 zone_len: 0,
                 zone_map_schema: ZoneMapSchema::AggregateFns(Arc::new([])),
                 stats_table_dtype: aggregate_stats_table_dtype(args.dtype, &[]),
-                legacy_sum_partials: metadata.legacy_sum_partials,
             });
         };
         aggregate_specs_from_fns(&aggregate_fns)?;
-        let stats_table_dtype = if metadata.legacy_sum_partials {
-            legacy_sum_aggregate_stats_table_dtype(args.dtype, &aggregate_fns)
-        } else {
-            aggregate_stats_table_dtype(args.dtype, &aggregate_fns)
-        };
+        let stats_table_dtype = aggregate_stats_table_dtype(args.dtype, &aggregate_fns);
         args.children.child(0, args.dtype)?;
         args.children.child(1, &stats_table_dtype)?;
         Ok(ZonedData {
             zone_len: metadata.zone_len as usize,
             zone_map_schema: ZoneMapSchema::AggregateFns(aggregate_fns),
             stats_table_dtype,
-            legacy_sum_partials: metadata.legacy_sum_partials,
         })
     }
 
@@ -217,7 +208,6 @@ impl VTable for LegacyStats {
             zone_len: metadata.zone_len as usize,
             zone_map_schema: metadata.zone_map_schema.clone(),
             stats_table_dtype,
-            legacy_sum_partials: false,
         })
     }
 
@@ -318,7 +308,6 @@ impl ZonedLayout {
                 zone_len: zone_len.get(),
                 zone_map_schema: ZoneMapSchema::AggregateFns(aggregate_fns),
                 stats_table_dtype: expected_dtype,
-                legacy_sum_partials: false,
             },
         )
         .into_typed())
@@ -404,7 +393,6 @@ fn present_aggregates(schema: &ZoneMapSchema) -> Arc<[String]> {
 pub struct ZonedMetadata {
     pub(super) zone_len: u32,
     pub(super) aggregate_specs: Arc<[AggregateSpecProto]>,
-    legacy_sum_partials: bool,
 }
 
 /// Serialized metadata for legacy `vortex.stats` layouts.
@@ -414,8 +402,7 @@ pub struct LegacyStatsMetadata {
     pub(crate) zone_map_schema: ZoneMapSchema,
 }
 
-const LEGACY_SUM_PARTIAL_METADATA_VERSION: u8 = 1;
-const ZONED_METADATA_PROTO_VERSION: u8 = 2;
+const ZONED_METADATA_PROTO_VERSION: u8 = 1;
 
 #[derive(Clone, PartialEq, Message)]
 struct ZonedMetadataProto {
@@ -433,21 +420,13 @@ impl DeserializeMetadata for ZonedMetadata {
             vortex_bail!("Zoned metadata missing protobuf version");
         };
 
-        vortex_ensure!(
-            matches!(
-                version,
-                LEGACY_SUM_PARTIAL_METADATA_VERSION | ZONED_METADATA_PROTO_VERSION
-            ),
-            "Unsupported zoned metadata version: {}",
-            version
-        );
+        vortex_ensure_eq!(version, ZONED_METADATA_PROTO_VERSION);
         vortex_ensure!(!proto_bytes.is_empty(), "Zoned metadata missing protobuf");
 
         let proto = ZonedMetadataProto::decode(proto_bytes)?;
         Ok(Self {
             zone_len: proto.zone_len,
             aggregate_specs: proto.aggregate_specs.into(),
-            legacy_sum_partials: version == LEGACY_SUM_PARTIAL_METADATA_VERSION,
         })
     }
 }
@@ -458,12 +437,7 @@ impl SerializeMetadata for ZonedMetadata {
             zone_len: self.zone_len,
             aggregate_specs: self.aggregate_specs.to_vec(),
         };
-        let version = if self.legacy_sum_partials {
-            LEGACY_SUM_PARTIAL_METADATA_VERSION
-        } else {
-            ZONED_METADATA_PROTO_VERSION
-        };
-        let mut metadata = vec![version];
+        let mut metadata = vec![ZONED_METADATA_PROTO_VERSION];
         metadata.extend(proto.encode_to_vec());
         metadata
     }
@@ -541,7 +515,6 @@ mod tests {
     #[case(ZonedMetadata {
             zone_len: u32::MAX,
             aggregate_specs: Arc::new([]),
-            legacy_sum_partials: false,
         })]
     #[case::min_max(ZonedMetadata {
             zone_len: 314,
@@ -549,7 +522,6 @@ mod tests {
                 aggregate_spec(Max.bind(NumericalAggregateOpts::skip_nans())),
                 aggregate_spec(Min.bind(NumericalAggregateOpts::skip_nans())),
             ]),
-            legacy_sum_partials: false,
         })]
     fn test_metadata_serialization(#[case] metadata: ZonedMetadata) {
         let serialized = metadata.clone().serialize();
@@ -567,7 +539,6 @@ mod tests {
         let metadata = ZonedMetadata {
             zone_len: 314,
             aggregate_specs: Arc::new([AggregateSpecProto::try_from_aggregate_fn(&aggregate_fn)?]),
-            legacy_sum_partials: false,
         };
 
         let deserialized = ZonedMetadata::deserialize(&metadata.serialize())?;
@@ -577,19 +548,6 @@ mod tests {
 
         assert_eq!(aggregate_fns.as_ref(), std::slice::from_ref(&aggregate_fn));
         Ok(())
-    }
-
-    #[test]
-    fn test_legacy_sum_partial_metadata_version_round_trip() {
-        let metadata = ZonedMetadata {
-            zone_len: 314,
-            aggregate_specs: Arc::new([]),
-            legacy_sum_partials: true,
-        };
-
-        let serialized = metadata.clone().serialize();
-        assert_eq!(serialized[0], LEGACY_SUM_PARTIAL_METADATA_VERSION);
-        assert_eq!(ZonedMetadata::deserialize(&serialized).unwrap(), metadata);
     }
 
     #[test]
@@ -685,7 +643,6 @@ mod tests {
         let metadata = ZonedMetadata {
             zone_len: 3,
             aggregate_specs: Arc::new([]),
-            legacy_sum_partials: false,
         };
         let children = OwnedLayoutChildren::layout_children(vec![]);
         let session = vortex_array::array_session();
@@ -727,7 +684,6 @@ mod tests {
         let metadata = ZonedMetadata {
             zone_len: 8,
             aggregate_specs: Arc::new([AggregateSpecProto::new_unknown("vortex.test.unknown")]),
-            legacy_sum_partials: false,
         };
 
         let layout = <Zoned as VTable>::build(
@@ -764,7 +720,6 @@ mod tests {
         let metadata = ZonedMetadata {
             zone_len: 8,
             aggregate_specs: Arc::new([AggregateSpecProto::new_unknown("vortex.test.unknown")]),
-            legacy_sum_partials: false,
         };
 
         let result = <Zoned as VTable>::build(

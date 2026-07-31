@@ -85,8 +85,10 @@ impl ZoneMap {
         if &expected_dtype != array.dtype() {
             vortex_bail!("Array dtype does not match expected zone map dtype: {expected_dtype}");
         }
+        let array = normalize_sum_partial_fields(array, &aggregate_fns)?;
 
-        // SAFETY: We checked that the array matches the expected stats-table schema.
+        // SAFETY: We checked the stored stats-table schema, then normalized legacy Sum fields to
+        // the canonical runtime representation.
         Ok(unsafe { Self::new_unchecked(column_dtype, array, aggregate_fns, zone_len, row_count) })
     }
 
@@ -392,6 +394,7 @@ mod tests {
     use vortex_array::aggregate_fn::fns::nan_count::NanCount;
     use vortex_array::aggregate_fn::fns::null_count::NullCount;
     use vortex_array::aggregate_fn::fns::sum::Sum;
+    use vortex_array::aggregate_fn::fns::sum::SumAggregateOpts;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
@@ -423,7 +426,6 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::layouts::zoned::zone_map::ZoneMap;
-    use crate::layouts::zoned::zone_map::normalize_sum_partial_fields;
     use crate::test::SESSION;
 
     fn falsify(expr: &Expression, dtype: DType) -> BoundExpression {
@@ -445,13 +447,19 @@ mod tests {
 
     #[test]
     fn legacy_scalar_sum_field_is_normalized_once() -> VortexResult<()> {
-        let sum = Sum.bind(NumericalAggregateOpts::default());
+        let options =
+            SumAggregateOpts::deserialize(&NumericalAggregateOpts::default().serialize())?;
+        let sum = Sum.bind(options);
         let legacy_partials =
             PrimitiveArray::from_option_iter([Some(0i64), Some(5i64), None]).into_array();
         let legacy_table = StructArray::from_fields(&[(sum.to_string(), legacy_partials)])?;
-        let normalized = normalize_sum_partial_fields(legacy_table, std::slice::from_ref(&sum))?;
-        let zone_map =
-            ZoneMap::try_new(PType::I32.into(), normalized, Arc::new([sum.clone()]), 1, 3)?;
+        let zone_map = ZoneMap::try_new(
+            PType::I32.into(),
+            legacy_table,
+            Arc::new([sum.clone()]),
+            1,
+            3,
+        )?;
 
         let result_expr = zone_map
             .aggregate_field_expr(&sum)

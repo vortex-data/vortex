@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::AggregateFnRef;
-use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -98,24 +97,6 @@ pub(crate) fn aggregate_stats_table_dtype(
     )
 }
 
-/// Return the auxiliary stats-table schema written before Sum adopted a struct partial.
-pub(crate) fn legacy_sum_aggregate_stats_table_dtype(
-    column_dtype: &DType,
-    aggregate_fns: &[AggregateFnRef],
-) -> DType {
-    DType::Struct(
-        StructFields::from_iter(aggregate_fns.iter().filter_map(|aggregate_fn| {
-            let state_dtype = if aggregate_fn.is::<Sum>() {
-                aggregate_return_dtype(column_dtype, aggregate_fn)
-            } else {
-                aggregate_state_dtype(column_dtype, aggregate_fn)
-            }?;
-            Some((aggregate_fn.to_string(), state_dtype.as_nullable()))
-        })),
-        Nullability::NonNullable,
-    )
-}
-
 pub(crate) fn legacy_stats_table_dtype(column_dtype: &DType, present_stats: &[Stat]) -> DType {
     assert!(present_stats.is_sorted(), "Stats must be sorted");
     DType::Struct(
@@ -201,16 +182,6 @@ pub(crate) fn aggregate_state_dtype(
     })
 }
 
-fn aggregate_return_dtype(column_dtype: &DType, aggregate_fn: &AggregateFnRef) -> Option<DType> {
-    aggregate_fn.return_dtype(column_dtype).or_else(|| {
-        if let DType::Extension(ext) = column_dtype {
-            aggregate_fn.return_dtype(ext.storage_dtype())
-        } else {
-            None
-        }
-    })
-}
-
 pub(crate) fn default_bounded_stat_max_bytes() -> std::num::NonZeroUsize {
     // SAFETY: 64 is non-zero.
     unsafe { std::num::NonZeroUsize::new_unchecked(64) }
@@ -223,6 +194,7 @@ mod tests {
     use vortex_array::aggregate_fn::fns::max::Max;
     use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::aggregate_fn::fns::sum::Sum;
+    use vortex_array::aggregate_fn::fns::sum::SumAggregateOpts;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -289,7 +261,7 @@ mod tests {
             &[
                 Max.bind(NumericalAggregateOpts::skip_nans()),
                 Min.bind(NumericalAggregateOpts::skip_nans()),
-                Sum.bind(NumericalAggregateOpts::skip_nans()),
+                Sum.bind(SumAggregateOpts::skip_nans()),
             ],
         );
 
@@ -298,18 +270,19 @@ mod tests {
             &[
                 Max.bind(NumericalAggregateOpts::skip_nans()).to_string(),
                 Min.bind(NumericalAggregateOpts::skip_nans()).to_string(),
-                Sum.bind(NumericalAggregateOpts::skip_nans()).to_string(),
+                Sum.bind(SumAggregateOpts::skip_nans()).to_string(),
             ]
         );
     }
 
     #[test]
-    fn legacy_sum_stats_table_dtype_uses_scalar_partial() {
+    fn sum_stats_table_dtype_uses_option_partial_shape() -> VortexResult<()> {
         let column_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let sum = Sum.bind(NumericalAggregateOpts::default());
-        let legacy =
-            legacy_sum_aggregate_stats_table_dtype(&column_dtype, std::slice::from_ref(&sum));
-        let current = aggregate_stats_table_dtype(&column_dtype, &[sum]);
+        let legacy_options =
+            SumAggregateOpts::deserialize(&NumericalAggregateOpts::default().serialize())?;
+        let legacy = aggregate_stats_table_dtype(&column_dtype, &[Sum.bind(legacy_options)]);
+        let current =
+            aggregate_stats_table_dtype(&column_dtype, &[Sum.bind(SumAggregateOpts::default())]);
 
         assert!(matches!(
             legacy.as_struct_fields().field("vortex.sum()"),
@@ -319,5 +292,6 @@ mod tests {
             current.as_struct_fields().field("vortex.sum()"),
             Some(DType::Struct(..))
         ));
+        Ok(())
     }
 }

@@ -76,6 +76,7 @@ mod tests {
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
+    use crate::aggregate_fn::fns::sum::SumAggregateOpts;
     use crate::aggregate_fn::session::AggregateFnSession;
     use crate::aggregate_fn::session::AggregateFnSessionExt;
     use crate::dtype::DType;
@@ -173,14 +174,15 @@ mod tests {
         assert_eq!(deserialized, agg_fn);
     }
 
-    /// The `skip_nans` option must survive a protobuf serialize/deserialize round-trip for the
-    /// numeric aggregates, including the non-default NaN-including configuration.
+    /// Both Sum options survive a protobuf serialize/deserialize round-trip.
     #[rstest]
-    #[case(NumericalAggregateOpts::skip_nans())]
-    #[case(NumericalAggregateOpts::include_nans())]
-    fn numeric_aggregate_options_round_trip(
-        #[case] options: NumericalAggregateOpts,
-    ) -> VortexResult<()> {
+    #[case(SumAggregateOpts::skip_nans())]
+    #[case(SumAggregateOpts::include_nans())]
+    #[case(SumAggregateOpts {
+        skip_nans: true,
+        struct_partial: false,
+    })]
+    fn sum_aggregate_options_round_trip(#[case] options: SumAggregateOpts) -> VortexResult<()> {
         let session = crate::array_session();
         let agg_fn = Sum.bind(options);
         let proto = agg_fn.serialize_proto()?;
@@ -189,6 +191,25 @@ mod tests {
         let round_tripped = AggregateFnRef::from_proto(&decoded, &session)?;
 
         assert_eq!(round_tripped, agg_fn);
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_sum_options_select_scalar_partial() -> VortexResult<()> {
+        let session = crate::array_session();
+        let proto = pb::AggregateFn {
+            id: Sum.id().to_string(),
+            metadata: Some(NumericalAggregateOpts::skip_nans().serialize()),
+        };
+
+        let aggregate_fn = AggregateFnRef::from_proto(&proto, &session)?;
+        assert_eq!(
+            aggregate_fn.as_opt::<Sum>(),
+            Some(&SumAggregateOpts {
+                skip_nans: true,
+                struct_partial: false,
+            })
+        );
         Ok(())
     }
 

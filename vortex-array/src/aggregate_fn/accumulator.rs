@@ -269,6 +269,7 @@ mod tests {
     use crate::aggregate_fn::combined::PairOptions;
     use crate::aggregate_fn::fns::mean::Mean;
     use crate::aggregate_fn::fns::sum::Sum;
+    use crate::aggregate_fn::fns::sum::SumAggregateOpts;
     use crate::aggregate_fn::kernels::DynAggregateKernel;
     use crate::aggregate_fn::session::AggregateFnSession;
     use crate::array::VTable;
@@ -339,7 +340,7 @@ mod tests {
         Accumulator::try_new(
             Mean::combined(),
             PairOptions(
-                NumericalAggregateOpts::default(),
+                SumAggregateOpts::default(),
                 NumericalAggregateOpts::default(),
             ),
             dtype,
@@ -355,8 +356,7 @@ mod tests {
 
     fn sum_partial(value: f64) -> Scalar {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-        let mut acc =
-            Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype).expect("sum");
+        let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype).expect("sum");
         acc.combine_partials(Scalar::primitive(value, Nullability::Nullable))
             .expect("legacy scalar partial");
         acc.flush().expect("sum partial")

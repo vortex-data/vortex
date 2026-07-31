@@ -74,7 +74,7 @@ impl ScalarFnVTable for ListSum {
             DType::List(elem, _) | DType::FixedSizeList(elem, ..) => elem.as_ref(),
             other => vortex_bail!("list_sum() requires List or FixedSizeList, got {other}"),
         };
-        Sum.return_dtype(options, elem_dtype)
+        Sum.return_dtype(&(*options).into(), elem_dtype)
             .ok_or_else(|| vortex_err!("list_sum() cannot sum elements of type {elem_dtype}"))
     }
 
@@ -131,7 +131,7 @@ fn list_sum_impl(
     options: &NumericalAggregateOpts,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mut acc = GroupedAccumulator::try_new(Sum, *options, elem_dtype)?;
+    let mut acc = GroupedAccumulator::try_new(Sum, (*options).into(), elem_dtype)?;
     acc.accumulate_list(&canonical, ctx)?;
     acc.finish()
 }

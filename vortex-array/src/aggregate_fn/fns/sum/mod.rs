@@ -6,12 +6,18 @@ mod constant;
 mod decimal;
 mod grouped;
 mod primitive;
+use std::fmt;
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 pub(crate) use grouped::PrimitiveGroupedSumEncodingKernel;
+use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -57,11 +63,7 @@ const IS_EMPTY_FIELD: &str = "is_empty";
 ///
 /// See [`Sum`] for details.
 pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-    let mut acc = Accumulator::try_new(
-        Sum,
-        NumericalAggregateOpts::default(),
-        array.dtype().clone(),
-    )?;
+    let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), array.dtype().clone())?;
     acc.accumulate(array, ctx)?;
     let result = acc.finish()?;
 
@@ -79,6 +81,86 @@ pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
 #[derive(Clone, Copy, Debug)]
 pub struct Sum;
 
+/// Options for [`Sum`].
+///
+/// New sums use a struct partial that can distinguish an empty input from a zero sum. The
+/// `struct_partial` field exists for deserializing aggregates written before that partial was
+/// introduced; callers should normally construct these options with [`Default`],
+/// [`SumAggregateOpts::skip_nans`], or [`SumAggregateOpts::include_nans`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SumAggregateOpts {
+    /// Whether NaN values are skipped (treated as missing) during aggregation.
+    pub skip_nans: bool,
+    /// Whether partials use the `{ sum, is_overflow, is_empty }` struct representation.
+    pub struct_partial: bool,
+}
+
+impl SumAggregateOpts {
+    /// Options that skip NaN values and use the canonical struct partial.
+    pub const fn skip_nans() -> Self {
+        Self {
+            skip_nans: true,
+            struct_partial: true,
+        }
+    }
+
+    /// Options that include NaN values and use the canonical struct partial.
+    pub const fn include_nans() -> Self {
+        Self {
+            skip_nans: false,
+            struct_partial: true,
+        }
+    }
+
+    /// Serialize these options to protobuf-encoded metadata bytes.
+    pub fn serialize(&self) -> Vec<u8> {
+        pb::SumAggregateOpts {
+            skip_nans: self.skip_nans,
+            struct_partial: Some(self.struct_partial),
+        }
+        .encode_to_vec()
+    }
+
+    /// Deserialize these options from protobuf-encoded metadata bytes.
+    ///
+    /// Historical Sum options were serialized as [`NumericalAggregateOpts`]. They use the same
+    /// wire representation for `skip_nans` and omit `struct_partial`, which selects the legacy
+    /// scalar partial representation.
+    pub fn deserialize(metadata: &[u8]) -> VortexResult<Self> {
+        let options = pb::SumAggregateOpts::decode(metadata)?;
+        Ok(Self {
+            skip_nans: options.skip_nans,
+            struct_partial: options.struct_partial.unwrap_or(false),
+        })
+    }
+}
+
+impl Default for SumAggregateOpts {
+    fn default() -> Self {
+        Self::skip_nans()
+    }
+}
+
+impl From<NumericalAggregateOpts> for SumAggregateOpts {
+    fn from(options: NumericalAggregateOpts) -> Self {
+        Self {
+            skip_nans: options.skip_nans,
+            struct_partial: true,
+        }
+    }
+}
+
+impl Display for SumAggregateOpts {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        // The partial representation is a storage-compatibility detail. Keeping it out of the
+        // display preserves the stats-table field name across old and new Sum partials.
+        if !self.skip_nans {
+            write!(f, "skip_nans=false")?;
+        }
+        Ok(())
+    }
+}
+
 // Both Spark and DataFusion use this heuristic.
 // - https://github.com/apache/spark/blob/fcf636d9eb8d645c24be3db2d599aba2d7e2955a/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions/aggregate/Sum.scala#L66
 // - https://github.com/apache/datafusion/blob/4153adf2c0f6e317ef476febfdc834208bd46622/datafusion/functions-aggregate/src/sum.rs#L188
@@ -90,7 +172,7 @@ pub(crate) fn sum_decimal_dtype(input: &DecimalDType) -> DecimalDType {
 }
 
 impl AggregateFnVTable for Sum {
-    type Options = NumericalAggregateOpts;
+    type Options = SumAggregateOpts;
     type Partial = SumPartial;
 
     fn id(&self) -> AggregateFnId {
@@ -107,7 +189,7 @@ impl AggregateFnVTable for Sum {
         metadata: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<Self::Options> {
-        NumericalAggregateOpts::deserialize(metadata)
+        SumAggregateOpts::deserialize(metadata)
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -139,7 +221,11 @@ impl AggregateFnVTable for Sum {
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         let return_dtype = self.return_dtype(options, input_dtype)?;
-        Some(sum_partial_dtype(return_dtype))
+        if options.struct_partial {
+            Some(sum_partial_dtype(return_dtype))
+        } else {
+            Some(return_dtype)
+        }
     }
 
     fn empty_partial(
@@ -157,6 +243,7 @@ impl AggregateFnVTable for Sum {
             is_overflow: false,
             is_empty: true,
             skip_nans: options.skip_nans,
+            struct_partial: options.struct_partial,
         })
     }
 
@@ -230,6 +317,10 @@ impl AggregateFnVTable for Sum {
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
+        if !partial.struct_partial {
+            return Ok(legacy_sum_value_scalar(partial));
+        }
+
         Ok(Scalar::struct_(
             sum_partial_dtype(partial.return_dtype.clone()),
             vec![
@@ -363,7 +454,11 @@ impl AggregateFnVTable for Sum {
     }
 
     fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        Ok(sum_value_scalar(partial))
+        if partial.struct_partial {
+            Ok(sum_value_scalar(partial))
+        } else {
+            Ok(legacy_sum_value_scalar(partial))
+        }
     }
 }
 
@@ -378,6 +473,8 @@ pub struct SumPartial {
     is_empty: bool,
     /// Whether NaN values in float inputs are skipped.
     skip_nans: bool,
+    /// Whether this accumulator emits the canonical struct partial.
+    struct_partial: bool,
 }
 
 /// The accumulated sum value.
@@ -446,6 +543,18 @@ fn sum_value_scalar(partial: &SumPartial) -> Scalar {
         return Scalar::null(partial.return_dtype.as_nullable());
     }
 
+    nullable_sum_state_scalar(partial)
+}
+
+fn legacy_sum_value_scalar(partial: &SumPartial) -> Scalar {
+    if partial.is_overflow {
+        return Scalar::null(partial.return_dtype.as_nullable());
+    }
+
+    nullable_sum_state_scalar(partial)
+}
+
+fn nullable_sum_state_scalar(partial: &SumPartial) -> Scalar {
     match &partial.sum {
         SumState::Unsigned(v) => Scalar::primitive(*v, Nullability::Nullable),
         SumState::Signed(v) => Scalar::primitive(*v, Nullability::Nullable),
@@ -593,8 +702,8 @@ mod arithmetic_tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::GroupedAccumulator;
-    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
+    use crate::aggregate_fn::fns::sum::SumAggregateOpts;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::array_session;
     use crate::arrays::BoolArray;
@@ -683,7 +792,7 @@ mod arithmetic_tests {
     fn sum_multi_batch() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype)?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -700,7 +809,7 @@ mod arithmetic_tests {
     fn sum_finish_resets_state() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, NumericalAggregateOpts::default(), dtype)?;
+        let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype)?;
 
         let batch1 = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
         acc.accumulate(&batch1, &mut ctx)?;
@@ -719,7 +828,7 @@ mod arithmetic_tests {
     #[test]
     fn sum_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let options = NumericalAggregateOpts::default();
+        let options = SumAggregateOpts::default();
         let mut state = Sum.empty_partial(&options, &dtype)?;
 
         let scalar1 = Scalar::primitive(100i64, Nullable);
@@ -773,11 +882,8 @@ mod arithmetic_tests {
     // Grouped sum tests
 
     fn run_grouped_sum(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut acc = GroupedAccumulator::try_new(
-            Sum,
-            NumericalAggregateOpts::default(),
-            elem_dtype.clone(),
-        )?;
+        let mut acc =
+            GroupedAccumulator::try_new(Sum, SumAggregateOpts::default(), elem_dtype.clone())?;
         acc.accumulate_list(groups, &mut array_session().create_execution_ctx())?;
         acc.finish()
     }
@@ -865,8 +971,7 @@ mod arithmetic_tests {
     fn grouped_sum_finish_resets() -> VortexResult<()> {
         let mut ctx = array_session().create_execution_ctx();
         let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc =
-            GroupedAccumulator::try_new(Sum, NumericalAggregateOpts::default(), elem_dtype)?;
+        let mut acc = GroupedAccumulator::try_new(Sum, SumAggregateOpts::default(), elem_dtype)?;
 
         let elements1 =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();

@@ -188,7 +188,7 @@ impl Stat {
             }
             Self::Sum => {
                 // Statistics follow NaN-skipping semantics; request it explicitly.
-                let options = NumericalAggregateOpts::skip_nans();
+                let options = aggregate_fn::fns::sum::SumAggregateOpts::skip_nans();
                 return aggregate_fn::fns::sum::Sum.return_dtype(&options, data_type);
             }
         })
@@ -200,7 +200,8 @@ impl Stat {
         Some(match self {
             Self::Max => aggregate_fn::fns::max::Max.bind(NumericalAggregateOpts::skip_nans()),
             Self::Min => aggregate_fn::fns::min::Min.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Sum => aggregate_fn::fns::sum::Sum.bind(NumericalAggregateOpts::skip_nans()),
+            Self::Sum => aggregate_fn::fns::sum::Sum
+                .bind(aggregate_fn::fns::sum::SumAggregateOpts::skip_nans()),
             Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
             Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
             Self::UncompressedSizeInBytes => {

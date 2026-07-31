@@ -46,6 +46,9 @@ impl DynGroupedAggregateKernel for PrimitiveGroupedSumEncodingKernel {
         let Some(options) = aggregate_fn.as_opt::<Sum>() else {
             return Ok(None);
         };
+        if !options.struct_partial {
+            return Ok(None);
+        }
         try_grouped_sum(groups, ctx, options.skip_nans)
     }
 }
@@ -193,8 +196,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::DynGroupedAccumulator;
     use crate::aggregate_fn::GroupedAccumulator;
-    use crate::aggregate_fn::NumericalAggregateOpts;
     use crate::aggregate_fn::fns::sum::Sum;
+    use crate::aggregate_fn::fns::sum::SumAggregateOpts;
     use crate::aggregate_fn::fns::sum::sum;
     use crate::array_session;
     use crate::arrays::FixedSizeListArray;
@@ -210,11 +213,8 @@ mod tests {
 
     /// Run a grouped sum through the accumulator.
     fn grouped_sum_actual(groups: &ArrayRef, elem_dtype: &DType) -> VortexResult<ArrayRef> {
-        let mut acc = GroupedAccumulator::try_new(
-            Sum,
-            NumericalAggregateOpts::default(),
-            elem_dtype.clone(),
-        )?;
+        let mut acc =
+            GroupedAccumulator::try_new(Sum, SumAggregateOpts::default(), elem_dtype.clone())?;
         acc.accumulate_list(groups, &mut array_session().create_execution_ctx())?;
         acc.finish()
     }
@@ -231,7 +231,7 @@ mod tests {
 
         let mut ctx = array_session().create_execution_ctx();
         let sum_dtype = Sum
-            .return_dtype(&NumericalAggregateOpts::default(), elem_dtype)
+            .return_dtype(&SumAggregateOpts::default(), elem_dtype)
             .expect("sum return dtype");
         let mut builder = builder_with_capacity(&sum_dtype, ranges.len());
         for (i, &(offset, size)) in ranges.iter().enumerate() {
@@ -399,7 +399,7 @@ mod tests {
         let groups = listview(elements, &[(0, 3), (3, 2)], &[true, true])?;
 
         let mut acc =
-            GroupedAccumulator::try_new(Sum, NumericalAggregateOpts::include_nans(), elem_dtype)?;
+            GroupedAccumulator::try_new(Sum, SumAggregateOpts::include_nans(), elem_dtype)?;
         acc.accumulate_list(&groups, &mut array_session().create_execution_ctx())?;
         let actual = acc.finish()?;
 
