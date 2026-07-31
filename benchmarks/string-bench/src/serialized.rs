@@ -1,26 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Serialized Vortex benchmarks: write a string column to an in-memory Vortex
-//! file using a selected encoder, with its children compressed by Vortex, then
-//! read it back and canonicalize it. These measure Vortex file CPU costs, not
-//! physical disk I/O.
+//! Serialized Vortex benchmarks. Each timed iteration writes a fresh in-memory
+//! file with one string encoder forced and then reads it back:
 //!
-//! Each timed iteration writes a fresh file and then re-runs the read path. The
-//! write and read paths are reported as separate workloads:
+//! * **write** runs the full default write pipeline — repartition into row
+//!   blocks, zoned statistics, dictionary probe, coalesce, compress with the
+//!   forced string scheme and its children, layout, serialize into a buffer;
+//! * **read** opens that buffer and runs the scan, decoding each row split to
+//!   canonical `VarBinViewArray` form inside its own scan task and dropping it
+//!   before the next split runs — the shape production uses, where
+//!   `into_record_batch_stream` fuses the Arrow conversion into the split task.
 //!
-//! * **scan** pays scan construction and scheduling, segment resolution, and
-//!   array deserialization, and yields arrays still in their on-disk encoding;
-//! * **canonicalize** turns those arrays into their canonical `VarBinViewArray`
-//!   form, decompressing the encoder's Vortex-compressed children.
-//!
-//! The benchmark stages these phases deliberately: it drains all encoded arrays
-//! before canonicalizing them serially. This isolates encoding-specific
-//! canonicalization costs for comparison and profiling, but is not the fused,
-//! potentially parallel production scan path.
-//!
-//! The benchmark uses Vortex's standard current-thread runtime for both writing
-//! and reading.
+//! Both run on a current-thread runtime, so these are single-threaded CPU costs
+//! and exclude physical I/O.
 
 use std::hint::black_box;
 use std::io::Cursor;
@@ -29,12 +22,11 @@ use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Result;
-use anyhow::anyhow;
 use anyhow::bail;
 use bytes::Bytes;
 use futures::TryStreamExt;
-use futures::pin_mut;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
@@ -55,11 +47,11 @@ use vortex_btrblocks::schemes::string::OnPairScheme;
 use vortex_btrblocks::schemes::string::StringDictScheme;
 use vortex_onpair::DEFAULT_DICT12_CONFIG;
 
-use crate::SESSION;
 use crate::StringColumn;
 use crate::StringEncoder;
 use crate::duration_ms;
 use crate::median;
+use crate::onpair_label;
 use crate::prepare_column;
 use crate::throughput;
 use crate::verify_canonicalized;
@@ -87,111 +79,90 @@ impl StringEncoder {
     }
 }
 
+/// Label for one encoder on the serialized path, carrying the configuration the
+/// file was written with, e.g. `onpair-12` or `fsst`. Changing that config
+/// renames the metric and so restarts its benchmark history, which is intended:
+/// neither size nor read time is comparable across dictionary budgets.
+fn serialized_encoder_label(encoder: StringEncoder) -> String {
+    match encoder {
+        // The config `OnPairScheme` compresses with. When btrblocks gains a
+        // configurable budget, pass the benchmark's own config here.
+        StringEncoder::OnPair => onpair_label(&DEFAULT_DICT12_CONFIG),
+        StringEncoder::Fsst => encoder.label().to_string(),
+    }
+}
+
 /// An in-memory Vortex file produced for one column and encoder.
 struct SerializedFile {
     file_bytes: u64,
+    /// Number of row splits the scan will produce, i.e. the number of encoded
+    /// arrays the read decodes one at a time.
     chunk_count: usize,
     strategy: Arc<dyn LayoutStrategy>,
 }
 
-/// Timings for one staged read of an already serialized Vortex buffer.
-struct ReadTimings {
-    open: Duration,
-    scan: Duration,
-    canonicalize: Duration,
-    staged_read: Duration,
-}
-
-/// Phase-broken-down timings for one serialized write and staged read of a
-/// string column and encoder.
+/// The three core metrics for one serialized write and read of a string column
+/// under one encoder: `size`, `write`, and `read`.
 pub struct SerializedResult {
     /// Column identifier.
     pub name: String,
-    /// Encoder forced for this file, e.g. `onpair-12` or `fsst`.
+    /// Encoder forced for this file, with its configuration, e.g. `onpair-12`
+    /// or `fsst`.
     pub encoder: String,
     /// Number of rows.
     pub rows: usize,
-    /// Canonical uncompressed array bytes used to normalize size and throughput.
+    /// Canonical uncompressed array bytes used to normalize size and
+    /// throughput: one 16-byte view per row plus the bytes of the strings too
+    /// long to inline.
     pub uncompressed_bytes: u64,
     /// Serialized Vortex file size (bytes).
     pub file_bytes: u64,
-    /// Per-iteration write times, including encoding, layout, compression, and
+    /// Per-iteration write times: the whole default write pipeline, from
+    /// repartitioning and zoned statistics through compression, layout, and
     /// serialization into an in-memory buffer.
     pub write_runs: Vec<Duration>,
-    /// Per-iteration serialized-buffer open times.
-    pub open_runs: Vec<Duration>,
-    /// Per-iteration scan times, including scan construction and scheduling,
-    /// segment resolution, and encoded-array materialization.
-    pub scan_runs: Vec<Duration>,
-    /// Per-iteration fresh-array canonicalization times, including child decompression.
-    pub canonicalize_runs: Vec<Duration>,
-    /// Per-iteration staged read times: open, scan all encoded arrays, then
-    /// canonicalize them serially.
-    pub staged_read_runs: Vec<Duration>,
+    /// Per-iteration read times: open the file, then run the scan with each row
+    /// split decoded to canonical form inside its own task.
+    pub read_runs: Vec<Duration>,
 }
 
 impl SerializedResult {
-    fn ms(runs: &[Duration]) -> f64 {
-        duration_ms(median(runs))
-    }
-
     /// Median serialized-write throughput in MB/s of canonical uncompressed
     /// array bytes.
     pub fn write_mbps(&self) -> f64 {
         throughput(self.uncompressed_bytes, median(&self.write_runs)) / 1e6
     }
 
-    /// Median fresh-array canonicalization throughput in MB/s of canonical
-    /// uncompressed array bytes.
-    pub fn canonicalize_mbps(&self) -> f64 {
-        throughput(self.uncompressed_bytes, median(&self.canonicalize_runs)) / 1e6
-    }
-
-    /// Median staged read throughput in MB/s of canonical uncompressed bytes.
-    pub fn staged_read_mbps(&self) -> f64 {
-        throughput(self.uncompressed_bytes, median(&self.staged_read_runs)) / 1e6
-    }
-
-    /// Median serialized-buffer open time in milliseconds.
-    pub fn open_ms(&self) -> f64 {
-        Self::ms(&self.open_runs)
-    }
-
-    /// Median serialized-buffer scan time in milliseconds.
-    pub fn scan_ms(&self) -> f64 {
-        Self::ms(&self.scan_runs)
+    /// Median read throughput in MB/s of canonical uncompressed bytes.
+    pub fn read_mbps(&self) -> f64 {
+        throughput(self.uncompressed_bytes, median(&self.read_runs)) / 1e6
     }
 
     /// Complete serialized file bytes as a percentage of canonical
     /// uncompressed array bytes. Lower is better.
-    pub fn file_size_pct(&self) -> f64 {
+    pub fn size_pct(&self) -> f64 {
         self.file_bytes as f64 / self.uncompressed_bytes as f64 * 100.0
     }
 
-    /// Emit all serialized metrics as Vortex-format custom-unit metrics.
+    /// Emit the three core metrics as Vortex-format custom-unit metrics, named
+    /// `<metric>/<input>/<encoder>`.
     pub fn measurements(&self) -> Vec<CustomUnitMeasurement> {
         let suffix = format!("{}/{}", self.name, self.encoder);
         let ms = |name: String, runs: &[Duration]| CustomUnitMeasurement {
             name,
             format: Format::OnDiskVortex,
             unit: "ms".into(),
-            value: Self::ms(runs),
+            value: duration_ms(median(runs)),
         };
         vec![
-            ms(format!("file/write/{suffix}"), &self.write_runs),
-            ms(format!("file/read/open/{suffix}"), &self.open_runs),
-            ms(format!("file/read/scan/{suffix}"), &self.scan_runs),
-            ms(
-                format!("file/read/canonicalize/{suffix}"),
-                &self.canonicalize_runs,
-            ),
-            ms(format!("file/read/staged/{suffix}"), &self.staged_read_runs),
             CustomUnitMeasurement {
-                name: format!("file/size/{suffix}"),
+                name: format!("size/{suffix}"),
                 format: Format::OnDiskVortex,
                 unit: "%".into(),
-                value: self.file_size_pct(),
+                value: self.size_pct(),
             },
+            ms(format!("write/{suffix}"), &self.write_runs),
+            ms(format!("read/{suffix}"), &self.read_runs),
         ]
     }
 }
@@ -229,36 +200,75 @@ async fn write_serialized_file(
     Ok(Bytes::from(buf))
 }
 
-/// Validate that a serialized file contains the selected root encoding and,
-/// optionally, canonicalizes back to the original input.
-async fn inspect_serialized_file(
-    session: &VortexSession,
-    data: Bytes,
-    column: &StringColumn,
-    encoder: StringEncoder,
-    canonical: &VarBinViewArray,
-    verify: bool,
-    ctx: &mut vortex::array::ExecutionCtx,
-) -> Result<usize> {
+/// Time one complete read of a serialized Vortex buffer: open the file, then run
+/// the scan with the canonical decode fused into each row split's task, dropping
+/// each decoded chunk before the next split runs.
+///
+/// The splits are awaited one at a time rather than through
+/// `ScanBuilder::into_array_stream`, which spawns
+/// `concurrency * available_parallelism()` of them at once. On a current-thread
+/// runtime that read-ahead buys no parallelism; it only holds that many chunks in
+/// memory and makes the result depend on the host's core count. Awaiting one at a
+/// time keeps the per-split work identical to production while making the
+/// measurement machine-independent.
+async fn read_serialized_buffer(session: &VortexSession, data: Bytes) -> Result<Duration> {
+    let decode_session = session.clone();
+
+    let start = Instant::now();
     let file = session.open_options().open_buffer(data)?;
-    let arrays: Vec<ArrayRef> = file.scan()?.into_array_stream()?.try_collect().await?;
-    if arrays.is_empty() {
-        return Err(anyhow!("empty scan for column {}", column.name));
+    let splits = file
+        .scan()?
+        .map(move |chunk: ArrayRef| {
+            let mut ctx = decode_session.create_execution_ctx();
+            chunk.execute::<VarBinViewArray>(&mut ctx)
+        })
+        .build()?;
+
+    let mut rows = 0usize;
+    for split in splits {
+        if let Some(canonical) = split.await? {
+            rows += canonical.len();
+            drop(black_box(canonical));
+        }
     }
-    let chunk_count = arrays.len();
-    if let Some(unexpected) = arrays.iter().find(|array| !encoder.matches(array)) {
+
+    black_box(rows);
+
+    Ok(start.elapsed())
+}
+
+/// Write one reference file, then check it is uniformly `encoder`-encoded and,
+/// when `verify` is set, that it decodes back to the input. Runs once, outside
+/// every timed region: its size is the reported `size` metric.
+async fn prepare_serialized_file(
+    session: &VortexSession,
+    column: &StringColumn,
+    input: &ArrayRef,
+    canonical: &VarBinViewArray,
+    encoder: StringEncoder,
+    verify: bool,
+    ctx: &mut ExecutionCtx,
+) -> Result<SerializedFile> {
+    let strategy = serialized_write_strategy(encoder);
+    let data = write_serialized_file(session, input, &strategy).await?;
+    let file_bytes = data.len() as u64;
+
+    let file = session.open_options().open_buffer(data)?;
+    let chunks: Vec<ArrayRef> = file.scan()?.into_array_stream()?.try_collect().await?;
+    if chunks.is_empty() {
+        bail!("empty scan for column {}", column.name);
+    }
+    if let Some(unexpected) = chunks.iter().find(|array| !encoder.matches(array)) {
         bail!(
-            "serialized column {} contains {} instead of {} — the file was not \
-             uniformly {}-encoded (is {} the smallest scheme?)",
+            "serialized column {} contains {} instead of {encoder} — the file was not \
+             uniformly {encoder}-encoded (is {encoder} the smallest scheme?)",
             column.name,
             unexpected.encoding_id(),
-            encoder,
-            encoder,
-            encoder,
         );
     }
+    let chunk_count = chunks.len();
     if verify {
-        let canonicalized = ChunkedArray::from_iter(arrays)
+        let canonicalized = ChunkedArray::from_iter(chunks)
             .into_array()
             .execute::<VarBinViewArray>(ctx)?;
         verify_canonicalized(
@@ -268,67 +278,7 @@ async fn inspect_serialized_file(
             ctx,
         )?;
     }
-    Ok(chunk_count)
-}
 
-/// Read one serialized Vortex buffer, keeping scan and canonicalization as
-/// separately measured phases. The scan is drained before canonicalization so
-/// this remains comparable with the existing serialized-read benchmark.
-async fn read_serialized_buffer(
-    session: &VortexSession,
-    data: Bytes,
-    chunk_count: usize,
-) -> Result<ReadTimings> {
-    let mut ctx = session.create_execution_ctx();
-    let mut arrays = Vec::with_capacity(chunk_count);
-    let mut canonical = Vec::with_capacity(chunk_count);
-
-    let t0 = Instant::now();
-    let file = session.open_options().open_buffer(data)?;
-    let t1 = Instant::now();
-    let stream = file.scan()?.into_array_stream()?;
-    pin_mut!(stream);
-    while let Some(array) = stream.try_next().await? {
-        arrays.push(array);
-    }
-    let t2 = Instant::now();
-    for array in arrays {
-        canonical.push(array.execute::<VarBinViewArray>(&mut ctx)?);
-    }
-    black_box(&canonical);
-    let t3 = Instant::now();
-
-    Ok(ReadTimings {
-        open: t1 - t0,
-        scan: t2 - t1,
-        canonicalize: t3 - t2,
-        staged_read: t3 - t0,
-    })
-}
-
-/// Write and validate one serialized file before timing the write and read paths.
-async fn prepare_serialized_file(
-    session: &VortexSession,
-    column: &StringColumn,
-    input: &ArrayRef,
-    canonical: &VarBinViewArray,
-    encoder: StringEncoder,
-    verify: bool,
-    ctx: &mut vortex::array::ExecutionCtx,
-) -> Result<SerializedFile> {
-    let strategy = serialized_write_strategy(encoder);
-    let data = write_serialized_file(session, input, &strategy).await?;
-    let file_bytes = data.len() as u64;
-    let chunk_count = inspect_serialized_file(
-        session,
-        data.clone(),
-        column,
-        encoder,
-        canonical,
-        verify,
-        ctx,
-    )
-    .await?;
     Ok(SerializedFile {
         file_bytes,
         chunk_count,
@@ -336,32 +286,8 @@ async fn prepare_serialized_file(
     })
 }
 
-/// Label the actual configuration used by the serialized file.
-fn serialized_encoder_label(encoder: StringEncoder) -> String {
-    match encoder {
-        StringEncoder::OnPair => {
-            format!("onpair-{}", DEFAULT_DICT12_CONFIG.max_dict_bits.value())
-        }
-        StringEncoder::Fsst => "fsst".to_string(),
-    }
-}
-
-/// Time fresh in-memory serialized writes and staged reads for one string
-/// column and encoder. The read phases are staged deliberately so the
-/// benchmark reports both canonicalization and complete staged-read costs; it
-/// is not production query throughput.
-pub async fn bench_serialized(
-    column: &StringColumn,
-    iterations: usize,
-    warmup: usize,
-    verify: bool,
-    encoder: StringEncoder,
-) -> Result<SerializedResult> {
-    bench_serialized_with_session(&SESSION, column, iterations, warmup, verify, encoder).await
-}
-
-/// Time the serialized Vortex path using an explicitly configured Vortex
-/// session.
+/// Time fresh in-memory serialized writes and reads for one string column and
+/// encoder, on the given session's runtime.
 pub async fn bench_serialized_with_session(
     session: &VortexSession,
     column: &StringColumn,
@@ -381,43 +307,39 @@ pub async fn bench_serialized_with_session(
     )
     .await?;
 
+    let label = serialized_encoder_label(encoder);
+    tracing::debug!(
+        "{} [{label}]: {rows} rows, {} file bytes in {} row splits",
+        column.name,
+        serialized.file_bytes,
+        serialized.chunk_count,
+    );
+
     // Warm up the same complete path that will be timed. The reference file
-    // above is used only for validation, size, and the known chunk count.
+    // above is used only for validation and size.
     for _ in 0..warmup.max(1) {
         let data = write_serialized_file(session, &input, &serialized.strategy).await?;
-        let _ = read_serialized_buffer(session, data, serialized.chunk_count).await?;
+        let _ = read_serialized_buffer(session, data).await?;
     }
 
     let mut write_runs = Vec::with_capacity(iterations);
-    let mut open_runs = Vec::with_capacity(iterations);
-    let mut scan_runs = Vec::with_capacity(iterations);
-    let mut canonicalize_runs = Vec::with_capacity(iterations);
-    let mut staged_read_runs = Vec::with_capacity(iterations);
+    let mut read_runs = Vec::with_capacity(iterations);
 
     for _ in 0..iterations {
         let start = Instant::now();
         let data = write_serialized_file(session, &input, &serialized.strategy).await?;
-        let after_write = Instant::now();
-        let timings = read_serialized_buffer(session, data, serialized.chunk_count).await?;
-
-        write_runs.push(after_write - start);
-        open_runs.push(timings.open);
-        scan_runs.push(timings.scan);
-        canonicalize_runs.push(timings.canonicalize);
-        staged_read_runs.push(timings.staged_read);
+        write_runs.push(start.elapsed());
+        read_runs.push(read_serialized_buffer(session, data).await?);
     }
 
     Ok(SerializedResult {
         name: column.name.clone(),
-        encoder: serialized_encoder_label(encoder),
+        encoder: label,
         rows,
         uncompressed_bytes,
         file_bytes: serialized.file_bytes,
         write_runs,
-        open_runs,
-        scan_runs,
-        canonicalize_runs,
-        staged_read_runs,
+        read_runs,
     })
 }
 
@@ -451,6 +373,8 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    /// The three core metric names are the tracked CI schema: renaming one
+    /// silently restarts its benchmark history.
     #[test]
     fn machine_readable_metric_schema_is_stable() {
         let result = SerializedResult {
@@ -460,35 +384,21 @@ mod tests {
             uncompressed_bytes: 2,
             file_bytes: 1,
             write_runs: vec![Duration::from_millis(1)],
-            open_runs: vec![Duration::from_millis(1)],
-            scan_runs: vec![Duration::from_millis(2)],
-            canonicalize_runs: vec![Duration::from_millis(3)],
-            staged_read_runs: vec![Duration::from_millis(6)],
+            read_runs: vec![Duration::from_millis(6)],
         };
 
-        let measurements = result.measurements();
         assert_eq!(
-            measurements
-                .iter()
-                .map(|measurement| {
-                    (
-                        measurement.name.as_str(),
-                        measurement.unit.as_ref(),
-                        measurement.value,
-                    )
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                ("file/write/fixture/fsst", "ms", 1.0),
-                ("file/read/open/fixture/fsst", "ms", 1.0),
-                ("file/read/scan/fixture/fsst", "ms", 2.0),
-                ("file/read/canonicalize/fixture/fsst", "ms", 3.0),
-                ("file/read/staged/fixture/fsst", "ms", 6.0),
-                ("file/size/fixture/fsst", "%", 50.0),
+            crate::measurement_rows(&result.measurements()),
+            [
+                "size/fixture/fsst % 50",
+                "write/fixture/fsst ms 1",
+                "read/fixture/fsst ms 6",
             ]
         );
     }
 
+    /// Also pins the encoder labels: a change to the btrblocks OnPair default
+    /// renames the tracked metrics and restarts their history.
     #[test]
     fn serialized_benchmark_smoke_tests_each_encoder() -> Result<()> {
         let (column, expected_uncompressed_bytes) = crate::repeated_fixture();
@@ -508,14 +418,13 @@ mod tests {
             assert_eq!(result.uncompressed_bytes, expected_uncompressed_bytes);
             assert!(result.file_bytes > 0);
             assert_eq!(result.write_runs.len(), 1);
-            assert_eq!(result.open_runs.len(), 1);
-            assert_eq!(result.scan_runs.len(), 1);
-            assert_eq!(result.canonicalize_runs.len(), 1);
-            assert_eq!(result.staged_read_runs.len(), 1);
+            assert_eq!(result.read_runs.len(), 1);
         }
         Ok(())
     }
 
+    /// Enough poorly-compressible rows to span several row splits, so the
+    /// pre-timing check covers a file the read decodes one split at a time.
     #[test]
     fn serialized_verification_handles_multiple_chunks() -> Result<()> {
         let values = (0..50_000_u64)
@@ -527,8 +436,6 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-        let expected_uncompressed_bytes =
-            values.iter().map(|value| value.len() as u64).sum::<u64>() + 16 * values.len() as u64;
         let column = StringColumn {
             name: "multi-chunk".to_string(),
             array: VarBinViewArray::from_iter_str(values.iter()).into_array(),
@@ -536,7 +443,7 @@ mod tests {
         let runtime = CurrentThreadRuntime::new();
         let session = VortexSession::default().with_handle(runtime.handle());
         let mut ctx = session.create_execution_ctx();
-        let (canonical, uncompressed_bytes) = prepare_column(&column, &mut ctx)?;
+        let (canonical, _) = prepare_column(&column, &mut ctx)?;
         let input = canonical.clone().into_array();
 
         let serialized = runtime.block_on(prepare_serialized_file(
@@ -550,7 +457,6 @@ mod tests {
         ))?;
 
         assert!(serialized.chunk_count > 1);
-        assert_eq!(uncompressed_bytes, expected_uncompressed_bytes);
         Ok(())
     }
 }

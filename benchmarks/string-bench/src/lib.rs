@@ -5,27 +5,22 @@
 
 //! String-compression benchmarks for Vortex.
 //!
-//! The crate exposes two intentionally separate paths: the `codec` module
-//! measures direct whole-column encoder calls, while `serialized` measures
-//! the Vortex write/read path.
+//! Two intentionally separate suites:
 //!
-//! The codec path measures, at the Vortex array level (not the upstream encoder
-//! implementation level):
+//! * `serialized` is the default and the only one CI tracks. It writes a column
+//!   to an in-memory Vortex file with one encoder forced, then reads it back,
+//!   reporting `size`, `write`, and `read`.
+//! * `codec` is a local diagnostic (`--suite codec`) that times one encoder's
+//!   array-level train + compress call and measures the encoded array's buffer
+//!   bytes, with no layout, child compression, or I/O in the way. Use it to tell
+//!   an encoder-level change apart from a change in the file stack.
 //!
-//! * **compression throughput** — the encoder's direct array-level train +
-//!   compress path in MB/s of canonical uncompressed array bytes;
-//! * **encoded size** — encoded array buffer bytes as a percentage of canonical
-//!   uncompressed array bytes.
-//!
-//! Each selected encoder is compressed explicitly in the `codec` module so the
-//! benchmark never silently measures a different encoding the btrblocks
-//! selector might otherwise pick. This direct path does not include the
-//! compression that Vortex applies to the encoded array's children.
-//!
-//! The direct path trains one codec state over the whole column, whereas the
-//! serialized path trains one per coalesced file-compression chunk; see the
-//! README ("Dictionary scope") for why the two size metrics measure different
-//! representations.
+//! Both suites force the requested encoder rather than letting the btrblocks
+//! selector pick, so neither can silently measure a different encoding. Their
+//! size metrics are still not interchangeable: the codec path trains one state
+//! over the whole column and leaves children uncompressed, while the file path
+//! trains one per compression chunk and compresses children. See the README
+//! ("Codec diagnostic").
 
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -57,6 +52,7 @@ use vortex_bench::datasets::Dataset;
 use vortex_bench::datasets::data_downloads::download_data;
 use vortex_bench::datasets::tpch_l_comment::TPCHLCommentCanonical;
 use vortex_fsst::FSST;
+use vortex_onpair::Config;
 use vortex_onpair::OnPair;
 
 mod codec;
@@ -68,7 +64,8 @@ const CLICKBENCH_SHARD_COUNT: u32 = 100;
 const CLICKBENCH_URL_PREFIX: &str =
     "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/";
 
-/// Serialized write and read (write → open → scan → canonicalize) benchmark.
+/// Serialized write and read benchmark: write → open → scan, with each row
+/// split decoded to canonical form inside its own scan task.
 mod serialized;
 pub use serialized::*;
 
@@ -122,6 +119,13 @@ impl std::fmt::Display for StringEncoder {
     }
 }
 
+/// Label for an OnPair configuration, e.g. `onpair-12`. The dictionary budget is
+/// read from the config that was actually used, so a label can never claim a
+/// budget the measured data was not encoded with.
+pub(crate) fn onpair_label(config: &Config) -> String {
+    format!("onpair-{}", config.max_dict_bits.value())
+}
+
 /// Bytes per second for `bytes` processed in `elapsed`.
 pub(crate) fn throughput(bytes: u64, elapsed: Duration) -> f64 {
     let secs = elapsed.as_secs_f64();
@@ -161,8 +165,9 @@ pub(crate) fn median(runs: &[Duration]) -> Duration {
 }
 
 /// Return the non-empty, all-valid Utf8 input in compact canonical form, plus
-/// its uncompressed buffer size. Preparation and size accounting are outside
-/// all timed regions.
+/// the canonical baseline every metric normalizes against: one 16-byte view per
+/// row plus the bytes of the strings too long to inline. Preparation and size
+/// accounting are outside all timed regions.
 pub(crate) fn prepare_column(
     column: &StringColumn,
     ctx: &mut ExecutionCtx,
@@ -249,15 +254,12 @@ fn to_utf8_column(array: ArrayRef, field: &str, ctx: &mut ExecutionCtx) -> Resul
 /// Load the ClickBench `hits` `URL` column from shard `shard`, downloading the
 /// shard first if it is not already present locally.
 pub async fn load_clickbench_url(shard: u32, ctx: &mut ExecutionCtx) -> Result<StringColumn> {
-    let array = read_clickbench_column(shard, "URL", ctx).await?;
+    let path = download_clickbench_shard(shard).await?;
+    let struct_array = read_parquet_projected(path, "URL").await?;
     Ok(StringColumn {
-        name: clickbench_column_name(shard),
-        array,
+        name: format!("clickbench/URL/shard-{shard}"),
+        array: to_utf8_column(struct_array, "URL", ctx)?,
     })
-}
-
-fn clickbench_column_name(shard: u32) -> String {
-    format!("clickbench/URL/shard-{shard}")
 }
 
 async fn download_clickbench_shard(shard: u32) -> Result<PathBuf> {
@@ -275,26 +277,14 @@ async fn download_clickbench_shard(shard: u32) -> Result<PathBuf> {
     download_data(path, format!("{CLICKBENCH_URL_PREFIX}{filename}")).await
 }
 
-/// Load an arbitrary Utf8 column of a ClickBench `hits` shard.
-async fn read_clickbench_column(
-    shard: u32,
-    column: &str,
-    ctx: &mut ExecutionCtx,
-) -> Result<ArrayRef> {
-    let shard_path = download_clickbench_shard(shard).await?;
-    let struct_array = read_parquet_projected(shard_path, column).await?;
-    to_utf8_column(struct_array, column, ctx)
-}
-
 /// Load the TPC-H `l_comment` column (from the first `lineitem` parquet shard),
 /// generating the TPC-H data if needed.
 pub async fn load_tpch_l_comment(ctx: &mut ExecutionCtx) -> Result<StringColumn> {
     let path = TPCHLCommentCanonical.to_parquet_path().await?;
     let struct_array = read_parquet_projected(path, "l_comment").await?;
-    let array = to_utf8_column(struct_array, "l_comment", ctx)?;
     Ok(StringColumn {
         name: "tpch/l_comment".to_string(),
-        array,
+        array: to_utf8_column(struct_array, "l_comment", ctx)?,
     })
 }
 
@@ -319,34 +309,38 @@ async fn read_parquet_projected(path: PathBuf, column: &str) -> Result<ArrayRef>
     Ok(ChunkedArray::from_iter(chunks).into_array())
 }
 
-#[cfg(test)]
-const REPEATED_VALUES: [&str; 8] = [
-    "https://example.com/path/to/a/repeated/string-value-0",
-    "https://example.com/path/to/a/repeated/string-value-1",
-    "https://example.com/path/to/a/repeated/string-value-2",
-    "https://example.com/path/to/a/repeated/string-value-3",
-    "https://example.com/path/to/a/repeated/string-value-4",
-    "https://example.com/path/to/a/repeated/string-value-5",
-    "https://example.com/path/to/a/repeated/string-value-6",
-    "https://example.com/path/to/a/repeated/string-value-7",
-];
-
+/// 128 rows cycling over 8 distinct outlined values, plus the canonical
+/// uncompressed size they must account for (one 16-byte view per row).
 #[cfg(test)]
 fn repeated_fixture() -> (StringColumn, u64) {
-    let array = VarBinViewArray::from_iter_str(
-        (0..128).map(|i| REPEATED_VALUES[i % REPEATED_VALUES.len()]),
-    )
-    .into_array();
-    let outlined_bytes = (0..128)
-        .map(|i| REPEATED_VALUES[i % REPEATED_VALUES.len()].len() as u64)
-        .sum::<u64>();
+    let values = (0..128)
+        .map(|i| {
+            format!(
+                "https://example.com/path/to/a/repeated/string-value-{}",
+                i % 8
+            )
+        })
+        .collect::<Vec<_>>();
+    let outlined_bytes = values.iter().map(|value| value.len() as u64).sum::<u64>();
     (
         StringColumn {
             name: "fixture".to_string(),
-            array,
+            array: VarBinViewArray::from_iter_str(values.iter()).into_array(),
         },
         128 * 16 + outlined_bytes,
     )
+}
+
+/// Compact `(name, unit, value)` rendering of emitted measurements, for the
+/// metric-schema tests that guard the tracked CI names.
+#[cfg(test)]
+pub(crate) fn measurement_rows(
+    measurements: &[vortex_bench::measurements::CustomUnitMeasurement],
+) -> Vec<String> {
+    measurements
+        .iter()
+        .map(|m| format!("{} {} {}", m.name, m.unit, m.value))
+        .collect()
 }
 
 #[cfg(test)]
@@ -357,57 +351,54 @@ mod tests {
 
     use super::*;
 
+    /// The size baseline every metric normalizes against: one 16-byte view per
+    /// row plus the bytes of the strings too long to inline, counting neither
+    /// buffer regions a slice merely retains nor anything but the live rows.
     #[test]
-    fn canonical_uncompressed_size_counts_views_and_outlined_bytes() -> Result<()> {
-        let column = StringColumn {
-            name: "fixture".to_string(),
-            array: VarBinViewArray::from_iter_str(["cat", "hello", "abcdefghijklmnop"])
+    fn canonical_baseline_counts_views_and_live_outlined_bytes() -> Result<()> {
+        let kept = "second outlined string kept by the slice";
+        let chunk_tail = "an outlined string in the second chunk";
+        let cases = [
+            (
+                "inline and outlined",
+                VarBinViewArray::from_iter_str(["cat", "hello", "abcdefghijklmnop"]).into_array(),
+                3,
+                3 * 16 + 16,
+            ),
+            (
+                "sliced",
+                VarBinViewArray::from_iter_str([
+                    "first outlined string dropped by the slice",
+                    kept,
+                ])
+                .into_array()
+                .slice(1..2)?,
+                1,
+                16 + kept.len() as u64,
+            ),
+            (
+                "chunked",
+                ChunkedArray::from_iter([
+                    VarBinViewArray::from_iter_str(["alpha", ""]).into_array(),
+                    VarBinViewArray::from_iter_str([chunk_tail]).into_array(),
+                ])
                 .into_array(),
-        };
+                3,
+                3 * 16 + chunk_tail.len() as u64,
+            ),
+        ];
         let mut ctx = SESSION.create_execution_ctx();
 
-        let (_, uncompressed_bytes) = prepare_column(&column, &mut ctx)?;
-        assert_eq!(uncompressed_bytes, 3 * 16 + 16);
-        Ok(())
-    }
+        for (name, array, rows, expected_bytes) in cases {
+            let column = StringColumn {
+                name: name.to_string(),
+                array,
+            };
+            let (canonical, uncompressed_bytes) = prepare_column(&column, &mut ctx)?;
 
-    #[test]
-    fn canonical_baseline_compacts_retained_buffers() -> Result<()> {
-        let retained = VarBinViewArray::from_iter_str([
-            "first outlined string retained by the slice",
-            "second outlined string kept by the slice",
-        ])
-        .into_array()
-        .slice(1..2)?;
-        let column = StringColumn {
-            name: "fixture".to_string(),
-            array: retained,
-        };
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let (_, uncompressed_bytes) = prepare_column(&column, &mut ctx)?;
-        assert_eq!(
-            uncompressed_bytes,
-            16 + "second outlined string kept by the slice".len() as u64
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn canonical_baseline_flattens_chunked_input() -> Result<()> {
-        let first = VarBinViewArray::from_iter_str(["alpha", ""]).into_array();
-        let outlined = "an outlined string in the second chunk";
-        let second = VarBinViewArray::from_iter_str([outlined]).into_array();
-        let column = StringColumn {
-            name: "chunked".to_string(),
-            array: ChunkedArray::from_iter([first, second]).into_array(),
-        };
-        let mut ctx = SESSION.create_execution_ctx();
-
-        let (canonical, uncompressed_bytes) = prepare_column(&column, &mut ctx)?;
-
-        assert_eq!(canonical.len(), 3);
-        assert_eq!(uncompressed_bytes, 3 * 16 + outlined.len() as u64);
+            assert_eq!(canonical.len(), rows, "{name} row count");
+            assert_eq!(uncompressed_bytes, expected_bytes, "{name} size");
+        }
         Ok(())
     }
 

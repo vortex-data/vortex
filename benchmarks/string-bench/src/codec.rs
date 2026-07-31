@@ -32,53 +32,41 @@ use crate::StringColumn;
 use crate::StringEncoder;
 use crate::duration_ms;
 use crate::median;
+use crate::onpair_label;
 use crate::prepare_column;
 use crate::throughput;
 use crate::verify_canonicalized;
 
-/// Build a deterministic OnPair [`Config`] that permits up to
-/// `2^max_dict_bits` dictionary tokens, reusing the default threshold and seed.
-/// `max_dict_bits` must be in `9..=16`; OnPair stores codes as `u16`, so all of
-/// these configurations fit.
-fn dict_config(max_dict_bits: u8) -> Result<Config> {
-    let max_dict_bits = MaxDictBits::new(max_dict_bits).map_err(|e| {
-        anyhow::anyhow!("invalid maximum dictionary bit width {max_dict_bits} (want 9..=16): {e}")
-    })?;
-    Ok(Config {
-        max_dict_bits,
-        threshold: DEFAULT_DICT12_CONFIG.threshold,
-        seed: DEFAULT_DICT12_CONFIG.seed,
-    })
-}
-
 /// A fully configured direct array-compression candidate: an encoder family
 /// plus the fixed configuration that path needs.
 pub enum DirectCandidate {
-    /// OnPair with a maximum dictionary-bit budget.
-    OnPair {
-        /// Maximum dictionary budget, permitting up to `2^max_dict_bits` tokens.
-        max_dict_bits: u8,
-        /// Deterministic OnPair config for `max_dict_bits`.
-        config: Config,
-    },
+    /// OnPair with a deterministic config, whose dictionary budget is the only
+    /// thing the benchmark varies.
+    OnPair(Config),
     /// FSST (no configuration).
     Fsst,
 }
 
 impl DirectCandidate {
-    /// Build an OnPair candidate with a maximum dictionary-bit budget,
-    /// validating the width (`9..=16`).
+    /// OnPair with a dictionary budget of up to `2^max_dict_bits` tokens,
+    /// reusing every other default. `max_dict_bits` must be in `9..=16`; OnPair
+    /// stores codes as `u16`, so all of those fit.
     pub fn on_pair(max_dict_bits: u8) -> Result<Self> {
-        Ok(Self::OnPair {
+        let max_dict_bits = MaxDictBits::new(max_dict_bits).map_err(|e| {
+            anyhow::anyhow!(
+                "invalid maximum dictionary bit width {max_dict_bits} (want 9..=16): {e}"
+            )
+        })?;
+        Ok(Self::OnPair(Config {
             max_dict_bits,
-            config: dict_config(max_dict_bits)?,
-        })
+            ..DEFAULT_DICT12_CONFIG
+        }))
     }
 
     /// The encoder family, for the post-compression type check.
     fn family(&self) -> StringEncoder {
         match self {
-            Self::OnPair { .. } => StringEncoder::OnPair,
+            Self::OnPair(_) => StringEncoder::OnPair,
             Self::Fsst => StringEncoder::Fsst,
         }
     }
@@ -86,7 +74,7 @@ impl DirectCandidate {
     /// Stable label used in benchmark output, e.g. `onpair-12` or `fsst`.
     fn label(&self) -> String {
         match self {
-            Self::OnPair { max_dict_bits, .. } => format!("onpair-{max_dict_bits}"),
+            Self::OnPair(config) => onpair_label(config),
             Self::Fsst => StringEncoder::Fsst.label().to_string(),
         }
     }
@@ -94,7 +82,7 @@ impl DirectCandidate {
     /// Run the encoder's direct array-level train + compress path.
     pub(crate) fn compress(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
         match self {
-            Self::OnPair { config, .. } => Ok(onpair_compress(array, *config, ctx)?),
+            Self::OnPair(config) => Ok(onpair_compress(array, *config, ctx)?),
             Self::Fsst => {
                 let compressor = fsst_train_compressor(array, ctx)?;
                 Ok(fsst_compress(array, &compressor, ctx)?.into_array())
@@ -112,7 +100,9 @@ pub struct ColumnResult {
     pub encoder: String,
     /// Number of rows.
     pub rows: usize,
-    /// Canonical uncompressed array bytes used to normalize size and throughput.
+    /// Canonical uncompressed array bytes used to normalize size and
+    /// throughput: one 16-byte view per row plus the bytes of the strings too
+    /// long to inline.
     pub uncompressed_bytes: u64,
     /// Buffer bytes referenced by the encoded array.
     pub encoded_bytes: u64,
@@ -142,7 +132,11 @@ impl ColumnResult {
     }
 
     /// Emit lower-is-better timings and size percentages as Vortex custom-unit
-    /// metrics.
+    /// metrics, named `codec/<metric>/<input>/<encoder>`.
+    ///
+    /// The `codec/` prefix keeps these distinct from the tracked file metrics,
+    /// which CI reports: this suite is a local diagnostic, so its measurements
+    /// only reach `gh-json` when it is explicitly selected.
     ///
     /// `Format` has no in-memory Vortex variant, so these measurements use
     /// `Format::OnDiskVortex` as their reporting target.
@@ -150,16 +144,16 @@ impl ColumnResult {
         let suffix = format!("{}/{}", self.name, self.encoder);
         vec![
             CustomUnitMeasurement {
-                name: format!("codec/compression/{suffix}"),
-                format: Format::OnDiskVortex,
-                unit: "ms".into(),
-                value: duration_ms(self.compression_median()),
-            },
-            CustomUnitMeasurement {
-                name: format!("codec/encoded-size/{suffix}"),
+                name: format!("codec/size/{suffix}"),
                 format: Format::OnDiskVortex,
                 unit: "%".into(),
                 value: self.encoded_size_pct(),
+            },
+            CustomUnitMeasurement {
+                name: format!("codec/compress/{suffix}"),
+                format: Format::OnDiskVortex,
+                unit: "ms".into(),
+                value: duration_ms(self.compression_median()),
             },
         ]
     }
@@ -271,21 +265,11 @@ mod tests {
             compression_runs: vec![Duration::from_millis(12)],
         };
 
-        let measurements = result.measurements();
         assert_eq!(
-            measurements
-                .iter()
-                .map(|measurement| {
-                    (
-                        measurement.name.as_str(),
-                        measurement.unit.as_ref(),
-                        measurement.value,
-                    )
-                })
-                .collect::<Vec<_>>(),
-            vec![
-                ("codec/compression/fixture/fsst", "ms", 12.0),
-                ("codec/encoded-size/fixture/fsst", "%", 50.0),
+            crate::measurement_rows(&result.measurements()),
+            [
+                "codec/size/fixture/fsst % 50",
+                "codec/compress/fixture/fsst ms 12",
             ]
         );
     }

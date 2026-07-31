@@ -33,9 +33,10 @@ jobs:
             build_args: "--features lance"
           - id: compress-bench
             name: Compression
+          # No run_args: the default suite emits the three tracked metrics
+          # (size, write, read). The codec microbenchmark is a local diagnostic.
           - id: string-bench
             name: String Encoding
-            run_args: "--suite both"
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false

@@ -7,7 +7,6 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use anyhow::bail;
-use async_trait::async_trait;
 use clap::Parser;
 use clap::ValueEnum;
 use indicatif::ProgressBar;
@@ -46,49 +45,40 @@ const DOC_PATH: &str = "benchmarks/string-bench/README.md";
 
 const CODEC_ONPAIR_DICT_BITS: [u8; 2] = [12, 16];
 
-#[async_trait]
-trait StringColumnSource {
-    fn name(&self) -> &str;
-
-    async fn load(&self, ctx: &mut ExecutionCtx) -> Result<StringColumn>;
+/// The configured benchmark inputs. Add a variant to extend the catalog.
+enum Input {
+    /// The `URL` column of one ClickBench `hits` shard.
+    ClickBenchUrl(u32),
+    /// The TPC-H SF1 `lineitem.l_comment` column.
+    TpchLComment,
 }
 
-struct ClickBenchUrl {
-    shard: u32,
-}
-
-#[async_trait]
-impl StringColumnSource for ClickBenchUrl {
-    fn name(&self) -> &str {
-        "URL"
+impl Input {
+    /// Name the `--columns` regex is matched against.
+    fn name(&self) -> &'static str {
+        match self {
+            Self::ClickBenchUrl(_) => "URL",
+            Self::TpchLComment => "l_comment",
+        }
     }
 
     async fn load(&self, ctx: &mut ExecutionCtx) -> Result<StringColumn> {
-        load_clickbench_url(self.shard, ctx).await
-    }
-}
-
-struct TpchLComment;
-
-#[async_trait]
-impl StringColumnSource for TpchLComment {
-    fn name(&self) -> &str {
-        "l_comment"
-    }
-
-    async fn load(&self, ctx: &mut ExecutionCtx) -> Result<StringColumn> {
-        load_tpch_l_comment(ctx).await
+        match *self {
+            Self::ClickBenchUrl(shard) => load_clickbench_url(shard, ctx).await,
+            Self::TpchLComment => load_tpch_l_comment(ctx).await,
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum BenchmarkSuite {
-    /// Run only the direct whole-column codec microbenchmark.
-    #[value(name = "codec")]
-    Codec,
-    /// Run only the Vortex serialized write/read benchmark.
+    /// Run only the Vortex file write/read benchmark: the tracked suite.
     #[value(name = "vortex")]
     Vortex,
+    /// Run only the direct whole-column codec microbenchmark: a local
+    /// diagnostic for separating encoder cost from the Vortex file stack.
+    #[value(name = "codec")]
+    Codec,
     /// Run both benchmark paths.
     #[value(name = "both")]
     Both,
@@ -97,8 +87,9 @@ enum BenchmarkSuite {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Benchmark path to run: direct codec, Vortex serialized, or both.
-    #[arg(long, value_enum, default_value_t = BenchmarkSuite::Codec)]
+    /// Benchmark path to run: the tracked Vortex file suite, the direct codec
+    /// diagnostic, or both.
+    #[arg(long, value_enum, default_value_t = BenchmarkSuite::Vortex)]
     suite: BenchmarkSuite,
     /// Timed runs per (column, encoder, config); the median is reported.
     #[arg(short, long, default_value = "10")]
@@ -166,58 +157,41 @@ async fn run(args: Args) -> Result<()> {
     if contains_duplicates(&args.encoders) {
         bail!("--encoders must not contain duplicates");
     }
-    let run_onpair = args.encoders.contains(&StringEncoder::OnPair);
-    let run_fsst = args.encoders.contains(&StringEncoder::Fsst);
-
+    // The codec suite sweeps OnPair dictionary budgets; the file suite cannot,
+    // since btrblocks picks the budget it compresses with.
     let mut candidates: Vec<DirectCandidate> = Vec::new();
-    if run_codec && run_onpair {
-        for bits in CODEC_ONPAIR_DICT_BITS {
-            candidates.push(DirectCandidate::on_pair(bits)?);
+    if run_codec {
+        if args.encoders.contains(&StringEncoder::OnPair) {
+            for bits in CODEC_ONPAIR_DICT_BITS {
+                candidates.push(DirectCandidate::on_pair(bits)?);
+            }
         }
-    }
-    if run_codec && run_fsst {
-        candidates.push(DirectCandidate::Fsst);
+        if args.encoders.contains(&StringEncoder::Fsst) {
+            candidates.push(DirectCandidate::Fsst);
+        }
     }
 
     let filter = args.columns.as_deref().map(Regex::new).transpose()?;
-    let clickbench_url = ClickBenchUrl {
-        shard: args.clickbench_shard,
-    };
-    let column_sources: Vec<&dyn StringColumnSource> = [
-        &clickbench_url as &dyn StringColumnSource,
-        &TpchLComment as &dyn StringColumnSource,
+    let mut ctx = SESSION.create_execution_ctx();
+    let mut columns = Vec::new();
+    for input in [
+        Input::ClickBenchUrl(args.clickbench_shard),
+        Input::TpchLComment,
     ]
     .into_iter()
-    .filter(|source| {
-        filter
-            .as_ref()
-            .is_none_or(|filter| filter.is_match(source.name()))
-    })
-    .collect();
-    if column_sources.is_empty() {
-        bail!("no input columns matched the --columns filter");
+    .filter(|input| filter.as_ref().is_none_or(|f| f.is_match(input.name())))
+    {
+        columns.push(input.load(&mut ctx).await?);
     }
-
-    let mut ctx = SESSION.create_execution_ctx();
-    let mut columns = Vec::with_capacity(column_sources.len());
-    for source in column_sources {
-        columns.push(source.load(&mut ctx).await?);
+    if columns.is_empty() {
+        bail!("no input columns matched the --columns filter");
     }
 
     let verify = !args.no_verify;
 
-    let total_steps = if run_codec {
-        columns.len() * candidates.len()
-    } else {
-        0
-    };
-    let total_steps = total_steps
-        + if run_vortex {
-            columns.len() * args.encoders.len()
-        } else {
-            0
-        };
-    let progress = ProgressBar::new(total_steps as u64);
+    // `candidates` is empty unless the codec suite runs.
+    let steps_per_column = candidates.len() + if run_vortex { args.encoders.len() } else { 0 };
+    let progress = ProgressBar::new((columns.len() * steps_per_column) as u64);
 
     let mut column_results: Vec<ColumnResult> = Vec::new();
     let mut serialized_results: Vec<SerializedResult> = Vec::new();
@@ -250,20 +224,20 @@ async fn run(args: Args) -> Result<()> {
     let mut writer = create_output_writer(&args.display_format, args.output_path, BENCHMARK_ID)?;
     match args.display_format {
         DisplayFormat::Table => {
-            if !column_results.is_empty() {
-                render_inmemory_table(&mut writer, &column_results)?;
-            }
             if !serialized_results.is_empty() {
                 render_serialized_table(&mut writer, &serialized_results)?;
+            }
+            if !column_results.is_empty() {
+                render_codec_table(&mut writer, &column_results)?;
             }
         }
         DisplayFormat::GhJson => {
             let mut measurements: Vec<CustomUnitMeasurement> = Vec::new();
-            for result in &column_results {
+            for result in &serialized_results {
                 measurements.extend(result.measurements());
             }
-            for rt in &serialized_results {
-                measurements.extend(rt.measurements());
+            for result in &column_results {
+                measurements.extend(result.measurements());
             }
             print_measurements_json(&mut writer, measurements, DOC_PATH)?;
         }
@@ -284,14 +258,13 @@ fn run_codec_column(
     for candidate in candidates {
         let result = bench_column(column, iterations, warmup, candidate, verify)?;
         tracing::info!(
-            "{} [{}]: {} rows, {:.3} GB canonical, codec compress {:.2} MB/s, \
-             encoded size {:.2}%",
+            "{} [{}]: {} rows, {:.3} GB canonical, size {:.2}%, compress {:.2} MB/s",
             result.name,
             result.encoder,
             result.rows,
             result.uncompressed_bytes as f64 / 1e9,
-            result.compression_mbps(),
             result.encoded_size_pct(),
+            result.compression_mbps(),
         );
         results.push(result);
         progress.inc(1);
@@ -314,88 +287,92 @@ fn run_vortex_column(
         let result = runtime.block_on(bench_serialized_with_session(
             &session, column, iterations, warmup, verify, encoder,
         ))?;
-        record_vortex_result(&result, progress);
+        tracing::info!(
+            "{} [{}]: size {:.2}% | write {:.2} MB/s | read {:.2} MB/s",
+            result.name,
+            result.encoder,
+            result.size_pct(),
+            result.write_mbps(),
+            result.read_mbps(),
+        );
         results.push(result);
+        progress.inc(1);
     }
     Ok(results)
 }
 
-fn record_vortex_result(result: &SerializedResult, progress: &ProgressBar) {
-    tracing::info!(
-        "{} [{}]: file size {:.2}% | write {:.2} MB/s | \
-         canonicalize {:.2} MB/s | staged read {:.2} MB/s",
-        result.name,
-        result.encoder,
-        result.file_size_pct(),
-        result.write_mbps(),
-        result.canonicalize_mbps(),
-        result.staged_read_mbps(),
-    );
-    progress.inc(1);
+/// Render one titled table, prefixed by a one-line note on how to read its
+/// metrics.
+fn render_table(
+    writer: &mut dyn Write,
+    title: &str,
+    note: &str,
+    header: &[&str],
+    rows: Vec<Vec<String>>,
+) -> Result<()> {
+    let mut builder = Builder::default();
+    builder.push_record(header.iter().copied());
+    for row in rows {
+        builder.push_record(row);
+    }
+    let mut table = builder.build();
+    table.with(Style::modern());
+    writeln!(writer, "{title}\n  {note}")?;
+    writeln!(writer, "{table}")?;
+    Ok(())
+}
+
+/// Render the three tracked metrics, one row per (column, encoder).
+fn render_serialized_table(writer: &mut dyn Write, results: &[SerializedResult]) -> Result<()> {
+    render_table(
+        writer,
+        "Vortex file: size, write, read",
+        "Size = % of canonical uncompressed bytes; write = repartition + zone stats + compress \
+         (string scheme and children) + layout + serialize; read = open + scan, decoding each row \
+         split to canonical form in its own task. Single-threaded, in-memory; MB/s over canonical \
+         uncompressed bytes.",
+        &[
+            "Column",
+            "Encoder",
+            "Size (%)",
+            "Write (MB/s)",
+            "Read (MB/s)",
+        ],
+        results
+            .iter()
+            .map(|r| {
+                vec![
+                    r.name.clone(),
+                    r.encoder.clone(),
+                    format!("{:.2}", r.size_pct()),
+                    format!("{:.2}", r.write_mbps()),
+                    format!("{:.2}", r.read_mbps()),
+                ]
+            })
+            .collect(),
+    )
 }
 
 /// Render the direct codec microbenchmark metrics.
-fn render_inmemory_table(writer: &mut dyn Write, results: &[ColumnResult]) -> Result<()> {
-    let mut builder = Builder::default();
-    builder.push_record([
-        "Column",
-        "Encoder",
-        "Encoded buffers (% canonical)",
-        "Codec compress MB/s",
-    ]);
-    for r in results {
-        builder.push_record([
-            r.name.clone(),
-            r.encoder.clone(),
-            format!("{:.2}", r.encoded_size_pct()),
-            format!("{:.2}", r.compression_mbps()),
-        ]);
-    }
-    let mut table = builder.build();
-    table.with(Style::modern());
-    writeln!(writer, "Direct codec microbenchmark")?;
-    writeln!(
+fn render_codec_table(writer: &mut dyn Write, results: &[ColumnResult]) -> Result<()> {
+    render_table(
         writer,
-        "  One whole-column codec state (dictionary or symbol table); no Vortex layout, child compression, or file I/O; \
-         MB/s = canonical uncompressed bytes per second"
-    )?;
-    writeln!(writer, "{table}")?;
-    Ok(())
-}
-
-/// Render the Vortex serialized write/read metrics as one row per (column, encoder).
-fn render_serialized_table(writer: &mut dyn Write, results: &[SerializedResult]) -> Result<()> {
-    let mut builder = Builder::default();
-    builder.push_record([
-        "Column",
-        "Encoder",
-        "File size (% canonical)",
-        "Write MB/s",
-        "Canonicalize MB/s",
-        "Staged Read (serial, in-memory) MB/s",
-    ]);
-    for r in results {
-        builder.push_record([
-            r.name.clone(),
-            r.encoder.clone(),
-            format!("{:.2}", r.file_size_pct()),
-            format!("{:.2}", r.write_mbps()),
-            format!("{:.2}", r.canonicalize_mbps()),
-            format!("{:.2}", r.staged_read_mbps()),
-        ]);
-    }
-    let mut table = builder.build();
-    table.with(Style::modern());
-    writeln!(writer, "\nVortex serialized write and read")?;
-    writeln!(
-        writer,
-        "  Single-threaded Vortex write = encode + layout + child compression + serialization; \
-         Canonicalize = encoded arrays to canonical arrays; \
-         Staged Read = open + scan-all + canonicalize-all; \
-         MB/s = canonical uncompressed bytes per second"
-    )?;
-    writeln!(writer, "{table}")?;
-    Ok(())
+        "\nDirect codec microbenchmark (diagnostic)",
+        "One whole-column codec state, no Vortex layout, child compression, or file I/O. \
+         Not comparable with the file suite's size.",
+        &["Column", "Encoder", "Size (%)", "Compress (MB/s)"],
+        results
+            .iter()
+            .map(|r| {
+                vec![
+                    r.name.clone(),
+                    r.encoder.clone(),
+                    format!("{:.2}", r.encoded_size_pct()),
+                    format!("{:.2}", r.compression_mbps()),
+                ]
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -407,11 +384,12 @@ mod tests {
         assert!(Args::try_parse_from(["string-bench", "--iterations", "0"]).is_err());
     }
 
+    /// CI passes no `--suite`, so the default is what gets tracked.
     #[test]
-    fn suite_defaults_to_codec() -> Result<()> {
+    fn suite_defaults_to_vortex() -> Result<()> {
         let args = Args::try_parse_from(["string-bench"])?;
 
-        assert_eq!(args.suite, BenchmarkSuite::Codec);
+        assert_eq!(args.suite, BenchmarkSuite::Vortex);
         Ok(())
     }
 }

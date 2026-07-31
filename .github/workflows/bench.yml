@@ -50,9 +50,10 @@ jobs:
             build_args: "--features lance"
             run_args: "--formats parquet,lance,vortex --ingest-jsonl results.ingest.jsonl"
             v4_ingest: true
+          # No run_args: the default suite emits the three tracked metrics
+          # (size, write, read). The codec microbenchmark is a local diagnostic.
           - id: string-bench
             name: String Encoding
-            run_args: "--suite both"
             v4_ingest: false
     steps:
       - uses: runs-on/action@v2
