@@ -3,11 +3,9 @@
 
 use std::any::Any;
 use std::mem::MaybeUninit;
-use std::ops::Range;
 
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBufferMut;
-use vortex_buffer::BitIndexIterator;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -32,7 +30,6 @@ use crate::arrays::VarBinArray;
 use crate::arrays::VarBinView;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinArraySlotsExt;
-use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -285,25 +282,28 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         Ok(())
     }
 
-    /// Appends `validity.len()` values by copying the slices yielded by `values`.
+    /// Appends `validity.len()` values, taking each valid row's bytes from `value`.
     ///
-    /// `values` must yield exactly `validity.true_count()` slices totalling `num_bytes` bytes.
-    /// Null entries consume no bytes and repeat the preceding offset.
+    /// `value` is called once per valid row in ascending row order and the slices it returns must
+    /// total `num_bytes` bytes. Null rows consume no bytes and repeat the preceding offset.
     ///
-    /// Both buffers are sized once up front and the validity bits are appended in bulk, so the
-    /// copy loop costs one offset store plus one `memcpy` per value.
-    pub fn append_value_slices<'a, I>(
+    /// The valid rows are walked a `u64` word at a time rather than pulled one at a time through
+    /// an iterator, and both buffers are sized once up front, so the copy loop costs one offset
+    /// store plus one `memcpy` per value. A caller whose values only exist as a stream can still
+    /// use this by pulling from the stream inside `value`: the rows are visited in ascending
+    /// order.
+    pub fn append_valid_slices<'a, F>(
         &mut self,
         num_bytes: usize,
-        values: I,
         validity: &Mask,
+        value: F,
     ) -> VortexResult<()>
     where
-        I: Iterator<Item = &'a [u8]>,
+        F: FnMut(usize) -> &'a [u8],
         usize: AsPrimitive<O>,
     {
         let data_start = self.data.len();
-        match self.gather_value_slices(num_bytes, values, validity) {
+        match self.gather_valid_slices(num_bytes, validity, value) {
             Ok(()) => {
                 self.append_validity(validity);
                 Ok(())
@@ -376,11 +376,7 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
             }
         };
 
-        self.append_value_slices(
-            num_bytes,
-            ValidValues::new(&validity, views, &buffers),
-            &validity,
-        )
+        self.append_valid_slices(num_bytes, &validity, |index| views[index].bytes(&buffers))
     }
 
     /// Finishes the appended values into a [`VarBinArray`] and resets the builder.
@@ -523,17 +519,17 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         Ok(())
     }
 
-    /// Copies `values` into the byte storage and records their offsets. See
-    /// [`append_value_slices`](Self::append_value_slices); the validity bits are the caller's job
-    /// so that a failure here can be unwound.
-    fn gather_value_slices<'a, I>(
+    /// Copies each valid row's bytes from `value` into the byte storage and records the offsets.
+    /// See [`append_valid_slices`](Self::append_valid_slices); the validity bits are the caller's
+    /// job so that a failure here can be unwound.
+    fn gather_valid_slices<'a, F>(
         &mut self,
         num_bytes: usize,
-        values: I,
         validity: &Mask,
+        mut value: F,
     ) -> VortexResult<()>
     where
-        I: Iterator<Item = &'a [u8]>,
+        F: FnMut(usize) -> &'a [u8],
         usize: AsPrimitive<O>,
     {
         let count = validity.len();
@@ -544,23 +540,14 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
         self.data.reserve(num_bytes);
 
         // Disjoint field borrows: the offsets spare capacity stays valid while the byte buffer
-        // grows, because the reserve above means it never reallocates.
+        // grows, since the two are separate allocations.
         let Self { offsets, data, .. } = self;
         let spare = &mut offsets.spare_capacity_mut()[..count];
-        let mut values = values;
-        let limit = data_start + num_bytes;
 
         match validity.bit_buffer() {
             AllOr::All => {
-                for slot in spare.iter_mut() {
-                    let Some(value) = values.next() else {
-                        vortex_bail!("Value slice count is less than the row count {count}");
-                    };
-                    vortex_ensure!(
-                        data.len() + value.len() <= limit,
-                        "Value slices exceed the declared byte count {num_bytes}"
-                    );
-                    data.extend_from_slice(value);
+                for (row, slot) in spare.iter_mut().enumerate() {
+                    data.extend_from_slice(value(row));
                     slot.write(data.len().as_());
                 }
             }
@@ -569,30 +556,22 @@ impl<O: OffsetBuilderPType> VarBinBuilder<O> {
             }
             AllOr::Some(bits) => {
                 let mut row = 0;
-                for index in bits.set_indices() {
-                    let Some(value) = values.next() else {
-                        vortex_bail!("Value slice count is less than the valid row count");
-                    };
-                    vortex_ensure!(
-                        data.len() + value.len() <= limit,
-                        "Value slices exceed the declared byte count {num_bytes}"
-                    );
+                bits.for_each_set_index(|index| {
                     // Null rows between the previous valid row and this one repeat its end offset.
                     spare[row..index].fill(MaybeUninit::new(data.len().as_()));
-                    data.extend_from_slice(value);
+                    data.extend_from_slice(value(index));
                     spare[index].write(data.len().as_());
                     row = index + 1;
-                }
+                });
                 spare[row..].fill(MaybeUninit::new(data.len().as_()));
             }
         }
 
+        // A caller whose slices overrun `num_bytes` only grows the byte buffer past the reservation,
+        // so the overrun is caught here rather than per value. The offsets are still uncommitted, so
+        // rejecting it now leaves them untouched.
         vortex_ensure!(
-            values.next().is_none(),
-            "Value slice count exceeds the valid row count"
-        );
-        vortex_ensure!(
-            data.len() == limit,
+            data.len() == data_start + num_bytes,
             "Value slices total {} bytes, expected {num_bytes}",
             data.len() - data_start
         );
@@ -732,48 +711,6 @@ fn prefix_sums<P: AsPrimitive<usize>>(lengths: &[P]) -> impl Iterator<Item = usi
     })
 }
 
-/// Iterator over the bytes of the valid rows of a `VarBinViewArray`.
-struct ValidValues<'a> {
-    views: &'a [BinaryView],
-    buffers: &'a [&'a [u8]],
-    indices: ValidIndices<'a>,
-}
-
-enum ValidIndices<'a> {
-    All(Range<usize>),
-    None,
-    Some(BitIndexIterator<'a>),
-}
-
-impl<'a> ValidValues<'a> {
-    fn new(validity: &'a Mask, views: &'a [BinaryView], buffers: &'a [&'a [u8]]) -> Self {
-        let indices = match validity.bit_buffer() {
-            AllOr::All => ValidIndices::All(0..views.len()),
-            AllOr::None => ValidIndices::None,
-            AllOr::Some(bits) => ValidIndices::Some(bits.set_indices()),
-        };
-        Self {
-            views,
-            buffers,
-            indices,
-        }
-    }
-}
-
-impl<'a> Iterator for ValidValues<'a> {
-    type Item = &'a [u8];
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        let index = match &mut self.indices {
-            ValidIndices::All(range) => range.next()?,
-            ValidIndices::None => return None,
-            ValidIndices::Some(indices) => indices.next()?,
-        };
-        Some(self.views[index].bytes(self.buffers))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::mem::MaybeUninit;
@@ -785,6 +722,8 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::VarBinArraySlotsExt;
@@ -964,15 +903,21 @@ mod tests {
         assert_eq!(builder.validity.len(), 0);
     }
 
-    #[test]
-    fn append_value_slices_rejects_a_byte_count_mismatch() {
+    /// Slices that overrun the declared byte count are rejected, and the builder is left exactly
+    /// as it was — the overrun bytes are copied before the total can be checked, so the unwind has
+    /// to put them back.
+    #[rstest]
+    #[case::all_valid(Mask::new_true(2))]
+    #[case::some_valid(Mask::from_iter([true, false, true]))]
+    fn append_valid_slices_rejects_a_byte_count_mismatch(#[case] validity: Mask) {
         let mut builder = VarBinBuilder::<i32>::new(DType::Utf8(Nullable));
+        let values = [b"foo".as_slice(), b"quux".as_slice()];
 
-        let result = builder.append_value_slices(
-            6,
-            [b"foo".as_slice(), b"quux".as_slice()].into_iter(),
-            &Mask::new_true(2),
-        );
+        let mut next = 0;
+        let result = builder.append_valid_slices(6, &validity, |_| {
+            next += 1;
+            values[next - 1]
+        });
 
         assert!(result.is_err());
         assert_eq!(builder.offsets.len(), 1);
@@ -1038,6 +983,33 @@ mod tests {
         })?;
 
         assert_arrays_eq!(actual, expected, &mut ctx);
+        Ok(())
+    }
+
+    /// `match_each_varbin_builder!` covers every offset width a `VarBinBuilder` can be built with,
+    /// so both canonical appends must reach their specialization for all of them. A macro that
+    /// only matched the signed pair would send an unsigned builder down a downcast that assumes
+    /// `VarBinViewBuilder` and panic.
+    #[rstest]
+    #[case::u32(VarBinBuilder::<u32>::new(DType::Utf8(Nullable)))]
+    #[case::u64(VarBinBuilder::<u64>::new(DType::Utf8(Nullable)))]
+    #[case::i32(VarBinBuilder::<i32>::new(DType::Utf8(Nullable)))]
+    #[case::i64(VarBinBuilder::<i64>::new(DType::Utf8(Nullable)))]
+    fn append_to_every_offset_width(#[case] mut builder: impl ArrayBuilder) -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let long = "a string that is far too long to be inlined in a view";
+        let values = [Some("hello"), None, Some(long), Some("")];
+
+        let view = VarBinViewArray::from_iter(values, DType::Utf8(Nullable)).into_array();
+        let varbin = VarBinArray::from_iter(values, DType::Utf8(Nullable)).into_array();
+        let constant = ConstantArray::new(Scalar::from("hello").into_nullable(), 2).into_array();
+
+        for chunk in [&view, &varbin, &constant] {
+            chunk.append_to_builder(&mut builder, &mut ctx)?;
+        }
+
+        let expected = ChunkedArray::try_new(vec![view, varbin, constant], DType::Utf8(Nullable))?;
+        assert_arrays_eq!(builder.finish(), expected, &mut ctx);
         Ok(())
     }
 
