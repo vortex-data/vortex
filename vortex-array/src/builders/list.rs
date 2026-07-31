@@ -149,6 +149,42 @@ impl<O: OffsetBuilderPType> ListBuilder<O> {
         Ok(())
     }
 
+    /// Appends the same list `value` `n` times.
+    ///
+    /// A `ListArray`'s offsets can only describe contiguous, in-order lists, so the elements go in
+    /// once per row - there is nothing to share, unlike
+    /// [`ListViewBuilder::append_constant_list`](crate::builders::ListViewBuilder::append_constant_list).
+    /// What this does save is the array machinery: canonicalizing the run and appending it back
+    /// costs a `ListViewArray` construction, a rebuild and two offset casts that the values
+    /// themselves do not need.
+    pub fn append_constant_list(&mut self, value: ListScalar, n: usize) -> VortexResult<()> {
+        if n == 0 {
+            return Ok(());
+        }
+
+        let Some(elements) = value.elements() else {
+            if self.dtype.nullability() == NonNullable {
+                vortex_bail!("Cannot append null value to non-nullable list");
+            }
+            self.append_nulls(n);
+            return Ok(());
+        };
+
+        self.offsets_builder.reserve_exact(n);
+        for _ in 0..n {
+            for scalar in &elements {
+                self.elements_builder.append_scalar(scalar)?;
+            }
+            self.offsets_builder.append_value(
+                O::from_usize(self.elements_builder.len())
+                    .vortex_expect("Failed to convert from usize to O"),
+            );
+        }
+        self.nulls.append_n_non_nulls(n);
+
+        Ok(())
+    }
+
     /// Finishes the builder directly into a [`ListArray`].
     pub fn finish_into_list(&mut self) -> ListArray {
         assert_eq!(

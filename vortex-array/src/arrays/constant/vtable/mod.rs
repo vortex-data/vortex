@@ -39,6 +39,7 @@ use crate::builders::VarBinViewBuilder;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::match_each_decimal_value;
+use crate::match_each_list_builder;
 use crate::match_each_native_ptype;
 use crate::match_each_varbin_builder;
 use crate::scalar::DecimalValue;
@@ -252,19 +253,38 @@ impl VTable for Constant {
                     });
                 }
             }
-            // TODO: add fast paths for DType::Struct, DType::List, DType::FixedSizeList, DType::Extension.
-            _ => {
-                let canonical = array
-                    .array()
-                    .clone()
-                    .execute::<Canonical>(ctx)?
-                    .into_array();
-                canonical.append_to_builder(builder, ctx)?;
+            // A repeated list goes straight into the list builders, which can record the run from
+            // the scalar alone. Canonicalizing first would build a `ListViewArray` only for
+            // `append_listview_array` to rebuild it and cast its offsets and sizes back to the
+            // builder's types, all of which is fixed cost per appended run.
+            DType::List(..) => {
+                match match_each_list_builder!(builder, |b| b
+                    .append_constant_list(scalar.as_list(), n))
+                {
+                    Some(result) => result?,
+                    None => append_via_canonical(array, builder, ctx)?,
+                }
             }
+            // TODO: add fast paths for DType::Struct, DType::FixedSizeList, DType::Extension.
+            _ => append_via_canonical(array, builder, ctx)?,
         }
 
         Ok(())
     }
+}
+
+/// Appends `array` by canonicalizing it first, for the dtypes with no fast path of their own.
+fn append_via_canonical(
+    array: ArrayView<'_, Constant>,
+    builder: &mut dyn ArrayBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let canonical = array
+        .array()
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_array();
+    canonical.append_to_builder(builder, ctx)
 }
 
 /// Downcasts `builder` to `B`, then either appends `n` nulls or calls `fill` with the typed

@@ -204,6 +204,56 @@ impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
         Ok(())
     }
 
+    /// Appends the same list `value` `n` times, storing its elements once.
+    ///
+    /// A `ListViewArray` can point many views at one range of elements, so a repeated list costs
+    /// its elements once however many rows it covers - and, unlike appending a canonicalized
+    /// `ConstantArray`, it costs no array construction, no rebuild and no offset/size casts either.
+    ///
+    /// The views share their elements, so the result is no longer zero-copyable to a
+    /// [`ListArray`](crate::arrays::ListArray) unless it covers a single row or empty lists.
+    pub fn append_constant_list(&mut self, value: ListScalar, n: usize) -> VortexResult<()> {
+        if n == 0 {
+            return Ok(());
+        }
+
+        let Some(elements) = value.elements() else {
+            vortex_ensure!(
+                self.dtype.is_nullable(),
+                "Cannot append null value to non-nullable list builder"
+            );
+            self.append_nulls(n);
+            return Ok(());
+        };
+
+        let curr_offset = self.elements_builder.len();
+        let num_elements = elements.len();
+
+        // We must assert this even in release mode to ensure that the safety comment in
+        // `finish_into_listview` is correct.
+        assert!(
+            ((curr_offset + num_elements) as u64) < O::max_value_as_u64(),
+            "appending this list would cause an offset overflow"
+        );
+
+        for scalar in elements {
+            self.elements_builder.append_scalar(&scalar)?;
+        }
+
+        let offset = O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`");
+        let size =
+            S::from_usize(num_elements).vortex_expect("Failed to convert from usize to `S`");
+        self.offsets_builder.append_n_values(offset, n);
+        self.sizes_builder.append_n_values(size, n);
+        self.nulls.append_n_non_nulls(n);
+
+        if n > 1 && num_elements > 0 {
+            self.zero_copy_to_list = false;
+        }
+
+        Ok(())
+    }
+
     /// Finishes the builder directly into a [`ListViewArray`].
     pub fn finish_into_listview(&mut self) -> ListViewArray {
         debug_assert_eq!(self.offsets_builder.len(), self.sizes_builder.len());
