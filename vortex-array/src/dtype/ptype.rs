@@ -99,7 +99,7 @@ impl<T> UnsignedPType for T where T: IntegerPType + Unsigned {}
 /// [`ListViewBuilder`](crate::builders::ListViewBuilder), and
 /// [`VarBinBuilder`](crate::builders::VarBinBuilder) instantiations small enough for
 /// [`match_each_list_builder!`](crate::match_each_list_builder) and
-/// [`match_each_any_varbin_builder!`](crate::match_each_any_varbin_builder) to enumerate them.
+/// [`match_each_varbin_builder!`](crate::match_each_varbin_builder) to enumerate them.
 pub trait OffsetBuilderPType: IntegerPType + offset_builder_sealed::Sealed {}
 
 mod offset_builder_sealed {

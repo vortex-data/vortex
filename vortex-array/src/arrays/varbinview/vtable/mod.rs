@@ -33,7 +33,7 @@ use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::match_each_any_varbin_builder;
+use crate::match_each_varbin_builder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod kernel;
@@ -250,7 +250,7 @@ impl VTable for VarBinView {
             return builder.append_varbinview_array(&array.into_owned(), ctx);
         }
         if let Some(result) =
-            match_each_any_varbin_builder!(builder, |builder| builder.append_varbinview(array, ctx))
+            match_each_varbin_builder!(builder, |builder| builder.append_varbinview(array, ctx))
         {
             return result;
         }

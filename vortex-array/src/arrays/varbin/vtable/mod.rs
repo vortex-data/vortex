@@ -28,7 +28,7 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::match_each_any_varbin_builder;
+use crate::match_each_varbin_builder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod canonical;
@@ -210,7 +210,7 @@ impl VTable for VarBin {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         if let Some(result) =
-            match_each_any_varbin_builder!(builder, |builder| builder.append_varbin(array, ctx))
+            match_each_varbin_builder!(builder, |builder| builder.append_varbin(array, ctx))
         {
             return result;
         }

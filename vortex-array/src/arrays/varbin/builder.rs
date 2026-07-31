@@ -678,32 +678,8 @@ impl<O: OffsetBuilderPType> ArrayBuilder for VarBinBuilder<O> {
 ///     return result;
 /// }
 /// ```
-///
-/// The body is expanded once per offset width, which is the point: the decode loop specializes on
-/// the width instead of dispatching through `dyn`. That is also why only `i32` and `i64` are
-/// matched — the two widths Arrow's byte arrays use. Widening it would duplicate every caller's
-/// decode loop again for widths no hot path uses. An encoding that falls through still reaches a
-/// builder of any [`OffsetBuilderPType`] width by canonicalizing
-/// first, because the canonical `VarBin` and `VarBinView` appends use
-/// [`match_each_any_varbin_builder!`](crate::match_each_any_varbin_builder), whose bodies are
-/// small enough to expand for every width.
 #[macro_export]
 macro_rules! match_each_varbin_builder {
-    ($builder:expr, | $typed:ident | $body:expr) => {
-        $crate::__match_varbin_builder_widths!($builder, |$typed| $body, [i32, i64])
-    };
-}
-
-/// Recovers a concrete [`VarBinBuilder`] of *any* offset width from a `&mut dyn ArrayBuilder`.
-///
-/// Same shape as [`match_each_varbin_builder!`], but covering every
-/// [`OffsetBuilderPType`] width `VarBinBuilder` can be
-/// instantiated with. Reserve it for small bodies — it expands them four times. It exists so the
-/// canonical `VarBin` and `VarBinView` appends accept a builder of any width, which is what makes
-/// an unsigned width usable at all: every encoding without a specialization for it canonicalizes
-/// and lands here.
-#[macro_export]
-macro_rules! match_each_any_varbin_builder {
     ($builder:expr, | $typed:ident | $body:expr) => {
         $crate::__match_varbin_builder_widths!($builder, |$typed| $body, [u32, u64, i32, i64])
     };
@@ -803,16 +779,12 @@ mod tests {
     use std::mem::MaybeUninit;
 
     use rstest::rstest;
-    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::Canonical;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
-    use crate::arrays::DictArray;
-    use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::VarBinArraySlotsExt;
@@ -825,7 +797,6 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProviderExt;
     use crate::scalar::Scalar;
-    use crate::validity::Validity;
 
     #[test]
     fn test_builder() {
@@ -1067,46 +1038,6 @@ mod tests {
         })?;
 
         assert_arrays_eq!(actual, expected, &mut ctx);
-        Ok(())
-    }
-
-    /// `match_each_varbin_builder!` covers only `i32` and `i64`, but a builder of any other offset
-    /// width must still be fillable — it reaches the same code through
-    /// `match_each_any_varbin_builder!`.
-    #[rstest]
-    #[case::u32(VarBinBuilder::<u32>::new(DType::Utf8(Nullable)))]
-    #[case::u64(VarBinBuilder::<u64>::new(DType::Utf8(Nullable)))]
-    fn append_to_an_unmatched_offset_width_still_works(
-        #[case] mut builder: impl ArrayBuilder,
-    ) -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        let expected =
-            VarBinViewArray::from_iter([Some("hello"), None, Some("world")], DType::Utf8(Nullable));
-
-        expected
-            .clone()
-            .into_array()
-            .append_to_builder(&mut builder, &mut ctx)?;
-
-        assert_arrays_eq!(builder.finish(), expected, &mut ctx);
-        Ok(())
-    }
-
-    /// Reaching a `VarBinBuilder` of an unmatched width from a compressed encoding goes the long
-    /// way round: the encoding's specialization declines, it canonicalizes, and the canonical
-    /// `VarBinView` append dispatches through `match_each_any_varbin_builder!`.
-    #[test]
-    fn append_dict_to_an_unmatched_offset_width_still_works() -> VortexResult<()> {
-        let mut ctx = array_session().create_execution_ctx();
-        let values = VarBinViewArray::from_iter_str(["hello", "world"]).into_array();
-        let codes = PrimitiveArray::new(buffer![0u8, 1, 1, 0], Validity::NonNullable);
-        let dict = DictArray::try_new(codes.into_array(), values)?.into_array();
-        let expected = dict.clone().execute::<Canonical>(&mut ctx)?.into_array();
-
-        let mut builder = VarBinBuilder::<u32>::new(dict.dtype().clone());
-        dict.append_to_builder(&mut builder, &mut ctx)?;
-
-        assert_arrays_eq!(builder.finish_into_varbin(), expected, &mut ctx);
         Ok(())
     }
 
