@@ -257,19 +257,31 @@ impl VTable for Constant {
             // the scalar alone. Canonicalizing first would build a `ListViewArray` only for
             // `append_listview_array` to rebuild it and cast its offsets and sizes back to the
             // builder's types, all of which is fixed cost per appended run.
-            DType::List(..) => {
-                match match_each_list_builder!(builder, |b| b
-                    .append_constant_list(scalar.as_list(), n))
-                {
-                    Some(result) => result?,
-                    None => append_via_canonical(array, builder, ctx)?,
-                }
-            }
+            DType::List(..) => append_constant_list_run(array, n, builder, ctx)?,
             // TODO: add fast paths for DType::Struct, DType::FixedSizeList, DType::Extension.
             _ => append_via_canonical(array, builder, ctx)?,
         }
 
         Ok(())
+    }
+}
+
+/// Appends the constant list `array` as one repeated run per list builder.
+///
+/// Only the concrete list builders can record a run from the scalar; any other builder for a list
+/// dtype has to go the long way around.
+// The complexity comes from the expansion of `match_each_list_builder!`.
+#[expect(clippy::cognitive_complexity)]
+fn append_constant_list_run(
+    array: ArrayView<'_, Constant>,
+    n: usize,
+    builder: &mut dyn ArrayBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let scalar = array.scalar();
+    match match_each_list_builder!(builder, |b| b.append_constant_list(scalar.as_list(), n)) {
+        Some(result) => result,
+        None => append_via_canonical(array, builder, ctx),
     }
 }
 
