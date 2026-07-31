@@ -9,7 +9,6 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
@@ -17,7 +16,7 @@ use vortex_session::VortexSession;
 use crate::dtype::DType;
 use crate::expr::display::DisplayTreeExpr;
 use crate::scalar_fn::ScalarFnRef;
-use crate::scalar_fn::fns::root::Root;
+use crate::stats::rewrite::StatsRewriteCtx;
 
 /// A node in a Vortex expression tree.
 ///
@@ -92,17 +91,11 @@ impl Expression {
     }
 
     /// Computes the return dtype of this expression given the input dtype.
+    ///
+    /// This binds the expression and discards everything but the root dtype. Callers needing types
+    /// at more than one node should bind once and read the dtypes off the bound tree.
     pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
-        if self.is::<Root>() {
-            return Ok(scope.clone());
-        }
-
-        let dtypes: Vec<_> = self
-            .children
-            .iter()
-            .map(|c| c.return_dtype(scope))
-            .try_collect()?;
-        self.scalar_fn.return_dtype(&dtypes)
+        Ok(self.bind(scope)?.dtype().clone())
     }
 
     /// Returns a new expression representing the validity mask output of this expression.
@@ -123,7 +116,7 @@ impl Expression {
         scope: &DType,
         session: &VortexSession,
     ) -> VortexResult<Option<Expression>> {
-        crate::stats::rewrite::StatsRewriteCtx::new(session, scope).falsify(self)
+        StatsRewriteCtx::new(session, scope).falsify(self)
     }
 
     /// Returns an expression that proves this predicate is definitely true from stats.
@@ -137,7 +130,7 @@ impl Expression {
         scope: &DType,
         session: &VortexSession,
     ) -> VortexResult<Option<Expression>> {
-        crate::stats::rewrite::StatsRewriteCtx::new(session, scope).satisfy(self)
+        StatsRewriteCtx::new(session, scope).satisfy(self)
     }
 
     /// Format the expression as a compact string.

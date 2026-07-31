@@ -56,6 +56,7 @@ pub mod aliases;
 pub mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
+pub mod bound_expression;
 pub mod display;
 pub(crate) mod expression;
 mod exprs;
@@ -63,13 +64,16 @@ pub(crate) mod field;
 pub mod forms;
 mod optimize;
 pub mod proto;
+pub mod scope;
 pub mod stats;
 pub mod transform;
 pub mod traversal;
 
 pub use analysis::*;
+pub use bound_expression::*;
 pub use expression::*;
 pub use exprs::*;
+pub use scope::*;
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
