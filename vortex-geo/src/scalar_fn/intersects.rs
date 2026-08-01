@@ -6,7 +6,6 @@
 use geo::Intersects;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
@@ -17,7 +16,6 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -29,17 +27,6 @@ use crate::scalar_fn::execute::execute_null_propagating;
 /// operands, each a column or a constant literal.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct GeoIntersects;
-
-impl GeoIntersects {
-    /// A lazy `ScalarFnArray` computing per-row whether operands `a` and `b` intersect; either may
-    /// be constant. The output length is taken from `a`.
-    pub fn try_new_array(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(
-            TypedScalarFnInstance::new(GeoIntersects, EmptyOptions).erased(),
-            vec![a, b],
-        )
-    }
-}
 
 impl ScalarFnVTable for GeoIntersects {
     type Options = EmptyOptions;
@@ -126,6 +113,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -197,7 +185,7 @@ mod tests {
     ) -> VortexResult<()> {
         let session = vortex_array::array_session();
         let mut ctx = session.create_execution_ctx();
-        let intersects = GeoIntersects::try_new_array(a, b)?.into_array();
+        let intersects = GeoIntersects.try_new_array(a.len(), EmptyOptions, [a, b])?;
         assert_arrays_eq!(intersects, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
@@ -283,9 +271,11 @@ mod tests {
         let constant = geometry_constant(&donut(), 4)?;
         let column = materialize(constant.clone(), &mut ctx)?;
 
+        let probes = donut_probes()?;
         let against_constant =
-            GeoIntersects::try_new_array(donut_probes()?, constant)?.into_array();
-        let pairwise = GeoIntersects::try_new_array(donut_probes()?, column)?.into_array();
+            GeoIntersects.try_new_array(probes.len(), EmptyOptions, [probes, constant])?;
+        let probes = donut_probes()?;
+        let pairwise = GeoIntersects.try_new_array(probes.len(), EmptyOptions, [probes, column])?;
 
         assert_arrays_eq!(against_constant, pairwise, &mut ctx);
         Ok(())
@@ -321,7 +311,8 @@ mod tests {
 
         let points = nullable_point_column(vec![Some((2.0, 2.0)), None, Some((20.0, 20.0))])?;
         let query = geometry_constant(&donut(), 3)?;
-        let intersects = GeoIntersects::try_new_array(points, query)?.into_array();
+        let intersects =
+            GeoIntersects.try_new_array(points.len(), EmptyOptions, [points, query])?;
 
         let expected = BoolArray::new(
             BitBuffer::from_iter([true, false, false]),
@@ -341,7 +332,8 @@ mod tests {
         let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
         let null_const = ConstantArray::new(Scalar::null(point_dtype), 2).into_array();
         let points = point_column(vec![2.0, 20.0], vec![2.0, 20.0])?;
-        let intersects = GeoIntersects::try_new_array(null_const, points)?.into_array();
+        let intersects =
+            GeoIntersects.try_new_array(null_const.len(), EmptyOptions, [null_const, points])?;
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
@@ -368,7 +360,7 @@ mod tests {
             None,
             Some((9.0, 9.0)),
         ])?;
-        let intersects = GeoIntersects::try_new_array(a, b)?.into_array();
+        let intersects = GeoIntersects.try_new_array(a.len(), EmptyOptions, [a, b])?;
 
         let expected = BoolArray::new(
             BitBuffer::from_iter([true, false, false, false]),
@@ -387,7 +379,8 @@ mod tests {
 
         let points = nullable_point_column(vec![None, None])?;
         let query = geometry_constant(&donut(), 2)?;
-        let intersects = GeoIntersects::try_new_array(points, query)?.into_array();
+        let intersects =
+            GeoIntersects.try_new_array(points.len(), EmptyOptions, [points, query])?;
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
@@ -404,7 +397,7 @@ mod tests {
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None])?;
         let b = nullable_point_column(vec![None, Some((1.0, 1.0))])?;
-        let intersects = GeoIntersects::try_new_array(a, b)?.into_array();
+        let intersects = GeoIntersects.try_new_array(a.len(), EmptyOptions, [a, b])?;
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();

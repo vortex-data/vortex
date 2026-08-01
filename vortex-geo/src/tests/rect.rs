@@ -13,8 +13,10 @@ use geoarrow::datatypes::Crs;
 use geoarrow::datatypes::Dimension as GeoArrowDimension;
 use geoarrow::datatypes::Metadata;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar_fn::EmptyOptions;
 use vortex_arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -116,7 +118,6 @@ fn roundtrips_through_arrow() -> VortexResult<()> {
 #[test]
 fn scalar_functions_run_on_rect() -> VortexResult<()> {
     use vortex_array::Canonical;
-    use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
 
@@ -130,17 +131,19 @@ fn scalar_functions_run_on_rect() -> VortexResult<()> {
     let points = point_column(vec![5.0, 20.0], vec![5.0, 20.0])?;
 
     // Distance: 0 to the interior point, >0 to the exterior point.
-    let distance = GeoDistance::try_new_array(bbox.clone(), points.clone())?.into_array();
+    let distance =
+        GeoDistance.try_new_array(bbox.len(), EmptyOptions, [bbox.clone(), points.clone()])?;
     let distance = distance.execute::<Canonical>(&mut ctx)?.into_primitive();
     let distances = distance.as_slice::<f64>();
     assert_eq!(distances[0], 0.0);
     assert!(distances[1] > 0.0);
 
     // Intersects / Contains: true for the interior point, false for the exterior one.
-    let intersects = GeoIntersects::try_new_array(bbox.clone(), points.clone())?.into_array();
+    let intersects =
+        GeoIntersects.try_new_array(bbox.len(), EmptyOptions, [bbox.clone(), points.clone()])?;
     assert_arrays_eq!(intersects, BoolArray::from_iter([true, false]), &mut ctx);
 
-    let contains = GeoContains::try_new_array(bbox, points)?.into_array();
+    let contains = GeoContains.try_new_array(bbox.len(), EmptyOptions, [bbox, points])?;
     assert_arrays_eq!(contains, BoolArray::from_iter([true, false]), &mut ctx);
     Ok(())
 }

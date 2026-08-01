@@ -25,6 +25,8 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+use vortex_array::scalar_fn::EmptyOptions;
 use vortex_geo::scalar_fn::envelope::GeoEnvelope;
 use vortex_geo::test_harness::MultiPolygonRings;
 use vortex_geo::test_harness::geo_session;
@@ -58,9 +60,9 @@ fn coin(i: usize) -> bool {
 
 /// Execute the envelope of `column` to completion.
 fn envelope(column: &ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
-    GeoEnvelope::try_new_array(column.clone())
+    GeoEnvelope
+        .try_new_array(column.len(), EmptyOptions, [column.clone()])
         .unwrap()
-        .into_array()
         .execute::<Canonical>(ctx)
         .unwrap()
         .into_array()

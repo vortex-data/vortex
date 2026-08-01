@@ -35,11 +35,13 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
@@ -79,7 +81,7 @@ pub fn build_similarity_search_tree<T: NativePType + Into<PValue>>(
     let num_rows = data.len();
     let query_vec = Vector::constant_array(query, num_rows)?;
 
-    let cosine = CosineSimilarity::try_new_array(data, query_vec)?.into_array();
+    let cosine = CosineSimilarity.try_new_array(num_rows, EmptyOptions, [data, query_vec])?;
 
     let threshold_scalar = Scalar::primitive(threshold, Nullability::NonNullable);
     let threshold_array = ConstantArray::new(threshold_scalar, num_rows).into_array();

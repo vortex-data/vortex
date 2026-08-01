@@ -24,6 +24,7 @@ use vortex_array::arrays::fixed_size_list::FixedSizeListArraySlotsExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::builtins::ArrayBuiltins;
@@ -428,7 +429,7 @@ pub fn normalize_as_l2_denorm(
     }
 
     // Calculate the norms of the vectors.
-    let norms_sfn = L2Norm::try_new_array(input.clone())?;
+    let norms_sfn = L2Norm.try_new_array(row_count, EmptyOptions, [input.clone()])?;
     let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
     let primitive_norms: PrimitiveArray = norms_array.clone().execute(ctx)?;
     let norms_validity = primitive_norms.validity()?;

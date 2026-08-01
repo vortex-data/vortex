@@ -10,7 +10,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -25,7 +24,6 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
@@ -52,17 +50,6 @@ use crate::extension::validate_geometry_operands;
 /// the XY extent — matching the [`GeometryAabb`](crate::aggregate_fn::GeometryAabb) aggregate.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct GeoEnvelope;
-
-impl GeoEnvelope {
-    /// A lazy `ScalarFnArray` computing the per-row bounding box of geometry operand `a`, which may
-    /// be constant. The output length is taken from `a`.
-    pub fn try_new_array(a: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(
-            TypedScalarFnInstance::new(GeoEnvelope, EmptyOptions).erased(),
-            vec![a],
-        )
-    }
-}
 
 /// The output dtype: a nullable native 2-D box ([`Rect`], `geoarrow.box`) column. Nullable
 /// because rows without a box — null or empty geometries — are null. Metadata is defaulted.
@@ -231,6 +218,7 @@ mod tests {
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -259,7 +247,7 @@ mod tests {
 
     /// Execute a `GeoEnvelope` over `array`, returning the lazy box column.
     fn boxes(array: ArrayRef) -> VortexResult<ArrayRef> {
-        Ok(GeoEnvelope::try_new_array(array)?.into_array())
+        GeoEnvelope.try_new_array(array.len(), EmptyOptions, [array])
     }
 
     /// A point's box is degenerate: both corners are the point itself.

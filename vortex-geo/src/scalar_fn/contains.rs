@@ -6,7 +6,6 @@
 use geo::Contains;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
@@ -17,7 +16,6 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -30,17 +28,6 @@ use crate::scalar_fn::execute::execute_null_propagating;
 /// does not count). Containment is not symmetric; the operand order is significant.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct GeoContains;
-
-impl GeoContains {
-    /// A lazy `ScalarFnArray` computing per-row whether operand `a` contains operand `b`;
-    /// either may be constant. The output length is taken from `a`.
-    pub fn try_new_array(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(
-            TypedScalarFnInstance::new(GeoContains, EmptyOptions).erased(),
-            vec![a, b],
-        )
-    }
-}
 
 impl ScalarFnVTable for GeoContains {
     type Options = EmptyOptions;
@@ -127,6 +114,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -177,7 +165,7 @@ mod tests {
     ) -> VortexResult<()> {
         let session = vortex_array::array_session();
         let mut ctx = session.create_execution_ctx();
-        let contains = GeoContains::try_new_array(a, b)?.into_array();
+        let contains = GeoContains.try_new_array(a.len(), EmptyOptions, [a, b])?;
         assert_arrays_eq!(contains, BoolArray::from_iter(expected), &mut ctx);
         Ok(())
     }
@@ -298,7 +286,8 @@ mod tests {
 
         let container = geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 3)?;
         let points = nullable_point_column(vec![Some((2.0, 2.0)), None, Some((10.0, 10.0))])?;
-        let contains = GeoContains::try_new_array(container, points)?.into_array();
+        let contains =
+            GeoContains.try_new_array(container.len(), EmptyOptions, [container, points])?;
 
         let expected = BoolArray::new(
             BitBuffer::from_iter([true, false, false]),
@@ -318,7 +307,8 @@ mod tests {
         let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
         let null_const = ConstantArray::new(Scalar::null(point_dtype), 2).into_array();
         let points = point_column(vec![2.0, 10.0], vec![2.0, 10.0])?;
-        let contains = GeoContains::try_new_array(null_const, points)?.into_array();
+        let contains =
+            GeoContains.try_new_array(null_const.len(), EmptyOptions, [null_const, points])?;
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
@@ -346,7 +336,8 @@ mod tests {
             None,
             Some((4.0, 4.0)),
         ])?;
-        let contains = GeoContains::try_new_array(container, contained)?.into_array();
+        let contains =
+            GeoContains.try_new_array(container.len(), EmptyOptions, [container, contained])?;
 
         let expected = BoolArray::new(
             BitBuffer::from_iter([true, false, false, false]),
@@ -365,7 +356,8 @@ mod tests {
 
         let container = geometry_constant(&Geometry::Polygon(rect_polygon(0.0, 0.0, 4.0, 4.0)), 2)?;
         let points = nullable_point_column(vec![None, None])?;
-        let contains = GeoContains::try_new_array(container, points)?.into_array();
+        let contains =
+            GeoContains.try_new_array(container.len(), EmptyOptions, [container, points])?;
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();
@@ -382,7 +374,8 @@ mod tests {
 
         let container = nullable_point_column(vec![Some((1.0, 1.0)), None])?;
         let contained = nullable_point_column(vec![None, Some((2.0, 2.0))])?;
-        let contains = GeoContains::try_new_array(container, contained)?.into_array();
+        let contains =
+            GeoContains.try_new_array(container.len(), EmptyOptions, [container, contained])?;
 
         let expected =
             BoolArray::new(BitBuffer::from_iter([false, false]), Validity::AllInvalid).into_array();

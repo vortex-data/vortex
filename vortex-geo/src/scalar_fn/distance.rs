@@ -7,7 +7,6 @@ use geo::Distance;
 use geo::Euclidean;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -19,7 +18,6 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::TypedScalarFnInstance;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
@@ -31,17 +29,6 @@ use crate::scalar_fn::execute::execute_null_propagating;
 /// operands, each a column or a constant literal.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct GeoDistance;
-
-impl GeoDistance {
-    /// A lazy `ScalarFnArray` computing the per-row distance between operands `a` and `b`; either may
-    /// be constant. The output length is taken from `a`.
-    pub fn try_new_array(a: ArrayRef, b: ArrayRef) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(
-            TypedScalarFnInstance::new(GeoDistance, EmptyOptions).erased(),
-            vec![a, b],
-        )
-    }
-}
 
 impl ScalarFnVTable for GeoDistance {
     type Options = EmptyOptions;
@@ -115,6 +102,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -159,7 +147,7 @@ mod tests {
 
         let a = point_column(vec![0.0, 3.0, 0.0, 3.0], vec![0.0, 0.0, 4.0, 4.0])?;
         let b = point_constant(0.0, 0.0, 4, &mut ctx)?;
-        let distance = GeoDistance::try_new_array(a, b)?.into_array();
+        let distance = GeoDistance.try_new_array(a.len(), EmptyOptions, [a, b])?;
 
         assert_eq!(distances(distance, &mut ctx)?, vec![0.0, 3.0, 4.0, 5.0]);
         Ok(())
@@ -173,7 +161,7 @@ mod tests {
 
         let a = point_column(vec![0.0, 1.0], vec![0.0, 1.0])?;
         let b = point_column(vec![3.0, 1.0], vec![4.0, 1.0])?;
-        let distance = GeoDistance::try_new_array(a, b)?.into_array();
+        let distance = GeoDistance.try_new_array(a.len(), EmptyOptions, [a, b])?;
 
         assert_eq!(distances(distance, &mut ctx)?, vec![5.0, 0.0]);
         Ok(())
@@ -190,7 +178,7 @@ mod tests {
         let single = polygon_column(vec![vec![ring]])?.execute_scalar(0, &mut ctx)?;
         let square = ConstantArray::new(single, 2).into_array();
         let points = point_column(vec![7.0, 2.0], vec![2.0, 2.0])?;
-        let distance = GeoDistance::try_new_array(points, square)?.into_array();
+        let distance = GeoDistance.try_new_array(points.len(), EmptyOptions, [points, square])?;
 
         assert_eq!(distances(distance, &mut ctx)?, vec![3.0, 0.0]);
         Ok(())
@@ -204,7 +192,7 @@ mod tests {
 
         let a = point_constant(0.0, 0.0, 4, &mut ctx)?;
         let b = point_column(vec![0.0, 3.0, 0.0, 3.0], vec![0.0, 0.0, 4.0, 4.0])?;
-        let distance = GeoDistance::try_new_array(a, b)?.into_array();
+        let distance = GeoDistance.try_new_array(a.len(), EmptyOptions, [a, b])?;
 
         assert_eq!(distances(distance, &mut ctx)?, vec![0.0, 3.0, 4.0, 5.0]);
         Ok(())
@@ -218,7 +206,7 @@ mod tests {
 
         let a = point_constant(0.0, 0.0, 3, &mut ctx)?;
         let b = point_constant(3.0, 4.0, 3, &mut ctx)?;
-        let distance = GeoDistance::try_new_array(a, b)?.into_array();
+        let distance = GeoDistance.try_new_array(a.len(), EmptyOptions, [a, b])?;
 
         assert_eq!(distances(distance, &mut ctx)?, vec![5.0, 5.0, 5.0]);
         Ok(())
@@ -245,7 +233,7 @@ mod tests {
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None, Some((3.0, 4.0))])?;
         let b = point_constant(0.0, 0.0, 3, &mut ctx)?;
-        let distance = GeoDistance::try_new_array(a, b)?.into_array();
+        let distance = GeoDistance.try_new_array(a.len(), EmptyOptions, [a, b])?;
 
         let expected = PrimitiveArray::new(
             vec![0.0f64, 0.0, 5.0],
@@ -264,7 +252,7 @@ mod tests {
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None, Some((0.0, 0.0))])?;
         let b = nullable_point_column(vec![Some((3.0, 4.0)), Some((1.0, 1.0)), None])?;
-        let distance = GeoDistance::try_new_array(a, b)?.into_array();
+        let distance = GeoDistance.try_new_array(a.len(), EmptyOptions, [a, b])?;
 
         let expected = PrimitiveArray::new(
             vec![5.0f64, 0.0, 0.0],
@@ -284,7 +272,8 @@ mod tests {
         let point_dtype = point_column(vec![0.0], vec![0.0])?.dtype().as_nullable();
         let null_const = ConstantArray::new(Scalar::null(point_dtype), 3).into_array();
         let b = point_column(vec![0.0, 3.0, 0.0], vec![0.0, 0.0, 4.0])?;
-        let distance = GeoDistance::try_new_array(null_const, b)?.into_array();
+        let distance =
+            GeoDistance.try_new_array(null_const.len(), EmptyOptions, [null_const, b])?;
 
         let expected = PrimitiveArray::new(vec![0.0f64; 3], Validity::AllInvalid).into_array();
         assert_arrays_eq!(distance, expected, &mut ctx);
@@ -299,7 +288,7 @@ mod tests {
 
         let a = nullable_point_column(vec![None, None])?;
         let b = point_constant(0.0, 0.0, 2, &mut ctx)?;
-        let distance = GeoDistance::try_new_array(a, b)?.into_array();
+        let distance = GeoDistance.try_new_array(a.len(), EmptyOptions, [a, b])?;
 
         let expected = PrimitiveArray::new(vec![0.0f64; 2], Validity::AllInvalid).into_array();
         assert_arrays_eq!(distance, expected, &mut ctx);
@@ -315,7 +304,7 @@ mod tests {
 
         let a = nullable_point_column(vec![Some((0.0, 0.0)), None])?;
         let b = nullable_point_column(vec![None, Some((1.0, 1.0))])?;
-        let distance = GeoDistance::try_new_array(a, b)?.into_array();
+        let distance = GeoDistance.try_new_array(a.len(), EmptyOptions, [a, b])?;
 
         let expected = PrimitiveArray::new(vec![0.0f64; 2], Validity::AllInvalid).into_array();
         assert_arrays_eq!(distance, expected, &mut ctx);
@@ -332,8 +321,8 @@ mod tests {
 
         let a = point_column(vec![], vec![])?;
         let b = point_column(vec![], vec![])?;
-        let result = GeoDistance::try_new_array(a, b)?
-            .into_array()
+        let result = GeoDistance
+            .try_new_array(a.len(), EmptyOptions, [a, b])?
             .execute::<Canonical>(&mut ctx)?
             .into_array();
 
