@@ -335,7 +335,7 @@ impl From<TraceResolution> for TraceInterest {
 /// Snapshot-friendly wrapper around [`ArrayRef`] that renders the encoding, dtype, and length
 /// using the canonical [`Display`] format (`vortex.primitive(i32, len=4)`).
 ///
-/// Carries a clone of the [`ArrayRef`] (a cheap [`Arc`] bump) instead of duplicating fields,
+/// Carries a clone of the [`ArrayRef`] instead of duplicating fields,
 /// so trace events stay small and share the same rendering as every other `{array}` print in
 /// the codebase.
 #[derive(Clone, Debug)]
