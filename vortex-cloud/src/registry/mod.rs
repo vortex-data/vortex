@@ -9,8 +9,9 @@
 //! 1. configuration is resolved out of environment variables case-insensitively, matching how the
 //!    various `Store::from_env` builders behave (see
 //!    <https://github.com/apache/arrow-rs-object-store/issues/529>);
-//! 2. schemes that `object_store` does not recognize natively — the OpenDAL-backed `cos://` and
-//!    `oss://` — are served by the crate's `opendal` module under the matching service feature.
+//! 2. schemes that `object_store` does not recognize natively — the OpenDAL-backed `cos://`,
+//!    `oss://`, and `goosefs://` — are served by the crate's `opendal` module under the matching
+//!    service feature.
 
 use std::sync::Arc;
 
@@ -101,7 +102,7 @@ enum EnvSource {
 
 impl EnvSource {
     /// Case-insensitive lookup of a single configuration variable.
-    #[cfg(any(feature = "cos", feature = "oss"))]
+    #[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
     fn lookup(&self, key: &str) -> Option<String> {
         match self {
             EnvSource::Process => std::env::var(key).ok(),
@@ -218,11 +219,12 @@ impl Registry {
     /// the one caching rule in [`Registry::resolve`]: a scheme says where its store is rooted, and
     /// the registry decides how to cache it.
     fn build_store(&self, to_resolve: &Url) -> object_store::Result<(Arc<dyn ObjectStore>, Path)> {
-        // OpenDAL-backed schemes (Tencent COS, Alibaba OSS) are not recognized by `object_store`,
-        // so build them from OpenDAL's own environment-variable configuration (e.g.
-        // `TENCENTCLOUD_SECRET_ID`). The operator is rooted at the bucket, which lives in the URL
-        // authority, so — exactly as for `s3://bucket/path` — the whole URL path is the object key.
-        #[cfg(any(feature = "cos", feature = "oss"))]
+        // OpenDAL-backed schemes (Tencent COS, Alibaba OSS, Tencent GooseFS) are not recognized
+        // by `object_store`, so build them from OpenDAL's own environment-variable configuration
+        // (e.g. `TENCENTCLOUD_SECRET_ID`, `GOOSEFS_MASTER_ADDR`). The operator is rooted at the
+        // bucket, which lives in the URL authority, so — exactly as for `s3://bucket/path` —
+        // the whole URL path is the object key.
+        #[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
         if crate::opendal::supports_scheme(to_resolve.scheme()) {
             let store =
                 crate::opendal::make_opendal_store_with_env(to_resolve, &HashMap::new(), |key| {

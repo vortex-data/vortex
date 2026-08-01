@@ -2,21 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! OpenDAL-backed [`object_store::ObjectStore`] implementations for cloud providers that are not
-//! natively supported by the `object_store` crate: Tencent Cloud COS and Alibaba Cloud OSS.
+//! natively supported by the `object_store` crate: Tencent Cloud COS, Alibaba Cloud OSS, and
+//! Tencent Cloud GooseFS.
 //!
 //! OpenDAL exposes each service as an `Operator`. We adapt an `Operator` into an
-//! `object_store::ObjectStore` via the `object_store_opendal::OpendalStore` bridge, which is built
-//! against the same `object_store 0.13.x` version the rest of Vortex uses. This lets Vortex consume
-//! these services through its existing `ObjectStoreFileSystem` abstraction.
+//! `object_store::ObjectStore` via the `object_store_opendal::OpendalStore` bridge. This lets
+//! Vortex consume these services through its existing `ObjectStoreFileSystem` abstraction.
 //!
 //! Callers that dispatch on a URL scheme should ask [`supports_scheme`] rather than comparing
-//! against [`COS_SCHEME`] / [`OSS_SCHEME`] themselves, so that enabling another service does not
-//! require touching every call site.
+//! against [`COS_SCHEME`] / [`OSS_SCHEME`] / [`GOOSEFS_SCHEME`] themselves, so that enabling
+//! another service does not require touching every call site.
 //!
 //! # Cargo features
 //!
 //! * `cos` — Tencent Cloud COS, the `cos://` scheme.
 //! * `oss` — Alibaba Cloud OSS, the `oss://` scheme.
+//! * `goosefs` — Tencent Cloud GooseFS, the `goosefs://` scheme.
 //!
 //! With a single service enabled the module still compiles: [`supports_scheme`] returns `false`
 //! for every scheme it does not serve and [`make_opendal_store`] reports
@@ -32,15 +33,17 @@
 
 #[cfg(feature = "cos")]
 mod cos;
+#[cfg(feature = "goosefs")]
+mod goosefs;
 #[cfg(feature = "oss")]
 mod oss;
 
 use std::sync::Arc;
 
-#[cfg(any(feature = "cos", feature = "oss"))]
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
 use ::opendal::Operator;
 use object_store::ObjectStore;
-#[cfg(any(feature = "cos", feature = "oss"))]
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
 use tracing::warn;
 use url::Url;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -51,6 +54,12 @@ pub use crate::opendal::cos::COS_SCHEME;
 pub use crate::opendal::cos::CosConfig;
 #[cfg(feature = "cos")]
 pub use crate::opendal::cos::make_cos_store;
+#[cfg(feature = "goosefs")]
+pub use crate::opendal::goosefs::GOOSEFS_SCHEME;
+#[cfg(feature = "goosefs")]
+pub use crate::opendal::goosefs::GoosefsConfig;
+#[cfg(feature = "goosefs")]
+pub use crate::opendal::goosefs::make_goosefs_store;
 #[cfg(feature = "oss")]
 pub use crate::opendal::oss::OSS_SCHEME;
 #[cfg(feature = "oss")]
@@ -99,6 +108,8 @@ impl From<OpenDALStoreError> for object_store::Error {
 pub const SUPPORTED_SCHEMES: &[&str] = &[
     #[cfg(feature = "cos")]
     COS_SCHEME,
+    #[cfg(feature = "goosefs")]
+    GOOSEFS_SCHEME,
     #[cfg(feature = "oss")]
     OSS_SCHEME,
 ];
@@ -116,11 +127,13 @@ pub fn supports_scheme(scheme: &str) -> bool {
     SUPPORTED_SCHEMES.contains(&scheme)
 }
 
-/// Build an [`object_store::ObjectStore`] for an OpenDAL-backed URL (`cos://`, `oss://`).
+/// Build an [`object_store::ObjectStore`] for an OpenDAL-backed URL (`cos://`, `oss://`,
+/// `goosefs://`).
 ///
 /// `properties` are per-request configuration overrides (matching the `HashMap<String, String>`
 /// passed through the JNI/Python layers). Missing values fall back to the environment variables
-/// the corresponding service reads (e.g. `TENCENTCLOUD_SECRET_ID`, `ALIBABA_CLOUD_ACCESS_KEY_ID`).
+/// the corresponding service reads (e.g. `TENCENTCLOUD_SECRET_ID`, `ALIBABA_CLOUD_ACCESS_KEY_ID`,
+/// `GOOSEFS_MASTER_ADDR`).
 ///
 /// Returns [`OpenDALStoreError::UnsupportedScheme`] if `url` uses a scheme this build does not
 /// serve; test it up-front with [`supports_scheme`].
@@ -150,6 +163,10 @@ where
         COS_SCHEME => make_cos_store(cos::url_and_properties_to_config(
             url, properties, env_lookup,
         )?),
+        #[cfg(feature = "goosefs")]
+        GOOSEFS_SCHEME => make_goosefs_store(goosefs::url_and_properties_to_config(
+            url, properties, env_lookup,
+        )?),
         #[cfg(feature = "oss")]
         OSS_SCHEME => make_oss_store(oss::url_and_properties_to_config(
             url, properties, env_lookup,
@@ -174,7 +191,7 @@ fn env_var_lookup(key: &str) -> Option<String> {
 }
 
 /// Take `key` from `properties`, falling back to `env_lookup(env_var)`.
-#[cfg(any(feature = "cos", feature = "oss"))]
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
 pub(crate) fn property_or_env<F>(
     properties: &HashMap<String, String>,
     key: &str,
@@ -188,7 +205,7 @@ where
 }
 
 /// Log a warning for every property key the service does not recognize.
-#[cfg(any(feature = "cos", feature = "oss"))]
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
 pub(crate) fn warn_on_unknown_properties(properties: &HashMap<String, String>, known: &[&str]) {
     for key in properties.keys() {
         if !known.contains(&key.as_str()) {
@@ -198,7 +215,7 @@ pub(crate) fn warn_on_unknown_properties(properties: &HashMap<String, String>, k
 }
 
 /// Finish an OpenDAL builder into an [`Operator`], mapping builder errors into our error type.
-#[cfg(any(feature = "cos", feature = "oss"))]
+#[cfg(any(feature = "cos", feature = "goosefs", feature = "oss"))]
 pub(crate) fn build_operator<B>(builder: B) -> Result<Operator, OpenDALStoreError>
 where
     B: ::opendal::Builder,
@@ -226,6 +243,7 @@ mod tests {
     fn supports_scheme_tracks_enabled_features() {
         assert!(!supports_scheme("s3"));
         assert_eq!(supports_scheme("cos"), cfg!(feature = "cos"));
+        assert_eq!(supports_scheme("goosefs"), cfg!(feature = "goosefs"));
         assert_eq!(supports_scheme("oss"), cfg!(feature = "oss"));
     }
 

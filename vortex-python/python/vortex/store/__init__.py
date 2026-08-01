@@ -18,12 +18,15 @@ from ._azure import (
 from ._client import ClientConfig
 from ._cos import CosStore
 from ._gcs import GCSConfig, GCSCredential, GCSCredentialProvider, GCSStore
+from ._goosefs import GoosefsStore
 from ._http import HTTPStore
 from ._local import LocalStore
 from ._memory import MemoryStore
 from ._retry import BackoffConfig, RetryConfig
 
-ObjectStore: TypeAlias = AzureStore | CosStore | GCSStore | HTTPStore | S3Store | LocalStore | MemoryStore
+ObjectStore: TypeAlias = (
+    AzureStore | CosStore | GoosefsStore | GCSStore | HTTPStore | S3Store | LocalStore | MemoryStore
+)
 """All supported ObjectStore implementations."""
 
 
@@ -93,6 +96,9 @@ def from_url(  # type: ignore[misc] # docstring in pyi file
     - ``cos://bucket/path`` -> OpenDAL-backed Tencent Cloud COS store (requires the
       ``opendal`` feature; configure via environment variables such as
       ``TENCENTCLOUD_SECRET_ID`` / ``TENCENTCLOUD_SECRET_KEY`` and ``COS_ENDPOINT``)
+    - ``goosefs://master-addr:port/path`` -> OpenDAL-backed Tencent Cloud GooseFS store
+      (requires the ``opendal`` feature; configure via environment variable
+      ``GOOSEFS_MASTER_ADDR`` or pass ``master_addr`` in properties)
     - ``http://mydomain/path`` -> :class:`~vortex.store.HTTPStore`
     - ``https://mydomain/path`` -> :class:`~vortex.store.HTTPStore`
 
@@ -145,6 +151,8 @@ __all__ = [
     "RetryConfig",
     # COS (OpenDAL-backed)
     "CosStore",
+    # GooseFS (OpenDAL-backed)
+    "GoosefsStore",
     # GCS
     "GCSConfig",
     "GCSCredential",

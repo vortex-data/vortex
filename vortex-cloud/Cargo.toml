@@ -52,8 +52,15 @@ oss = [
     "object_store/cloud",
     "opendal/services-oss",
 ]
+# Tencent Cloud GooseFS, the `goosefs://` scheme.
+goosefs = [
+    "dep:opendal",
+    "dep:object_store_opendal",
+    "dep:tracing",
+    "opendal/services-goosefs",
+]
 # Every OpenDAL-backed service.
-opendal = ["cos", "oss"]
+opendal = ["cos", "oss", "goosefs"]
 
 [lints]
 workspace = true
