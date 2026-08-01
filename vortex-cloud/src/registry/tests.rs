@@ -147,22 +147,32 @@ fn test_registered_store_wins_over_build() -> Result<(), Box<dyn std::error::Err
 }
 
 /// The OpenDAL-backed schemes must resolve through the registry rather than falling through to
-/// `parse_url_opts`, which does not recognize them. Without an endpoint the build fails, but the
-/// error must come from the OpenDAL builder ("missing required OpenDAL store configuration"), not
-/// from `object_store`'s unrecognized-scheme path.
-#[cfg(any(feature = "cos", feature = "oss"))]
+/// `parse_url_opts`, which does not recognize them.
+///
+/// COS and OSS need an endpoint that is not derivable from the URL, so a bare
+/// `scheme://bucket/key.vortex` URL fails the build; that failure must come from the OpenDAL
+/// builder ("missing required OpenDAL store configuration"), not from `object_store`'s
+/// unrecognized-scheme path. GooseFS is different: its `master_addr` is taken from the URL
+/// authority, so the same URL builds a store successfully — which itself proves it reached the
+/// OpenDAL builder, since `parse_url_opts` would have rejected `goosefs://`.
+#[cfg(any(feature = "cos", feature = "oss", feature = "goosefs"))]
 #[test]
 fn test_opendal_schemes_reach_the_opendal_builder() -> Result<(), Box<dyn std::error::Error>> {
     for scheme in crate::opendal::SUPPORTED_SCHEMES {
         let url = Url::parse(&format!("{scheme}://bucket/key.vortex"))?;
-        let err = registry()
-            .resolve(&url)
-            .expect_err("no endpoint is configured, so the build must fail");
-        let message = err.to_string();
-        assert!(
-            message.contains("OpenDAL"),
-            "{scheme} did not reach the OpenDAL builder: {message}"
-        );
+        match registry().resolve(&url) {
+            // GooseFS derives `master_addr` from the URL authority, so the store builds
+            // successfully. `parse_url_opts` does not recognize `goosefs://`, so an `Ok`
+            // here proves the OpenDAL builder ran.
+            Ok(_) => {}
+            Err(err) => {
+                let message = err.to_string();
+                assert!(
+                    message.contains("OpenDAL"),
+                    "{scheme} did not reach the OpenDAL builder: {message}"
+                );
+            }
+        }
     }
     Ok(())
 }
