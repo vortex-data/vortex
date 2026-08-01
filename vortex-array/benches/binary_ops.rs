@@ -55,6 +55,30 @@ fn add_i64_nullable(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn add_i64_constant(bencher: Bencher) {
+    let lhs = primitive_nonnull(0).into_array();
+    let rhs = ConstantArray::new(1_000_000i64, LEN).into_array();
+
+    bench_primitive(bencher, lhs, rhs, Operator::Add);
+}
+
+#[divan::bench]
+fn add_i32_nonnull(bencher: Bencher) {
+    let lhs = primitive_i32_small_nonnull(1).into_array();
+    let rhs = primitive_i32_small_nonnull(17).into_array();
+
+    bench_primitive(bencher, lhs, rhs, Operator::Add);
+}
+
+#[divan::bench]
+fn add_u32_nonnull(bencher: Bencher) {
+    let lhs = primitive_u32_small_nonnull(1).into_array();
+    let rhs = primitive_u32_small_nonnull(17).into_array();
+
+    bench_primitive(bencher, lhs, rhs, Operator::Add);
+}
+
+#[divan::bench]
 fn mul_i64_nonnull(bencher: Bencher) {
     let lhs = primitive_small_nonnull(1).into_array();
     let rhs = primitive_small_nonnull(17).into_array();

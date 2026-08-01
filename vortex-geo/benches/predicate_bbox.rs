@@ -26,7 +26,10 @@ fn main() {
     divan::main();
 }
 
-const ROWS: usize = 1 << 13;
+/// A candidate row runs the exact predicate against a 128-vertex query polygon, which CodSpeed's
+/// CPU simulation charges far more than a desktop does. This row count keeps the candidate arms
+/// inside the 1 ms per-iteration budget from `docs/developer-guide/benchmarking.md`.
+const ROWS: usize = 1 << 9;
 const VERTICES: usize = 128;
 
 static QUERY: LazyLock<Geometry<f64>> = LazyLock::new(|| {

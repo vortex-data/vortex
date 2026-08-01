@@ -138,6 +138,10 @@ name = "like"
 harness = false
 
 [[bench]]
+name = "byte_length"
+harness = false
+
+[[bench]]
 name = "interleave"
 harness = false
 

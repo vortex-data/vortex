@@ -36,6 +36,7 @@ _test-harness = []
 
 [dev-dependencies]
 divan = { workspace = true }
+mimalloc = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-geo = { path = ".", features = ["_test-harness"] }
@@ -47,6 +48,14 @@ harness = false
 
 [[bench]]
 name = "predicate_bbox"
+harness = false
+
+[[bench]]
+name = "binary_predicates"
+harness = false
+
+[[bench]]
+name = "distance"
 harness = false
 
 [lints]

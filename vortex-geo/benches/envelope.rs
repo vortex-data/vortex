@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 
 use divan::Bencher;
 use divan::counter::ItemsCount;
+use mimalloc::MiMalloc;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -35,6 +36,11 @@ use vortex_geo::test_harness::nullable_point_column;
 use vortex_geo::test_harness::point_column;
 use vortex_session::VortexSession;
 
+// Scalar function execution allocates its output inside the timed region, so use the vendored
+// allocator instead of measuring glibc differences between CodSpeed runner images.
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 fn main() {
     divan::main();
 }
@@ -42,8 +48,11 @@ fn main() {
 static SESSION: LazyLock<VortexSession> = LazyLock::new(geo_session);
 
 /// Every case has the same row count so results are comparable across shapes: differences then
-/// reflect per-row cost (nesting depth, validity handling) rather than input size.
-const ROWS: usize = 1 << 17;
+/// reflect per-row cost (nesting depth, validity handling) rather than input size. The nested cases
+/// carry 32 vertices per row, and CodSpeed's CPU simulation charges their memory traffic far more
+/// than a desktop does, so this is what keeps them inside the 1 ms per-iteration budget from
+/// `docs/developer-guide/benchmarking.md`.
+const ROWS: usize = 1 << 11;
 
 /// Deterministic pseudo-random ordinate in `[0, 1000)`.
 fn ordinate(i: usize) -> f64 {
