@@ -34,8 +34,8 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::encodings::l2_denorm::DenormOrientation;
 use crate::matcher::AnyTensor;
-use crate::scalar_fns::l2_denorm::DenormOrientation;
 use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
@@ -114,7 +114,7 @@ impl ScalarFnVTable for InnerProduct {
         let rhs_ref = args.get(1)?;
         let len = args.row_count();
 
-        // Take any L2Denorm-wrapped fast path that applies.
+        // Take any L2Denorm read-through fast path that applies.
         match DenormOrientation::classify(&lhs_ref, &rhs_ref) {
             DenormOrientation::Both { lhs, rhs } => {
                 return self.execute_both_denorm(lhs, rhs, len, ctx);
@@ -203,7 +203,9 @@ impl ScalarFnArrayVTable for InnerProduct {
 }
 
 impl InnerProduct {
-    /// Both sides are `L2Denorm`: `inner_product = s_l * s_r * dot(n_l, n_r)`.
+    /// Both sides are [`L2Denorm`]-encoded: `inner_product = s_l * s_r * dot(n_l, n_r)`.
+    ///
+    /// [`L2Denorm`]: crate::encodings::l2_denorm::L2Denorm
     fn execute_both_denorm(
         &self,
         lhs_ref: &ArrayRef,
@@ -234,7 +236,9 @@ impl InnerProduct {
         })
     }
 
-    /// One side is `L2Denorm`: `inner_product = s * dot(n, other)`.
+    /// One side is [`L2Denorm`]-encoded: `inner_product = s * dot(n, other)`.
+    ///
+    /// [`L2Denorm`]: crate::encodings::l2_denorm::L2Denorm
     ///
     /// The caller must pass the denorm array as `denorm_ref` and the plain array as `plain_ref`.
     fn execute_one_denorm(
@@ -289,8 +293,8 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
+    use crate::encodings::l2_denorm::L2Denorm;
     use crate::scalar_fns::inner_product::InnerProduct;
-    use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::l2_denorm_array;
@@ -467,7 +471,7 @@ mod tests {
         let norms_l = PrimitiveArray::from_option_iter([Some(5.0f64), None]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let lhs = L2Denorm::try_new_array(normalized_l, norms_l, &mut ctx)?.into_array();
+        let lhs = L2Denorm::try_new(normalized_l, norms_l, &mut ctx)?.into_array();
         let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0], &mut ctx)?;
 
         let scalar_fn = InnerProduct::new().erased();

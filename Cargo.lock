@@ -10494,9 +10494,11 @@ dependencies = [
  "rstest",
  "vortex-array",
  "vortex-arrow",
+ "vortex-btrblocks",
  "vortex-buffer",
  "vortex-compressor",
  "vortex-error",
+ "vortex-mask",
  "vortex-session",
 ]
 

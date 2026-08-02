@@ -30,9 +30,9 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
+use crate::encodings::l2_denorm::DenormOrientation;
+use crate::encodings::l2_denorm::try_build_constant_l2_denorm;
 use crate::scalar_fns::inner_product::InnerProduct;
-use crate::scalar_fns::l2_denorm::DenormOrientation;
-use crate::scalar_fns::l2_denorm::try_build_constant_l2_denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_l2_denorm_children;
@@ -47,14 +47,14 @@ use crate::utils::validate_binary_tensor_float_inputs;
 /// Both inputs must be tensor-like extension arrays ([`FixedShapeTensor`] or [`Vector`]) with the
 /// same dtype and a float element type. The output is a float column of the same float type.
 ///
-/// When either input is wrapped in [`L2Denorm`], this operator treats the stored norms and
-/// normalized children as authoritative. For lossy encodings, that means the
-/// optimized readthrough path may intentionally differ slightly from decoding both sides to dense
+/// When either input is [`L2Denorm`]-encoded, this operator treats the stored norms and
+/// normalized children as authoritative. For lossy normalized children, that means the optimized
+/// read-through path may intentionally differ slightly from decoding both sides to dense
 /// coordinates and recomputing cosine from scratch.
 ///
 /// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
 /// [`Vector`]: crate::vector::Vector
-/// [`L2Denorm`]: crate::scalar_fns::l2_denorm::L2Denorm
+/// [`L2Denorm`]: crate::encodings::l2_denorm::L2Denorm
 #[derive(Clone)]
 pub struct CosineSimilarity;
 
@@ -117,16 +117,16 @@ impl ScalarFnVTable for CosineSimilarity {
         let len = args.row_count();
 
         // If either side is a constant tensor-like extension array, eagerly normalize the single
-        // stored row and re-wrap it as an `L2Denorm` whose children are both `ConstantArray`s.
-        // The L2Denorm fast path below then picks it up.
-        if let Some(sfn) = try_build_constant_l2_denorm(&lhs_ref, len, ctx)? {
-            lhs_ref = sfn.into_array();
+        // stored row and re-encode it as an `L2Denorm` whose children are both `ConstantArray`s.
+        // The `L2Denorm` fast path below then picks it up.
+        if let Some(denorm) = try_build_constant_l2_denorm(&lhs_ref, len, ctx)? {
+            lhs_ref = denorm.into_array();
         }
-        if let Some(sfn) = try_build_constant_l2_denorm(&rhs_ref, len, ctx)? {
-            rhs_ref = sfn.into_array();
+        if let Some(denorm) = try_build_constant_l2_denorm(&rhs_ref, len, ctx)? {
+            rhs_ref = denorm.into_array();
         }
 
-        // Take any L2Denorm-wrapped fast path that applies.
+        // Take any L2Denorm read-through fast path that applies.
         match DenormOrientation::classify(&lhs_ref, &rhs_ref) {
             DenormOrientation::Both { lhs, rhs } => {
                 return self.execute_both_denorm(lhs, rhs, len, ctx);
@@ -219,8 +219,10 @@ impl ScalarFnArrayVTable for CosineSimilarity {
 }
 
 impl CosineSimilarity {
-    /// Both sides are `L2Denorm`: treat the normalized children as authoritative, so
+    /// Both sides are [`L2Denorm`]-encoded: treat the normalized children as authoritative, so
     /// `cosine_similarity = dot(n_l, n_r)`.
+    ///
+    /// [`L2Denorm`]: crate::encodings::l2_denorm::L2Denorm
     fn execute_both_denorm(
         &self,
         lhs_ref: &ArrayRef,
@@ -261,8 +263,10 @@ impl CosineSimilarity {
         })
     }
 
-    /// One side is `L2Denorm`: treat the normalized child as authoritative, so
+    /// One side is [`L2Denorm`]-encoded: treat the normalized child as authoritative, so
     /// `cosine_similarity = dot(n, b) / ||b||`.
+    ///
+    /// [`L2Denorm`]: crate::encodings::l2_denorm::L2Denorm
     ///
     /// The caller must pass the denorm array as `denorm_ref` and the plain array as `plain_ref`.
     fn execute_one_denorm(
@@ -321,8 +325,8 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
+    use crate::encodings::l2_denorm::L2Denorm;
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
-    use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::tests::SESSION;
     use crate::types::vector::Vector;
     use crate::utils::test_helpers::assert_close;
@@ -580,7 +584,7 @@ mod tests {
 
         let normalized_r = tensor_array(&[2], &[0.6, 0.8, 1.0, 0.0])?;
         let norms_r = PrimitiveArray::from_option_iter([Some(5.0f64), None]).into_array();
-        let rhs = L2Denorm::try_new_array(normalized_r, norms_r, &mut ctx)?.into_array();
+        let rhs = L2Denorm::try_new(normalized_r, norms_r, &mut ctx)?.into_array();
 
         let scalar_fn = CosineSimilarity::new().erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs])?;
@@ -600,14 +604,16 @@ mod tests {
         // children is nonzero.
         let normalized_l = tensor_array(&[2], &[0.6, 0.8])?;
         let norms_l = PrimitiveArray::from_iter([0.0f64]).into_array();
-        // SAFETY: This is a focused test that intentionally violates the unit-norm invariant by
-        // pairing a nonzero normalized row with a stored norm of `0.0`, mimicking lossy storage.
-        let lhs = unsafe { L2Denorm::new_array_unchecked(normalized_l, norms_l)? }.into_array();
+        // Intentionally violates the unit-norm invariant by pairing a nonzero normalized row
+        // with a stored norm of `0.0`, mimicking lossy storage.
+        // SAFETY: The children are structurally valid.
+        let lhs = unsafe { L2Denorm::new_unchecked(normalized_l, norms_l) }.into_array();
 
         let normalized_r = tensor_array(&[2], &[0.6, 0.8])?;
         let norms_r = PrimitiveArray::from_iter([0.0f64]).into_array();
-        // SAFETY: Same as above for the rhs operand.
-        let rhs = unsafe { L2Denorm::new_array_unchecked(normalized_r, norms_r)? }.into_array();
+        // Same as above for the rhs operand.
+        // SAFETY: The children are structurally valid.
+        let rhs = unsafe { L2Denorm::new_unchecked(normalized_r, norms_r) }.into_array();
 
         // `dot(normalized_l, normalized_r) = 1.0`, but the authoritative stored norms are both
         // `0.0`, so cosine similarity must be `0.0`.
@@ -623,9 +629,10 @@ mod tests {
         // authoritative stored norm on the denorm side is `0.0`.
         let normalized = tensor_array(&[2], &[0.6, 0.8])?;
         let norms = PrimitiveArray::from_iter([0.0f64]).into_array();
-        // SAFETY: This is a focused test that intentionally pairs a nonzero normalized row with a
-        // stored norm of `0.0`, mimicking lossy storage where the stored norm is authoritative.
-        let denorm = unsafe { L2Denorm::new_array_unchecked(normalized, norms)? }.into_array();
+        // Intentionally pairs a nonzero normalized row with a stored norm of `0.0`, mimicking
+        // lossy storage where the stored norm is authoritative.
+        // SAFETY: The children are structurally valid.
+        let denorm = unsafe { L2Denorm::new_unchecked(normalized, norms) }.into_array();
 
         let plain = tensor_array(&[2], &[1.0, 0.0])?;
 
