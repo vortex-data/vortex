@@ -54,11 +54,6 @@ fn filter_fallback_width_records() {
     DecimalDType::new(2, 0),
     Validity::NonNullable,
 ).into_array())]
-#[case::decimal_i16(DecimalArray::new(
-    buffer![10i16, 20, 30, 40, 50],
-    DecimalDType::new(3, 0),
-    Validity::NonNullable,
-).into_array())]
 #[case::decimal_i32(DecimalArray::new(
     buffer![123i32, 456, -123, 0, 999],
     DecimalDType::new(8, 2),

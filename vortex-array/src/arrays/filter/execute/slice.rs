@@ -52,10 +52,6 @@ pub(super) fn low_bits_mask(len: usize) -> u64 {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Immutable slice filtering
-// ---------------------------------------------------------------------------
-
 /// Filter a slice from the mask bitmap without materializing indices or ranges.
 pub(super) fn filter_slice_by_bitmap<T: Copy>(slice: &[T], mask: &MaskValues) -> Buffer<T> {
     assert_eq!(
@@ -132,10 +128,6 @@ pub(super) fn filter_slice_by_slices<T: Copy>(
     out.freeze()
 }
 
-// ---------------------------------------------------------------------------
-// Mutable (in-place) slice filtering
-// ---------------------------------------------------------------------------
-
 /// Filter a mutable slice in-place from the mask bitmap, returning the new valid length.
 pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(slice: &mut [T], mask: &MaskValues) -> usize {
     assert_eq!(
@@ -196,7 +188,6 @@ pub(super) fn filter_slice_mut_by_slices<T: Copy>(
 ) -> usize {
     let mut write_pos = 0;
 
-    // For each range in the selection, copy all of the elements to the current write position.
     for &(start, end) in slices {
         let len = end - start;
 

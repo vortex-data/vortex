@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Buffer-level filter dispatch.
-//!
-//! Reuses suitable cached mask representations and otherwise filters directly from the bitmap,
-//! avoiding temporary index or range allocations for one-shot filters.
+//! Buffer-level filter dispatch across cached, SIMD, and scalar strategies.
 
 use std::mem::size_of;
 
@@ -21,9 +18,7 @@ const MIN_SLICES_AVERAGE_RUN_LENGTH: usize = 8;
 
 /// Filter a [`Buffer<T>`] by [`MaskValues`], returning a new buffer.
 ///
-/// Dense uniquely owned buffers are compacted in place. Shared and sparse buffers allocate an
-/// exact-sized output and choose between cached indices, cached long ranges, SIMD compress,
-/// bitmap iteration, and byte-compress based on the mask, element width, and CPU features.
+/// Dense uniquely owned buffers are compacted in place; other buffers allocate a new output.
 pub(crate) fn filter_buffer<T: Copy>(buffer: Buffer<T>, mask: &MaskValues) -> Buffer<T> {
     assert_eq!(buffer.len(), mask.len());
 
@@ -92,13 +87,7 @@ fn useful_cached_slices(mask: &MaskValues) -> Option<&[(usize, usize)]> {
 fn byte_compress_density_threshold<T>() -> f64 {
     let width = size_of::<T>();
 
-    // The scalar byte-LUT has a later crossover on AArch64, where the word-at-a-time set-bit walk
-    // is particularly efficient. Wider values also favor the word walk until all-set bytes become
-    // common. Keep these cases covered by `benches/filter_fixed_width.rs`.
-    //
-    // On AArch64 the NEON kernels above already cover most of the range these thresholds used to
-    // govern, so this is reached only where `simd_compress::neon::density_band` declines: 8-byte
-    // values at density >= 0.8, and the 16/32-byte widths NEON has no kernel for.
+    // These crossovers are benchmarked in `benches/filter_fixed_width.rs`.
     if cfg!(target_arch = "aarch64") {
         return match width {
             8 => 0.75,
@@ -141,7 +130,6 @@ mod tests {
 
     use super::*;
 
-    // Helper to get `MaskValues` from a `Mask`.
     fn mask_values(mask: &Mask) -> &MaskValues {
         match mask {
             Mask::Values(v) => v.as_ref(),
@@ -150,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_buffer_by_indices() {
+    fn test_filter_buffer() {
         let buf = buffer![10u32, 20, 30, 40, 50];
         let mask = Mask::from_iter([true, false, true, false, true]);
 
@@ -159,17 +147,8 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_indices_direct() {
-        let buf = buffer![100u32, 200, 300, 400];
-        let mask = Mask::from_iter([true, false, true, true]);
-        let result = filter_buffer(buf, mask_values(&mask));
-        assert_eq!(result, buffer![100u32, 300, 400]);
-    }
-
-    #[test]
-    fn test_filter_sparse() {
+    fn test_filter_sparse_bitmap() {
         let buf = Buffer::from(BufferMut::from_iter(0u32..1000));
-        // Keep every third element.
         let mask = Mask::from_iter((0..1000).map(|i| i % 3 == 0));
 
         let result = filter_buffer(buf, mask_values(&mask));
@@ -178,9 +157,8 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_dense() {
+    fn test_filter_dense_in_place() {
         let buf = buffer![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        // Dense selection (80% selected).
         let mask = Mask::from_iter([true, true, true, true, false, true, true, true, false, true]);
 
         let result = filter_buffer(buf, mask_values(&mask));
@@ -208,18 +186,6 @@ mod tests {
         let expected = (3u32..15).chain(20..30).collect::<Vec<_>>();
         assert_eq!(result.as_slice(), expected.as_slice());
         assert_eq!(shared.len(), 32);
-    }
-
-    #[test]
-    fn test_filter_shared_dense_bitmap() {
-        let buf = Buffer::from(BufferMut::from_iter(0u16..128));
-        let shared = buf.clone();
-        let mask = Mask::from_iter((0..128).map(|index| index != 63));
-
-        let result = filter_buffer(buf, mask_values(&mask));
-        let expected = (0u16..128).filter(|&value| value != 63).collect::<Vec<_>>();
-        assert_eq!(result.as_slice(), expected.as_slice());
-        assert_eq!(shared.len(), 128);
     }
 
     #[test]

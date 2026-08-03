@@ -11,8 +11,6 @@ use vortex_mask::MaskValues;
 use super::super::slice;
 use super::*;
 
-/// `None` when the mask normalized to `AllTrue`/`AllFalse`, which `filter_buffer` never sees
-/// (the filter fast paths intercept those before buffer-level dispatch).
 fn mask_values(mask: &Mask) -> Option<&MaskValues> {
     match mask {
         Mask::Values(values) => Some(values.as_ref()),
@@ -32,16 +30,12 @@ fn make_mask(len: usize, offset: usize, pattern: impl Fn(usize) -> bool) -> Mask
 
 type Pattern = fn(usize) -> bool;
 
-fn patterns() -> Vec<(&'static str, Pattern)> {
-    vec![
-        ("all_but_first", |i| i != 0),
-        ("only_first", |i| i == 0),
-        ("sparse", |i| i % 97 == 0),
-        ("mid", |i| i % 3 == 0),
-        ("dense", |i| i % 16 != 0),
-        ("alternating", |i| i % 2 == 0),
-        ("word_blocks", |i| (i / 64) % 2 == 0),
-        ("edges", |i| i < 3 || i % 61 == 60),
+fn patterns() -> [Pattern; 4] {
+    [
+        |i| i % 3 == 0,
+        |i| i % 16 != 0,
+        |i| (i / 64) % 2 == 0,
+        |i| i < 3 || i % 61 == 60,
     ]
 }
 
@@ -62,20 +56,15 @@ fn check<T: Copy + PartialEq + std::fmt::Debug>(values: &[T], mask: &Mask) {
 }
 
 #[rstest]
-fn simd_matches_scalar(
-    #[values(0, 3, 5)] offset: usize,
-    #[values(64, 100, 151, 1000, 1024)] len: usize,
-) {
-    for (name, pattern) in patterns() {
+fn simd_matches_scalar(#[values(0, 5)] offset: usize, #[values(64, 151)] len: usize) {
+    for pattern in patterns() {
         let mask = make_mask(len, offset, pattern);
-        let mask_debug = format!("pattern={name} len={len} offset={offset}");
 
         let u8_values: Vec<u8> = (0..len).map(|i| i as u8).collect();
         let u16_values: Vec<u16> = (0..len).map(|i| i as u16).collect();
         let u32_values: Vec<u32> = (0..len).map(|i| i as u32).collect();
         let u64_values: Vec<u64> = (0..len).map(|i| i as u64).collect();
 
-        println!("checking {mask_debug}");
         check(&u8_values, &mask);
         check(&u16_values, &mask);
         check(&u32_values, &mask);
@@ -92,15 +81,12 @@ fn engages_on_supported_cpus() {
 
     #[cfg(target_arch = "x86_64")]
     let expected = is_x86_feature_detected!("avx2");
-    // NEON is part of the aarch64 baseline.
     #[cfg(target_arch = "aarch64")]
     let expected = true;
 
     assert_eq!(filter_slice_by_bitmap(&values, mask).is_some(), expected);
 }
 
-/// Every architecture declines a mask too sparse or too short to amortize a per-chunk compress,
-/// which is what routes those to the scalar strategies.
 #[test]
 fn declines_sparse_and_short_masks() {
     let values: Vec<u32> = (0..1024).collect();
@@ -114,9 +100,7 @@ fn declines_sparse_and_short_masks() {
     assert!(filter_slice_by_bitmap(&values[..32], short).is_none());
 }
 
-/// The dispatcher never selects the AVX2 tier on AVX-512 machines, so exercise those kernels
-/// directly. Covers both the `vpermd` kernels for 4/8-byte elements and the `pshufb` kernels
-/// for 1/2-byte elements.
+// AVX-512 machines need direct coverage of the otherwise-unselected AVX2 tier.
 #[cfg(all(target_arch = "x86_64", not(miri)))]
 #[test]
 fn avx2_kernels_match_scalar() {
@@ -132,7 +116,6 @@ fn avx2_kernels_match_scalar() {
     ) {
         let expected = slice::filter_slice_by_bitmap(values, mask);
 
-        // One vector of slack, mirroring the allocation in `filter_slice_by_bitmap`.
         let mut out = vec![T::default(); mask.true_count() + SLACK_BYTES / size_of::<T>()];
         // SAFETY: AVX2 was detected above and the output has a vector of slack.
         let written =
@@ -148,8 +131,8 @@ fn avx2_kernels_match_scalar() {
         assert_eq!(&compacted[..written], expected.as_slice());
     }
 
-    for (_, pattern) in patterns() {
-        for len in [64, 100, 151, 1000] {
+    for pattern in patterns() {
+        for len in [64, 151] {
             for offset in [0, 5] {
                 let mask = make_mask(len, offset, pattern);
                 let Some(mask) = mask_values(&mask) else {

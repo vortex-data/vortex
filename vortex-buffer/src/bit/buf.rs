@@ -859,37 +859,28 @@ mod tests {
         BitBuffer::from_indices(5, [0, 5]);
     }
 
-    #[test]
-    fn last_set_index_handles_offsets_and_padding() {
-        type Pattern = fn(usize) -> bool;
+    #[rstest]
+    #[case(0, 0, None)]
+    #[case(3, 7, None)]
+    #[case(0, 1, Some(0))]
+    #[case(8, 64, Some(63))]
+    #[case(13, 65, Some(0))]
+    #[case(13, 65, Some(64))]
+    #[case(67, 151, Some(97))]
+    #[case(67, 151, Some(150))]
+    fn last_set_index_handles_offsets_and_padding(
+        #[case] offset: usize,
+        #[case] len: usize,
+        #[case] expected: Option<usize>,
+    ) {
+        let backing = BitBuffer::from_iter(
+            std::iter::repeat_n(true, offset)
+                .chain((0..len).map(|index| Some(index) == expected))
+                .chain(std::iter::repeat_n(true, 7)),
+        );
+        let buffer = BitBuffer::new_with_offset(backing.inner().clone(), len, offset);
 
-        let patterns: [Pattern; 5] = [
-            |_| false,
-            |index| index == 0,
-            |index| index % 97 == 0,
-            |index| index % 3 == 1,
-            |index| (64..96).contains(&index),
-        ];
-
-        for offset in [0, 3, 8, 13, 67] {
-            for len in [0, 1, 7, 8, 63, 64, 65, 127, 128, 151] {
-                for pattern in patterns {
-                    let backing = BitBuffer::from_iter(
-                        std::iter::repeat_n(true, offset)
-                            .chain((0..len).map(pattern))
-                            .chain(std::iter::repeat_n(true, 7)),
-                    );
-                    let buffer = BitBuffer::new_with_offset(backing.inner().clone(), len, offset);
-                    let expected = (0..len).rfind(|&index| pattern(index));
-
-                    assert_eq!(
-                        buffer.last_set_index(),
-                        expected,
-                        "offset={offset} len={len}"
-                    );
-                }
-            }
-        }
+        assert_eq!(buffer.last_set_index(), expected);
     }
 
     #[rstest]

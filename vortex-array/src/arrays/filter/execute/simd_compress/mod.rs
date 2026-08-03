@@ -3,36 +3,9 @@
 
 //! SIMD compress kernels for fixed-width filtering.
 //!
-//! Every architecture reduces the same problem — write the elements selected by a mask word to
-//! the front of the output — to a per-(sub)word gather, then walks the mask with
-//! [`for_each_mask_word`](super::slice::for_each_mask_word). What differs is how one chunk of
-//! lanes is compacted:
-//!
-//! - AVX-512: `vpcompress[b/w/d/q]` consumes each mask (sub)word directly as the `k`-register
-//!   (AVX-512F for 4/8-byte elements, additionally VBMI2 for 1/2-byte elements).
-//! - AVX2, 4/8-byte elements: a per-mask-byte (or nibble) lane-index LUT feeding `vpermd`, a
-//!   vectorized version of the scalar `BYTE_COMPRESS_LUT`.
-//! - AVX2, 1/2-byte elements: a byte-index LUT feeding 128-bit `pshufb`. `pshufb` only shuffles
-//!   within a 128-bit lane, but eight lanes of a 1- or 2-byte element need at most a 16-byte
-//!   table, so one lane is all the table has to span.
-//! - NEON: the same byte-index LUT construction feeding `tbl`, which unlike `pshufb` spans a
-//!   whole register, so it also serves 4- and 8-byte elements.
-//!
-//! The byte-shuffle kernels (`pshufb`/`tbl`) share [`compress_lut`] and [`compress_tail`]; only
-//! the load/shuffle/store intrinsics differ.
-//!
-//! x86 selects a kernel per buffer by runtime feature detection (`is_x86_feature_detected!`
-//! caches per feature, so this stays cheap); NEON is part of the aarch64 baseline and needs no
-//! probe. Unlike `vortex_buffer::bit::pack`'s `collect_bool_words_multiversioned`, there is no
-//! caller-supplied closure for a `#[target_feature]` boundary to deoptimize — the per-word body
-//! is a fixed gather — so a supported element width routes here whenever the mask is dense
-//! enough to amortize the per-chunk work.
-//!
-//! Compressed vectors are written with full-width unmasked stores: the out-of-place output is
-//! over-allocated by one vector of slack so trailing garbage lands in spare capacity, which
-//! also sidesteps `vpcompressstoreu`'s microcoded slowness on Zen 4. The in-place variant
-//! bounds every unmasked store by the source position it has already consumed, and handles
-//! partial tail chunks without a full-width store at all.
+//! Architecture-specific kernels compact selected lanes a mask word at a time. Full-width stores
+//! may write trailing garbage, so out-of-place outputs reserve one vector of slack and in-place
+//! kernels never store beyond the source chunk already loaded.
 
 use std::ptr;
 
@@ -47,21 +20,16 @@ mod tests;
 #[cfg(all(target_arch = "x86_64", not(miri)))]
 mod x86;
 
-/// Below one full mask word the scalar paths win; skip kernel selection entirely.
 const MIN_LEN: usize = 64;
 
-/// One full AVX-512 vector of output slack, so every out-of-place store can be unmasked.
 const SLACK_BYTES: usize = 64;
 
-/// A per-buffer compress kernel: `(src, dst, mask) -> written`, with `src`/`dst` pointing at
-/// the first element. `dst == src` for the in-place instantiations.
+/// `dst == src` for in-place kernels.
 type Kernel = unsafe fn(*const u8, *mut u8, &MaskValues) -> usize;
 
 /// Filter a slice with a SIMD compress kernel, if one applies.
 ///
-/// Returns `None` when no kernel applies (unsupported architecture or element width, missing
-/// CPU features, or an input too short or too sparse to amortize the per-chunk work); the
-/// caller then falls back to the scalar strategies.
+/// Returns `None` when the caller should use a scalar strategy.
 pub(super) fn filter_slice_by_bitmap<T: Copy>(
     values: &[T],
     mask: &MaskValues,
@@ -105,8 +73,7 @@ pub(super) fn filter_slice_mut_by_bitmap<T: Copy>(
     Some(written)
 }
 
-/// Choose the widest kernel this build and CPU offer for `T`, if one beats the scalar walk for
-/// this mask.
+/// Choose the widest profitable kernel available for `T`.
 fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
     if mask.len() < MIN_LEN {
         return None;
@@ -127,13 +94,7 @@ fn select_kernel<T, const IN_PLACE: bool>(mask: &MaskValues) -> Option<Kernel> {
     }
 }
 
-/// Build the byte-shuffle index rows for one element width: `lut[m]` gathers the lanes selected
-/// by mask `m` into the front of the vector, leaving the trailing bytes as don't-care zeros.
-///
-/// `BYTES` is the table width, which may exceed the `lanes * elem_size` bytes the mask covers —
-/// `pshufb` always indexes a full 16-byte register even when only its low half holds lanes. Both
-/// `ROWS == 1 << lanes` and the table fit are checked at compile time by the `static`
-/// initializers.
+/// Build byte-shuffle rows that gather selected lanes to the front of a vector.
 #[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(miri)))]
 #[expect(
     clippy::cast_possible_truncation,
@@ -167,11 +128,7 @@ const fn compress_lut<const ROWS: usize, const BYTES: usize>(
     lut
 }
 
-/// Compact the elements selected by `bits` (bit `i` selects element `base + i`) one at a time.
-///
-/// Used for the final partial chunk of a mask word, where a full-width vector load would read
-/// past the end of the source. A mask has at most two such chunks — one for an unaligned leading
-/// word and one for the trailing word — so this never runs in the hot loop.
+/// Compact a partial vector without reading past the source.
 ///
 /// # Safety
 ///

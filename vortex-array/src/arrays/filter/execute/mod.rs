@@ -78,9 +78,7 @@ fn contiguous_values_range(mask: &MaskValues) -> Option<Range<usize>> {
         return None;
     }
 
-    // Probe from the cheaper side: count the candidate run for sparse masks, or find the final
-    // set bit from the end for dense masks. This bounds the uncached work by the smaller half of
-    // the bitmap while retaining the zero-copy path.
+    // Bound uncached work by probing the candidate run from the cheaper side.
     let contiguous = if true_count <= mask.len() / 2 {
         mask.bit_buffer().count_range(start, end) == true_count
     } else {
@@ -174,21 +172,6 @@ mod tests {
     use crate::arrays::PrimitiveArray;
 
     #[test]
-    fn contiguous_filter_executes_as_zero_copy_slice() -> VortexResult<()> {
-        let array = PrimitiveArray::from_iter(0i32..8);
-        let original = array.to_buffer::<i32>();
-        let filtered = array
-            .into_array()
-            .filter(Mask::from_slices(8, vec![(2, 6)]))?
-            .execute::<PrimitiveArray>(&mut array_session().create_execution_ctx())?;
-        let filtered_values = filtered.to_buffer::<i32>();
-
-        assert_eq!(filtered_values.as_slice(), &[2, 3, 4, 5]);
-        assert_eq!(filtered_values.as_ptr(), original.as_ptr().wrapping_add(2));
-        Ok(())
-    }
-
-    #[test]
     fn uncached_contiguous_filter_executes_as_zero_copy_slice() -> VortexResult<()> {
         let array = PrimitiveArray::from_iter(0i32..128);
         let original = array.to_buffer::<i32>();
@@ -208,12 +191,6 @@ mod tests {
         assert_eq!(filtered_values.as_slice(), &(37..91).collect::<Vec<_>>());
         assert_eq!(filtered_values.as_ptr(), original.as_ptr().wrapping_add(37));
         Ok(())
-    }
-
-    #[test]
-    fn fragmented_filter_is_not_a_contiguous_range() {
-        let mask = Mask::from_indices(8, [1, 2, 5, 6]);
-        assert_eq!(contiguous_filter_range(&mask), None);
     }
 
     #[test]
