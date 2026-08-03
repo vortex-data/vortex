@@ -63,6 +63,10 @@ const IS_EMPTY_FIELD: &str = "is_empty";
 ///
 /// See [`Sum`] for details.
 pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
+    if let Precision::Exact(sum) = array.statistics().get(Stat::Sum) {
+        return Ok(sum);
+    }
+
     let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), array.dtype().clone())?;
     acc.accumulate(array, ctx)?;
     let result = acc.finish()?;
