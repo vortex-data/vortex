@@ -2521,8 +2521,8 @@ mod tests {
         // Same codes, but uncompressed lengths whose sum exceeds i32::MAX.
         let oversized = FSST::try_new(
             DType::Utf8(Nullability::NonNullable),
-            fsst.symbols().clone(),
-            fsst.symbol_lengths().clone(),
+            fsst.symbols(),
+            fsst.symbol_lengths(),
             fsst.codes(),
             PrimitiveArray::from_iter([i32::MAX, i32::MAX]).into_array(),
             ctx.execution_ctx(),

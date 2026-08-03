@@ -73,10 +73,11 @@ fn make_fixture(n: usize) -> FSSTBenchFixture {
         lens.as_slice::<P>().iter().map(|x| *x as u64).sum()
     });
 
-    let binary = FSST::try_new(
+    let binary = FSST::try_new_padded(
         DType::Binary(Nullability::NonNullable),
-        fsst.symbols().clone(),
-        fsst.symbol_lengths().clone(),
+        fsst.padded_symbols().clone(),
+        fsst.padded_symbol_lengths().clone(),
+        fsst.n_symbols(),
         fsst.codes(),
         fsst.uncompressed_lengths().clone(),
         setup_ctx.execution_ctx(),

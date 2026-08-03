@@ -301,10 +301,11 @@ mod setup {
         .unwrap();
 
         // Rebuild FSST with compressed codes
-        let compressed_fsst = FSST::try_new(
+        let compressed_fsst = FSST::try_new_padded(
             fsst.dtype().clone(),
-            fsst.symbols().clone(),
-            fsst.symbol_lengths().clone(),
+            fsst.padded_symbols().clone(),
+            fsst.padded_symbol_lengths().clone(),
+            fsst.n_symbols(),
             compressed_codes,
             fsst.uncompressed_lengths().clone(),
             &mut ctx,

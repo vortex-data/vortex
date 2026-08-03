@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use fsst::Compressor;
+use fsst::Symbol;
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -26,7 +27,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::match_each_integer_ptype;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -36,6 +36,7 @@ use vortex_mask::Mask;
 
 use crate::FSST;
 use crate::FSSTArray;
+use crate::array::padded_symbol_table;
 
 /// FSST worst case: every input byte expands to an escape + literal (2x).
 const FSST_PER_BYTE_OVERHEAD: usize = 2;
@@ -308,23 +309,30 @@ impl<'c, O: OffsetBuilderPType + 'static> FsstSink<'c, O> {
             i32::try_from(s.len()).vortex_expect("per-row uncompressed length must fit in i32"),
         );
 
-        let target = FSST_PER_BYTE_OVERHEAD * s.len();
-        if target > self.buffer.len() {
-            self.buffer.reserve(target - self.buffer.len());
-        }
+        // `compress_into` writes into the spare capacity, so the buffer must be emptied first.
+        self.buffer.clear();
+        self.buffer.reserve(FSST_PER_BYTE_OVERHEAD * s.len());
 
         // SAFETY: `self.buffer` has capacity for the FSST worst-case output of `s`.
-        unsafe { self.compressor.compress_into(s, &mut self.buffer) };
+        let written = unsafe {
+            self.compressor
+                .compress_into(s, self.buffer.spare_capacity_mut())
+        };
+        // SAFETY: `compress_into` initialized the first `written` bytes.
+        unsafe { self.buffer.set_len(written) };
 
         self.builder.append_value(&self.buffer);
     }
 
     fn finish(mut self, dtype: DType, ctx: &mut ExecutionCtx) -> VortexResult<FSSTArray> {
         let codes = self.builder.finish_into_varbin();
-        FSST::try_new(
+        // Pad the symbol table here so that the array can hand it straight to a `Decompressor`
+        // without copying.
+        FSST::try_new_padded(
             dtype,
-            Buffer::copy_from(self.compressor.symbol_table()),
-            Buffer::<u8>::copy_from(self.compressor.symbol_lengths()),
+            padded_symbol_table(self.compressor.symbol_table(), Symbol::ZERO),
+            padded_symbol_table(self.compressor.symbol_lengths(), 0),
+            self.compressor.n_symbols(),
             codes,
             self.uncompressed_lengths.into_array(),
             ctx,

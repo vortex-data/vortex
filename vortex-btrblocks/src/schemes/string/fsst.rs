@@ -109,10 +109,12 @@ impl Scheme for FSSTScheme {
             fsst.codes().validity()?,
         )?;
 
-        let fsst = FSST::try_new(
+        // Reuse the padded symbol table as-is; only the codes and lengths change here.
+        let fsst = FSST::try_new_padded(
             fsst.dtype().clone(),
-            fsst.symbols().clone(),
-            fsst.symbol_lengths().clone(),
+            fsst.padded_symbols().clone(),
+            fsst.padded_symbol_lengths().clone(),
+            fsst.n_symbols(),
             compressed_codes,
             compressed_original_lengths,
             exec_ctx,

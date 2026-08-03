@@ -257,8 +257,8 @@ mod tests {
         let encoded = fsst_compress(&input, &fsst_train_compressor(&input, &mut ctx)?, &mut ctx)?;
         let invalid = FSST::try_new(
             encoded.dtype().clone(),
-            encoded.symbols().clone(),
-            encoded.symbol_lengths().clone(),
+            encoded.symbols(),
+            encoded.symbol_lengths(),
             encoded.codes(),
             PrimitiveArray::from_iter([4i32]).into_array(),
             &mut ctx,
