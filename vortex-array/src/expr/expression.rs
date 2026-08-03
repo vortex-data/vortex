@@ -9,6 +9,7 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
@@ -16,6 +17,7 @@ use vortex_session::VortexSession;
 use crate::dtype::DType;
 use crate::expr::display::DisplayTreeExpr;
 use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::fns::root::Root;
 use crate::stats::rewrite::StatsRewriteCtx;
 
 /// A node in a Vortex expression tree.
@@ -91,18 +93,17 @@ impl Expression {
     }
 
     /// Computes the return dtype of this expression given the input dtype.
-    ///
-    /// This binds the expression and discards everything but the root dtype. Callers needing types
-    /// at more than one node should bind once and read the dtypes off the bound tree.
     pub fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
-        Ok(self.bind(scope)?.dtype().clone())
-    }
+        if self.is::<Root>() {
+            return Ok(scope.clone());
+        }
 
-    /// Returns a new expression representing the validity mask output of this expression.
-    ///
-    /// The returned expression evaluates to a non-nullable boolean array.
-    pub fn validity(&self) -> VortexResult<Expression> {
-        self.scalar_fn.validity(self)
+        let dtypes: Vec<_> = self
+            .children
+            .iter()
+            .map(|c| c.return_dtype(scope))
+            .try_collect()?;
+        self.scalar_fn.return_dtype(&dtypes)
     }
 
     /// Returns an expression that proves this predicate is definitely false from stats.
