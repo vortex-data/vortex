@@ -35,7 +35,7 @@ pub trait NativeDType {
     fn dtype() -> DType;
 }
 
-/// Assert that the size of DType is 16 bytes.
+/// Assert that the size of DType is 24 bytes.
 #[cfg(not(target_arch = "wasm32"))]
 const _: [(); size_of::<DType>()] = [(); 24]; // FIXME(ngates): should we keep this at 16?
 

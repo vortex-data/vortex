@@ -79,9 +79,7 @@ impl From<Infallible> for VortexError {
     }
 }
 
-const _: () = {
-    assert!(size_of::<VortexError>() < 128);
-};
+const _: () = assert!(size_of::<VortexError>() < 128);
 
 /// The top-level error type for Vortex.
 #[non_exhaustive]
