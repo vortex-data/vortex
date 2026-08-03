@@ -4,7 +4,6 @@
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use super::IS_EMPTY_FIELD;
@@ -89,7 +88,7 @@ fn grouped_sum(
         .as_ref()
         .validity()?
         .execute_mask(elements.as_ref().len(), ctx)?;
-    let all_valid = matches!(elem_mask.slices(), AllOr::All);
+    let all_valid = elem_mask.all_true();
 
     let (sums, is_overflow, is_empty) = match_each_native_ptype!(elements.ptype(),
         unsigned: |T| {
@@ -167,16 +166,22 @@ fn sum_masked_group<T: NativePType, A>(
     elem_mask: &Mask,
     sum_run: &impl Fn(&mut A, &[T]) -> bool,
 ) -> (bool, bool) {
-    match elem_mask.slice(offset..offset + size).slices() {
-        AllOr::All => (sum_run(acc, &values[offset..offset + size]), size > 0),
-        AllOr::None => (false, false),
-        AllOr::Some(runs) => {
-            for &(start, end) in runs {
+    match elem_mask {
+        Mask::AllTrue(_) => (sum_run(acc, &values[offset..offset + size]), size > 0),
+        Mask::AllFalse(_) => (false, false),
+        Mask::Values(mask_values) => {
+            let validity = mask_values
+                .bit_buffer()
+                .as_view()
+                .slice(offset..offset + size);
+            let mut any_valid = false;
+            for (start, end) in validity.set_slices() {
+                any_valid = true;
                 if sum_run(acc, &values[offset + start..offset + end]) {
                     return (true, true);
                 }
             }
-            (false, !runs.is_empty())
+            (false, any_valid)
         }
     }
 }
