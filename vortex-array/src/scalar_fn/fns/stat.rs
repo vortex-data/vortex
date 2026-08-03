@@ -18,6 +18,7 @@ use crate::aggregate_fn::fns::all_nan::AllNan;
 use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
+use crate::aggregate_fn::fns::sum::Sum;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::expr::display::ExprDisplay;
@@ -57,7 +58,7 @@ impl Display for StatOptions {
     }
 }
 
-/// Scalar function that broadcasts a stored aggregate result over the input rows.
+/// Scalar function that broadcasts a stored aggregate partial over the input rows.
 ///
 /// The only current consumer is **row-wise pruning**: substituting `stat(col, agg)` into a
 /// predicate produces a cheap, row-aligned approximation whose constant runs let downstream
@@ -130,7 +131,13 @@ impl ScalarFnVTable for StatFn {
 }
 
 fn stat_dtype(aggregate_fn: &AggregateFnRef, input_dtype: &DType) -> VortexResult<DType> {
-    let Some(dtype) = aggregate_fn.return_dtype(input_dtype) else {
+    let dtype = if aggregate_fn.is::<Sum>() {
+        // Sum stats expose a scalar result even though canonical Sum state is a struct.
+        aggregate_fn.return_dtype(input_dtype)
+    } else {
+        aggregate_fn.state_dtype(input_dtype)
+    };
+    let Some(dtype) = dtype else {
         vortex_bail!(
             "Aggregate function {} does not support input dtype {}",
             aggregate_fn,
