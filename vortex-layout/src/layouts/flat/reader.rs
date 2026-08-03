@@ -265,7 +265,7 @@ mod test {
                 PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -306,7 +306,7 @@ mod test {
                 PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -345,7 +345,7 @@ mod test {
                 PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,

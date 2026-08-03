@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-# Vortex aggregate pushdown must match DuckDB's NaN semantics
+# Vortex aggregate pushdown must match DuckDB's float semantics:
+# NULL is skipped, NaN is a real value
 
 include ../setup.slt.no
 
@@ -17,22 +18,161 @@ COPY (
 
 query TT
 EXPLAIN
-SELECT count(*), count(x), sum(x), min(x), max(x), avg(x)
+SELECT count(*), count(x), sum(x), max(x), avg(x)
 FROM '${WORK_DIR}/nan-agg.vortex';
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query IIRRR
+SELECT count(*), count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/nan-agg.vortex';
+----
+4 3 NaN NaN NaN
+
+query TT
+EXPLAIN
+SELECT min(x) FROM '${WORK_DIR}/nan-agg.vortex';
 ----
 <REGEX>:.*UNGROUPED_AGGREGATE.*
 
-query II
-SELECT count(*), count(x) FROM '${WORK_DIR}/nan-agg.vortex';
+query R
+SELECT min(x) FROM '${WORK_DIR}/nan-agg.vortex';
 ----
-4 3
+1
 
-query RR
-SELECT sum(x), avg(x) FROM '${WORK_DIR}/nan-agg.vortex';
+query TT
+EXPLAIN
+SELECT min(x), max(x) FROM '${WORK_DIR}/nan-agg.vortex';
 ----
-NaN NaN
+<REGEX>:.*UNGROUPED_AGGREGATE.*
 
 query RR
 SELECT min(x), max(x) FROM '${WORK_DIR}/nan-agg.vortex';
 ----
 1 NaN
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES ('-nan'::DOUBLE), (1.0), (2.0)) AS t(x)
+) TO '${WORK_DIR}/neg-nan.vortex';
+
+query IRR
+SELECT count(x), sum(x), max(x) FROM '${WORK_DIR}/neg-nan.vortex';
+----
+3 NaN NaN
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES ('nan'::DOUBLE), ('nan'::DOUBLE)) AS t(x)
+) TO '${WORK_DIR}/all-nan.vortex';
+
+query IRRR
+SELECT count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/all-nan.vortex';
+----
+2 NaN NaN NaN
+
+query R
+SELECT min(x) FROM '${WORK_DIR}/all-nan.vortex';
+----
+NaN
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES
+        ('inf'::DOUBLE),
+        ('-inf'::DOUBLE),
+        (0.0),
+        (CAST(NULL AS DOUBLE))
+    ) AS t(x)
+) TO '${WORK_DIR}/mixed-inf.vortex';
+
+query IRRR
+SELECT count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/mixed-inf.vortex';
+----
+3 NaN Infinity NaN
+
+query R
+SELECT min(x) FROM '${WORK_DIR}/mixed-inf.vortex';
+----
+-Infinity
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES ('inf'::DOUBLE), (1.0), (2.0)) AS t(x)
+) TO '${WORK_DIR}/pos-inf.vortex';
+
+query RRR
+SELECT sum(x), max(x), avg(x) FROM '${WORK_DIR}/pos-inf.vortex';
+----
+Infinity Infinity Infinity
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES ('-inf'::DOUBLE), (1.0), (2.0)) AS t(x)
+) TO '${WORK_DIR}/neg-inf.vortex';
+
+query RR
+SELECT sum(x), avg(x) FROM '${WORK_DIR}/neg-inf.vortex';
+----
+-Infinity -Infinity
+
+statement ok
+COPY (
+    SELECT * FROM (VALUES (CAST(NULL AS DOUBLE)), (CAST(NULL AS DOUBLE))) AS t(x)
+) TO '${WORK_DIR}/all-null.vortex';
+
+query IRR
+SELECT count(x), sum(x), max(x) FROM '${WORK_DIR}/all-null.vortex';
+----
+0 0 NULL
+
+query R
+SELECT min(x) FROM '${WORK_DIR}/all-null.vortex';
+----
+NULL
+
+statement ok
+COPY (SELECT i::DOUBLE AS x FROM generate_series(1, 2000) t(i)) TO '${WORK_DIR}/big-plain.vortex';
+
+query TT
+EXPLAIN
+SELECT count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/big-plain.vortex';
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query IRRR
+SELECT count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/big-plain.vortex';
+----
+2000 2001000 2000 1000.5
+
+query R
+SELECT min(x) FROM '${WORK_DIR}/big-plain.vortex';
+----
+1
+
+statement ok
+COPY (SELECT CASE WHEN i = 1000 THEN 'nan'::DOUBLE ELSE i::DOUBLE END AS x
+      FROM generate_series(1, 2000) t(i)) TO '${WORK_DIR}/big-nan.vortex';
+
+query IRRR
+SELECT count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/big-nan.vortex';
+----
+2000 NaN NaN NaN
+
+query R
+SELECT min(x) FROM '${WORK_DIR}/big-nan.vortex';
+----
+1
+
+statement ok
+COPY (SELECT CASE WHEN i = 1 THEN 'inf'::DOUBLE ELSE i::DOUBLE END AS x
+      FROM generate_series(1, 2000) t(i)) TO '${WORK_DIR}/big-inf.vortex';
+
+query IRRR
+SELECT count(x), sum(x), max(x), avg(x) FROM '${WORK_DIR}/big-inf.vortex';
+----
+2000 Infinity Infinity Infinity
+
+query R
+SELECT min(x) FROM '${WORK_DIR}/big-inf.vortex';
+----
+2

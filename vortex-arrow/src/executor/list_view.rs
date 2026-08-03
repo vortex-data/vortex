@@ -31,6 +31,12 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
+    vortex_ensure!(
+        matches!(array.dtype(), DType::List(..)),
+        "Cannot convert Vortex array with dtype {} to an Arrow list-view array",
+        array.dtype()
+    );
+
     let array = array.execute::<ListViewArray>(ctx)?;
 
     // Reclaim unreferenced elements before handing the array to Arrow. Otherwise downstream

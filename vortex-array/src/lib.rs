@@ -105,6 +105,8 @@ use crate::stats::session::StatsSession;
 pub mod aggregate_fn;
 #[doc(hidden)]
 pub mod aliases;
+mod trace_macros;
+pub(crate) use trace_macros::trace_op;
 mod array;
 pub mod arrays;
 pub mod buffer;

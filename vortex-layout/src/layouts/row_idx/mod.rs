@@ -360,7 +360,7 @@ mod tests {
             let array = buffer![1..=5].into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -405,7 +405,7 @@ mod tests {
             let array = buffer![1..=5].into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
@@ -450,7 +450,7 @@ mod tests {
             let array = buffer![1..=5].into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,

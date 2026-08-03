@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/tag={1}{2}', github.run_id, matrix.benchmark.id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=bench-dedicated/family=c6id.metal/tag={1}{2}', github.run_id, matrix.benchmark.id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     strategy:
       matrix:
@@ -33,6 +33,10 @@ jobs:
             build_args: "--features lance"
           - id: compress-bench
             name: Compression
+          # No run_args: the default suite emits the three tracked metrics
+          # (size, write, read). The codec microbenchmark is a local diagnostic.
+          - id: string-bench
+            name: String Encoding
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false
@@ -64,6 +68,7 @@ jobs:
       - name: Pre-upload benchmark debuginfo to Polar Signals
         if: github.event.pull_request.head.repo.fork == false
         uses: ./.github/actions/upload-parca-debuginfo
+        continue-on-error: true
         with:
           paths: |
             target/release_debug/${{ matrix.benchmark.id }}
@@ -103,7 +108,8 @@ jobs:
           VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
           FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} -d gh-json -o results.json
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} \
+            ${{ matrix.benchmark.run_args }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         if: github.event.pull_request.head.repo.fork == false

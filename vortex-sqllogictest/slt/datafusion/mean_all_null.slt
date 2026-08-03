@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (VALUES (CAST(NULL AS BIGINT)),(CAST(NULL AS BIGINT))) AS t(x))
+TO '${WORK_DIR}/i-null.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (CAST(NULL AS DOUBLE)),(CAST(NULL AS DOUBLE))) AS t(x))
+TO '${WORK_DIR}/f-null.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES ('NaN'::DOUBLE),(1.0),(2.0)) AS t(x)) TO '${WORK_DIR}/f-nan.vortex';
+
+query IR
+SELECT count(x), avg(x) FROM '${WORK_DIR}/i-null.vortex';
+----
+0 NULL
+
+query IR
+SELECT count(x), avg(x) FROM '${WORK_DIR}/f-null.vortex';
+----
+0 NULL
+
+query IR
+SELECT count(x), avg(x) FROM '${WORK_DIR}/f-nan.vortex';
+----
+3 NaN

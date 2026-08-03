@@ -267,7 +267,7 @@ mod tests {
                     let array1 = PrimitiveArray::new(buffer![1i64, 2, 3, 4, 5], validity);
                     let layout1 = FlatLayoutStrategy::default()
                         .write_stream(
-                            ctx.clone(),
+                            ctx.clone().into(),
                             Arc::<TestSegments>::clone(&segments),
                             array1.into_array().to_array_stream().sequenced(ptr1),
                             eof1,
@@ -290,7 +290,7 @@ mod tests {
                     }
                     let layout2 = FlatLayoutStrategy::default()
                         .write_stream(
-                            ctx.clone(),
+                            ctx.clone().into(),
                             Arc::<TestSegments>::clone(&segments),
                             builder
                                 .finish()
@@ -358,7 +358,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
                         PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
                     let layout1 = FlatLayoutStrategy::default()
                         .write_stream(
-                            ctx.clone(),
+                            ctx.clone().into(),
                             Arc::<TestSegments>::clone(&segments),
                             array1.into_array().to_array_stream().sequenced(ptr1),
                             eof1,
@@ -373,7 +373,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
                         PrimitiveArray::new(buffer![6i32, 7, 8, 9, 10], Validity::NonNullable);
                     let layout2 = FlatLayoutStrategy::default()
                         .write_stream(
-                            ctx.clone(),
+                            ctx.clone().into(),
                             Arc::<TestSegments>::clone(&segments),
                             array2.into_array().to_array_stream().sequenced(ptr2),
                             eof2,
@@ -421,7 +421,7 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
                     let session = new_session().with_handle(handle);
                     FlatLayoutStrategy::default()
                         .write_stream(
-                            ctx.clone(),
+                            ctx.clone().into(),
                             Arc::<TestSegments>::clone(&segments),
                             array.into_array().to_array_stream().sequenced(ptr),
                             eof,
@@ -466,7 +466,7 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
                     let session = new_session().with_handle(handle);
                     FlatLayoutStrategy::default()
                         .write_stream(
-                            ctx,
+                            ctx.into(),
                             Arc::<TestSegments>::clone(&segments),
                             array.into_array().to_array_stream().sequenced(ptr),
                             eof,

@@ -1,47 +1,96 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::ops::Deref;
 
+use crate::expr::BoundExpression;
+use crate::expr::BoundKind;
 use crate::expr::Expression;
-use crate::scalar_fn::ScalarFnRef;
+use crate::expr::root;
+use crate::scalar_fn::ChildName;
 
 pub enum DisplayFormat {
     Compact,
     Tree,
 }
 
-pub struct DisplayTreeExpr<'a>(pub &'a Expression);
+trait DisplayTreeNode: Sized {
+    fn tree_children(&self) -> &[Self];
 
-impl Display for DisplayTreeExpr<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn tree_child_name(&self, index: usize) -> ChildName;
+
+    fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result;
+}
+
+impl DisplayTreeNode for Expression {
+    fn tree_children(&self) -> &[Self] {
+        Expression::children(self).as_slice()
+    }
+
+    fn tree_child_name(&self, index: usize) -> ChildName {
+        self.scalar_fn().signature().child_name(index)
+    }
+
+    fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self.scalar_fn(), f)
+    }
+}
+
+impl DisplayTreeNode for BoundExpression {
+    fn tree_children(&self) -> &[Self] {
+        BoundExpression::children(self)
+    }
+
+    fn tree_child_name(&self, index: usize) -> ChildName {
+        match self.kind() {
+            BoundKind::Scalar { scalar_fn, .. } => scalar_fn.signature().child_name(index),
+            BoundKind::Root => unreachable!("the scope root has no children"),
+        }
+    }
+
+    fn fmt_tree_node(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self.kind() {
+            BoundKind::Scalar { scalar_fn, .. } => Display::fmt(scalar_fn, f),
+            BoundKind::Root => Display::fmt(root().scalar_fn(), f),
+        }
+    }
+}
+
+struct NodeDisplay<'a, T>(&'a T);
+
+impl<T: DisplayTreeNode> Display for NodeDisplay<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.0.fmt_tree_node(f)
+    }
+}
+
+pub struct DisplayTreeExpr<'a, T: ?Sized = Expression>(pub &'a T);
+
+impl<T: DisplayTreeNode> Display for DisplayTreeExpr<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         pub use termtree::Tree;
-        fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let scalar_fn: &ScalarFnRef = expr.deref();
-            let node_name = format!("{}", scalar_fn);
-
-            // Get child names for display purposes
-            let child_names = (0..expr.children().len()).map(|i| expr.signature().child_name(i));
-            let children = expr.children();
-
-            let child_trees: Result<Vec<Tree<String>>, std::fmt::Error> = children
+        fn make_tree<T: DisplayTreeNode>(expr: &T) -> Tree<String> {
+            let child_trees = expr
+                .tree_children()
                 .iter()
-                .zip(child_names)
-                .map(|(child, name)| {
-                    let child_tree = make_tree(child)?;
-                    Ok::<Tree<String>, std::fmt::Error>(
-                        Tree::new(format!("{}: {}", name, child_tree.root))
-                            .with_leaves(child_tree.leaves),
-                    )
+                .enumerate()
+                .map(|(index, child)| {
+                    let child_tree = make_tree(child);
+                    Tree::new(format!(
+                        "{}: {}",
+                        expr.tree_child_name(index),
+                        child_tree.root
+                    ))
+                    .with_leaves(child_tree.leaves)
                 })
-                .collect();
+                .collect::<Vec<_>>();
 
-            Ok(Tree::new(node_name).with_leaves(child_trees?))
+            Tree::new(NodeDisplay(expr).to_string()).with_leaves(child_trees)
         }
 
-        write!(f, "{}", make_tree(self.0)?)
+        write!(f, "{}", make_tree(self.0))
     }
 }
 

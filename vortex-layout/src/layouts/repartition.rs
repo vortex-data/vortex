@@ -8,7 +8,6 @@ use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use futures::pin_mut;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -21,6 +20,7 @@ use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -95,7 +95,7 @@ impl RepartitionStrategy {
 impl LayoutStrategy for RepartitionStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -185,14 +185,6 @@ impl LayoutStrategy for RepartitionStrategy {
                 session,
             )
             .await
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        // TODO(os): we should probably add the buffered bytes from this strategy on top,
-        // it is currently better to not add it at all because these buffered arrays are
-        // potentially sliced and uncompressed. They would overestimate the actual bytes
-        // that will end up in the file when flushed.
-        self.child.buffered_bytes()
     }
 }
 
@@ -401,7 +393,7 @@ mod tests {
             let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     stream,
                     eof,
@@ -468,7 +460,7 @@ mod tests {
             let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     stream,
                     eof,

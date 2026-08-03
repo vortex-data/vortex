@@ -25,6 +25,7 @@ use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::alp::RDEncoder;
+use vortex::encodings::alp::RDEncoderExt;
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::Delta;
 use vortex::encodings::fastlanes::DeltaData;

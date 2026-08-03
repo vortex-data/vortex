@@ -198,6 +198,7 @@ impl ScalarFnVTable for GetItem {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::dtype::DType;
@@ -256,6 +257,24 @@ mod tests {
             item.dtype(),
             &DType::Primitive(PType::I32, Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn get_non_nullable_field_from_all_valid_nullable_struct() -> VortexResult<()> {
+        let st = StructArray::try_new(
+            FieldNames::from(["a"]),
+            vec![buffer![1i32].into_array()],
+            1,
+            Validity::AllValid,
+        )?
+        .into_array();
+
+        let item = st.apply(&get_item("a", root()))?;
+        assert_eq!(
+            item.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+        Ok(())
     }
 
     #[test]

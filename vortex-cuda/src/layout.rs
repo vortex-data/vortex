@@ -13,7 +13,6 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
-use vortex::array::ArrayContext;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
 use vortex::array::MaskFuture;
@@ -45,6 +44,7 @@ use vortex::layout::LayoutReader;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::LayoutRef;
 use vortex::layout::LayoutStrategy;
+use vortex::layout::LayoutWriterContext;
 use vortex::layout::RowSplits;
 use vortex::layout::SplitRange;
 use vortex::layout::VTable;
@@ -414,13 +414,12 @@ fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
 impl LayoutStrategy for CudaFlatLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
-        let ctx = ctx.clone();
         let options = self.clone();
         let Some(chunk) = stream.next().await else {
             vortex_bail!("CudaFlatLayoutStrategy needs a single chunk");
@@ -472,7 +471,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         let host_buffers = extract_constant_buffers(&chunk);
 
         let buffers = chunk.serialize(
-            &ctx,
+            ctx.array_ctx(),
             session,
             &SerializeOptions {
                 offset: 0,
@@ -503,7 +502,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
             layout_children(Vec::new()),
             CudaFlatData {
                 segment_id,
-                ctx: ReadContext::new(ctx.to_ids()),
+                ctx: ReadContext::new(ctx.array_ctx().to_ids()),
                 array_tree,
                 host_buffers: Arc::new(host_buffer_map),
             },

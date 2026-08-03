@@ -52,6 +52,12 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    vortex_ensure!(
+        matches!(array.dtype(), DType::List(..)),
+        "Cannot convert Vortex array with dtype {} to an Arrow list array",
+        array.dtype()
+    );
+
     let array = array.execute_until::<ArrowListExportable>(ctx)?;
 
     // If the Vortex array is already in List format, we can directly convert it.

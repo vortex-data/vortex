@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use ::alp::ENCODE_CHUNK_SIZE;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -8,6 +9,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
@@ -67,14 +69,33 @@ fn alp_encode_components_typed<T>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Exponents, ArrayRef, Option<Patches>)>
 where
-    T: ALPFloat,
+    T: ALPFloat + NativePType,
+    T::ALPInt: NativePType,
 {
     let values_slice = values.as_slice::<T>();
 
-    let (exponents, encoded, exceptional_positions, exceptional_values, mut chunk_offsets) =
-        T::encode(values_slice, exponents);
+    // Encode straight into a Vortex buffer, so that the encoded array owns its values rather than
+    // adopting a `Vec` allocated by the encoder.
+    let mut encoded = BufferMut::<T::ALPInt>::with_capacity(values_slice.len());
 
-    let encoded_array = PrimitiveArray::new(encoded, values.validity()?).into_array();
+    // Estimate capacity to be one patch per 32 values.
+    let mut exceptional_positions = Vec::with_capacity(values_slice.len() / 32);
+    let mut exceptional_values = Vec::with_capacity(values_slice.len() / 32);
+
+    // There's exactly one offset per chunk.
+    let mut chunk_offsets = Vec::with_capacity(values_slice.len().div_ceil(ENCODE_CHUNK_SIZE));
+    let exponents = ::alp::encode_into(
+        values_slice,
+        exponents,
+        &mut encoded.spare_capacity_mut()[..values_slice.len()],
+        &mut exceptional_positions,
+        &mut exceptional_values,
+        &mut chunk_offsets,
+    );
+    // SAFETY: `encode_into` initializes exactly one element per value.
+    unsafe { encoded.set_len(values_slice.len()) };
+
+    let encoded_array = PrimitiveArray::new(encoded.freeze(), values.validity()?).into_array();
 
     let validity = values
         .array()
@@ -82,31 +103,28 @@ where
         .execute_mask(values.array().len(), ctx)?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
     // data). We remove null exceptions in order to keep the Patches small.
-    let (valid_exceptional_positions, valid_exceptional_values): (Buffer<u64>, Buffer<T>) =
-        match validity {
-            Mask::AllTrue(_) => (exceptional_positions, exceptional_values),
-            Mask::AllFalse(_) => {
-                // no valid positions, ergo nothing worth patching
-                (Buffer::empty(), Buffer::empty())
-            }
-            Mask::Values(is_valid) => {
-                let (pos, vals): (BufferMut<u64>, BufferMut<T>) = exceptional_positions
-                    .into_iter()
-                    .zip_eq(exceptional_values)
-                    .filter(|(index, _)| {
-                        let is_valid = is_valid.value(*index as usize);
-                        if !is_valid {
-                            let patch_chunk = *index as usize / 1024;
-                            for chunk_idx in (patch_chunk + 1)..chunk_offsets.len() {
-                                chunk_offsets[chunk_idx] -= 1;
-                            }
-                        }
-                        is_valid
-                    })
-                    .unzip();
-                (pos.freeze(), vals.freeze())
-            }
-        };
+    let (valid_exceptional_positions, valid_exceptional_values): (Vec<u64>, Vec<T>) = match validity
+    {
+        Mask::AllTrue(_) => (exceptional_positions, exceptional_values),
+        Mask::AllFalse(_) => {
+            // no valid positions, ergo nothing worth patching
+            (Vec::new(), Vec::new())
+        }
+        Mask::Values(is_valid) => exceptional_positions
+            .into_iter()
+            .zip_eq(exceptional_values)
+            .filter(|(index, _)| {
+                let is_valid = is_valid.value(*index as usize);
+                if !is_valid {
+                    let patch_chunk = *index as usize / ENCODE_CHUNK_SIZE;
+                    for chunk_idx in (patch_chunk + 1)..chunk_offsets.len() {
+                        chunk_offsets[chunk_idx] -= 1;
+                    }
+                }
+                is_valid
+            })
+            .unzip(),
+    };
     let patches = if valid_exceptional_positions.is_empty() {
         None
     } else {
@@ -116,14 +134,15 @@ where
             Validity::NonNullable
         };
         let valid_exceptional_values =
-            PrimitiveArray::new(valid_exceptional_values, patches_validity).into_array();
+            PrimitiveArray::new(Buffer::from(valid_exceptional_values), patches_validity)
+                .into_array();
 
         Some(Patches::new(
             values_slice.len(),
             0,
-            valid_exceptional_positions.into_array(),
+            Buffer::from(valid_exceptional_positions).into_array(),
             valid_exceptional_values,
-            Some(chunk_offsets.into_array()),
+            Some(Buffer::from(chunk_offsets).into_array()),
         )?)
     };
     Ok((exponents, encoded_array, patches))
@@ -309,7 +328,7 @@ mod tests {
             let decoded_val = decoded.as_slice::<f32>()[idx];
             let original_val = original.as_slice::<f32>()[idx];
             assert!(
-                decoded_val.is_eq(original_val),
+                NativePType::is_eq(decoded_val, original_val),
                 "Expected {original_val} but got {decoded_val}"
             );
         }
@@ -645,7 +664,7 @@ mod tests {
             let decoded_val = decoded.as_slice::<f64>()[idx];
             let original_val = values[idx];
             assert!(
-                decoded_val.is_eq(original_val),
+                NativePType::is_eq(decoded_val, original_val),
                 "At index {idx}: Expected {original_val} but got {decoded_val}"
             );
         }

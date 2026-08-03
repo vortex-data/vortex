@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -20,7 +22,109 @@ use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
-// [layout writer]
+/// A shared counter of the bytes that layout strategies are holding but have not yet emitted.
+///
+/// Clones share the same counter, so a tracker can be handed to a writer before the write begins
+/// and polled while it runs. Strategies report their own retained bytes with
+/// [`Self::reserve`], which releases the reservation on drop.
+#[derive(Clone, Debug, Default)]
+pub struct BufferedBytesTracker(Arc<AtomicU64>);
+
+impl BufferedBytesTracker {
+    /// Creates a tracker with a zeroed counter.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the number of bytes currently retained by layout strategies.
+    pub fn buffered_bytes(&self) -> u64 {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    /// Records `bytes` as buffered until the returned reservation is dropped.
+    pub fn reserve(&self, bytes: u64) -> BufferedBytesReservation {
+        self.0.fetch_add(bytes, Ordering::Relaxed);
+        BufferedBytesReservation {
+            tracker: self.clone(),
+            bytes,
+        }
+    }
+}
+
+/// An outstanding claim on a [`BufferedBytesTracker`], released when dropped.
+#[derive(Debug)]
+pub struct BufferedBytesReservation {
+    tracker: BufferedBytesTracker,
+    bytes: u64,
+}
+
+impl BufferedBytesReservation {
+    /// Returns the number of bytes held by this reservation.
+    pub fn bytes(&self) -> u64 {
+        self.bytes
+    }
+}
+
+impl Drop for BufferedBytesReservation {
+    fn drop(&mut self) {
+        self.tracker.0.fetch_sub(self.bytes, Ordering::Relaxed);
+    }
+}
+
+/// State shared by every strategy participating in a single layout write.
+///
+/// Clones share the [`BufferedBytesTracker`] while retaining the array serialization context.
+/// Passing this context through the strategy tree keeps writer-scoped state independent of the
+/// strategy instances, which may be shared by multiple leaves or writers.
+#[derive(Clone)]
+pub struct LayoutWriterContext {
+    array_ctx: ArrayContext,
+    buffered_bytes: BufferedBytesTracker,
+}
+
+impl LayoutWriterContext {
+    /// Creates a context for a layout write with a fresh buffered bytes tracker.
+    pub fn new(array_ctx: ArrayContext) -> Self {
+        Self {
+            array_ctx,
+            buffered_bytes: BufferedBytesTracker::new(),
+        }
+    }
+
+    /// Replaces the buffered bytes tracker, so callers can observe the counter from outside the
+    /// strategy tree.
+    pub fn with_buffered_bytes_tracker(mut self, tracker: BufferedBytesTracker) -> Self {
+        self.buffered_bytes = tracker;
+        self
+    }
+
+    /// Returns the array serialization context.
+    pub fn array_ctx(&self) -> &ArrayContext {
+        &self.array_ctx
+    }
+
+    /// Returns the tracker that accounts for bytes retained by layout strategies.
+    pub fn buffered_bytes_tracker(&self) -> &BufferedBytesTracker {
+        &self.buffered_bytes
+    }
+
+    /// Returns the number of bytes currently retained by layout strategies.
+    pub fn buffered_bytes(&self) -> u64 {
+        self.buffered_bytes.buffered_bytes()
+    }
+
+    /// Records `bytes` as retained by this write until the returned reservation is dropped.
+    pub fn reserve_buffered_bytes(&self, bytes: u64) -> BufferedBytesReservation {
+        self.buffered_bytes.reserve(bytes)
+    }
+}
+
+impl From<ArrayContext> for LayoutWriterContext {
+    fn from(array_ctx: ArrayContext) -> Self {
+        Self::new(array_ctx)
+    }
+}
+
 /// Writes an ordered array stream into a layout tree and segment sink.
 ///
 /// Layout strategies are writer-side extension points. Strategies may repartition, buffer,
@@ -44,6 +148,8 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     /// with a sequence pointer that indicates its position in the overall array. By passing
     /// around these pointers (essentially vector clocks), the writer can support concurrent
     /// and parallel processing while maintaining a deterministic order of data in the file.
+    /// The `ctx` parameter carries both array serialization state and writer-scoped accounting
+    /// through every child strategy.
     ///
     /// The `eof` parameter is a guaranteed to be greater than all sequence pointers in the stream.
     ///
@@ -63,21 +169,12 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     /// of data, or serializing very large messages to flatbuffers.
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef>;
-
-    /// Returns the number of bytes currently buffered by this strategy and any child strategies.
-    ///
-    /// This method allows tracking of data that has been processed by the strategy but not yet
-    /// written to the underlying sink, providing more accurate estimates of final file size
-    /// during write operations.
-    fn buffered_bytes(&self) -> u64 {
-        0
-    }
 }
 
 /// A layout strategy wrapper that rejects arrays containing encodings outside an allow-list.
@@ -104,7 +201,7 @@ impl LayoutStrategyEncodingValidator {
 impl LayoutStrategy for LayoutStrategyEncodingValidator {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -131,17 +228,13 @@ impl LayoutStrategy for LayoutStrategyEncodingValidator {
             )
             .await
     }
-
-    fn buffered_bytes(&self) -> u64 {
-        self.child.buffered_bytes()
-    }
 }
 
 #[async_trait]
 impl LayoutStrategy for Arc<dyn LayoutStrategy> {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -151,9 +244,38 @@ impl LayoutStrategy for Arc<dyn LayoutStrategy> {
             .write_stream(ctx, segment_sink, stream, eof, session)
             .await
     }
+}
 
-    fn buffered_bytes(&self) -> u64 {
-        (**self).buffered_bytes()
+#[cfg(test)]
+mod tests {
+    use crate::strategy::BufferedBytesTracker;
+
+    #[test]
+    fn reservations_accumulate_and_release() {
+        let tracker = BufferedBytesTracker::new();
+        assert_eq!(tracker.buffered_bytes(), 0);
+
+        let first = tracker.reserve(16);
+        let second = tracker.reserve(32);
+        assert_eq!(tracker.buffered_bytes(), 48);
+        assert_eq!(first.bytes(), 16);
+
+        drop(first);
+        assert_eq!(tracker.buffered_bytes(), 32);
+
+        drop(second);
+        assert_eq!(tracker.buffered_bytes(), 0);
+    }
+
+    #[test]
+    fn clones_share_the_same_counter() {
+        let tracker = BufferedBytesTracker::new();
+        let observer = tracker.clone();
+
+        let reservation = tracker.reserve(8);
+        assert_eq!(observer.buffered_bytes(), 8);
+
+        drop(reservation);
+        assert_eq!(observer.buffered_bytes(), 0);
     }
 }
-// [layout writer]

@@ -415,7 +415,7 @@ mod tests {
         let dtype = array.dtype().clone();
         let layout = strategy
             .write_stream(
-                ArrayContext::empty(),
+                ArrayContext::empty().into(),
                 Arc::<TestSegments>::clone(&segments),
                 SequentialStreamAdapter::new(dtype, array.to_array_stream().sequenced(ptr))
                     .sendable(),
@@ -462,7 +462,7 @@ mod tests {
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -549,7 +549,7 @@ mod tests {
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
@@ -617,7 +617,7 @@ mod tests {
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
                 .write_stream(
-                    array_ctx,
+                    array_ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),

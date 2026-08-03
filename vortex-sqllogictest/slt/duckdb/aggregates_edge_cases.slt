@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Test vortex-duckdb aggregation support.
+# Integral and string aggregations in Duckdb are pushed to Vortex.
+# BIGINT (i64) is avoided here: a small/encoded BIGINT
+# column summed through the pushdown currently returns garbage
+# TODO(https://github.com/vortex-data/vortex/issues/9085)
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT CAST(x AS INTEGER) AS x FROM (VALUES (CAST(NULL AS INTEGER)),(CAST(NULL AS INTEGER))) t(x))
+TO '${WORK_DIR}/i-null.vortex';
+
+# TODO(https://github.com/vortex-data/vortex/issues/9084): this should be fixed (expected NULL)
+query I
+SELECT sum(x) FROM '${WORK_DIR}/i-null.vortex';
+----
+0

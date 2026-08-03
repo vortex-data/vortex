@@ -16,45 +16,10 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scan::row_mask::RowMask;
 
-use crate::LayoutReaderRef;
+use crate::LayoutReader;
 use crate::scan::filter::FilterExpr;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
-
-pub(crate) struct Plan {
-    layout_reader: LayoutReaderRef,
-    projection: Expression,
-    filter: Option<Expression>,
-}
-
-impl Plan {
-    pub(crate) fn new(
-        layout_reader: LayoutReaderRef,
-        projection: Expression,
-        filter: Option<Expression>,
-    ) -> Self {
-        Self {
-            layout_reader,
-            projection,
-            filter,
-        }
-    }
-
-    pub(crate) fn task_context<A>(
-        &self,
-        mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-    ) -> Arc<TaskContext<A>> {
-        Arc::new(TaskContext {
-            filter: self
-                .filter
-                .clone()
-                .map(|filter| Arc::new(FilterExpr::new(filter))),
-            reader: Arc::clone(&self.layout_reader),
-            projection: self.projection.clone(),
-            mapper,
-        })
-    }
-}
 
 /// Logic for executing a single split reading task.
 /// N.B. read_mask should be evaluated against all_false() before calling this
@@ -188,9 +153,13 @@ pub fn split_exec<A: 'static + Send>(
 /// Information needed to execute a single split task.
 ///
 /// Row selection is evaluated before creating a split task so it's not included
-pub(crate) struct TaskContext<A> {
-    filter: Option<Arc<FilterExpr>>,
-    reader: LayoutReaderRef,
-    projection: Expression,
-    mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
+pub struct TaskContext<A> {
+    /// The shared filter expression.
+    pub filter: Option<Arc<FilterExpr>>,
+    /// The layout reader.
+    pub reader: Arc<dyn LayoutReader>,
+    /// The projection expression to apply to gather the scanned rows.
+    pub projection: Expression,
+    /// Function that maps into an A.
+    pub mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }

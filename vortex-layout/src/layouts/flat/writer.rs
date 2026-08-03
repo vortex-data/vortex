@@ -3,7 +3,6 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use vortex_array::ArrayContext;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
@@ -24,6 +23,7 @@ use vortex_session::registry::ReadContext;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::FlatLayout;
@@ -83,13 +83,12 @@ fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
         session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
-        let ctx = ctx.clone();
         let Some(chunk) = stream.next().await else {
             // an empty input has no segment to write.
             return Ok(ChunkedLayout::new(
@@ -144,7 +143,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         }
 
         let buffers = chunk.serialize(
-            &ctx,
+            ctx.array_ctx(),
             session,
             &SerializeOptions {
                 offset: 0,
@@ -164,15 +163,10 @@ impl LayoutStrategy for FlatLayoutStrategy {
             row_count,
             stream.dtype().clone(),
             segment_id,
-            ReadContext::new(ctx.to_ids()),
+            ReadContext::new(ctx.array_ctx().to_ids()),
             array_node,
         )
         .into_layout())
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        // FlatLayoutStrategy is a leaf strategy with no child strategies and no buffering
-        0
     }
 }
 
@@ -236,7 +230,7 @@ mod tests {
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
@@ -287,7 +281,7 @@ mod tests {
 
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
@@ -356,7 +350,7 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 let layout = FlatLayoutStrategy::default()
                     .write_stream(
-                        ctx,
+                        ctx.into(),
                         Arc::<TestSegments>::clone(&segments),
                         array.into_array().to_array_stream().sequenced(ptr),
                         eof,
@@ -430,7 +424,7 @@ mod tests {
                 let layout =
                     LayoutStrategyEncodingValidator::new(FlatLayoutStrategy::default(), allowed)
                         .write_stream(
-                            ctx,
+                            ctx.into(),
                             Arc::<TestSegments>::clone(&segments),
                             filter.into_array().to_array_stream().sequenced(ptr),
                             eof,
@@ -472,7 +466,7 @@ mod tests {
                 let layout =
                     LayoutStrategyEncodingValidator::new(FlatLayoutStrategy::default(), allowed)
                         .write_stream(
-                            ctx,
+                            ctx.into(),
                             Arc::<TestSegments>::clone(&segments),
                             dict.into_array().to_array_stream().sequenced(ptr),
                             eof,

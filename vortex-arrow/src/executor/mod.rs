@@ -251,3 +251,94 @@ fn infer_nearest_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
     // Everything else: use canonical dtype conversion
     to_data_type_naive(array.dtype())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::TimeUnit;
+    use rstest::rstest;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::array_session;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
+
+    use crate::ArrowSessionExt;
+
+    fn utf8() -> ArrayRef {
+        VarBinViewArray::from_iter_str(["a", "bb"]).into_array()
+    }
+
+    fn primitive() -> ArrayRef {
+        PrimitiveArray::from_iter([1i32, 2]).into_array()
+    }
+
+    fn boolean() -> ArrayRef {
+        BoolArray::from_iter([true, false]).into_array()
+    }
+
+    fn list_target() -> DataType {
+        DataType::List(Arc::new(Field::new("item", DataType::Int32, true)))
+    }
+
+    /// Must error rather than panic inside `execute::<T>`.
+    #[rstest]
+    #[case::bool_from_utf8(utf8(), DataType::Boolean)]
+    #[case::bool_from_primitive(primitive(), DataType::Boolean)]
+    #[case::null_from_utf8(utf8(), DataType::Null)]
+    #[case::null_from_primitive(primitive(), DataType::Null)]
+    #[case::decimal_from_utf8(utf8(), DataType::Decimal128(10, 2))]
+    #[case::decimal_from_primitive(primitive(), DataType::Decimal128(10, 2))]
+    #[case::list_from_utf8(utf8(), list_target())]
+    #[case::list_from_primitive(primitive(), list_target())]
+    #[case::list_view_from_primitive(
+        primitive(),
+        DataType::ListView(Arc::new(Field::new("item", DataType::Int32, true)))
+    )]
+    #[case::fixed_size_list_from_utf8(
+        utf8(),
+        DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Int32, true)), 2)
+    )]
+    #[case::byte_from_primitive(primitive(), DataType::Utf8)]
+    #[case::byte_from_bool(boolean(), DataType::Binary)]
+    fn incompatible_target_returns_error(#[case] array: ArrayRef, #[case] target: DataType) {
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+        let field = Field::new("f", target.clone(), array.dtype().is_nullable());
+
+        let result = session.arrow().execute_arrow(array, Some(&field), &mut ctx);
+
+        assert!(
+            result.is_err(),
+            "expected an error exporting to {target:?}, got Ok"
+        );
+    }
+
+    /// Cross-class conversions that are genuinely supported must keep working.
+    #[rstest]
+    #[case::bool_to_int32(boolean(), DataType::Int32)]
+    #[case::bool_to_float64(boolean(), DataType::Float64)]
+    #[case::primitive_to_int64(primitive(), DataType::Int64)]
+    #[case::primitive_to_date32(primitive(), DataType::Date32)]
+    #[case::primitive_to_timestamp(primitive(), DataType::Timestamp(TimeUnit::Microsecond, None))]
+    #[case::utf8_to_binary(utf8(), DataType::Binary)]
+    #[case::utf8_to_large_utf8(utf8(), DataType::LargeUtf8)]
+    fn supported_cross_class_target_still_works(#[case] array: ArrayRef, #[case] target: DataType) {
+        let session = array_session();
+        let mut ctx = session.create_execution_ctx();
+        let field = Field::new("f", target.clone(), array.dtype().is_nullable());
+
+        let result = session.arrow().execute_arrow(array, Some(&field), &mut ctx);
+
+        assert!(
+            result.is_ok(),
+            "expected {target:?} export to succeed, got {:?}",
+            result.err()
+        );
+    }
+}

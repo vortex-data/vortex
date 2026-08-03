@@ -126,14 +126,6 @@ jobs:
             pytest --benchmark-disable test/test_hf_datasets.py
         working-directory: vortex-python/
 
-      - name: Setup benchmark environment
-        run: sudo bash scripts/setup-benchmark.sh
-
-      - name: Pytest Benchmarks - Vortex
-        run: |
-          bash ../scripts/bench-taskset.sh uv run --all-packages pytest --benchmark-only benchmark/
-        working-directory: vortex-python/
-
       - name: Doctest - PyVortex
         run: |
           uv run --all-packages make doctest
@@ -143,6 +135,16 @@ jobs:
         run: |
           uv run --all-packages make html
         working-directory: docs/
+
+      # Keep this last: setup-benchmark.sh confines everything except the wrapped
+      # benchmark to the housekeeping CPUs, so any step after it runs on few cores.
+      - name: Setup benchmark environment
+        run: sudo bash scripts/setup-benchmark.sh
+
+      - name: Pytest Benchmarks - Vortex
+        run: |
+          bash ../scripts/bench-taskset.sh uv run --all-packages pytest --benchmark-only benchmark/
+        working-directory: vortex-python/
 
   # Pins the measurement_id hash that scripts/post-ingest.py uses as the primary key of every
   # benchmarks-database fact row. The golden vectors are a frozen artifact (see the note inside

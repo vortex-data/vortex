@@ -460,7 +460,7 @@ mod tests {
             let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     segments2,
                     StructArray::try_new(
                         Vec::<FieldName>::new().into(),
@@ -497,7 +497,7 @@ mod tests {
             let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     segments2,
                     StructArray::from_fields(
                         [
@@ -537,7 +537,7 @@ mod tests {
             let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     segments2,
                     StructArray::try_from_iter_with_validity(
                         [
@@ -582,7 +582,7 @@ mod tests {
             let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     segments2,
                     StructArray::try_from_iter_with_validity(
                         [(
@@ -862,7 +862,7 @@ mod tests {
             let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     segments2,
                     StructArray::from_fields(
                         [

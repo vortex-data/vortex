@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use async_trait::async_trait;
-use vortex_array::ArrayContext;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldPath;
@@ -28,6 +27,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::layouts::list::writer::ListLayoutStrategy;
 use crate::layouts::struct_::StructStrategy;
 use crate::segments::SegmentSinkRef;
@@ -38,7 +38,7 @@ use crate::sequence::SequencePointer;
 /// default. Disabled unless the environment variable `VORTEX_EXPERIMENTAL_LIST_LAYOUT`
 /// is set to `1`.
 ///
-/// [`ListLayoutStrategy`]: crate::layouts::list::writer::ListLayoutStrategy
+/// [`ListLayoutStrategy`]: ListLayoutStrategy
 pub fn use_experimental_list_layout() -> bool {
     static USE_EXPERIMENTAL_LIST_LAYOUT: LazyLock<bool> =
         LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_LIST_LAYOUT").is_ok_and(|v| v == "1"));
@@ -72,7 +72,7 @@ pub struct TableStrategy {
     /// Optional factory applied to each dynamically constructed [`ListLayoutStrategy`].
     /// Its presence also enables list decomposition.
     ///
-    /// [`ListLayoutStrategy`]: crate::layouts::list::writer::ListLayoutStrategy
+    /// [`ListLayoutStrategy`]: ListLayoutStrategy
     list_layout_factory: Option<ListLayoutFactory>,
 }
 
@@ -295,7 +295,7 @@ impl TableStrategy {
 impl LayoutStrategy for TableStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
@@ -376,7 +376,13 @@ mod tests {
         let stream = array.to_array_stream().sequenced(ptr);
         let session = new_session().with_tokio();
         strategy
-            .write_stream(ArrayContext::empty(), segments, stream, eof, &session)
+            .write_stream(
+                ArrayContext::empty().into(),
+                segments,
+                stream,
+                eof,
+                &session,
+            )
             .await
     }
 
@@ -685,7 +691,7 @@ mod tests {
 
         strategy
             .write_stream(
-                ctx,
+                ctx.into(),
                 segments,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
                 eof,

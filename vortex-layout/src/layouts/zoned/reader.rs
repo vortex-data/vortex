@@ -311,7 +311,7 @@ mod test {
         let layout = block_on(|handle| async move {
             let session = session_with_handle(handle);
             strategy
-                .write_stream(ctx, segments2, array_stream, eof, &session)
+                .write_stream(ctx.into(), segments2, array_stream, eof, &session)
                 .await
         })
         .unwrap();
@@ -408,7 +408,7 @@ mod test {
         let layout = block_on(|handle| async move {
             let session = session_with_handle(handle);
             strategy
-                .write_stream(ctx, segments2, array_stream, eof, &session)
+                .write_stream(ctx.into(), segments2, array_stream, eof, &session)
                 .await
         })
         .unwrap();

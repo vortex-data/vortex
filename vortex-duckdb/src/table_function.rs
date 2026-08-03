@@ -33,6 +33,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
+use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::expr::Expression;
@@ -672,14 +673,21 @@ pub fn pushdown_projection_aggregates(
             return Ok(false);
         };
 
-        // TODO(myrrc): DuckDB treats NaN as a normal value ordered greater than
-        // everything which is substandard. vortex aggregations just skip nan.
-        // don't push aggregations on floats until resolved
-        // See slt/duckdb/nan_aggregates.slt.
         let projection_id_usize: usize = projection_id.as_();
-        if bind_data.column_fields[projection_id_usize]
-            .dtype
-            .is_float()
+        let dtype = &bind_data.column_fields[projection_id_usize].dtype;
+
+        // duckdb's min() returns nan only when every value is nan.
+        // vortex's min() either ignores or counts nans.
+        // See slt/duckdb/nan_aggregates.slt.
+        if aggregate == PushedAggregate::Min && dtype.is_float() {
+            return Ok(false);
+        }
+
+        // duckdb's sum() on i64/u64 extends to i128/u128 but vortex
+        // accumulators work on i64/u64 max.
+        if aggregate == PushedAggregate::Sum
+            && dtype.is_primitive()
+            && matches!(dtype.as_ptype(), PType::I64 | PType::U64)
         {
             return Ok(false);
         }

@@ -34,14 +34,10 @@ use std::any::Any;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::array::ArrayView;
-use crate::arrays::List;
-use crate::arrays::ListView;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::match_each_decimal_value_type;
@@ -197,39 +193,100 @@ pub trait ArrayBuilder: Send {
     /// then converts it to canonical form. Specific builders can override this with optimized
     /// implementations that avoid the intermediate [`ArrayRef`] creation.
     fn finish_into_canonical(&mut self, ctx: &mut ExecutionCtx) -> Canonical;
+}
 
-    /// Appends the values of a [`List`]-encoded `array` to this builder.
-    ///
-    /// Only list-typed builders support this; the default implementation returns an error. List
-    /// encodings dispatch through this method because the concrete list builders are generic over
-    /// their offset/size integer types, which cannot be named through a `dyn ArrayBuilder`.
-    fn append_list_array(
-        &mut self,
-        array: ArrayView<'_, List>,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        vortex_bail!(
-            "cannot append a List array of dtype {} to a {} builder",
-            array.dtype(),
-            self.dtype()
-        )
-    }
+/// Matches a `&mut dyn ArrayBuilder` against every concrete list builder type, i.e. every
+/// [`ListBuilder`]`<O>` and [`ListViewBuilder`]`<O, S>` instantiation over the
+/// [`OffsetBuilderPType`](crate::dtype::OffsetBuilderPType) offset/size types (`u32`, `u64`, `i32`,
+/// `i64`).
+///
+/// Binds the downcast builder as `$builder` and evaluates `$body` with it, yielding
+/// `Some($body)`; yields `None` when the builder is not a list builder. List encodings dispatch
+/// through this matcher because the concrete list builders are generic over their offset/size
+/// integer types, which cannot be named through a `dyn ArrayBuilder`. The matcher is exhaustive
+/// because `OffsetBuilderPType` is sealed, so no other instantiations can be constructed.
+#[macro_export]
+macro_rules! match_each_list_builder {
+    ($dyn_builder:expr, | $builder:ident | $body:expr) => {{
+        let __dyn_builder: &mut dyn $crate::builders::ArrayBuilder = $dyn_builder;
+        match $crate::__match_each_list_builder!(
+            __dyn_builder,
+            $builder,
+            $body,
+            [u32, u64, i32, i64]
+        ) {
+            ::core::option::Option::Some(__result) => ::core::option::Option::Some(__result),
+            ::core::option::Option::None => $crate::__match_each_listview_builder!(
+                __dyn_builder,
+                $builder,
+                $body,
+                [u32, u64, i32, i64]
+            ),
+        }
+    }};
+}
 
-    /// Appends the values of a [`ListView`]-encoded `array` to this builder.
-    ///
-    /// See [`append_list_array`](Self::append_list_array); this is the same hook for the canonical
-    /// [`ListViewArray`](crate::arrays::ListViewArray) encoding.
-    fn append_listview_array(
-        &mut self,
-        array: ArrayView<'_, ListView>,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        vortex_bail!(
-            "cannot append a ListView array of dtype {} to a {} builder",
-            array.dtype(),
-            self.dtype()
-        )
-    }
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __match_each_list_builder {
+    ($target:ident, $builder:ident, $body:expr, []) => {
+        ::core::option::Option::None
+    };
+    ($target:ident, $builder:ident, $body:expr, [$offset:ty $(, $rest:ty)*]) => {
+        if let ::core::option::Option::Some($builder) =
+            $crate::builders::ArrayBuilder::as_any_mut($target)
+                .downcast_mut::<$crate::builders::ListBuilder<$offset>>()
+        {
+            ::core::option::Option::Some($body)
+        } else {
+            $crate::__match_each_list_builder!($target, $builder, $body, [$($rest),*])
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __match_each_listview_builder {
+    ($target:ident, $builder:ident, $body:expr, []) => {
+        ::core::option::Option::None
+    };
+    ($target:ident, $builder:ident, $body:expr, [$offset:ty $(, $rest:ty)*]) => {
+        match $crate::__match_each_listview_builder_size!(
+            $target,
+            $builder,
+            $body,
+            $offset,
+            [u32, u64, i32, i64]
+        ) {
+            ::core::option::Option::Some(__result) => ::core::option::Option::Some(__result),
+            ::core::option::Option::None => $crate::__match_each_listview_builder!(
+                $target,
+                $builder,
+                $body,
+                [$($rest),*]
+            ),
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __match_each_listview_builder_size {
+    ($target:ident, $builder:ident, $body:expr, $offset:ty, []) => {
+        ::core::option::Option::None
+    };
+    ($target:ident, $builder:ident, $body:expr, $offset:ty, [$size:ty $(, $rest:ty)*]) => {
+        if let ::core::option::Option::Some($builder) =
+            $crate::builders::ArrayBuilder::as_any_mut($target)
+                .downcast_mut::<$crate::builders::ListViewBuilder<$offset, $size>>()
+        {
+            ::core::option::Option::Some($body)
+        } else {
+            $crate::__match_each_listview_builder_size!(
+                $target, $builder, $body, $offset, [$($rest),*]
+            )
+        }
+    };
 }
 
 /// Construct a new canonical builder for the given [`DType`].

@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::future::try_join;
 use futures::future::try_join_all;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -33,6 +32,7 @@ use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
+use crate::LayoutWriterContext;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::list::ListLayout;
 use crate::segments::SegmentSinkRef;
@@ -115,7 +115,7 @@ impl ListLayoutStrategy {
 impl LayoutStrategy for ListLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: LayoutWriterContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -204,13 +204,6 @@ impl LayoutStrategy for ListLayoutStrategy {
             is_nullable.then(|| layouts.next().vortex_expect("validity layout present"));
 
         Ok(ListLayout::new(dtype, elements_layout, offsets_layout, validity_layout).into_layout())
-    }
-
-    fn buffered_bytes(&self) -> u64 {
-        let list_bytes = self.elements.buffered_bytes()
-            + self.offsets.buffered_bytes()
-            + self.validity.buffered_bytes();
-        list_bytes.max(self.fallback.buffered_bytes())
     }
 }
 
@@ -330,6 +323,7 @@ impl Matcher for AnyList {
 #[cfg(test)]
 mod tests {
     use futures::stream;
+    use vortex_array::ArrayContext;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::ListArray;
@@ -365,7 +359,13 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let stream = array.to_array_stream().sequenced(ptr);
         strategy
-            .write_stream(ArrayContext::empty(), segments, stream, eof, &session)
+            .write_stream(
+                ArrayContext::empty().into(),
+                segments,
+                stream,
+                eof,
+                &session,
+            )
             .await
     }
 
@@ -441,7 +441,13 @@ mod tests {
         let session = layout_test_session();
 
         let res = flat_list_strategy()
-            .write_stream(ArrayContext::empty(), segments, stream, eof, &session)
+            .write_stream(
+                ArrayContext::empty().into(),
+                segments,
+                stream,
+                eof,
+                &session,
+            )
             .await;
         assert!(res.is_err())
     }

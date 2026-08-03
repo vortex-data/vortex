@@ -102,9 +102,13 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
             })?;
 
         match child.validity()? {
-            Validity::NonNullable | Validity::AllValid => {
-                // If the struct is non-nullable or all valid, the field's validity is unchanged
+            Validity::NonNullable => {
+                // If the struct is non-nullable, the field's validity is unchanged
                 Ok(Some(field.clone()))
+            }
+            Validity::AllValid => {
+                // If struct is nullable, field must also be nullable
+                field.clone().cast(field.dtype().as_nullable()).map(Some)
             }
             Validity::AllInvalid => {
                 // If everything is invalid, the field is also all invalid

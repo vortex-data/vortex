@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt.no
+
+statement ok
+COPY (SELECT * FROM (VALUES (CAST(NULL AS BIGINT)),(CAST(NULL AS BIGINT))) AS t(x))
+TO '${WORK_DIR}/i-null.vortex';
+
+statement ok
+COPY (SELECT * FROM (VALUES (1),(2),(CAST(NULL AS BIGINT))) AS t(x)) TO '${WORK_DIR}/i-some.vortex';
+
+query TT
+EXPLAIN SELECT avg(x) FROM '${WORK_DIR}/i-null.vortex';
+----
+<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query R
+SELECT avg(x) FROM '${WORK_DIR}/i-null.vortex';
+----
+NULL
+
+query R
+SELECT avg(x) FROM '${WORK_DIR}/i-some.vortex';
+----
+1.5

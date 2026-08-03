@@ -157,7 +157,7 @@ mod test {
             let session = session_with_handle(handle);
             FlatLayoutStrategy::default()
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     Arc::<TestSegments>::clone(&segments),
                     buffer![1_i32; 10]
                         .into_array()

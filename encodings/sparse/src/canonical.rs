@@ -39,12 +39,13 @@ use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativeDecimalType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::OffsetBuilderPType;
 use vortex_array::dtype::StructFields;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::match_smallest_offset_type;
+use vortex_array::match_smallest_list_offset_type;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::DecimalScalar;
 use vortex_array::scalar::ListScalar;
@@ -175,7 +176,7 @@ fn execute_sparse_lists(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // Patch indices are non-negative; reinterpret to unsigned so this dispatches over 4 widths
-    // instead of 8. `O` is already unsigned (from `match_smallest_offset_type`).
+    // instead of 8. `O` is already unsigned (from `match_smallest_list_offset_type`).
     let indices = resolved.indices().as_::<Primitive>().into_owned();
     let indices = indices.reinterpret_cast(indices.ptype().to_unsigned());
     let values = resolved.values().as_::<ListView>().into_owned();
@@ -185,7 +186,7 @@ fn execute_sparse_lists(
     let total_canonical_values = values.elements().len() + fill_list.len() * n_filled;
 
     Ok(match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-        match_smallest_offset_type!(total_canonical_values, |O| {
+        match_smallest_list_offset_type!(total_canonical_values, |O| {
             execute_sparse_lists_inner::<I, O>(
                 indices.as_slice(),
                 values,
@@ -201,7 +202,7 @@ fn execute_sparse_lists(
 }
 
 #[expect(clippy::too_many_arguments)]
-fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
+fn execute_sparse_lists_inner<I: IntegerPType, O: OffsetBuilderPType>(
     patch_indices: &[I],
     patch_values: ListViewArray,
     fill_scalar: ListScalar,
@@ -371,7 +372,7 @@ fn list_scalar_elements_array(list: ListScalar) -> Option<ArrayRef> {
     })
 }
 
-fn append_list_fill<O: IntegerPType, S: IntegerPType>(
+fn append_list_fill<O: OffsetBuilderPType, S: OffsetBuilderPType>(
     builder: &mut ListViewBuilder<O, S>,
     fill_elements: Option<&ArrayRef>,
     count: usize,
@@ -1566,15 +1567,17 @@ mod test {
         expected_elements.extend(buffer![42i32; 252]);
         let expected = ListArray::try_new(
             expected_elements.freeze().into_array(),
-            buffer![0u16, 1, 2, 3, 4, 256].into_array(),
+            buffer![0u32, 1, 2, 3, 4, 256].into_array(),
             Validity::AllValid,
         )?
         .into_array();
 
+        // The canonical offsets outgrow the source's u8 offsets; u32 is the smallest offset type
+        // a list builder can produce (see `OffsetBuilderPType`).
         let actual_listview = actual.clone().execute::<ListViewArray>(&mut ctx)?;
         assert_eq!(
             actual_listview.offsets().dtype(),
-            &DType::Primitive(PType::U16, NonNullable)
+            &DType::Primitive(PType::U32, NonNullable)
         );
         assert_arrays_eq!(&actual, &expected, &mut ctx);
 

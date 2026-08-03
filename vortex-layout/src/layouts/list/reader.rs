@@ -841,7 +841,13 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let stream = array.to_array_stream().sequenced(ptr);
         let layout = strategy
-            .write_stream(ArrayContext::empty(), segments, stream, eof, &session)
+            .write_stream(
+                ArrayContext::empty().into(),
+                segments,
+                stream,
+                eof,
+                &session,
+            )
             .await?;
         Ok((segments_ref, layout, session))
     }

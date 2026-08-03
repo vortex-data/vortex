@@ -13,7 +13,7 @@ on:
       machine_type:
         required: false
         type: string
-        default: i7i.metal-24xl
+        default: c6id.metal
 
 jobs:
   resolve-matrix:
@@ -43,8 +43,61 @@ jobs:
           matrix="$(uv run --project bench-orchestrator vx-bench matrix "$MATRIX_PRESET")"
           echo "benchmark_matrix=$matrix" >> "$GITHUB_OUTPUT"
 
+  build:
+    timeout-minutes: 60
+    env:
+      VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+      FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/family={1}/tag=build{2}', github.run_id, inputs.machine_type, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        with:
+          sccache: s3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          ref: ${{ inputs.mode == 'pr' && github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: ${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && 'true' || 'false' }}
+      - name: Build binaries
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
+          if [ "${{ inputs.mode }}" != "pr" ]; then
+            packages+=(--bin lance-bench)
+          fi
+          cargo build "${packages[@]}" --profile release_debug --features unstable_encodings
+      - name: Upload binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: bench-binaries
+          path: |
+            target/release_debug/data-gen
+            target/release_debug/datafusion-bench
+            target/release_debug/duckdb-bench
+            target/release_debug/lance-bench
+            target/release_debug/build/vortex-duckdb-cache/duckdb-lib-*-prebuilt/libduckdb.so
+      - name: Pre-upload SQL benchmark debuginfo to Polar Signals
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        uses: ./.github/actions/upload-parca-debuginfo
+        continue-on-error: true
+        with:
+          paths: |
+            target/release_debug/datafusion-bench
+            target/release_debug/duckdb-bench
+            ${{ inputs.mode != 'pr' && 'target/release_debug/lance-bench' || '' }}
+          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
+          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+
   bench:
-    needs: resolve-matrix
+    needs: [resolve-matrix, build]
     timeout-minutes: 120
     env:
       VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
@@ -58,7 +111,7 @@ jobs:
 
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=bench-dedicated/instance-type={1}/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          && format('runs-on={0}/runner=bench-dedicated/family={1}/tag={2}{3}', github.run_id, inputs.machine_type, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -85,27 +138,14 @@ jobs:
 
       - uses: ./.github/actions/system-info
 
-      - name: Build binaries
-        shell: bash
-        env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
-        run: |
-          packages=(--bin data-gen --bin datafusion-bench --bin duckdb-bench)
-          if [ "${{ inputs.mode }}" != "pr" ]; then
-            packages+=(--bin lance-bench)
-          fi
-          cargo build "${packages[@]}" --profile release_debug --features unstable_encodings
-
-      - name: Pre-upload SQL benchmark debuginfo to Polar Signals
-        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-        uses: ./.github/actions/upload-parca-debuginfo
+      - name: Download binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
         with:
-          paths: |
-            target/release_debug/datafusion-bench
-            target/release_debug/duckdb-bench
-            ${{ inputs.mode != 'pr' && 'target/release_debug/lance-bench' || '' }}
-          polarsignals-cloud-token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
-          project-id: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
+          name: bench-binaries
+          path: target/release_debug/
+      - name: Make binaries executable
+        shell: bash
+        run: chmod +x target/release_debug/*
 
       - name: Generate data
         shell: bash
@@ -165,7 +205,6 @@ jobs:
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
-            --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}
 
@@ -186,7 +225,6 @@ jobs:
             --output results.json \
             --ingest-jsonl results.ingest.jsonl \
             --no-build \
-            --runner "ec2_${{ inputs.machine_type }}" \
             ${{ matrix.iterations && format('--iterations {0}', matrix.iterations) || '' }} \
             --opt remote-data-dir="$REMOTE_STORAGE" \
             ${{ matrix.scale_factor && format('--opt scale-factor={0}', matrix.scale_factor) || '' }}

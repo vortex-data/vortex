@@ -395,7 +395,7 @@ mod test {
             let session = new_session().with_handle(handle);
             strategy
                 .write_stream(
-                    ctx,
+                    ctx.into(),
                     segments2,
                     SequentialStreamAdapter::new(
                         DType::Primitive(PType::I32, NonNullable),

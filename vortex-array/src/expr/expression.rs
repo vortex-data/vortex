@@ -18,6 +18,7 @@ use crate::dtype::DType;
 use crate::expr::display::DisplayTreeExpr;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::fns::root::Root;
+use crate::stats::rewrite::StatsRewriteCtx;
 
 /// A node in a Vortex expression tree.
 ///
@@ -123,7 +124,7 @@ impl Expression {
         scope: &DType,
         session: &VortexSession,
     ) -> VortexResult<Option<Expression>> {
-        crate::stats::rewrite::StatsRewriteCtx::new(session, scope).falsify(self)
+        StatsRewriteCtx::new(session, scope).falsify(self)
     }
 
     /// Returns an expression that proves this predicate is definitely true from stats.
@@ -137,7 +138,7 @@ impl Expression {
         scope: &DType,
         session: &VortexSession,
     ) -> VortexResult<Option<Expression>> {
-        crate::stats::rewrite::StatsRewriteCtx::new(session, scope).satisfy(self)
+        StatsRewriteCtx::new(session, scope).satisfy(self)
     }
 
     /// Format the expression as a compact string.

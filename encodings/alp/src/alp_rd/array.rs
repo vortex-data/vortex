@@ -585,6 +585,7 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::NativePType;
     use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
@@ -592,6 +593,7 @@ mod test {
 
     use super::ALPRDMetadata;
     use crate::ALPRDFloat;
+    use crate::RDEncoderExt;
     use crate::alp_rd;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -603,7 +605,7 @@ mod test {
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]
     #[case(vec![0.1f64.next_up(); 1024], 1.123_848_591_110_992_f64)]
-    fn test_array_encode_with_nulls_and_patches<T: ALPRDFloat>(
+    fn test_array_encode_with_nulls_and_patches<T: ALPRDFloat + NativePType>(
         #[case] reals: Vec<T>,
         #[case] seed: T,
     ) {

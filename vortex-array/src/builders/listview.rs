@@ -40,20 +40,21 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::dtype::OffsetBuilderPType;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 
-/// A builder for creating [`ListViewArray`] instances, parameterized by the [`IntegerPType`] of
-/// the `offsets` and the `sizes` builders.
+/// A builder for creating [`ListViewArray`] instances, parameterized by the [`OffsetBuilderPType`]
+/// of the `offsets` and the `sizes` builders.
 ///
 /// This builder tracks both offsets and sizes using potentially different integer types for memory
 /// efficiency. For example, you might use `u64` for offsets but only `u8` for sizes if your lists
 /// are small.
 ///
-/// Any combination of [`IntegerPType`] types are valid, as long as the type of `sizes` can fit into
-/// the type of `offsets`.
-pub struct ListViewBuilder<O: IntegerPType, S: IntegerPType> {
+/// Any combination of [`OffsetBuilderPType`] types is valid, as long as the type of `sizes` can fit
+/// into the type of `offsets`.
+pub struct ListViewBuilder<O: OffsetBuilderPType, S: OffsetBuilderPType> {
     /// The [`DType`] of the [`ListViewArray`]. This **must** be a [`DType::List`].
     dtype: DType,
 
@@ -68,9 +69,17 @@ pub struct ListViewBuilder<O: IntegerPType, S: IntegerPType> {
 
     /// The null map builder of the [`ListViewArray`].
     nulls: LazyBitBufferBuilder,
+
+    /// Whether the appends so far leave the result zero-copyable to a [`ListArray`].
+    ///
+    /// Only [`append_listview_array`](Self::append_listview_array) can clear this; every other
+    /// append writes its lists back to back.
+    ///
+    /// [`ListArray`]: crate::arrays::ListArray
+    zero_copy_to_list: bool,
 }
 
-impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
+impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ListViewBuilder<O, S> {
     /// Creates a new `ListViewBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
     pub fn new(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self::with_capacity(
@@ -111,6 +120,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
             offsets_builder,
             sizes_builder,
             nulls,
+            zero_copy_to_list: true,
         }
     }
 
@@ -206,6 +216,8 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         let sizes = self.sizes_builder.finish();
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
+        let zero_copy_to_list = std::mem::replace(&mut self.zero_copy_to_list, true);
+
         // SAFETY:
         // - Both the offsets and the sizes are non-nullable.
         // - The offsets, sizes, and validity have the same length since we always appended the same
@@ -213,12 +225,13 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         // - We checked on construction that the sizes type fits into the offsets.
         // - In every method that adds values to this builder (`append_value`, `append_scalar`,
         //   `append_list_array`, and `append_listview_array`), we checked that `offset + size`
-        //   does not overflow.
-        // - We constructed everything in a way that builds the `ListViewArray` similar to the shape
-        //   of a `ListArray`, so we know the resulting array is zero-copyable to a `ListArray`.
+        //   does not overflow. `append_listview_array` rebases the offsets it was handed onto
+        //   exactly the elements it appended, so the source's bound carries over.
+        // - Every append writes its lists back to back, so the result is zero-copyable to a
+        //   `ListArray` unless `zero_copy_to_list` recorded an appended layout we left alone.
         unsafe {
             ListViewArray::new_unchecked(elements, offsets, sizes, validity)
-                .with_zero_copy_to_list(true)
+                .with_zero_copy_to_list(zero_copy_to_list)
         }
     }
 
@@ -231,9 +244,111 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
 
         element_dtype
     }
+
+    /// Appends the values of a [`List`]-encoded `array` to this builder.
+    ///
+    /// List encodings dispatch here through
+    /// [`match_each_list_builder!`](crate::match_each_list_builder) because the concrete list
+    /// builders are generic over their offset/size integer types, which cannot be named through a
+    /// `dyn ArrayBuilder`.
+    pub fn append_list_array(
+        &mut self,
+        array: ArrayView<'_, List>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if array.is_empty() {
+            return Ok(());
+        }
+
+        self.nulls
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+
+        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
+            extend_from_list(
+                self,
+                array.elements(),
+                offsets.as_slice::<OffsetType>(),
+                ctx,
+            )?
+        });
+        Ok(())
+    }
+
+    /// Appends the values of a [`ListView`]-encoded `array` to this builder.
+    ///
+    /// See [`append_list_array`](Self::append_list_array); this is the same hook for the canonical
+    /// [`ListViewArray`] encoding.
+    ///
+    /// The views keep the layout they arrived in, so overlapping sources keep sharing their
+    /// elements and the finished array reports [`is_zero_copy_to_list`] as `false`. Callers that
+    /// need an exact layout should [`rebuild`](ListViewArray::rebuild) it.
+    ///
+    /// [`is_zero_copy_to_list`]: crate::arrays::listview::ListViewData::is_zero_copy_to_list
+    pub fn append_listview_array(
+        &mut self,
+        array: ArrayView<'_, ListView>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if array.is_empty() {
+            return Ok(());
+        }
+
+        // Drop leading and trailing unreferenced elements so we do not copy them in, but keep the
+        // layout otherwise: rebasing the offsets is correct whatever it is, and flattening would
+        // throw away the source's sharing - a constant list array points every view at one copy.
+        let listview = array
+            .into_owned()
+            .rebuild(ListViewRebuildMode::TrimElements, ctx)?;
+
+        // A trimmed zero-copy-to-list source references every element it carries, back to back, so
+        // it lands flush against the elements already in the builder. Any other layout does not.
+        self.zero_copy_to_list &= listview.is_zero_copy_to_list();
+
+        self.nulls
+            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
+
+        // Bulk append the trimmed elements; the offsets are rebased onto them below.
+        let old_elements_len = self.elements_builder.len();
+        self.elements_builder
+            .reserve_exact(listview.elements().len());
+        listview
+            .elements()
+            .append_to_builder(self.elements_builder.as_mut(), ctx)?;
+        let new_elements_len = self.elements_builder.len();
+
+        // Reserve enough space for the new views.
+        let extend_length = listview.len();
+        self.sizes_builder.reserve_exact(extend_length);
+        self.offsets_builder.reserve_exact(extend_length);
+
+        // The incoming sizes might have a different type than the builder, so we need to cast.
+        let cast_sizes = listview
+            .sizes()
+            .clone()
+            .cast(self.sizes_builder.dtype().clone())?;
+        cast_sizes.append_to_builder(&mut self.sizes_builder, ctx)?;
+
+        // Now we need to adjust all of the offsets by adding the current number of elements in the
+        // builder.
+        let uninit_range = self.offsets_builder.uninit_range(extend_length);
+
+        // This should be cheap because trimming rebases the offsets, it does not compress them.
+        let new_offsets = listview.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+
+        match_each_integer_ptype!(new_offsets.ptype(), |A| {
+            adjust_and_extend_offsets::<O, A>(
+                uninit_range,
+                new_offsets,
+                old_elements_len,
+                new_elements_len,
+            );
+        });
+        Ok(())
+    }
 }
 
-impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
+impl<O: OffsetBuilderPType, S: OffsetBuilderPType> ArrayBuilder for ListViewBuilder<O, S> {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -318,88 +433,6 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
     fn finish_into_canonical(&mut self, _ctx: &mut ExecutionCtx) -> Canonical {
         Canonical::List(self.finish_into_listview())
     }
-
-    fn append_list_array(
-        &mut self,
-        array: ArrayView<'_, List>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        if array.is_empty() {
-            return Ok(());
-        }
-
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
-
-        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-        match_each_integer_ptype!(offsets.ptype(), |OffsetType| {
-            extend_from_list(
-                self,
-                array.elements(),
-                offsets.as_slice::<OffsetType>(),
-                ctx,
-            )?
-        });
-        Ok(())
-    }
-
-    fn append_listview_array(
-        &mut self,
-        array: ArrayView<'_, ListView>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        if array.is_empty() {
-            return Ok(());
-        }
-
-        // Normalize to an exact zero-copy-to-list layout and then bulk append. This avoids the
-        // very expensive scalar_at-per-list path for overlapping / out-of-order list views.
-        let listview = array
-            .into_owned()
-            .rebuild(ListViewRebuildMode::MakeExact, ctx)?;
-        debug_assert!(listview.is_zero_copy_to_list());
-
-        self.nulls
-            .append_validity_mask(&array.validity()?.execute_mask(array.len(), ctx)?);
-
-        // Bulk append the new elements (which should have no gaps or overlaps).
-        let old_elements_len = self.elements_builder.len();
-        self.elements_builder
-            .reserve_exact(listview.elements().len());
-        listview
-            .elements()
-            .append_to_builder(self.elements_builder.as_mut(), ctx)?;
-        let new_elements_len = self.elements_builder.len();
-
-        // Reserve enough space for the new views.
-        let extend_length = listview.len();
-        self.sizes_builder.reserve_exact(extend_length);
-        self.offsets_builder.reserve_exact(extend_length);
-
-        // The incoming sizes might have a different type than the builder, so we need to cast.
-        let cast_sizes = listview
-            .sizes()
-            .clone()
-            .cast(self.sizes_builder.dtype().clone())?;
-        cast_sizes.append_to_builder(&mut self.sizes_builder, ctx)?;
-
-        // Now we need to adjust all of the offsets by adding the current number of elements in the
-        // builder.
-        let uninit_range = self.offsets_builder.uninit_range(extend_length);
-
-        // This should be cheap because we didn't compress after rebuilding.
-        let new_offsets = listview.offsets().clone().execute::<PrimitiveArray>(ctx)?;
-
-        match_each_integer_ptype!(new_offsets.ptype(), |A| {
-            adjust_and_extend_offsets::<O, A>(
-                uninit_range,
-                new_offsets,
-                old_elements_len,
-                new_elements_len,
-            );
-        });
-        Ok(())
-    }
 }
 
 /// Appends `ListArray`-layout lists (`n + 1` cumulative offsets) into a [`ListViewBuilder`].
@@ -414,8 +447,8 @@ fn extend_from_list<O, S, OffsetType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()>
 where
-    O: IntegerPType,
-    S: IntegerPType,
+    O: OffsetBuilderPType,
+    S: OffsetBuilderPType,
     OffsetType: IntegerPType,
 {
     let num_lists = offsets.len() - 1;
@@ -514,6 +547,7 @@ mod tests {
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::array_session;
+    use crate::arrays::ConstantArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::listview::ListViewArrayExt;
@@ -604,10 +638,10 @@ mod tests {
     #[test]
     fn test_different_offset_size_types() {
         let mut ctx = array_session().create_execution_ctx();
-        // Test u32 offsets with u8 sizes.
+        // Test u64 offsets with u32 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
-            ListViewBuilder::<u32, u8>::with_capacity(Arc::clone(&dtype), NonNullable, 0, 0);
+            ListViewBuilder::<u64, u32>::with_capacity(Arc::clone(&dtype), NonNullable, 0, 0);
 
         builder
             .append_value(
@@ -648,10 +682,10 @@ mod tests {
             &mut ctx
         );
 
-        // Test u64 offsets with u16 sizes.
+        // Test i64 offsets with i32 sizes.
         let dtype2: Arc<DType> = Arc::new(I32.into());
         let mut builder2 =
-            ListViewBuilder::<u64, u16>::with_capacity(Arc::clone(&dtype2), NonNullable, 0, 0);
+            ListViewBuilder::<i64, i32>::with_capacity(Arc::clone(&dtype2), NonNullable, 0, 0);
 
         for i in 0..5 {
             builder2
@@ -834,6 +868,38 @@ mod tests {
         Ok(())
     }
 
+    /// A constant list array points every view at a single copy of the value; flattening it in the
+    /// builder would materialize a copy per row.
+    #[test]
+    fn test_constant_list_append_keeps_one_copy_of_the_value() -> VortexResult<()> {
+        let mut ctx = array_session().create_execution_ctx();
+        let element_dtype: Arc<DType> = Arc::new(I32.into());
+
+        const ROWS: usize = 10_000;
+        let fill = Scalar::list(
+            Arc::clone(&element_dtype),
+            vec![1i32.into(), 2i32.into(), 3i32.into()],
+            NonNullable,
+        );
+        let constant = ConstantArray::new(fill, ROWS).into_array();
+
+        let mut builder =
+            ListViewBuilder::<u64, u64>::with_capacity(element_dtype, NonNullable, 0, 0);
+        constant.append_to_builder(&mut builder, &mut ctx)?;
+        let listview = builder.finish_into_listview();
+
+        assert_eq!(listview.len(), ROWS);
+        assert_eq!(
+            listview.elements().len(),
+            3,
+            "the fill value should be stored once, not once per row",
+        );
+        assert!(!listview.is_zero_copy_to_list());
+        assert_arrays_eq!(&listview.into_array(), &constant, &mut ctx);
+
+        Ok(())
+    }
+
     #[test]
     fn test_extend_from_array_overlapping_listview() {
         let mut ctx = array_session().create_execution_ctx();
@@ -854,14 +920,15 @@ mod tests {
         assert!(!source.is_zero_copy_to_list());
 
         let mut builder =
-            ListViewBuilder::<u32, u8>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
         builder
             .append_listview_array(source.as_view(), &mut ctx)
             .unwrap();
 
         let listview = builder.finish_into_listview();
         assert_eq!(listview.len(), 3);
-        assert!(listview.is_zero_copy_to_list());
+        // The builder kept the source's overlapping layout.
+        assert!(!listview.is_zero_copy_to_list());
 
         assert_arrays_eq!(
             listview.list_elements_at(0).unwrap(),
@@ -875,7 +942,8 @@ mod tests {
                 .execute_is_valid(1, &mut ctx)
                 .unwrap()
         );
-        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
+        // List 1 is null, so the builder no longer rewrites its size to zero.
+        assert_eq!(listview.size_at(1), source.size_at(1));
         assert_arrays_eq!(
             listview.list_elements_at(2).unwrap(),
             PrimitiveArray::from_iter([10i32]),

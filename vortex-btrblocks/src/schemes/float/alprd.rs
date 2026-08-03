@@ -6,6 +6,7 @@
 use vortex_alp::ALPRDArrayExt;
 use vortex_alp::ALPRDArrayOwnedExt;
 use vortex_alp::RDEncoder;
+use vortex_alp::RDEncoderExt;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
