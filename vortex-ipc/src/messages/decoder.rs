@@ -140,11 +140,11 @@ impl MessageDecoder {
                         MessageHeader::BufferMessage => {
                             let body = bytes.copy_to_aligned(
                                 body_length,
-                                Alignment::from_exponent(
+                                Alignment::try_from_untrusted_exponent(
                                     msg.header_as_buffer_message()
                                         .vortex_expect("header is buffer")
                                         .alignment_exponent(),
-                                ),
+                                )?,
                             );
 
                             self.state = Default::default();

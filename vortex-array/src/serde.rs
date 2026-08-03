@@ -633,7 +633,8 @@ impl SerializedArray {
 
                 // The alignment exponent comes from the flatbuffer and may be corrupt, so validate
                 // it rather than panicking on a too-large shift (see issue #8819).
-                let alignment = Alignment::try_from_exponent(fb_buf.alignment_exponent())?;
+                let alignment =
+                    Alignment::try_from_untrusted_exponent(fb_buf.alignment_exponent())?;
                 let handle = if let Some(host_data) = buffer_overrides.get(&idx) {
                     BufferHandle::new_host(host_data.clone()).ensure_aligned(alignment)?
                 } else {
@@ -760,6 +761,40 @@ mod tests {
         };
         assert!(
             err.to_string().contains("out of bounds"),
+            "unexpected error: {err}"
+        );
+
+        Ok(())
+    }
+
+    /// A corrupt array tree can declare a buffer alignment of up to 2^63, which the copy that
+    /// satisfies it allocates as slack. It must be rejected (see issue #8819).
+    #[test]
+    fn from_flatbuffer_and_segment_rejects_excessive_buffer_alignment() -> VortexResult<()> {
+        // Padding and length fit the segment exactly, so the exponent is the only defect.
+        // `validate_array_tree` only requires a root node to be present, so an empty one will do.
+        let mut fbb = FlatBufferBuilder::new();
+        let fb_root = fba::ArrayNode::create(&mut fbb, &fba::ArrayNodeArgs::default());
+        let fb_buffers = fbb.create_vector(&[fba::Buffer::new(0, 40, Compression::None, 4)]);
+        let fb_array = fba::Array::create(
+            &mut fbb,
+            &fba::ArrayArgs {
+                root: Some(fb_root),
+                buffers: Some(fb_buffers),
+            },
+        );
+        fbb.finish_minimal(fb_array);
+        let (fb_vec, fb_start) = fbb.collapse();
+        let fb_end = fb_vec.len();
+        let array_tree = ByteBuffer::from(fb_vec).slice(fb_start..fb_end);
+
+        let segment = BufferHandle::new_host(ByteBuffer::from(vec![0u8; 4]));
+        let Some(err) = SerializedArray::from_flatbuffer_and_segment(array_tree, segment).err()
+        else {
+            vortex_bail!("excessive buffer alignment must be rejected");
+        };
+        assert!(
+            err.to_string().contains("exceeds"),
             "unexpected error: {err}"
         );
 

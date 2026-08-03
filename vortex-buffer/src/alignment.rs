@@ -17,6 +17,12 @@ use vortex_error::vortex_err;
 pub struct Alignment(usize);
 
 impl Alignment {
+    /// Largest alignment accepted from untrusted serialized input.
+    ///
+    /// A copy to satisfy an alignment allocates `len + alignment`, once per buffer, so this bounds
+    /// the amplification. 16x the [`Self::DEFAULT_ALIGNMENT`] every writer here records.
+    pub const MAX_UNTRUSTED: Self = Alignment::new(4096);
+
     /// Default alignment for device-to-host buffer copies.
     pub const HOST_COPY: Self = Alignment::new(256);
 
@@ -142,6 +148,23 @@ impl Alignment {
             );
         }
         Ok(Self::new(1 << exponent))
+    }
+
+    /// Create an alignment from an exponent in untrusted serialized input.
+    ///
+    /// In addition to rejecting exponents that do not fit in `usize`, this rejects alignments
+    /// large enough to cause an unreasonable allocation when a buffer needs to be copied to
+    /// satisfy the alignment.
+    #[inline]
+    pub fn try_from_untrusted_exponent(exponent: u8) -> VortexResult<Self> {
+        let alignment = Self::try_from_exponent(exponent)?;
+        if alignment > Self::MAX_UNTRUSTED {
+            vortex_bail!(
+                "Untrusted alignment {alignment} exceeds the {}-byte maximum",
+                Self::MAX_UNTRUSTED
+            );
+        }
+        Ok(alignment)
     }
 }
 
@@ -269,6 +292,16 @@ mod test {
         // 64 is `>= usize::BITS` on both 32- and 64-bit targets.
         assert!(Alignment::try_from_exponent(64).is_err());
         assert!(Alignment::try_from_exponent(u8::MAX).is_err());
+    }
+
+    #[test]
+    fn try_from_untrusted_exponent() {
+        assert_eq!(
+            Alignment::try_from_untrusted_exponent(12).unwrap(),
+            Alignment::new(4096)
+        );
+        assert!(Alignment::try_from_untrusted_exponent(13).is_err());
+        assert!(Alignment::try_from_untrusted_exponent(u8::MAX).is_err());
     }
 
     #[test]
