@@ -106,6 +106,13 @@ impl Expression {
         self.scalar_fn.return_dtype(&dtypes)
     }
 
+    /// Returns a new expression representing the validity mask output of this expression.
+    ///
+    /// The returned expression evaluates to a non-nullable boolean array.
+    pub fn validity(&self) -> VortexResult<Expression> {
+        self.scalar_fn.validity(self)
+    }
+
     /// Returns an expression that proves this predicate is definitely false from stats.
     ///
     /// `scope` is the dtype of the row this expression evaluates over.
