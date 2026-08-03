@@ -7,11 +7,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use super::SumState;
 use super::checked_add_i64;
 use super::checked_add_u64;
-use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -24,10 +24,9 @@ const SUM_CHUNK: usize = 1 << 16;
 pub(super) fn accumulate_primitive(
     inner: &mut SumState,
     p: &PrimitiveArray,
-    ctx: &mut ExecutionCtx,
+    mask: &Mask,
     skip_nans: bool,
 ) -> VortexResult<bool> {
-    let mask = p.as_ref().validity()?.execute_mask(p.as_ref().len(), ctx)?;
     match mask.slices() {
         AllOr::None => Ok(false),
         AllOr::All => accumulate_primitive_all(inner, p, skip_nans),

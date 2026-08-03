@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use vortex_array::aggregate_fn::AggregateFnId;
 use vortex_array::aggregate_fn::AggregateFnRef;
+use vortex_array::aggregate_fn::fns::sum::Sum;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -90,8 +91,21 @@ pub(crate) fn aggregate_stats_table_dtype(
 ) -> DType {
     DType::Struct(
         StructFields::from_iter(aggregate_fns.iter().filter_map(|aggregate_fn| {
-            aggregate_state_dtype(column_dtype, aggregate_fn)
-                .map(|dtype| (aggregate_fn.to_string(), dtype.as_nullable()))
+            let dtype = if aggregate_fn
+                .as_opt::<Sum>()
+                .is_some_and(|options| !options.struct_partial)
+            {
+                aggregate_fn.return_dtype(column_dtype).or_else(|| {
+                    if let DType::Extension(ext) = column_dtype {
+                        aggregate_fn.return_dtype(ext.storage_dtype())
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                aggregate_state_dtype(column_dtype, aggregate_fn)
+            };
+            dtype.map(|dtype| (aggregate_fn.to_string(), dtype.as_nullable()))
         })),
         Nullability::NonNullable,
     )
@@ -276,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn sum_stats_table_dtype_uses_option_partial_shape() -> VortexResult<()> {
+    fn stored_sum_dtype_uses_the_persisted_partial_shape() -> VortexResult<()> {
         let column_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let legacy_options =
             SumAggregateOpts::deserialize(&NumericalAggregateOpts::default().serialize())?;
@@ -292,6 +306,7 @@ mod tests {
             current.as_struct_fields().field("vortex.sum()"),
             Some(DType::Struct(..))
         ));
+
         Ok(())
     }
 }

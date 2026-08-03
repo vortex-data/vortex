@@ -195,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_sum_options_select_scalar_partial() -> VortexResult<()> {
+    fn legacy_sum_options_mark_a_stored_scalar_partial() -> VortexResult<()> {
         let session = crate::array_session();
         let proto = pb::AggregateFn {
             id: Sum.id().to_string(),

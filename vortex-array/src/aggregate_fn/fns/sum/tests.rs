@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use super::Sum;
 use super::SumAggregateOpts;
 use super::sum;
+use super::sum_result_partial_scalar;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::VortexSessionExecute;
@@ -39,6 +40,7 @@ use crate::dtype::PType;
 use crate::dtype::i256;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProvider;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -49,6 +51,11 @@ fn sum_with_options(arr: &ArrayRef, options: SumAggregateOpts) -> VortexResult<S
     let mut acc = Accumulator::try_new(Sum, options, arr.dtype().clone())?;
     acc.accumulate(arr, &mut array_session().create_execution_ctx())?;
     acc.finish()
+}
+
+fn partial_with_value(value: Scalar) -> VortexResult<Scalar> {
+    let return_dtype = value.dtype().as_nullable();
+    sum_result_partial_scalar(value, &return_dtype, false)
 }
 
 #[test]
@@ -76,7 +83,7 @@ fn sum_uses_new_partial_shape_by_default() {
 }
 
 #[test]
-fn legacy_options_use_scalar_partial_and_zero_on_empty() -> VortexResult<()> {
+fn legacy_options_only_describe_the_stored_partial() -> VortexResult<()> {
     let options = SumAggregateOpts::deserialize(&NumericalAggregateOpts::skip_nans().serialize())?;
     assert_eq!(
         options,
@@ -87,17 +94,20 @@ fn legacy_options_use_scalar_partial_and_zero_on_empty() -> VortexResult<()> {
     );
 
     let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-    assert_eq!(
+    assert!(matches!(
         Sum.partial_dtype(&options, &input_dtype),
-        Some(DType::Primitive(PType::I64, Nullable))
-    );
+        Some(DType::Struct(..))
+    ));
 
     let mut acc = Accumulator::try_new(Sum, options, input_dtype)?;
     assert_eq!(
-        acc.partial_scalar()?.as_primitive().typed_value::<i64>(),
-        Some(0)
+        acc.partial_scalar()?
+            .as_struct()
+            .field("is_empty")
+            .and_then(|is_empty| is_empty.as_bool().value()),
+        Some(true)
     );
-    assert_eq!(acc.finish()?.as_primitive().typed_value::<i64>(), Some(0));
+    assert!(acc.finish()?.is_null());
     Ok(())
 }
 
@@ -146,7 +156,10 @@ fn sum_state_empty_is_identity() -> VortexResult<()> {
     // Combining an empty state into a non-empty state changes nothing.
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
     let mut state = Sum.empty_partial(&SumAggregateOpts::default(), &dtype)?;
-    Sum.combine_partials(&mut state, Scalar::primitive(100i64, Nullable))?;
+    Sum.combine_partials(
+        &mut state,
+        partial_with_value(Scalar::primitive(100i64, Nullable))?,
+    )?;
 
     let empty = Sum.to_scalar(&Sum.empty_partial(&SumAggregateOpts::default(), &dtype)?)?;
     Sum.combine_partials(&mut state, empty)?;
@@ -167,8 +180,14 @@ fn sum_state_overflow_sets_flag_and_poisons() -> VortexResult<()> {
     // Overflow sets the flag and poisons the merge even when combined with later values.
     let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
     let mut overflowed = Sum.empty_partial(&SumAggregateOpts::default(), &dtype)?;
-    Sum.combine_partials(&mut overflowed, Scalar::primitive(i64::MAX, Nullable))?;
-    Sum.combine_partials(&mut overflowed, Scalar::primitive(1i64, Nullable))?;
+    Sum.combine_partials(
+        &mut overflowed,
+        partial_with_value(Scalar::primitive(i64::MAX, Nullable))?,
+    )?;
+    Sum.combine_partials(
+        &mut overflowed,
+        partial_with_value(Scalar::primitive(1i64, Nullable))?,
+    )?;
     let overflowed = Sum.to_scalar(&overflowed)?;
     let fields = overflowed.as_struct();
     assert_eq!(
@@ -191,9 +210,15 @@ fn sum_state_overflow_sets_flag_and_poisons() -> VortexResult<()> {
     );
 
     let mut state = Sum.empty_partial(&SumAggregateOpts::default(), &dtype)?;
-    Sum.combine_partials(&mut state, Scalar::primitive(5i64, Nullable))?;
+    Sum.combine_partials(
+        &mut state,
+        partial_with_value(Scalar::primitive(5i64, Nullable))?,
+    )?;
     Sum.combine_partials(&mut state, overflowed)?;
-    Sum.combine_partials(&mut state, Scalar::primitive(7i64, Nullable))?;
+    Sum.combine_partials(
+        &mut state,
+        partial_with_value(Scalar::primitive(7i64, Nullable))?,
+    )?;
 
     let partial = Sum.to_scalar(&state)?;
     assert_eq!(
@@ -247,13 +272,12 @@ fn sum_all_nan_is_zero_not_null() -> VortexResult<()> {
 }
 
 #[test]
-fn legacy_scalar_partial_preserves_zero_on_empty() -> VortexResult<()> {
+fn stat_sum_remains_a_finalized_scalar() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     let arr = PrimitiveArray::from_option_iter([None::<i32>, None, None]).into_array();
     assert!(sum(&arr, &mut ctx)?.is_null());
+    assert!(arr.statistics().get(Stat::Sum).is_absent());
 
-    // A scalar `Stat::Sum` is an old partial. Its zero identity cannot encode emptiness, so its
-    // historical zero-on-empty result is preserved when it is encountered.
     arr.statistics()
         .set(Stat::Sum, Precision::Exact(ScalarValue::from(0i64)));
     assert_eq!(
@@ -263,40 +287,10 @@ fn legacy_scalar_partial_preserves_zero_on_empty() -> VortexResult<()> {
 
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
     let mut state = Sum.empty_partial(&SumAggregateOpts::default(), &dtype)?;
-    Sum.combine_partials(&mut state, Scalar::primitive(0i64, Nullable))?;
-    let partial = Sum.to_scalar(&state)?;
-    assert_eq!(
-        partial
-            .as_struct()
-            .field("sum")
-            .and_then(|sum| sum.as_primitive().typed_value::<i64>()),
-        Some(0)
-    );
-
-    let mut overflowed = Sum.empty_partial(&SumAggregateOpts::default(), &dtype)?;
-    Sum.combine_partials(
-        &mut overflowed,
-        Scalar::null(DType::Primitive(PType::I64, Nullable)),
-    )?;
-    let overflowed = Sum.to_scalar(&overflowed)?;
-    let fields = overflowed.as_struct();
-    assert_eq!(
-        fields
-            .field("sum")
-            .and_then(|sum| sum.as_primitive().typed_value::<i64>()),
-        Some(0)
-    );
-    assert_eq!(
-        fields
-            .field("is_overflow")
-            .and_then(|is_overflow| is_overflow.as_bool().value()),
-        Some(true)
-    );
-    assert_eq!(
-        fields
-            .field("is_empty")
-            .and_then(|is_empty| is_empty.as_bool().value()),
-        Some(false)
+    assert!(
+        Sum.combine_partials(&mut state, Scalar::primitive(0i64, Nullable))
+            .is_err(),
+        "live Sum only accepts canonical struct partials"
     );
     Ok(())
 }
@@ -514,13 +508,10 @@ fn sum_not_skipping_shortcircuits_on_exact_nan_count_stat() -> VortexResult<()> 
 
 #[test]
 fn sum_uses_cached_stat_sum() -> VortexResult<()> {
-    // A planted exact `Stat::Sum` with a known null count is consumed instead of a scan
-    // (the planted value differs from the actual data to prove it).
+    // The planted result differs from the actual data, proving the cache was consumed.
     let arr = PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0], Validity::NonNullable).into_array();
     arr.statistics()
         .set(Stat::Sum, Precision::Exact(ScalarValue::from(42.0f64)));
-    arr.statistics()
-        .set(Stat::NullCount, Precision::Exact(ScalarValue::from(0u64)));
     let result = sum(&arr, &mut array_session().create_execution_ctx())?;
     assert_eq!(result.as_primitive().typed_value::<f64>(), Some(42.0));
     Ok(())
@@ -534,8 +525,6 @@ fn sum_not_skipping_uses_cached_sum_when_nan_free() -> VortexResult<()> {
         .set(Stat::NaNCount, Precision::Exact(ScalarValue::from(0u64)));
     arr.statistics()
         .set(Stat::Sum, Precision::Exact(ScalarValue::from(42.0f64)));
-    arr.statistics()
-        .set(Stat::NullCount, Precision::Exact(ScalarValue::from(0u64)));
     let result = sum_with_options(&arr, SumAggregateOpts::include_nans())?;
     assert_eq!(result.as_primitive().typed_value::<f64>(), Some(42.0));
     Ok(())
@@ -585,6 +574,22 @@ fn sum_checked_overflow_is_null_and_saturates() -> VortexResult<()> {
     let batch = PrimitiveArray::new(buffer![i64::MAX, 1i64], Validity::NonNullable).into_array();
     acc.accumulate(&batch, &mut array_session().create_execution_ctx())?;
     assert!(acc.is_saturated());
+
+    let partial = acc.partial_scalar()?;
+    let fields = partial.as_struct();
+    assert_eq!(
+        fields
+            .field("is_overflow")
+            .and_then(|is_overflow| is_overflow.as_bool().value()),
+        Some(true)
+    );
+    assert_eq!(
+        fields
+            .field("is_empty")
+            .and_then(|is_empty| is_empty.as_bool().value()),
+        Some(false)
+    );
+
     let result = acc.finish()?;
     assert!(result.is_null());
 
@@ -626,11 +631,11 @@ fn sum_decimal_near_precision_boundary() -> VortexResult<()> {
         DecimalDType::new(14, 0),
         Nullable,
     );
-    Sum.combine_partials(&mut state, near_limit)?;
+    Sum.combine_partials(&mut state, partial_with_value(near_limit)?)?;
 
     // Add a small value that keeps us just under 10^14.
     let small = Scalar::decimal(DecimalValue::from(9i64), DecimalDType::new(14, 0), Nullable);
-    Sum.combine_partials(&mut state, small)?;
+    Sum.combine_partials(&mut state, partial_with_value(small)?)?;
 
     let result = Sum.to_scalar(&state)?;
     let fields = result.as_struct();
@@ -668,14 +673,14 @@ fn sum_decimal_precision_overflow_within_i256(
         DecimalDType::new(14, 0),
         Nullable,
     );
-    Sum.combine_partials(&mut state, near_limit)?;
+    Sum.combine_partials(&mut state, partial_with_value(near_limit)?)?;
 
     let one_more = Scalar::decimal(
         DecimalValue::from(one_more),
         DecimalDType::new(14, 0),
         Nullable,
     );
-    Sum.combine_partials(&mut state, one_more)?;
+    Sum.combine_partials(&mut state, partial_with_value(one_more)?)?;
 
     let result = Sum.to_scalar(&state)?;
     assert_eq!(
@@ -701,7 +706,7 @@ fn sum_decimal_accumulate_precision_overflow() -> VortexResult<()> {
     // Set state to 10^37 - 1 via combine_partials.
     let near_limit_val: i128 = 10i128.pow(37) - 1;
     let near_limit = Scalar::decimal(DecimalValue::from(near_limit_val), return_dtype, Nullable);
-    Sum.combine_partials(&mut state, near_limit)?;
+    Sum.combine_partials(&mut state, partial_with_value(near_limit)?)?;
 
     // Now accumulate a real i128 array with a single element = 1 to overflow precision.
     let decimal = DecimalArray::new(buffer![1i128], DecimalDType::new(27, 0), Validity::AllValid);

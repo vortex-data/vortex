@@ -17,7 +17,7 @@ use vortex_array::aggregate_fn::fns::all_null::AllNull;
 use vortex_array::aggregate_fn::fns::bounded_max::BOUNDED_MAX_BOUND;
 use vortex_array::aggregate_fn::fns::bounded_max::BoundedMax;
 use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum::normalize_partial_array;
+use vortex_array::aggregate_fn::fns::sum::normalize_legacy_partial_array;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
@@ -187,7 +187,9 @@ pub(super) fn normalize_sum_partial_fields(
         let Some(index) = names.find(aggregate_fn.to_string()) else {
             continue;
         };
-        fields[index] = normalize_partial_array(fields[index].clone())?;
+        if !matches!(fields[index].dtype(), DType::Struct(..)) {
+            fields[index] = normalize_legacy_partial_array(fields[index].clone())?;
+        }
     }
 
     StructArray::try_new(names, fields, array.len(), array.struct_validity())
@@ -448,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_scalar_sum_field_is_normalized_once() -> VortexResult<()> {
+    fn legacy_scalar_sum_field_is_normalized_on_read() -> VortexResult<()> {
         let options =
             SumAggregateOpts::deserialize(&NumericalAggregateOpts::default().serialize())?;
         let sum = Sum.bind(options);
@@ -462,7 +464,6 @@ mod tests {
             1,
             3,
         )?;
-
         let result_expr = zone_map
             .aggregate_field_expr(&sum)
             .expect("normalized Sum field");

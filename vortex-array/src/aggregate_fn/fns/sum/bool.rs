@@ -6,23 +6,22 @@ use std::ops::BitAnd;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use super::SumState;
 use super::checked_add_u64;
-use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
 pub(super) fn accumulate_bool(
     inner: &mut SumState,
     b: &BoolArray,
-    ctx: &mut ExecutionCtx,
+    mask: &Mask,
 ) -> VortexResult<bool> {
     let SumState::Unsigned(acc) = inner else {
         vortex_panic!("expected unsigned sum state for bool input");
     };
 
-    let mask = b.as_ref().validity()?.execute_mask(b.as_ref().len(), ctx)?;
     let true_count = match mask.bit_buffer() {
         AllOr::None => return Ok(false),
         AllOr::All => b.bit_buffer_view().true_count() as u64,

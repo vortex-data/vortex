@@ -46,9 +46,6 @@ impl DynGroupedAggregateKernel for PrimitiveGroupedSumEncodingKernel {
         let Some(options) = aggregate_fn.as_opt::<Sum>() else {
             return Ok(None);
         };
-        if !options.struct_partial {
-            return Ok(None);
-        }
         try_grouped_sum(groups, ctx, options.skip_nans)
     }
 }

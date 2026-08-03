@@ -119,18 +119,18 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch.dtype()
         );
 
-        // Sum's legacy Stat slot stores a scalar, while its canonical partial is a struct. Let
-        // Sum normalize either shape before the generic legacy-stat cast path.
-        if Stat::from_aggregate_fn(&self.aggregate_fn) == Some(Stat::Sum)
-            && let Precision::Exact(partial) = batch.statistics().get(Stat::Sum)
-        {
-            self.vtable.combine_partials(&mut self.partial, partial)?;
+        // Stat::Sum stores a finalized scalar rather than a partial. Give Sum's vtable the first
+        // chance to consume that cache before dispatching an encoding kernel.
+        let checked_cached_sum = Stat::from_aggregate_fn(&self.aggregate_fn) == Some(Stat::Sum)
+            && batch.statistics().get(Stat::Sum).is_exact();
+        if checked_cached_sum && self.vtable.try_accumulate(&mut self.partial, batch, ctx)? {
             return Ok(());
         }
 
-        // 0. Legacy stats bridge: if this aggregate is still cached under a legacy Stat slot,
-        //    consume that exact stat before kernel dispatch or decode.
+        // 0. Cached stats bridge: consume an exact partial from the aggregate's Stat slot before
+        //    kernel dispatch or decode. Sum is handled above because its cache stores a result.
         if let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn)
+            && stat != Stat::Sum
             && let Precision::Exact(partial) = batch.statistics().get(stat)
         {
             let partial = if partial.dtype() == &self.partial_dtype {
@@ -176,7 +176,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         }
 
         // 2. Allow the vtable to short-circuit on the raw array before decompression.
-        if self.vtable.try_accumulate(&mut self.partial, batch, ctx)? {
+        if !checked_cached_sum && self.vtable.try_accumulate(&mut self.partial, batch, ctx)? {
             return Ok(());
         }
 
@@ -298,7 +298,10 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
 
     /// Mean partial sentinel `{sum: 42.0, count: 1}` — distinguishable from the
     /// natural fan-out result `{sum: 7.0, count: 1}` that `Combined::try_accumulate`
@@ -376,10 +379,15 @@ mod tests {
 
     fn sum_partial(value: f64) -> Scalar {
         let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
-        let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype).expect("sum");
-        acc.combine_partials(Scalar::primitive(value, Nullability::Nullable))
-            .expect("legacy scalar partial");
-        acc.flush().expect("sum partial")
+        let acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype).expect("sum");
+        Scalar::struct_(
+            acc.partial_dtype,
+            vec![
+                Scalar::primitive(value, Nullability::NonNullable),
+                Scalar::bool(false, Nullability::NonNullable),
+                Scalar::bool(false, Nullability::NonNullable),
+            ],
+        )
     }
 
     /// Kernel registered for `(Dict, Combined<Mean>)` fires in preference to
@@ -482,6 +490,28 @@ mod tests {
             s.field("count").unwrap().as_primitive().as_::<u64>(),
             Some(1)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn cached_sum_precedes_encoding_kernel() -> VortexResult<()> {
+        static KERNEL: SentinelSumPartialKernel = SentinelSumPartialKernel;
+        let session = fresh_session();
+        session
+            .get::<AggregateFnSession>()
+            .register_aggregate_kernel(Dict.id(), Some(Sum.id()), &KERNEL);
+        let mut ctx = session.create_execution_ctx();
+
+        let batch = dict_of_seven();
+        batch
+            .statistics()
+            .set(Stat::Sum, Precision::Exact(ScalarValue::from(11.0f64)));
+
+        let dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+        let mut acc = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype)?;
+        acc.accumulate(&batch, &mut ctx)?;
+
+        assert_eq!(acc.finish()?.as_primitive().as_::<f64>(), Some(11.0));
         Ok(())
     }
 }
