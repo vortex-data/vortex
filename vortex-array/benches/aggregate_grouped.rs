@@ -14,21 +14,15 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::Accumulator;
 use vortex_array::aggregate_fn::AggregateFnVTable;
-use vortex_array::aggregate_fn::DynAccumulator;
 use vortex_array::aggregate_fn::DynGroupedAccumulator;
 use vortex_array::aggregate_fn::GroupedAccumulator;
 use vortex_array::aggregate_fn::fns::count::Count;
 use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::fns::sum::SumAggregateOpts;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
-use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
@@ -169,43 +163,6 @@ where
     acc.accumulate_list(list_view, &mut SESSION.create_execution_ctx())
         .unwrap();
     divan::black_box(acc.finish().unwrap())
-}
-
-#[divan::bench]
-fn sum_legacy_scalar_partial_merge(bencher: Bencher) {
-    let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
-    let partial = Scalar::primitive(1i64, Nullability::Nullable);
-    bencher
-        .with_inputs(|| partial.clone())
-        .bench_refs(|partial| {
-            let mut acc =
-                Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype.clone()).unwrap();
-            for _ in 0..GROUP_COUNT {
-                acc.combine_partials(partial.clone()).unwrap();
-            }
-            divan::black_box(acc.finish().unwrap())
-        });
-}
-
-#[divan::bench]
-fn sum_canonical_partial_merge(bencher: Bencher) {
-    let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
-    let mut source = Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype.clone()).unwrap();
-    source
-        .combine_partials(Scalar::primitive(1i64, Nullability::Nullable))
-        .unwrap();
-    let partial = source.flush().unwrap();
-
-    bencher
-        .with_inputs(|| partial.clone())
-        .bench_refs(|partial| {
-            let mut acc =
-                Accumulator::try_new(Sum, SumAggregateOpts::default(), dtype.clone()).unwrap();
-            for _ in 0..GROUP_COUNT {
-                acc.combine_partials(partial.clone()).unwrap();
-            }
-            divan::black_box(acc.finish().unwrap())
-        });
 }
 
 #[divan::bench]
