@@ -322,6 +322,8 @@ fn aggregate_result_expr(stored: &AggregateFnRef, state_expr: Expression) -> Exp
     if stored.is::<BoundedMax>() {
         get_item(BOUNDED_MAX_BOUND, state_expr)
     } else if stored.is::<Sum>() {
+        // The sum is null if either there was an overflow or the underlying array was empty
+        // (no valid elements).
         let is_invalid = fill_null(
             or(
                 get_item("is_overflow", state_expr.clone()),

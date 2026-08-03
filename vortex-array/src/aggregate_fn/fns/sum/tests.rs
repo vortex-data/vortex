@@ -130,7 +130,14 @@ fn sum_state_empty_is_null() -> VortexResult<()> {
         Some(true)
     );
     Sum.combine_partials(&mut state, empty)?;
-    assert!(Sum.finalize_scalar(&state)?.is_null());
+    let partial = Sum.to_scalar(&state)?;
+    assert_eq!(
+        partial
+            .as_struct()
+            .field("is_empty")
+            .and_then(|is_empty| is_empty.as_bool().value()),
+        Some(true)
+    );
     Ok(())
 }
 
@@ -144,8 +151,14 @@ fn sum_state_empty_is_identity() -> VortexResult<()> {
     let empty = Sum.to_scalar(&Sum.empty_partial(&SumAggregateOpts::default(), &dtype)?)?;
     Sum.combine_partials(&mut state, empty)?;
 
-    let result = Sum.finalize_scalar(&state)?;
-    assert_eq!(result.as_primitive().typed_value::<i64>(), Some(100));
+    let result = Sum.to_scalar(&state)?;
+    assert_eq!(
+        result
+            .as_struct()
+            .field("sum")
+            .and_then(|sum| sum.as_primitive().typed_value::<i64>()),
+        Some(100)
+    );
     Ok(())
 }
 
@@ -182,7 +195,14 @@ fn sum_state_overflow_sets_flag_and_poisons() -> VortexResult<()> {
     Sum.combine_partials(&mut state, overflowed)?;
     Sum.combine_partials(&mut state, Scalar::primitive(7i64, Nullable))?;
 
-    assert!(Sum.finalize_scalar(&state)?.is_null());
+    let partial = Sum.to_scalar(&state)?;
+    assert_eq!(
+        partial
+            .as_struct()
+            .field("is_overflow")
+            .and_then(|is_overflow| is_overflow.as_bool().value()),
+        Some(true)
+    );
     Ok(())
 }
 
@@ -244,10 +264,12 @@ fn legacy_scalar_partial_preserves_zero_on_empty() -> VortexResult<()> {
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
     let mut state = Sum.empty_partial(&SumAggregateOpts::default(), &dtype)?;
     Sum.combine_partials(&mut state, Scalar::primitive(0i64, Nullable))?;
+    let partial = Sum.to_scalar(&state)?;
     assert_eq!(
-        Sum.finalize_scalar(&state)?
-            .as_primitive()
-            .typed_value::<i64>(),
+        partial
+            .as_struct()
+            .field("sum")
+            .and_then(|sum| sum.as_primitive().typed_value::<i64>()),
         Some(0)
     );
 
@@ -610,10 +632,18 @@ fn sum_decimal_near_precision_boundary() -> VortexResult<()> {
     let small = Scalar::decimal(DecimalValue::from(9i64), DecimalDType::new(14, 0), Nullable);
     Sum.combine_partials(&mut state, small)?;
 
-    let result = Sum.finalize_scalar(&state)?;
-    assert!(!result.is_null());
+    let result = Sum.to_scalar(&state)?;
+    let fields = result.as_struct();
     assert_eq!(
-        result.as_decimal().decimal_value(),
+        fields
+            .field("is_overflow")
+            .and_then(|is_overflow| is_overflow.as_bool().value()),
+        Some(false)
+    );
+    assert_eq!(
+        fields
+            .field("sum")
+            .and_then(|sum| sum.as_decimal().decimal_value()),
         Some(DecimalValue::I256(i256::from_i128(99_999_999_999_999)))
     );
     Ok(())
@@ -647,11 +677,13 @@ fn sum_decimal_precision_overflow_within_i256(
     );
     Sum.combine_partials(&mut state, one_more)?;
 
-    let result = Sum.finalize_scalar(&state)?;
-    assert!(result.is_null());
+    let result = Sum.to_scalar(&state)?;
     assert_eq!(
-        result.dtype(),
-        &DType::Decimal(DecimalDType::new(14, 0), Nullable)
+        result
+            .as_struct()
+            .field("is_overflow")
+            .and_then(|is_overflow| is_overflow.as_bool().value()),
+        Some(true)
     );
     Ok(())
 }
@@ -677,8 +709,14 @@ fn sum_decimal_accumulate_precision_overflow() -> VortexResult<()> {
     let mut ctx = array_session().create_execution_ctx();
     Sum.accumulate(&mut state, &columnar, &mut ctx)?;
 
-    let result = Sum.finalize_scalar(&state)?;
-    assert!(result.is_null());
+    let result = Sum.to_scalar(&state)?;
+    assert_eq!(
+        result
+            .as_struct()
+            .field("is_overflow")
+            .and_then(|is_overflow| is_overflow.as_bool().value()),
+        Some(true)
+    );
     Ok(())
 }
 

@@ -304,11 +304,11 @@ impl AggregateFnVTable for Sum {
                     .decimal_value()
                     .vortex_expect("checked non-null");
                 match value.checked_add(&val) {
-                    Some(r) => {
+                    Some(r) if r.fits_in_precision(*dtype) => {
                         *value = r;
-                        !value.fits_in_precision(*dtype)
+                        false
                     }
-                    None => true,
+                    Some(_) | None => true,
                 }
             }
         };
@@ -841,9 +841,15 @@ mod arithmetic_tests {
         let scalar2 = Scalar::primitive(50i64, Nullable);
         Sum.combine_partials(&mut state, scalar2)?;
 
-        let result = Sum.finalize_scalar(&state)?;
+        let result = Sum.to_scalar(&state)?;
         Sum.reset(&mut state);
-        assert_eq!(result.as_primitive().typed_value::<i64>(), Some(150));
+        assert_eq!(
+            result
+                .as_struct()
+                .field("sum")
+                .and_then(|sum| sum.as_primitive().typed_value::<i64>()),
+            Some(150)
+        );
         Ok(())
     }
 
