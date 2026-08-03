@@ -23,7 +23,7 @@ use crate::scalar::DecimalValue;
 
 /// Accumulate a decimal array into the sum state.
 /// Returns Ok(true) if saturated (overflow), Ok(false) if not.
-pub(crate) fn accumulate_decimal(
+pub(super) fn accumulate_decimal(
     inner: &mut SumState,
     d: &DecimalArray,
     ctx: &mut ExecutionCtx,

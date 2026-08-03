@@ -494,7 +494,7 @@ pub enum SumState {
     },
 }
 
-pub(crate) fn make_zero_state(return_dtype: &DType) -> SumState {
+fn make_zero_state(return_dtype: &DType) -> SumState {
     match return_dtype {
         DType::Primitive(ptype, _) => match ptype {
             PType::U8 | PType::U16 | PType::U32 | PType::U64 => SumState::Unsigned(0),
@@ -666,7 +666,7 @@ fn any_valid(validity: Validity, len: usize, ctx: &mut ExecutionCtx) -> VortexRe
 
 /// Checked add for u64, returning true if overflow occurred.
 #[inline(always)]
-pub(crate) fn checked_add_u64(acc: &mut u64, val: u64) -> bool {
+fn checked_add_u64(acc: &mut u64, val: u64) -> bool {
     match acc.checked_add(val) {
         Some(r) => {
             *acc = r;
@@ -678,7 +678,7 @@ pub(crate) fn checked_add_u64(acc: &mut u64, val: u64) -> bool {
 
 /// Checked add for i64, returning true if overflow occurred.
 #[inline(always)]
-pub(crate) fn checked_add_i64(acc: &mut i64, val: i64) -> bool {
+fn checked_add_i64(acc: &mut i64, val: i64) -> bool {
     match acc.checked_add(val) {
         Some(r) => {
             *acc = r;

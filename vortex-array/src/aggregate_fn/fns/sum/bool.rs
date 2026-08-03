@@ -13,7 +13,7 @@ use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
-pub(crate) fn accumulate_bool(
+pub(super) fn accumulate_bool(
     inner: &mut SumState,
     b: &BoolArray,
     ctx: &mut ExecutionCtx,
