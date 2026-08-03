@@ -150,10 +150,10 @@ impl<V: VTable> ReduceRuleSet<V> {
     pub fn evaluate(&self, array: ParentView<'_, V>) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
             if let Some(reduced) = rule.reduce(array)? {
-                trace_op!(record_reduce_applied(array.array(), *rule, &reduced));
+                trace_op!(record_reduce_applied(&array, *rule, &reduced));
                 return Ok(Some(reduced));
             }
-            trace_op!(record_reduce_declined(array.array(), *rule));
+            trace_op!(record_reduce_declined(&array, *rule));
         }
         Ok(None)
     }
