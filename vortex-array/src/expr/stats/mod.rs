@@ -10,6 +10,7 @@ use enum_iterator::all;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
 
+use crate::aggregate_fn::fns::sum::SumAggregateOpts;
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
 
@@ -188,8 +189,8 @@ impl Stat {
             }
             Self::Sum => {
                 // Statistics follow NaN-skipping semantics; request it explicitly.
-                let options = aggregate_fn::fns::sum::SumAggregateOpts::skip_nans();
-                return aggregate_fn::fns::sum::Sum.return_dtype(&options, data_type);
+                return aggregate_fn::fns::sum::Sum
+                    .return_dtype(&SumAggregateOpts::skip_nans(), data_type);
             }
         })
     }
@@ -200,8 +201,7 @@ impl Stat {
         Some(match self {
             Self::Max => aggregate_fn::fns::max::Max.bind(NumericalAggregateOpts::skip_nans()),
             Self::Min => aggregate_fn::fns::min::Min.bind(NumericalAggregateOpts::skip_nans()),
-            Self::Sum => aggregate_fn::fns::sum::Sum
-                .bind(aggregate_fn::fns::sum::SumAggregateOpts::skip_nans()),
+            Self::Sum => aggregate_fn::fns::sum::Sum.bind(SumAggregateOpts::skip_nans()),
             Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
             Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
             Self::UncompressedSizeInBytes => {

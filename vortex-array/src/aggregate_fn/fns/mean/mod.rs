@@ -334,7 +334,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter::<f64, _>([None, None, None]).into_array();
         let mut ctx = array_session().create_execution_ctx();
         let result = mean(&array, &mut ctx)?;
-        assert!(result.is_null());
+        assert_eq!(result.as_primitive().as_::<f64>(), None);
         Ok(())
     }
 
