@@ -20,14 +20,15 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::BoundExpression;
-use vortex_array::expr::Expression;
-use vortex_array::expr::direct_annotations;
-use vortex_array::expr::is_root;
-use vortex_array::expr::label_tree;
-use vortex_array::expr::pack;
+use vortex_array::expr::ExactBoundExpr;
+use vortex_array::expr::direct_bound_annotations;
+use vortex_array::expr::label_bound_tree;
 use vortex_array::expr::root;
-use vortex_array::expr::transform::partition_annotations;
+use vortex_array::expr::transform::partition_bound_annotations;
 use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::fns::pack::Pack;
+use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::scalar_fn::is_negative_cost;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -185,23 +186,29 @@ const PUSHDOWN_ANNOTATION: &str = "";
 /// We want to push to the array only if the expression has a negative cost, is infallible, and is
 /// strict. Strictness ensures dictionary null codes still force a null result after pushdown.
 fn split_expression_for_pushdown(
-    expr: Expression,
-    dtype: &DType,
-) -> VortexResult<(Expression, Option<Expression>)> {
-    let references_root = label_tree(&expr, is_root, |acc, &child| acc | child);
-    let annotations = direct_annotations(&expr, |expr| {
-        let signature = expr.signature();
+    expr: &BoundExpression,
+) -> VortexResult<(BoundExpression, Option<BoundExpression>)> {
+    let references_root =
+        label_bound_tree(expr, BoundExpression::is_root, |acc, &child| acc | child);
+    let annotations = direct_bound_annotations(expr, |expr: &BoundExpression| {
+        let Some(scalar_fn) = expr.as_scalar() else {
+            return vec![];
+        };
+        let signature = scalar_fn.signature();
         if !signature.is_fallible()
             && signature.is_strict()
-            && is_negative_cost(expr.id())
-            && references_root.get(&expr).copied().unwrap_or(true)
+            && is_negative_cost(scalar_fn.id())
+            && references_root
+                .get(&ExactBoundExpr(expr.clone()))
+                .copied()
+                .unwrap_or(true)
         {
             vec![PUSHDOWN_ANNOTATION]
         } else {
             vec![]
         }
     });
-    let partition = partition_annotations(expr.clone(), dtype, annotations)?;
+    let partition = partition_bound_annotations(expr.clone(), annotations)?;
     if partition.partitions.is_empty() {
         Ok((partition.root, None))
     } else {
@@ -289,13 +296,18 @@ impl LayoutReader for DictReader {
             .projection_evaluation(row_range, &codes_root, mask)
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
 
-        let (expr_outer, expr_inner) = split_expression_for_pushdown(expr.unbind(), self.dtype())?;
+        let (expr_outer, expr_inner) = split_expression_for_pushdown(expr)?;
 
         let values_eval = if let Some(inner) = expr_inner {
             // "outer" takes a struct field with PUSHDOWN_ANNOTATION name, so
             // pack inner with this name as well
-            let inner = pack([(PUSHDOWN_ANNOTATION, inner)], Nullability::NonNullable)
-                .bind(self.values.dtype())?;
+            let inner = BoundExpression::try_new(
+                Pack.bind(PackOptions {
+                    names: [PUSHDOWN_ANNOTATION].into(),
+                    nullability: Nullability::NonNullable,
+                }),
+                [inner],
+            )?;
 
             // We can't use values_eval as it uses values_array_uncanonical
             // which in turn gets populated from self.values. If
@@ -333,7 +345,6 @@ impl LayoutReader for DictReader {
             .into_array()
             .optimize()?;
 
-            let expr_outer = expr_outer.bind(array.dtype())?;
             array.apply_bound(&expr_outer)
         }
         .boxed())
@@ -753,9 +764,18 @@ mod tests {
         Ok(())
     }
 
+    fn split_unbound(
+        expr: Expression,
+        dtype: &DType,
+    ) -> VortexResult<(Expression, Option<Expression>)> {
+        let bound = expr.bind(dtype)?;
+        let (outer, inner) = split_expression_for_pushdown(&bound)?;
+        Ok((outer.unbind(), inner.map(|expr| expr.unbind())))
+    }
+
     #[test]
     fn split_expr_root() {
-        let (outer, inner) = split_expression_for_pushdown(root(), &DType::Null).unwrap();
+        let (outer, inner) = split_unbound(root(), &DType::Null).unwrap();
         assert_eq!(outer, root());
         assert_eq!(inner, None);
     }
@@ -765,8 +785,7 @@ mod tests {
         // cast is fallible, thus not pushed
         let target = DType::Primitive(PType::I64, Nullability::Nullable);
         let expr = cast(byte_length(root()), target.clone());
-        let (outer, inner) =
-            split_expression_for_pushdown(expr.clone(), &DType::Utf8(false.into()))?;
+        let (outer, inner) = split_unbound(expr.clone(), &DType::Utf8(false.into()))?;
         let inner = inner.unwrap();
         // [0] = cast([1], dtype)
         // [1] = byte_length(root)
@@ -778,8 +797,7 @@ mod tests {
     #[test]
     fn split_expr_full_pushdown() -> VortexResult<()> {
         let expr = byte_length(root());
-        let (outer, inner) =
-            split_expression_for_pushdown(expr.clone(), &DType::Utf8(false.into()))?;
+        let (outer, inner) = split_unbound(expr.clone(), &DType::Utf8(false.into()))?;
         let inner = inner.unwrap();
         assert_eq!(outer, pushed_ref(0));
         assert_eq!(inner, pushed_inner([byte_length(root())]));
@@ -789,9 +807,8 @@ mod tests {
     #[test]
     fn split_expr_no_pushdown() {
         // like is fallible, thus not pushed. lit() does not reference root()
-        let expr = like(root(), lit(1u64));
-        let (outer, inner) =
-            split_expression_for_pushdown(expr.clone(), &DType::Utf8(true.into())).unwrap();
+        let expr = like(root(), lit("abc"));
+        let (outer, inner) = split_unbound(expr.clone(), &DType::Utf8(true.into())).unwrap();
         assert_eq!(outer, expr);
         assert_eq!(inner, None);
     }

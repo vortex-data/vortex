@@ -102,7 +102,10 @@ where
     })
 }
 
-/// The result of partitioning an expression.
+/// The result of partitioning a bound expression.
+///
+/// The root and partitions remain bound so callers can cache and reuse their shared tree identity
+/// without an unbind/rebind round trip.
 #[derive(Debug)]
 pub struct BoundPartitionedExpr<A> {
     /// The root expression used to re-assemble the results.

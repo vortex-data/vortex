@@ -57,12 +57,8 @@ pub struct ExactBoundExpr(pub BoundExpression);
 
 impl PartialEq for ExactBoundExpr {
     fn eq(&self, other: &Self) -> bool {
-        if self.0.dtype != other.0.dtype {
-            return false;
-        }
-
         match (&self.0.kind, &other.0.kind) {
-            (BoundKind::Root, BoundKind::Root) => true,
+            (BoundKind::Root, BoundKind::Root) => self.0.dtype == other.0.dtype,
             (
                 BoundKind::Scalar {
                     scalar_fn: lhs_fn,
@@ -72,7 +68,11 @@ impl PartialEq for ExactBoundExpr {
                     scalar_fn: rhs_fn,
                     children: rhs_children,
                 },
-            ) => lhs_fn == rhs_fn && Arc::ptr_eq(lhs_children, rhs_children),
+            ) => {
+                lhs_fn == rhs_fn
+                    && Arc::ptr_eq(lhs_children, rhs_children)
+                    && self.0.dtype == other.0.dtype
+            }
             _ => false,
         }
     }
@@ -82,7 +82,8 @@ impl Eq for ExactBoundExpr {}
 
 impl Hash for ExactBoundExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.dtype.hash(state);
+        // DType differences are resolved by equality. Omitting the potentially lazy dtype keeps
+        // identity-keyed cache lookups from deserializing an entire schema just to compute a hash.
         match &self.0.kind {
             BoundKind::Root => state.write_u8(0),
             BoundKind::Scalar {
