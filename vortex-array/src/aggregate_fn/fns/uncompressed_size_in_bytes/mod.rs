@@ -350,6 +350,7 @@ mod tests {
     use crate::arrays::UnionArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::VariantArray;
+    use crate::arrays::listview::ListViewRebuildMode;
     use crate::builders::builder_with_capacity;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
@@ -506,9 +507,19 @@ mod tests {
         let array =
             ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
+        // These lists are out of order and leave element 1 unreferenced, which the builder
+        // round-trip inside `materialized_uncompressed_size_in_bytes` now keeps. Compare against
+        // the exact layout instead, which is what "materialized" means here.
+        let mut ctx = array_session().create_execution_ctx();
+        let exact = array
+            .clone()
+            .execute::<ListViewArray>(&mut ctx)?
+            .rebuild(ListViewRebuildMode::MakeExact, &mut ctx)?
+            .into_array();
+
         assert_eq!(
             aggregate(&array)?,
-            materialized_uncompressed_size_in_bytes(&array)
+            materialized_uncompressed_size_in_bytes(&exact)
         );
         Ok(())
     }

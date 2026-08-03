@@ -524,7 +524,12 @@ impl Display for PushedAggregate {
 
 impl PushedAggregate {
     pub fn build(self, dtype: DType) -> VortexResult<Box<dyn DynAccumulator>> {
-        let opts = NumericalAggregateOpts::default();
+        let opts = if dtype.is_float() {
+            // duckdb treats nan as a real value, vortex defaults skip nans
+            NumericalAggregateOpts::include_nans()
+        } else {
+            NumericalAggregateOpts::default()
+        };
         Ok(match self {
             Self::Min => Box::new(Accumulator::try_new(Min, opts, dtype)?),
             Self::Max => Box::new(Accumulator::try_new(Max, opts, dtype)?),

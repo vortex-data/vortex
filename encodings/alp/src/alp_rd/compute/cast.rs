@@ -59,6 +59,7 @@ mod tests {
     use vortex_array::dtype::PType;
 
     use crate::RDEncoder;
+    use crate::RDEncoderExt;
 
     #[test]
     fn test_cast_alprd_f32_to_f64() {

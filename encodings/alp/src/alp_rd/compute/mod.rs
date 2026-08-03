@@ -21,6 +21,7 @@ mod tests {
 
     use crate::ALPRDArray;
     use crate::RDEncoder;
+    use crate::RDEncoderExt;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = array_session();

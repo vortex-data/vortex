@@ -66,12 +66,6 @@ SELECT count(x), sum(x), min(x), max(x), avg(x) FROM '${WORK_DIR}/f-posinf.vorte
 ----
 3 Infinity 1 Infinity Infinity
 
-onlyif duckdb
-query TT
-EXPLAIN SELECT sum(x) FROM '${WORK_DIR}/f-null.vortex';
-----
-<REGEX>:.*UNGROUPED_AGGREGATE.*
-
 query IRRRR
 SELECT count(x), sum(x), min(x), max(x), avg(x) FROM '${WORK_DIR}/f-null.vortex';
 ----

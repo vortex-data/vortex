@@ -70,7 +70,7 @@ impl CompareKernel for ALP {
 /// We can compare a scalar to an ALPArray by encoding the scalar into the ALP domain and comparing
 /// the encoded value to the encoded values in the ALPArray. There are fixups when the value doesn't
 /// encode into the ALP domain.
-fn alp_scalar_compare<F: ALPFloat + Into<Scalar>>(
+fn alp_scalar_compare<F: ALPFloat + NativePType + Into<Scalar>>(
     alp: ArrayView<ALP>,
     value: F,
     operator: CompareOperator,
@@ -178,7 +178,7 @@ mod tests {
         session
     });
 
-    fn test_alp_compare<F: ALPFloat + Into<Scalar>>(
+    fn test_alp_compare<F: ALPFloat + NativePType + Into<Scalar>>(
         alp: ArrayView<ALP>,
         value: F,
         operator: CompareOperator,

@@ -12,6 +12,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativeDType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
 use vortex_array::scalar_fn::fns::between::BetweenReduce;
@@ -64,7 +65,7 @@ fn between_impl<T: NativePType + ALPFloat>(
 ) -> VortexResult<ArrayRef>
 where
     Scalar: From<T::ALPInt>,
-    <T as ALPFloat>::ALPInt: NativeDType + Debug,
+    <T as ALPFloat>::ALPInt: NativeDType + NativePType + Into<PValue> + Debug,
 {
     let exponents = array.exponents();
 
@@ -99,7 +100,7 @@ where
     )
 }
 
-fn encode_lower_bound<T: ALPFloat>(
+fn encode_lower_bound<T: ALPFloat + NativePType>(
     lower: T,
     exponents: Exponents,
     strict: StrictComparison,
@@ -116,7 +117,7 @@ fn encode_lower_bound<T: ALPFloat>(
     )
 }
 
-fn encode_upper_bound<T: ALPFloat>(
+fn encode_upper_bound<T: ALPFloat + NativePType>(
     upper: T,
     exponents: Exponents,
     strict: StrictComparison,
