@@ -13,6 +13,7 @@
 
 use std::any::Any;
 use std::fmt::Debug;
+use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::OnceLock;
 
@@ -28,10 +29,12 @@ use crate::array::ArrayParts;
 use crate::array::ArraySlots;
 use crate::array::ParentView;
 use crate::array::VTable;
+use crate::display::EncodingSummaryExtractor;
 use crate::dtype::DType;
 use crate::matcher::AsParent;
 use crate::matcher::Matcher;
 use crate::optimizer::optimize_owned;
+use crate::trace_op;
 
 /// A parent array, possibly stack-allocated, used by the `reduce_parent` dispatch chain.
 ///
@@ -332,25 +335,47 @@ impl<V: VTable> ArrayParts<V> {
     /// metadata never allocates an `Arc<ArrayInner<_>>`. If no rule applies and the
     /// stack-backed parent was not materialized by a rule, the result is built with
     /// [`ArrayParts::into_array`] directly without cloning the parts.
+    ///
+    /// The same trace events as the heap path are emitted, so a construction-time optimization
+    /// appears in a [`trace_op`](crate::test_harness::trace::trace_op) capture as an `optimize`
+    /// block rather than as rule events with no enclosing pass. Recording those events reads only
+    /// the parent's metadata and never forces the borrowed parts to materialize.
     pub fn optimize(self) -> VortexResult<ArrayRef> {
         let parent = ParentRef::from_parts(&self);
+        trace_op!(record_optimize_start(&parent, false));
+        trace_op!(record_optimize_loop_start(&parent));
+
         if let Some(reduced) = parent.reduce()? {
-            return Ok(optimize_owned(reduced, None)?.0);
+            trace_op!(record_optimize_loop_end());
+            let output = optimize_owned(reduced, None)?.0;
+            trace_op!(record_optimize_done(&output, true));
+            return Ok(output);
         }
+        trace_op!(record_optimize_reduce_none(&parent));
 
         for (slot_idx, slot) in parent.slots.iter().enumerate() {
             let Some(child) = slot else { continue };
 
             if let Some(reduced) = child.reduce_parent(&parent, slot_idx)? {
-                return Ok(optimize_owned(reduced, None)?.0);
+                trace_op!(record_optimize_loop_end());
+                let output = optimize_owned(reduced, None)?.0;
+                trace_op!(record_optimize_done(&output, true));
+                return Ok(output);
             }
         }
+        trace_op!(record_optimize_parent_reduce_none(&parent));
+        trace_op!(record_optimize_loop_end());
 
+        // A rule that declined may still have materialized the parent; reuse that allocation
+        // rather than building the parts a second time.
         if let Some(cached) = parent.into_cached_array_ref() {
+            trace_op!(record_optimize_done(&cached, false));
             return Ok(cached);
         }
 
-        Ok(self.into_array())
+        let output = self.into_array();
+        trace_op!(record_optimize_done(&output, false));
+        Ok(output)
     }
 }
 
@@ -363,6 +388,14 @@ impl Debug for ParentRef<'_> {
             .field("len", &self.len())
             .field("heap_backed", &heap_backed)
             .finish()
+    }
+}
+
+/// Renders the same encoding summary as [`ArrayRef`] (`vortex.primitive(i32, len=4)`) without
+/// materializing a stack-backed parent.
+impl Display for ParentRef<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        EncodingSummaryExtractor::write_parts(self.encoding_id, self.dtype, self.len, f)
     }
 }
 

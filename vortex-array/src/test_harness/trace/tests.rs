@@ -40,6 +40,8 @@ use crate::arrays::Filter;
 use crate::arrays::FilterArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::ScalarFnArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::filter::FilterArraySlotsExt;
@@ -53,10 +55,13 @@ use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::kernels::ArrayKernelsExt;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::fns::pack::PackOptions;
 use crate::serde::ArrayChildren;
 use crate::session::ArraySession;
 use crate::test_harness::trace::TraceOptions;
@@ -710,6 +715,41 @@ fn trace_filter_on_struct_with_complex_children() -> VortexResult<()> {
     execute_until target=AnyCanonical root=vortex.struct({name=utf8, score=i64}, len=3)
       iter 0 current=vortex.struct({name=utf8, score=i64}, len=3) builder_active=false
       return output=vortex.struct({name=utf8, score=i64}, len=3)
+    ");
+
+    Ok(())
+}
+
+/// Optimizing borrowed construction parts must trace identically to materialize-then-optimize.
+///
+/// [`ArrayParts::optimize`] runs the same reduce and reduce_parent rules as
+/// [`ArrayOptimizer::optimize`], only against a parent borrowed from the stack, so both paths
+/// belong in a trace as the same `optimize` block. Before the two were unified, the stack path
+/// emitted its rule events with no enclosing `optimize`/`done` pass.
+#[test]
+fn trace_stack_parts_optimize_matches_heap_optimize() -> VortexResult<()> {
+    let a = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
+    let b = PrimitiveArray::from_iter([4i32, 5, 6]).into_array();
+    let len = a.len();
+    let pack = Pack.bind(PackOptions {
+        names: ["a", "b"].into(),
+        nullability: Nullability::NonNullable,
+    });
+
+    let heap = trace_op(|| {
+        ScalarFnArray::try_new_with_len(pack.clone(), vec![a.clone(), b.clone()], len)?
+            .into_array()
+            .optimize()
+    })?;
+    let stack = trace_op(|| ScalarFnArray::try_new_parts(pack, vec![a, b], len)?.optimize())?;
+
+    assert!(heap.output.is::<Struct>());
+    assert!(stack.output.is::<Struct>());
+    assert_eq!(stack.trace.to_string(), heap.trace.to_string());
+    insta::assert_snapshot!(stack.trace.to_string(), @"
+    optimize root=vortex.pack({a=i32, b=i32}, len=3) session=false
+      reduce ScalarFnPackToStructRule: vortex.pack({a=i32, b=i32}, len=3) -> vortex.struct({a=i32, b=i32}, len=3)
+      done output=vortex.struct({a=i32, b=i32}, len=3)
     ");
 
     Ok(())

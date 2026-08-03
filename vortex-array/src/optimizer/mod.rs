@@ -152,7 +152,7 @@ fn try_session_parent_reduce(
     for (_kernel_idx, reduce_parent) in reduce_parent_fns.iter().enumerate() {
         if let Some(new_array) = reduce_parent(child, &parent_ref, slot_idx)? {
             trace_op!(record_session_parent_reduce_applied(
-                parent,
+                &parent_ref,
                 child,
                 slot_idx,
                 _kernel_idx,
@@ -163,7 +163,7 @@ fn try_session_parent_reduce(
         }
 
         trace_op!(record_session_parent_reduce_declined(
-            parent,
+            &parent_ref,
             child,
             slot_idx,
             _kernel_idx,
@@ -177,6 +177,8 @@ fn try_optimize_recursive(
     current_array: ArrayRef,
     session: &VortexSession,
 ) -> VortexResult<(ArrayRef, bool)> {
+    trace_op!(record_optimize_recursive_start(&current_array));
+
     let (mut current_array, mut any_optimizations) = optimize_owned(current_array, Some(session))?;
 
     let mut new_slots = SmallVec::with_capacity(current_array.slots().len());
@@ -184,12 +186,15 @@ fn try_optimize_recursive(
     for slot in current_array.slots() {
         match slot {
             Some(child) => {
-                let (new_child, new_slot_optimized) = try_optimize_recursive(child.clone(), session)?;
-                trace_op!(record_optimize_recursive_slot(
-                    new_slots.len(),
-                    child,
-                    &new_child,
-                ));
+                let (new_child, new_slot_optimized) =
+                    try_optimize_recursive(child.clone(), session)?;
+                if new_slot_optimized {
+                    trace_op!(record_optimize_recursive_slot(
+                        new_slots.len(),
+                        child,
+                        &new_child,
+                    ));
+                }
                 new_slots.push(Some(new_child));
                 any_slot_optimized |= new_slot_optimized;
             }
