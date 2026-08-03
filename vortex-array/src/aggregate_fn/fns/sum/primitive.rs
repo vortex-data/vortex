@@ -183,6 +183,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
@@ -346,7 +347,7 @@ mod tests {
     }
 
     /// Sum an array with explicit [`SumAggregateOpts`] (test-only helper).
-    fn sum_with_options(arr: &crate::ArrayRef, options: SumAggregateOpts) -> VortexResult<Scalar> {
+    fn sum_with_options(arr: &ArrayRef, options: SumAggregateOpts) -> VortexResult<Scalar> {
         let mut acc = Accumulator::try_new(Sum, options, arr.dtype().clone())?;
         acc.accumulate(arr, &mut array_session().create_execution_ctx())?;
         acc.finish()
