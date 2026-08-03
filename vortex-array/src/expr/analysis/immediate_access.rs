@@ -6,6 +6,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::dtype::FieldName;
 use crate::dtype::StructFields;
+use crate::expr::BoundExpression;
 use crate::expr::Expression;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;
@@ -43,7 +44,7 @@ pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 /// - The full expression has free fields `{a, d}` (not `b`, only top-level fields are tracked).
 pub fn make_free_field_annotator(
     scope: &StructFields,
-) -> impl AnnotationFn<Annotation = FieldName> {
+) -> impl AnnotationFn<Expression, Annotation = FieldName> {
     move |expr: &Expression| {
         if let Some(selection) = expr.as_opt::<Select>() {
             if expr.child(0).is::<Root>() {
@@ -59,6 +60,33 @@ pub fn make_free_field_annotator(
             }
         } else if expr.is::<Root>() {
             return scope.names().iter().cloned().collect();
+        }
+
+        vec![]
+    }
+}
+
+/// Returns the free top-level fields for bound expression nodes.
+pub fn make_bound_free_field_annotator(
+    scope: &StructFields,
+) -> impl AnnotationFn<BoundExpression, Annotation = FieldName> {
+    move |expr: &BoundExpression| {
+        let Some(scalar_fn) = expr.as_scalar() else {
+            return scope.names().iter().cloned().collect();
+        };
+
+        if let Some(selection) = scalar_fn.as_opt::<Select>() {
+            if expr.children()[0].is_root() {
+                return selection
+                    .normalize_to_included_fields(scope.names())
+                    .vortex_expect("Select fields must be valid for scope")
+                    .into_iter()
+                    .collect();
+            }
+        } else if let Some(field_name) = scalar_fn.as_opt::<GetItem>()
+            && expr.children()[0].is_root()
+        {
+            return vec![field_name.clone()];
         }
 
         vec![]

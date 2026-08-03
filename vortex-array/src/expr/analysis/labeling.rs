@@ -1,17 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::expr::BoundExpression;
+use crate::expr::ExactBoundExpr;
 use crate::expr::Expression;
+use crate::expr::traversal::Node;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
 
 /// Boolean labels keyed by each expression node in a tree.
-pub type BooleanLabels<'a> = HashMap<&'a Expression, bool>;
+pub type BooleanLabels<'a, N = Expression> = HashMap<&'a N, bool>;
+
+/// Labels keyed by bound-tree identity.
+pub type BoundLabels<L> = HashMap<ExactBoundExpr, L>;
 
 /// Label each node in an expression tree using a bottom-up traversal.
 ///
@@ -32,11 +40,14 @@ pub type BooleanLabels<'a> = HashMap<&'a Expression, bool>;
 /// - `merge_child`: Mutable function that folds child labels into an accumulator.
 ///   Takes `(self_label, child_label)` and returns the updated accumulator.
 ///   Called once per child, with the initial accumulator being the node's self-label.
-pub fn label_tree<L: Clone>(
-    expr: &Expression,
-    self_label: impl Fn(&Expression) -> L,
+pub fn label_tree<N, L: Clone>(
+    expr: &N,
+    self_label: impl Fn(&N) -> L,
     mut merge_child: impl FnMut(L, &L) -> L,
-) -> HashMap<&Expression, L> {
+) -> HashMap<&N, L>
+where
+    N: Node + Eq + Hash,
+{
     let mut visitor = LabelingVisitor {
         labels: Default::default(),
         self_label,
@@ -47,40 +58,98 @@ pub fn label_tree<L: Clone>(
     visitor.labels
 }
 
-struct LabelingVisitor<'a, 'b, L, F, G>
+/// Label each node in a bound expression using identity-keyed lookups.
+///
+/// This avoids structurally hashing bound dtypes, which may deserialize a lazy schema.
+pub fn label_bound_tree<L: Clone>(
+    expr: &BoundExpression,
+    self_label: impl Fn(&BoundExpression) -> L,
+    mut merge_child: impl FnMut(L, &L) -> L,
+) -> BoundLabels<L> {
+    let mut visitor = BoundLabelingVisitor {
+        labels: Default::default(),
+        self_label,
+        merge_child: &mut merge_child,
+    };
+    expr.accept(&mut visitor)
+        .vortex_expect("BoundLabelingVisitor is infallible");
+    visitor.labels
+}
+
+struct LabelingVisitor<'a, 'b, N, L, F, G>
 where
-    F: Fn(&Expression) -> L,
+    N: Node + Eq + Hash,
+    F: Fn(&N) -> L,
     G: FnMut(L, &L) -> L,
 {
-    labels: HashMap<&'a Expression, L>,
+    labels: HashMap<&'a N, L>,
     self_label: F,
     merge_child: &'b mut G,
 }
 
-impl<'a, 'b, L: Clone, F, G> NodeVisitor<'a> for LabelingVisitor<'a, 'b, L, F, G>
+impl<'a, 'b, N, L: Clone, F, G> NodeVisitor<'a> for LabelingVisitor<'a, 'b, N, L, F, G>
 where
-    F: Fn(&Expression) -> L,
+    N: Node + Eq + Hash,
+    F: Fn(&N) -> L,
     G: FnMut(L, &L) -> L,
 {
-    type NodeTy = Expression;
+    type NodeTy = N;
 
     fn visit_down(&mut self, _node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
         Ok(TraversalOrder::Continue)
     }
 
-    fn visit_up(&mut self, node: &'a Expression) -> VortexResult<TraversalOrder> {
+    fn visit_up(&mut self, node: &'a N) -> VortexResult<TraversalOrder> {
         let self_label = (self.self_label)(node);
 
-        let final_label = node.children().iter().fold(self_label, |acc, child| {
-            let child_label = self
-                .labels
-                .get(child)
-                .vortex_expect("child must have label");
-            (self.merge_child)(acc, child_label)
+        let final_label = node.iter_children(|children| {
+            children.fold(self_label, |acc, child| {
+                let child_label = self
+                    .labels
+                    .get(child)
+                    .vortex_expect("child must have label");
+                (self.merge_child)(acc, child_label)
+            })
         });
 
         self.labels.insert(node, final_label);
 
+        Ok(TraversalOrder::Continue)
+    }
+}
+
+struct BoundLabelingVisitor<'a, L, F, G>
+where
+    F: Fn(&BoundExpression) -> L,
+    G: FnMut(L, &L) -> L,
+{
+    labels: BoundLabels<L>,
+    self_label: F,
+    merge_child: &'a mut G,
+}
+
+impl<'node, 'visitor, L: Clone, F, G> NodeVisitor<'node> for BoundLabelingVisitor<'visitor, L, F, G>
+where
+    F: Fn(&BoundExpression) -> L,
+    G: FnMut(L, &L) -> L,
+{
+    type NodeTy = BoundExpression;
+
+    fn visit_down(&mut self, _node: &'node Self::NodeTy) -> VortexResult<TraversalOrder> {
+        Ok(TraversalOrder::Continue)
+    }
+
+    fn visit_up(&mut self, node: &'node Self::NodeTy) -> VortexResult<TraversalOrder> {
+        let self_label = (self.self_label)(node);
+        let final_label = node.children().iter().fold(self_label, |acc, child| {
+            let child_label = self
+                .labels
+                .get(&ExactBoundExpr(child.clone()))
+                .vortex_expect("child must have label");
+            (self.merge_child)(acc, child_label)
+        });
+        self.labels
+            .insert(ExactBoundExpr(node.clone()), final_label);
         Ok(TraversalOrder::Continue)
     }
 }
