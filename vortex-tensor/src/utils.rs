@@ -26,8 +26,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use crate::encodings::l2_denorm::L2Denorm;
-use crate::encodings::l2_denorm::L2DenormArraySlotsExt;
+use crate::encodings::normalized::Normalized;
+use crate::encodings::normalized::NormalizedArraySlotsExt;
 use crate::matcher::AnyTensor;
 use crate::matcher::TensorMatch;
 
@@ -58,21 +58,24 @@ pub fn unit_norm_tolerance(element_ptype: PType, dimensions: usize) -> f64 {
     SAFETY_FACTOR as f64 * machine_epsilon * dimensions_root
 }
 
-/// Extracts the `(normalized, norms)` children of an [`L2Denorm`]-encoded array.
+/// Extracts the `(normalized, norms)` children of a [`Normalized`]-encoded array.
 ///
 /// # Panics
 ///
-/// Panics if `array` is not [`L2Denorm`]-encoded. Callers reach this through
-/// [`DenormOrientation::classify`], which has already matched on the encoding.
+/// Panics if `array` is not [`Normalized`]-encoded. Callers reach this through
+/// [`NormalizedOrientation::classify`], which has already matched on the encoding.
 ///
-/// [`L2Denorm`]: crate::encodings::l2_denorm::L2Denorm
-/// [`DenormOrientation::classify`]: crate::encodings::l2_denorm::DenormOrientation::classify
-pub fn extract_l2_denorm_children(array: &ArrayRef) -> (ArrayRef, ArrayRef) {
-    let denorm = array
-        .as_opt::<L2Denorm>()
-        .vortex_expect("expected an L2Denorm-encoded array");
+/// [`Normalized`]: crate::encodings::normalized::Normalized
+/// [`NormalizedOrientation::classify`]: crate::encodings::normalized::NormalizedOrientation::classify
+pub fn extract_normalized_children(array: &ArrayRef) -> (ArrayRef, ArrayRef) {
+    let normalized_array = array
+        .as_opt::<Normalized>()
+        .vortex_expect("expected a Normalized-encoded array");
 
-    (denorm.normalized().clone(), denorm.norms().clone())
+    (
+        normalized_array.normalized().clone(),
+        normalized_array.norms().clone(),
+    )
 }
 
 /// Validates that `input_dtype` is a float-valued tensor-like extension dtype.
@@ -299,7 +302,7 @@ pub mod test_helpers {
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
 
-    use crate::encodings::l2_denorm::L2Denorm;
+    use crate::encodings::normalized::Normalized;
     use crate::types::fixed_shape_tensor::FixedShapeTensor;
     use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
     use crate::types::vector::Vector;
@@ -367,10 +370,10 @@ pub mod test_helpers {
         ConstantArray::new(ext_scalar, len).into_array()
     }
 
-    /// Creates an [`L2Denorm`] array from pre-normalized tensor elements and matching norms. The
+    /// Creates a [`Normalized`] array from pre-normalized tensor elements and matching norms. The
     /// caller must ensure every row of `normalized_elements` is unit-norm or zero, since this
     /// goes through the checked constructor.
-    pub fn l2_denorm_array<T: NativePType>(
+    pub fn normalized_array<T: NativePType>(
         shape: &[usize],
         normalized_elements: &[T],
         norms: &[T],
@@ -379,7 +382,7 @@ pub mod test_helpers {
         let normalized = tensor_array(shape, normalized_elements)?;
         let norms =
             PrimitiveArray::new(Buffer::copy_from(norms), Validity::NonNullable).into_array();
-        Ok(L2Denorm::try_new(normalized, norms, ctx)?.into_array())
+        Ok(Normalized::try_new(normalized, norms, ctx)?.into_array())
     }
 
     /// Asserts that each element in `actual` is within `1e-10` of the corresponding `expected`

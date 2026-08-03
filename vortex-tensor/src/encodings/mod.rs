@@ -6,4 +6,4 @@
 // TODO(connor):
 // pub mod spherical; // Spherical transform on unit-normalized vectors.
 
-pub mod l2_denorm;
+pub mod normalized;

@@ -19,7 +19,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_arrow::ArrowSessionExt;
 use vortex_session::VortexSession;
 
-use crate::encodings::l2_denorm::L2Denorm;
+use crate::encodings::normalized::Normalized;
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_norm::L2Norm;
@@ -46,7 +46,7 @@ mod utils;
 /// containing serialized tensor scalar-fn arrays will fail to deserialize. Opt-in by setting the
 /// variable to any non-empty value.
 ///
-/// This does **not** gate [`L2Denorm`]. That is a real array encoding rather than a persisted
+/// This does **not** gate [`Normalized`]. That is a real array encoding rather than a persisted
 /// scalar function, and the compressor can emit it, so it always registers.
 pub const SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV: &str = "VX_SCALAR_FN_ARRAY_TENSOR_PLUGIN";
 
@@ -59,7 +59,7 @@ pub fn initialize(session: &VortexSession) {
     arrow_session.register_exporter(Arc::new(Vector));
     arrow_session.register_importer(Arc::new(Vector));
 
-    session.arrays().register(L2Denorm);
+    session.arrays().register(Normalized);
 
     let session_fns = session.scalar_fns();
 

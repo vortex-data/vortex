@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The [`L2Denorm`] encoding: a norm-split physical layout for tensor-like columns.
+//! The [`Normalized`] encoding: a norm-split physical layout for tensor-like columns.
 //!
-//! An [`L2Denorm`] array stores a tensor or vector column as two children:
+//! An [`Normalized`] array stores a tensor or vector column as two children:
 //!
 //! - `normalized`, a tensor-like column whose valid rows are unit-norm (or zero), and
 //! - `norms`, a primitive float column holding the authoritative L2 norm of each row.
@@ -22,21 +22,21 @@
 //! [`CosineSimilarity`]: crate::scalar_fns::cosine_similarity::CosineSimilarity
 
 mod array;
-pub use array::L2Denorm;
-pub use array::L2DenormArray;
-pub use array::L2DenormArraySlotsExt;
-pub use array::L2DenormMetadata;
-pub use array::L2DenormSlots;
+pub use array::Normalized;
+pub use array::NormalizedArray;
+pub use array::NormalizedArraySlotsExt;
+pub use array::NormalizedMetadata;
+pub use array::NormalizedSlots;
 
 mod compress;
-pub use compress::L2DenormScheme;
-pub use compress::normalize_as_l2_denorm;
-pub(crate) use compress::try_build_constant_l2_denorm;
+pub use compress::NormalizedScheme;
+pub use compress::normalize;
+pub(crate) use compress::try_build_constant_normalized;
 
 mod execute;
 
 mod orientation;
-pub(crate) use orientation::DenormOrientation;
+pub(crate) use orientation::NormalizedOrientation;
 
 mod rules;
 

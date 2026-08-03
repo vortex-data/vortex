@@ -18,14 +18,14 @@ use crate::utils::extract_flat_elements;
 use crate::utils::unit_norm_tolerance;
 use crate::utils::validate_tensor_float_input;
 
-/// Validates the structural invariants of an [`L2Denorm`] array's children.
+/// Validates the structural invariants of a [`Normalized`] array's children.
 ///
-/// These are the cheap, dtype-and-length checks that every [`L2DenormArray`] upholds, whichever
+/// These are the cheap, dtype-and-length checks that every [`NormalizedArray`] upholds, whichever
 /// constructor built it. They run on construction and on deserialization.
 ///
-/// [`L2Denorm`]: crate::encodings::l2_denorm::L2Denorm
-/// [`L2DenormArray`]: crate::encodings::l2_denorm::L2DenormArray
-pub(super) fn validate_l2_denorm_children(
+/// [`Normalized`]: crate::encodings::normalized::Normalized
+/// [`NormalizedArray`]: crate::encodings::normalized::NormalizedArray
+pub(super) fn validate_normalized_children(
     normalized: &ArrayRef,
     norms: &ArrayRef,
     dtype: &DType,
@@ -34,13 +34,13 @@ pub(super) fn validate_l2_denorm_children(
     vortex_ensure_eq!(
         normalized.len(),
         len,
-        "L2Denorm normalized child must have the array length ({len}), got {}",
+        "Normalized normalized child must have the array length ({len}), got {}",
         normalized.len(),
     );
     vortex_ensure_eq!(
         norms.len(),
         len,
-        "L2Denorm norms child must have the array length ({len}), got {}",
+        "Normalized norms child must have the array length ({len}), got {}",
         norms.len(),
     );
 
@@ -49,14 +49,14 @@ pub(super) fn validate_l2_denorm_children(
 
     let DType::Primitive(norms_ptype, _) = norms.dtype() else {
         vortex_bail!(
-            "L2Denorm norms must be a primitive float array, got {}",
+            "Normalized norms must be a primitive float array, got {}",
             norms.dtype(),
         );
     };
     vortex_ensure_eq!(
         *norms_ptype,
         element_ptype,
-        "L2Denorm norms dtype must match the normalized element dtype ({element_ptype}), \
+        "Normalized norms dtype must match the normalized element dtype ({element_ptype}), \
          got {norms_ptype}",
     );
 
@@ -66,14 +66,14 @@ pub(super) fn validate_l2_denorm_children(
     vortex_ensure_eq!(
         *dtype,
         expected,
-        "L2Denorm dtype must be the union of its children's nullability ({expected}), got {dtype}",
+        "Normalized dtype must be the union of its children's nullability ({expected}), got {dtype}",
     );
 
     Ok(())
 }
 
 /// Validates that `normalized` and (when supplied) the matching `norms` jointly satisfy the
-/// semantic [`L2Denorm`] invariants:
+/// semantic [`Normalized`] invariants:
 ///
 /// - Every valid row of `normalized` has L2 norm `1.0` or `0.0`, within the tolerance implied by
 ///   the element precision.
@@ -83,7 +83,7 @@ pub(super) fn validate_l2_denorm_children(
 /// This costs `O(len * list_size)`, which is why it is a separate step rather than part of the
 /// encoding's structural validation.
 ///
-/// [`L2Denorm`]: crate::encodings::l2_denorm::L2Denorm
+/// [`Normalized`]: crate::encodings::normalized::Normalized
 pub fn validate_l2_normalized_rows_against_norms(
     normalized: &ArrayRef,
     norms: Option<&ArrayRef>,
@@ -103,21 +103,21 @@ pub fn validate_l2_normalized_rows_against_norms(
         vortex_ensure_eq!(
             norms.len(),
             row_count,
-            "L2Denorm norms must have the same length as the normalized child ({row_count}), \
+            "Normalized norms must have the same length as the normalized child ({row_count}), \
              got {}",
             norms.len(),
         );
 
         let DType::Primitive(norms_ptype, _) = norms.dtype() else {
             vortex_bail!(
-                "L2Denorm norms must be a primitive float array, got {}",
+                "Normalized norms must be a primitive float array, got {}",
                 norms.dtype(),
             );
         };
         vortex_ensure_eq!(
             *norms_ptype,
             element_ptype,
-            "L2Denorm norms ptype must match the normalized element ptype ({element_ptype}), \
+            "Normalized norms ptype must match the normalized element ptype ({element_ptype}), \
              got {norms_ptype}",
         );
     }
@@ -157,7 +157,7 @@ pub fn validate_l2_normalized_rows_against_norms(
 
             vortex_ensure!(
                 row_norm == 0.0 || (row_norm - 1.0).abs() <= tolerance,
-                "L2Denorm normalized child must have L2 norm 1.0 or 0.0, but row {i} has \
+                "Normalized normalized child must have L2 norm 1.0 or 0.0, but row {i} has \
                  {row_norm:.6}",
             );
 
@@ -165,13 +165,13 @@ pub fn validate_l2_normalized_rows_against_norms(
                 let stored_norm_f64 = ToPrimitive::to_f64(&stored_norms[i]).unwrap_or(f64::NAN);
                 vortex_ensure!(
                     stored_norm_f64 >= 0.0,
-                    "L2Denorm norms must be non-negative, but row {i} has {stored_norm_f64:.6}",
+                    "Normalized norms must be non-negative, but row {i} has {stored_norm_f64:.6}",
                 );
 
                 if stored_norm_f64 == 0.0 {
                     vortex_ensure!(
                         is_zero_row,
-                        "L2Denorm normalized child must be all zeros when norms row {i} is 0.0",
+                        "Normalized normalized child must be all zeros when norms row {i} is 0.0",
                     );
                 }
             }

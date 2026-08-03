@@ -28,14 +28,14 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::encodings::l2_denorm::execute::denormalize;
-use crate::encodings::l2_denorm::rules::RULES;
-use crate::encodings::l2_denorm::validate::validate_l2_denorm_children;
-use crate::encodings::l2_denorm::validate::validate_l2_normalized_rows_against_norms;
+use crate::encodings::normalized::execute::denormalize;
+use crate::encodings::normalized::rules::RULES;
+use crate::encodings::normalized::validate::validate_l2_normalized_rows_against_norms;
+use crate::encodings::normalized::validate::validate_normalized_children;
 use crate::utils::validate_tensor_float_input;
 
-/// An [`L2Denorm`]-encoded Vortex array.
-pub type L2DenormArray = Array<L2Denorm>;
+/// An [`Normalized`]-encoded Vortex array.
+pub type NormalizedArray = Array<Normalized>;
 
 /// The norm-split encoding for tensor-like columns.
 ///
@@ -45,7 +45,7 @@ pub type L2DenormArray = Array<L2Denorm>;
 ///
 /// # Invariants
 ///
-/// Every [`L2DenormArray`] structurally guarantees, via [`VTable::validate`]:
+/// Every [`NormalizedArray`] structurally guarantees, via [`VTable::validate`]:
 ///
 /// - `normalized` is a tensor-like extension array with a float element type.
 /// - `norms` is a primitive column whose ptype equals the tensor element ptype.
@@ -75,11 +75,11 @@ pub type L2DenormArray = Array<L2Denorm>;
 /// [`InnerProduct`]: crate::scalar_fns::inner_product::InnerProduct
 /// [`CosineSimilarity`]: crate::scalar_fns::cosine_similarity::CosineSimilarity
 #[derive(Clone, Debug)]
-pub struct L2Denorm;
+pub struct Normalized;
 
-/// The two child arrays of an [`L2DenormArray`].
-#[array_slots(L2Denorm)]
-pub struct L2DenormSlots {
+/// The two child arrays of an [`NormalizedArray`].
+#[array_slots(Normalized)]
+pub struct NormalizedSlots {
     /// The unit-norm (or zero) direction of each row, as a tensor-like extension array.
     #[slot(0)]
     pub normalized: ArrayRef,
@@ -89,8 +89,8 @@ pub struct L2DenormSlots {
     pub norms: ArrayRef,
 }
 
-impl L2Denorm {
-    /// Builds an [`L2DenormArray`], validating that `normalized` really is row-wise L2-normalized
+impl Normalized {
+    /// Builds an [`NormalizedArray`], validating that `normalized` really is row-wise L2-normalized
     /// against `norms`.
     ///
     /// This is the constructor for exact norm splits. It scans both children, so it costs
@@ -99,59 +99,63 @@ impl L2Denorm {
     /// # Errors
     ///
     /// Returns an error if the children are structurally incompatible, or if they violate any of
-    /// the semantic invariants listed on [`L2Denorm`].
+    /// the semantic invariants listed on [`Normalized`].
     pub fn try_new(
         normalized: ArrayRef,
         norms: ArrayRef,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<L2DenormArray> {
+    ) -> VortexResult<NormalizedArray> {
         let len = normalized.len();
         let dtype = normalized
             .dtype()
             .union_nullability(norms.dtype().nullability());
-        let slots = L2DenormSlots { normalized, norms }.into_slots();
+        let slots = NormalizedSlots { normalized, norms }.into_slots();
 
         // Structural validation has to come first: the row scan walks both children in lockstep
         // and assumes they are a matching-length tensor/float pair.
-        let denorm = Array::try_from_parts(
-            ArrayParts::new(L2Denorm, dtype, len, EmptyArrayData).with_slots(slots),
+        let normalized_array = Array::try_from_parts(
+            ArrayParts::new(Normalized, dtype, len, EmptyArrayData).with_slots(slots),
         )?;
-        validate_l2_normalized_rows_against_norms(denorm.normalized(), Some(denorm.norms()), ctx)?;
+        validate_l2_normalized_rows_against_norms(
+            normalized_array.normalized(),
+            Some(normalized_array.norms()),
+            ctx,
+        )?;
 
-        Ok(denorm)
+        Ok(normalized_array)
     }
 
-    /// Builds an [`L2DenormArray`] without validation.
+    /// Builds an [`NormalizedArray`] without validation.
     ///
     /// # Safety
     ///
-    /// The caller must uphold the structural invariants listed on [`L2Denorm`]. In particular,
+    /// The caller must uphold the structural invariants listed on [`Normalized`]. In particular,
     /// both children must have the same length, `normalized` must be a float tensor, and `norms`
     /// must be a primitive column with the same element ptype.
     ///
     /// This does not check the unit-norm relationship. Violating it can produce wrong answers but
     /// not memory unsafety.
-    pub unsafe fn new_unchecked(normalized: ArrayRef, norms: ArrayRef) -> L2DenormArray {
+    pub unsafe fn new_unchecked(normalized: ArrayRef, norms: ArrayRef) -> NormalizedArray {
         let len = normalized.len();
         let dtype = normalized
             .dtype()
             .union_nullability(norms.dtype().nullability());
-        let slots = L2DenormSlots { normalized, norms }.into_slots();
+        let slots = NormalizedSlots { normalized, norms }.into_slots();
 
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(L2Denorm, dtype, len, EmptyArrayData).with_slots(slots),
+                ArrayParts::new(Normalized, dtype, len, EmptyArrayData).with_slots(slots),
             )
         }
     }
 }
 
-/// Metadata for a serialized [`L2DenormArray`]: its children's nullabilities.
+/// Metadata for a serialized [`NormalizedArray`]: its children's nullabilities.
 ///
 /// The parent dtype supplies the tensor shape and element ptype. Its nullability is the union of
 /// the children, so it cannot identify which child is nullable.
 #[derive(Clone, prost::Message)]
-pub struct L2DenormMetadata {
+pub struct NormalizedMetadata {
     /// Whether the `normalized` child is nullable.
     #[prost(bool, tag = "1")]
     pub normalized_is_nullable: bool,
@@ -161,14 +165,14 @@ pub struct L2DenormMetadata {
     pub norms_is_nullable: bool,
 }
 
-impl VTable for L2Denorm {
+impl VTable for Normalized {
     type TypedArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        static ID: CachedId = CachedId::new("vortex.tensor.l2_denorm");
+        static ID: CachedId = CachedId::new("vortex.tensor.normalized");
         *ID
     }
 
@@ -179,9 +183,9 @@ impl VTable for L2Denorm {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let slots = L2DenormSlotsView::from_slots(slots);
+        let slots = NormalizedSlotsView::from_slots(slots);
 
-        validate_l2_denorm_children(slots.normalized, slots.norms, dtype, len)
+        validate_normalized_children(slots.normalized, slots.norms, dtype, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -189,11 +193,11 @@ impl VTable for L2Denorm {
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("L2DenormArray buffer index {idx} out of bounds")
+        vortex_panic!("NormalizedArray buffer index {idx} out of bounds")
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
-        vortex_panic!("L2DenormArray buffer_name index {idx} out of bounds")
+        vortex_panic!("NormalizedArray buffer_name index {idx} out of bounds")
     }
 
     fn with_buffers(
@@ -209,7 +213,7 @@ impl VTable for L2Denorm {
         _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
-            L2DenormMetadata {
+            NormalizedMetadata {
                 normalized_is_nullable: array.normalized().dtype().is_nullable(),
                 norms_is_nullable: array.norms().dtype().is_nullable(),
             }
@@ -226,8 +230,8 @@ impl VTable for L2Denorm {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        let metadata = L2DenormMetadata::decode(metadata)
-            .map_err(|e| vortex_err!("Failed to decode L2DenormMetadata: {e}"))?;
+        let metadata = NormalizedMetadata::decode(metadata)
+            .map_err(|e| vortex_err!("Failed to decode NormalizedMetadata: {e}"))?;
 
         let element_ptype = validate_tensor_float_input(dtype)?.element_ptype();
         let normalized_dtype = dtype.with_nullability(metadata.normalized_is_nullable.into());
@@ -235,13 +239,13 @@ impl VTable for L2Denorm {
 
         let normalized = children.get(0, &normalized_dtype, len)?;
         let norms = children.get(1, &norms_dtype, len)?;
-        let slots = L2DenormSlots { normalized, norms }.into_slots();
+        let slots = NormalizedSlots { normalized, norms }.into_slots();
 
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        L2DenormSlots::NAMES[idx].to_string()
+        NormalizedSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -261,8 +265,8 @@ impl VTable for L2Denorm {
     }
 }
 
-impl ValidityVTable<L2Denorm> for L2Denorm {
-    fn validity(array: ArrayView<'_, L2Denorm>) -> VortexResult<Validity> {
+impl ValidityVTable<Normalized> for Normalized {
+    fn validity(array: ArrayView<'_, Normalized>) -> VortexResult<Validity> {
         array
             .normalized()
             .validity()?
@@ -270,9 +274,9 @@ impl ValidityVTable<L2Denorm> for L2Denorm {
     }
 }
 
-impl OperationsVTable<L2Denorm> for L2Denorm {
+impl OperationsVTable<Normalized> for Normalized {
     fn scalar_at(
-        array: ArrayView<'_, L2Denorm>,
+        array: ArrayView<'_, Normalized>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

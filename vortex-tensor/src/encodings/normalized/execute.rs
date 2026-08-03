@@ -29,10 +29,10 @@ use crate::utils::unit_norm_tolerance;
 
 /// Reconstructs the original tensor column by scaling each normalized row by its stored norm.
 ///
-/// `dtype` is the parent [`L2DenormArray`]'s dtype, so the reconstructed column carries the
+/// `dtype` is the parent [`NormalizedArray`]'s dtype, so the reconstructed column carries the
 /// unioned nullability of both children.
 ///
-/// [`L2DenormArray`]: crate::encodings::l2_denorm::L2DenormArray
+/// [`NormalizedArray`]: crate::encodings::normalized::NormalizedArray
 pub(super) fn denormalize(
     normalized: &ArrayRef,
     norms: &ArrayRef,

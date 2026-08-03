@@ -36,23 +36,23 @@ use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::encodings::l2_denorm::L2Denorm;
-use crate::encodings::l2_denorm::L2DenormArray;
-use crate::encodings::l2_denorm::L2DenormArraySlotsExt;
-use crate::encodings::l2_denorm::L2DenormSlots;
+use crate::encodings::normalized::Normalized;
+use crate::encodings::normalized::NormalizedArray;
+use crate::encodings::normalized::NormalizedArraySlotsExt;
+use crate::encodings::normalized::NormalizedSlots;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
 use crate::utils::validate_tensor_float_input;
 
-/// The compression scheme that rewrites a tensor-like column into the [`L2Denorm`] encoding.
+/// The compression scheme that rewrites a tensor-like column into the [`Normalized`] encoding.
 #[derive(Debug)]
-pub struct L2DenormScheme;
+pub struct NormalizedScheme;
 
-impl Scheme for L2DenormScheme {
+impl Scheme for NormalizedScheme {
     fn scheme_name(&self) -> &'static str {
-        "vortex.tensor.l2_denorm"
+        "vortex.tensor.normalized"
     }
 
     fn matches(&self, canonical: &Canonical) -> bool {
@@ -63,12 +63,12 @@ impl Scheme for L2DenormScheme {
     }
 
     fn produced_encodings(&self) -> Vec<ArrayId> {
-        vec![L2Denorm.id()]
+        vec![Normalized.id()]
     }
 
     /// Children: normalized=0, norms=1.
     fn num_children(&self) -> usize {
-        L2DenormSlots::COUNT
+        NormalizedSlots::COUNT
     }
 
     fn expected_compression_ratio(
@@ -87,31 +87,31 @@ impl Scheme for L2DenormScheme {
         compress_ctx: CompressorContext,
         exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let denorm = normalize_as_l2_denorm(data.array().clone(), exec_ctx)?;
+        let normalized_array = normalize(data.array().clone(), exec_ctx)?;
 
         // Splitting magnitude out is only worth anything if the children then compress: the
         // unit-norm coordinates have a bounded range and the norms are an ordinary float column.
         let normalized = compressor.compress_child(
-            denorm.normalized(),
+            normalized_array.normalized(),
             &compress_ctx,
             self.id(),
-            L2DenormSlots::NORMALIZED,
+            NormalizedSlots::NORMALIZED,
             exec_ctx,
         )?;
         let norms = compressor.compress_child(
-            denorm.norms(),
+            normalized_array.norms(),
             &compress_ctx,
             self.id(),
-            L2DenormSlots::NORMS,
+            NormalizedSlots::NORMS,
             exec_ctx,
         )?;
 
         // SAFETY: Cascading preserves the split's child lengths and dtypes.
-        Ok(unsafe { L2Denorm::new_unchecked(normalized, norms) }.into_array())
+        Ok(unsafe { Normalized::new_unchecked(normalized, norms) }.into_array())
     }
 }
 
-/// Splits a tensor-like column into its exact [`L2Denorm`] representation.
+/// Splits a tensor-like column into its exact [`Normalized`] representation.
 ///
 /// # Normalized child
 ///
@@ -125,23 +125,20 @@ impl Scheme for L2DenormScheme {
 /// # Nullability
 ///
 /// Nullability is tracked entirely by the norms child, which inherits the input's nulls through
-/// [`L2Norm`]'s validity propagation. The [`L2Denorm`] array's validity is the `and` of both
+/// [`L2Norm`]'s validity propagation. The [`Normalized`] array's validity is the `and` of both
 /// children, so an all-valid normalized child plus a nullable norms child reproduces the input's
 /// validity exactly.
 ///
 /// Because this computes exact norms first and then divides by them, the returned `normalized`
 /// child satisfies the strict unit-norm invariant.
-pub fn normalize_as_l2_denorm(
-    input: ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<L2DenormArray> {
+pub fn normalize(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<NormalizedArray> {
     let row_count = input.len();
     let tensor_match = validate_tensor_float_input(input.dtype())?;
     let tensor_flat_size = tensor_match.list_size() as usize;
 
     // Constant fast path: if the input is a constant-backed extension, normalize the single stored
-    // row once and return an `L2Denorm` whose children are both `ConstantArray`s.
-    if let Some(wrapped) = try_build_constant_l2_denorm(&input, row_count, ctx)? {
+    // row once and return an `Normalized` whose children are both `ConstantArray`s.
+    if let Some(wrapped) = try_build_constant_normalized(&input, row_count, ctx)? {
         return Ok(wrapped);
     }
 
@@ -181,7 +178,7 @@ pub fn normalize_as_l2_denorm(
             }
         }
 
-        // Since L2Denorm's validity is the `and` of its child validities, the normalized child can
+        // Since Normalized's validity is the `and` of its child validities, the normalized child can
         // be non-nullable.
         build_normalized(
             normalized_dtype,
@@ -192,23 +189,23 @@ pub fn normalize_as_l2_denorm(
     })?;
 
     // SAFETY: The normalized rows, norms ptype, and child lengths come directly from this split.
-    Ok(unsafe { L2Denorm::new_unchecked(normalized, norms_array) })
+    Ok(unsafe { Normalized::new_unchecked(normalized, norms_array) })
 }
 
-/// Attempts to build an [`L2DenormArray`] whose two children are both [`ConstantArray`]s by
+/// Attempts to build an [`NormalizedArray`] whose two children are both [`ConstantArray`]s by
 /// eagerly normalizing `input`'s single stored row.
 ///
 /// Returns `Ok(None)` when `input` is not a tensor-like extension array whose storage is a
 /// [`ConstantArray`] with a non-null fixed-size-list scalar.
 ///
-/// When `input` matches, the result is equivalent to [`normalize_as_l2_denorm`] but runs in
+/// When `input` matches, the result is equivalent to [`normalize`] but runs in
 /// `O(list_size)` instead of `O(row_count * list_size)`. Keeping both children constant is what
 /// lets cosine similarity and inner product short-circuit against a literal query vector.
-pub(crate) fn try_build_constant_l2_denorm(
+pub(crate) fn try_build_constant_normalized(
     input: &ArrayRef,
     len: usize,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<L2DenormArray>> {
+) -> VortexResult<Option<NormalizedArray>> {
     let Some(ext) = input.as_opt::<Extension>() else {
         return Ok(None);
     };
@@ -246,7 +243,7 @@ pub(crate) fn try_build_constant_l2_denorm(
         let norm_t: T = sum_sq.sqrt();
 
         // Zero-norm rows must be stored as all-zeros so the unit-norm-or-zero invariant holds.
-        // This mirrors the per-row logic in `normalize_as_l2_denorm`.
+        // This mirrors the per-row logic in `normalize`.
         let element_dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
         let children: Vec<Scalar> = if norm_t == T::zero() {
             (0..list_size)
@@ -270,7 +267,9 @@ pub(crate) fn try_build_constant_l2_denorm(
     let norms = ConstantArray::new(norms_scalar, len).into_array();
 
     // SAFETY: The constant children have matching lengths and element ptypes.
-    Ok(Some(unsafe { L2Denorm::new_unchecked(normalized, norms) }))
+    Ok(Some(unsafe {
+        Normalized::new_unchecked(normalized, norms)
+    }))
 }
 
 /// Builds the non-nullable tensor-like extension array that becomes the `normalized` child.

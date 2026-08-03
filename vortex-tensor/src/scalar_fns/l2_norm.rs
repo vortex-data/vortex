@@ -43,10 +43,10 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
-use crate::encodings::l2_denorm::L2Denorm;
+use crate::encodings::normalized::Normalized;
 use crate::matcher::AnyTensor;
 use crate::utils::extract_flat_elements;
-use crate::utils::extract_l2_denorm_children;
+use crate::utils::extract_normalized_children;
 use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
@@ -56,12 +56,12 @@ use crate::utils::validate_tensor_float_input;
 /// The input must be a tensor-like extension array with a float element type. The output is a float
 /// column of the same float type.
 ///
-/// When the input is [`L2Denorm`]-encoded, this operator treats the stored norms as
+/// When the input is [`Normalized`]-encoded, this operator treats the stored norms as
 /// authoritative. For lossy normalized children, that means `L2Norm` intentionally reads the
 /// stored norms instead of re-deriving them from fully decoded coordinates. That behavior is part
 /// of the storage contract, not a separate lossy-compute mode.
 ///
-/// [`L2Denorm`]: crate::encodings::l2_denorm::L2Denorm
+/// [`Normalized`]: crate::encodings::normalized::Normalized
 #[derive(Clone)]
 pub struct L2Norm;
 
@@ -128,11 +128,11 @@ impl ScalarFnVTable for L2Norm {
 
         let norm_dtype = DType::Primitive(element_ptype, ext.nullability());
 
-        // L2Norm over an L2Denorm-encoded column is defined to read back the authoritative stored
+        // L2Norm over a `Normalized`-encoded column is defined to read back the authoritative stored
         // norms. Callers of lossy encodings opt into that storage semantics instead of forcing a
         // decode-and-recompute path here.
-        if input_ref.is::<L2Denorm>() {
-            let (_, norms) = extract_l2_denorm_children(&input_ref);
+        if input_ref.is::<Normalized>() {
+            let (_, norms) = extract_normalized_children(&input_ref);
             vortex_ensure_eq!(norms.dtype(), &norm_dtype);
             return Ok(norms);
         }

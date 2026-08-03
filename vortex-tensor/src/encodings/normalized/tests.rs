@@ -31,12 +31,12 @@ use vortex_compressor::scheme::Scheme;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::encodings::l2_denorm::L2Denorm;
-use crate::encodings::l2_denorm::L2DenormArraySlotsExt;
-use crate::encodings::l2_denorm::L2DenormMetadata;
-use crate::encodings::l2_denorm::L2DenormScheme;
-use crate::encodings::l2_denorm::normalize_as_l2_denorm;
-use crate::encodings::l2_denorm::validate_l2_normalized_rows_against_norms;
+use crate::encodings::normalized::Normalized;
+use crate::encodings::normalized::NormalizedArraySlotsExt;
+use crate::encodings::normalized::NormalizedMetadata;
+use crate::encodings::normalized::NormalizedScheme;
+use crate::encodings::normalized::normalize;
+use crate::encodings::normalized::validate_l2_normalized_rows_against_norms;
 use crate::tests::SESSION;
 use crate::types::vector::Vector;
 use crate::utils::test_helpers::assert_close;
@@ -44,13 +44,13 @@ use crate::utils::test_helpers::constant_tensor_array;
 use crate::utils::test_helpers::tensor_array;
 use crate::utils::test_helpers::vector_array;
 
-/// Builds an [`L2Denorm`] array through the checked constructor and executes it, which is the
+/// Builds a [`Normalized`] array through the checked constructor and executes it, which is the
 /// end-to-end path every decode test cares about.
-fn eval_l2_denorm(normalized: ArrayRef, norms: ArrayRef) -> VortexResult<ArrayRef> {
+fn eval_normalized(normalized: ArrayRef, norms: ArrayRef) -> VortexResult<ArrayRef> {
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = L2Denorm::try_new(normalized, norms, &mut ctx)?;
+    let normalized_array = Normalized::try_new(normalized, norms, &mut ctx)?;
 
-    denorm.into_array().execute(&mut ctx)
+    normalized_array.into_array().execute(&mut ctx)
 }
 
 /// Snapshots a tensor-like array as `(dtype, per-row validity, flat elements)` so two columns can
@@ -104,7 +104,7 @@ fn decodes_vectors() -> VortexResult<()> {
     let normalized = vector_array(3, &[0.6, 0.8, 0.0, 0.0, 0.0, 0.0])?;
     let norms = PrimitiveArray::from_iter([5.0f64, 0.0]).into_array();
 
-    let actual = eval_l2_denorm(normalized, norms)?;
+    let actual = eval_normalized(normalized, norms)?;
     let expected = vector_array(3, &[3.0, 4.0, 0.0, 0.0, 0.0, 0.0])?;
 
     assert_tensor_arrays_eq(actual, expected)
@@ -115,7 +115,7 @@ fn decodes_fixed_shape_tensors() -> VortexResult<()> {
     let normalized = tensor_array(&[2, 2], &[0.5, 0.5, 0.5, 0.5, 1.0, 0.0, 0.0, 0.0])?;
     let norms = PrimitiveArray::from_iter([4.0f64, 2.0]).into_array();
 
-    let actual = eval_l2_denorm(normalized, norms)?;
+    let actual = eval_normalized(normalized, norms)?;
     let expected = tensor_array(&[2, 2], &[2.0, 2.0, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0])?;
 
     assert_tensor_arrays_eq(actual, expected)
@@ -129,7 +129,7 @@ fn decodes_null_rows_from_either_child() -> VortexResult<()> {
     let norms = PrimitiveArray::from_option_iter([Some(5.0f64), Some(2.0), None]).into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
-    let actual: ExtensionArray = eval_l2_denorm(normalized, norms)?.execute(&mut ctx)?;
+    let actual: ExtensionArray = eval_normalized(normalized, norms)?.execute(&mut ctx)?;
     let storage: FixedSizeListArray = actual.storage_array().clone().execute(&mut ctx)?;
     let elements: PrimitiveArray = storage.elements().clone().execute(&mut ctx)?;
 
@@ -149,10 +149,13 @@ fn validity_is_the_intersection_of_both_children() -> VortexResult<()> {
     let norms = PrimitiveArray::from_option_iter([Some(1.0f64), Some(1.0), None]).into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = L2Denorm::try_new(normalized, norms, &mut ctx)?;
+    let normalized_array = Normalized::try_new(normalized, norms, &mut ctx)?;
 
-    assert!(denorm.dtype().is_nullable());
-    let mask = denorm.as_ref().validity()?.execute_mask(3, &mut ctx)?;
+    assert!(normalized_array.dtype().is_nullable());
+    let mask = normalized_array
+        .as_ref()
+        .validity()?
+        .execute_mask(3, &mut ctx)?;
     assert!(mask.value(0));
     assert!(!mask.value(1));
     assert!(!mask.value(2));
@@ -171,7 +174,7 @@ fn constant_unit_norms_decode_to_the_normalized_child() -> VortexResult<()> {
     let normalized = vector_array(3, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0])?;
     let norms = constant_f64_norms(1.0, 2);
 
-    let actual = eval_l2_denorm(normalized.clone(), norms)?;
+    let actual = eval_normalized(normalized.clone(), norms)?;
 
     assert_tensor_arrays_eq(actual, normalized)
 }
@@ -183,7 +186,7 @@ fn constant_near_unit_norms_decode_to_the_normalized_child() -> VortexResult<()>
     let normalized = vector_array(3, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0])?;
     let norms = constant_f64_norms(1.0 + 1e-12, 2);
 
-    let actual = eval_l2_denorm(normalized.clone(), norms)?;
+    let actual = eval_normalized(normalized.clone(), norms)?;
 
     assert_tensor_arrays_eq(actual, normalized)
 }
@@ -193,7 +196,7 @@ fn constant_nonunit_norms_scale_vectors() -> VortexResult<()> {
     let normalized = vector_array(3, &[0.6, 0.8, 0.0, 1.0, 0.0, 0.0])?;
     let norms = constant_f64_norms(5.0, 2);
 
-    let actual = eval_l2_denorm(normalized, norms)?;
+    let actual = eval_normalized(normalized, norms)?;
     let expected = vector_array(3, &[3.0, 4.0, 0.0, 5.0, 0.0, 0.0])?;
 
     assert_tensor_arrays_eq(actual, expected)
@@ -206,7 +209,7 @@ fn constant_nonunit_norms_scale_fixed_shape_tensors() -> VortexResult<()> {
     let normalized = tensor_array(&[2, 2], &[0.5, 0.5, 0.5, 0.5, 1.0, 0.0, 0.0, 0.0])?;
     let norms = constant_f64_norms(4.0, 2);
 
-    let actual = eval_l2_denorm(normalized, norms)?;
+    let actual = eval_normalized(normalized, norms)?;
     let expected = tensor_array(&[2, 2], &[2.0, 2.0, 2.0, 2.0, 4.0, 0.0, 0.0, 0.0])?;
 
     assert_tensor_arrays_eq(actual, expected)
@@ -221,9 +224,9 @@ fn nullable_constant_norms_widen_the_decoded_dtype() -> VortexResult<()> {
         ConstantArray::new(Scalar::primitive(1.0f64, Nullability::Nullable), 2).into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = L2Denorm::try_new(normalized, norms, &mut ctx)?;
-    let dtype = denorm.dtype().clone();
-    let decoded: ArrayRef = denorm.into_array().execute(&mut ctx)?;
+    let normalized_array = Normalized::try_new(normalized, norms, &mut ctx)?;
+    let dtype = normalized_array.dtype().clone();
+    let decoded: ArrayRef = normalized_array.into_array().execute(&mut ctx)?;
 
     assert!(dtype.is_nullable());
     assert_eq!(decoded.dtype(), &dtype);
@@ -266,7 +269,7 @@ fn rejects_structurally_invalid_children(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
 
-    assert!(L2Denorm::try_new(normalized, norms, &mut ctx).is_err());
+    assert!(Normalized::try_new(normalized, norms, &mut ctx).is_err());
 
     Ok(())
 }
@@ -290,7 +293,7 @@ fn checked_construction_rejects_semantic_violations(
 ) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
 
-    assert!(L2Denorm::try_new(normalized, norms, &mut ctx).is_err());
+    assert!(Normalized::try_new(normalized, norms, &mut ctx).is_err());
 
     Ok(())
 }
@@ -300,7 +303,7 @@ fn accepts_zero_vectors_paired_with_zero_norms() -> VortexResult<()> {
     let normalized = vector_array(2, &[0.0, 0.0, 1.0, 0.0])?;
     let norms = PrimitiveArray::from_iter([0.0f64, 3.0]).into_array();
 
-    let actual = eval_l2_denorm(normalized, norms)?;
+    let actual = eval_normalized(normalized, norms)?;
     let expected = vector_array(2, &[0.0, 0.0, 3.0, 0.0])?;
 
     assert_tensor_arrays_eq(actual, expected)
@@ -311,8 +314,12 @@ fn validate_accepts_normalized_f16_rows() -> VortexResult<()> {
     let input = vector_array(2, &[3.0f32, 4.0, 0.0, 0.0].map(half::f16::from_f32))?;
     let mut ctx = SESSION.create_execution_ctx();
 
-    let denorm = normalize_as_l2_denorm(input, &mut ctx)?;
-    validate_l2_normalized_rows_against_norms(&denorm.normalized().clone(), None, &mut ctx)
+    let normalized_array = normalize(input, &mut ctx)?;
+    validate_l2_normalized_rows_against_norms(
+        &normalized_array.normalized().clone(),
+        None,
+        &mut ctx,
+    )
 }
 
 #[test]
@@ -338,8 +345,8 @@ fn validate_rejects_unnormalized_rows() -> VortexResult<()> {
 #[case::constant_vector(Vector::constant_array(&[3.0, 4.0], 2).expect("valid vector array"))]
 fn normalize_round_trips(#[case] input: ArrayRef) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = normalize_as_l2_denorm(input.clone(), &mut ctx)?;
-    let actual = denorm.into_array().execute(&mut ctx)?;
+    let normalized_array = normalize(input.clone(), &mut ctx)?;
+    let actual = normalized_array.into_array().execute(&mut ctx)?;
 
     assert_tensor_arrays_eq(actual, input)
 }
@@ -350,9 +357,9 @@ fn normalize_keeps_constant_input_children_constant() -> VortexResult<()> {
     // similarity and inner product short-circuit against a literal query vector.
     let input = Vector::constant_array(&[3.0, 4.0], 16)?;
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = normalize_as_l2_denorm(input, &mut ctx)?;
+    let normalized_array = normalize(input, &mut ctx)?;
 
-    let normalized = denorm
+    let normalized = normalized_array
         .normalized()
         .as_opt::<Extension>()
         .expect("normalized child should be an Extension array");
@@ -361,7 +368,7 @@ fn normalize_keeps_constant_input_children_constant() -> VortexResult<()> {
         "normalized storage should stay constant after the fast path"
     );
 
-    let norms = denorm
+    let norms = normalized_array
         .norms()
         .as_opt::<Constant>()
         .expect("norms child should be a ConstantArray");
@@ -381,14 +388,14 @@ fn normalize_keeps_constant_input_children_constant() -> VortexResult<()> {
 fn normalize_zeroes_rows_with_zero_norms() -> VortexResult<()> {
     let input = vector_array(2, &[0.0, 0.0, 3.0, 4.0])?;
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = normalize_as_l2_denorm(input.clone(), &mut ctx)?;
+    let normalized_array = normalize(input.clone(), &mut ctx)?;
 
-    let normalized: ExtensionArray = denorm.normalized().clone().execute(&mut ctx)?;
+    let normalized: ExtensionArray = normalized_array.normalized().clone().execute(&mut ctx)?;
     let storage: FixedSizeListArray = normalized.storage_array().clone().execute(&mut ctx)?;
     let elements: PrimitiveArray = storage.elements().clone().execute(&mut ctx)?;
     assert_close(&elements.as_slice::<f64>()[..2], &[0.0, 0.0]);
 
-    let actual = denorm.into_array().execute(&mut ctx)?;
+    let actual = normalized_array.into_array().execute(&mut ctx)?;
 
     assert_tensor_arrays_eq(actual, input)
 }
@@ -399,12 +406,15 @@ fn normalize_preserves_nulls_through_the_norms_child() -> VortexResult<()> {
     let input = MaskedArray::try_new(input, Validity::from_iter([true, false, true]))?.into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = normalize_as_l2_denorm(input, &mut ctx)?;
+    let normalized_array = normalize(input, &mut ctx)?;
 
-    assert!(!denorm.normalized().dtype().is_nullable());
-    assert!(denorm.norms().dtype().is_nullable());
+    assert!(!normalized_array.normalized().dtype().is_nullable());
+    assert!(normalized_array.norms().dtype().is_nullable());
 
-    let mask = denorm.as_ref().validity()?.execute_mask(3, &mut ctx)?;
+    let mask = normalized_array
+        .as_ref()
+        .validity()?
+        .execute_mask(3, &mut ctx)?;
     assert!(mask.value(0));
     assert!(!mask.value(1));
     assert!(mask.value(2));
@@ -420,11 +430,13 @@ fn normalize_preserves_nulls_through_the_norms_child() -> VortexResult<()> {
 fn slice_stays_encoded_and_decodes_correctly() -> VortexResult<()> {
     let input = vector_array(2, &[3.0, 4.0, 1.0, 0.0, 0.0, 2.0, 5.0, 12.0])?;
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = normalize_as_l2_denorm(input, &mut ctx)?.into_array();
+    let normalized_array = normalize(input, &mut ctx)?.into_array();
 
-    let sliced = denorm.slice(1..3)?.execute_until::<L2Denorm>(&mut ctx)?;
+    let sliced = normalized_array
+        .slice(1..3)?
+        .execute_until::<Normalized>(&mut ctx)?;
     assert!(
-        sliced.is::<L2Denorm>(),
+        sliced.is::<Normalized>(),
         "slicing must push down into both children instead of decoding the column"
     );
 
@@ -437,12 +449,14 @@ fn slice_stays_encoded_and_decodes_correctly() -> VortexResult<()> {
 fn filter_stays_encoded_and_decodes_correctly() -> VortexResult<()> {
     let input = vector_array(2, &[3.0, 4.0, 1.0, 0.0, 0.0, 2.0, 5.0, 12.0])?;
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = normalize_as_l2_denorm(input, &mut ctx)?.into_array();
+    let normalized_array = normalize(input, &mut ctx)?.into_array();
 
     let mask = Mask::from_iter([true, false, true, false]);
-    let filtered = denorm.filter(mask)?.execute_until::<L2Denorm>(&mut ctx)?;
+    let filtered = normalized_array
+        .filter(mask)?
+        .execute_until::<Normalized>(&mut ctx)?;
     assert!(
-        filtered.is::<L2Denorm>(),
+        filtered.is::<Normalized>(),
         "filtering must push down into both children instead of decoding the column"
     );
 
@@ -455,10 +469,12 @@ fn filter_stays_encoded_and_decodes_correctly() -> VortexResult<()> {
 fn take_decodes_correctly() -> VortexResult<()> {
     let input = vector_array(2, &[3.0, 4.0, 1.0, 0.0, 0.0, 2.0, 5.0, 12.0])?;
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = normalize_as_l2_denorm(input, &mut ctx)?.into_array();
+    let normalized_array = normalize(input, &mut ctx)?.into_array();
 
     let indices = PrimitiveArray::from_iter([3u64, 0, 3]).into_array();
-    let taken = denorm.take(indices)?.execute::<Canonical>(&mut ctx)?;
+    let taken = normalized_array
+        .take(indices)?
+        .execute::<Canonical>(&mut ctx)?;
     let expected = vector_array(2, &[5.0, 12.0, 3.0, 4.0, 5.0, 12.0])?;
 
     assert_tensor_arrays_eq(taken.into_array(), expected)
@@ -468,11 +484,11 @@ fn take_decodes_correctly() -> VortexResult<()> {
 fn scalar_at_reads_a_single_denormalized_row() -> VortexResult<()> {
     let input = vector_array(2, &[3.0, 4.0, 5.0, 12.0])?;
     let mut ctx = SESSION.create_execution_ctx();
-    let denorm = normalize_as_l2_denorm(input.clone(), &mut ctx)?.into_array();
+    let normalized_array = normalize(input.clone(), &mut ctx)?.into_array();
 
     for i in 0..input.len() {
         assert_eq!(
-            denorm.execute_scalar(i, &mut ctx)?,
+            normalized_array.execute_scalar(i, &mut ctx)?,
             input.execute_scalar(i, &mut ctx)?,
         );
     }
@@ -485,7 +501,7 @@ fn scalar_at_reads_a_single_denormalized_row() -> VortexResult<()> {
 // =============================================================================
 
 /// Round-trips through the array plugin registry, which is the same path a Vortex file takes.
-/// `normalize_as_l2_denorm` leaves the normalized child non-nullable and the norms child nullable
+/// `normalize` leaves the normalized child non-nullable and the norms child nullable
 /// whenever the input is, so this exercises two different per-child nullabilities.
 #[rstest]
 #[case::vector(vector_array(3, &[3.0, 4.0, 0.0, 0.0, 0.0, 0.0]).expect("valid vector array"))]
@@ -495,14 +511,14 @@ fn scalar_at_reads_a_single_denormalized_row() -> VortexResult<()> {
 #[case::nullable_vector(nullable_vector_input().expect("valid vector array"))]
 fn serde_round_trip(#[case] input: ArrayRef) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
-    let original = normalize_as_l2_denorm(input, &mut ctx)?.into_array();
+    let original = normalize(input, &mut ctx)?.into_array();
     let children: Vec<ArrayRef> = original.children();
 
     let metadata = SESSION
         .array_serialize(&original)?
-        .expect("L2Denorm must serialize");
+        .expect("Normalized must serialize");
     let recovered = ArrayPlugin::deserialize(
-        &L2Denorm,
+        &Normalized,
         original.dtype(),
         original.len(),
         &metadata,
@@ -511,7 +527,7 @@ fn serde_round_trip(#[case] input: ArrayRef) -> VortexResult<()> {
         &SESSION,
     )?;
 
-    assert_eq!(recovered.encoding_id(), ArrayVTable::id(&L2Denorm));
+    assert_eq!(recovered.encoding_id(), ArrayVTable::id(&Normalized));
     assert_eq!(recovered.dtype(), original.dtype());
     assert_eq!(recovered.len(), original.len());
     assert_tensor_arrays_eq(recovered, original)
@@ -533,20 +549,20 @@ fn serialized_metadata_pins_child_nullabilities() -> VortexResult<()> {
         Validity::from_iter([true, false]),
     )?
     .into_array();
-    let denorm = normalize_as_l2_denorm(input, &mut ctx)?;
+    let normalized_array = normalize(input, &mut ctx)?;
 
     let bytes = SESSION
-        .array_serialize(&denorm.clone().into_array())?
-        .expect("L2Denorm must serialize");
-    let metadata = L2DenormMetadata::decode(bytes.as_slice())?;
+        .array_serialize(&normalized_array.clone().into_array())?
+        .expect("Normalized must serialize");
+    let metadata = NormalizedMetadata::decode(bytes.as_slice())?;
 
     assert_eq!(
         metadata.normalized_is_nullable,
-        denorm.normalized().dtype().is_nullable(),
+        normalized_array.normalized().dtype().is_nullable(),
     );
     assert_eq!(
         metadata.norms_is_nullable,
-        denorm.norms().dtype().is_nullable(),
+        normalized_array.norms().dtype().is_nullable(),
     );
 
     Ok(())
@@ -562,14 +578,14 @@ fn serde_round_trip_preserves_normalized_nullability() -> VortexResult<()> {
     let norms = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
 
     let mut ctx = SESSION.create_execution_ctx();
-    let original = L2Denorm::try_new(normalized, norms, &mut ctx)?.into_array();
+    let original = Normalized::try_new(normalized, norms, &mut ctx)?.into_array();
     let children: Vec<ArrayRef> = original.children();
     let metadata = SESSION
         .array_serialize(&original)?
-        .expect("L2Denorm must serialize");
+        .expect("Normalized must serialize");
 
     let recovered = ArrayPlugin::deserialize(
-        &L2Denorm,
+        &Normalized,
         original.dtype(),
         original.len(),
         &metadata,
@@ -578,7 +594,7 @@ fn serde_round_trip_preserves_normalized_nullability() -> VortexResult<()> {
         &SESSION,
     )?;
 
-    let recovered = recovered.as_::<L2Denorm>();
+    let recovered = recovered.as_::<Normalized>();
     assert!(recovered.normalized().dtype().is_nullable());
     assert!(!recovered.norms().dtype().is_nullable());
 
@@ -586,10 +602,10 @@ fn serde_round_trip_preserves_normalized_nullability() -> VortexResult<()> {
 }
 
 #[test]
-fn encoding_is_registered_under_the_original_id() {
-    let id = ArrayVTable::id(&L2Denorm);
+fn encoding_is_registered_under_the_normalized_id() {
+    let id = ArrayVTable::id(&Normalized);
 
-    assert_eq!(id.as_ref(), "vortex.tensor.l2_denorm");
+    assert_eq!(id.as_ref(), "vortex.tensor.normalized");
     assert!(SESSION.arrays().registry().contains_key(&id));
 }
 
@@ -620,10 +636,10 @@ fn scheme_matches_tensor_columns(#[case] input: ArrayRef) -> VortexResult<()> {
     let mut ctx = SESSION.create_execution_ctx();
     let canonical: Canonical = input.execute(&mut ctx)?;
 
-    assert!(L2DenormScheme.matches(&canonical));
+    assert!(NormalizedScheme.matches(&canonical));
     assert_eq!(
-        L2DenormScheme.produced_encodings(),
-        vec![ArrayVTable::id(&L2Denorm)]
+        NormalizedScheme.produced_encodings(),
+        vec![ArrayVTable::id(&Normalized)]
     );
 
     Ok(())
@@ -633,13 +649,13 @@ fn scheme_matches_tensor_columns(#[case] input: ArrayRef) -> VortexResult<()> {
 fn compressor_emits_the_dedicated_encoding() -> VortexResult<()> {
     let input = collinear_vectors(1024)?;
     let compressor = BtrBlocksCompressorBuilder::default()
-        .with_new_scheme(&L2DenormScheme)
+        .with_new_scheme(&NormalizedScheme)
         .build();
 
     let mut ctx = SESSION.create_execution_ctx();
     let compressed = compressor.compress(&input, &mut ctx)?;
 
-    assert_eq!(compressed.encoding_id(), ArrayVTable::id(&L2Denorm));
+    assert_eq!(compressed.encoding_id(), ArrayVTable::id(&Normalized));
     assert!(compressed.nbytes() < input.nbytes());
     assert_tensor_arrays_eq(compressed, input)
 }
