@@ -69,8 +69,3 @@ test = false
 name = "compress_listview"
 harness = false
 test = false
-
-[[bench]]
-name = "take_fsl"
-harness = false
-test = false

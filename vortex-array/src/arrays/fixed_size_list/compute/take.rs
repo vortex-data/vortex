@@ -178,7 +178,9 @@ fn take_piecewise_fsl(
         if end > array_len {
             vortex_bail!(OutOfBounds: end - 1, 0, array_len);
         }
-        total_len += length;
+        total_len = total_len
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("PiecewiseSequenceArray output length overflows usize"))?;
         element_starts.push(u64::try_from(start * list_size)?);
         element_lengths.push(u64::try_from(length * list_size)?);
     }

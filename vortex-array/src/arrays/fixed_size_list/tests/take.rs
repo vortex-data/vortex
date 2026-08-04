@@ -198,8 +198,6 @@ fn nullable_fsl_i32() -> FixedSizeListArray {
     )
 }
 
-// Piecewise indices with unit multipliers scale to element runs instead of expanding one run per
-// list; results must match the equivalent expanded primitive indices.
 #[rstest]
 #[case::multi_piece(&[2, 0], &[2, 1], &[2u64, 3, 0])]
 #[case::single_piece_slices(&[1], &[3], &[1u64, 2, 3])]
