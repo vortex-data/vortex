@@ -440,6 +440,38 @@ public final class VortexDataSourceWriteTest {
         assertFalse(findVortexFiles(outputPath).isEmpty(), "TimestampNTZ write should create Vortex files");
     }
 
+    @Test
+    @DisplayName("Null array elements round-trip as nulls, not as zeros")
+    public void testWriteArrayWithNullElements() {
+        // A fixed-width element is the interesting case: reading a null slot yields the zeroed
+        // slot, so a missing null check writes 0 with the validity bit set.
+        Dataset<Row> arraysDf = spark.range(0, 1)
+                .selectExpr(
+                        "cast(id as int) as id",
+                        "array(1, cast(null as int), 3) as ints",
+                        "array(cast(null as double), 2.5) as doubles",
+                        "array('a', cast(null as string), 'c') as strings");
+
+        Path outputPath = tempDir.resolve("array_nulls_output");
+        arraysDf.write()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        Row read = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load()
+                .selectExpr("ints", "doubles", "strings")
+                .collectAsList()
+                .get(0);
+
+        assertEquals(Arrays.asList(1, null, 3), read.getList(0));
+        assertEquals(Arrays.asList(null, 2.5d), read.getList(1));
+        assertEquals(Arrays.asList("a", null, "c"), read.getList(2));
+    }
+
     /** Creates a test DataFrame with monotonically increasing integers and their string representations. */
     private Dataset<Row> createTestDataFrame(int numRows) {
         // Create DataFrame with monotonically increasing integers
