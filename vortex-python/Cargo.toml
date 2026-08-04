@@ -55,6 +55,7 @@ pyo3-object_store = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 url = { workspace = true }
 vortex = { workspace = true, features = [
+    "hf",
     "object_store",
     "object_store_registry",
 ] }
