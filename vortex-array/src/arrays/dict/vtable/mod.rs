@@ -315,15 +315,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::any::Any;
-    use std::ops::Range;
-    use std::sync::Arc;
-
-    use futures::FutureExt;
-    use futures::future::BoxFuture;
-    use vortex_buffer::Alignment;
-    use vortex_buffer::ByteBuffer;
-
     use super::*;
     use crate::VortexSessionExecute;
     use crate::array_session;
@@ -335,49 +326,6 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
 
     const LONG: &str = "a string that is far too long to be inlined in a view";
-
-    /// A stand-in for a real device allocation so residency handling can be exercised without a
-    /// GPU. Only the host/device discriminant matters here; the payload is never read back.
-    #[derive(Debug, PartialEq, Eq, Hash)]
-    struct FakeDeviceBuffer(Vec<u8>);
-
-    impl DeviceBuffer for FakeDeviceBuffer {
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-
-        fn len(&self) -> usize {
-            self.0.len()
-        }
-
-        fn alignment(&self) -> Alignment {
-            Alignment::of::<u128>()
-        }
-
-        fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
-            Ok(ByteBuffer::copy_from_aligned(&self.0, alignment))
-        }
-
-        fn copy_to_host(
-            &self,
-            alignment: Alignment,
-        ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
-            let copied = self.copy_to_host_sync(alignment)?;
-            Ok(async move { Ok(copied) }.boxed())
-        }
-
-        fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
-            Arc::new(Self(self.0[range].to_vec()))
-        }
-
-        fn aligned(self: Arc<Self>, _alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
-            Ok(self)
-        }
-    }
-
-    fn to_device(handle: &BufferHandle) -> BufferHandle {
-        BufferHandle::new_device(Arc::new(FakeDeviceBuffer(handle.as_host().to_vec())))
-    }
 
     #[test]
     fn append_to_builder_gathers_through_the_dictionary() -> VortexResult<()> {
