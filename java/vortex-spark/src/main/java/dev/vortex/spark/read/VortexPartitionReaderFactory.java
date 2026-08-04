@@ -15,6 +15,7 @@ import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.connector.read.InputPartition;
 import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.connector.read.PartitionReaderFactory;
+import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 /**
@@ -46,7 +47,10 @@ public final class VortexPartitionReaderFactory implements PartitionReaderFactor
 
     @Override
     public PartitionReader<ColumnarBatch> createColumnarReader(InputPartition partition) {
-        NativeRuntime.setWorkerThreads(Integer.parseInt(formatOptions.getOrDefault("vortex.workerThreads", "4")));
+        // Spark lower-cases the keys of the options map it hands to Table#newScanBuilder, so the
+        // option arrives spelled vortex.workerthreads and a case-sensitive lookup never finds it.
+        CaseInsensitiveStringMap options = new CaseInsensitiveStringMap(formatOptions);
+        NativeRuntime.setWorkerThreads(options.getInt("vortex.workerThreads", 4));
         VortexFilePartition spark = (VortexFilePartition) partition;
         return new VortexPartitionReader(spark, dataColumnNames, formatOptions, pushedPredicates);
     }
